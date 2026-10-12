@@ -248,6 +248,9 @@ class TunnelStatusRead(BaseModel):
     tunnel_id: uuid.UUID
     managed: bool
     site_online: bool | None
+    gateway_ready: bool | None = None
+    """Whether the Tracecat-run gateway has a ready pod. ``None`` when gateways
+    are run outside Tracecat or the gateway has not been created yet."""
 
 
 def serialize_targets(targets: list[TunnelTarget]) -> list[dict[str, Any]]:

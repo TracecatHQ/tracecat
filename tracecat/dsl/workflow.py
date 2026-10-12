@@ -626,6 +626,7 @@ class DSLWorkflow:
             wf_run_id=uuid.UUID(wf_info.run_id, version=4),
             environment=self.runtime_config.environment,
             logical_time=self.time_anchor,
+            tunnel=self.runtime_config.tunnel,
         )
         ctx_run.set(self.run_context)
 

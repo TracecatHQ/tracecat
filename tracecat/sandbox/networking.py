@@ -284,13 +284,15 @@ def _filtered_rules(policy: SandboxNetworkPolicy) -> list[_NstunRule]:
             # NSTUN evaluates the first matching rule. Remaining IPv4 addresses
             # are public from this policy's perspective.
             _NstunRule(
-                action="ALLOW",
+                action="ALLOW" if policy.allow_public_egress else "REJECT",
                 destination=IPv4Network("0.0.0.0/0"),
             ),
             # Remaining IPv6 addresses are public only when the deployment has
             # opted in; otherwise all IPv6 egress stays blocked.
             _NstunRule(
-                action="ALLOW" if policy.allow_public_ipv6 else "REJECT",
+                action="ALLOW"
+                if policy.allow_public_egress and policy.allow_public_ipv6
+                else "REJECT",
                 destination=IPv6Network("::/0"),
             ),
         ]
@@ -321,7 +323,7 @@ def nstun_user_net_config_lines(
     if policy.mode is SandboxNetworkMode.DISABLED:
         return []
 
-    rules = _dns_rules(dns_routes)
+    rules = _dns_rules(dns_routes) if policy.allow_public_egress else []
     if policy.mode is SandboxNetworkMode.FILTERED:
         rules.extend(_filtered_rules(policy))
     else:
@@ -504,4 +506,24 @@ def resolve_sandbox_network_plan(
             nstun_user_net_config_lines(policy, dns_routes=files.dns_routes)
         ),
         dns_mount_lines=tuple(sandbox_dns_mount_config_lines(files)),
+    )
+
+
+def gateway_only_network_policy(gateway_ip: str, port: int) -> SandboxNetworkPolicy:
+    """Policy that lets a sandbox reach one TCP endpoint and nothing else.
+
+    Used for tunneled actions: all traffic goes to the tunnel gateway, which
+    decides which targets are allowed. There is no DNS and no fallback.
+    """
+    address = ip_address(gateway_ip)
+    return SandboxNetworkPolicy(
+        mode=SandboxNetworkMode.FILTERED,
+        allowed_rules=(
+            SandboxEgressRule(
+                destination=_network_for_address(address),
+                protocol=SandboxNetworkProtocol.TCP,
+                destination_port=port,
+            ),
+        ),
+        allow_public_egress=False,
     )

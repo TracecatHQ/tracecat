@@ -15,7 +15,7 @@ A tunnel lets actions in one workspace reach hosts on a private network without 
 
 Tunnels belong to one workspace. Every lookup, update, delete, and status check is scoped to the workspace in the request, so one workspace cannot read or use another workspace's tunnel.
 
-Workflow actions cannot select a tunnel yet. This page covers creating and connecting tunnels; action routing follows in a later release.
+Actions use a tunnel when you select it on the action or as the workflow's default tunnel. See [Route actions through a tunnel](#route-actions-through-a-tunnel).
 
 ## Requirements
 
@@ -23,9 +23,28 @@ Workflow actions cannot select a tunnel yet. This page covers creating and conne
 - `tunnel:read` to list tunnels and check status, and `tunnel:create`, `tunnel:update`, or `tunnel:delete` to manage them. Workspace admins and organization owners and admins hold all four; workspace viewers hold `tunnel:read`.
 - A Pangolin server: Pangolin Cloud for Tracecat Cloud, or your own Pangolin deployment for self-hosted Tracecat. See [Configure Pangolin for self-hosted Tracecat](#configure-pangolin-for-self-hosted-tracecat).
 
-Call the API with a [service account API key](/api-reference/authentication) and pass `workspace_id` as a query parameter on every request.
+## Create a tunnel in the UI
 
-## Create a managed tunnel
+<Steps>
+  <Step title="Open tunnels">
+    In the workspace sidebar, open **Tunnels** and select **Create tunnel**.
+  </Step>
+  <Step title="Add allowed targets">
+    Enter a name and list one target per line as `host:port`, or `host:port,port` for several ports, such as `splunk.internal:8089`. Select **Create tunnel**.
+  </Step>
+  <Step title="Install the site connector">
+    Copy the install command and run it on a host inside your network that can reach every target. Tracecat shows the command once.
+  </Step>
+  <Step title="Check the status">
+    The site shows **Online** once the connector connects, and the gateway shows **Ready** once Tracecat's gateway for the tunnel is running.
+  </Step>
+</Steps>
+
+From the same page you can turn a tunnel on or off, issue a new gateway key, or delete it. Without the `tunnels` entitlement, the page and the tunnel selectors show an upgrade prompt.
+
+## Create a managed tunnel with the API
+
+Call the API with a [service account API key](/api-reference/authentication) and pass `workspace_id` as a query parameter on every request.
 
 <Steps>
   <Step title="Create the tunnel">
@@ -106,9 +125,30 @@ curl -X POST "https://<tracecat-host>/api/tunnels?workspace_id=<workspace_id>" \
 
 `endpoint` must use `https`. Tracecat encrypts `client_secret` and never returns it. Keep `allowed_targets` in step with the Pangolin resources; Tracecat enforces both, so a port must appear in each.
 
+## Route actions through a tunnel
+
+Set the tunnel in the action's **Control flow** tab, or set **Default tunnel** in the workflow settings to route every action. An action's own tunnel overrides the workflow default. In a workflow definition, use `tunnel` on the action or `config.tunnel`:
+
+```yaml
+config:
+  tunnel: onprem-splunk
+actions:
+  - ref: search_splunk
+    action: core.http_request
+    args:
+      url: https://splunk.internal:8089/services/search/jobs
+      method: POST
+```
+
+Tracecat checks that the tunnel exists in the workspace and that your organization has the `tunnels` entitlement when you save, publish, and run the workflow. At runtime, the executor issues a short-lived token for the tunnel, sets `HTTP_PROXY` and `HTTPS_PROXY` to the tunnel's gateway, and limits the action's network to that gateway. The action fails if the tunnel is disabled or its gateway isn't available; it never falls back to direct egress. The gateway's allowed targets decide which hosts the action may reach, including private addresses.
+
+Subflows, scatter, gather, loops, AI agent actions, and `core.script.run_python` reject an explicit `tunnel` and ignore the workflow default.
+
 ## Run the tunnel gateway
 
-Each tunnel has one gateway. It needs the tunnel's gateway key, which signs the tokens actions present:
+Each tunnel has one gateway. On Kubernetes with `TRACECAT__TUNNEL_GATEWAY_BACKEND=kubernetes`, the `api` service runs gateways for you: it creates a `tunnel-<id>` Secret, Deployment, and Service per tunnel in `TRACECAT__TUNNEL_GATEWAY_NAMESPACE`, issues the gateway key for managed tunnels, scales disabled tunnels to zero, restarts the gateway after a key rotation, and deletes the objects when you delete the tunnel. A reconcile loop recreates missing objects and removes orphaned ones every minute. The [Tracecat Helm chart](https://github.com/TracecatHQ/k8s) sets this up with `tunnels.enabled`.
+
+With the default `TRACECAT__TUNNEL_GATEWAY_BACKEND=none`, such as on Docker Compose, you run each gateway yourself with the `ghcr.io/tracecathq/tracecat-tunnel-gateway` image. It needs the tunnel's gateway key, which signs the tokens actions present:
 
 ```bash
 curl -X POST "https://<tracecat-host>/api/tunnels/<tunnel_id>/gateway-key?workspace_id=<workspace_id>" \
@@ -121,11 +161,17 @@ Issuing a key revokes the previous one, and Tracecat returns each key once.
 The gateway runs the Pangolin machine client and the Tracecat proxy in the same network namespace. The machine client needs `NET_ADMIN` and `/dev/net/tun`, so run gateways apart from executors and allow only executors to reach them.
 
 ```bash
-pangolin up --id <machine_client_id> --secret <machine_client_secret> --endpoint <pangolin_endpoint> --attach
-python -m tracecat_ee.tunnels.gateway
+docker run -d --name tunnel-gateway --cap-add NET_ADMIN --device /dev/net/tun \
+  -e PANGOLIN_ENDPOINT=<pangolin_endpoint> \
+  -e PANGOLIN_CLIENT_ID=<machine_client_id> \
+  -e PANGOLIN_CLIENT_SECRET=<machine_client_secret> \
+  -e TRACECAT_TUNNEL_ID=<tunnel_id> \
+  -e TRACECAT_TUNNEL_GATEWAY_KEY=<gateway_key> \
+  -e TRACECAT_TUNNEL_API_URL=http://api:8000 \
+  ghcr.io/tracecathq/tracecat-tunnel-gateway
 ```
 
-The proxy reads:
+The image starts the Pangolin machine client with `--upstream-dns` set to the container's resolver, then the proxy. Set `PANGOLIN_UPSTREAM_DNS` to use a different resolver. The proxy reads:
 
 | Variable | Default | Description |
 | :------- | :------ | :---------- |
@@ -135,7 +181,7 @@ The proxy reads:
 | `TRACECAT_TUNNEL_GATEWAY_HOST` | `0.0.0.0` | Listen address. |
 | `TRACECAT_TUNNEL_GATEWAY_PORT` | `8080` | Listen port. |
 
-The gateway loads the tunnel's workspace and allowed targets from the Tracecat API with its gateway key, and refreshes them every 15 seconds. Within one refresh of you disabling or deleting the tunnel, issuing a new gateway key, or removing a target, the gateway rejects new requests and closes the affected open connections. After a key rotation, restart the gateway with the new key. If the gateway can't reach the API for 60 seconds, it stops accepting requests until the API is back.
+The gateway loads the tunnel's workspace and allowed targets from the Tracecat API with its gateway key, and refreshes them every 15 seconds. Within one refresh of you disabling or deleting the tunnel, issuing a new gateway key, or removing a target, the gateway rejects new requests and closes the affected open connections. After a key rotation, restart the gateway with the new key; Tracecat-run gateways restart automatically. If the gateway can't reach the API for 60 seconds, it stops accepting requests until the API is back.
 
 The gateway answers `407` for a missing, expired, or wrong-tunnel token, `403` for a host or port outside the allowed targets or a revoked tunnel, `503` while it can't load the tunnel's policy, and `504` when Pangolin does not reach the target. It never falls back to direct egress.
 

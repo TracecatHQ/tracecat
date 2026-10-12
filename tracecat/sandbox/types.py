@@ -86,6 +86,8 @@ class SandboxNetworkPolicy:
     allowed_rules: tuple[SandboxEgressRule, ...] = ()
     blocked_cidrs: tuple[IPNetwork, ...] = ()
     allow_public_ipv6: bool = False
+    allow_public_egress: bool = True
+    """When false, only ``allowed_rules`` are reachable: no DNS and no public catch-all."""
 
     def __post_init__(self) -> None:
         """Reject CIDR rules that cannot affect the selected mode."""
@@ -97,6 +99,13 @@ class SandboxNetworkPolicy:
             raise ValueError("egress rules are only valid for filtered networking")
         if self.mode is not SandboxNetworkMode.FILTERED and self.allow_public_ipv6:
             raise ValueError("allow_public_ipv6 is only valid for filtered networking")
+        if (
+            self.mode is not SandboxNetworkMode.FILTERED
+            and not self.allow_public_egress
+        ):
+            raise ValueError(
+                "allow_public_egress is only configurable for filtered networking"
+            )
 
 
 @dataclass(frozen=True, slots=True)

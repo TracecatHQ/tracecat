@@ -7,12 +7,14 @@ live in the one configured Pangolin organization.
 
 from __future__ import annotations
 
+import base64
 import ipaddress
 import re
 import uuid
 from dataclasses import dataclass
 from typing import Any
 
+import aioboto3
 import httpx
 
 from tracecat import config
@@ -50,17 +52,48 @@ class PangolinSettings:
     api_key: str
 
     @classmethod
-    def from_config(cls) -> PangolinSettings | None:
+    def from_config(cls, api_key: str | None = None) -> PangolinSettings | None:
         values = (
             config.TRACECAT__PANGOLIN_API_URL,
             config.TRACECAT__PANGOLIN_ENDPOINT,
             config.TRACECAT__PANGOLIN_ORG_ID,
-            config.TRACECAT__PANGOLIN_API_KEY,
+            api_key or config.TRACECAT__PANGOLIN_API_KEY,
         )
         if not all(values):
             return None
         api_url, endpoint, org_id, api_key = (str(v) for v in values)
         return cls(api_url.rstrip("/"), endpoint.rstrip("/"), org_id, api_key)
+
+
+_api_key_from_arn: str | None = None
+
+
+async def _retrieve_api_key(arn: str) -> str:
+    """Read the Pangolin API key from AWS Secrets Manager."""
+    session = aioboto3.Session()
+    async with session.client(service_name="secretsmanager") as client:
+        response = await client.get_secret_value(SecretId=arn)
+    secret_string = response.get("SecretString")
+    if not secret_string and response.get("SecretBinary"):
+        secret_string = base64.b64decode(response["SecretBinary"]).decode("utf-8")
+    if not secret_string:
+        raise PangolinError("Pangolin API key secret is empty")
+    return secret_string.strip()
+
+
+async def resolve_pangolin_settings() -> PangolinSettings | None:
+    """Return managed tunnel settings, reading the API key from its ARN if set.
+
+    The ARN takes precedence over ``TRACECAT__PANGOLIN_API_KEY``, matching how
+    ``TEMPORAL__API_KEY__ARN`` is read. The secret is fetched once per process.
+    """
+    global _api_key_from_arn
+    api_key: str | None = None
+    if arn := config.TRACECAT__PANGOLIN_API_KEY__ARN:
+        if _api_key_from_arn is None:
+            _api_key_from_arn = await _retrieve_api_key(arn)
+        api_key = _api_key_from_arn
+    return PangolinSettings.from_config(api_key=api_key)
 
 
 @dataclass(frozen=True)
@@ -206,10 +239,6 @@ class PangolinAPI:
             body["alias"] = alias
         resource = await self._request("PUT", f"{self._org}/private-resource", body)
         return int(resource["siteResourceId"])
-
-    async def resource_client_ids(self, resource_id: int) -> set[int]:
-        data = await self._request("GET", f"/private-resource/{resource_id}/clients")
-        return {int(c["clientId"]) for c in data.get("clients", [])}
 
     async def delete_resource(self, resource_id: int) -> None:
         await self._request(

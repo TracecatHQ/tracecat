@@ -10,6 +10,11 @@ from typing import Any, cast
 from aiocache import Cache
 from pydantic import ValidationError
 from sqlalchemy import and_, or_, select, union_all
+from tracecat_ee.tunnels.routing import (
+    TunnelRouteError,
+    effective_tunnel,
+    resolve_tunnel_route,
+)
 
 from tracecat import config
 from tracecat.auth.executor_tokens import ExecutionOrigin, mint_executor_token
@@ -28,6 +33,7 @@ from tracecat.db.models import (
     RegistryVersion,
 )
 from tracecat.dsl.common import context_locator, create_default_execution_context
+from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import (
     ActionStatement,
     DSLEnvironment,
@@ -780,6 +786,18 @@ async def prepare_resolved_context(
     # Generate executor token for SDK authentication
     executor_token = _mint_action_executor_token(input, role)
 
+    tunnel_route = None
+    if tunnel_name := effective_tunnel(input):
+        if PlatformAction.is_interface(action_name):
+            raise TunnelRouteError(f"Action {action_name!r} cannot use a tunnel")
+        tunnel_route = await resolve_tunnel_route(
+            name=tunnel_name,
+            workspace_id=role.workspace_id,
+            organization_id=role.organization_id,
+            wf_exec_id=str(input.run_context.wf_exec_id),
+            action_ref=task.ref,
+        )
+
     resolved_context = ResolvedContext(
         secrets=secrets,
         variables=workspace_variables,
@@ -791,6 +809,10 @@ async def prepare_resolved_context(
         executor_token=executor_token,
         logical_time=logical_time,
         secret_projection=secret_projection,
+        tunnel_name=tunnel_route.tunnel_name if tunnel_route else None,
+        tunnel_proxy_url=tunnel_route.proxy_url if tunnel_route else None,
+        tunnel_gateway_ip=tunnel_route.gateway_ip if tunnel_route else None,
+        tunnel_gateway_port=tunnel_route.gateway_port if tunnel_route else None,
     )
 
     return PreparedContext(
