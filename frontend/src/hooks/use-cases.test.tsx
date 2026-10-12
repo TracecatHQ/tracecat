@@ -1,6 +1,12 @@
 import { act, renderHook } from "@testing-library/react"
 import type { ReactNode } from "react"
-import { casesSearchCaseAggregates, casesSearchCases } from "@/client"
+import {
+  type CasesSearchCaseAggregatesResponse,
+  type CasesSearchCasesResponse,
+  casesSearchCaseAggregates,
+  casesSearchCases,
+} from "@/client"
+import { CancelablePromise } from "@/client/core/CancelablePromise"
 import { useCases } from "@/hooks/use-cases"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
@@ -40,13 +46,21 @@ beforeEach(() => {
   jest.useFakeTimers()
   jest.clearAllMocks()
   window.localStorage.clear()
-  searchCases.mockResolvedValue({
-    items: [],
-    has_more: false,
-    next_cursor: null,
-  } as unknown as Awaited<ReturnType<typeof casesSearchCases>>)
-  searchAggregates.mockResolvedValue(
-    {} as Awaited<ReturnType<typeof casesSearchCaseAggregates>>
+  searchCases.mockImplementation(
+    () =>
+      new CancelablePromise<CasesSearchCasesResponse>((resolve) =>
+        resolve({
+          items: [],
+          has_more: false,
+          next_cursor: null,
+        })
+      )
+  )
+  searchAggregates.mockImplementation(
+    () =>
+      new CancelablePromise<CasesSearchCaseAggregatesResponse>((resolve) =>
+        resolve({ total: 0, status_groups: {} })
+      )
   )
 })
 

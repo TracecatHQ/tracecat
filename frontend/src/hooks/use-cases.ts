@@ -23,14 +23,14 @@ import type {
   SortDirection,
 } from "@/components/filters/filter-multi-select"
 import type { CaseHierarchyFilter } from "@/hooks/use-case-search-infinite"
-import { useDebounce } from "@/hooks/use-debounce"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useInfiniteQuery, useQuery } from "@/lib/query"
+import { withAbortSignal } from "@/lib/query-cancellation"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const CASES_PAGE_SIZE = 100
-const CASES_REFETCH_INTERVAL_MS = 120000
 const CASES_SEARCH_DEBOUNCE_MS = 300
+const CASES_REFETCH_INTERVAL_MS = 120000
 const CASES_FILTER_STORAGE_KEY = "cases-filters:v1"
 const ALL_CASE_STATUSES: ReadonlyArray<CaseStatus> = [
   "unknown",
@@ -608,20 +608,34 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   const [searchQuery, setSearchQueryState] = useState(
     initialFilterState.searchQuery
   )
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useDebounce(
-    searchQuery.trim(),
-    CASES_SEARCH_DEBOUNCE_MS
-  )
-  const hasSearchQuery = searchQuery.trim().length > 0
-  const normalizedSearch = hasSearchQuery ? debouncedSearchQuery : ""
+  const [appliedSearch, setAppliedSearch] = useState({
+    query: initialFilterState.searchQuery.trim(),
+    revision: 0,
+  })
+  const appliedSearchQuery = appliedSearch.query
+  const normalizedSearchInput = searchQuery.trim()
+  const applySearch = useCallback((query: string, resetPagination = false) => {
+    setAppliedSearch((previous) => {
+      if (previous.query === query && !resetPagination) return previous
+      return { query, revision: previous.revision + 1 }
+    })
+  }, [])
+  useEffect(() => {
+    if (normalizedSearchInput === appliedSearchQuery) return
+    const timeout = setTimeout(
+      () => applySearch(normalizedSearchInput),
+      CASES_SEARCH_DEBOUNCE_MS
+    )
+    return () => clearTimeout(timeout)
+  }, [normalizedSearchInput, appliedSearchQuery, applySearch])
   const setSearchQuery = useCallback(
     (query: string) => {
       setSearchQueryState(query)
       if (!query.trim()) {
-        setDebouncedSearchQuery("")
+        applySearch("", true)
       }
     },
-    [setDebouncedSearchQuery]
+    [applySearch]
   )
   const [sortBy, setSortByState] = useState<CaseSortValue>(
     initialFilterState.sortBy
@@ -743,7 +757,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
     const nextFilterState = loadPersistedCasesFilterState(workspaceId)
     setSearchQueryState(nextFilterState.searchQuery)
-    setDebouncedSearchQuery(nextFilterState.searchQuery.trim())
+    applySearch(nextFilterState.searchQuery.trim(), true)
     setSortByState(nextFilterState.sortBy)
     setStatusFilter(nextFilterState.statusFilter)
     setStatusMode(nextFilterState.statusMode)
@@ -764,7 +778,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     setCreatedAfter(nextFilterState.createdAfter)
     setIncludeSubCases(nextFilterState.includeSubCases)
     setHydratedWorkspaceId(nextFilterState.hydratedWorkspaceId)
-  }, [hydratedWorkspaceId, workspaceId])
+  }, [hydratedWorkspaceId, workspaceId, applySearch])
 
   useEffect(() => {
     if (!workspaceId || !hasHydratedFilters || typeof window === "undefined") {
@@ -871,12 +885,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     []
   )
 
-  useEffect(() => {
-    if (!hasSearchQuery) {
-      setDebouncedSearchQuery("")
-    }
-  }, [hasSearchQuery, setDebouncedSearchQuery])
-
   const { apiQueryParams, hasImpossibleEnumFilter } = useMemo(() => {
     const updatedBounds = getDateBoundsFromFilter(updatedAfter)
     const createdBounds = getDateBoundsFromFilter(createdAfter)
@@ -908,7 +916,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
     return {
       apiQueryParams: {
-        searchTerm: normalizedSearch.length > 0 ? normalizedSearch : undefined,
+        searchTerm: appliedSearchQuery.length > 0 ? appliedSearchQuery : undefined,
         status: resolvedStatus.values,
         priority: resolvedPriority.values,
         severity: resolvedSeverity.values,
@@ -928,7 +936,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
           ? toEndOfDay(updatedBounds.end).toISOString()
           : undefined,
         // Searching also matches sub-cases, so they are never unreachable.
-        hierarchy: (includeSubCases || normalizedSearch
+        hierarchy: (includeSubCases || appliedSearchQuery
           ? "all"
           : "top_level") as CaseHierarchyFilter,
       },
@@ -938,7 +946,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         resolvedSeverity.matchesNone,
     }
   }, [
-    normalizedSearch,
+    appliedSearchQuery,
     statusFilter,
     statusMode,
     priorityFilter,
@@ -970,8 +978,11 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       JSON.stringify({
         apiQueryParams,
         hasImpossibleEnumFilter,
+        // A new applied search starts at page one even when returning to a
+        // previously cached term, including an immediately cleared input.
+        searchRevision: appliedSearch.revision,
       }),
-    [apiQueryParams, hasImpossibleEnumFilter]
+    [apiQueryParams, hasImpossibleEnumFilter, appliedSearch.revision]
   )
 
   const rowsKey = useMemo(
@@ -1017,25 +1028,28 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     fetchNextPage,
   } = useInfiniteQuery<CasesSearchCasesResponse, TracecatApiError>({
     queryKey: ["cases", workspaceId, rowsKey],
-    queryFn: ({ pageParam }) =>
-      casesSearchCases({
-        workspaceId,
-        ...apiQueryParams,
-        promoteExactMatch: Boolean(normalizedSearch) || undefined,
-        matchNone: hasImpossibleEnumFilter || undefined,
-        orderBy: serverSortParams.orderBy,
-        sort: serverSortParams.sort,
-        limit: CASES_PAGE_SIZE,
-        cursor: (pageParam as string | null) ?? undefined,
-        fieldIds:
-          normalizedFieldIds.length > 0 ? normalizedFieldIds : undefined,
-        includeDurations: includeDurations || undefined,
-      }),
+    queryFn: ({ pageParam, signal }) =>
+      withAbortSignal(
+        signal,
+        casesSearchCases({
+          workspaceId,
+          ...apiQueryParams,
+          promoteExactMatch: Boolean(appliedSearchQuery) || undefined,
+          matchNone: hasImpossibleEnumFilter || undefined,
+          orderBy: serverSortParams.orderBy,
+          sort: serverSortParams.sort,
+          limit: CASES_PAGE_SIZE,
+          cursor: (pageParam as string | null) ?? undefined,
+          fieldIds:
+            normalizedFieldIds.length > 0 ? normalizedFieldIds : undefined,
+          includeDurations: includeDurations || undefined,
+        })
+      ),
     enabled:
       enabled &&
       Boolean(workspaceId) &&
       hasHydratedFilters &&
-      (!hasImpossibleEnumFilter || Boolean(normalizedSearch)),
+      (!hasImpossibleEnumFilter || Boolean(appliedSearchQuery)),
     initialPageParam: null,
     getNextPageParam: (lastPage) => {
       if (!lastPage.has_more || !lastPage.next_cursor) {
@@ -1056,11 +1070,14 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     refetch: refetchCounts,
   } = useQuery<CasesSearchCaseAggregatesResponse, TracecatApiError>({
     queryKey: ["cases", "aggregate", workspaceId, filtersKey],
-    queryFn: () =>
-      casesSearchCaseAggregates({
-        workspaceId,
-        ...apiQueryParams,
-      }),
+    queryFn: ({ signal }) =>
+      withAbortSignal(
+        signal,
+        casesSearchCaseAggregates({
+          workspaceId,
+          ...apiQueryParams,
+        })
+      ),
     enabled:
       enabled &&
       Boolean(workspaceId) &&
@@ -1144,9 +1161,9 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     isLoading: isHydrationPending ? true : isLoading,
     error: error ?? null,
     refetch,
-    appliedSearchQuery: normalizedSearch,
+    appliedSearchQuery,
+    isSearchPending: normalizedSearchInput !== appliedSearchQuery,
     effectiveHierarchy: apiQueryParams.hierarchy,
-    isSearchPending: searchQuery.trim() !== normalizedSearch,
     filters: {
       searchQuery,
       sortBy,
