@@ -58,7 +58,7 @@ beforeEach(() => {
         workspace_id: "workspace-1",
         workspace_name: "Acme Security",
         title: "Laptop request",
-        description: "Request a new laptop from IT.",
+        description: "Request a **new laptop** from [IT](https://example.com).",
       },
       {
         id: "form-2",

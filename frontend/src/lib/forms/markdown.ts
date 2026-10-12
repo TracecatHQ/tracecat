@@ -59,3 +59,34 @@ export function remarkFormMarkdown() {
     }
   }
 }
+
+/**
+ * Reduce author markdown to one line of plain text, for list rows that have
+ * no room for formatting.
+ *
+ * This is a display helper, not a sanitizer: the result is only ever rendered
+ * as text. Images and raw HTML tags are dropped, links keep their text and
+ * block and inline markers are removed.
+ */
+export function formMarkdownToPlainText(markdown: string): string {
+  const text = markdown
+    .replace(/^\s*(```|~~~).*$/gm, "")
+    .replace(/<\/?[A-Za-z][^>]*>/g, "")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^\s*(#{1,6}|>|[-*+]|\d+[.)])\s+/gm, "")
+  return stripInlineMarkers(stripInlineMarkers(text))
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+// Run twice by the caller so nested markers such as `**_text_**` both go.
+function stripInlineMarkers(text: string): string {
+  return (
+    text
+      // A marker has to touch its text: `2 * 3 * 4` is arithmetic.
+      .replace(/(\*\*|\*|~~|`)(\S|\S.*?\S)\1/g, "$2")
+      // Underscores only count at a word edge: `needed_by_date` is a name.
+      .replace(/(^|[^A-Za-z0-9])(__|_)(\S|\S.*?\S)\2(?![A-Za-z0-9])/g, "$1$3")
+  )
+}

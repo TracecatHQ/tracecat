@@ -11,6 +11,7 @@ import {
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import { useRequesterForms } from "@/hooks/use-requester-forms"
+import { formMarkdownToPlainText } from "@/lib/forms/markdown"
 import { cn } from "@/lib/utils"
 
 interface WorkspaceGroup {
@@ -95,7 +96,7 @@ export function RequesterCatalog() {
                     </span>
                     {form.description && (
                       <span className={cn(formStyles.help, "block truncate")}>
-                        {form.description}
+                        {formMarkdownToPlainText(form.description)}
                       </span>
                     )}
                   </span>

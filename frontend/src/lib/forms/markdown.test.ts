@@ -1,6 +1,7 @@
 import {
   type FormMarkdownNode,
   filterFormMarkdownNodes,
+  formMarkdownToPlainText,
   isSafeFormLink,
   remarkFormMarkdown,
 } from "@/lib/forms/markdown"
@@ -136,5 +137,25 @@ describe("remarkFormMarkdown", () => {
     }
     remarkFormMarkdown()(tree)
     expect(tree.children).toEqual([paragraph(text("ok"))])
+  })
+})
+
+describe("formMarkdownToPlainText", () => {
+  it.each([
+    ["Request a new laptop from IT.", "Request a new laptop from IT."],
+    ["**Bold** and *italic* and `code`", "Bold and italic and code"],
+    ["__Bold__ and _italic_ and ~~gone~~", "Bold and italic and gone"],
+    ["**_Nested_** markers", "Nested markers"],
+    ["See the [policy](https://example.com/policy).", "See the policy."],
+    ["![diagram](data:image/png;base64,AAAA) Read this", "Read this"],
+    ["# Laptops\n\nPick one.", "Laptops Pick one."],
+    ["- one\n- two\n1. three", "one two three"],
+    ["> Reviewed within 2 days", "Reviewed within 2 days"],
+    ["Hello <b>there</b><br/>", "Hello there"],
+    ["```\nmba\n```", "mba"],
+    ["Uses needed_by_date and 2 * 3 * 4", "Uses needed_by_date and 2 * 3 * 4"],
+    ["  spaced\n\n out  ", "spaced out"],
+  ])("turns %j into %j", (markdown, expected) => {
+    expect(formMarkdownToPlainText(markdown)).toBe(expected)
   })
 })
