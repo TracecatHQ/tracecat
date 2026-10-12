@@ -11,7 +11,8 @@ from pydantic import Discriminator, TypeAdapter, model_validator
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import (
     MCPServerConfig,
-    read_reasoning_effort_as_enable_thinking,
+    ReasoningEffort,
+    migrate_legacy_enable_thinking,
 )
 from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
 from tracecat.agent.skill.types import ResolvedSkillRef
@@ -99,7 +100,7 @@ class AgentConfig:
     deps_type: type[Any] | None = None
     custom_tools: CustomToolList | None = None
     # Sandbox
-    enable_thinking: bool = True
+    reasoning_effort: ReasoningEffort | None = None
     enable_internet_access: bool = False
     resolved_skills: list[ResolvedSkillRef] | None = None
     builtin_skills: list[str] | None = None
@@ -114,9 +115,9 @@ class AgentConfig:
 
     @model_validator(mode="before")
     @classmethod
-    def read_reasoning_effort(cls, data: Any) -> Any:
-        """Accept Temporal payloads that a newer worker wrote."""
-        return read_reasoning_effort_as_enable_thinking(data)
+    def migrate_enable_thinking(cls, data: Any) -> Any:
+        """Read ``enable_thinking`` from Temporal payloads stored before reasoning levels."""
+        return migrate_legacy_enable_thinking(data)
 
 
 # --- Tool Types (Harness-Agnostic) ---

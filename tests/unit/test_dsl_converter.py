@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 import temporalio.api.common.v1
 from temporalio.api.common.v1 import Payload
@@ -196,12 +198,16 @@ def _build_tracecat_agent_config_payload() -> Payload:
             ],
             model_settings={"parallel_tool_calls": False},
             retries=3,
-            enable_thinking=False,
             enable_internet_access=True,
         )
     )
     if payload is None:
         raise AssertionError("Expected JSON payload for AgentConfig")
+    # History written before reasoning levels carries the legacy flag.
+    data = json.loads(payload.data)
+    del data["reasoning_effort"]
+    data["enable_thinking"] = False
+    payload.data = json.dumps(data).encode()
     return payload
 
 
@@ -222,7 +228,7 @@ def test_converter_decodes_legacy_tracecat_agent_config_as_agent_config_payload(
     assert decoded.tool_approvals == {"tools.datadog.change_signal_state": True}
     assert decoded.model_settings == {"parallel_tool_calls": False}
     assert decoded.retries == 3
-    assert decoded.enable_thinking is False
+    assert decoded.reasoning_effort == "off"
     assert decoded.enable_internet_access is True
     assert decoded.mcp_servers is not None
     assert len(decoded.mcp_servers) == 1

@@ -16,11 +16,15 @@ from tracecat_registry.fields import (
     TextArea,
 )
 from tracecat_registry.sdk.agents import OutputType
+from tracecat_registry.types import ReasoningEffort
 
 LEGACY_MODEL_FIELD_DEPRECATION_MESSAGE = "Use `model` instead."
 """Deprecation message for raw model selection fields."""
 LEGACY_MODEL_FIELD_SCHEMA_EXTRA: dict[str, Any] = {
     "x-tracecat-deprecation-message": LEGACY_MODEL_FIELD_DEPRECATION_MESSAGE
+}
+LEGACY_ENABLE_THINKING_SCHEMA_EXTRA: dict[str, Any] = {
+    "x-tracecat-deprecation-message": "Use `reasoning_effort` instead."
 }
 LEGACY_PRESET_VERSION_DEPRECATION_MESSAGE = (
     "Preset agents always resolve the current head."
@@ -97,9 +101,23 @@ async def agent(
     ] = 15,
     max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
+    reasoning_effort: Annotated[
+        ReasoningEffort | None,
+        Doc(
+            "Reasoning level for agent runs: `off`, `low`, `medium`, `high`, "
+            "or `max`. Leave empty to use the model's default."
+        ),
+    ] = None,
     enable_thinking: Annotated[
         bool,
-        Doc("Whether to enable high thinking for agent runs."),
+        Doc(
+            "Deprecated. Use `reasoning_effort` instead. `false` is the same "
+            "as `reasoning_effort: off`."
+        ),
+        Field(
+            deprecated=True,
+            json_schema_extra=LEGACY_ENABLE_THINKING_SCHEMA_EXTRA,
+        ),
     ] = True,
     # Paid feature
     tool_approvals: Annotated[
@@ -228,9 +246,23 @@ async def action(
     ] = None,
     max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
+    reasoning_effort: Annotated[
+        ReasoningEffort | None,
+        Doc(
+            "Reasoning level for agent runs: `off`, `low`, `medium`, `high`, "
+            "or `max`. Leave empty to use the model's default."
+        ),
+    ] = None,
     enable_thinking: Annotated[
         bool,
-        Doc("Whether to enable high thinking for agent runs."),
+        Doc(
+            "Deprecated. Use `reasoning_effort` instead. `false` is the same "
+            "as `reasoning_effort: off`."
+        ),
+        Field(
+            deprecated=True,
+            json_schema_extra=LEGACY_ENABLE_THINKING_SCHEMA_EXTRA,
+        ),
     ] = True,
 ) -> dict[str, Any]:
     """Call an LLM with a given prompt and model (no tools)."""

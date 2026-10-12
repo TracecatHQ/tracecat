@@ -64,6 +64,7 @@ from sqlalchemy.orm import (
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import PersistedApprovalDecision
+from tracecat.agent.common.types import ReasoningEffort
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
 from tracecat.authz.enums import ScimConnectionStatus, ScopeSource
@@ -4136,12 +4137,20 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
     )
+    reasoning_effort: Mapped[ReasoningEffort | None] = mapped_column(
+        String(16),
+        nullable=True,
+        doc="Reasoning level for agent runs; null uses the model default",
+    )
+    # Deprecated: a database trigger keeps this in sync with reasoning_effort
+    # so a rolled-back app keeps the user's choice. Drop both in a follow-up
+    # contract migration.
     enable_thinking: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
         server_default=text("true"),
         nullable=False,
-        doc="Whether to enable high thinking for agent runs",
+        doc="Deprecated: whether reasoning_effort is not 'off'",
     )
     enable_internet_access: Mapped[bool] = mapped_column(
         Boolean,
@@ -4282,12 +4291,20 @@ class AgentPresetVersion(WorkspaceModel):
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
     )
+    reasoning_effort: Mapped[ReasoningEffort | None] = mapped_column(
+        String(16),
+        nullable=True,
+        doc="Reasoning level for agent runs; null uses the model default",
+    )
+    # Deprecated: a database trigger keeps this in sync with reasoning_effort
+    # so a rolled-back app keeps the user's choice. Drop both in a follow-up
+    # contract migration.
     enable_thinking: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
         server_default=text("true"),
         nullable=False,
-        doc="Whether to enable high thinking for agent runs",
+        doc="Deprecated: whether reasoning_effort is not 'off'",
     )
     enable_internet_access: Mapped[bool] = mapped_column(
         Boolean,

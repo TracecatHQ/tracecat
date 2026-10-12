@@ -11,7 +11,10 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, model_validator
 
-from tracecat.agent.common.types import read_reasoning_effort_as_enable_thinking
+from tracecat.agent.common.types import (
+    ReasoningEffort,
+    migrate_legacy_enable_thinking,
+)
 from tracecat.agent.skill.types import SkillOrigin
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.integrations.schemas import MCPToolStatus
@@ -113,12 +116,11 @@ class AgentConfigPayload(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def normalize_legacy_workflow_history(cls, value: Any) -> Any:
-        """Accept the pre-payload AgentConfig shape stored in workflow history,
-        and the ``reasoning_effort`` key that newer workers write."""
+        """Accept the pre-payload AgentConfig shape stored in workflow history."""
         if not isinstance(value, dict):
             return value
 
-        normalized = read_reasoning_effort_as_enable_thinking(
+        normalized = migrate_legacy_enable_thinking(
             {
                 key: item
                 for key, item in value.items()
@@ -145,7 +147,7 @@ class AgentConfigPayload(BaseModel):
     mcp_servers: list[MCPServerConfigPayload] | None = Field(default=None)
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
     retries: int
-    enable_thinking: bool = Field(default=True)
+    reasoning_effort: ReasoningEffort | None = Field(default=None)
     enable_internet_access: bool = Field(default=False)
     resolved_skills: list[ResolvedSkillRefPayload] | None = Field(default=None)
     builtin_skills: list[str] | None = Field(default=None)

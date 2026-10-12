@@ -84,7 +84,7 @@ const EXECUTION_FIELDS = {
   tool_approvals: {},
   mcp_integrations: [],
   retries: 3,
-  enable_thinking: false,
+  reasoning_effort: "off" as const,
   enable_internet_access: false,
 }
 

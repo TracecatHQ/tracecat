@@ -83,7 +83,7 @@ const BACKEND_EXECUTION_FIELDS = [
   "library_skills",
   "agents",
   "retries",
-  "enable_thinking",
+  "reasoning_effort",
   "enable_internet_access",
 ]
 

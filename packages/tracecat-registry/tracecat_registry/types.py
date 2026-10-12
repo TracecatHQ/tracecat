@@ -7,7 +7,10 @@ and datetimes become ISO format strings.
 
 from uuid import UUID
 from datetime import datetime
-from typing import Any, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
+
+type ReasoningEffort = Literal["off", "low", "medium", "high", "max"]
+"""Reasoning level. ``None`` uses the model default."""
 
 
 # ============================================================================
@@ -727,7 +730,7 @@ class AgentPresetRead(TypedDict):
     mcp_integrations: list[str] | None
     agents: dict[str, Any]
     retries: int
-    enable_thinking: bool
+    reasoning_effort: ReasoningEffort | None
     enable_internet_access: bool
     skills: list[dict[str, Any]]
     current_version_id: UUID | None

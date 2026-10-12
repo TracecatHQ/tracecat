@@ -6,6 +6,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
 
 from tracecat_registry.sdk.types import UNSET, Unset, is_set
+from tracecat_registry.types import ReasoningEffort
 
 if TYPE_CHECKING:
     from tracecat_registry.sdk.client import TracecatClient
@@ -214,6 +215,7 @@ class AgentsClient:
         mcp_integrations: list[str] | Unset = UNSET,
         agents: dict[str, Any] | Unset = UNSET,
         retries: int | Unset = UNSET,
+        reasoning_effort: ReasoningEffort | None | Unset = UNSET,
         enable_thinking: bool | Unset = UNSET,
         enable_internet_access: bool | Unset = UNSET,
         skills: list[AgentPresetSkillBinding] | Unset = UNSET,
@@ -235,6 +237,10 @@ class AgentsClient:
             base_url: Custom API endpoint URL for the model.
             output_type: Expected output format (type string or JSON schema).
             actions: List of action identifiers the agent can use as tools.
+            reasoning_effort: Reasoning level. ``None`` uses the model default.
+            enable_thinking: Deprecated. Use ``reasoning_effort`` instead.
+                ``False`` turns reasoning off; ignored when
+                ``reasoning_effort`` is set.
             skills: Skill bindings containing `skill_id`.
 
         Returns:
@@ -271,6 +277,8 @@ class AgentsClient:
             data["agents"] = agents
         if is_set(retries):
             data["retries"] = retries
+        if is_set(reasoning_effort):
+            data["reasoning_effort"] = reasoning_effort
         if is_set(enable_thinking):
             data["enable_thinking"] = enable_thinking
         if is_set(enable_internet_access):
@@ -312,6 +320,7 @@ class AgentsClient:
         mcp_integrations: list[str] | Unset = UNSET,
         agents: dict[str, Any] | Unset = UNSET,
         retries: int | Unset = UNSET,
+        reasoning_effort: ReasoningEffort | None | Unset = UNSET,
         enable_thinking: bool | Unset = UNSET,
         enable_internet_access: bool | Unset = UNSET,
         skills: list[AgentPresetSkillBinding] | Unset = UNSET,
@@ -332,6 +341,11 @@ class AgentsClient:
             base_url: Updated custom API endpoint URL.
             output_type: Updated output format.
             actions: Updated list of action identifiers.
+            reasoning_effort: Updated reasoning level. ``None`` uses the model
+                default.
+            enable_thinking: Deprecated. Use ``reasoning_effort`` instead.
+                ``False`` turns reasoning off; ``True`` clears ``"off"`` and
+                keeps any other level.
             skills: Skill bindings containing `skill_id`.
 
         Returns:
@@ -373,6 +387,8 @@ class AgentsClient:
             data["agents"] = agents
         if is_set(retries):
             data["retries"] = retries
+        if is_set(reasoning_effort):
+            data["reasoning_effort"] = reasoning_effort
         if is_set(enable_thinking):
             data["enable_thinking"] = enable_thinking
         if is_set(enable_internet_access):

@@ -6,8 +6,13 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints, model_validator
+from pydantic.json_schema import SkipJsonSchema
 
+from tracecat.agent.common.types import (
+    ReasoningEffort,
+    migrate_legacy_enable_thinking,
+)
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
@@ -77,9 +82,15 @@ class PresetCreateRequest(BaseModel):
     mcp_integrations: list[str] | None = Field(default=None)
     agents: AgentSubagentsConfig | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
-    enable_thinking: bool = Field(default=True)
+    reasoning_effort: ReasoningEffort | None = Field(default=None)
     enable_internet_access: bool = Field(default=False)
     skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_enable_thinking(cls, data: Any) -> Any:
+        """Accept ``enable_thinking`` from registry SDKs before reasoning levels."""
+        return migrate_legacy_enable_thinking(data)
 
 
 class PresetUpdateRequest(BaseModel):
@@ -115,7 +126,9 @@ class PresetUpdateRequest(BaseModel):
     mcp_integrations: list[str] | None = Field(default=None)
     agents: AgentSubagentsConfig | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
-    enable_thinking: bool | None = Field(default=None)
+    reasoning_effort: ReasoningEffort | None = Field(default=None)
+    # Deprecated input from older registry SDKs; passed through to the service.
+    enable_thinking: SkipJsonSchema[bool | None] = Field(default=None)
     enable_internet_access: bool | None = Field(default=None)
     skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
 

@@ -259,7 +259,7 @@ async def test_runtime_loads_direct_mcp_metadata_once(
         mcp_integrations=[str(integration_id)],
         agents={},
         retries=3,
-        enable_thinking=False,
+        reasoning_effort="off",
         enable_internet_access=False,
     )
     service = AgentPresetService(AsyncMock(spec=AsyncSession), role=role)

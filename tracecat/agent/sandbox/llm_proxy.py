@@ -607,8 +607,17 @@ class LLMRoute:
         if self.upstream_model_name is not None:
             forward_data["model"] = self.upstream_model_name
         if self._applies_provider_cleanup:
+            output_config = forward_data.get("output_config")
             for field_name in _ANTHROPIC_ONLY_FIELDS:
                 forward_data.pop(field_name, None)
+            # The managed gateway maps effort onto each provider's own
+            # reasoning parameter; direct upstreams get no Anthropic-only fields.
+            if (
+                not self.is_direct
+                and isinstance(output_config, dict)
+                and (effort := output_config.get("effort"))
+            ):
+                forward_data["output_config"] = {"effort": effort}
         return forward_data if forward_data != data else None
 
     def prepare_forward_request(

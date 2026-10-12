@@ -7,8 +7,20 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    computed_field,
+    model_validator,
+)
+from pydantic.json_schema import SkipJsonSchema
 
+from tracecat.agent.common.types import (
+    ReasoningEffort,
+    migrate_legacy_enable_thinking,
+)
 from tracecat.agent.skill.schemas import SkillName
 from tracecat.agent.subagents import AgentSubagentsConfig, has_manual_tool_approvals
 from tracecat.agent.types import AgentConfig, OutputType
@@ -125,7 +137,7 @@ class AgentPresetExecutionConfig(Schema):
     library_skills: list[str] | None = Field(default=None)
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
     retries: int = Field(default=3, ge=0)
-    enable_thinking: bool = Field(default=True)
+    reasoning_effort: ReasoningEffort | None = Field(default=None)
     enable_internet_access: bool = Field(default=False)
 
 
@@ -145,8 +157,14 @@ class AgentPresetExecutionConfigWrite(Schema):
     library_skills: list[SkillName] | None = Field(default=None)
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
     retries: int = Field(default=3, ge=0)
-    enable_thinking: bool = Field(default=True)
+    reasoning_effort: ReasoningEffort | None = Field(default=None)
     enable_internet_access: bool = Field(default=False)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_enable_thinking(cls, data: Any) -> Any:
+        """Accept ``enable_thinking`` from clients written before reasoning levels."""
+        return migrate_legacy_enable_thinking(data)
 
 
 class AgentPresetBase(AgentPresetExecutionConfigWrite):
@@ -190,7 +208,10 @@ class AgentPresetUpdate(BaseModel):
     library_skills: list[SkillName] | None = Field(default=None)
     agents: AgentSubagentsConfig | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
-    enable_thinking: bool | None = Field(default=None)
+    reasoning_effort: ReasoningEffort | None = Field(default=None)
+    enable_thinking: SkipJsonSchema[bool | None] = Field(default=None, exclude=True)
+    """Deprecated input from older clients. The service resolves it against the
+    preset's current level when ``reasoning_effort`` is not sent."""
     enable_internet_access: bool | None = Field(default=None)
     skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
 
@@ -199,7 +220,6 @@ class AgentPresetUpdate(BaseModel):
         non_nullable = {
             "use_in_chat": self.use_in_chat,
             "retries": self.retries,
-            "enable_thinking": self.enable_thinking,
             "enable_internet_access": self.enable_internet_access,
         }
         for field_name, value in non_nullable.items():
@@ -394,7 +414,22 @@ class AgentPresetToolPolicyPreview(Schema):
     tool_approvals: dict[str, bool] = Field(default_factory=dict)
 
 
-class AgentPresetRead(AgentPresetExecutionConfig):
+class AgentPresetExecutionRead(AgentPresetExecutionConfig):
+    """Execution fields shared by preset and preset version responses."""
+
+    @computed_field
+    @property
+    def enable_thinking(self) -> SkipJsonSchema[bool]:
+        """Deprecated: whether ``reasoning_effort`` is not ``"off"``.
+
+        Browsers still running a bundle from before reasoning levels read this
+        flag on presets and their versions, and re-send it on save. Drop it
+        with the ``enable_thinking`` column.
+        """
+        return self.reasoning_effort != "off"
+
+
+class AgentPresetRead(AgentPresetExecutionRead):
     """API model for reading agent presets."""
 
     tool_policy: AgentPresetToolPolicyRead = Field(
@@ -429,7 +464,7 @@ class AgentPresetRead(AgentPresetExecutionConfig):
             tool_approvals=self.tool_approvals,
             agents=self.agents,
             retries=self.retries,
-            enable_thinking=self.enable_thinking,
+            reasoning_effort=self.reasoning_effort,
             enable_internet_access=self.enable_internet_access,
             library_skills=self.library_skills,
         )
@@ -462,7 +497,7 @@ class AgentPresetVersionReadMinimal(Schema):
     model_config = ConfigDict(from_attributes=True)
 
 
-class AgentPresetVersionRead(AgentPresetExecutionConfig):
+class AgentPresetVersionRead(AgentPresetExecutionRead):
     """Full response model for an immutable preset version."""
 
     tool_policy: AgentPresetToolPolicyRead = Field(

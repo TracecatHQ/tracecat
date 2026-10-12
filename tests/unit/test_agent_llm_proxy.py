@@ -1266,6 +1266,73 @@ async def test_forward_request_strips_anthropic_only_fields_for_non_anthropic_up
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("model", "expected_output_config"),
+    [
+        # The managed gateway maps effort onto the provider's reasoning parameter.
+        ("gpt-5-mini", {"effort": "high"}),
+        # Direct non-Anthropic upstreams get no Anthropic-only fields.
+        ("openrouter-direct", None),
+    ],
+)
+async def test_non_anthropic_cleanup_keeps_effort_only_for_managed_route(
+    tmp_path: Path,
+    model: str,
+    expected_output_config: dict[str, str] | None,
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        payload = orjson.loads(request.content)
+        assert payload.get("output_config") == expected_output_config
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={"ok": True},
+        )
+
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(
+            direct_routes={
+                "openrouter-direct": LLMRoute(
+                    base_url="https://openrouter.example",
+                    model_provider="openrouter",
+                )
+            }
+        ),
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
+    writer = _FakeWriter()
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer llm-token",
+                },
+                "body": orjson.dumps(
+                    {
+                        "model": model,
+                        "messages": [{"role": "user", "content": "hello"}],
+                        "thinking": {"type": "adaptive"},
+                        "output_config": {"effort": "high", "task_budget": 2048},
+                    }
+                ),
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    response_text = writer.buffer.decode("utf-8")
+    assert response_text.startswith("HTTP/1.1 200 OK")
+
+
+@pytest.mark.anyio
 async def test_managed_route_can_defer_provider_cleanup_to_gateway(
     tmp_path: Path,
 ) -> None:
