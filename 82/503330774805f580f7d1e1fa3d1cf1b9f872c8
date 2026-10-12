@@ -1,0 +1,40 @@
+frontend/src/components/forms/form-detail.test.tsx
+  s_7f6729d1c18d55::t_a1661e274ca247 19,756-757
+  s_7f6729d1c18d55::t_57509682cd3aba 43,750,754-755,758-788
+  s_7f6729d1c18d55::t_4617d7c5d632b6 789-790
+frontend/src/components/forms/widgets/types.ts
+  s_7f6729d1c18d55::t_4f90cc88ca3583 6-8
+frontend/src/components/forms/widgets/file.tsx
+  s_7f6729d1c18d55::t_4f90cc88ca3583 11,25-32,38-43,89-91,96-102,108-110,194,203,205,208,212
+frontend/src/components/forms/form-renderer.test.tsx
+  s_7f6729d1c18d55::t_a1661e274ca247 532-534
+  s_7f6729d1c18d55::t_1ea311313cbffb 599
+  s_7f6729d1c18d55::t_57509682cd3aba 511-512,520-531,535-598,600-604
+frontend/src/components/forms/requester/requester-form.tsx
+  s_7f6729d1c18d55::t_4f90cc88ca3583 115
+  s_7f6729d1c18d55::t_0ea7519784c59e 22
+frontend/src/components/forms/form-activity-tab.tsx
+  s_7f6729d1c18d55::t_4f90cc88ca3583 124-175,318-322
+  s_7f6729d1c18d55::t_ef6cf443089556 7,35,39
+frontend/src/lib/forms/files.ts
+  s_7f6729d1c18d55::t_937db10c851a39 1-132
+frontend/src/lib/forms/files.test.ts
+  s_7f6729d1c18d55::t_be714270f5cfc9 1-23,29-47,51-163
+  s_7f6729d1c18d55::t_0ea7519784c59e 24-28,48-50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "82503330774805f580f7d1e1fa3d1cf1b9f872c8",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
