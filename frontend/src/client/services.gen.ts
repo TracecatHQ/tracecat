@@ -478,6 +478,8 @@ import type {
   FormsListIntakeSubmissionsResponse,
   FormsLocateIntakeFormData,
   FormsLocateIntakeFormResponse,
+  FormsPreviewFormData,
+  FormsPreviewFormResponse,
   FormsRenderFormData,
   FormsRenderFormResponse,
   FormsSearchFormUsersData,
@@ -11215,6 +11217,35 @@ export const formsDeleteForm = (
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/workspaces/{workspace_id}/forms/{form_id}",
+    path: {
+      form_id: data.formId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Preview Form
+ * Get a form's saved config as the blocks a client renders.
+ *
+ * For builders who cannot run ``/validate``. Works for an offline form and
+ * records no view. Needs form:update or form:submission:read on top of
+ * form:read; other callers get 404.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.workspaceId
+ * @returns FormPreview Successful Response
+ * @throws ApiError
+ */
+export const formsPreviewForm = (
+  data: FormsPreviewFormData
+): CancelablePromise<FormsPreviewFormResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/forms/{form_id}/preview",
     path: {
       form_id: data.formId,
       workspace_id: data.workspaceId,

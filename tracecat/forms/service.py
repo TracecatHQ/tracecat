@@ -562,6 +562,20 @@ class FormsService(BaseWorkspaceService):
             preview=_preview(form_config, inputs, result),
         )
 
+    async def preview_form(self, form: Form) -> FormPreview:
+        """Resolve a form's saved config for a builder who cannot edit it.
+
+        Unlike ``render_form`` this works for an offline form and for a
+        workflow that is not published yet, and the caller records no view.
+
+        Raises:
+            TracecatNotFoundError: If the workflow does not exist.
+        """
+        inputs = await self._require_inputs(form.workflow_id)
+        current_config = stored_form_config(form)
+        result = resolve_form(current_config, inputs.expects)
+        return _preview(current_config, inputs, result)
+
     # ----- Render -----
 
     async def render_form(self, form: Form) -> FormResolved:

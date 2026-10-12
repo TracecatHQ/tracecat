@@ -15749,6 +15749,13 @@ export type FormsDeleteFormData = {
 
 export type FormsDeleteFormResponse = void
 
+export type FormsPreviewFormData = {
+  formId: string
+  workspaceId: string
+}
+
+export type FormsPreviewFormResponse = FormPreview
+
 export type FormsRenderFormData = {
   formId: string
   workspaceId: string
@@ -23084,6 +23091,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/forms/{form_id}/preview": {
+    get: {
+      req: FormsPreviewFormData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FormPreview
         /**
          * Validation Error
          */

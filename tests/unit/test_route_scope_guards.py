@@ -674,6 +674,7 @@ async def test_mcp_create_scope_guards(endpoint: AsyncEndpoint) -> None:
         (forms_router.get_form, "form:read"),
         (forms_router.update_form, "form:update"),
         (forms_router.delete_form, "form:delete"),
+        (forms_router.preview_form, "form:read"),
         (forms_router.render_form, "form:read"),
         (forms_router.list_form_activity, "form:submission:read"),
         (forms_router.search_form_users, "form:read"),

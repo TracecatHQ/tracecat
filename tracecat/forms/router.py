@@ -21,6 +21,7 @@ from tracecat.forms.schemas import (
     FormErrorDetail,
     FormErrorResponse,
     FormEventRead,
+    FormPreview,
     FormRead,
     FormReadMinimal,
     FormResolved,
@@ -213,6 +214,31 @@ async def delete_form(
     service = FormsService(session, role)
     form = await get_form_or_404(service, form_id)
     await service.delete_form(form)
+
+
+@router.get("/{form_id}/preview")
+@require_scope("form:read")
+async def preview_form(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    form_id: uuid.UUID,
+) -> FormPreview:
+    """Get a form's saved config as the blocks a client renders.
+
+    For builders who cannot run ``/validate``. Works for an offline form and
+    records no view. Needs form:update or form:submission:read on top of
+    form:read; other callers get 404.
+    """
+    require_config_access(role)
+    service = FormsService(session, role)
+    form = await get_form_or_404(service, form_id)
+    try:
+        return await service.preview_form(form)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except FormError as e:
+        raise form_http_error(e) from e
 
 
 @router.get("/{form_id}/render", responses={409: {"model": FormErrorResponse}})
