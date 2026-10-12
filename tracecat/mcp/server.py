@@ -1114,6 +1114,13 @@ class WorkflowRunStartedResponse(BaseModel):
     message: str
 
 
+class WorkflowExecutionCancelResponse(BaseModel):
+    """Workflow execution cancellation request response."""
+
+    execution_id: WorkflowExecutionID
+    message: str
+
+
 class CaseTaskRunStartedResponse(WorkflowRunStartedResponse):
     """Case-task workflow execution start response."""
 
@@ -5528,6 +5535,62 @@ async def get_workflow_execution(
     except Exception as e:
         logger.error("Failed to get workflow execution", error=str(e))
         raise ToolError(f"Failed to get workflow execution: {e}") from None
+
+
+@mcp.tool()
+async def cancel_workflow_execution(
+    workspace_id: uuid.UUID,
+    execution_id: WorkflowExecutionID,
+) -> WorkflowExecutionCancelResponse:
+    """Request graceful cancellation of a workflow execution.
+
+    Sends a cancellation request so the run can clean up before it closes
+    with status CANCELED. It may take a moment to stop. Cancelling a run that
+    has already finished does nothing. Call `get_workflow_execution` afterwards
+    to confirm the final status.
+
+    Args:
+        workspace_id: The workspace ID.
+        execution_id: The workflow execution ID (returned by run_* tools or
+            list_workflow_executions).
+
+    Returns JSON with execution_id and a message.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        check_scopes(role, "workflow:terminate")
+
+        try:
+            wf_id, _ = exec_id_to_parts(execution_id)
+        except ValueError as e:
+            raise ToolError(f"Invalid execution ID: {e}") from e
+        async with WorkflowsManagementService.with_session(role=role) as mgmt_svc:
+            workflow = await mgmt_svc.get_workflow(wf_id)
+        if workflow is None:
+            raise ToolError(
+                f"Execution {execution_id} not found in workspace {workspace_id}"
+            )
+
+        exec_service = await WorkflowExecutionsService.connect(role=role)
+        await exec_service.cancel_workflow_execution(execution_id)
+        return WorkflowExecutionCancelResponse(
+            execution_id=execution_id,
+            message=(
+                f"Cancellation requested for execution {execution_id}. "
+                "Use get_workflow_execution to confirm the final status."
+            ),
+        )
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to cancel workflow execution", error=str(e))
+        raise ToolError(f"Failed to cancel workflow execution: {e}") from None
 
 
 async def _materialize_action_result(value: Any) -> Any:

@@ -77,6 +77,7 @@ from tracecat.workflow.executions.enums import (
     WorkflowExecutionEventStatus,
 )
 from tracecat.workflow.executions.schemas import WorkflowExecutionEventCompact
+from tracecat.workflow.executions.service import WorkflowExecutionNotFoundError
 from tracecat.workflow.executions.shaping import (
     MAX_EVENT_RESULT_CHARS,
     select_execution_events,
@@ -12537,6 +12538,113 @@ async def test_get_workflow_execution_filters_refs_and_strips_results(
     assert all(event["result"] is None for event in lean["events"])
     assert all(event["result_truncated"] is None for event in lean["events"])
     assert lean["events"][2]["status"] == "COMPLETED"
+
+
+def _patch_execution_cancel(
+    monkeypatch,
+    *,
+    scopes: frozenset[str],
+    workflow_in_workspace: bool = True,
+    cancel_error: Exception | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Fake the role, workflow lookup, and cancel call; return an exec id."""
+    wf_id = mcp_server.WorkflowUUID.new(uuid.uuid4())
+    execution_id = f"{wf_id.short()}:exec-{uuid.uuid4().hex[:8]}"
+    calls: dict[str, Any] = {"get_workflow": [], "cancel": []}
+
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace(scopes=scopes)
+
+    class _WorkflowService:
+        async def get_workflow(self, requested_wf_id):
+            calls["get_workflow"].append(requested_wf_id)
+            return SimpleNamespace(id=wf_id) if workflow_in_workspace else None
+
+    class _ExecService:
+        async def cancel_workflow_execution(self, requested_execution_id):
+            calls["cancel"].append(requested_execution_id)
+            if cancel_error is not None:
+                raise cancel_error
+
+    async def _connect(*, role):
+        return _ExecService()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+    monkeypatch.setattr(mcp_server.WorkflowExecutionsService, "connect", _connect)
+    return execution_id, calls
+
+
+@pytest.mark.anyio
+async def test_cancel_workflow_execution_requests_cancellation(monkeypatch):
+    execution_id, calls = _patch_execution_cancel(
+        monkeypatch, scopes=frozenset({"workflow:terminate"})
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.cancel_workflow_execution)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+        )
+    )
+
+    assert payload["execution_id"] == execution_id
+    assert "Cancellation requested" in payload["message"]
+    assert calls["cancel"] == [execution_id]
+    assert len(calls["get_workflow"]) == 1
+
+
+@pytest.mark.anyio
+async def test_cancel_workflow_execution_requires_terminate_scope(monkeypatch):
+    execution_id, calls = _patch_execution_cancel(
+        monkeypatch,
+        scopes=frozenset({"workflow:read", "workflow:execute"}),
+    )
+
+    with pytest.raises(ToolError, match="Missing required scope: workflow:terminate"):
+        await _tool(mcp_server.cancel_workflow_execution)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+        )
+
+    assert calls["get_workflow"] == []
+    assert calls["cancel"] == []
+
+
+@pytest.mark.anyio
+async def test_cancel_workflow_execution_rejects_other_workspace(monkeypatch):
+    execution_id, calls = _patch_execution_cancel(
+        monkeypatch,
+        scopes=frozenset({"workflow:terminate"}),
+        workflow_in_workspace=False,
+    )
+
+    with pytest.raises(ToolError, match="not found in workspace"):
+        await _tool(mcp_server.cancel_workflow_execution)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+        )
+
+    assert calls["cancel"] == []
+
+
+@pytest.mark.anyio
+async def test_cancel_workflow_execution_surfaces_missing_execution(monkeypatch):
+    execution_id, _ = _patch_execution_cancel(
+        monkeypatch,
+        scopes=frozenset({"workflow:terminate"}),
+        cancel_error=WorkflowExecutionNotFoundError("Workflow execution not found"),
+    )
+
+    with pytest.raises(ToolError, match="Workflow execution not found"):
+        await _tool(mcp_server.cancel_workflow_execution)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+        )
 
 
 @pytest.mark.anyio

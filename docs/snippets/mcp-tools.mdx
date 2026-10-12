@@ -159,6 +159,12 @@
   Each event's `result` is inlined only when its JSON is short; longer results appear as a cut-off `result_truncated` preview. To read one action's complete result at any size, call `get_execution_action_result`.
 </ResponseField>
 
+<ResponseField name="cancel_workflow_execution" type="tool">
+  Request graceful cancellation of a workflow execution.
+
+  Sends a cancellation request so the run can clean up before it closes with status CANCELED. It may take a moment to stop. Cancelling a run that has already finished does nothing. Call `get_workflow_execution` afterwards to confirm the final status.
+</ResponseField>
+
 <ResponseField name="get_execution_action_result" type="tool">
   Get the full stored result of one action in a workflow execution.
 
