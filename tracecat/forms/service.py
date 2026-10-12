@@ -61,6 +61,7 @@ from tracecat.forms.schemas import (
     FormUserRead,
     FormValidateResponse,
 )
+from tracecat.forms.storage import delete_file_blobs, form_file_blob_keys
 from tracecat.forms.types import ResolveResult
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -505,9 +506,14 @@ class FormsService(BaseWorkspaceService):
 
     @audit_log(resource_type="form", action="delete")
     async def delete_form(self, form: Form) -> None:
-        """Delete a form. Its submissions and events go with it."""
+        """Delete a form. Its submissions, events and files go with it.
+
+        The file blobs are deleted after the commit, best effort.
+        """
+        keys = await form_file_blob_keys(self.session, self.workspace_id, form.id)
         await self.session.delete(form)
         await self.session.commit()
+        await delete_file_blobs(keys)
 
     async def sync_form(
         self,

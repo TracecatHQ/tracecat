@@ -47,6 +47,7 @@ from tracecat.exceptions import (
     WorkflowAliasResolutionError,
 )
 from tracecat.expressions.eval import eval_templated_object
+from tracecat.forms.storage import delete_file_blobs, workflow_file_blob_keys
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import (
     LEGACY_WF_ID_PATTERN,
@@ -850,9 +851,16 @@ class WorkflowsManagementService(BaseWorkspaceService):
                     error=str(e),
                 )
 
+        # The cascade removes the form and its file rows. Their blobs are
+        # deleted after the commit, best effort.
+        form_file_keys = await workflow_file_blob_keys(
+            self.session, self.workspace_id, workflow_uuid
+        )
+
         # Now delete the workflow (cascade will handle database schedule cleanup)
         await self.session.delete(workflow)
         await self.session.commit()
+        await delete_file_blobs(form_file_keys)
 
     @require_scope("workflow:create")
     @audit_log(resource_type="workflow", action="create", resource_id_attr="id")

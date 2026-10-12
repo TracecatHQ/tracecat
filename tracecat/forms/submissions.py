@@ -43,6 +43,7 @@ from tracecat.forms.service import (
     submission_reference,
     user_read,
 )
+from tracecat.forms.storage import delete_file_blobs, submission_file_blob_keys
 from tracecat.forms.values import check_values
 from tracecat.identifiers import InternalServiceID
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
@@ -523,6 +524,14 @@ class FormSubmissionsService(BaseWorkspaceService):
 
     @audit_log(resource_type="form_submission", action="delete")
     async def delete_submission(self, submission: FormSubmission) -> None:
-        """Delete a submission. Its activity events stay, without the link."""
+        """Delete a submission and its files.
+
+        Its activity events stay, without the link. The file rows go with the
+        submission; their blobs are deleted after the commit, best effort.
+        """
+        keys = await submission_file_blob_keys(
+            self.session, self.workspace_id, submission.id
+        )
         await self.session.delete(submission)
         await self.session.commit()
+        await delete_file_blobs(keys)
