@@ -7,12 +7,35 @@ live in the one configured Pangolin organization.
 
 from __future__ import annotations
 
+import ipaddress
+import re
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
 from tracecat import config
+
+
+def _is_ip_address(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return True
+
+
+def managed_alias(tunnel_id: uuid.UUID, host: str) -> str | None:
+    """Per-tunnel Pangolin alias for a domain target; IP targets need none.
+
+    Pangolin aliases are unique per organization, and every managed tunnel
+    shares one organization, so the alias embeds the tunnel ID.
+    """
+    if _is_ip_address(host):
+        return None
+    label = re.sub(r"[^a-z0-9]+", "-", host.lower()).strip("-")[:40].strip("-")
+    return f"{label}.{tunnel_id.hex[:16]}.tunnel.internal"
 
 
 class PangolinError(Exception):
@@ -160,24 +183,28 @@ class PangolinAPI:
         destination: str,
         tcp_ports: list[int],
         client_id: int,
+        alias: str | None = None,
     ) -> int:
-        """Create a private host resource with only these TCP ports, no UDP or ICMP."""
-        resource = await self._request(
-            "PUT",
-            f"{self._org}/private-resource",
-            {
-                "name": name,
-                "mode": "host",
-                "siteId": site_id,
-                "destination": destination,
-                "tcpPortRangeString": ",".join(str(p) for p in sorted(tcp_ports)),
-                "udpPortRangeString": "",
-                "disableIcmp": True,
-                "userIds": [],
-                "roleIds": [],
-                "clientIds": [client_id],
-            },
-        )
+        """Create a private host resource with only these TCP ports, no UDP or ICMP.
+
+        Pangolin requires an alias for domain destinations. Aliases are unique
+        per Pangolin organization, so callers pass a per-tunnel alias.
+        """
+        body: dict[str, Any] = {
+            "name": name,
+            "mode": "host",
+            "siteId": site_id,
+            "destination": destination,
+            "tcpPortRangeString": ",".join(str(p) for p in sorted(tcp_ports)),
+            "udpPortRangeString": "",
+            "disableIcmp": True,
+            "userIds": [],
+            "roleIds": [],
+            "clientIds": [client_id],
+        }
+        if alias is not None:
+            body["alias"] = alias
+        resource = await self._request("PUT", f"{self._org}/private-resource", body)
         return int(resource["siteResourceId"])
 
     async def resource_client_ids(self, resource_id: int) -> set[int]:

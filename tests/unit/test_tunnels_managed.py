@@ -71,7 +71,9 @@ class FakePangolinAPI:
         destination: str,
         tcp_ports: list[int],
         client_id: int,
+        alias: str | None = None,
     ) -> int:
+        self.calls.append(("alias", (destination, alias)))
         if destination == self.fail_on_resource:
             raise PangolinError("resource failed")
         resource_id = 100 + len(self.grants)
@@ -146,6 +148,7 @@ class TestPangolinAPI:
                 destination="splunk.corp.example",
                 tcp_ports=[8443, 8089],
                 client_id=client.client_id,
+                alias="splunk-corp-example.0123456789abcdef.tunnel.internal",
             )
             granted = await api.resource_client_ids(resource_id)
 
@@ -164,6 +167,7 @@ class TestPangolinAPI:
             "userIds": [],
             "roleIds": [],
             "clientIds": [3],
+            "alias": "splunk-corp-example.0123456789abcdef.tunnel.internal",
         }
         assert json.loads(requests[1].content)["secret"] == "s1"
         assert json.loads(requests[3].content)["type"] == "olm"
@@ -258,6 +262,12 @@ class TestManagedTunnels:
             ("splunk.corp.example", [8089, 8443], 11),
         ) in _calls()
         assert ("create_resource", ("10.0.0.5", [443], 11)) in _calls()
+        hex_id = created.tunnel.id.hex[:16]
+        assert ("alias", ("10.0.0.5", None)) in _calls()
+        assert (
+            "alias",
+            ("splunk.corp.example", f"splunk-corp-example.{hex_id}.tunnel.internal"),
+        ) in _calls()
         assert created.site_secret == "newt-secret"
         assert created.site_install_command == (
             "newt --id newt-id --secret newt-secret --endpoint https://pangolin.example.com"

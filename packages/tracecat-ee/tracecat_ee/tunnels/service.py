@@ -16,7 +16,12 @@ from tracecat.pagination import Page, PageParams, paginate
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.enums import Entitlement
-from tracecat_ee.tunnels.pangolin import PangolinAPI, PangolinError, PangolinSettings
+from tracecat_ee.tunnels.pangolin import (
+    PangolinAPI,
+    PangolinError,
+    PangolinSettings,
+    managed_alias,
+)
 from tracecat_ee.tunnels.schemas import (
     ManagedTunnelCreate,
     ManagedTunnelCreated,
@@ -181,6 +186,7 @@ class TunnelsService(BaseWorkspaceService):
         """
         await self.require_entitlement(Entitlement.TUNNELS)
         settings = self._pangolin_settings()
+        tunnel_id = uuid.uuid4()
         label = f"tracecat-{self.workspace_id}-{params.name}"
         created_resources: list[int] = []
         site_id: int | None = None
@@ -199,10 +205,12 @@ class TunnelsService(BaseWorkspaceService):
                         destination=target.host,
                         tcp_ports=target.ports,
                         client_id=client.client_id,
+                        alias=managed_alias(tunnel_id, target.host),
                     )
                     created_resources.append(resource_id)
                     resource_ids[target.host] = resource_id
                 tunnel = WorkspaceTunnel(
+                    id=tunnel_id,
                     workspace_id=self.workspace_id,
                     name=params.name,
                     description=params.description,
