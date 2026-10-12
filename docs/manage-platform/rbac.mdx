@@ -23,7 +23,7 @@ Every organization has five preset roles. Tracecat rejects scope changes to a pr
 
 The Scopes column counts the current definition. Startup seeding adds scopes a preset role is missing and removes none, so an organization created before a scope was renamed also keeps the old name.
 
-Every member holds six baseline scopes without any role: `org:read`, `org:member:read`, `org:registry:read`, `org:secret:read`, `agent:read`, and `agent:execute`. The baseline grants no workspace access.
+Every member holds four baseline scopes without any role: `org:read`, `org:member:read`, `org:registry:read`, and `org:secret:read`. The baseline grants no workspace access and no agent access.
 
 `organization-owner` and `organization-admin` reach every workspace in the organization. Every other member needs a workspace role, assigned on that workspace or organization-wide.
 
