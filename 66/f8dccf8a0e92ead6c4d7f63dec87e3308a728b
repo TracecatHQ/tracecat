@@ -1,0 +1,25 @@
+frontend/src/components/forms/form-renderer.tsx
+  s_7f6729d1c18d55::t_572ee248bd99aa 32-37,188-189,192-194,202,219,230-238,242,265-266,291-294,310,348,367
+frontend/src/components/forms/form-renderer.test.tsx
+  s_7f6729d1c18d55::t_c4fdb06891a3c2 285-360
+frontend/src/lib/forms/field-keys.test.ts
+  s_7f6729d1c18d55::t_df19fa153e2ce1 1-49
+frontend/src/lib/forms/field-keys.ts
+  s_7f6729d1c18d55::t_d8add7b599e15b 1-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "66f8dccf8a0e92ead6c4d7f63dec87e3308a728b",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
