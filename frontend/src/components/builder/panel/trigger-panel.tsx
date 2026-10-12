@@ -9,6 +9,7 @@ import {
   BanIcon,
   CalendarClockIcon,
   ChevronDownIcon,
+  ClipboardListIcon,
   KeyRoundIcon,
   MoreHorizontalIcon,
   PlusCircleIcon,
@@ -30,6 +31,7 @@ import {
   type WebhookRead,
   type WorkflowRead,
 } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { TriggerTypename } from "@/components/builder/canvas/trigger-node"
 import { CASE_EVENT_SUGGESTIONS } from "@/components/builder/panel/case-event-suggestions"
 import {
@@ -37,6 +39,7 @@ import {
   TriggerPanelTabs,
 } from "@/components/builder/panel/trigger-panel-tabs"
 import { CopyButton } from "@/components/copy-button"
+import { FormTriggerControls } from "@/components/forms/form-trigger-controls"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
@@ -118,6 +121,7 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useFormsAccess } from "@/hooks/use-forms-access"
 import {
   useCaseTagCatalog,
   useCaseTrigger,
@@ -261,6 +265,10 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
   const { triggerPanelTab, setTriggerPanelTab } = useWorkflowBuilder()
   const { hasEntitlement } = useEntitlements()
   const caseAddonsEnabled = hasEntitlement("case_addons")
+  // The Form tab needs Forms on (flag and entitlement) and `form:read`.
+  const formsAccess = useFormsAccess()
+  const canReadForms = useScopeCheck("form:read")
+  const formTabVisible = formsAccess === "enabled" && canReadForms === true
 
   return (
     <div className="overflow-auto size-full">
@@ -319,6 +327,15 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
                   <span>Case triggers</span>
                 </TabsTrigger>
               )}
+              {formTabVisible && (
+                <TabsTrigger
+                  className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                  value={TriggerPanelTabs.form}
+                >
+                  <ClipboardListIcon className="mr-2 size-4" />
+                  <span>Form</span>
+                </TabsTrigger>
+              )}
             </TabsList>
           </div>
           <Separator />
@@ -341,6 +358,13 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
             <TabsContent value={TriggerPanelTabs.caseTriggers} className="pb-8">
               <div className="px-4 my-4 space-y-2">
                 <CaseTriggerControls workflowId={workflow.id} />
+              </div>
+            </TabsContent>
+          )}
+          {formTabVisible && (
+            <TabsContent value={TriggerPanelTabs.form} className="pb-8">
+              <div className="px-4 my-4 space-y-2">
+                <FormTriggerControls workflow={workflow} />
               </div>
             </TabsContent>
           )}
