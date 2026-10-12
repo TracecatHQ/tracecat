@@ -1,0 +1,33 @@
+frontend/src/components/builder/panel/trigger-panel.tsx
+  s_7f6729d1c18d55::t_2059371fe5e5ab 268-271
+  s_7f6729d1c18d55::t_d66c87edb31f8b 124
+  s_7f6729d1c18d55::t_57543f0e20afaf 330-338
+  s_7f6729d1c18d55::t_b9ba26eff63fd6 34
+  s_7f6729d1c18d55::t_a5ffe03ed36ca2 364-370
+  s_7f6729d1c18d55::t_19825723d1398a 42
+  s_7f6729d1c18d55::t_abdadbb830c921 12
+frontend/src/components/forms/form-trigger-controls.test.tsx
+  s_7f6729d1c18d55::t_0a5165f11a1e50 1-221
+frontend/src/components/forms/form-trigger-controls.tsx
+  s_7f6729d1c18d55::t_f3dc16549b8bcb 60,104-107
+  s_7f6729d1c18d55::t_946e88e321882a 125-131,136,138
+  s_7f6729d1c18d55::t_f5be0334e934de 1-59,61-103,108-124,132-135,137,139-156
+frontend/src/components/builder/panel/trigger-panel-tabs.ts
+  s_7f6729d1c18d55::t_f85b4ea16ec4cf 5,13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "59381afc2edca3161f02b12564b765d63f9360e6",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
