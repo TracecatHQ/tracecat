@@ -1997,8 +1997,11 @@ class DSLWorkflow:
             "execute_action_activity",
             args=(arg, self.role),
             task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+            # The executor enforces the action timeout around the function call.
+            # This ceiling also allows for platform work in the activity.
             start_to_close_timeout=timedelta(
-                seconds=task.start_delay + task.retry_policy.timeout
+                seconds=task.retry_policy.timeout
+                + config.TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT
             ),
             heartbeat_timeout=timedelta(
                 seconds=config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT

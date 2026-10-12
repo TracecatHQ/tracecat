@@ -814,7 +814,10 @@ async def invoke_once(
     """
     role = ctx.role
     action_name = input.task.action
-    timeout = config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
+    # Budgets each action function call; platform preparation is excluded.
+    timeout = (
+        input.task.retry_policy.timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
+    )
 
     # Ensure organization_id is set (workflows are always org-scoped)
     if role.organization_id is None:

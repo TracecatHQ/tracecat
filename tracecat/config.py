@@ -887,6 +887,23 @@ TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
 )
 """Default timeout in seconds for executor client operations (default: 300s)."""
 
+TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT = float(
+    os.environ.get("TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT") or 600
+)
+"""Seconds added to an action's timeout for the executor activity's start-to-close timeout.
+
+The action timeout budgets only the action function call. This allowance covers
+platform work in the same activity (context materialization, secret resolution,
+registry artifacts, sandbox startup, and result storage)."""
+
+TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE = float(
+    os.environ.get("TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE") or 60
+)
+"""Seconds an action subprocess may run beyond the action timeout before it is killed.
+
+Covers sandbox startup, imports, and result serialization around the timed
+function call, which the action runner enforces itself."""
+
 # === Action Gateway === #
 TRACECAT__ACTION_GATEWAY_SOCKET = (
     os.environ.get("TRACECAT__ACTION_GATEWAY_SOCKET")

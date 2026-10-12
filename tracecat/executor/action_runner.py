@@ -17,6 +17,7 @@ Key features:
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import shutil
 import sys
@@ -288,7 +289,11 @@ class ActionRunner:
                 "secret_mask_values": sorted(masks.values)
                 if (masks := ctx_secret_masks.get())
                 else [],
+                "timeout_seconds": timeout,
             }
+            # The runner times the function call; the jail only backstops
+            # startup and serialization around it.
+            hard_timeout = timeout + config.TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE
 
             # Write input JSON to job directory
             input_json = to_json(payload)
@@ -341,9 +346,9 @@ class ActionRunner:
                 resources=ResourceLimits(
                     memory_mb=config.TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
                     address_space_mb=config.TRACECAT__SANDBOX_ADDRESS_SPACE_MB,
-                    timeout_seconds=int(timeout),
+                    timeout_seconds=math.ceil(hard_timeout),
                 ),
-                timeout_seconds=timeout,
+                timeout_seconds=hard_timeout,
             )
 
             logger.debug(
@@ -431,7 +436,11 @@ class ActionRunner:
             payload["secret_env"] = secret_projection.env
             masks = ctx_secret_masks.get()
             payload["secret_mask_values"] = sorted(masks.values) if masks else []
+        payload["timeout_seconds"] = timeout
         input_json = to_json(payload)
+        # The runner times the function call; this only backstops startup and
+        # serialization around it.
+        hard_timeout = timeout + config.TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE
 
         # Build environment with registry paths in PYTHONPATH
         env = os.environ.copy()
@@ -495,7 +504,7 @@ class ActionRunner:
             stdout, stderr = await communicate_process_group(
                 proc,
                 input=input_json,
-                timeout=timeout,
+                timeout=hard_timeout,
                 terminate=terminate_supervised_process,
             )
             elapsed_ms = (time.monotonic() - start_time) * 1000

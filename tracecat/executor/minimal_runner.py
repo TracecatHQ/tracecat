@@ -20,9 +20,11 @@ import json
 import os
 import re
 import resource
+import signal
 import sys
+import threading
 import warnings
-from collections.abc import Mapping
+from collections.abc import Callable, Coroutine, Mapping
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Literal
@@ -134,6 +136,53 @@ def _install_action_gateway_sdk_transport() -> None:
     tracecat_client_cls._tracecat_action_gateway_transport = True
 
 
+class ActionTimeoutError(TimeoutError):
+    """The action function call exceeded the action's timeout."""
+
+
+def _timeout_message(timeout_seconds: float) -> str:
+    return f"Action execution timed out after {timeout_seconds:g}s"
+
+
+async def _await_with_timeout(
+    coro: Coroutine[Any, Any, Any], timeout_seconds: float | None
+) -> Any:
+    scope = asyncio.timeout(timeout_seconds)
+    try:
+        async with scope:
+            return await coro
+    except TimeoutError:
+        # Only our own deadline is an action timeout; a TimeoutError raised by
+        # the action itself propagates unchanged.
+        if timeout_seconds is not None and scope.expired():
+            raise ActionTimeoutError(_timeout_message(timeout_seconds)) from None
+        raise
+
+
+def _call_sync_with_timeout(
+    fn: Callable[..., Any], args: Mapping[str, Any], timeout_seconds: float | None
+) -> Any:
+    # SIGALRM interrupts blocking sync code but can only be armed from the main
+    # thread; elsewhere the host's subprocess deadline is the backstop.
+    if timeout_seconds is None or threading.current_thread() is not (
+        threading.main_thread()
+    ):
+        return fn(**args)
+
+    def _on_alarm(_signum: int, _frame: Any) -> None:
+        raise ActionTimeoutError(_timeout_message(timeout_seconds))
+
+    previous = signal.signal(signal.SIGALRM, _on_alarm)
+    signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
+    try:
+        return fn(**args)
+    finally:
+        try:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+        finally:
+            signal.signal(signal.SIGALRM, previous)
+
+
 class _CappedTextBuffer:
     """Lightweight text buffer with a hard character cap."""
 
@@ -189,6 +238,8 @@ def run_action_minimal(
     action_impl: dict[str, Any],
     args: Mapping[str, Any],
     secret_env: dict[str, str],
+    *,
+    timeout_seconds: float | None = None,
 ) -> Any:
     """Run an action with minimal imports (sync, for subprocess execution).
 
@@ -205,6 +256,8 @@ def run_action_minimal(
             - template_definition: Template definition for template actions
         args: Pre-evaluated arguments to pass to the action
         secret_env: Flat env-ready secret mapping
+        timeout_seconds: Deadline for the function call alone. Imports and
+            context setup do not count toward it.
 
     Returns:
         The action result
@@ -212,11 +265,12 @@ def run_action_minimal(
     Raises:
         ValueError: If action_impl is missing required fields
         NotImplementedError: If action type is not supported
+        ActionTimeoutError: If the function call exceeds timeout_seconds
     """
     impl_type = action_impl.get("type")
 
     if impl_type == "udf":
-        return _run_udf(action_impl, args, secret_env)
+        return _run_udf(action_impl, args, secret_env, timeout_seconds=timeout_seconds)
     elif impl_type == "template":
         raise NotImplementedError(
             "Template actions must be orchestrated at the service layer. "
@@ -353,6 +407,8 @@ def _run_udf(
     action_impl: dict[str, Any],
     args: Mapping[str, Any],
     secret_env: dict[str, str],
+    *,
+    timeout_seconds: float | None = None,
 ) -> Any:
     """Run a UDF action by importing and calling the function."""
     module_path = action_impl.get("module")
@@ -406,9 +462,9 @@ def _run_udf(
 
         # Check if async and run appropriately
         if asyncio.iscoroutinefunction(fn):
-            return asyncio.run(fn(**args))
+            return asyncio.run(_await_with_timeout(fn(**args), timeout_seconds))
         else:
-            return fn(**args)
+            return _call_sync_with_timeout(fn, args, timeout_seconds)
     finally:
         # Reset secrets context
         if registry_secrets is not None and secrets_token is not None:
@@ -479,6 +535,7 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
             - secret_env: Flat env-ready secret mapping
             - secret_mask_values: Observed secret-derived diagnostic representations
             - input: RunActionInput (for metadata only)
+            - timeout_seconds: Optional deadline for the action function call
 
     Returns:
         Dict with 'success', 'result', and optionally 'error'
@@ -527,7 +584,12 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
             contextlib.redirect_stdout(action_stdout),
             contextlib.redirect_stderr(action_stderr),
         ):
-            result = run_action_minimal(action_impl, evaluated_args, secret_env)
+            result = run_action_minimal(
+                action_impl,
+                evaluated_args,
+                secret_env,
+                timeout_seconds=input_data.get("timeout_seconds"),
+            )
 
         # Mask secret values in captured output to prevent leaking credentials
         if captured_stdout := action_stdout.getvalue().strip():

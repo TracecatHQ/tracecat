@@ -13,6 +13,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import orjson
@@ -195,6 +196,7 @@ class TestActionRunner:
             patch("asyncio.create_subprocess_exec") as mock_subprocess,
         ):
             mock_config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT = 0.1
+            mock_config.TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE = 0
             mock_config.TRACECAT__EXECUTOR_BACKEND = ExecutorBackendType.DIRECT
             mock_config.TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR = str(temp_cache_dir)
 
@@ -569,6 +571,107 @@ class TestActionRunner:
         assert (
             captured_env["TRACECAT__EXECUTOR_TOKEN"] == resolved_context.executor_token
         )
+
+    @pytest.mark.anyio
+    async def test_direct_action_times_function_call_with_subprocess_backstop(
+        self,
+        temp_cache_dir: Path,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        base_dir = temp_cache_dir / "base"
+        base_dir.mkdir()
+        monkeypatch.setattr(
+            action_runner.config, "TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE", 60.0
+        )
+        captured: dict[str, Any] = {}
+
+        async def communicate(
+            _process: object,
+            *,
+            input: bytes | None = None,  # noqa: A002
+            timeout: float | None = None,
+            terminate: object = None,
+        ) -> tuple[bytes, bytes]:
+            captured["payload"] = orjson.loads(input or b"{}")
+            captured["timeout"] = timeout
+            return orjson.dumps({"success": True, "result": "ok"}), b""
+
+        monkeypatch.setattr(action_runner, "communicate_process_group", communicate)
+        with patch("asyncio.create_subprocess_exec") as mock_subprocess:
+            mock_proc = AsyncMock()
+            mock_proc.returncode = 0
+            mock_subprocess.return_value = mock_proc
+
+            result = await runner._execute_direct(
+                input=mock_run_action_input,
+                role=mock_role,
+                registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
+                timeout=900.0,
+            )
+
+        assert result == "ok"
+        assert captured["payload"]["timeout_seconds"] == 900.0
+        assert captured["timeout"] == 960.0
+
+    @pytest.mark.anyio
+    async def test_sandbox_action_times_function_call_with_jail_backstop(
+        self,
+        delegated_cgroup: Path,
+        temp_cache_dir: Path,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        base_dir = temp_cache_dir / "base"
+        base_dir.mkdir()
+        monkeypatch.setattr(
+            action_runner.config, "TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE", 60.0
+        )
+        captured: dict[str, Any] = {}
+
+        async def execute_action(
+            _executor: action_runner.NsjailExecutor,
+            job_dir: Path,
+            sandbox_config: action_runner.ActionSandboxConfig,
+        ) -> SandboxResult:
+            captured["payload"] = orjson.loads((job_dir / "input.json").read_bytes())
+            captured["config"] = sandbox_config
+            return SandboxResult(success=True, output="ok")
+
+        monkeypatch.setattr(
+            action_runner.NsjailExecutor, "execute_action", execute_action
+        )
+
+        result = await runner._execute_sandboxed(
+            input=mock_run_action_input,
+            role=mock_role,
+            registry_paths=[base_dir],
+            secret_projection=_empty_secret_projection(),
+            resolved_context=ResolvedContext(
+                action_impl=ActionImplementation(
+                    type="udf",
+                    action_name="core.transform.reshape",
+                    module="tracecat_registry.core.transform",
+                    name="reshape",
+                ),
+                evaluated_args={},
+                workspace_id=str(mock_role.workspace_id),
+                workflow_id=str(mock_run_action_input.run_context.wf_id),
+                run_id=str(mock_run_action_input.run_context.wf_run_id),
+                executor_token="attested-executor-token",
+            ),
+            timeout=900.0,
+        )
+
+        assert result == "ok"
+        assert captured["payload"]["timeout_seconds"] == 900.0
+        assert captured["config"].timeout_seconds == 960.0
+        assert captured["config"].resources.timeout_seconds == 960
 
     @pytest.mark.anyio
     async def test_sandbox_infrastructure_result_raises_typed_error(
