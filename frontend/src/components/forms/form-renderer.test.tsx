@@ -282,6 +282,82 @@ describe("FormRenderer", () => {
     expect(screen.getByLabelText(/Justification/)).toHaveValue("Kept")
   })
 
+  describe("input names with path syntax", () => {
+    const dottedForm = resolvedForm({
+      blocks: [
+        fieldBlock({ name: "user.email", label: "Email", required: true }),
+        fieldBlock({ name: "user", label: "User" }),
+        fieldBlock({
+          name: "items[0]",
+          label: "Remote",
+          widget: "toggle",
+          default: false,
+        }),
+        fieldBlock({
+          name: "items[0].note",
+          label: "Remote note",
+          visible_if: { field: "items[0]", equals: true },
+        }),
+      ],
+    })
+
+    it("keeps each answer under its own name", async () => {
+      const { user, onSubmit } = renderForm({ form: dottedForm })
+
+      await user.type(screen.getByLabelText(/Email/), "maya@example.com")
+      await user.type(screen.getByLabelText("User"), "Maya")
+      await user.click(screen.getByRole("switch", { name: "Remote" }))
+      await user.type(screen.getByLabelText("Remote note"), "Ship it")
+      // Typing in one field must not rewrite another.
+      expect(screen.getByLabelText("User")).toHaveValue("Maya")
+      await user.click(submitButton())
+
+      await waitFor(() =>
+        expect(onSubmit).toHaveBeenCalledWith({
+          "user.email": "maya@example.com",
+          user: "Maya",
+          "items[0]": true,
+          "items[0].note": "Ship it",
+        })
+      )
+    })
+
+    it("validates and shows server errors on the named field", async () => {
+      const { user, onSubmit } = renderForm({ form: dottedForm })
+      onSubmit.mockRejectedValueOnce(
+        apiError(422, {
+          code: "form_validation_error",
+          message: "Some answers are not valid",
+          errors: [
+            {
+              field: "user.email",
+              code: "invalid_value",
+              message: "Use your work email",
+            },
+          ],
+        })
+      )
+
+      await user.click(submitButton())
+      expect(
+        await screen.findByText("This field is required")
+      ).toBeInTheDocument()
+      expect(screen.getByLabelText(/Email/)).toHaveAttribute(
+        "aria-invalid",
+        "true"
+      )
+      expect(onSubmit).not.toHaveBeenCalled()
+
+      await user.type(screen.getByLabelText(/Email/), "maya@example.org")
+      await user.click(submitButton())
+      expect(await screen.findByText("Use your work email")).toBeInTheDocument()
+      expect(screen.getByLabelText(/Email/)).toHaveAttribute(
+        "aria-invalid",
+        "true"
+      )
+    })
+  })
+
   it("is read-only without permission to submit", () => {
     renderForm({ canSubmit: false })
 

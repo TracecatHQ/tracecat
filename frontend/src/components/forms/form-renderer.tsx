@@ -29,6 +29,12 @@ import type {
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { getFormErrorDetail, mapFormFieldErrors } from "@/lib/forms/errors"
+import {
+  fromFieldKey,
+  fromFieldKeyValues,
+  toFieldKey,
+  toFieldKeyValues,
+} from "@/lib/forms/field-keys"
 import { getInitialFormValues, validateFormValues } from "@/lib/forms/validate"
 import {
   type FormBlock,
@@ -179,9 +185,13 @@ export function FormRenderer({
   const [receipt, setReceipt] = useState<FormSubmissionReceipt | null>(null)
   const [formErrors, setFormErrors] = useState<string[]>([])
 
+  // Form state is keyed by `toFieldKey(name)`, never by the input name: a
+  // name such as `user.email` would be read as a path by react-hook-form.
   const resolver = useCallback<Resolver<FormValues>>(
     async (values) => {
-      const messages = Object.entries(validateFormValues(blocks, values))
+      const messages = Object.entries(
+        validateFormValues(blocks, fromFieldKeyValues(values))
+      )
       if (messages.length === 0) {
         return { values, errors: {} }
       }
@@ -189,7 +199,7 @@ export function FormRenderer({
         values: {},
         errors: Object.fromEntries(
           messages.map(([name, message]) => [
-            name,
+            toFieldKey(name),
             { type: "validate", message },
           ])
         ) as FieldErrors<FormValues>,
@@ -206,7 +216,7 @@ export function FormRenderer({
     setError,
     formState,
   } = useForm<FormValues>({
-    defaultValues: getInitialFormValues(blocks),
+    defaultValues: toFieldKeyValues(getInitialFormValues(blocks)),
     resolver,
   })
 
@@ -217,11 +227,19 @@ export function FormRenderer({
     if (previousBlocks.current === blocks) {
       return
     }
-    reset(carryOverValues(previousBlocks.current, blocks, getValues()))
+    reset(
+      toFieldKeyValues(
+        carryOverValues(
+          previousBlocks.current,
+          blocks,
+          fromFieldKeyValues(getValues())
+        )
+      )
+    )
     previousBlocks.current = blocks
   }, [blocks, reset, getValues])
 
-  const values = watch()
+  const values = fromFieldKeyValues(watch())
   const visibleNames = new Set(
     getVisibleFields(blocks, values).map((field) => field.name)
   )
@@ -244,7 +262,8 @@ export function FormRenderer({
     }
   }
 
-  async function submit(submitted: FormValues) {
+  async function submit(state: FormValues) {
+    const submitted = fromFieldKeyValues(state)
     setFormErrors([])
     if (mode === "preview") {
       setReceipt({
@@ -269,7 +288,10 @@ export function FormRenderer({
         )
         const names = Object.keys(fieldErrors)
         for (const name of names) {
-          setError(name, { type: "server", message: fieldErrors[name] })
+          setError(toFieldKey(name), {
+            type: "server",
+            message: fieldErrors[name],
+          })
         }
         // A rejection that names no field still has to say something.
         setFormErrors(
@@ -285,7 +307,7 @@ export function FormRenderer({
   }
 
   function submitAnother() {
-    reset(getInitialFormValues(blocks))
+    reset(toFieldKeyValues(getInitialFormValues(blocks)))
     setFormErrors([])
     setReceipt(null)
   }
@@ -323,7 +345,7 @@ export function FormRenderer({
     <form
       noValidate
       onSubmit={handleSubmit(submit, (errors) =>
-        scrollToFirstError(Object.keys(errors))
+        scrollToFirstError(Object.keys(errors).map(fromFieldKey))
       )}
       className={cn(formStyles.card, className)}
     >
@@ -342,7 +364,7 @@ export function FormRenderer({
           <Controller
             key={block.name}
             control={control}
-            name={block.name}
+            name={toFieldKey(block.name)}
             render={({ field, fieldState }) => (
               <FormFieldRow
                 id={fieldId(block.name)}
