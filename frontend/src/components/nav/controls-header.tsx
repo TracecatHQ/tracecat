@@ -78,6 +78,11 @@ import {
   WorkflowsCatalogViewToggle,
 } from "@/components/dashboard/workflows-catalog-view-toggle"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
+import {
+  FormDetailActions,
+  FormDetailTitle,
+  FormsListActions,
+} from "@/components/forms/forms-header"
 import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
 import { Spinner } from "@/components/loading/spinner"
 import { FolderPathBreadcrumb } from "@/components/nav/folder-path-breadcrumb"
@@ -2302,6 +2307,24 @@ function getPageConfig(
     return {
       title: "Cases",
       actions: <CasesActions />,
+    }
+  }
+
+  if (pagePath.startsWith("/forms")) {
+    const formMatch = pagePath.match(/^\/forms\/([^/]+)$/)
+    if (formMatch) {
+      const formId = formMatch[1]
+      return {
+        title: <FormDetailTitle formId={formId} workspaceId={workspaceId} />,
+        actions: (
+          <FormDetailActions formId={formId} workspaceId={workspaceId} />
+        ),
+      }
+    }
+
+    return {
+      title: "Forms",
+      actions: <FormsListActions />,
     }
   }
 

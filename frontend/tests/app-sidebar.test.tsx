@@ -19,7 +19,16 @@ jest.mock("next/navigation", () => ({
 }))
 
 jest.mock("@/components/auth/scope-guard", () => ({
-  useScopeCheck: (scope: string) => mockUseScopeCheck(scope),
+  // With a list of scopes, holding any one of them passes.
+  useScopeCheck: (scope?: string, scopes: string[] = []) =>
+    scope
+      ? mockUseScopeCheck(scope)
+      : scopes.some((item) => mockUseScopeCheck(item) === true),
+}))
+
+let mockFormsAccess = "hidden"
+jest.mock("@/hooks/use-forms-access", () => ({
+  useFormsAccess: () => mockFormsAccess,
 }))
 
 jest.mock("@/components/locked-feature-modal", () => ({
@@ -155,6 +164,61 @@ describe("AppSidebar", () => {
     mockEntitlementsIsLoading = false
     mockHasEntitlementData = true
     mockUseScopeCheck.mockImplementation((scope) => mockScopes[scope] ?? false)
+    mockFormsAccess = "hidden"
+  })
+
+  describe("Forms", () => {
+    const builderScopes = { "workflow:read": true, "form:update": true }
+
+    it("is not shown while the feature flag is off or unknown", () => {
+      mockScopes = builderScopes
+
+      mockFormsAccess = "hidden"
+      const { unmount } = render(<AppSidebar />)
+      expect(screen.queryByText("Forms")).not.toBeInTheDocument()
+      unmount()
+
+      mockFormsAccess = "loading"
+      render(<AppSidebar />)
+      expect(screen.queryByText("Forms")).not.toBeInTheDocument()
+    })
+
+    it.each(["enabled", "locked"])(
+      "links to the list after Workflows when access is %s",
+      (access) => {
+        mockScopes = builderScopes
+        mockFormsAccess = access
+
+        render(<AppSidebar />)
+
+        expect(screen.getByRole("link", { name: "Forms" })).toHaveAttribute(
+          "href",
+          "/workspaces/workspace-1/forms"
+        )
+        const titles = screen
+          .getAllByRole("link")
+          .map((link) => link.textContent)
+        expect(titles.indexOf("Forms")).toBe(titles.indexOf("Workflows") + 1)
+      }
+    )
+
+    it("is shown to a viewer who can read submissions", () => {
+      mockScopes = { "form:read": true, "form:submission:read": true }
+      mockFormsAccess = "enabled"
+
+      render(<AppSidebar />)
+
+      expect(screen.getByRole("link", { name: "Forms" })).toBeInTheDocument()
+    })
+
+    it("is not shown to someone who can only fill in forms", () => {
+      mockScopes = { "form:read": true, "form:submit": true }
+      mockFormsAccess = "enabled"
+
+      render(<AppSidebar />)
+
+      expect(screen.queryByText("Forms")).not.toBeInTheDocument()
+    })
   })
 
   it("hides Chat when the user can execute agents but cannot read them", () => {
