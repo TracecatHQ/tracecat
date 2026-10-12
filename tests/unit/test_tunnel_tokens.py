@@ -112,3 +112,40 @@ def test_rejects_unsigned_token() -> None:
 def test_mint_rejects_bad_ttl(ttl: int) -> None:
     with pytest.raises(ValueError):
         _mint(ttl_seconds=ttl)
+
+
+def test_gateway_policy_token_round_trip_and_rejections() -> None:
+    from tracecat_ee.tunnels.tokens import (
+        mint_gateway_policy_token,
+        unverified_policy_token_tunnel_id,
+        verify_gateway_policy_token,
+    )
+
+    key = generate_gateway_key()
+    tunnel_id = uuid.uuid4()
+    token = mint_gateway_policy_token(gateway_key=key, tunnel_id=tunnel_id)
+    assert unverified_policy_token_tunnel_id(token) == tunnel_id
+    verify_gateway_policy_token(token, gateway_key=key, tunnel_id=tunnel_id)
+    with pytest.raises(TunnelTokenError):
+        verify_gateway_policy_token(
+            token, gateway_key=generate_gateway_key(), tunnel_id=tunnel_id
+        )
+    with pytest.raises(TunnelTokenError):
+        verify_gateway_policy_token(token, gateway_key=key, tunnel_id=uuid.uuid4())
+    with pytest.raises(TunnelTokenError):
+        unverified_policy_token_tunnel_id("not-a-jwt")
+
+
+def test_proxy_token_is_not_a_policy_token() -> None:
+    from tracecat_ee.tunnels.tokens import verify_gateway_policy_token
+
+    key = generate_gateway_key()
+    tunnel_id = uuid.uuid4()
+    proxy_token = mint_tunnel_token(
+        gateway_key=key,
+        tunnel_id=tunnel_id,
+        workspace_id=uuid.uuid4(),
+        wf_exec_id="wf-exec-1",
+    )
+    with pytest.raises(TunnelTokenError):
+        verify_gateway_policy_token(proxy_token, gateway_key=key, tunnel_id=tunnel_id)

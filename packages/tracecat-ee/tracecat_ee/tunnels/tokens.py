@@ -21,6 +21,11 @@ TUNNEL_TOKEN_DEFAULT_TTL_SECONDS = 300
 TUNNEL_TOKEN_MAX_TTL_SECONDS = 900
 _REQUIRED_CLAIMS = ("iss", "aud", "sub", "iat", "exp", "workspace_id", "wf_exec_id")
 
+GATEWAY_POLICY_TOKEN_ISSUER = "tracecat-tunnel-gateway"
+GATEWAY_POLICY_TOKEN_AUDIENCE = "tracecat-tunnel-policy"
+GATEWAY_POLICY_TOKEN_TTL_SECONDS = 60
+_POLICY_REQUIRED_CLAIMS = ("iss", "aud", "sub", "iat", "exp")
+
 
 class TunnelTokenError(Exception):
     """Raised when a tunnel proxy token is missing, invalid, or for another tunnel."""
@@ -97,3 +102,53 @@ def verify_tunnel_token(
     if claims.tunnel_id != tunnel_id or claims.workspace_id != workspace_id:
         raise TunnelTokenError("Tunnel token is for a different tunnel")
     return claims
+
+
+def mint_gateway_policy_token(*, gateway_key: str, tunnel_id: uuid.UUID) -> str:
+    """Mint the token a gateway uses to fetch its tunnel's current policy."""
+    now = datetime.now(UTC)
+    payload: dict[str, Any] = {
+        "iss": GATEWAY_POLICY_TOKEN_ISSUER,
+        "aud": GATEWAY_POLICY_TOKEN_AUDIENCE,
+        "sub": str(tunnel_id),
+        "iat": int(now.timestamp()),
+        "exp": int(
+            (now + timedelta(seconds=GATEWAY_POLICY_TOKEN_TTL_SECONDS)).timestamp()
+        ),
+    }
+    return jwt.encode(payload, gateway_key, algorithm="HS256")
+
+
+def unverified_policy_token_tunnel_id(token: str) -> uuid.UUID:
+    """Read the tunnel ID from a policy token so its gateway key can be loaded.
+
+    The token is not trusted until ``verify_gateway_policy_token`` succeeds.
+    """
+    try:
+        payload = jwt.decode(
+            token, options={"verify_signature": False}, algorithms=["HS256"]
+        )
+        return uuid.UUID(str(payload["sub"]))
+    except (PyJWTError, KeyError, ValueError) as exc:
+        raise TunnelTokenError("Invalid gateway policy token") from exc
+
+
+def verify_gateway_policy_token(
+    token: str, *, gateway_key: str, tunnel_id: uuid.UUID
+) -> None:
+    """Verify a policy token was signed with this tunnel's current gateway key."""
+    try:
+        payload = jwt.decode(
+            token,
+            gateway_key,
+            algorithms=["HS256"],
+            audience=GATEWAY_POLICY_TOKEN_AUDIENCE,
+            issuer=GATEWAY_POLICY_TOKEN_ISSUER,
+            options={"require": list(_POLICY_REQUIRED_CLAIMS)},
+        )
+    except PyJWTError as exc:
+        raise TunnelTokenError("Invalid gateway policy token") from exc
+    if payload["exp"] - payload["iat"] > GATEWAY_POLICY_TOKEN_TTL_SECONDS:
+        raise TunnelTokenError("Gateway policy token lifetime is too long")
+    if payload["sub"] != str(tunnel_id):
+        raise TunnelTokenError("Gateway policy token is for a different tunnel")

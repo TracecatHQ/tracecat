@@ -1,5 +1,6 @@
 """API-level tests for workspace tunnels: entitlement gate and IDOR isolation."""
 
+import uuid
 from collections.abc import AsyncGenerator
 from typing import get_args
 from unittest.mock import AsyncMock
@@ -10,12 +11,15 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.tunnels import router as tunnels_router_module
+from tracecat_ee.tunnels import service as tunnels_service_module
+from tracecat_ee.tunnels.router import gateway_router as tunnel_gateway_router
 from tracecat_ee.tunnels.router import router as tunnels_router
 from tracecat_ee.tunnels.service import TunnelsService
+from tracecat_ee.tunnels.tokens import generate_gateway_key, mint_gateway_policy_token
 
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
-from tracecat.db.engine import get_async_session
+from tracecat.db.engine import get_async_session, get_async_session_bypass_rls
 from tracecat.db.models import Organization, Workspace
 from tracecat.exceptions import EntitlementRequired
 from tracecat.tiers.enums import Entitlement
@@ -182,6 +186,80 @@ async def test_gateway_key_is_returned_once(
     holder.role = svc_role.model_copy(update={"workspace_id": other_workspace.id})
     stolen = await client.post(f"/tunnels/{tunnel_id}/gateway-key")
     assert stolen.status_code == 404
+
+
+@pytest.fixture
+async def gateway_client(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> AsyncGenerator[tuple[httpx.AsyncClient, AsyncMock], None]:
+    entitled = AsyncMock(return_value=True)
+    monkeypatch.setattr(tunnels_service_module, "is_org_entitled", entitled)
+    app = FastAPI()
+    app.include_router(tunnel_gateway_router)
+
+    async def _session() -> AsyncGenerator[AsyncSession, None]:
+        yield session
+
+    app.dependency_overrides[get_async_session_bypass_rls] = _session
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c, entitled
+
+
+async def test_gateway_policy_follows_tunnel_state(
+    client: httpx.AsyncClient,
+    gateway_client: tuple[httpx.AsyncClient, AsyncMock],
+    svc_role: Role,
+) -> None:
+    gw, entitled = gateway_client
+    tunnel_id = (await client.post("/tunnels", json=CREATE_BODY)).json()["id"]
+
+    async def _policy(key: str) -> httpx.Response:
+        token = mint_gateway_policy_token(
+            gateway_key=key, tunnel_id=uuid.UUID(tunnel_id)
+        )
+        return await gw.post(
+            "/tunnel-gateway/policy", headers={"Authorization": f"Bearer {token}"}
+        )
+
+    # No key issued yet, missing or garbage credentials.
+    assert (await _policy("not-the-key")).status_code == 401
+    assert (await gw.post("/tunnel-gateway/policy")).status_code == 401
+    garbage = {"Authorization": "Bearer not-a-jwt"}
+    assert (await gw.post("/tunnel-gateway/policy", headers=garbage)).status_code == 401
+
+    key = (await client.post(f"/tunnels/{tunnel_id}/gateway-key")).json()["gateway_key"]
+    response = await _policy(key)
+    assert response.status_code == 200
+    assert response.json() == {
+        "tunnel_id": tunnel_id,
+        "workspace_id": str(svc_role.workspace_id),
+        "allowed_targets": CREATE_BODY["allowed_targets"],
+        "managed": False,
+    }
+    assert SECRET not in response.text
+    assert key not in response.text
+
+    # Another tunnel's key can't read this tunnel's policy.
+    assert (await _policy(generate_gateway_key())).status_code == 401
+
+    await client.patch(f"/tunnels/{tunnel_id}", json={"enabled": False})
+    assert (await _policy(key)).status_code == 403
+    await client.patch(f"/tunnels/{tunnel_id}", json={"enabled": True})
+    assert (await _policy(key)).status_code == 200
+
+    entitled.return_value = False
+    assert (await _policy(key)).status_code == 403
+    entitled.return_value = True
+
+    new_key = (await client.post(f"/tunnels/{tunnel_id}/gateway-key")).json()[
+        "gateway_key"
+    ]
+    assert (await _policy(key)).status_code == 401
+    assert (await _policy(new_key)).status_code == 200
+
+    assert (await client.delete(f"/tunnels/{tunnel_id}")).status_code == 204
+    assert (await _policy(new_key)).status_code == 401
 
 
 MANAGED_BODY = {

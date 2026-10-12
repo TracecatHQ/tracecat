@@ -6,15 +6,17 @@ import uuid
 from collections.abc import Awaitable, Callable
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.audit.logger import audit_log
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import require_scope
-from tracecat.db.models import WorkspaceTunnel
+from tracecat.db.models import Workspace, WorkspaceTunnel
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import Page, PageParams, paginate
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseWorkspaceService
+from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
 from tracecat_ee.tunnels.pangolin import (
     PangolinAPI,
@@ -26,13 +28,59 @@ from tracecat_ee.tunnels.schemas import (
     ManagedTunnelCreate,
     ManagedTunnelCreated,
     TunnelCreate,
+    TunnelGatewayPolicyRead,
     TunnelRead,
     TunnelStatusRead,
     TunnelUpdate,
     serialize_endpoint,
     serialize_targets,
 )
-from tracecat_ee.tunnels.tokens import generate_gateway_key
+from tracecat_ee.tunnels.tokens import (
+    TunnelTokenError,
+    generate_gateway_key,
+    unverified_policy_token_tunnel_id,
+    verify_gateway_policy_token,
+)
+
+
+class TunnelDisabledError(Exception):
+    """The tunnel is disabled or its organization lost the tunnels entitlement."""
+
+
+async def get_gateway_policy(
+    session: AsyncSession, token: str
+) -> TunnelGatewayPolicyRead:
+    """Return a tunnel's current policy to the gateway holding its gateway key.
+
+    The gateway authenticates with a token signed by the tunnel's current
+    gateway key, so a rotated key, a deleted tunnel, or a token for another
+    tunnel all fail with ``TunnelTokenError``. The session must bypass RLS
+    because gateways have no workspace role; the key check is the guard.
+    """
+    tunnel_id = unverified_policy_token_tunnel_id(token)
+    result = await session.execute(
+        select(WorkspaceTunnel, Workspace.organization_id)
+        .join(Workspace, Workspace.id == WorkspaceTunnel.workspace_id)
+        .where(WorkspaceTunnel.id == tunnel_id)
+    )
+    row = result.one_or_none()
+    if row is None or row[0].encrypted_gateway_key is None:
+        raise TunnelTokenError("Invalid gateway policy token")
+    tunnel, organization_id = row
+    gateway_key = decrypt_value(
+        tunnel.encrypted_gateway_key, key=get_db_encryption_key()
+    ).decode("utf-8")
+    verify_gateway_policy_token(token, gateway_key=gateway_key, tunnel_id=tunnel.id)
+    if not tunnel.enabled or not await is_org_entitled(
+        session, organization_id, Entitlement.TUNNELS
+    ):
+        raise TunnelDisabledError("Tunnel is disabled")
+    return TunnelGatewayPolicyRead(
+        tunnel_id=tunnel.id,
+        workspace_id=tunnel.workspace_id,
+        allowed_targets=TunnelRead.from_database(tunnel).allowed_targets,
+        managed=tunnel.managed,
+    )
 
 
 class TunnelsService(BaseWorkspaceService):

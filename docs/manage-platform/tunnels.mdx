@@ -130,14 +130,14 @@ The proxy reads:
 | Variable | Default | Description |
 | :------- | :------ | :---------- |
 | `TRACECAT_TUNNEL_ID` | | Tunnel ID. |
-| `TRACECAT_TUNNEL_WORKSPACE_ID` | | Workspace that owns the tunnel. |
 | `TRACECAT_TUNNEL_GATEWAY_KEY` | | Gateway key from the endpoint above. |
-| `TRACECAT_TUNNEL_ALLOWED_TARGETS` | | The tunnel's `allowed_targets` as JSON, e.g. `[{"host": "splunk.internal", "ports": [8089]}]`. |
-| `TRACECAT_TUNNEL_MANAGED` | `false` | Set `true` for managed tunnels so domain targets resolve through their Pangolin alias. |
+| `TRACECAT_TUNNEL_API_URL` | | Internal Tracecat API URL, e.g. `http://api:8000`. |
 | `TRACECAT_TUNNEL_GATEWAY_HOST` | `0.0.0.0` | Listen address. |
 | `TRACECAT_TUNNEL_GATEWAY_PORT` | `8080` | Listen port. |
 
-The gateway answers `407` for a missing, expired, or wrong-tunnel token, `403` for a host or port outside the allowed targets, and `504` when Pangolin does not reach the target. It never falls back to direct egress.
+The gateway loads the tunnel's workspace and allowed targets from the Tracecat API with its gateway key, and refreshes them every 15 seconds. Within one refresh of you disabling or deleting the tunnel, issuing a new gateway key, or removing a target, the gateway rejects new requests and closes the affected open connections. After a key rotation, restart the gateway with the new key. If the gateway can't reach the API for 60 seconds, it stops accepting requests until the API is back.
+
+The gateway answers `407` for a missing, expired, or wrong-tunnel token, `403` for a host or port outside the allowed targets or a revoked tunnel, `503` while it can't load the tunnel's policy, and `504` when Pangolin does not reach the target. It never falls back to direct egress.
 
 ## Use TLS with private services
 

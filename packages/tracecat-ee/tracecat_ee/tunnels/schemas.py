@@ -210,6 +210,15 @@ class TunnelGatewayKeyRead(BaseModel):
     )
 
 
+class TunnelGatewayPolicyRead(BaseModel):
+    """What a running gateway may currently do. Fetched with its gateway key."""
+
+    tunnel_id: uuid.UUID
+    workspace_id: WorkspaceID
+    allowed_targets: list[TunnelTarget]
+    managed: bool
+
+
 class ManagedTunnelCreate(BaseModel):
     """Create a tunnel whose Pangolin site, machine client, and resources Tracecat manages."""
 

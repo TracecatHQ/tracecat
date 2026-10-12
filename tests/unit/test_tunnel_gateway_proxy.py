@@ -3,21 +3,55 @@ import base64
 import json
 import uuid
 from collections.abc import AsyncGenerator
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 from tracecat_ee.tunnels.gateway.proxy import (
     GatewayConfig,
+    GatewayPolicy,
+    PolicyFetcher,
+    TunnelGateway,
+    fetch_policy,
     start_gateway,
 )
 from tracecat_ee.tunnels.pangolin import managed_alias
-from tracecat_ee.tunnels.tokens import generate_gateway_key, mint_tunnel_token
+from tracecat_ee.tunnels.tokens import (
+    generate_gateway_key,
+    mint_tunnel_token,
+    verify_gateway_policy_token,
+)
 
 pytestmark = pytest.mark.anyio
 
 KEY = generate_gateway_key()
 TUNNEL_ID = uuid.uuid4()
 WORKSPACE_ID = uuid.uuid4()
+
+
+def _policy(*targets: tuple[str, int], managed: bool = False) -> GatewayPolicy:
+    return GatewayPolicy(
+        workspace_id=WORKSPACE_ID,
+        allowed_targets=frozenset(targets),
+        managed=managed,
+    )
+
+
+class _MutablePolicy:
+    """Policy source a test can change, revoke, or break between refreshes."""
+
+    def __init__(self, policy: GatewayPolicy | None) -> None:
+        self.policy = policy
+        self.error: Exception | None = None
+
+    async def __call__(self) -> GatewayPolicy | None:
+        if self.error is not None:
+            raise self.error
+        return self.policy
+
+
+def _static(*targets: tuple[str, int], managed: bool = False) -> PolicyFetcher:
+    return _MutablePolicy(_policy(*targets, managed=managed))
 
 
 @pytest.fixture
@@ -43,16 +77,14 @@ async def upstream_port() -> AsyncGenerator[int, None]:
 async def gateway_port(upstream_port: int) -> AsyncGenerator[int, None]:
     config = GatewayConfig(
         tunnel_id=TUNNEL_ID,
-        workspace_id=WORKSPACE_ID,
         gateway_key=KEY,
-        allowed_targets=frozenset({("127.0.0.1", upstream_port)}),
         host="127.0.0.1",
         port=0,
         header_timeout=1.0,
         connect_timeout=1.0,
         idle_timeout=2.0,
     )
-    server = await start_gateway(config)
+    server, _ = await start_gateway(config, _static(("127.0.0.1", upstream_port)))
     async with server:
         yield server.sockets[0].getsockname()[1]
 
@@ -190,13 +222,11 @@ async def test_unreachable_upstream_returns_bad_gateway(upstream_port: int) -> N
     closed_port = upstream_port + 1
     config = GatewayConfig(
         tunnel_id=TUNNEL_ID,
-        workspace_id=WORKSPACE_ID,
         gateway_key=KEY,
-        allowed_targets=frozenset({("127.0.0.1", closed_port)}),
         host="127.0.0.1",
         port=0,
     )
-    server = await start_gateway(config)
+    server, _ = await start_gateway(config, _static(("127.0.0.1", closed_port)))
     async with server:
         port = server.sockets[0].getsockname()[1]
         status, _, writer = await _request(
@@ -210,43 +240,19 @@ def test_config_from_env() -> None:
     config = GatewayConfig.from_env(
         {
             "TRACECAT_TUNNEL_ID": str(TUNNEL_ID),
-            "TRACECAT_TUNNEL_WORKSPACE_ID": str(WORKSPACE_ID),
             "TRACECAT_TUNNEL_GATEWAY_KEY": KEY,
-            "TRACECAT_TUNNEL_ALLOWED_TARGETS": json.dumps(
-                [{"host": "Splunk.Corp.Example", "ports": [8089, 443]}]
-            ),
+            "TRACECAT_TUNNEL_API_URL": "http://api:8000",
         }
     )
-    assert config.allowed_targets == frozenset(
-        {("splunk.corp.example", 8089), ("splunk.corp.example", 443)}
-    )
+    assert config.api_url == "http://api:8000"
     assert config.port == 8080
     assert KEY not in repr(config)
 
 
-@pytest.mark.parametrize(
-    "targets", ["[]", "not json", '[{"host": "*.corp", "ports": [443]}]']
-)
-def test_config_rejects_invalid_targets(targets: str) -> None:
-    with pytest.raises(ValueError):
-        GatewayConfig.from_env(
-            {
-                "TRACECAT_TUNNEL_ID": str(TUNNEL_ID),
-                "TRACECAT_TUNNEL_WORKSPACE_ID": str(WORKSPACE_ID),
-                "TRACECAT_TUNNEL_GATEWAY_KEY": KEY,
-                "TRACECAT_TUNNEL_ALLOWED_TARGETS": targets,
-            }
-        )
-
-
 def test_config_requires_settings() -> None:
-    with pytest.raises(ValueError, match="TRACECAT_TUNNEL_GATEWAY_KEY"):
+    with pytest.raises(ValueError, match="TRACECAT_TUNNEL_API_URL"):
         GatewayConfig.from_env(
-            {
-                "TRACECAT_TUNNEL_ID": str(TUNNEL_ID),
-                "TRACECAT_TUNNEL_WORKSPACE_ID": str(WORKSPACE_ID),
-                "TRACECAT_TUNNEL_ALLOWED_TARGETS": "[]",
-            }
+            {"TRACECAT_TUNNEL_ID": str(TUNNEL_ID), "TRACECAT_TUNNEL_GATEWAY_KEY": KEY}
         )
 
 
@@ -281,13 +287,11 @@ async def http_upstream_port() -> AsyncGenerator[int, None]:
 async def http_gateway_port(http_upstream_port: int) -> AsyncGenerator[int, None]:
     config = GatewayConfig(
         tunnel_id=TUNNEL_ID,
-        workspace_id=WORKSPACE_ID,
         gateway_key=KEY,
-        allowed_targets=frozenset({("127.0.0.1", http_upstream_port)}),
         host="127.0.0.1",
         port=0,
     )
-    server = await start_gateway(config)
+    server, _ = await start_gateway(config, _static(("127.0.0.1", http_upstream_port)))
     async with server:
         yield server.sockets[0].getsockname()[1]
 
@@ -351,17 +355,176 @@ async def test_http_forward_rejects_malformed_uris(
     writer.close()
 
 
-def test_managed_gateway_dials_per_tunnel_alias() -> None:
-    tunnel_id = uuid.uuid4()
-    env = {
-        "TRACECAT_TUNNEL_ID": str(tunnel_id),
-        "TRACECAT_TUNNEL_WORKSPACE_ID": str(uuid.uuid4()),
-        "TRACECAT_TUNNEL_GATEWAY_KEY": "k",
-        "TRACECAT_TUNNEL_ALLOWED_TARGETS": '[{"host": "splunk.corp", "ports": [8089]}]',
-        "TRACECAT_TUNNEL_MANAGED": "true",
+@pytest.mark.parametrize(
+    ("managed", "host", "expected"),
+    [
+        (True, "splunk.corp", managed_alias(TUNNEL_ID, "splunk.corp")),
+        (True, "10.0.0.5", "10.0.0.5"),
+        (False, "splunk.corp", "splunk.corp"),
+    ],
+)
+async def test_managed_gateway_dials_per_tunnel_alias(
+    monkeypatch: pytest.MonkeyPatch, managed: bool, host: str, expected: str
+) -> None:
+    dialed: list[str] = []
+
+    async def _open_connection(dial_host: str, port: int) -> None:
+        dialed.append(dial_host)
+        raise OSError("unreachable")
+
+    monkeypatch.setattr(asyncio, "open_connection", _open_connection)
+    gateway = TunnelGateway(
+        GatewayConfig(tunnel_id=TUNNEL_ID, gateway_key=KEY),
+        _static((host, 8089), managed=managed),
+    )
+    await gateway.refresh()
+    reader = asyncio.StreamReader()
+    reader.feed_data(_connect(f"{host}:8089", f"Bearer {_token()}"))
+    writer = AsyncMock()
+    writer.write = lambda _data: None
+    writer.close = lambda: None
+    await gateway.handle(reader, writer)
+    assert dialed == [expected]
+
+
+async def _revocable_gateway(
+    upstream_port: int, max_policy_age: float = 60.0
+) -> tuple[asyncio.Server, TunnelGateway, _MutablePolicy]:
+    source = _MutablePolicy(_policy(("127.0.0.1", upstream_port)))
+    server, gateway = await start_gateway(
+        GatewayConfig(
+            tunnel_id=TUNNEL_ID,
+            gateway_key=KEY,
+            host="127.0.0.1",
+            port=0,
+            max_policy_age=max_policy_age,
+        ),
+        source,
+    )
+    return server, gateway, source
+
+
+async def _assert_closed(reader: asyncio.StreamReader) -> None:
+    assert await asyncio.wait_for(reader.read(1024), 3) == b""
+
+
+@pytest.mark.parametrize("change", ["revoke", "remove_target", "other_workspace"])
+async def test_policy_change_closes_open_connections_and_rejects_new(
+    upstream_port: int, change: str
+) -> None:
+    server, gateway, source = await _revocable_gateway(upstream_port)
+    async with server:
+        port = server.sockets[0].getsockname()[1]
+        target = f"127.0.0.1:{upstream_port}"
+        status, reader, writer = await _request(
+            port, _connect(target, f"Bearer {_token()}")
+        )
+        assert status.startswith(b"HTTP/1.1 200")
+
+        if change == "revoke":
+            source.policy = None
+        elif change == "remove_target":
+            source.policy = _policy(("127.0.0.1", upstream_port + 1))
+        else:
+            source.policy = GatewayPolicy(
+                workspace_id=uuid.uuid4(),
+                allowed_targets=frozenset({("127.0.0.1", upstream_port)}),
+            )
+        await gateway.refresh()
+        await _assert_closed(reader)
+        writer.close()
+
+        status, _, writer = await _request(port, _connect(target, f"Bearer {_token()}"))
+        assert status.split(b" ")[1] in {b"403", b"407"}
+        writer.close()
+
+
+async def test_stale_policy_fails_closed(upstream_port: int) -> None:
+    server, gateway, source = await _revocable_gateway(
+        upstream_port, max_policy_age=0.2
+    )
+    async with server:
+        port = server.sockets[0].getsockname()[1]
+        target = f"127.0.0.1:{upstream_port}"
+        status, reader, writer = await _request(
+            port, _connect(target, f"Bearer {_token()}")
+        )
+        assert status.startswith(b"HTTP/1.1 200")
+
+        source.error = httpx.ConnectError("api down")
+        await gateway.refresh()
+        writer.write(b"still-open")
+        await writer.drain()
+        assert await asyncio.wait_for(reader.read(1024), 3) == b"still-open"
+
+        await asyncio.sleep(0.3)
+        await gateway.refresh()
+        await _assert_closed(reader)
+        writer.close()
+
+        status, _, writer = await _request(port, _connect(target, f"Bearer {_token()}"))
+        assert status.startswith(b"HTTP/1.1 503")
+        writer.close()
+
+        source.error = None
+        await gateway.refresh()
+        status, _, writer = await _request(port, _connect(target, f"Bearer {_token()}"))
+        assert status.startswith(b"HTTP/1.1 200")
+        writer.close()
+
+
+@pytest.mark.parametrize("policy", [None, "error"])
+async def test_gateway_refuses_to_start_without_policy(policy: str | None) -> None:
+    source = _MutablePolicy(None)
+    if policy == "error":
+        source.error = httpx.ConnectError("api down")
+    with pytest.raises(RuntimeError):
+        await start_gateway(
+            GatewayConfig(tunnel_id=TUNNEL_ID, gateway_key=KEY, port=0), source
+        )
+
+
+def _policy_client(handler: object) -> httpx.AsyncClient:
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))  # pyright: ignore[reportArgumentType]
+
+
+async def test_fetch_policy_signs_request_and_parses_policy() -> None:
+    config = GatewayConfig(tunnel_id=TUNNEL_ID, gateway_key=KEY, api_url="http://api/")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url == "http://api/tunnel-gateway/policy"
+        token = request.headers["authorization"].removeprefix("Bearer ")
+        verify_gateway_policy_token(token, gateway_key=KEY, tunnel_id=TUNNEL_ID)
+        return httpx.Response(
+            200,
+            json={
+                "tunnel_id": str(TUNNEL_ID),
+                "workspace_id": str(WORKSPACE_ID),
+                "allowed_targets": [{"host": "Splunk.Corp", "ports": [8089]}],
+                "managed": True,
+            },
+        )
+
+    async with _policy_client(handler) as client:
+        policy = await fetch_policy(config, client)
+    assert policy == _policy(("splunk.corp", 8089), managed=True)
+
+
+@pytest.mark.parametrize("status_code", [401, 403, 404])
+async def test_fetch_policy_revoked_statuses_return_none(status_code: int) -> None:
+    config = GatewayConfig(tunnel_id=TUNNEL_ID, gateway_key=KEY)
+    async with _policy_client(lambda _req: httpx.Response(status_code)) as client:
+        assert await fetch_policy(config, client) is None
+
+
+async def test_fetch_policy_rejects_other_tunnels_policy() -> None:
+    config = GatewayConfig(tunnel_id=TUNNEL_ID, gateway_key=KEY)
+    body = {
+        "tunnel_id": str(uuid.uuid4()),
+        "workspace_id": str(WORKSPACE_ID),
+        "allowed_targets": [{"host": "splunk.corp", "ports": [8089]}],
+        "managed": False,
     }
-    managed = GatewayConfig.from_env(env)
-    assert managed.dial_host("splunk.corp") == managed_alias(tunnel_id, "splunk.corp")
-    assert managed.dial_host("10.0.0.5") == "10.0.0.5"
-    env.pop("TRACECAT_TUNNEL_MANAGED")
-    assert GatewayConfig.from_env(env).dial_host("splunk.corp") == "splunk.corp"
+    async with _policy_client(lambda _req: httpx.Response(200, json=body)) as client:
+        with pytest.raises(ValueError):
+            await fetch_policy(config, client)

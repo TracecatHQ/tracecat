@@ -17,6 +17,12 @@ to another route.
 Clients pass the token either as ``Proxy-Authorization: Bearer <token>`` or as
 the password of a Basic credential, which is what proxy URLs such as
 ``http://tracecat:<token>@gateway:8080`` send.
+
+The gateway polls the Tracecat API for its tunnel's policy (workspace, allowed
+targets, enabled state), authenticating with its gateway key. When the tunnel
+is disabled or deleted, its key is rotated, or the policy can't be refreshed
+for ``max_policy_age`` seconds, the gateway rejects new requests and closes
+open connections. Connections to targets removed from the policy are closed too.
 """
 
 from __future__ import annotations
@@ -25,24 +31,29 @@ import asyncio
 import base64
 import binascii
 import contextlib
-import json
+import functools
 import os
+import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from http import HTTPStatus
 from urllib.parse import urlsplit
 
-from pydantic import TypeAdapter, ValidationError
+import httpx
+from pydantic import ValidationError
 
 from tracecat.logger import logger
 from tracecat_ee.tunnels.pangolin import managed_alias
-from tracecat_ee.tunnels.schemas import TunnelTarget
-from tracecat_ee.tunnels.tokens import TunnelTokenError, verify_tunnel_token
+from tracecat_ee.tunnels.schemas import TunnelGatewayPolicyRead, TunnelTarget
+from tracecat_ee.tunnels.tokens import (
+    TunnelTokenError,
+    mint_gateway_policy_token,
+    verify_tunnel_token,
+)
 
 MAX_HEADER_BYTES = 16 * 1024
 _BUFFER_SIZE = 64 * 1024
-_TARGETS_ADAPTER = TypeAdapter(list[TunnelTarget])
 _HOP_BY_HOP_HEADERS = frozenset(
     {
         "connection",
@@ -61,42 +72,69 @@ _HOP_BY_HOP_HEADERS = frozenset(
 @dataclass(frozen=True)
 class GatewayConfig:
     tunnel_id: uuid.UUID
-    workspace_id: uuid.UUID
     gateway_key: str = field(repr=False)
-    allowed_targets: frozenset[tuple[str, int]]
-    managed: bool = False
+    api_url: str = "http://localhost:8000"
     host: str = "0.0.0.0"
     port: int = 8080
     header_timeout: float = 10.0
     connect_timeout: float = 10.0
     idle_timeout: float = 300.0
+    refresh_interval: float = 15.0
+    max_policy_age: float = 60.0
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] = os.environ) -> GatewayConfig:
         """Load config from ``TRACECAT_TUNNEL_*`` environment variables."""
         try:
-            targets = _TARGETS_ADAPTER.validate_json(
-                env["TRACECAT_TUNNEL_ALLOWED_TARGETS"]
-            )
             return cls(
                 tunnel_id=uuid.UUID(env["TRACECAT_TUNNEL_ID"]),
-                workspace_id=uuid.UUID(env["TRACECAT_TUNNEL_WORKSPACE_ID"]),
                 gateway_key=env["TRACECAT_TUNNEL_GATEWAY_KEY"],
-                allowed_targets=parse_allowed_targets(targets),
-                managed=env.get("TRACECAT_TUNNEL_MANAGED", "false").lower() == "true",
+                api_url=env["TRACECAT_TUNNEL_API_URL"],
                 host=env.get("TRACECAT_TUNNEL_GATEWAY_HOST", "0.0.0.0"),
                 port=int(env.get("TRACECAT_TUNNEL_GATEWAY_PORT", "8080")),
             )
         except KeyError as exc:
             raise ValueError(f"Missing gateway setting {exc.args[0]}") from exc
-        except (ValidationError, json.JSONDecodeError) as exc:
-            raise ValueError("TRACECAT_TUNNEL_ALLOWED_TARGETS is invalid") from exc
 
-    def dial_host(self, host: str) -> str:
-        """Managed domain targets resolve through their per-tunnel Pangolin alias."""
-        if self.managed:
-            return managed_alias(self.tunnel_id, host) or host
-        return host
+
+@dataclass(frozen=True)
+class GatewayPolicy:
+    """What the gateway may currently do, as last fetched from the Tracecat API."""
+
+    workspace_id: uuid.UUID
+    allowed_targets: frozenset[tuple[str, int]]
+    managed: bool = False
+
+    def allows(self, host: str, port: int) -> bool:
+        return (host, port) in self.allowed_targets
+
+
+PolicyFetcher = Callable[[], Awaitable[GatewayPolicy | None]]
+"""Returns the current policy, ``None`` if the gateway is revoked, or raises if
+the policy could not be fetched."""
+
+
+async def fetch_policy(
+    config: GatewayConfig, client: httpx.AsyncClient
+) -> GatewayPolicy | None:
+    token = mint_gateway_policy_token(
+        gateway_key=config.gateway_key, tunnel_id=config.tunnel_id
+    )
+    response = await client.post(
+        f"{config.api_url.rstrip('/')}/tunnel-gateway/policy",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    if response.status_code in (401, 403, 404):
+        return None
+    response.raise_for_status()
+    data = TunnelGatewayPolicyRead.model_validate_json(response.content)
+    if data.tunnel_id != config.tunnel_id:
+        raise ValueError("Tunnel policy is for a different tunnel")
+    return GatewayPolicy(
+        workspace_id=data.workspace_id,
+        allowed_targets=parse_allowed_targets(data.allowed_targets),
+        managed=data.managed,
+    )
 
 
 def parse_allowed_targets(targets: list[TunnelTarget]) -> frozenset[tuple[str, int]]:
@@ -252,9 +290,75 @@ async def _pipe(
     return total
 
 
+@dataclass(eq=False)
+class _OpenConnection:
+    workspace_id: uuid.UUID
+    host: str
+    port: int
+    writers: tuple[asyncio.StreamWriter, ...]
+
+    def close(self) -> None:
+        for writer in self.writers:
+            writer.close()
+
+
 class TunnelGateway:
-    def __init__(self, config: GatewayConfig) -> None:
+    def __init__(self, config: GatewayConfig, fetch: PolicyFetcher) -> None:
         self.config = config
+        self._fetch = fetch
+        self._policy: GatewayPolicy | None = None
+        self._policy_fetched_at: float | None = None
+        self._connections: set[_OpenConnection] = set()
+
+    def current_policy(self) -> GatewayPolicy:
+        """Return the live policy, failing closed if it is revoked or stale."""
+        fetched_at = self._policy_fetched_at
+        if (
+            fetched_at is None
+            or time.monotonic() - fetched_at > self.config.max_policy_age
+        ):
+            raise _ProxyError(HTTPStatus.SERVICE_UNAVAILABLE, "policy_unavailable")
+        if self._policy is None:
+            raise _ProxyError(HTTPStatus.FORBIDDEN, "tunnel_revoked")
+        return self._policy
+
+    async def refresh(self) -> None:
+        log = logger.bind(tunnel_id=str(self.config.tunnel_id))
+        try:
+            policy = await self._fetch()
+        except Exception as exc:
+            log.warning("Failed to refresh tunnel policy", error=type(exc).__name__)
+        else:
+            if policy is None and self._policy is not None:
+                log.warning("Tunnel gateway revoked")
+            self._policy = policy
+            self._policy_fetched_at = time.monotonic()
+        self._close_disallowed_connections()
+
+    async def run_refresh_loop(self) -> None:
+        while True:
+            await asyncio.sleep(self.config.refresh_interval)
+            await self.refresh()
+
+    def _permits(self, conn: _OpenConnection) -> bool:
+        try:
+            policy = self.current_policy()
+        except _ProxyError:
+            return False
+        return policy.workspace_id == conn.workspace_id and policy.allows(
+            conn.host, conn.port
+        )
+
+    def _close_disallowed_connections(self) -> None:
+        for conn in list(self._connections):
+            if not self._permits(conn):
+                logger.warning(
+                    "Closing tunnel connection no longer allowed",
+                    tunnel_id=str(self.config.tunnel_id),
+                    target_host=conn.host,
+                    target_port=conn.port,
+                )
+                conn.close()
 
     async def handle(
         self, client_reader: asyncio.StreamReader, client_writer: asyncio.StreamWriter
@@ -262,6 +366,7 @@ class TunnelGateway:
         cfg = self.config
         log = logger.bind(tunnel_id=str(cfg.tunnel_id))
         upstream_writer: asyncio.StreamWriter | None = None
+        conn: _OpenConnection | None = None
         try:
             try:
                 head = await asyncio.wait_for(
@@ -280,12 +385,13 @@ class TunnelGateway:
                 host, port = _parse_authority(request.target)
             else:
                 host, port, forward_head = _http_forward(request)
+            policy = self.current_policy()
             try:
                 claims = verify_tunnel_token(
                     _extract_token(request.headers),
                     gateway_key=cfg.gateway_key,
                     tunnel_id=cfg.tunnel_id,
-                    workspace_id=cfg.workspace_id,
+                    workspace_id=policy.workspace_id,
                 )
             except TunnelTokenError as exc:
                 raise _ProxyError(
@@ -298,12 +404,15 @@ class TunnelGateway:
                 target_host=host,
                 target_port=port,
             )
-            if (host, port) not in cfg.allowed_targets:
+            if not policy.allows(host, port):
                 raise _ProxyError(HTTPStatus.FORBIDDEN, "target_not_allowed")
 
+            dial_host = host
+            if policy.managed:
+                dial_host = managed_alias(cfg.tunnel_id, host) or host
             try:
                 upstream_reader, upstream_writer = await asyncio.wait_for(
-                    asyncio.open_connection(cfg.dial_host(host), port),
+                    asyncio.open_connection(dial_host, port),
                     cfg.connect_timeout,
                 )
             except TimeoutError as exc:
@@ -314,6 +423,14 @@ class TunnelGateway:
                 raise _ProxyError(
                     HTTPStatus.BAD_GATEWAY, "upstream_unreachable"
                 ) from exc
+
+            conn = _OpenConnection(
+                policy.workspace_id, host, port, (client_writer, upstream_writer)
+            )
+            self._connections.add(conn)
+            # The policy may have changed while the upstream connection opened.
+            if not self._permits(conn):
+                raise _ProxyError(HTTPStatus.FORBIDDEN, "tunnel_revoked")
 
             if forward_head is None:
                 client_writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
@@ -339,6 +456,8 @@ class TunnelGateway:
         except ConnectionError:
             pass
         finally:
+            if conn is not None:
+                self._connections.discard(conn)
             for writer in (upstream_writer, client_writer):
                 if writer is not None:
                     writer.close()
@@ -346,21 +465,36 @@ class TunnelGateway:
                         await writer.wait_closed()
 
 
-async def start_gateway(config: GatewayConfig) -> asyncio.Server:
-    gateway = TunnelGateway(config)
-    return await asyncio.start_server(
+async def start_gateway(
+    config: GatewayConfig, fetch: PolicyFetcher
+) -> tuple[asyncio.Server, TunnelGateway]:
+    """Load the tunnel policy and start listening. Fails if no policy loads."""
+    gateway = TunnelGateway(config, fetch)
+    await gateway.refresh()
+    try:
+        gateway.current_policy()
+    except _ProxyError as exc:
+        raise RuntimeError(f"Tunnel gateway cannot start: {exc.reason}") from exc
+    server = await asyncio.start_server(
         gateway.handle, config.host, config.port, limit=MAX_HEADER_BYTES
     )
+    return server, gateway
 
 
 async def serve(config: GatewayConfig) -> None:
-    server = await start_gateway(config)
-    logger.info(
-        "Tunnel gateway listening",
-        tunnel_id=str(config.tunnel_id),
-        host=config.host,
-        port=config.port,
-        allowed_targets=sorted(f"{h}:{p}" for h, p in config.allowed_targets),
-    )
-    async with server:
-        await server.serve_forever()
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        server, gateway = await start_gateway(
+            config, functools.partial(fetch_policy, config, client)
+        )
+        logger.info(
+            "Tunnel gateway listening",
+            tunnel_id=str(config.tunnel_id),
+            host=config.host,
+            port=config.port,
+        )
+        refresh_task = asyncio.create_task(gateway.run_refresh_loop())
+        try:
+            async with server:
+                await server.serve_forever()
+        finally:
+            refresh_task.cancel()
