@@ -108,6 +108,7 @@ export default function CasesPage() {
     error,
     filters,
     appliedSearchQuery,
+    effectiveHierarchy,
     isSearchPending,
     searchScope,
     setSearchScope,
@@ -156,6 +157,7 @@ export default function CasesPage() {
         error={error}
         filters={filters}
         appliedSearchQuery={appliedSearchQuery}
+        effectiveHierarchy={effectiveHierarchy}
         isSearchPending={isSearchPending}
         searchScope={searchScope}
         onSearchScopeChange={setSearchScope}

@@ -125,6 +125,7 @@ export interface UseCasesResult {
   filters: UseCasesFilters
   searchScope: CaseSearchScope
   appliedSearchQuery: string
+  effectiveHierarchy: CaseHierarchyFilter
   isSearchPending: boolean
   setSearchScope: (scope: CaseSearchScope) => void
   setSearchQuery: (query: string) => void
@@ -1196,6 +1197,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     searchScope,
     setSearchScope,
     appliedSearchQuery: normalizedSearch,
+    effectiveHierarchy: apiQueryParams.hierarchy,
     isSearchPending: searchQuery.trim() !== normalizedSearch,
     filters: {
       searchQuery,

@@ -12,6 +12,7 @@ import type {
   CaseSearchAggregateRead,
   CaseSeverity,
   CaseStatus,
+  CasesSearchCasesData,
   CaseTagRead,
   CaseUpdate,
   WorkspaceMember,
@@ -55,6 +56,7 @@ interface CasesLayoutProps {
   error: Error | null
   filters: UseCasesFilters
   appliedSearchQuery: string
+  effectiveHierarchy: NonNullable<CasesSearchCasesData["hierarchy"]>
   isSearchPending: boolean
   searchScope: CaseSearchScope
   onSearchScopeChange: (scope: CaseSearchScope) => void
@@ -103,6 +105,7 @@ export function CasesLayout({
   error,
   filters,
   appliedSearchQuery,
+  effectiveHierarchy,
   isSearchPending,
   searchScope,
   onSearchScopeChange,
@@ -404,6 +407,7 @@ export function CasesLayout({
   const headerProps = {
     searchQuery: filters.searchQuery,
     appliedSearchQuery,
+    effectiveHierarchy,
     isSearchPending,
     searchScope,
     onSearchScopeChange,

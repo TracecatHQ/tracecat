@@ -29,6 +29,7 @@ import type {
   CasePriority,
   CaseSeverity,
   CaseStatus,
+  CasesSearchCasesData,
   CaseTagRead,
   WorkspaceMember,
 } from "@/client"
@@ -372,6 +373,7 @@ function CaseSortSelect({ value, onChange }: CaseSortSelectProps) {
 interface CasesHeaderProps {
   searchQuery: string
   appliedSearchQuery: string
+  effectiveHierarchy: NonNullable<CasesSearchCasesData["hierarchy"]>
   isSearchPending: boolean
   searchScope: CaseSearchScope
   onSearchScopeChange: (scope: CaseSearchScope) => void
@@ -435,6 +437,7 @@ interface CasesHeaderProps {
 export function CasesHeader({
   searchQuery,
   appliedSearchQuery,
+  effectiveHierarchy,
   isSearchPending,
   searchScope,
   onSearchScopeChange,
@@ -575,20 +578,19 @@ export function CasesHeader({
   const isAllCasesSearch = searchScope === "all"
   const isExactLookup =
     isAllCasesSearch && parseCaseReference(appliedSearchQuery)
-  const includesSubCases = includeSubCases || Boolean(appliedSearchQuery)
+  const includesSubCases = effectiveHierarchy === "all"
+  const hierarchyLabel = includesSubCases
+    ? "Includes sub-cases"
+    : "Top-level cases only"
   let scopeDescription: string
   if (isAllCasesSearch) {
-    scopeDescription =
-      "All cases in this workspace · Any date · Includes sub-cases · View filters paused"
+    scopeDescription = `All cases in this workspace · Any date · ${hierarchyLabel} · View filters paused`
     if (isExactLookup) {
       scopeDescription = `Exact case ID lookup · ${scopeDescription}`
     }
   } else {
     const createdLabel = getDateScopeLabel(createdAfter, "Created")
     const updatedLabel = getDateScopeLabel(updatedAfter, "Updated")
-    const hierarchyLabel = includesSubCases
-      ? "Includes sub-cases"
-      : "Top-level cases only"
     scopeDescription = `Current view · ${createdLabel} · ${updatedLabel} · ${hierarchyLabel}`
   }
 

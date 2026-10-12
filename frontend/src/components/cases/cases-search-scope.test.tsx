@@ -88,6 +88,7 @@ function Harness() {
       error={search.error}
       filters={search.filters}
       appliedSearchQuery={search.appliedSearchQuery}
+      effectiveHierarchy={search.effectiveHierarchy}
       isSearchPending={search.isSearchPending}
       searchScope={search.searchScope}
       onSearchScopeChange={search.setSearchScope}
@@ -228,6 +229,32 @@ describe("case search scope UI", () => {
       ""
     )
     expect(screen.getByRole("status")).toHaveTextContent("Any date")
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({ hierarchy: "all" })
+    )
+    expect(
+      screen.getByRole("switch", { name: "Including sub-cases" })
+    ).toHaveAttribute("aria-checked", "true")
+    expect(
+      screen.getByRole("switch", { name: "Including sub-cases" })
+    ).toBeDisabled()
+    fireEvent.keyDown(
+      screen.getByRole("combobox", { name: "Case search scope" }),
+      { key: "ArrowDown" }
+    )
+    await user.click(
+      await screen.findByRole("option", { name: "Current view" })
+    )
+    await screen.findByText("No cases match the current view.")
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({ hierarchy: "top_level" })
+    )
+    expect(
+      screen.getByRole("switch", { name: "Top-level cases only" })
+    ).toHaveAttribute("aria-checked", "false")
+    expect(
+      screen.getByRole("switch", { name: "Top-level cases only" })
+    ).toBeEnabled()
   })
 
   it("makes automatic exact-ID lookup and its filter bypass visible", async () => {
