@@ -100,14 +100,6 @@ describe("parseGitRemote", () => {
     )
   })
 
-  it("accepts another GitHub host when the host is not known", () => {
-    expectGitUrl(
-      "git@github.example.com:TracecatHQ/detections.git",
-      { ...github, hostIsKnown: false },
-      "git+ssh://git@github.example.com/TracecatHQ/detections.git"
-    )
-  })
-
   it("rejects a GitHub path without a repository", () => {
     expectError(
       "git@github.com:TracecatHQ.git",

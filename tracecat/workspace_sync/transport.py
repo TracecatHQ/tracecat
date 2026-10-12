@@ -953,7 +953,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             )
             names = [branch_obj.name for branch_obj in raw_branches]
             # Branches list alphabetically, so the default can fall past the limit.
-            if repo.default_branch not in names:
+            if names and repo.default_branch not in names:
                 names = [repo.default_branch, *names[: limit - 1]]
             return [
                 GitBranchInfo(name=name, is_default=name == repo.default_branch)

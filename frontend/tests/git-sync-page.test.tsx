@@ -490,37 +490,21 @@ describe("GitSyncView connected", () => {
     ).toBeInTheDocument()
   })
 
-  it("keeps push off until the default branch is known", () => {
-    const workspace = setup()
-    // Failed branch list and no pinned branch: main can't be recognized.
-    jest.mocked(useRepositoryBranches).mockReturnValue({
-      branches: undefined,
-      branchesIsLoading: false,
-      branchesError: new Error("unreachable"),
-    } as unknown as ReturnType<typeof useRepositoryBranches>)
-    renderWithTooltips(
-      <GitSyncView workspace={workspace} canSync canManageConnection />
-    )
-
-    const bar = screen.getByRole("group", { name: "Push actions" })
-    const pushButtons = within(bar)
-      .getAllByRole("button")
-      .filter((button) => /Push/.test(button.textContent ?? ""))
-    expect(pushButtons.length).toBeGreaterThan(0)
-    for (const button of pushButtons) {
-      expect(button).toBeDisabled()
-    }
-  })
-
   it.each([
-    ["the branch list fails", undefined],
+    ["the branch list fails", REPO_URL, undefined],
+    [
+      "the branch list fails with a pinned branch",
+      `${REPO_URL}@release`,
+      undefined,
+    ],
     [
       "no listed branch is the default",
+      `${REPO_URL}@release`,
       [{ name: "release", is_default: false }],
     ],
-  ])("keeps push off with a pinned branch when %s", (_case, branches) => {
-    const workspace = setup({ gitRepoUrl: `${REPO_URL}@release` })
-    // The pin names the base, but not the repository default.
+  ])("keeps push off when %s", (_case, gitRepoUrl, branches) => {
+    const workspace = setup({ gitRepoUrl })
+    // A pin names the base, but not the repository default.
     jest.mocked(useRepositoryBranches).mockReturnValue({
       branches,
       branchesIsLoading: false,
@@ -538,6 +522,53 @@ describe("GitSyncView connected", () => {
     for (const button of pushButtons) {
       expect(button).toBeDisabled()
     }
+  })
+
+  it("restarts the pull source when the default branch changes", async () => {
+    const user = userEvent.setup()
+    const older = {
+      ...COMMITS[0],
+      sha: "2".repeat(40),
+      message: "Older change",
+    }
+    const workspace = setup({ commits: [COMMITS[0], older] })
+    const view = renderWithTooltips(
+      <GitSyncView workspace={workspace} canSync canManageConnection />
+    )
+    await user.click(screen.getByRole("tab", { name: "Pull" }))
+    await user.click(screen.getByRole("combobox", { name: /^Commit/ }))
+    await user.click(screen.getByRole("option", { name: /Older change/ }))
+    expect(
+      screen.getByRole("combobox", { name: "Commit 2222222: Older change" })
+    ).toBeInTheDocument()
+
+    // The repository default moves from main to trunk while the page is open.
+    const trunkHead = {
+      ...COMMITS[0],
+      sha: "3".repeat(40),
+      message: "Trunk head",
+    }
+    jest.mocked(useRepositoryBranches).mockReturnValue({
+      branches: [{ name: "trunk", is_default: true }],
+      branchesIsLoading: false,
+      branchesError: null,
+    } as ReturnType<typeof useRepositoryBranches>)
+    jest.mocked(useRepositoryCommits).mockReturnValue({
+      commits: [trunkHead],
+      commitsIsLoading: false,
+      commitsError: null,
+    } as ReturnType<typeof useRepositoryCommits>)
+    view.rerender(
+      <TooltipProvider>
+        <GitSyncView workspace={workspace} canSync canManageConnection />
+      </TooltipProvider>
+    )
+
+    expect(
+      await screen.findByRole("combobox", {
+        name: "Commit 3333333: Trunk head",
+      })
+    ).toBeInTheDocument()
   })
 
   it("blocks pushing to the default branch", async () => {

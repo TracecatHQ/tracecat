@@ -2257,15 +2257,24 @@ async def test_github_read_files_uses_commit_tree_sha(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("listed", "expected"),
+    [
+        # The default sorts past the limit, so it is added first.
+        (("a", "b", "c"), [("main", True), ("a", False)]),
+        # An empty repository has no branch to report, default included.
+        ((), []),
+    ],
+)
 async def test_github_list_branches_includes_default_beyond_limit(
     workspace_sync_service: WorkspaceSyncService,
+    listed: tuple[str, ...],
+    expected: list[tuple[str, bool]],
 ) -> None:
     repo = Mock()
     repo.default_branch = "main"
     # Mock(name=...) names the mock itself, so set the attribute instead.
-    repo.get_branches.return_value = [
-        SimpleNamespace(name=name) for name in ("a", "b", "c")
-    ]
+    repo.get_branches.return_value = [SimpleNamespace(name=name) for name in listed]
     gh = Mock()
     gh.get_repo.return_value = repo
     gh_service = AsyncMock()
@@ -2284,10 +2293,7 @@ async def test_github_list_branches_includes_default_beyond_limit(
             limit=2,
         )
 
-    assert [(b.name, b.is_default) for b in branches] == [
-        ("main", True),
-        ("a", False),
-    ]
+    assert [(b.name, b.is_default) for b in branches] == expected
 
 
 _ARCHIVE_URL = "https://codeload.github.com/TracecatHQ/sync/legacy.tar.gz/archive"

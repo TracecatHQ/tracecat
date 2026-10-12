@@ -305,6 +305,29 @@ describe("GitSyncConnectionPanel remote line", () => {
     )
   })
 
+  it("keeps github.com required when the list can't load", async () => {
+    const user = userEvent.setup()
+    render(
+      <GitSyncConnectionPanel
+        workspace={setup({
+          repositoryHook: {
+            repositories: undefined,
+            repositoriesError: new Error("forbidden"),
+          },
+        })}
+      />
+    )
+
+    await user.type(
+      repositoryInput(),
+      "git@github.example.com:TracecatHQ/elsewhere.git{Enter}"
+    )
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "github.example.com isn't set up for this organization. GitHub here is github.com."
+    )
+    expect(mockUpdateWorkspace).not.toHaveBeenCalled()
+  })
+
   it("waits for the app's repository list before connecting", async () => {
     const user = userEvent.setup()
     render(

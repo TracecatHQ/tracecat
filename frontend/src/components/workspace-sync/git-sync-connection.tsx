@@ -395,11 +395,7 @@ function useRepositoryInput({
   const candidate = candidates.find((entry) => entry.id === provider) ?? {
     id: provider,
   }
-  const target = getRemoteTarget(
-    candidate,
-    orgConfigured,
-    repositoriesLoaded ? appRepositories : []
-  )
+  const target = getRemoteTarget(candidate, orgConfigured)
   const parsed = parseGitRemote(input, target)
   const resolution = resolveConnection(parsed, {
     provider,
@@ -460,16 +456,14 @@ function getInitialProvider(
 
 function getRemoteTarget(
   candidate: ConfiguredGitProvider,
-  orgConfigured: boolean,
-  repositories: GitHubAppRepository[]
+  orgConfigured: boolean
 ): GitRemoteTarget {
   if (candidate.id === "github") {
-    // The GitHub status has no host; app repository URLs do.
-    const appHost = getGitSshHost(repositories[0]?.git_url)
+    // Workspace sync accepts only github.com, even when the app list fails.
     return {
       provider: "github",
-      host: appHost ?? "github.com",
-      hostIsKnown: Boolean(appHost),
+      host: "github.com",
+      hostIsKnown: true,
       orgConfigured,
     }
   }

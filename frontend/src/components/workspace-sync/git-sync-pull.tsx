@@ -12,6 +12,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react"
 import type {
@@ -180,6 +181,16 @@ export function GitSyncPullTab({
     setPullPreviewOptions(null)
     setPullResult(null)
   }, [])
+
+  // A changed default branch (not its first load) restarts from its HEAD.
+  const previousBaseBranchRef = useRef(baseBranch)
+  useEffect(() => {
+    const previous = previousBaseBranchRef.current
+    previousBaseBranchRef.current = baseBranch
+    if (previous !== undefined && previous !== baseBranch) {
+      setSelectedCommitSha(null)
+    }
+  }, [baseBranch])
 
   // Default the pull source to HEAD once commits load.
   useEffect(() => {
