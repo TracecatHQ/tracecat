@@ -29,9 +29,11 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
@@ -799,64 +801,63 @@ function MatchesDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-        <DialogTitle>
-          {remaining > 0
-            ? `Match ${remaining} ${remaining === 1 ? "reference" : "references"} to pull`
-            : "Matches for this pull"}
-        </DialogTitle>
-        <DialogDescription className="-mt-2">
-          {total > 0
-            ? `This commit uses references that Tracecat can't match to ${workspaceName} on its own. Choose what each should use here.`
-            : `This commit uses secret stores that Tracecat can't match to ${workspaceName} on its own.`}
-          {storeMappingRequirements.length > 0 &&
-            " Secret stores are optional: unlinked secrets import without a store."}
-        </DialogDescription>
-        <div className="divide-y border-y">
-          {catalogMappingRequirements.length > 0 && (
-            <CatalogMappingRequirements
-              requirements={catalogMappingRequirements}
-              selections={catalogDraft}
-              onChange={(source, target) =>
-                setCatalogDraft((current) => ({ ...current, [source]: target }))
-              }
-              disabled={disabled}
-            />
-          )}
-          {mcpMappingRequirements.length > 0 && (
-            <McpIntegrationMappingRequirements
-              requirements={mcpMappingRequirements}
-              selections={mcpDraft}
-              onChange={(source, target) =>
-                setMcpDraft((current) => ({ ...current, [source]: target }))
-              }
-              disabled={disabled}
-            />
-          )}
-          {storeMappingRequirements.length > 0 && (
-            <SecretStoreMappingRequirements
-              requirements={storeMappingRequirements}
-              selections={storeDraft}
-              onChange={(source, target) =>
-                setStoreDraft((current) => ({ ...current, [source]: target }))
-              }
-              disabled={disabled}
-            />
-          )}
-        </div>
-        <DialogFooter className="items-center sm:justify-between">
+      <DialogContent size="md" className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {remaining > 0
+              ? `Match ${remaining} ${remaining === 1 ? "reference" : "references"} to pull`
+              : "Matches for this pull"}
+          </DialogTitle>
+          <DialogDescription>
+            {total > 0
+              ? `This commit uses references that Tracecat can't match to ${workspaceName} on its own. Choose what each should use here.`
+              : `This commit uses secret stores that Tracecat can't match to ${workspaceName} on its own.`}
+            {storeMappingRequirements.length > 0 &&
+              " Secret stores are optional: unlinked secrets import without a store."}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody>
+          <div className="divide-y border-y">
+            {catalogMappingRequirements.length > 0 && (
+              <CatalogMappingRequirements
+                requirements={catalogMappingRequirements}
+                selections={catalogDraft}
+                onChange={(source, target) =>
+                  setCatalogDraft((current) => ({
+                    ...current,
+                    [source]: target,
+                  }))
+                }
+                disabled={disabled}
+              />
+            )}
+            {mcpMappingRequirements.length > 0 && (
+              <McpIntegrationMappingRequirements
+                requirements={mcpMappingRequirements}
+                selections={mcpDraft}
+                onChange={(source, target) =>
+                  setMcpDraft((current) => ({ ...current, [source]: target }))
+                }
+                disabled={disabled}
+              />
+            )}
+            {storeMappingRequirements.length > 0 && (
+              <SecretStoreMappingRequirements
+                requirements={storeMappingRequirements}
+                selections={storeDraft}
+                onChange={(source, target) =>
+                  setStoreDraft((current) => ({ ...current, [source]: target }))
+                }
+                disabled={disabled}
+              />
+            )}
+          </div>
+        </DialogBody>
+        <DialogFooter className="sm:justify-between">
           <span className="text-xs text-muted-foreground">
             {total > 0 ? `${matched} of ${total} matched` : "Optional"}
           </span>
           <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
             <Button
               type="button"
               size="sm"

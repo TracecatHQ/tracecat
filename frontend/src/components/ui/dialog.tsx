@@ -73,7 +73,15 @@ const DialogContent = React.forwardRef<
 >(({ className, children, title = "Dialog", size, ...props }, ref) => {
   // Determine if the consumer already supplied a DialogTitle
   const hasTitle = React.Children.toArray(children).some(
-    (child) => React.isValidElement(child) && child.type === DialogTitle
+    (child) =>
+      React.isValidElement<{ children?: React.ReactNode }>(child) &&
+      (child.type === DialogTitle ||
+        (child.type === DialogHeader &&
+          React.Children.toArray(child.props.children).some(
+            (grandchild) =>
+              React.isValidElement(grandchild) &&
+              grandchild.type === DialogTitle
+          )))
   )
 
   return (
