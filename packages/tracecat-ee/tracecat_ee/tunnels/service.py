@@ -10,9 +10,9 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import WorkspaceTunnel
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import Page, PageParams, paginate
-from tracecat.secrets.encryption import encrypt_value
+from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.enums import Entitlement
 from tracecat_ee.tunnels.schemas import (
@@ -21,6 +21,7 @@ from tracecat_ee.tunnels.schemas import (
     serialize_endpoint,
     serialize_targets,
 )
+from tracecat_ee.tunnels.tokens import generate_gateway_key
 
 
 class TunnelsService(BaseWorkspaceService):
@@ -127,6 +128,32 @@ class TunnelsService(BaseWorkspaceService):
         self._ensure_owned(tunnel)
         await self.session.delete(tunnel)
         await self.session.commit()
+
+    @require_scope("tunnel:update")
+    @audit_log(resource_type="workspace_tunnel", action="update")
+    async def issue_gateway_key(self, tunnel: WorkspaceTunnel) -> str:
+        """Issue a new gateway key, revoking any previous one. Returns it once."""
+        await self.require_entitlement(Entitlement.TUNNELS)
+        self._ensure_owned(tunnel)
+        gateway_key = generate_gateway_key()
+        tunnel.encrypted_gateway_key = self._encrypt_secret(gateway_key)
+        self.session.add(tunnel)
+        await self.session.commit()
+        await self.session.refresh(tunnel)
+        return gateway_key
+
+    @require_scope("tunnel:read")
+    async def get_gateway_key(self, tunnel: WorkspaceTunnel) -> str:
+        """Return the tunnel's gateway key for signing proxy tokens."""
+        await self.require_entitlement(Entitlement.TUNNELS)
+        self._ensure_owned(tunnel)
+        if tunnel.encrypted_gateway_key is None:
+            raise TracecatValidationError(
+                f"Tunnel {tunnel.name!r} has no gateway key. Issue one first."
+            )
+        return decrypt_value(
+            tunnel.encrypted_gateway_key, key=get_db_encryption_key()
+        ).decode("utf-8")
 
     def _ensure_owned(self, tunnel: WorkspaceTunnel) -> None:
         if tunnel.workspace_id != self.workspace_id:

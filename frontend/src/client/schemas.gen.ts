@@ -33672,6 +33672,27 @@ export const $TunnelCreate = {
   title: "TunnelCreate",
 } as const
 
+export const $TunnelGatewayKeyRead = {
+  properties: {
+    tunnel_id: {
+      type: "string",
+      format: "uuid",
+      title: "Tunnel Id",
+    },
+    gateway_key: {
+      type: "string",
+      title: "Gateway Key",
+      description:
+        "Configure this on the tunnel gateway. Issuing a new key revokes the old one.",
+    },
+  },
+  type: "object",
+  required: ["tunnel_id", "gateway_key"],
+  title: "TunnelGatewayKeyRead",
+  description:
+    "A newly issued gateway key. It is only returned once, at issue time.",
+} as const
+
 export const $TunnelProvider = {
   type: "string",
   enum: ["pangolin"],
@@ -33727,6 +33748,10 @@ export const $TunnelRead = {
       type: "boolean",
       title: "Enabled",
     },
+    has_gateway_key: {
+      type: "boolean",
+      title: "Has Gateway Key",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -33749,6 +33774,7 @@ export const $TunnelRead = {
     "client_id",
     "allowed_targets",
     "enabled",
+    "has_gateway_key",
     "created_at",
     "updated_at",
   ],

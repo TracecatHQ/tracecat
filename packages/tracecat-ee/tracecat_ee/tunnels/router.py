@@ -15,7 +15,12 @@ from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import Page, PageParams, PaginationError
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
-from tracecat_ee.tunnels.schemas import TunnelCreate, TunnelRead, TunnelUpdate
+from tracecat_ee.tunnels.schemas import (
+    TunnelCreate,
+    TunnelGatewayKeyRead,
+    TunnelRead,
+    TunnelUpdate,
+)
 from tracecat_ee.tunnels.service import TunnelsService
 
 
@@ -140,3 +145,26 @@ async def delete_tunnel(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
+
+
+@router.post("/{tunnel_id}/gateway-key", status_code=status.HTTP_201_CREATED)
+@require_scope("tunnel:update")
+async def issue_tunnel_gateway_key(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    tunnel_id: uuid.UUID,
+) -> TunnelGatewayKeyRead:
+    """Issue a gateway key for the tunnel, revoking the previous key.
+
+    The key is returned only in this response.
+    """
+    service = TunnelsService(session, role=role)
+    try:
+        tunnel = await service.get_tunnel(tunnel_id)
+        gateway_key = await service.issue_gateway_key(tunnel)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    return TunnelGatewayKeyRead(tunnel_id=tunnel.id, gateway_key=gateway_key)

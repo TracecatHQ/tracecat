@@ -156,3 +156,29 @@ async def test_routes_require_entitlement(
 
     assert response.status_code == 403
     assert response.json() == {"entitlement": "tunnels"}
+
+
+async def test_gateway_key_is_returned_once(
+    client: httpx.AsyncClient,
+    holder: _RoleHolder,
+    svc_role: Role,
+    other_workspace: Workspace,
+) -> None:
+    tunnel_id = (await client.post("/tunnels", json=CREATE_BODY)).json()["id"]
+    assert (await client.get(f"/tunnels/{tunnel_id}")).json()[
+        "has_gateway_key"
+    ] is False
+
+    issued = await client.post(f"/tunnels/{tunnel_id}/gateway-key")
+    assert issued.status_code == 201
+    key = issued.json()["gateway_key"]
+    assert len(key) >= 43
+
+    fetched = await client.get(f"/tunnels/{tunnel_id}")
+    assert fetched.json()["has_gateway_key"] is True
+    assert key not in fetched.text
+    assert key not in (await client.get("/tunnels")).text
+
+    holder.role = svc_role.model_copy(update={"workspace_id": other_workspace.id})
+    stolen = await client.post(f"/tunnels/{tunnel_id}/gateway-key")
+    assert stolen.status_code == 404

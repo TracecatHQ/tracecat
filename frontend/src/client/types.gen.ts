@@ -10223,6 +10223,17 @@ export type TunnelCreate = {
   enabled?: boolean
 }
 
+/**
+ * A newly issued gateway key. It is only returned once, at issue time.
+ */
+export type TunnelGatewayKeyRead = {
+  tunnel_id: string
+  /**
+   * Configure this on the tunnel gateway. Issuing a new key revokes the old one.
+   */
+  gateway_key: string
+}
+
 export type TunnelProvider = "pangolin"
 
 /**
@@ -10238,6 +10249,7 @@ export type TunnelRead = {
   client_id: string
   allowed_targets: Array<TunnelTarget>
   enabled: boolean
+  has_gateway_key: boolean
   created_at: string
   updated_at: string
 }
@@ -13022,6 +13034,13 @@ export type TunnelsDeleteTunnelData = {
 }
 
 export type TunnelsDeleteTunnelResponse = void
+
+export type TunnelsIssueTunnelGatewayKeyData = {
+  tunnelId: string
+  workspaceId: string
+}
+
+export type TunnelsIssueTunnelGatewayKeyResponse = TunnelGatewayKeyRead
 
 export type SchedulesListSchedulesData = {
   workflowId?: string | null
@@ -18281,6 +18300,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tunnels/{tunnel_id}/gateway-key": {
+    post: {
+      req: TunnelsIssueTunnelGatewayKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: TunnelGatewayKeyRead
         /**
          * Validation Error
          */

@@ -941,6 +941,8 @@ import type {
   TunnelsDeleteTunnelResponse,
   TunnelsGetTunnelData,
   TunnelsGetTunnelResponse,
+  TunnelsIssueTunnelGatewayKeyData,
+  TunnelsIssueTunnelGatewayKeyResponse,
   TunnelsListTunnelsData,
   TunnelsListTunnelsResponse,
   TunnelsUpdateTunnelData,
@@ -4138,6 +4140,33 @@ export const tunnelsDeleteTunnel = (
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/workspaces/{workspace_id}/tunnels/{tunnel_id}",
+    path: {
+      tunnel_id: data.tunnelId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Issue Tunnel Gateway Key
+ * Issue a gateway key for the tunnel, revoking the previous key.
+ *
+ * The key is returned only in this response.
+ * @param data The data for the request.
+ * @param data.tunnelId
+ * @param data.workspaceId
+ * @returns TunnelGatewayKeyRead Successful Response
+ * @throws ApiError
+ */
+export const tunnelsIssueTunnelGatewayKey = (
+  data: TunnelsIssueTunnelGatewayKeyData
+): CancelablePromise<TunnelsIssueTunnelGatewayKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/tunnels/{tunnel_id}/gateway-key",
     path: {
       tunnel_id: data.tunnelId,
       workspace_id: data.workspaceId,

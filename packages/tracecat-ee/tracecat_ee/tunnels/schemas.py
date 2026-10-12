@@ -174,6 +174,7 @@ class TunnelRead(BaseModel):
     client_id: str
     allowed_targets: list[TunnelTarget]
     enabled: bool
+    has_gateway_key: bool
     created_at: datetime
     updated_at: datetime
 
@@ -191,9 +192,20 @@ class TunnelRead(BaseModel):
                 TunnelTarget.model_validate(target) for target in obj.allowed_targets
             ],
             enabled=obj.enabled,
+            has_gateway_key=obj.encrypted_gateway_key is not None,
             created_at=obj.created_at,
             updated_at=obj.updated_at,
         )
+
+
+class TunnelGatewayKeyRead(BaseModel):
+    """A newly issued gateway key. It is only returned once, at issue time."""
+
+    tunnel_id: uuid.UUID
+    gateway_key: str = Field(
+        ...,
+        description="Configure this on the tunnel gateway. Issuing a new key revokes the old one.",
+    )
 
 
 def serialize_targets(targets: list[TunnelTarget]) -> list[dict[str, Any]]:
