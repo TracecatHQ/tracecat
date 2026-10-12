@@ -1453,6 +1453,7 @@ export type Artifact =
   | RunArtifact
   | TableArtifact
   | AgentArtifact
+  | FormArtifact
   | AlertArtifact
   | IntegrationArtifact
   | SecretArtifact
@@ -3172,6 +3173,23 @@ export type ChatMessage = {
   cancelled?: {
     [key: string]: unknown
   } | null
+}
+
+/**
+ * The page a docked chat is open on.
+ *
+ * ``kind`` is a closed set and ``id`` is a UUID, so nothing the client sends
+ * here can carry free text into the prompt.
+ */
+export type ChatPageContext = {
+  /**
+   * What the page shows.
+   */
+  kind: "form"
+  /**
+   * ID of the object the page shows.
+   */
+  id: string
 }
 
 /**
@@ -4997,6 +5015,18 @@ export type FormActorRead = {
 }
 
 export type type = "user" | "service_account"
+
+/**
+ * Workflow form artifact. Lets a surface refresh a form the chat edited.
+ */
+export type FormArtifact = {
+  id: string
+  title: string
+  scope?: ArtifactScope | null
+  type?: "form"
+  workflowId: string
+  status?: "online" | "offline" | null
+}
 
 /**
  * Values the server fills in on submit.
@@ -11197,6 +11227,10 @@ export type VercelChatRequest = {
    * Optional base URL for the model provider
    */
   base_url?: string | null
+  /**
+   * The page the chat is docked on. Only Workspace chat uses it, and only for an object the caller can read.
+   */
+  page_context?: ChatPageContext | null
 }
 
 /**
@@ -14712,6 +14746,7 @@ export type AgentSessionsRemoveSessionArtifactData = {
     | "run"
     | "table"
     | "agent"
+    | "form"
     | "alert"
     | "integration"
     | "secret"

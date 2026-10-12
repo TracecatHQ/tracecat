@@ -509,6 +509,18 @@ class FormSubmissionsService(BaseWorkspaceService):
             return self._user_id is not None and submitter.id == self._user_id
         return submitter.id == self.role.service_account_id
 
+    async def get_form_of_submission(self, submission_id: uuid.UUID) -> Form | None:
+        """Find the form a submission belongs to, for callers with only its ID."""
+        statement = (
+            select(Form)
+            .join(FormSubmission, FormSubmission.form_id == Form.id)
+            .where(
+                FormSubmission.workspace_id == self.workspace_id,
+                FormSubmission.id == submission_id,
+            )
+        )
+        return (await self.session.execute(statement)).scalar_one_or_none()
+
     async def get_submission(
         self, form: Form, submission_id: uuid.UUID
     ) -> FormSubmission | None:

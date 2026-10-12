@@ -3,7 +3,11 @@
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.auth.dependencies import OrgUserRole, WorkspaceActorRouteRole
+from tracecat.auth.dependencies import (
+    ExecutorWorkspaceRole,
+    OrgUserRole,
+    WorkspaceActorRouteRole,
+)
 from tracecat.auth.types import Role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.feature_flags import FeatureFlag, is_feature_enabled
@@ -41,4 +45,11 @@ async def require_forms_enabled_for_org(
     role: OrgUserRole, session: AsyncDBSession
 ) -> None:
     """Gate an organization-level forms route the same way."""
+    await check_forms_enabled(session, role)
+
+
+async def require_forms_enabled_for_executor(
+    role: ExecutorWorkspaceRole, session: AsyncDBSession
+) -> None:
+    """Gate an internal forms route, called by registry actions, the same way."""
     await check_forms_enabled(session, role)

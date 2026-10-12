@@ -8,10 +8,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
-from tracecat.authz.controls import has_scope, require_scope
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Form
 from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
+from tracecat.forms.access import can_read_form_config
 from tracecat.forms.dependencies import require_forms_enabled
 from tracecat.forms.enums import FormErrorCode
 from tracecat.forms.exceptions import FormError
@@ -87,10 +88,10 @@ def require_config_access(role: Role) -> None:
     resolved form from ``/render`` and nothing else, so the detail route
     answers 404 unless the caller builds forms or reads submissions.
     """
-    scopes = role.scopes or frozenset()
-    if has_scope(scopes, "form:update") or has_scope(scopes, "form:submission:read"):
-        return
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Form not found")
+    if not can_read_form_config(role):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Form not found"
+        )
 
 
 @router.get("")

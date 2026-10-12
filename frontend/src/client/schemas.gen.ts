@@ -5689,6 +5689,9 @@ export const $Artifact = {
       $ref: "#/components/schemas/AgentArtifact",
     },
     {
+      $ref: "#/components/schemas/FormArtifact",
+    },
+    {
       $ref: "#/components/schemas/AlertArtifact",
     },
     {
@@ -5707,6 +5710,7 @@ export const $Artifact = {
       agent: "#/components/schemas/AgentArtifact",
       alert: "#/components/schemas/AlertArtifact",
       case: "#/components/schemas/CaseArtifact",
+      form: "#/components/schemas/FormArtifact",
       generic: "#/components/schemas/GenericArtifact",
       integration: "#/components/schemas/IntegrationArtifact",
       run: "#/components/schemas/RunArtifact",
@@ -11623,6 +11627,31 @@ This model supports multiple message kinds:
 - kind=CANCELLED: Contains cancelled field with turn-cancelled marker data`,
 } as const
 
+export const $ChatPageContext = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "form",
+      title: "Kind",
+      description: "What the page shows.",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description: "ID of the object the page shows.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["kind", "id"],
+  title: "ChatPageContext",
+  description: `The page a docked chat is open on.
+
+\`\`kind\`\` is a closed set and \`\`id\`\` is a UUID, so nothing the client sends
+here can carry free text into the prompt.`,
+} as const
+
 export const $ChatRead = {
   properties: {
     id: {
@@ -16496,6 +16525,57 @@ export const $FormActorRead = {
   required: ["type", "id"],
   title: "FormActorRead",
   description: "Who viewed or submitted a form.",
+} as const
+
+export const $FormArtifact = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    scope: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ArtifactScope",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    type: {
+      type: "string",
+      const: "form",
+      title: "Type",
+      default: "form",
+    },
+    workflowId: {
+      type: "string",
+      title: "Workflowid",
+    },
+    status: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["online", "offline"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Status",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["id", "title", "workflowId"],
+  title: "FormArtifact",
+  description:
+    "Workflow form artifact. Lets a surface refresh a form the chat edited.",
 } as const
 
 export const $FormAutofillSource = {
@@ -36966,6 +37046,18 @@ export const $VercelChatRequest = {
       ],
       title: "Base Url",
       description: "Optional base URL for the model provider",
+    },
+    page_context: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ChatPageContext",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "The page the chat is docked on. Only Workspace chat uses it, and only for an object the caller can read.",
     },
   },
   type: "object",

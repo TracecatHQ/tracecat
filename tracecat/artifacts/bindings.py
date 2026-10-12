@@ -56,6 +56,16 @@ class AgentArtifactPayload(TypedDict):
     title: str
 
 
+class FormArtifactPayload(TypedDict):
+    """Raw payload used to validate a form artifact."""
+
+    type: Literal["form"]
+    id: str
+    title: str
+    workflowId: str
+    status: NotRequired[Literal["online", "offline"]]
+
+
 class WorkflowArtifactPayload(TypedDict):
     """Raw payload used to validate a workflow artifact."""
 
@@ -130,6 +140,24 @@ class _AgentPresetToolResult(_ArtifactProjectionModel):
         default=None,
         validation_alias=AliasChoices("name", "title"),
     )
+
+
+class _FormConfigTitle(_ArtifactProjectionModel):
+    title: str | None = None
+
+
+class _FormToolResult(_ArtifactProjectionModel):
+    id: str
+    workflow_id: str
+    workflow_title: str | None = None
+    status: Literal["online", "offline"] | None = None
+    config: _FormConfigTitle | None = None
+
+    @property
+    def resolved_title(self) -> str:
+        if self.config and self.config.title:
+            return self.config.title
+        return self.workflow_title or self.id
 
 
 class _WorkflowEditDocumentMetadata(_ArtifactProjectionModel):
@@ -292,6 +320,10 @@ def _build_agent_artifacts(ctx: ArtifactProjectionContext) -> Iterable[Artifact]
     return _agent_artifacts_from_output(ctx.tool_output, ctx.tool_call_id)
 
 
+def _build_form_artifact(ctx: ArtifactProjectionContext) -> Artifact | None:
+    return _form_artifact_from_output(ctx.tool_output, ctx.tool_call_id)
+
+
 def _build_workflow_run_artifact(ctx: ArtifactProjectionContext) -> Artifact | None:
     return _run_artifact_from_output(ctx.tool_output, ctx.tool_input, ctx.tool_call_id)
 
@@ -371,6 +403,11 @@ ARTIFACT_BINDINGS: tuple[ArtifactBinding, ...] = (
         op="upsert",
         build=_build_agent_artifacts,
         max_artifacts=MAX_LIST_ARTIFACTS,
+    ),
+    ArtifactBinding(
+        tool_names=("core.forms.get_form", "core.forms.update_form"),
+        op="upsert",
+        build=_build_form_artifact,
     ),
     ArtifactBinding(
         tool_names=("core.workflow.execute", "core.workflow.get_status"),
@@ -694,6 +731,27 @@ def _agent_artifacts_from_output(
             yield ArtifactAdapter.validate_python(
                 _with_parent_scope(payload, tool_call_id)
             )
+
+
+def _form_artifact_from_output(value: Any, tool_call_id: str | None) -> Artifact | None:
+    data = _mapping_from_tool_output(value)
+    if data is None:
+        return None
+
+    result = _FormToolResult.try_validate(data)
+    if result is None:
+        return None
+
+    payload: FormArtifactPayload = {
+        "type": "form",
+        "id": result.id,
+        "title": result.resolved_title,
+        "workflowId": result.workflow_id,
+    }
+    if result.status is not None:
+        payload["status"] = result.status
+
+    return ArtifactAdapter.validate_python(_with_parent_scope(payload, tool_call_id))
 
 
 # Default swatch color for workflow artifacts created via the chat copilot.

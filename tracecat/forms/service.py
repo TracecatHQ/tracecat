@@ -484,6 +484,25 @@ class FormsService(BaseWorkspaceService):
         await self.session.refresh(form)
         return form
 
+    async def upsert_form(self, workflow_id: uuid.UUID, params: FormUpdate) -> Form:
+        """Update a workflow's form, creating it first if there is none.
+
+        Audited as the update or the create it turns into.
+
+        Raises:
+            TracecatNotFoundError: If the workflow does not exist.
+            FormError: As for ``update_form`` and ``create_form``.
+        """
+        if (form := await self.get_form_by_workflow_id(workflow_id)) is not None:
+            return await self.update_form(form, params)
+        return await self.create_form(
+            FormCreate(
+                workflow_id=WorkflowUUID.new(workflow_id),
+                status=params.status or FormStatus.OFFLINE,
+                config=params.config,
+            )
+        )
+
     @audit_log(resource_type="form", action="delete")
     async def delete_form(self, form: Form) -> None:
         """Delete a form. Its submissions and events go with it."""

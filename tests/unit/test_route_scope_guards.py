@@ -25,6 +25,7 @@ from tracecat.cases.tags import router as case_tags_router
 from tracecat.cases.versions import router as case_versions_router
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError
+from tracecat.forms import internal_router as internal_forms_router
 from tracecat.forms import router as forms_router
 from tracecat.inbox import router as inbox_router
 from tracecat.integrations import router as integrations_router
@@ -683,6 +684,30 @@ async def test_mcp_create_scope_guards(endpoint: AsyncEndpoint) -> None:
 )
 async def test_form_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (internal_forms_router.list_forms, "form:read"),
+        (internal_forms_router.get_form, "form:read"),
+        (internal_forms_router.list_submissions, "form:submission:read"),
+        (internal_forms_router.get_submission, "form:submission:read"),
+        (internal_forms_router.delete_submission, "form:submission:delete"),
+    ],
+)
+async def test_internal_form_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+async def test_internal_form_upsert_requires_form_create_and_form_update() -> None:
+    await _assert_endpoint_requires_all_scopes(
+        internal_forms_router.upsert_form, ("form:create", "form:update")
+    )
 
 
 @pytest.mark.anyio
