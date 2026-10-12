@@ -75,7 +75,7 @@ export function BitbucketDataCenterTokenSetup() {
     statusLabel =
       "Stored credentials are unreadable. Re-enter the API token to reconnect."
   } else if (isConfigured) {
-    statusLabel = `Instance URL: ${credentialsStatus?.base_url ?? "unknown"}`
+    statusLabel = credentialsStatus?.base_url ?? "Unknown server"
   }
 
   async function handleDelete() {

@@ -100,7 +100,7 @@ export function GitLabTokenSetup() {
               {isCorrupted
                 ? "Stored credentials are unreadable. Re-enter the GitLab token to reconnect."
                 : isConfigured
-                  ? `Base URL: ${credentialsStatus?.base_url ?? "unknown"}`
+                  ? (credentialsStatus?.base_url ?? "Unknown server")
                   : "Not connected"}
             </p>
           </div>

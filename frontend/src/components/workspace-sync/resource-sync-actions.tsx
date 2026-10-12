@@ -2,10 +2,12 @@
 
 import {
   ArrowRightIcon,
+  ArrowUpRightIcon,
   GitBranchIcon,
   GitPullRequestIcon,
   LayersIcon,
 } from "lucide-react"
+import Link from "next/link"
 import { type ReactNode, useEffect, useMemo, useState } from "react"
 import type { ResourceRef, SyncResourceType, VcsProvider } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
@@ -300,7 +302,19 @@ export function WorkspaceResourceSyncActions({
               />
             </div>
           </div>
-        ) : null}
+        ) : (
+          <div className="p-6">
+            <Button asChild variant="outline" size="sm" className="gap-1.5">
+              <Link
+                href={`/workspaces/${workspaceId}/git-sync`}
+                onClick={() => setOpen(false)}
+              >
+                Open Git sync
+                <ArrowUpRightIcon className="size-3.5" />
+              </Link>
+            </Button>
+          </div>
+        )}
 
         <DialogFooter className="shrink-0 items-center gap-3 border-t bg-muted/30 px-6 py-4 sm:justify-between">
           <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
@@ -454,7 +468,7 @@ interface DescribePushOptions {
  */
 function describePush({ gitRepoUrl, label }: DescribePushOptions): string {
   if (!gitRepoUrl) {
-    return "Configure a Git repository in workspace settings first."
+    return "Connect a Git repository on the Git sync page first."
   }
   return `Commit all ${label} in this workspace to the selected Git branch.`
 }
