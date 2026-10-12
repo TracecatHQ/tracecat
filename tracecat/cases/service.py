@@ -392,6 +392,7 @@ class CasesService(BaseWorkspaceService):
         top_level_only: bool = False,
         search_term: str | None = None,
         short_id: str | None = None,
+        case_id: uuid.UUID | None = None,
         status: CaseStatus | Sequence[CaseStatus] | None = None,
         priority: CasePriority | Sequence[CasePriority] | None = None,
         severity: CaseSeverity | Sequence[CaseSeverity] | None = None,
@@ -407,6 +408,9 @@ class CasesService(BaseWorkspaceService):
         exclude_case_id: uuid.UUID | None = None,
     ) -> list[Any]:
         filters: list[Any] = [Case.workspace_id == self.workspace_id]
+
+        if case_id is not None:
+            filters.append(Case.id == case_id)
 
         if parent_id is not None:
             filters.append(Case.parent_id == parent_id)
@@ -454,6 +458,8 @@ class CasesService(BaseWorkspaceService):
                 raise ValueError("Short ID must match CASE-<number> or <number>")
 
             short_id_number = int(match.group(1))
+            if short_id_number > MAX_CASE_NUMBER:
+                raise ValueError(f"Short ID number cannot exceed {MAX_CASE_NUMBER}")
             filters.append(Case.case_number == short_id_number)
 
         normalized_statuses = _normalize_filter_values(status)
@@ -568,11 +574,13 @@ class CasesService(BaseWorkspaceService):
         include_payload: bool = False,
         linked_row: tuple[uuid.UUID, uuid.UUID] | None = None,
         exclude_case_id: uuid.UUID | None = None,
+        case_id: uuid.UUID | None = None,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """Search cases with cursor-based pagination and filtering.
 
         ``linked_row`` is a ``(table_id, row_id)`` pair that keeps only cases
-        linked to that table row.
+        linked to that table row. ``case_id`` matches an exact UUID while still
+        applying the workspace and every other explicit filter.
         """
         include_case_addons = await self.has_entitlement(Entitlement.CASE_ADDONS)
         parent_id, top_level_only = await self.hierarchy.resolve_filters(
@@ -583,6 +591,7 @@ class CasesService(BaseWorkspaceService):
             exclude_case_id=exclude_case_id,
             search_term=search_term,
             short_id=short_id,
+            case_id=case_id,
             status=status,
             priority=priority,
             severity=severity,

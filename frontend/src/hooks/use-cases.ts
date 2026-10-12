@@ -24,6 +24,10 @@ import type {
 } from "@/components/filters/filter-multi-select"
 import type { CaseHierarchyFilter } from "@/hooks/use-case-search-infinite"
 import { useDebounce } from "@/hooks/use-debounce"
+import {
+  type CaseSearchScope,
+  parseCaseReference,
+} from "@/lib/cases/search-scope"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useInfiniteQuery, useQuery } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -119,6 +123,10 @@ export interface UseCasesResult {
   error: Error | null
   refetch: () => void
   filters: UseCasesFilters
+  searchScope: CaseSearchScope
+  appliedSearchQuery: string
+  isSearchPending: boolean
+  setSearchScope: (scope: CaseSearchScope) => void
   setSearchQuery: (query: string) => void
   setSortBy: (value: CaseSortValue) => void
   setStatusFilter: (status: CaseStatus[]) => void
@@ -583,6 +591,7 @@ function resolveEnumIncludeFilter<T extends string>(
   return { values: complement, matchesNone: false }
 }
 
+/** Workspace case search with an explicit view scope and exact-ID lookup. */
 export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   const {
     enabled = true,
@@ -601,10 +610,32 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   }
   const initialFilterState = initialFilterStateRef.current
 
-  const [searchQuery, setSearchQuery] = useState(initialFilterState.searchQuery)
+  const [searchQuery, setSearchQueryState] = useState(
+    initialFilterState.searchQuery
+  )
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useDebounce(
     searchQuery.trim(),
     CASES_SEARCH_DEBOUNCE_MS
+  )
+  const hasSearchQuery = searchQuery.trim().length > 0
+  const normalizedSearch = hasSearchQuery ? debouncedSearchQuery : ""
+  const [requestedSearchScope, setSearchScope] =
+    useState<CaseSearchScope | null>(null)
+  const caseReference = useMemo(
+    () => parseCaseReference(normalizedSearch),
+    [normalizedSearch]
+  )
+  const searchScope = requestedSearchScope ?? (caseReference ? "all" : "view")
+  const isExactLookup = searchScope === "all" && caseReference !== null
+  const setSearchQuery = useCallback(
+    (query: string) => {
+      setSearchQueryState(query)
+      if (!query.trim()) {
+        setDebouncedSearchQuery("")
+        setSearchScope(null)
+      }
+    },
+    [setDebouncedSearchQuery]
   )
   const [sortBy, setSortByState] = useState<CaseSortValue>(
     initialFilterState.sortBy
@@ -725,8 +756,9 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     }
 
     const nextFilterState = loadPersistedCasesFilterState(workspaceId)
-    setSearchQuery(nextFilterState.searchQuery)
+    setSearchQueryState(nextFilterState.searchQuery)
     setDebouncedSearchQuery(nextFilterState.searchQuery.trim())
+    setSearchScope(null)
     setSortByState(nextFilterState.sortBy)
     setStatusFilter(nextFilterState.statusFilter)
     setStatusMode(nextFilterState.statusMode)
@@ -854,10 +886,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     []
   )
 
-  // Clearing the search applies immediately; typing waits for the debounce.
-  const hasSearchQuery = searchQuery.trim().length > 0
-  const normalizedSearch = hasSearchQuery ? debouncedSearchQuery : ""
-
   useEffect(() => {
     if (!hasSearchQuery) {
       setDebouncedSearchQuery("")
@@ -865,6 +893,21 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   }, [hasSearchQuery, setDebouncedSearchQuery])
 
   const { apiQueryParams, hasImpossibleEnumFilter } = useMemo(() => {
+    if (searchScope === "all") {
+      return {
+        apiQueryParams: {
+          searchTerm: caseReference ? undefined : normalizedSearch || undefined,
+          shortId:
+            caseReference?.type === "short_id"
+              ? caseReference.value
+              : undefined,
+          caseId:
+            caseReference?.type === "uuid" ? caseReference.value : undefined,
+          hierarchy: "all" as CaseHierarchyFilter,
+        },
+        hasImpossibleEnumFilter: false,
+      }
+    }
     const updatedBounds = getDateBoundsFromFilter(updatedAfter)
     const createdBounds = getDateBoundsFromFilter(createdAfter)
     const resolvedStatus = resolveEnumIncludeFilter(
@@ -926,6 +969,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     }
   }, [
     normalizedSearch,
+    searchScope,
+    caseReference,
     statusFilter,
     statusMode,
     priorityFilter,
@@ -957,8 +1002,9 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       JSON.stringify({
         apiQueryParams,
         hasImpossibleEnumFilter,
+        exactReference: isExactLookup ? caseReference : null,
       }),
-    [apiQueryParams, hasImpossibleEnumFilter]
+    [apiQueryParams, hasImpossibleEnumFilter, isExactLookup, caseReference]
   )
 
   const rowsKey = useMemo(
@@ -1050,7 +1096,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       enabled &&
       Boolean(workspaceId) &&
       hasHydratedFilters &&
-      !hasImpossibleEnumFilter,
+      !hasImpossibleEnumFilter &&
+      !isExactLookup,
     retry: retryHandler,
     refetchInterval: computeRefetchInterval(),
     refetchOnWindowFocus: false,
@@ -1104,18 +1151,35 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
   const cases = hasImpossibleEnumFilter ? [] : sortedCases
 
-  const totalFilteredCaseEstimate = hasImpossibleEnumFilter
-    ? 0
-    : (visibleAggregateData?.total ??
+  const exactStageCounts = useMemo(() => {
+    if (!isExactLookup) return null
+    const counts = { ...EMPTY_STAGE_COUNTS }
+    for (const caseData of cases) {
+      counts[caseData.status] = (counts[caseData.status] ?? 0) + 1
+    }
+    return counts
+  }, [isExactLookup, cases])
+
+  let totalFilteredCaseEstimate: number | null
+  if (hasImpossibleEnumFilter) {
+    totalFilteredCaseEstimate = 0
+  } else if (isExactLookup) {
+    totalFilteredCaseEstimate = visibleRowsData ? cases.length : null
+  } else {
+    totalFilteredCaseEstimate =
+      visibleAggregateData?.total ??
       visibleRowsData?.pages[0]?.total_estimate ??
-      null)
+      null
+  }
   const isHydrationPending =
     enabled && Boolean(workspaceId) && !hasHydratedFilters
 
   const refetch = useCallback(() => {
     void refetchRows()
-    void refetchCounts()
-  }, [refetchRows, refetchCounts])
+    if (!isExactLookup) {
+      void refetchCounts()
+    }
+  }, [refetchRows, refetchCounts, isExactLookup])
 
   const handleFetchNextPage = useCallback(() => {
     if (!hasNextPage || isFetchingNextPage) {
@@ -1129,6 +1193,10 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     isLoading: isHydrationPending ? true : isLoading,
     error: error ?? null,
     refetch,
+    searchScope,
+    setSearchScope,
+    appliedSearchQuery: normalizedSearch,
+    isSearchPending: searchQuery.trim() !== normalizedSearch,
     filters: {
       searchQuery,
       sortBy,
@@ -1176,13 +1244,15 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     totalFilteredCaseEstimate,
     stageCounts: hasImpossibleEnumFilter
       ? EMPTY_STAGE_COUNTS
-      : (visibleAggregateData?.status_groups ?? null),
-    isCountsLoading: hasImpossibleEnumFilter
-      ? false
-      : isHydrationPending || isCountsLoading,
-    isCountsFetching: hasImpossibleEnumFilter
-      ? false
-      : hasHydratedFilters && isCountsFetching,
+      : (exactStageCounts ?? visibleAggregateData?.status_groups ?? null),
+    isCountsLoading:
+      hasImpossibleEnumFilter || isExactLookup
+        ? false
+        : isHydrationPending || isCountsLoading,
+    isCountsFetching:
+      hasImpossibleEnumFilter || isExactLookup
+        ? false
+        : hasHydratedFilters && isCountsFetching,
     hasNextPage: hasImpossibleEnumFilter ? false : Boolean(hasNextPage),
     isFetchingNextPage: hasImpossibleEnumFilter
       ? false

@@ -11867,6 +11867,7 @@ export const casesCreateCase = (
  * @param data.reverse Reverse pagination direction
  * @param data.searchTerm Text to search for in case summary, description, short ID, or case UUID
  * @param data.shortId Search by exact case short ID (e.g. 42 or CASE-0042)
+ * @param data.caseId Filter by exact case UUID
  * @param data.status Filter by case status
  * @param data.priority Filter by case priority
  * @param data.severity Filter by case severity
@@ -11903,6 +11904,7 @@ export const casesSearchCases = (
       reverse: data.reverse,
       search_term: data.searchTerm,
       short_id: data.shortId,
+      case_id: data.caseId,
       status: data.status,
       priority: data.priority,
       severity: data.severity,

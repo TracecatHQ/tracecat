@@ -38,7 +38,9 @@ import type { CaseDateFilterValue, UseCasesFilters } from "@/hooks/use-cases"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { runChunkedCaseBatch } from "@/lib/cases/batch"
 import { invalidateCaseHierarchy } from "@/lib/cases/invalidation"
+import type { CaseSearchScope } from "@/lib/cases/search-scope"
 import { caseHref } from "@/lib/cases/urls"
+import { getApiErrorDetail } from "@/lib/errors"
 import {
   useBatchChangeCaseParent,
   useBatchDeleteCases,
@@ -52,6 +54,10 @@ interface CasesLayoutProps {
   isLoading: boolean
   error: Error | null
   filters: UseCasesFilters
+  appliedSearchQuery: string
+  isSearchPending: boolean
+  searchScope: CaseSearchScope
+  onSearchScopeChange: (scope: CaseSearchScope) => void
   members?: WorkspaceMember[]
   tags?: CaseTagRead[]
   onSearchChange: (query: string) => void
@@ -90,11 +96,16 @@ interface CasesLayoutProps {
   onLoadMore: () => void
 }
 
+/** Workspace case list with explicit search scope and bulk actions. */
 export function CasesLayout({
   cases,
   isLoading,
   error,
   filters,
+  appliedSearchQuery,
+  isSearchPending,
+  searchScope,
+  onSearchScopeChange,
   members,
   tags,
   onSearchChange,
@@ -392,6 +403,10 @@ export function CasesLayout({
 
   const headerProps = {
     searchQuery: filters.searchQuery,
+    appliedSearchQuery,
+    isSearchPending,
+    searchScope,
+    onSearchScopeChange,
     onSearchChange,
     sortBy: filters.sortBy,
     onSortByChange,
@@ -497,7 +512,7 @@ export function CasesLayout({
           <CasesHeader {...headerProps} />
           <div className="flex flex-1 items-center justify-center">
             <span className="text-sm text-red-500">
-              Failed to load cases: {error.message}
+              Failed to load cases: {getApiErrorDetail(error) ?? error.message}
             </span>
           </div>
         </div>
@@ -512,37 +527,58 @@ export function CasesLayout({
     >
       <div className="flex size-full flex-col">
         <CasesHeader {...headerProps} />
-        <div className="min-h-0 flex-1">
-          <CasesAccordion
-            cases={cases}
-            selectedId={sidePanelCaseId ?? selectedId}
-            selectedCaseIds={selectedCaseIdsSet}
-            onSelect={handleSelectCase}
-            onCheckChange={handleCheckChange}
-            onDeleteRequest={handleDeleteRequest}
-            onOpenInSidePanel={handleOpenInSidePanel}
-            tags={tags}
-            members={members}
-            dropdownDefinitions={dropdownDefinitions}
-            fieldMetadataById={fieldMetadataById}
-            durationNamesById={durationNamesById}
-            visibleColumnIds={visibleColumnIds}
-            prioritySortDirection={filters.prioritySortDirection}
-            severitySortDirection={filters.severitySortDirection}
-            assigneeSortDirection={filters.assigneeSortDirection}
-            tagSortDirection={filters.tagSortDirection}
-            hasExplicitSort={hasExplicitSort}
-            statusFilter={filters.statusFilter}
-            statusMode={filters.statusMode}
-            totalFilteredCaseEstimate={totalFilteredCaseEstimate}
-            stageCounts={stageCounts}
-            isCountsLoading={isCountsLoading}
-            isCountsFetching={isCountsFetching}
-            hasNextPage={hasNextPage}
-            isFetchingNextPage={isFetchingNextPage}
-            onLoadMore={onLoadMore}
-          />
-        </div>
+        {cases.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
+            <p className="text-sm text-muted-foreground">
+              {searchScope === "view"
+                ? "No cases match the current view."
+                : "No matching cases in this workspace."}
+            </p>
+            {searchScope === "view" && (
+              <button
+                type="button"
+                onClick={() => onSearchScopeChange("all")}
+                className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
+              >
+                Search all cases
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1">
+            <CasesAccordion
+              cases={cases}
+              selectedId={sidePanelCaseId ?? selectedId}
+              selectedCaseIds={selectedCaseIdsSet}
+              onSelect={handleSelectCase}
+              onCheckChange={handleCheckChange}
+              onDeleteRequest={handleDeleteRequest}
+              onOpenInSidePanel={handleOpenInSidePanel}
+              tags={tags}
+              members={members}
+              dropdownDefinitions={dropdownDefinitions}
+              fieldMetadataById={fieldMetadataById}
+              durationNamesById={durationNamesById}
+              visibleColumnIds={visibleColumnIds}
+              prioritySortDirection={filters.prioritySortDirection}
+              severitySortDirection={filters.severitySortDirection}
+              assigneeSortDirection={filters.assigneeSortDirection}
+              tagSortDirection={filters.tagSortDirection}
+              hasExplicitSort={hasExplicitSort}
+              statusFilter={searchScope === "view" ? filters.statusFilter : []}
+              statusMode={
+                searchScope === "view" ? filters.statusMode : "include"
+              }
+              totalFilteredCaseEstimate={totalFilteredCaseEstimate}
+              stageCounts={stageCounts}
+              isCountsLoading={isCountsLoading}
+              isCountsFetching={isCountsFetching}
+              hasNextPage={hasNextPage}
+              isFetchingNextPage={isFetchingNextPage}
+              onLoadMore={onLoadMore}
+            />
+          </div>
+        )}
       </div>
       {workspaceId && (
         <CaseSidePanel

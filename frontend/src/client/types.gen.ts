@@ -16121,6 +16121,10 @@ export type CasesSearchCasesData = {
    */
   assigneeId?: Array<string> | null
   /**
+   * Filter by exact case UUID
+   */
+  caseId?: string | null
+  /**
    * Cursor for pagination
    */
   cursor?: string | null

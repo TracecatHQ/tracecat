@@ -2,7 +2,7 @@ import uuid  # noqa: I001
 import asyncio
 from collections.abc import Iterator
 from decimal import Decimal
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
@@ -55,7 +55,7 @@ from tracecat.cases.service import (
     CasesService,
 )
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.db.models import Case, CaseComment, Organization, Workspace
+from tracecat.db.models import Case, CaseComment, CaseEvent, Organization, Workspace
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatConflictError,
@@ -2336,6 +2336,118 @@ class TestCasesService:
         non_exact_ids = {item.id for item in non_exact_response.items}
         assert target_case.id not in non_exact_ids
 
+    @pytest.mark.parametrize("reference_type", ["uuid", "short_id"])
+    async def test_exact_case_search_finds_older_sub_case_before_pagination(
+        self,
+        cases_service: CasesService,
+        session: AsyncSession,
+        reference_type: Literal["uuid", "short_id"],
+    ) -> None:
+        """Exact references find older sub-cases without fuzzy matches or views."""
+        now = datetime.now(UTC)
+        parent = Case(
+            id=uuid.uuid4(),
+            workspace_id=cases_service.workspace_id,
+            case_number=1,
+            summary="Synthetic parent",
+            description="Synthetic parent",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.LOW,
+        )
+        target = Case(
+            id=uuid.uuid4(),
+            workspace_id=cases_service.workspace_id,
+            case_number=42,
+            parent_id=parent.id,
+            summary="Synthetic older sub-case",
+            description="Synthetic older sub-case",
+            status=CaseStatus.CLOSED,
+            priority=CasePriority.LOW,
+            severity=CaseSeverity.LOW,
+            created_at=now - timedelta(days=60),
+            updated_at=now - timedelta(days=60),
+        )
+        newer_match = Case(
+            workspace_id=cases_service.workspace_id,
+            case_number=43,
+            summary=f"Synthetic text mentions {target.id} and CASE-0042",
+            description="Synthetic text match",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.LOW,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add_all([parent, target, newer_match])
+        await session.commit()
+        params = CursorPaginationParams(limit=1)
+        case_id = target.id if reference_type == "uuid" else None
+        short_id = target.short_id if reference_type == "short_id" else None
+        events_before = list((await session.scalars(select(CaseEvent.id))).all())
+
+        response = await cases_service.search_cases(
+            params,
+            case_id=case_id,
+            short_id=short_id,
+            hierarchy="all",
+            order_by="created_at",
+            sort="desc",
+        )
+        assert [item.id for item in response.items] == [target.id]
+        assert response.items[0].parent is not None
+        assert response.items[0].parent.id == parent.id
+        assert response.has_more is False
+
+        date_filtered = await cases_service.search_cases(
+            params,
+            case_id=case_id,
+            short_id=short_id,
+            start_time=now - timedelta(days=30),
+        )
+        status_filtered = await cases_service.search_cases(
+            params, case_id=case_id, short_id=short_id, status=[CaseStatus.NEW]
+        )
+        hierarchy_filtered = await cases_service.search_cases(
+            params, case_id=case_id, short_id=short_id, hierarchy="top_level"
+        )
+        assert date_filtered.items == []
+        assert status_filtered.items == []
+        assert hierarchy_filtered.items == []
+        events_after = list((await session.scalars(select(CaseEvent.id))).all())
+        assert events_after == events_before
+
+    async def test_exact_uuid_search_cannot_find_another_workspace_case(
+        self,
+        cases_service: CasesService,
+        session: AsyncSession,
+        svc_organization: Organization,
+    ) -> None:
+        """An exact UUID cannot bypass the service's workspace authorization."""
+        other_workspace = Workspace(
+            name="synthetic-search-workspace",
+            organization_id=svc_organization.id,
+        )
+        session.add(other_workspace)
+        await session.commit()
+        other_case = Case(
+            workspace_id=other_workspace.id,
+            case_number=42,
+            summary="Synthetic case in another workspace",
+            description="Synthetic case in another workspace",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.LOW,
+        )
+        session.add(other_case)
+        await session.commit()
+
+        response = await cases_service.search_cases(
+            CursorPaginationParams(limit=1), case_id=other_case.id, hierarchy="all"
+        )
+        assert response.items == []
+        assert response.has_more is False
+
     async def test_search_cases_short_id_rejects_invalid_value(
         self, cases_service: CasesService
     ) -> None:
@@ -2348,6 +2460,40 @@ class TestCasesService:
                 params=params,
                 short_id="CASE-ABCD",
             )
+
+    @pytest.mark.parametrize(
+        "short_id", ["CASE-2147483648", "CASE-9999999999", "9999999999"]
+    )
+    async def test_search_cases_short_id_rejects_overflow(
+        self, cases_service: CasesService, short_id: str
+    ) -> None:
+        """Oversized exact IDs fail validation before binding a PostgreSQL integer."""
+        with pytest.raises(
+            ValueError, match="Short ID number cannot exceed 2147483647"
+        ):
+            await cases_service.search_cases(
+                CursorPaginationParams(limit=1), short_id=short_id
+            )
+
+    async def test_search_cases_short_id_accepts_maximum_case_number(
+        self, cases_service: CasesService, session: AsyncSession
+    ) -> None:
+        """The largest PostgreSQL integer remains a valid exact case reference."""
+        target = Case(
+            workspace_id=cases_service.workspace_id,
+            case_number=2147483647,
+            summary="Synthetic maximum case number",
+            description="Synthetic maximum case number",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.LOW,
+        )
+        session.add(target)
+        await session.commit()
+        response = await cases_service.search_cases(
+            CursorPaginationParams(limit=1), short_id="CASE-2147483647"
+        )
+        assert [item.id for item in response.items] == [target.id]
 
     async def test_search_cases_search_term_matches_case_ids(
         self, cases_service: CasesService, session: AsyncSession
