@@ -32,10 +32,15 @@ from tracecat.workflow.management.draft import (
     replace_workflow_definition_from_dsl,
 )
 from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat.workflow.management.router import _build_workflow_read
+from tracecat.workflow.management.router import (
+    _build_workflow_read,
+    get_workflow_definition,
+    list_workflow_definitions,
+)
 from tracecat.workflow.management.schemas import (
     ExternalWorkflowDefinition,
     WorkflowCreate,
+    WorkflowDefinitionRead,
     WorkflowUpdate,
 )
 from tracecat.workspace_sync.serialization import serialize_yaml_model
@@ -215,6 +220,63 @@ async def test_definition_round_trip_keeps_input_order(
     assert list(loaded.entrypoint.expects or {}) == AUTHOR_ORDER
     assert loaded.entrypoint == dsl.entrypoint
     assert "expects_order" not in loaded.model_dump()["entrypoint"]
+
+
+@pytest.mark.anyio
+async def test_definition_routes_hide_the_stored_order_key(
+    session: AsyncSession, svc_role: Role, workflow: Workflow
+) -> None:
+    service = WorkflowDefinitionsService(session, role=svc_role)
+    workflow_id = WorkflowUUID.new(workflow.id)
+    await service.create_workflow_definition(
+        workflow_id, DSLInput.model_validate(_dsl_data())
+    )
+    session.expire_all()
+
+    read = await get_workflow_definition(
+        role=svc_role, session=session, workflow_id=workflow_id
+    )
+    listed = await list_workflow_definitions(
+        role=svc_role, session=session, workflow_id=workflow_id
+    )
+
+    for definition in [read, *listed]:
+        assert definition.content is not None
+        entrypoint = definition.content["entrypoint"]
+        assert "expects_order" not in entrypoint
+        assert list(entrypoint["expects"]) == AUTHOR_ORDER
+        assert b"expects_order" not in orjson.dumps(definition.model_dump(mode="json"))
+
+    # Reading through the API leaves the stored row as it was.
+    result = await session.execute(
+        select(WorkflowDefinition).where(WorkflowDefinition.id == read.id)
+    )
+    stored = result.scalar_one()
+    assert stored.content["entrypoint"]["expects_order"] == AUTHOR_ORDER
+
+
+def test_definition_read_without_stored_order_is_unchanged() -> None:
+    content = {"title": "No inputs", "entrypoint": {"ref": "start"}}
+
+    read = WorkflowDefinitionRead.model_validate(
+        {
+            "id": uuid.uuid4(),
+            "workflow_id": None,
+            "workspace_id": uuid.uuid4(),
+            "version": 1,
+            "content": content,
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+        }
+    )
+
+    assert read.content == content
+    assert (
+        WorkflowDefinitionRead.model_validate(
+            read.model_dump() | {"content": None}
+        ).content
+        is None
+    )
 
 
 @pytest.mark.anyio
