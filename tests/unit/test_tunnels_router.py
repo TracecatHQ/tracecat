@@ -182,3 +182,118 @@ async def test_gateway_key_is_returned_once(
     holder.role = svc_role.model_copy(update={"workspace_id": other_workspace.id})
     stolen = await client.post(f"/tunnels/{tunnel_id}/gateway-key")
     assert stolen.status_code == 404
+
+
+MANAGED_BODY = {
+    "name": "managed-splunk",
+    "allowed_targets": [{"host": "splunk.corp.example", "ports": [8089]}],
+}
+
+
+@pytest.fixture
+def fake_pangolin(monkeypatch: pytest.MonkeyPatch) -> type:
+    from tracecat_ee.tunnels import service as service_module
+    from tracecat_ee.tunnels.pangolin import (
+        PangolinClient,
+        PangolinCredentials,
+        PangolinError,
+        PangolinSettings,
+        PangolinSite,
+    )
+
+    settings = PangolinSettings(
+        api_url="https://pangolin-api.example.com/v1",
+        endpoint="https://pangolin.example.com",
+        org_id="tracecat",
+        api_key="org-api-key",
+    )
+
+    class FakeAPI:
+        fail = False
+
+        def __init__(self, _: PangolinSettings) -> None:
+            pass
+
+        async def __aenter__(self) -> "FakeAPI":
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+        async def create_site(self, name: str) -> PangolinSite:
+            if FakeAPI.fail:
+                raise PangolinError("boom")
+            return PangolinSite(1, PangolinCredentials("newt-id", "newt-secret"))
+
+        async def create_machine_client(self, name: str) -> PangolinClient:
+            return PangolinClient(2, PangolinCredentials("olm-id", "olm-secret"))
+
+        async def create_host_resource(self, **_: object) -> int:
+            return 3
+
+        async def site_online(self, site_id: int) -> bool:
+            return True
+
+        async def delete_resource(self, _: int) -> None:
+            return None
+
+        async def delete_client(self, _: int) -> None:
+            return None
+
+        async def delete_site(self, _: int) -> None:
+            return None
+
+    monkeypatch.setattr(service_module, "PangolinAPI", FakeAPI)
+    monkeypatch.setattr(
+        PangolinSettings,
+        "from_config",
+        classmethod(lambda cls: settings),
+    )
+    return FakeAPI
+
+
+async def test_managed_create_returns_site_credentials_once(
+    client: httpx.AsyncClient, fake_pangolin: type
+) -> None:
+    response = await client.post("/tunnels/managed", json=MANAGED_BODY)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["tunnel"]["managed"] is True
+    assert body["site_secret"] == "newt-secret"
+    assert "olm-secret" not in response.text
+
+    tunnel_id = body["tunnel"]["id"]
+    read = await client.get(f"/tunnels/{tunnel_id}")
+    assert "newt-secret" not in read.text and "olm-secret" not in read.text
+    status_response = await client.get(f"/tunnels/{tunnel_id}/status")
+    assert status_response.json()["site_online"] is True
+
+    duplicate = await client.post("/tunnels/managed", json=MANAGED_BODY)
+    assert duplicate.status_code == 409
+
+
+async def test_managed_create_pangolin_failure_is_502(
+    client: httpx.AsyncClient, fake_pangolin: type
+) -> None:
+    fake_pangolin.fail = True  # pyright: ignore[reportAttributeAccessIssue]
+
+    response = await client.post("/tunnels/managed", json=MANAGED_BODY)
+
+    assert response.status_code == 502
+    assert "boom" not in response.text
+
+
+async def test_managed_status_cross_workspace_is_404(
+    client: httpx.AsyncClient,
+    holder: _RoleHolder,
+    other_workspace: Workspace,
+    fake_pangolin: type,
+) -> None:
+    created = await client.post("/tunnels/managed", json=MANAGED_BODY)
+    tunnel_id = created.json()["tunnel"]["id"]
+
+    holder.role = holder.role.model_copy(update={"workspace_id": other_workspace.id})
+    response = await client.get(f"/tunnels/{tunnel_id}/status")
+
+    assert response.status_code == 404

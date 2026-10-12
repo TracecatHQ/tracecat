@@ -15,10 +15,14 @@ from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import Page, PageParams, PaginationError
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
+from tracecat_ee.tunnels.pangolin import PangolinError
 from tracecat_ee.tunnels.schemas import (
+    ManagedTunnelCreate,
+    ManagedTunnelCreated,
     TunnelCreate,
     TunnelGatewayKeyRead,
     TunnelRead,
+    TunnelStatusRead,
     TunnelUpdate,
 )
 from tracecat_ee.tunnels.service import TunnelsService
@@ -82,6 +86,56 @@ async def create_tunnel(
             status_code=status.HTTP_409_CONFLICT, detail=_TUNNEL_EXISTS
         ) from exc
     return TunnelRead.from_database(tunnel)
+
+
+@router.post("/managed", status_code=status.HTTP_201_CREATED)
+@require_scope("tunnel:create")
+async def create_managed_tunnel(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    params: ManagedTunnelCreate,
+) -> ManagedTunnelCreated:
+    """Create a tunnel whose Pangolin site, machine client, and resources Tracecat provisions.
+
+    The site credentials and install command are returned only in this response.
+    """
+    service = TunnelsService(session, role=role)
+    try:
+        return await service.create_managed_tunnel(params)
+    except IntegrityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_TUNNEL_EXISTS
+        ) from exc
+    except PangolinError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to provision the tunnel in Pangolin",
+        ) from exc
+
+
+@router.get("/{tunnel_id}/status")
+@require_scope("tunnel:read")
+async def get_tunnel_status(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    tunnel_id: uuid.UUID,
+) -> TunnelStatusRead:
+    """Get whether a managed tunnel's on-prem site is connected."""
+    service = TunnelsService(session, role=role)
+    try:
+        tunnel = await service.get_tunnel(tunnel_id)
+        return await service.get_tunnel_status(tunnel)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except PangolinError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to read the tunnel status from Pangolin",
+        ) from exc
 
 
 @router.get("/{tunnel_id}")

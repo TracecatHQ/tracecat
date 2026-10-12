@@ -6244,6 +6244,26 @@ export type status6 =
   | "failed"
   | "superseded"
 
+/**
+ * Create a tunnel whose Pangolin site, machine client, and resources Tracecat manages.
+ */
+export type ManagedTunnelCreate = {
+  name: string
+  description?: string | null
+  allowed_targets: Array<TunnelTarget>
+}
+
+/**
+ * A new managed tunnel. The site credentials are only returned once.
+ */
+export type ManagedTunnelCreated = {
+  tunnel: TunnelRead
+  site_id: string
+  site_secret: string
+  site_endpoint: string
+  site_install_command: string
+}
+
 export type McpIntegrationMappingAffectedPreset = {
   preset_slug: string
   preset_name: string
@@ -10250,8 +10270,15 @@ export type TunnelRead = {
   allowed_targets: Array<TunnelTarget>
   enabled: boolean
   has_gateway_key: boolean
+  managed: boolean
   created_at: string
   updated_at: string
+}
+
+export type TunnelStatusRead = {
+  tunnel_id: string
+  managed: boolean
+  site_online: boolean | null
 }
 
 /**
@@ -13012,6 +13039,20 @@ export type TunnelsCreateTunnelData = {
 }
 
 export type TunnelsCreateTunnelResponse = TunnelRead
+
+export type TunnelsCreateManagedTunnelData = {
+  requestBody: ManagedTunnelCreate
+  workspaceId: string
+}
+
+export type TunnelsCreateManagedTunnelResponse = ManagedTunnelCreated
+
+export type TunnelsGetTunnelStatusData = {
+  tunnelId: string
+  workspaceId: string
+}
+
+export type TunnelsGetTunnelStatusResponse = TunnelStatusRead
 
 export type TunnelsGetTunnelData = {
   tunnelId: string
@@ -18259,6 +18300,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: TunnelRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tunnels/managed": {
+    post: {
+      req: TunnelsCreateManagedTunnelData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ManagedTunnelCreated
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tunnels/{tunnel_id}/status": {
+    get: {
+      req: TunnelsGetTunnelStatusData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TunnelStatusRead
         /**
          * Validation Error
          */
