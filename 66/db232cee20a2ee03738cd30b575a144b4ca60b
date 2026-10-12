@@ -1,0 +1,69 @@
+frontend/src/components/forms/form-blocks.tsx
+  s_7f6729d1c18d55::t_abaca827797151 1-154
+frontend/src/components/forms/form-markdown.test.tsx
+  s_7f6729d1c18d55::t_2e7666897f42bf 35-44,76-77,124-132,153-155
+  s_7f6729d1c18d55::t_9cf92e3b1e60f0 1-34,45-75,78-123,133-152,156-161
+frontend/src/components/forms/widgets/multi-select.tsx
+  s_7f6729d1c18d55::t_688c529e679096 1-52
+frontend/src/components/forms/widgets/file.tsx
+  s_7f6729d1c18d55::t_95bf5abcccf9ac 1-206,208-219
+  s_7f6729d1c18d55::t_2e7666897f42bf 207
+frontend/src/components/forms/widgets/cards.tsx
+  s_7f6729d1c18d55::t_f52a352635b700 78-80
+  s_7f6729d1c18d55::t_854252af09e86b 1-77,81-107
+frontend/src/components/forms/form-renderer.tsx
+  s_7f6729d1c18d55::t_c3bc1fd6a4b69e 1-199,212-374,378-385
+  s_7f6729d1c18d55::t_2e7666897f42bf 200-211,375-377
+frontend/src/components/forms/form-renderer.test.tsx
+  s_7f6729d1c18d55::t_abf0a0c783274c 112-118
+  s_7f6729d1c18d55::t_2e7666897f42bf 30-34,103-105,140-142,169-171,233-235,298-300,314-316,335-337,376-380,388-391,409-412,431-434,490-492,495-497
+  s_7f6729d1c18d55::t_1391233e749d01 1-29,35-102,106-111,119-139,143-168,172-232,236-257,259,261-262,264,279,283-297,301-313,317-334,338-375,381-387,392-408,413-430,435-489,493-494,498-500
+  s_7f6729d1c18d55::t_3e88479ee21617 258,260,263,265-278,280-282
+frontend/tests/helpers/render-form-markdown.mjs
+  s_7f6729d1c18d55::t_0d901443021dcc 1-60
+frontend/src/components/forms/widgets/date.tsx
+  s_7f6729d1c18d55::t_734680363d2f0b 1-84
+frontend/src/components/forms/widgets/registry.ts
+  s_7f6729d1c18d55::t_2264dca2841b37 1-39
+frontend/src/components/forms/widgets/long-text.tsx
+  s_7f6729d1c18d55::t_c25c8dd3eab0f3 1-33
+frontend/src/components/forms/widgets/number.tsx
+  s_7f6729d1c18d55::t_df0bab3aa4c657 1-38
+frontend/src/components/forms/widgets/registry.test.ts
+  s_7f6729d1c18d55::t_f8df5322228ac7 1-22
+frontend/src/components/forms/widgets/select.tsx
+  s_7f6729d1c18d55::t_96996eff5918fe 1-60
+frontend/src/components/forms/widgets/toggle.tsx
+  s_7f6729d1c18d55::t_661ce6160d43ff 1-32
+frontend/src/components/forms/form-styles.ts
+  s_7f6729d1c18d55::t_e80993d5615fee 1-33,35-40,43-51
+  s_7f6729d1c18d55::t_2e7666897f42bf 34,41-42
+frontend/src/components/forms/widgets/types.ts
+  s_7f6729d1c18d55::t_660b48dc8074fc 1-42
+frontend/src/components/forms/widgets/text.tsx
+  s_7f6729d1c18d55::t_1f290c4a3975b3 1-33
+frontend/src/components/forms/widgets/datetime.tsx
+  s_7f6729d1c18d55::t_88b32b65a89a0f 1-123
+frontend/src/components/forms/widgets/user.tsx
+  s_7f6729d1c18d55::t_d27e877900cc72 1-190
+frontend/src/components/forms/form-markdown.tsx
+  s_7f6729d1c18d55::t_6427d200e596ec 1-87
+frontend/src/components/forms/widgets/tags.tsx
+  s_7f6729d1c18d55::t_7c22f21e892d1e 1-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "66db232cee20a2ee03738cd30b575a144b4ca60b",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
