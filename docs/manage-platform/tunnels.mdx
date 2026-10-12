@@ -21,40 +21,9 @@ Workflow actions cannot select a tunnel yet. This page covers creating and conne
 
 - The `tunnels` Enterprise entitlement.
 - `tunnel:read` to list tunnels and check status, and `tunnel:create`, `tunnel:update`, or `tunnel:delete` to manage them. Workspace admins and organization owners and admins hold all four; workspace viewers hold `tunnel:read`.
-- A Pangolin server: Pangolin Cloud for Tracecat Cloud, or your own Pangolin deployment for self-hosted Tracecat.
+- A Pangolin server: Pangolin Cloud for Tracecat Cloud, or your own Pangolin deployment for self-hosted Tracecat. See [Configure Pangolin for self-hosted Tracecat](#configure-pangolin-for-self-hosted-tracecat).
 
 Call the API with a [service account API key](/api-reference/authentication) and pass `workspace_id` as a query parameter on every request.
-
-## Configure Pangolin for self-hosted Tracecat
-
-Tracecat Cloud manages Pangolin for you; skip to [Create a managed tunnel](#create-a-managed-tunnel).
-
-On self-hosted Tracecat, managed tunnels provision Pangolin through its Integration API.
-
-<Steps>
-  <Step title="Enable the Integration API">
-    Deploy Pangolin separately and enable its [Integration API](https://docs.pangolin.net). The API base URL ends in `/v1`.
-  </Step>
-  <Step title="Create an organization API key">
-    In the Pangolin dashboard, open your organization's API keys and create a key with these permissions:
-
-    - Sites: pick site defaults, create, get, and delete.
-    - Clients: pick client defaults, create, get, and delete.
-    - Private resources: create, get, delete, and list resource clients.
-  </Step>
-  <Step title="Set the Tracecat environment variables">
-    Set these on the `api` service and restart it:
-
-    ```bash
-    TRACECAT__PANGOLIN_ENDPOINT=https://pangolin.example.com
-    TRACECAT__PANGOLIN_API_URL=https://pangolin.example.com/v1
-    TRACECAT__PANGOLIN_ORG_ID=<pangolin-org-id>
-    TRACECAT__PANGOLIN_API_KEY=<pangolin-org-api-key>
-    ```
-
-    Managed tunnels stay off until all four are set. See [Environment variables](/self-hosting/environment-variables).
-  </Step>
-</Steps>
 
 ## Create a managed tunnel
 
@@ -170,11 +139,63 @@ The proxy reads:
 
 The gateway answers `407` for a missing, expired, or wrong-tunnel token, `403` for a host or port outside the allowed targets, and `504` when Pangolin does not reach the target. It never falls back to direct egress.
 
+## Use TLS with private services
+
+HTTPS through a tunnel stays encrypted end to end. The gateway relays the TLS connection without decrypting it, and the action verifies the server certificate against the hostname in the URL, such as `splunk.internal`. Issue the certificate for the hostname you list in `allowed_targets`.
+
+If an internal CA signs the certificate, add the CA to the workspace:
+
+<Steps>
+  <Step title="Create a CA certificate credential">
+    In the workspace, open **Credentials** and select **Add credential**. Name the secret `ca_cert`, set **Type** to **CA certificate**, paste the PEM-encoded CA certificate, and select **Create secret**. Tracecat stores it as the `CA_CERTIFICATE` key.
+
+    <Frame>
+      <img src="/img/manage-platform/tunnels-ca-certificate.png" alt="Create a CA certificate credential" />
+    </Frame>
+  </Step>
+  <Step title="Keep certificate verification on">
+    `core.http_request`, `core.http_poll`, and `core.http_paginate` load the `ca_cert` credential automatically. Leave `verify_ssl` set to `true`; requests then fail if the certificate does not chain to your CA or does not match the hostname.
+  </Step>
+</Steps>
+
+If the service requires client certificates, add a credential named `mtls` with the **mTLS certificate + key** type. See [Secrets](/automations/core-concepts/secrets) for every credential type.
+
+Plain `http://` requests are encrypted inside the Pangolin tunnel, but not between the site connector and the target, and the gateway can read them. Prefer `https://` for anything that carries credentials.
+
 ## Manage tunnels
 
 - List tunnels with `GET /tunnels` and read one with `GET /tunnels/{tunnel_id}`.
 - Rename, describe, or disable a tunnel with `PATCH /tunnels/{tunnel_id}`. Managed tunnels reject changes to `endpoint`, `client_id`, `client_secret`, and `allowed_targets`; create a new managed tunnel to change targets.
 - Delete a tunnel with `DELETE /tunnels/{tunnel_id}`. For managed tunnels, Tracecat deletes the Pangolin resources, machine client, and site first. If Pangolin cleanup fails, the request returns `502` and keeps the tunnel so you can retry. Stop the site connector afterwards.
+
+## Configure Pangolin for self-hosted Tracecat
+
+Tracecat Cloud manages Pangolin for you, so this section applies only to self-hosted Tracecat. Managed tunnels provision Pangolin through its Integration API.
+
+<Steps>
+  <Step title="Enable the Integration API">
+    Deploy Pangolin separately and enable its [Integration API](https://docs.pangolin.net). The API base URL ends in `/v1`.
+  </Step>
+  <Step title="Create an organization API key">
+    In the Pangolin dashboard, open your organization's API keys and create a key with these permissions:
+
+    - Sites: pick site defaults, create, get, and delete.
+    - Clients: pick client defaults, create, get, and delete.
+    - Private resources: create, get, delete, and list resource clients.
+  </Step>
+  <Step title="Set the Tracecat environment variables">
+    Set these on the `api` service and restart it:
+
+    ```bash
+    TRACECAT__PANGOLIN_ENDPOINT=https://pangolin.example.com
+    TRACECAT__PANGOLIN_API_URL=https://pangolin.example.com/v1
+    TRACECAT__PANGOLIN_ORG_ID=<pangolin-org-id>
+    TRACECAT__PANGOLIN_API_KEY=<pangolin-org-api-key>
+    ```
+
+    Managed tunnels stay off until all four are set. See [Environment variables](/self-hosting/environment-variables).
+  </Step>
+</Steps>
 
 ## Related pages
 
