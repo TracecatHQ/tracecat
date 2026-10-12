@@ -7,6 +7,7 @@ import {
   LayersIcon,
   MousePointerClickIcon,
   PlusIcon,
+  SparklesIcon,
   SquareFunctionIcon,
   Table2Icon,
   WorkflowIcon,
@@ -67,7 +68,7 @@ const ACTION_CATEGORIES: ActionCategory[] = [
     id: "ai",
     label: "AI",
     namespace: "ai",
-    icon: MousePointerClickIcon,
+    icon: SparklesIcon,
     align: "center",
   },
   {

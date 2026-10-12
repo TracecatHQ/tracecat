@@ -326,17 +326,18 @@ describe("model provider icons", () => {
 })
 
 describe("Core and AI action icon mappings", () => {
-  it.each(["ai.action", "ai.agent", "ai.preset_agent", "ai.skill.list_skills"])(
-    "renders the primary mouse-pointer-click icon for %s",
-    (action) => {
-      const container = renderIcon(getIcon(action))
-      expect(container.firstElementChild).toHaveClass("bg-primary/10")
-      expect(container.firstElementChild).toHaveClass("text-primary")
-      expect(
-        container.querySelector("svg.lucide-mouse-pointer-click")
-      ).not.toBeNull()
-    }
-  )
+  it.each([
+    ["ai.action", "sparkles"],
+    ["ai.skill.list_skills", "sparkles"],
+    ["ai.agent", "mouse-pointer-click"],
+    ["ai.agent.list_presets", "mouse-pointer-click"],
+    ["ai.preset_agent", "mouse-pointer-click"],
+  ])("renders %s with the primary %s icon", (action, icon) => {
+    const container = renderIcon(getIcon(action))
+    expect(container.firstElementChild).toHaveClass("bg-primary/10")
+    expect(container.firstElementChild).toHaveClass("text-primary")
+    expect(container.querySelector(`svg.lucide-${icon}`)).not.toBeNull()
+  })
 
   it("keeps the Slack mark for ai.slackbot", () => {
     expect(getIconSource("ai.slackbot")).not.toBe(getIconSource("ai.action"))

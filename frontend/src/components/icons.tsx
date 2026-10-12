@@ -774,7 +774,12 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     ),
     "tools.wazuh": createIconRenderer(WazuhIcon),
     // AI namespace
-    ai: createColoredLucideRenderer(
+    ai: createColoredLucideRenderer(Sparkles, "bg-primary/10 text-primary"),
+    "ai.agent": createColoredLucideRenderer(
+      MousePointerClick,
+      "bg-primary/10 text-primary"
+    ),
+    "ai.preset_agent": createColoredLucideRenderer(
       MousePointerClick,
       "bg-primary/10 text-primary"
     ),
