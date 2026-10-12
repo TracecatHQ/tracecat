@@ -4,6 +4,7 @@ import json
 import uuid
 from collections.abc import AsyncGenerator
 
+import httpx
 import pytest
 from tracecat_ee.tunnels.gateway.proxy import (
     GatewayConfig,
@@ -161,15 +162,10 @@ async def test_rejects_targets_outside_allowlist(
     writer.close()
 
 
-async def test_rejects_non_connect_methods(
-    gateway_port: int, upstream_port: int
-) -> None:
-    request = (
-        f"GET http://127.0.0.1:{upstream_port}/ HTTP/1.1\r\n"
-        f"Proxy-Authorization: Bearer {_token()}\r\n\r\n"
-    ).encode()
-    status, _, writer = await _request(gateway_port, request)
-    assert status.startswith(b"HTTP/1.1 405")
+async def test_rejects_origin_form_requests(gateway_port: int) -> None:
+    request = f"GET /search HTTP/1.1\r\nProxy-Authorization: Bearer {_token()}\r\n\r\n"
+    status, _, writer = await _request(gateway_port, request.encode())
+    assert status.startswith(b"HTTP/1.1 400")
     writer.close()
 
 
@@ -251,3 +247,104 @@ def test_config_requires_settings() -> None:
                 "TRACECAT_TUNNEL_ALLOWED_TARGETS": "[]",
             }
         )
+
+
+async def _http_upstream(
+    reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+) -> None:
+    head = await reader.readuntil(b"\r\n\r\n")
+    lines = head.decode().split("\r\n")
+    headers = dict(line.split(": ", 1) for line in lines[1:] if line)
+    length = int(headers.get("Content-Length", "0"))
+    body = await reader.readexactly(length) if length else b""
+    payload = json.dumps(
+        {"request_line": lines[0], "headers": headers, "body": body.decode()}
+    ).encode()
+    writer.write(
+        b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+        + f"Content-Length: {len(payload)}\r\nConnection: close\r\n\r\n".encode()
+        + payload
+    )
+    await writer.drain()
+    writer.close()
+
+
+@pytest.fixture
+async def http_upstream_port() -> AsyncGenerator[int, None]:
+    server = await asyncio.start_server(_http_upstream, "127.0.0.1", 0)
+    async with server:
+        yield server.sockets[0].getsockname()[1]
+
+
+@pytest.fixture
+async def http_gateway_port(http_upstream_port: int) -> AsyncGenerator[int, None]:
+    config = GatewayConfig(
+        tunnel_id=TUNNEL_ID,
+        workspace_id=WORKSPACE_ID,
+        gateway_key=KEY,
+        allowed_targets=frozenset({("127.0.0.1", http_upstream_port)}),
+        host="127.0.0.1",
+        port=0,
+    )
+    server = await start_gateway(config)
+    async with server:
+        yield server.sockets[0].getsockname()[1]
+
+
+async def test_http_client_forwards_plain_http_requests(
+    http_gateway_port: int, http_upstream_port: int
+) -> None:
+    proxy = f"http://tracecat:{_token()}@127.0.0.1:{http_gateway_port}"
+    async with httpx.AsyncClient(proxy=proxy) as client:
+        response = await client.post(
+            f"http://127.0.0.1:{http_upstream_port}/services/search/jobs?output_mode=json",
+            content=b"search=index%3Dmain",
+            headers={"Authorization": "Bearer splunk-token", "Connection": "X-Drop"},
+        )
+    assert response.status_code == 200
+    seen = response.json()
+    assert seen["request_line"] == (
+        "POST /services/search/jobs?output_mode=json HTTP/1.1"
+    )
+    assert seen["headers"]["Host"] == f"127.0.0.1:{http_upstream_port}"
+    assert seen["headers"]["Authorization"] == "Bearer splunk-token"
+    assert seen["headers"]["Connection"] == "close"
+    assert "Proxy-Authorization" not in seen["headers"]
+    assert seen["body"] == "search=index%3Dmain"
+
+
+async def test_http_forward_rejects_bad_token_and_targets(
+    http_gateway_port: int, http_upstream_port: int
+) -> None:
+    bad_proxy = f"http://tracecat:{_token(tunnel_id=uuid.uuid4())}@127.0.0.1:{http_gateway_port}"
+    async with httpx.AsyncClient(proxy=bad_proxy) as client:
+        response = await client.get(f"http://127.0.0.1:{http_upstream_port}/")
+    assert response.status_code == 407
+
+    proxy = f"http://tracecat:{_token()}@127.0.0.1:{http_gateway_port}"
+    async with httpx.AsyncClient(proxy=proxy) as client:
+        other_port = await client.get(f"http://127.0.0.1:{http_upstream_port + 1}/")
+        other_host = await client.get(f"http://localhost:{http_upstream_port}/")
+    assert other_port.status_code == 403
+    assert other_host.status_code == 403
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "ftp://127.0.0.1:21/file",
+        "http://user:pass@127.0.0.1:{port}/",
+        "http://127.0.0.1:notaport/",
+        "http:///nohost",
+    ],
+)
+async def test_http_forward_rejects_malformed_uris(
+    http_gateway_port: int, http_upstream_port: int, target: str
+) -> None:
+    request = (
+        f"GET {target.format(port=http_upstream_port)} HTTP/1.1\r\n"
+        f"Proxy-Authorization: Bearer {_token()}\r\n\r\n"
+    )
+    status, _, writer = await _request(http_gateway_port, request.encode())
+    assert status.startswith(b"HTTP/1.1 400")
+    writer.close()

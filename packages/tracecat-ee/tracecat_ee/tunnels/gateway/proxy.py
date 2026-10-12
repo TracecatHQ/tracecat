@@ -1,11 +1,18 @@
-"""HTTP CONNECT proxy that fronts one Pangolin tunnel.
+"""Forward proxy that fronts one Pangolin tunnel.
 
 The gateway runs next to a Pangolin machine client (for example as a sidecar
 in the same pod), so connections it opens leave through the tunnel. It only
-accepts ``CONNECT host:port`` requests that carry a valid proxy token for its
-own tunnel and workspace, and only to the configured ``allowed_targets``.
-TLS stays end to end between the action and the target. It never falls back
+accepts requests that carry a valid proxy token for its own tunnel and
+workspace, and only to the configured ``allowed_targets``. It never falls back
 to another route.
+
+- ``https://`` targets arrive as ``CONNECT host:port``. TLS stays end to end
+  between the action and the target.
+- ``http://`` targets arrive as absolute-form requests
+  (``GET http://host:port/path HTTP/1.1``). The gateway strips proxy and
+  hop-by-hop headers, rewrites the request to origin form, and forwards it
+  with ``Connection: close``, so each proxied connection carries one request
+  to one checked target.
 
 Clients pass the token either as ``Proxy-Authorization: Bearer <token>`` or as
 the password of a Basic credential, which is what proxy URLs such as
@@ -24,6 +31,7 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from http import HTTPStatus
+from urllib.parse import urlsplit
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -34,6 +42,19 @@ from tracecat_ee.tunnels.tokens import TunnelTokenError, verify_tunnel_token
 MAX_HEADER_BYTES = 16 * 1024
 _BUFFER_SIZE = 64 * 1024
 _TARGETS_ADAPTER = TypeAdapter(list[TunnelTarget])
+_HOP_BY_HOP_HEADERS = frozenset(
+    {
+        "connection",
+        "host",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "proxy-connection",
+        "te",
+        "trailer",
+        "upgrade",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -82,17 +103,66 @@ class _ProxyError(Exception):
         self.reason = reason
 
 
+def _normalize_target(host: str, port: int) -> tuple[str, int]:
+    try:
+        target = TunnelTarget(host=host, ports=[port])
+    except ValidationError as exc:
+        raise _ProxyError(HTTPStatus.BAD_REQUEST, "invalid_target") from exc
+    return target.host, target.ports[0]
+
+
 def _parse_authority(authority: str) -> tuple[str, int]:
     host, sep, port_str = authority.rpartition(":")
     if not sep or not port_str.isdigit():
         raise _ProxyError(HTTPStatus.BAD_REQUEST, "invalid_target")
     if host.startswith("[") and host.endswith("]"):
         host = host[1:-1]
+    return _normalize_target(host, int(port_str))
+
+
+@dataclass(frozen=True)
+class _ParsedRequest:
+    method: str
+    target: str
+    version: str
+    header_items: list[tuple[str, str]]
+
+    @property
+    def headers(self) -> dict[str, str]:
+        return {name.lower(): value for name, value in self.header_items}
+
+
+def _http_forward(request: _ParsedRequest) -> tuple[str, int, bytes]:
+    """Validate an absolute-form ``http://`` request and rewrite it to origin form."""
+    url = urlsplit(request.target)
+    if url.scheme.lower() != "http" or not url.hostname:
+        raise _ProxyError(HTTPStatus.BAD_REQUEST, "absolute_http_uri_required")
+    if url.username or url.password or url.fragment:
+        raise _ProxyError(HTTPStatus.BAD_REQUEST, "invalid_target")
     try:
-        target = TunnelTarget(host=host, ports=[int(port_str)])
-    except ValidationError as exc:
+        port = url.port or 80
+    except ValueError as exc:
         raise _ProxyError(HTTPStatus.BAD_REQUEST, "invalid_target") from exc
-    return target.host, target.ports[0]
+    host, port = _normalize_target(url.hostname, port)
+
+    connection_tokens = {
+        token.strip().lower()
+        for name, value in request.header_items
+        if name.lower() == "connection"
+        for token in value.split(",")
+    }
+    path = url.path or "/"
+    if url.query:
+        path = f"{path}?{url.query}"
+    lines = [f"{request.method} {path} {request.version}", f"Host: {url.netloc}"]
+    lines.extend(
+        f"{name}: {value}"
+        for name, value in request.header_items
+        if name.lower() not in _HOP_BY_HOP_HEADERS
+        and name.lower() not in connection_tokens
+    )
+    lines.append("Connection: close")
+    return host, port, ("\r\n".join(lines) + "\r\n\r\n").encode("latin-1")
 
 
 def _extract_token(headers: Mapping[str, str]) -> str:
@@ -119,23 +189,24 @@ def _extract_token(headers: Mapping[str, str]) -> str:
     return token
 
 
-def _parse_head(head: bytes) -> tuple[str, str, dict[str, str]]:
+def _parse_head(head: bytes) -> _ParsedRequest:
     try:
         lines = head.decode("latin-1").split("\r\n")
-        method, authority, version = lines[0].split(" ")
+        method, target, version = lines[0].split(" ")
     except ValueError as exc:
         raise _ProxyError(HTTPStatus.BAD_REQUEST, "malformed_request") from exc
-    if not version.startswith("HTTP/1."):
+    if version not in ("HTTP/1.0", "HTTP/1.1") or not method.isalpha():
         raise _ProxyError(HTTPStatus.BAD_REQUEST, "malformed_request")
-    headers: dict[str, str] = {}
+    header_items: list[tuple[str, str]] = []
     for line in lines[1:]:
         if not line:
             continue
         name, sep, value = line.partition(":")
-        if not sep:
+        name = name.strip()
+        if not sep or not name or " " in name:
             raise _ProxyError(HTTPStatus.BAD_REQUEST, "malformed_request")
-        headers[name.strip().lower()] = value.strip()
-    return method, authority, headers
+        header_items.append((name, value.strip()))
+    return _ParsedRequest(method.upper(), target, version, header_items)
 
 
 async def _respond(writer: asyncio.StreamWriter, status: HTTPStatus) -> None:
@@ -194,13 +265,15 @@ class TunnelGateway:
             except (asyncio.IncompleteReadError, TimeoutError) as exc:
                 raise _ProxyError(HTTPStatus.BAD_REQUEST, "incomplete_request") from exc
 
-            method, authority, headers = _parse_head(head)
-            if method != "CONNECT":
-                raise _ProxyError(HTTPStatus.METHOD_NOT_ALLOWED, "connect_only")
-            host, port = _parse_authority(authority)
+            request = _parse_head(head)
+            forward_head: bytes | None = None
+            if request.method == "CONNECT":
+                host, port = _parse_authority(request.target)
+            else:
+                host, port, forward_head = _http_forward(request)
             try:
                 claims = verify_tunnel_token(
-                    _extract_token(headers),
+                    _extract_token(request.headers),
                     gateway_key=cfg.gateway_key,
                     tunnel_id=cfg.tunnel_id,
                     workspace_id=cfg.workspace_id,
@@ -210,6 +283,7 @@ class TunnelGateway:
                     HTTPStatus.PROXY_AUTHENTICATION_REQUIRED, "invalid_token"
                 ) from exc
             log = log.bind(
+                method=request.method,
                 wf_exec_id=claims.wf_exec_id,
                 action_ref=claims.action_ref,
                 target_host=host,
@@ -231,8 +305,12 @@ class TunnelGateway:
                     HTTPStatus.BAD_GATEWAY, "upstream_unreachable"
                 ) from exc
 
-            client_writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-            await client_writer.drain()
+            if forward_head is None:
+                client_writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                await client_writer.drain()
+            else:
+                upstream_writer.write(forward_head)
+                await upstream_writer.drain()
             log.info("Tunnel connection opened")
             sent, received = await asyncio.gather(
                 _pipe(client_reader, upstream_writer, cfg.idle_timeout),
