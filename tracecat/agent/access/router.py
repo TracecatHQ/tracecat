@@ -56,21 +56,23 @@ async def enable_model(
 async def list_enabled_models(
     role: OrgUserOptionalWorkspaceRole,
     session: AsyncDBSession,
+    include_org_rows: bool = Query(False),
     cursor: str | None = Query(None),
     limit: int = Query(50, ge=1, le=100),
 ) -> AgentModelAccessListResponse:
     """List enabled models with pagination.
 
     The `workspace_id` query parameter is read by the role dependency. With
-    it, the caller's roles on that workspace apply and the list holds the
-    organization-level rows plus that workspace's rows. Without it, every
-    row in the organization is listed.
+    it, the caller's roles on that workspace apply and the list holds that
+    workspace's rows; `include_org_rows` adds the organization-level rows.
+    Without `workspace_id`, every row in the organization is listed.
     """
     service = AgentModelAccessService(session=session, role=role)
     try:
         params = CursorPaginationParams(cursor=cursor, limit=limit)
         items, next_cursor = await service.list_enabled_models(
             workspace_id=role.workspace_id,
+            include_org_rows=include_org_rows,
             cursor_params=params,
         )
         return AgentModelAccessListResponse(

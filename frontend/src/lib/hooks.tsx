@@ -5894,6 +5894,7 @@ async function fetchAllOrgEnabledAccessRows(
       cursor,
       limit: AGENT_MODEL_PAGE_SIZE,
       workspaceId,
+      includeOrgRows: true,
     })
     items.push(...response.items)
     cursor = response.next_cursor ?? undefined

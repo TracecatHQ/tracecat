@@ -13300,6 +13300,7 @@ export type EnableModelResponse = AgentModelAccessRead
 
 export type ListEnabledModelsData = {
   cursor?: string | null
+  includeOrgRows?: boolean
   limit?: number
   workspaceId?: string | null
 }

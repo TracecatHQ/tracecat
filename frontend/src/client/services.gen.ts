@@ -5395,10 +5395,11 @@ export const enableModel = (
  * List enabled models with pagination.
  *
  * The `workspace_id` query parameter is read by the role dependency. With
- * it, the caller's roles on that workspace apply and the list holds the
- * organization-level rows plus that workspace's rows. Without it, every
- * row in the organization is listed.
+ * it, the caller's roles on that workspace apply and the list holds that
+ * workspace's rows; `include_org_rows` adds the organization-level rows.
+ * Without `workspace_id`, every row in the organization is listed.
  * @param data The data for the request.
+ * @param data.includeOrgRows
  * @param data.cursor
  * @param data.limit
  * @param data.workspaceId
@@ -5412,6 +5413,7 @@ export const listEnabledModels = (
     method: "GET",
     url: "/organization/agent-model-access",
     query: {
+      include_org_rows: data.includeOrgRows,
       cursor: data.cursor,
       limit: data.limit,
       workspace_id: data.workspaceId,
