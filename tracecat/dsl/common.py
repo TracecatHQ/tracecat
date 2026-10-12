@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
@@ -20,6 +21,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic.json_schema import SkipJsonSchema
 from pydantic_core import PydanticCustomError
 from temporalio import workflow
 from temporalio.common import RetryPolicy, TypedSearchAttributes
@@ -128,6 +130,50 @@ class DSLEntrypoint(BaseModel):
         ),
     )
     """Trigger input schema."""
+    expects_order: SkipJsonSchema[list[str] | None] = Field(default=None, exclude=True)
+    """Author's key order for ``expects``. Load-only.
+
+    JSONB storage does not keep object key order, so stored workflows carry the
+    order as a list next to ``expects``. It is applied once at validation and
+    never serialized.
+    """
+
+    @model_validator(mode="after")
+    def _apply_expects_order(self) -> Self:
+        if self.expects_order is None:
+            return self
+        self.expects = apply_expects_order(self.expects, self.expects_order)
+        # The hint is spent. Clearing it keeps a loaded entrypoint equal to the
+        # one that was saved.
+        self.expects_order = None
+        self.model_fields_set.discard("expects_order")
+        return self
+
+
+def apply_expects_order[T](
+    expects: Mapping[str, T] | None, order: Sequence[str] | None
+) -> dict[str, T] | None:
+    """Return ``expects`` with its keys in the author's order.
+
+    Args:
+        expects: Trigger input schema, in whatever key order storage returned.
+        order: Input names in the author's order, or None if never captured.
+
+    Returns:
+        A dict with the keys named in ``order`` first, followed by any other
+        keys in their existing order. None if ``expects`` is None.
+    """
+    if expects is None:
+        return None
+    if not order:
+        return dict(expects)
+    ordered = {name: expects[name] for name in order if name in expects}
+    return ordered | {name: expects[name] for name in expects if name not in ordered}
+
+
+def expects_key_order(expects: Mapping[str, Any] | None) -> list[str] | None:
+    """Return the key order of ``expects`` for storage, or None if empty."""
+    return list(expects) if expects else None
 
 
 def key2loc(key: str) -> str:

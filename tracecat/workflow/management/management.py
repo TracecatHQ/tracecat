@@ -34,6 +34,7 @@ from tracecat.dsl.common import (
     DSLInput,
     build_action_statements_from_actions,
     edge_components_from_dep,
+    expects_key_order,
 )
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import DSLConfig, ExecutionContext, RunContext
@@ -150,6 +151,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
             "title": dsl.title,
             "description": dsl.description,
             "expects": dsl.entrypoint.model_dump(mode="json").get("expects"),
+            "expects_order": expects_key_order(dsl.entrypoint.expects),
             "returns": dsl.returns,
             "config": dsl.config.model_dump(),
             "error_handler": dsl.error_handler,
@@ -799,6 +801,8 @@ class WorkflowsManagementService(BaseWorkspaceService):
             set_fields["object"] = normalized_graph.model_dump(
                 by_alias=True, mode="json"
             )
+        if "expects" in set_fields:
+            workflow.expects_order = expects_key_order(set_fields["expects"])
 
         for key, value in set_fields.items():
             # Safe because params has been validated
@@ -1058,7 +1062,9 @@ class WorkflowsManagementService(BaseWorkspaceService):
         return DSLInput(
             title=workflow.title,
             description=workflow.description,
-            entrypoint=DSLEntrypoint(expects=workflow.expects),
+            entrypoint=DSLEntrypoint(
+                expects=workflow.expects, expects_order=workflow.expects_order
+            ),
             actions=action_statements,
             config=DSLConfig(**workflow.config),
             returns=workflow.returns,

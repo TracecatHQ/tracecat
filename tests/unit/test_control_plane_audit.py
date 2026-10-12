@@ -227,6 +227,7 @@ def _edit_source() -> SimpleNamespace:
         error_handler=None,
         entrypoint=None,
         expects=None,
+        expects_order=None,
         config=None,
         returns=None,
         trigger_position_x=None,

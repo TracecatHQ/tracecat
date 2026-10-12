@@ -7,7 +7,7 @@ from temporalio import activity
 
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import Workflow, WorkflowDefinition
-from tracecat.dsl.common import DSLInput
+from tracecat.dsl.common import DSLInput, expects_key_order
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
@@ -111,10 +111,14 @@ class WorkflowDefinitionsService(BaseWorkspaceService):
             raise TracecatValidationError("Initial workflow definition already exists")
 
         version = latest_defn.version + 1 if latest_defn else 1
+        content = dsl.model_dump(exclude_unset=True)
+        # JSONB does not keep key order; DSLEntrypoint reapplies it on load.
+        if expects_order := expects_key_order(dsl.entrypoint.expects):
+            content["entrypoint"]["expects_order"] = expects_order
         defn = WorkflowDefinition(
             workspace_id=self.workspace_id,
             workflow_id=workflow_id,
-            content=dsl.model_dump(exclude_unset=True),
+            content=content,
             version=version,
             alias=alias,
             registry_lock=registry_lock.model_dump() if registry_lock else None,

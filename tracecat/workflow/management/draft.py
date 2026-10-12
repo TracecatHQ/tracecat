@@ -36,6 +36,7 @@ from tracecat.dsl.common import (
     DSLEntrypoint,
     DSLInput,
     build_action_statements_from_actions,
+    expects_key_order,
 )
 from tracecat.dsl.schemas import DSLConfig
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -124,6 +125,7 @@ class _WorkflowEditDocumentSource(Protocol):
     error_handler: str | None
     entrypoint: str | None
     expects: dict[str, Any] | None
+    expects_order: list[str] | None
     config: dict[str, Any] | None
     returns: Any | None
     trigger_position_x: float | None
@@ -283,6 +285,7 @@ def build_workflow_edit_document(
                     entrypoint=DSLEntrypoint(
                         ref=workflow.entrypoint,
                         expects=workflow.expects,
+                        expects_order=workflow.expects_order,
                     ),
                     actions=action_statements,
                     config=DSLConfig.model_validate(workflow.config or {}),
@@ -918,6 +921,7 @@ async def persist_workflow_edit_document(
                 exclude_none=True
             )
             workflow.expects = entrypoint_data.get("expects") or {}
+            workflow.expects_order = expects_key_order(workflow.expects)
             workflow.returns = updated_document.definition.returns
             workflow.config = updated_document.definition.config.model_dump(mode="json")
             service.session.add(workflow)
@@ -1027,6 +1031,7 @@ async def replace_workflow_definition_from_dsl(
     workflow.entrypoint = dsl.entrypoint.ref
     entrypoint_data = dsl.entrypoint.model_dump()
     workflow.expects = entrypoint_data.get("expects") or {}
+    workflow.expects_order = expects_key_order(workflow.expects)
     workflow.returns = dsl.returns
     workflow.config = dsl.config.model_dump(mode="json")
     workflow.error_handler = dsl.error_handler

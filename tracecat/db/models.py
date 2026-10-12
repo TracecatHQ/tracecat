@@ -1046,6 +1046,11 @@ class Workflow(WorkspaceModel):
         nullable=True,
         doc="Input schema for the workflow",
     )
+    expects_order: Mapped[list[str] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Author's key order for expects; JSONB does not keep object key order",
+    )
     returns: Mapped[Any | None] = mapped_column(
         JSONB, nullable=True, doc="Workflow return values"
     )
