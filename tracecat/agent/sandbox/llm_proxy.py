@@ -28,7 +28,6 @@ from tenacity import (
     AsyncRetrying,
     RetryCallState,
     retry_if_exception_type,
-    stop_after_attempt,
     wait_exponential_jitter,
 )
 
@@ -1330,8 +1329,15 @@ class LLMSocketProxy:
                     trace_request_id=trace_request_id,
                 )
 
+            def rate_limit_attempts_exhausted(retry_state: RetryCallState) -> bool:
+                # The single connection-drop retry has its own budget.
+                rate_limit_attempt = retry_state.attempt_number - int(
+                    connection_drop_retried
+                )
+                return rate_limit_attempt >= _RATE_LIMIT_MAX_ATTEMPTS
+
             async for attempt in AsyncRetrying(
-                stop=stop_after_attempt(_RATE_LIMIT_MAX_ATTEMPTS),
+                stop=rate_limit_attempts_exhausted,
                 wait=_rate_limit_wait,
                 retry=retry_if_exception_type(
                     (_UpstreamRateLimited, _UpstreamConnectionDropped)
@@ -1340,6 +1346,7 @@ class LLMSocketProxy:
                 reraise=True,
             ):
                 attempt_number = attempt.retry_state.attempt_number
+                rate_limit_attempt = attempt_number - int(connection_drop_retried)
                 response_phase = "response_headers"
                 with attempt:
                     headers_received = False
@@ -1381,7 +1388,7 @@ class LLMSocketProxy:
                                 if (
                                     classification.kind
                                     is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
-                                    and attempt_number < _RATE_LIMIT_MAX_ATTEMPTS
+                                    and rate_limit_attempt < _RATE_LIMIT_MAX_ATTEMPTS
                                     and not self._stopping
                                 ):
                                     raise _UpstreamRateLimited(
@@ -1437,7 +1444,6 @@ class LLMSocketProxy:
                             or route.is_direct
                             or connection_drop_retried
                             or self._stopping
-                            or attempt_number >= _RATE_LIMIT_MAX_ATTEMPTS
                         ):
                             raise
                         connection_drop_retried = True
