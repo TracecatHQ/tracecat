@@ -27,6 +27,7 @@ from tracecat.workflow.store.schemas import (
     WorkflowDslPublishResult,
 )
 from tracecat.workspace_sync.enums import SyncResourceType
+from tracecat.workspace_sync.types import SyncMappingTarget
 
 MANIFEST_FILENAME = "tracecat.json"
 WORKFLOW_ROOT = "workflows"
@@ -762,6 +763,8 @@ class WorkspaceSpec(BaseModel):
 
 class WorkspaceProjection(BaseModel):
     """Locally projected workspace state plus the files it serializes to."""
+
+    mapping_targets: list[SyncMappingTarget] = Field(default_factory=list)
 
     manifest: WorkspaceManifest = Field(
         description="Manifest describing the projected repository layout."

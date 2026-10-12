@@ -34,7 +34,7 @@ from tracecat.feature_flags import FeatureFlag
 from tracecat.git.types import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
-from tracecat.sync import CommitInfo, PullOptions, PushStatus
+from tracecat.sync import CommitInfo, PullDiagnostic, PullOptions, PushStatus
 from tracecat.vcs.github.app import GitHubAppError
 from tracecat.workflow.store.schemas import RemoteCaseTrigger, RemoteWorkflowSchedule
 from tracecat.workspace_sync.adapters import (
@@ -56,6 +56,7 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceManifest,
     WorkspaceManifestResources,
     WorkspaceProjection,
+    WorkspaceRemoteSnapshot,
     WorkspaceSpec,
     WorkspaceSyncExportPreviewRequest,
     WorkspaceSyncExportRequest,
@@ -72,7 +73,7 @@ from tracecat.workspace_sync.transport import (
     _git_blob_sha,
     _git_blob_sha_bytes,
 )
-from tracecat.workspace_sync.types import SyncCommitConflictError
+from tracecat.workspace_sync.types import PreparedSnapshot, SyncCommitConflictError
 from tracecat.workspace_sync.workflow import (
     serialize_workflow_spec,
     workflow_source_path,
@@ -1662,6 +1663,39 @@ async def test_selected_export_deletes_stale_companion_files_under_selected_reso
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("status", [None, 404, 403, 500])
+async def test_github_branch_lookup_preserves_api_failures(
+    workspace_sync_service: WorkspaceSyncService, status: int | None
+) -> None:
+    repo = Mock()
+    if status is not None:
+        repo.get_branch.side_effect = GithubException(status, {"message": "Synthetic"})
+    client = Mock()
+    client.get_repo.return_value = repo
+    transport = GitHubWorkspaceSyncTransport(
+        session=workspace_sync_service.session, role=workspace_sync_service.role
+    )
+    with patch(
+        "tracecat.workspace_sync.transport.GitHubAppService.get_github_client_for_repo",
+        AsyncMock(return_value=client),
+    ):
+        if status in (403, 500):
+            with pytest.raises(GitHubAppError):
+                await transport.branch_exists(
+                    url=GitUrl(host="github.com", org="example", repo="sync"),
+                    branch="sync/example",
+                )
+        else:
+            assert await transport.branch_exists(
+                url=GitUrl(host="github.com", org="example", repo="sync"),
+                branch="sync/example",
+            ) is (status is None)
+    repo.get_branch.assert_called_once_with("sync/example")
+    repo.get_branches.assert_not_called()
+    client.close.assert_called_once()
+
+
+@pytest.mark.anyio
 async def test_github_write_files_noop_skips_pr_for_branch_without_commits(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
@@ -2578,9 +2612,11 @@ async def _write_files_with_fake_repo(
     files: dict[str, str],
     branch: str = "sync/agents-1",
     create_pr: bool = True,
+    expected_commit_sha: str | None = None,
+    branch_start_ref: str | None = None,
     delete_missing_paths_under: tuple[str, ...] = (),
     logger: Mock | None = None,
-    expected_commit_sha: str | None = None,
+    operation_id: uuid.UUID | None = None,
 ):
     gh = Mock()
     gh.get_repo.return_value = repo
@@ -2605,8 +2641,10 @@ async def _write_files_with_fake_repo(
             message="Push limerick agent",
             branch=branch,
             create_pr=create_pr,
-            delete_missing_paths_under=delete_missing_paths_under,
             expected_commit_sha=expected_commit_sha,
+            branch_start_ref=branch_start_ref,
+            operation_id=operation_id,
+            delete_missing_paths_under=delete_missing_paths_under,
         )
 
 
@@ -2672,9 +2710,15 @@ class _FakeGitHubRepo:
         self.call_counts["create_git_ref"] += 1
         if self._create_git_ref_errors:
             raise self._create_git_ref_errors.pop(0)
+        if self._branch_exists:
+            raise GithubException(
+                status=422, data={"message": "Reference already exists"}
+            )
         self.created_refs.append((ref, sha))
         self._head_sha = sha
         self._branch_exists = True
+        if commit := self._commits_by_sha.get(sha):
+            self._files = dict(self._tree_files[commit.tree.sha])
 
     def graphql_named_mutation(
         self, name: str, inputs: dict[str, Any], output_schema: str
@@ -2710,7 +2754,7 @@ class _FakeGitHubRepo:
         self.call_counts["get_git_commit"] += 1
         tree_sha = f"tree-{sha}"
         self._tree_files.setdefault(tree_sha, dict(self._files))
-        return SimpleNamespace(tree=SimpleNamespace(sha=tree_sha))
+        return SimpleNamespace(sha=sha, tree=SimpleNamespace(sha=tree_sha))
 
     def get_git_tree(self, *, sha: str, recursive: bool):
         self.call_counts["get_git_tree"] += 1
@@ -2949,3 +2993,243 @@ async def test_guarded_github_publish_recovers_retried_lost_ack(
     assert result.sha == repo._head_sha
     assert repo.call_counts["ref.edit"] == 1
     assert len(repo.commits) == 1
+
+
+@pytest.mark.anyio
+async def test_github_stale_base_does_not_create_target_branch(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    repo = _FakeGitHubRepo(files={}, branch_exists=False, ahead_by=0)
+    with pytest.raises(TracecatValidationError, match="Base branch changed"):
+        await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files={"workflows/new.yml": "new"},
+            expected_commit_sha="b" * 40,
+        )
+    assert repo.created_refs == []
+    assert repo.commits == []
+
+
+@pytest.mark.anyio
+async def test_github_new_branch_uses_reviewed_ref_separately_from_pr_base(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    repo = _FakeGitHubRepo(files={}, branch_exists=False, ahead_by=1)
+    original_get_branch = repo.get_branch
+
+    def get_branch(name: str):
+        if name == "main":
+            return SimpleNamespace(commit=SimpleNamespace(sha="b" * 40))
+        if name == "reviewed-base":
+            return SimpleNamespace(commit=SimpleNamespace(sha="a" * 40))
+        return original_get_branch(name)
+
+    with (
+        patch.object(repo, "get_branch", side_effect=get_branch),
+        patch.object(
+            GitHubWorkspaceSyncTransport,
+            "_sync_request_body",
+            new=AsyncMock(return_value="Sync QA"),
+        ),
+    ):
+        await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files={"workflows/new.yml": "new"},
+            expected_commit_sha="a" * 40,
+            branch_start_ref="reviewed-base",
+        )
+    assert repo.created_refs == [("refs/heads/sync/agents-1", "commit-1")]
+    assert cast(Any, repo.commits[0]).parents[0].sha == "a" * 40
+    assert repo.create_pull.call_args.kwargs["base"] == "main"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "failed_call", ["get_git_tree", "create_git_tree", "create_git_commit"]
+)
+async def test_github_new_branch_failure_before_publication_is_retryable(
+    workspace_sync_service: WorkspaceSyncService, failed_call: str
+) -> None:
+    repo = _FakeGitHubRepo(files={}, branch_exists=False, ahead_by=0)
+    files = {"workflows/new.yml": "new"}
+    with (
+        patch.object(
+            repo,
+            failed_call,
+            side_effect=GithubException(status=503, data={"message": "Unavailable"}),
+        ),
+        pytest.raises(GitHubAppError),
+    ):
+        await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files=files,
+            create_pr=False,
+            expected_commit_sha="a" * 40,
+        )
+    assert not repo._branch_exists
+    assert repo.created_refs == []
+    result = await _write_files_with_fake_repo(
+        repo,
+        service=workspace_sync_service,
+        files=files,
+        create_pr=False,
+        expected_commit_sha="a" * 40,
+    )
+    assert result.status is PushStatus.COMMITTED
+    assert repo.created_refs == [("refs/heads/sync/agents-1", result.sha)]
+    assert repo.final_files == files
+    assert repo.call_counts["ref.edit"] == 0
+
+
+@pytest.mark.anyio
+async def test_github_new_branch_race_does_not_overwrite_competing_ref(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    repo = _FakeGitHubRepo(files={}, branch_exists=False, ahead_by=0)
+    create_ref = repo.create_git_ref
+
+    def competing_create(*, ref: str, sha: str) -> None:
+        repo._branch_exists = True
+        create_ref(ref=ref, sha=sha)
+
+    with (
+        patch.object(repo, "create_git_ref", side_effect=competing_create),
+        pytest.raises(SyncCommitConflictError),
+    ):
+        await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files={"workflows/new.yml": "new"},
+            create_pr=False,
+            expected_commit_sha="a" * 40,
+        )
+    assert repo.final_files == {}
+    assert repo.created_refs == []
+    assert repo.call_counts["ref.edit"] == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failure", ["lost_ack", "pull_request"])
+async def test_github_new_branch_postpublication_failure_keeps_operation_receipt(
+    workspace_sync_service: WorkspaceSyncService,
+    failure: str,
+) -> None:
+    from tracecat.workspace_sync.transport import sync_commit_message
+
+    repo = _FakeGitHubRepo(files={}, branch_exists=False, ahead_by=1)
+    operation_id = uuid.uuid4()
+    files = {"workflows/new.yml": "new"}
+    create_ref = repo.create_git_ref
+    error = GithubException(status=503, data={"message": "Unavailable"})
+
+    def lost_ack(*, ref: str, sha: str) -> None:
+        create_ref(ref=ref, sha=sha)
+        raise error
+
+    with (
+        patch.object(
+            repo,
+            "create_git_ref",
+            side_effect=lost_ack if failure == "lost_ack" else create_ref,
+        ),
+        patch.object(
+            GitHubWorkspaceSyncTransport, "_upsert_pull_request", side_effect=error
+        ),
+        pytest.raises(GitHubAppError),
+    ):
+        await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files=files,
+            expected_commit_sha="a" * 40,
+            operation_id=operation_id,
+        )
+    assert repo.created_refs == [("refs/heads/sync/agents-1", "commit-1")]
+    assert repo.final_files == files
+    assert cast(Any, repo.commits[0]).message == sync_commit_message(
+        "Push limerick agent", operation_id
+    )
+    assert repo.call_counts["ref.edit"] == 0
+
+
+@pytest.mark.anyio
+async def test_sync_import_rolls_back_preparation_failure(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    rollback = AsyncMock()
+    workspace_sync_service.session.rollback = rollback
+    snapshot = WorkspaceRemoteSnapshot(
+        commit_sha="a" * 40, files={}, spec=WorkspaceSpec()
+    )
+    workspace_sync_service._prepare_snapshot_for_import = AsyncMock(
+        return_value=PreparedSnapshot(snapshot, [], [], [], [], [])
+    )
+    workspace_sync_service.import_prepared_snapshot = AsyncMock(
+        side_effect=RuntimeError("Synthetic preparation failure")
+    )
+    result = await workspace_sync_service._import_snapshot(
+        snapshot, sync_schedules=False
+    )
+    assert not result.success
+    assert result.diagnostics[0].error_type == "transaction"
+    rollback.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_parse_diagnostics_stop_preview_before_partial_spec_processing(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    snapshot = WorkspaceRemoteSnapshot(
+        commit_sha="a" * 40,
+        files={"variables/default/example.yml": "partial snapshot"},
+        spec=WorkspaceSpec(
+            variables={
+                "default/example": VariableResourceSpec(
+                    id="default/example", name="example", environment="default"
+                )
+            }
+        ),
+    )
+    diagnostic = PullDiagnostic(
+        workflow_path="workflows/invalid.yml",
+        workflow_title=None,
+        error_type="parse",
+        message="Invalid document",
+        details={},
+    )
+    with (
+        patch.object(
+            workspace_sync_service, "_require_spec_entitlements", new=AsyncMock()
+        ) as entitlements,
+        patch.object(workspace_sync_service, "_require_pull_scopes") as scopes,
+        patch.object(
+            workspace_sync_service, "_prepare_snapshot_for_import", new=AsyncMock()
+        ) as correlate,
+    ):
+        result = await workspace_sync_service.prepare_pull_preview(
+            snapshot, sync_schedules=False, parse_diagnostics=[diagnostic]
+        )
+        entitlements.assert_not_awaited()
+        scopes.assert_not_called()
+        correlate.assert_not_awaited()
+        assert result.snapshot is snapshot
+        assert not result.preview.success
+        assert result.preview.diagnostics == [diagnostic]
+        assert result.preview.resource_counts is not None
+        assert result.preview.resource_counts["variable"].found == 1
+        assert result.preview.resource_counts["variable"].imported == 0
+        assert result.preview.resource_diffs is None
+        assert result.preview.catalog_mapping_requirements is None
+        assert result.preview.mcp_integration_mapping_requirements is None
+
+        # Parsed snapshots must still pass authorization before correlation.
+        entitlements.side_effect = EntitlementRequired("Synthetic denial")
+        with pytest.raises(EntitlementRequired):
+            await workspace_sync_service.prepare_pull_preview(
+                snapshot, sync_schedules=False
+            )
+        entitlements.assert_awaited_once_with(snapshot.spec)
+        correlate.assert_not_awaited()

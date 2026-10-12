@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -13,6 +14,7 @@ if TYPE_CHECKING:
         CatalogMappingRequirement,
         McpIntegrationMappingRequirement,
         PullDiagnostic,
+        PullResult,
         SecretStoreMappingRequirement,
     )
     from tracecat.workspace_sync.schemas import (
@@ -120,6 +122,24 @@ class PreparedSnapshot:
     mcp_integration_mapping_requirements: list[McpIntegrationMappingRequirement]
     secret_store_mapping_requirements: list[SecretStoreMappingRequirement]
     library_skill_installs: list[str]
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedPullPreview:
+    """A correlated immutable pull plan paired with its validated review."""
+
+    snapshot: WorkspaceRemoteSnapshot
+    preview: PullResult
+
+
+@dataclass(frozen=True, slots=True)
+class SyncMappingTarget:
+    """Desired sync mapping state for one projected or imported resource."""
+
+    resource_type: str
+    source_id: str
+    source_path: str
+    local_id: uuid.UUID
 
 
 class SyncCommitConflictError(TracecatValidationError):

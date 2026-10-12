@@ -25,6 +25,7 @@ from tracecat.service import BaseWorkspaceService
 from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import raise_application_error_from_classification
 from tracecat.workflow.schedules import bridge
+from tracecat.workflow.schedules.reconciliation import ScheduleChanges
 from tracecat.workflow.schedules.schemas import (
     GetScheduleActivityInputs,
     ScheduleCreate,
@@ -222,7 +223,10 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                     schedule_role=role_copy,
                 )
 
-        AfterCommitQueue.of(self.session).add(_create_schedule)
+        if changes := ScheduleChanges.of(self.session):
+            changes.created.append(schedule_id)
+        else:
+            AfterCommitQueue.of(self.session).add(_create_schedule)
 
         # Ensure the SQLAlchemy instance is persistent before refresh.
         # Commit will implicitly flush; when commit=False we must flush explicitly
@@ -403,7 +407,10 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                     schedule_id=schedule_id,
                 )
 
-        AfterCommitQueue.of(self.session).add(_delete_schedule)
+        if changes := ScheduleChanges.of(self.session):
+            changes.deleted.append(schedule.id)
+        else:
+            AfterCommitQueue.of(self.session).add(_delete_schedule)
 
         if commit:
             await self.session.commit()
