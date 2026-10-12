@@ -13219,6 +13219,10 @@ export type AgentSubscribeBedrockModelData = {
 
 export type AgentSubscribeBedrockModelResponse = BedrockSubscriptionRead
 
+export type AgentGetDefaultModelData = {
+  workspaceId?: string | null
+}
+
 export type AgentGetDefaultModelResponse = string | null
 
 export type AgentSetDefaultModelData = {
@@ -13226,6 +13230,10 @@ export type AgentSetDefaultModelData = {
 }
 
 export type AgentSetDefaultModelResponse = DefaultModelSelection
+
+export type AgentGetDefaultModelSelectionData = {
+  workspaceId?: string | null
+}
 
 export type AgentGetDefaultModelSelectionResponse = DefaultModelSelection | null
 
@@ -13312,6 +13320,7 @@ export type CreateCustomProviderResponse = AgentCustomProviderRead
 export type ListCustomProvidersData = {
   cursor?: string | null
   limit?: number
+  workspaceId?: string | null
 }
 
 export type ListCustomProvidersResponse = AgentCustomProviderListResponse
@@ -18804,11 +18813,16 @@ export type $OpenApiTs = {
   }
   "/agent/default-model": {
     get: {
+      req: AgentGetDefaultModelData
       res: {
         /**
          * Successful Response
          */
         200: string | null
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
     put: {
@@ -18827,11 +18841,16 @@ export type $OpenApiTs = {
   }
   "/agent/default-model-selection": {
     get: {
+      req: AgentGetDefaultModelSelectionData
       res: {
         /**
          * Successful Response
          */
         200: DefaultModelSelection | null
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
     put: {

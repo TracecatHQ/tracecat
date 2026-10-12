@@ -14,7 +14,9 @@ from temporalio.client import WorkflowExecutionStatus
 from tracecat.agent import router as agent_router
 from tracecat.agent.catalog import router as agent_catalog_router
 from tracecat.agent.catalog.schemas import AgentCatalogRead
+from tracecat.agent.provider import router as agent_provider_router
 from tracecat.auth.dependencies import (
+    OrgUserOptionalWorkspaceRole,
     WorkspaceActorRouteRole,
     WorkspaceUserRouteRole,
 )
@@ -537,8 +539,9 @@ def test_org_agent_routes_remain_user_only() -> None:
         agent_router.create_provider_credentials,
         agent_router.update_provider_credentials,
         agent_router.delete_provider_credentials,
-        agent_router.get_default_model,
         agent_router.set_default_model,
+        agent_router.set_default_model_selection,
+        agent_provider_router.get_custom_provider,
     ]
 
     for endpoint in org_endpoints:
@@ -549,6 +552,18 @@ def test_org_agent_routes_remain_user_only() -> None:
         agent_router.get_workspace_providers_status, include_extras=True
     )["role"]
     assert workspace_status_role == WorkspaceActorRouteRole
+
+
+def test_org_agent_reads_used_by_workspace_pages_take_optional_workspace() -> None:
+    endpoints = [
+        agent_router.get_default_model,
+        agent_router.get_default_model_selection,
+        agent_provider_router.list_custom_providers,
+    ]
+
+    for endpoint in endpoints:
+        role = get_type_hints(endpoint, include_extras=True)["role"]
+        assert role == OrgUserOptionalWorkspaceRole
 
 
 def test_agent_catalog_read_routes_accept_org_actors() -> None:

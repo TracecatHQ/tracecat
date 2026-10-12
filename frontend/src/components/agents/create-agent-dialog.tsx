@@ -125,7 +125,7 @@ function CreateAgentDialogContent({
     defaultModelSelection,
     defaultModelSelectionLoading: defaultModelLoading,
     defaultModelSelectionError: defaultModelError,
-  } = useAgentDefaultModel()
+  } = useAgentDefaultModel(workspaceId)
   const { createAgentPreset, createAgentPresetIsPending } =
     useCreateAgentPreset(workspaceId)
   const { moveAgentPreset, moveAgentPresetIsPending } =

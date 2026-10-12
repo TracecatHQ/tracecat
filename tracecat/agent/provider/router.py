@@ -11,7 +11,7 @@ from tracecat.agent.provider.schemas import (
     AgentCustomProviderUpdate,
 )
 from tracecat.agent.provider.service import AgentCustomProviderService
-from tracecat.auth.dependencies import OrgUserRole
+from tracecat.auth.dependencies import OrgUserOptionalWorkspaceRole, OrgUserRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
@@ -41,7 +41,7 @@ async def create_custom_provider(
 )
 @require_scope("agent:read")
 async def list_custom_providers(
-    role: OrgUserRole,
+    role: OrgUserOptionalWorkspaceRole,
     session: AsyncDBSession,
     cursor: str | None = Query(None),
     limit: int = Query(50, ge=1, le=100),

@@ -3119,7 +3119,7 @@ function AgentPresetBuilderChatPane({
     loading: chatReadyLoading,
     reason: chatReadyReason,
     modelInfo,
-  } = useChatReadiness()
+  } = useChatReadiness(workspaceId)
 
   const { chats, chatsLoading, chatsError, refetchChats } = useListChats(
     {

@@ -705,6 +705,7 @@ function ChatBody({
     loading: chatReadyLoading,
     modelInfo,
   } = useChatReadiness(
+    workspaceId,
     selectedPreset
       ? {
           modelOverride: {

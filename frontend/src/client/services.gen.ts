@@ -137,7 +137,9 @@ import type {
   AgentFoldersMoveFolderResponse,
   AgentFoldersUpdateFolderData,
   AgentFoldersUpdateFolderResponse,
+  AgentGetDefaultModelData,
   AgentGetDefaultModelResponse,
+  AgentGetDefaultModelSelectionData,
   AgentGetDefaultModelSelectionResponse,
   AgentGetProviderCredentialConfigData,
   AgentGetProviderCredentialConfigResponse,
@@ -5123,16 +5125,25 @@ export const agentSubscribeBedrockModel = (
 /**
  * Get Default Model
  * Get the organization's default AI model.
+ * @param data The data for the request.
+ * @param data.workspaceId
  * @returns unknown Successful Response
  * @throws ApiError
  */
-export const agentGetDefaultModel =
-  (): CancelablePromise<AgentGetDefaultModelResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/agent/default-model",
-    })
-  }
+export const agentGetDefaultModel = (
+  data: AgentGetDefaultModelData = {}
+): CancelablePromise<AgentGetDefaultModelResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/default-model",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * Set Default Model
@@ -5164,16 +5175,25 @@ export const agentSetDefaultModel = (
 /**
  * Get Default Model Selection
  * Get the organization's canonical default model selection.
+ * @param data The data for the request.
+ * @param data.workspaceId
  * @returns unknown Successful Response
  * @throws ApiError
  */
-export const agentGetDefaultModelSelection =
-  (): CancelablePromise<AgentGetDefaultModelSelectionResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/agent/default-model-selection",
-    })
-  }
+export const agentGetDefaultModelSelection = (
+  data: AgentGetDefaultModelSelectionData = {}
+): CancelablePromise<AgentGetDefaultModelSelectionResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/default-model-selection",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * Set Default Model Selection
@@ -5446,6 +5466,7 @@ export const createCustomProvider = (
  * @param data The data for the request.
  * @param data.cursor
  * @param data.limit
+ * @param data.workspaceId
  * @returns AgentCustomProviderListResponse Successful Response
  * @throws ApiError
  */
@@ -5458,6 +5479,7 @@ export const listCustomProviders = (
     query: {
       cursor: data.cursor,
       limit: data.limit,
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",

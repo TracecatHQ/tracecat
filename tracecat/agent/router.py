@@ -12,7 +12,11 @@ from tracecat.agent.schemas import (
     ProviderCredentialConfig,
 )
 from tracecat.agent.service import AgentManagementService
-from tracecat.auth.dependencies import OrgUserRole, WorkspaceActorRouteRole
+from tracecat.auth.dependencies import (
+    OrgUserOptionalWorkspaceRole,
+    OrgUserRole,
+    WorkspaceActorRouteRole,
+)
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
@@ -205,7 +209,7 @@ async def delete_provider_credentials(
 @require_scope("agent:read")
 async def get_default_model(
     *,
-    role: OrgUserRole,
+    role: OrgUserOptionalWorkspaceRole,
     session: AsyncDBSession,
 ) -> str | None:
     """Get the organization's default AI model."""
@@ -242,7 +246,7 @@ async def set_default_model(
 @require_scope("agent:read")
 async def get_default_model_selection(
     *,
-    role: OrgUserRole,
+    role: OrgUserOptionalWorkspaceRole,
     session: AsyncDBSession,
 ) -> DefaultModelSelection | None:
     """Get the organization's canonical default model selection."""

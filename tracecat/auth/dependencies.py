@@ -133,6 +133,22 @@ Sets the `ctx_role` context variable.
 """
 
 
+OrgUserOptionalWorkspaceRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        allow_api_key=False,
+        require_workspace="optional",
+    ),
+]
+"""Dependency for a user role on an org-level route that workspace pages call.
+
+With a `workspace_id` query parameter the role also carries the caller's
+scopes from that workspace, so workspace-assigned roles can pass the scope
+check. Without it this behaves like `OrgUserRole`.
+"""
+
 OrgUserOnlyRole = Annotated[
     Role,
     RoleACL(
