@@ -456,6 +456,30 @@ import type {
   FoldersMoveFolderResponse,
   FoldersUpdateFolderData,
   FoldersUpdateFolderResponse,
+  FormsCreateFormData,
+  FormsCreateFormResponse,
+  FormsDeleteFormData,
+  FormsDeleteFormResponse,
+  FormsGetFormData,
+  FormsGetFormResponse,
+  FormsListFormActivityData,
+  FormsListFormActivityResponse,
+  FormsListFormsData,
+  FormsListFormsResponse,
+  FormsListIntakeFormsData,
+  FormsListIntakeFormsResponse,
+  FormsListIntakeSubmissionsData,
+  FormsListIntakeSubmissionsResponse,
+  FormsLocateIntakeFormData,
+  FormsLocateIntakeFormResponse,
+  FormsRenderFormData,
+  FormsRenderFormResponse,
+  FormsSearchFormUsersData,
+  FormsSearchFormUsersResponse,
+  FormsUpdateFormData,
+  FormsUpdateFormResponse,
+  FormsValidateFormData,
+  FormsValidateFormResponse,
   GetCatalogEntryData,
   GetCatalogEntryResponse,
   GetCustomProviderData,
@@ -11024,6 +11048,333 @@ export const tablesGetTableSearchProgress = (
       400: "Bad Request",
       404: "Not Found",
       409: "Conflict",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Forms
+ * List forms. Callers without form:update only see online forms.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_FormReadMinimal_ Successful Response
+ * @throws ApiError
+ */
+export const formsListForms = (
+  data: FormsListFormsData
+): CancelablePromise<FormsListFormsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/forms",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Form
+ * Create the form of a workflow. A workflow has at most one form.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns FormRead Successful Response
+ * @throws ApiError
+ */
+export const formsCreateForm = (
+  data: FormsCreateFormData
+): CancelablePromise<FormsCreateFormResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/forms",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      409: "Conflict",
+      422: "Unprocessable Entity",
+    },
+  })
+}
+
+/**
+ * Validate Form
+ * Resolve an unsaved config against a workflow's inputs.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns FormValidateResponse Successful Response
+ * @throws ApiError
+ */
+export const formsValidateForm = (
+  data: FormsValidateFormData
+): CancelablePromise<FormsValidateFormResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/forms/validate",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Form
+ * Get a form's config, its issues, its URL and its counts.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.workspaceId
+ * @returns FormRead Successful Response
+ * @throws ApiError
+ */
+export const formsGetForm = (
+  data: FormsGetFormData
+): CancelablePromise<FormsGetFormResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/forms/{form_id}",
+    path: {
+      form_id: data.formId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Form
+ * Update a form's status, config or both. The config is replaced whole.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns FormRead Successful Response
+ * @throws ApiError
+ */
+export const formsUpdateForm = (
+  data: FormsUpdateFormData
+): CancelablePromise<FormsUpdateFormResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/forms/{form_id}",
+    path: {
+      form_id: data.formId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      409: "Conflict",
+      422: "Unprocessable Entity",
+    },
+  })
+}
+
+/**
+ * Delete Form
+ * Delete a form with its submissions and activity.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const formsDeleteForm = (
+  data: FormsDeleteFormData
+): CancelablePromise<FormsDeleteFormResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/forms/{form_id}",
+    path: {
+      form_id: data.formId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Render Form
+ * Get an online form as the blocks a client renders, and record the view.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.workspaceId
+ * @returns FormResolved Successful Response
+ * @throws ApiError
+ */
+export const formsRenderForm = (
+  data: FormsRenderFormData
+): CancelablePromise<FormsRenderFormResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/forms/{form_id}/render",
+    path: {
+      form_id: data.formId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      409: "Conflict",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Form Activity
+ * List a form's views and submissions, newest first.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_FormEventRead_ Successful Response
+ * @throws ApiError
+ */
+export const formsListFormActivity = (
+  data: FormsListFormActivityData
+): CancelablePromise<FormsListFormActivityResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/forms/{form_id}/activity",
+    path: {
+      form_id: data.formId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Search Form Users
+ * Search organization members for a form's user field.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.workspaceId
+ * @param data.search
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_FormUserRead_ Successful Response
+ * @throws ApiError
+ */
+export const formsSearchFormUsers = (
+  data: FormsSearchFormUsersData
+): CancelablePromise<FormsSearchFormUsersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/forms/{form_id}/users",
+    path: {
+      form_id: data.formId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      search: data.search,
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Intake Forms
+ * List online forms across the caller's workspaces.
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_FormIntakeRead_ Successful Response
+ * @throws ApiError
+ */
+export const formsListIntakeForms = (
+  data: FormsListIntakeFormsData = {}
+): CancelablePromise<FormsListIntakeFormsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/intake/forms",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Locate Intake Form
+ * Find which workspace a form belongs to.
+ *
+ * Returns 404 for an unknown form, a form in another organization, and a
+ * form in a workspace where the caller cannot read forms.
+ * @param data The data for the request.
+ * @param data.formId
+ * @returns FormIntakeLocation Successful Response
+ * @throws ApiError
+ */
+export const formsLocateIntakeForm = (
+  data: FormsLocateIntakeFormData
+): CancelablePromise<FormsLocateIntakeFormResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/intake/forms/{form_id}",
+    path: {
+      form_id: data.formId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Intake Submissions
+ * List the caller's own submissions.
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_FormIntakeSubmissionRead_ Successful Response
+ * @throws ApiError
+ */
+export const formsListIntakeSubmissions = (
+  data: FormsListIntakeSubmissionsData = {}
+): CancelablePromise<FormsListIntakeSubmissionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/intake/submissions",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
       422: "Validation Error",
     },
   })

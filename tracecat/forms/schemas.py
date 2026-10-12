@@ -1,6 +1,7 @@
 """Form config, resolved form and API schemas."""
 
 import uuid
+from datetime import datetime
 from typing import Annotated, Any, Literal, Self
 
 from pydantic import (
@@ -23,6 +24,9 @@ from tracecat.core.schemas import Schema
 from tracecat.forms.constants import MAX_CONFIG_IMAGE_BYTES, MAX_FILES_PER_FIELD
 from tracecat.forms.enums import (
     FormAutofillSource,
+    FormErrorCode,
+    FormEventType,
+    FormFieldErrorCode,
     FormIssueCode,
     FormIssueSeverity,
     FormNoticeTone,
@@ -31,7 +35,7 @@ from tracecat.forms.enums import (
 )
 from tracecat.forms.images import decode_image_data_uri, image_data_uri_size
 from tracecat.identifiers import WorkspaceID
-from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 
 # ----- Form config -----
 
@@ -45,9 +49,12 @@ class FormConfigModel(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    # No return annotation on purpose: pydantic would publish it as the
+    # serialization schema and the OpenAPI output type would lose its fields.
     @model_serializer(mode="wrap")
-    def _drop_none(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
-        return {key: value for key, value in handler(self).items() if value is not None}
+    def _drop_none(self, handler: SerializerFunctionWrapHandler):
+        dumped: dict[str, Any] = handler(self)
+        return {key: value for key, value in dumped.items() if value is not None}
 
 
 class FormOption(FormConfigModel):
@@ -287,3 +294,154 @@ class FormResolved(FormPreview):
     workspace_id: WorkspaceID
     workflow_id: WorkflowUUID
     status: FormStatus
+
+
+# ----- Builder API -----
+
+
+class FormCreate(Schema):
+    workflow_id: AnyWorkflowID
+    status: FormStatus = Field(default=FormStatus.OFFLINE)
+    config: FormConfig | None = None
+
+
+class FormUpdate(Schema):
+    status: FormStatus | None = None
+    config: FormConfig | None = Field(
+        default=None, description="Replaces the whole config."
+    )
+
+
+class FormValidateRequest(Schema):
+    workflow_id: AnyWorkflowID
+    config: FormConfig
+
+
+class FormValidateResponse(Schema):
+    valid: bool
+    issues: list[FormIssue]
+    preview: FormPreview
+
+
+class FormCounts(Schema):
+    views: int
+    submissions: int
+
+
+class FormReadMinimal(Schema):
+    id: uuid.UUID
+    workflow_id: WorkflowUUID
+    workflow_title: str
+    status: FormStatus
+    title: str
+    description: str | None = None
+    submission_count: int | None = Field(
+        default=None, description="Null without form:submission:read."
+    )
+    last_submitted_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class FormRead(Schema):
+    id: uuid.UUID
+    workspace_id: WorkspaceID
+    workflow_id: WorkflowUUID
+    workflow_title: str
+    workflow_version: int | None = Field(
+        default=None,
+        description="Published workflow version the inputs come from, if any.",
+    )
+    status: FormStatus
+    config: FormConfig
+    issues: list[FormIssue]
+    url: str
+    counts: FormCounts | None = Field(
+        default=None, description="Null without form:submission:read."
+    )
+    created_at: datetime
+    updated_at: datetime
+
+
+class FormActorRead(Schema):
+    """Who viewed or submitted a form."""
+
+    type: Literal["user", "service_account"]
+    id: uuid.UUID
+    email: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    name: str | None = Field(default=None, description="Service account name.")
+
+
+class FormEventRead(Schema):
+    id: uuid.UUID
+    type: FormEventType
+    actor: FormActorRead | None = None
+    submission_id: uuid.UUID | None = None
+    reference: str | None = None
+    created_at: datetime
+
+
+class FormUserRead(Schema):
+    """A choice of the ``user`` widget, and what a chosen user expands to."""
+
+    user_id: uuid.UUID
+    email: str
+    first_name: str | None = None
+    last_name: str | None = None
+
+
+# ----- Requester API -----
+
+
+class FormIntakeLocation(Schema):
+    """Where a form lives, for a requester who only has its ID."""
+
+    form_id: uuid.UUID
+    workspace_id: WorkspaceID
+    workspace_name: str
+
+
+class FormIntakeRead(Schema):
+    id: uuid.UUID
+    workspace_id: WorkspaceID
+    workspace_name: str
+    title: str
+    description: str | None = None
+
+
+class FormIntakeSubmissionRead(Schema):
+    """A requester's own submission. Carries no run fields."""
+
+    id: uuid.UUID
+    reference: str
+    form_id: uuid.UUID
+    form_title: str
+    workspace_id: WorkspaceID
+    workspace_name: str
+    submitted_at: datetime
+
+
+# ----- Errors -----
+
+
+class FormFieldError(Schema):
+    field: str
+    code: FormFieldErrorCode
+    message: str
+
+
+class FormErrorDetail(Schema):
+    code: FormErrorCode
+    message: str
+    errors: list[FormFieldError] | None = Field(
+        default=None, description="Per-field errors of a rejected submission."
+    )
+    issues: list[FormIssue] | None = Field(
+        default=None, description="Issues of a rejected form config."
+    )
+
+
+class FormErrorResponse(Schema):
+    detail: FormErrorDetail
