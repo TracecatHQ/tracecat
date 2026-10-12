@@ -1,0 +1,45 @@
+frontend/src/lib/forms/image-data-uri.ts
+  s_7f6729d1c18d55::t_339a09c636bb99 1-42
+frontend/src/lib/forms/validate.ts
+  s_7f6729d1c18d55::t_dbb21828971e37 1-117
+frontend/src/lib/forms/visibility.test.ts
+  s_7f6729d1c18d55::t_2a96bb01974b29 1-130
+frontend/src/lib/forms/access.test.ts
+  s_7f6729d1c18d55::t_879df4a60a682d 1-49
+frontend/src/lib/forms/visibility.ts
+  s_7f6729d1c18d55::t_26acb729eb6605 1-52,54-101
+  s_7f6729d1c18d55::t_2e7666897f42bf 53
+frontend/src/lib/forms/image-data-uri.test.ts
+  s_7f6729d1c18d55::t_d0b91d2b4108b7 1-50
+frontend/src/lib/forms/markdown.ts
+  s_7f6729d1c18d55::t_a0f6675dfcf967 1-61
+frontend/src/lib/forms/markdown.test.ts
+  s_7f6729d1c18d55::t_cff1e27952c392 1-140
+frontend/src/lib/forms/test-fixtures.ts
+  s_7f6729d1c18d55::t_04511ee4f34b8c 1-31
+frontend/src/lib/forms/errors.ts
+  s_7f6729d1c18d55::t_750342b255352b 1-97
+frontend/src/lib/forms/errors.test.ts
+  s_7f6729d1c18d55::t_27efe9a85dd87a 1-97
+frontend/src/lib/forms/access.ts
+  s_7f6729d1c18d55::t_7187556c28cc5c 1-43
+frontend/src/lib/forms/validate.test.ts
+  s_7f6729d1c18d55::t_2e7666897f42bf 94-96
+  s_7f6729d1c18d55::t_eace69aa6fe1f4 1-93,97-168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b13775f5fc907483011dcee248037730f58003c8",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
