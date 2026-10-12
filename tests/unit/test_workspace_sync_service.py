@@ -72,6 +72,7 @@ from tracecat.workspace_sync.transport import (
     _git_blob_sha,
     _git_blob_sha_bytes,
 )
+from tracecat.workspace_sync.types import SyncCommitConflictError
 from tracecat.workspace_sync.workflow import (
     serialize_workflow_spec,
     workflow_source_path,
@@ -1679,8 +1680,8 @@ async def test_github_write_files_noop_skips_pr_for_branch_without_commits(
 
     assert result.status is PushStatus.NO_OP
     assert result.pr_url is None
-    assert repo.created_refs == [("refs/heads/sync/agents-1", "a" * 40)]
-    assert repo.compare_calls == [("main", "sync/agents-1")]
+    assert repo.created_refs == []
+    assert repo.compare_calls == []
     assert repo.call_counts["get_contents"] == 0
     assert repo.call_counts["create_git_blob"] == 0
     assert repo.call_counts["get_git_tree"] == 1
@@ -1984,8 +1985,8 @@ async def test_github_write_files_retries_branch_creation_with_retry_after(
     assert result.status is PushStatus.COMMITTED
     sleep.assert_awaited_once_with(0.25)
     assert repo.call_counts["create_git_ref"] == 2
-    assert len(repo.created_refs) == 1
-    assert repo.call_counts["ref.edit"] == 1
+    assert repo.created_refs == [("refs/heads/sync/agents-1", "commit-1")]
+    assert repo.call_counts["ref.edit"] == 0
 
 
 @pytest.mark.anyio
@@ -2228,7 +2229,10 @@ async def test_github_write_files_logs_rate_limit_response_headers(
 @pytest.mark.anyio
 async def test_github_read_files_uses_commit_tree_sha(
     workspace_sync_service: WorkspaceSyncService,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # This fake covers the blob API; archive behavior has separate fixtures.
+    monkeypatch.setattr("tracecat.feature_flags.config.TRACECAT__FEATURE_FLAGS", set())
     repo = _FakeGitHubReadRepo()
     gh = Mock()
     gh.get_repo.return_value = repo
@@ -2576,9 +2580,11 @@ async def _write_files_with_fake_repo(
     create_pr: bool = True,
     delete_missing_paths_under: tuple[str, ...] = (),
     logger: Mock | None = None,
+    expected_commit_sha: str | None = None,
 ):
     gh = Mock()
     gh.get_repo.return_value = repo
+    gh.requester.graphql_named_mutation.side_effect = repo.graphql_named_mutation
 
     gh_service = AsyncMock()
     gh_service.get_github_client_for_repo.return_value = gh
@@ -2600,11 +2606,13 @@ async def _write_files_with_fake_repo(
             branch=branch,
             create_pr=create_pr,
             delete_missing_paths_under=delete_missing_paths_under,
+            expected_commit_sha=expected_commit_sha,
         )
 
 
 class _FakeGitHubRepo:
     default_branch = "main"
+    node_id = "synthetic-repository-id"
 
     def __init__(
         self,
@@ -2620,6 +2628,8 @@ class _FakeGitHubRepo:
     ) -> None:
         self._files = dict(files)
         self._branch_exists = branch_exists
+        self._head_sha = "a" * 40
+        self.guarded_ref_updates: list[dict[str, Any]] = []
         self._ahead_by = ahead_by
         self._existing_pr = existing_pr
         self._get_git_tree_error = get_git_tree_error
@@ -2651,7 +2661,11 @@ class _FakeGitHubRepo:
     def get_branch(self, name: str):
         self.call_counts["get_branch"] += 1
         if name == "main" or self._branch_exists:
-            return SimpleNamespace(commit=SimpleNamespace(sha="a" * 40))
+            return SimpleNamespace(
+                commit=SimpleNamespace(
+                    sha="a" * 40 if name == "main" else self._head_sha
+                )
+            )
         raise GithubException(status=404, data={"message": "Not Found"})
 
     def create_git_ref(self, *, ref: str, sha: str) -> None:
@@ -2659,7 +2673,26 @@ class _FakeGitHubRepo:
         if self._create_git_ref_errors:
             raise self._create_git_ref_errors.pop(0)
         self.created_refs.append((ref, sha))
+        self._head_sha = sha
         self._branch_exists = True
+
+    def graphql_named_mutation(
+        self, name: str, inputs: dict[str, Any], output_schema: str
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        assert name == "updateRefs"
+        assert output_schema == "clientMutationId"
+        assert inputs["repositoryId"] == self.node_id
+        update = inputs["refUpdates"][0]
+        assert update["force"] is False
+        self.guarded_ref_updates.append(update)
+        current = self._head_sha if self._branch_exists else "0" * 40
+        if current != update["beforeOid"]:
+            raise GithubException(400, {"errors": [{"type": "UNPROCESSABLE"}]})
+        if self._branch_exists:
+            self._ref.edit(sha=update["afterOid"])
+        else:
+            self.create_git_ref(ref=update["name"], sha=update["afterOid"])
+        return {}, {"clientMutationId": None}
 
     def get_contents(self, path: str, *, ref: str):
         self.call_counts["get_contents"] += 1
@@ -2758,6 +2791,7 @@ class _FakeGitRef:
     def edit(self, *, sha: str) -> None:
         self._repo.call_counts["ref.edit"] += 1
         self.edits.append(sha)
+        self._repo._head_sha = sha
         commit = self._repo._commits_by_sha[sha]
         self._repo._files = dict(self._repo._tree_files[cast(Any, commit.tree).sha])
 
@@ -2789,3 +2823,129 @@ class _FakeGitHubReadRepo:
     def get_git_blob(self, sha: str):
         content = canonical_json_text(WorkspaceManifest())
         return SimpleNamespace(content=base64.b64encode(content.encode()).decode())
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("moved", [False, True])
+async def test_guarded_github_ref_rejection_checks_current_branch(
+    workspace_sync_service: WorkspaceSyncService, moved: bool
+) -> None:
+    repo = _FakeGitHubRepo(files={}, branch_exists=True, ahead_by=0)
+
+    def reject_update(*, sha: str) -> None:
+        if moved:
+            repo.get_branch = Mock(
+                return_value=SimpleNamespace(commit=SimpleNamespace(sha="b" * 40))
+            )
+        raise GithubException(status=422, data={"message": "Publication rejected"})
+
+    repo._ref.edit = Mock(side_effect=reject_update)
+    error = SyncCommitConflictError if moved else GitHubAppError
+    with pytest.raises(error):
+        await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files={"workflows/example.yml": "new"},
+            create_pr=False,
+            expected_commit_sha="a" * 40,
+        )
+    repo._ref.edit.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_guarded_github_publish_rejects_ancestor_reset_atomically(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    repo = _FakeGitHubRepo(
+        files={"README.md": "reviewed"}, branch_exists=True, ahead_by=0
+    )
+    publish = repo.graphql_named_mutation
+    ancestor = "b" * 40
+
+    def reset_before_publish(name, inputs, output_schema):
+        # This race happens at publication, after every client-side head read.
+        # A REST fast-forward edit would accept our commit, whose parent is the
+        # reviewed head; updateRefs must reject the exact-head mismatch.
+        repo._head_sha = ancestor
+        return publish(name, inputs, output_schema)
+
+    with (
+        patch.object(repo, "graphql_named_mutation", side_effect=reset_before_publish),
+        pytest.raises(SyncCommitConflictError, match="Target branch changed"),
+    ):
+        await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files={"README.md": "sync"},
+            create_pr=False,
+            expected_commit_sha="a" * 40,
+        )
+    assert repo._head_sha == ancestor
+    assert repo.final_files == {"README.md": "reviewed"}
+    assert repo.call_counts["ref.edit"] == 0
+    assert repo.guarded_ref_updates == [
+        {
+            "name": "refs/heads/sync/agents-1",
+            "beforeOid": "a" * 40,
+            "afterOid": "commit-1",
+            "force": False,
+        }
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("existing_target", [False, True])
+async def test_guarded_github_publish_uses_exact_before_oid(
+    workspace_sync_service: WorkspaceSyncService,
+    existing_target: bool,
+) -> None:
+    repo = _FakeGitHubRepo(files={}, branch_exists=existing_target, ahead_by=0)
+    result = await _write_files_with_fake_repo(
+        repo,
+        service=workspace_sync_service,
+        files={"README.md": "sync"},
+        create_pr=False,
+        expected_commit_sha="a" * 40,
+    )
+    assert result.status is PushStatus.COMMITTED
+    assert repo.guarded_ref_updates == [
+        {
+            "name": "refs/heads/sync/agents-1",
+            "beforeOid": "a" * 40 if existing_target else "0" * 40,
+            "afterOid": result.sha,
+            "force": False,
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_guarded_github_publish_recovers_retried_lost_ack(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    repo = _FakeGitHubRepo(files={}, branch_exists=True, ahead_by=0)
+    publish = repo.graphql_named_mutation
+    attempts = 0
+
+    def publish_then_lose_ack(name, inputs, output_schema):
+        nonlocal attempts
+        attempts += 1
+        result = publish(name, inputs, output_schema)
+        if attempts == 1:
+            raise GithubException(429, {}, {"Retry-After": "0.001"})
+        return result
+
+    with patch.object(
+        repo, "graphql_named_mutation", side_effect=publish_then_lose_ack
+    ):
+        result = await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files={"README.md": "sync"},
+            create_pr=False,
+            expected_commit_sha="a" * 40,
+        )
+    assert attempts == 2
+    assert result.status is PushStatus.COMMITTED
+    assert result.sha == repo._head_sha
+    assert repo.call_counts["ref.edit"] == 1
+    assert len(repo.commits) == 1

@@ -25,7 +25,11 @@ from tracecat.exceptions import (
 from tracecat.git.types import GitUrl
 from tracecat.secrets.schemas import SecretKeyValue
 from tracecat.sync import PushStatus
-from tracecat.vcs.gitlab.app import GITLAB_TOKEN_SECRET_NAME, GitLabTokenService
+from tracecat.vcs.gitlab.app import (
+    GITLAB_TOKEN_SECRET_NAME,
+    GitLabApiError,
+    GitLabTokenService,
+)
 from tracecat.vcs.gitlab.schemas import GitLabTokenCredentials
 from tracecat.workspace_sync.schemas import MANIFEST_FILENAME, WorkspaceManifest
 from tracecat.workspace_sync.serialization import canonical_json_text
@@ -61,6 +65,7 @@ class _MockGitLabApi:
         self._counter = 0
         self._commits: dict[str, _Commit] = {}
         self._branches: dict[str, str] = {}
+        self._tags: dict[str, str] = {}
         self._commit_branches: dict[str, str] = {}
         self._blobs: dict[str, _FileContent] = {}
         self._merge_requests: list[dict[str, Any]] = []
@@ -256,7 +261,11 @@ class _MockGitLabApi:
         return dict(self._commit_at_ref(ref).files)
 
     def _commit_at_ref(self, ref: str) -> _Commit:
-        sha = self._branches.get(ref, ref)
+        sha = (
+            self._branches[ref.removeprefix("refs/heads/")]
+            if ref.startswith("refs/heads/")
+            else self._tags.get(ref, self._branches.get(ref, ref))
+        )
         return self._commits[sha]
 
     def _new_commit(
@@ -365,6 +374,24 @@ def _gitlab_settings_role(*scopes: str) -> Role:
         service_id="tracecat-api",
         scopes=frozenset(scopes),
     )
+
+
+@pytest.mark.anyio
+async def test_gitlab_exact_branch_lookup(monkeypatch) -> None:
+    api = _MockGitLabApi(
+        project_path="group/subgroup/project", files={MANIFEST_FILENAME: _manifest()}
+    )
+    api.create_branch("sync/example", "main")
+    transport = _MockGitLabTransport(api=api)
+    assert await transport.branch_exists(url=_git_url(), branch="sync/example")
+    assert not await transport.branch_exists(url=_git_url(), branch="missing")
+    monkeypatch.setattr(
+        transport,
+        "_get_branch",
+        AsyncMock(side_effect=GitLabApiError("Synthetic denial", status_code=403)),
+    )
+    with pytest.raises(GitLabApiError):
+        await transport.branch_exists(url=_git_url(), branch="sync/example")
 
 
 @pytest.mark.anyio
@@ -849,3 +876,184 @@ async def test_gitlab_token_status_requires_settings_read_scope() -> None:
             await service.get_gitlab_token_credentials_status()
 
     assert "org:settings:read" in exc_info.value.missing_scopes
+
+
+@pytest.mark.anyio
+async def test_gitlab_durable_write_uses_whole_branch_lease() -> None:
+    api = _MockGitLabApi(
+        project_path="group/subgroup/project",
+        files={
+            MANIFEST_FILENAME: _manifest(),
+            "workflows/existing.yml": "before",
+            "workflows/deleted.yml": "removed",
+        },
+    )
+    transport = _MockGitLabTransport(api=api)
+    snapshot = await transport.read_files(url=_git_url(), ref="main")
+    operation_id = uuid.uuid4()
+    with patch.object(
+        transport, "_write_guarded_commit", new=AsyncMock(return_value="new-sha")
+    ) as write:
+        result = await transport.write_files(
+            url=_git_url(),
+            files={
+                MANIFEST_FILENAME: _manifest(),
+                "workflows/existing.yml": "after",
+                "workflows/added.yml": "new",
+            },
+            message="Sync prepared files",
+            branch="main",
+            create_pr=False,
+            delete_missing_paths_under=("workflows",),
+            expected_commit_sha=snapshot.commit_sha,
+            operation_id=operation_id,
+        )
+    assert result.sha == "new-sha"
+    write.assert_awaited_once_with(
+        url=_git_url(),
+        parent=snapshot.commit_sha,
+        branch="main",
+        expected_head=snapshot.commit_sha,
+        files={"workflows/existing.yml": "after", "workflows/added.yml": "new"},
+        deleted={"workflows/deleted.yml"},
+        message=f"Sync prepared files\n\nTracecat-Sync-Operation: {operation_id}",
+    )
+    assert api.commit_payloads == []
+
+
+@pytest.mark.anyio
+async def test_gitlab_missing_branch_uses_reviewed_base_without_premature_creation() -> (
+    None
+):
+    api = _MockGitLabApi(
+        project_path="group/subgroup/project", files={MANIFEST_FILENAME: _manifest()}
+    )
+    api.create_branch("reviewed-base", "main")
+    reviewed = api.commit_actions(
+        branch="reviewed-base",
+        message="Separate base",
+        actions=[
+            {
+                "action": "create",
+                "file_path": "workflows/old.yml",
+                "content": "reviewed",
+            }
+        ],
+    )
+    transport = _MockGitLabTransport(api=api)
+    with patch.object(
+        transport, "_write_guarded_commit", new=AsyncMock(return_value="new-sha")
+    ) as write:
+        await transport.write_files(
+            url=_git_url(),
+            files={MANIFEST_FILENAME: _manifest(), "workflows/new.yml": "new"},
+            message="Sync",
+            branch="sync/new",
+            create_pr=False,
+            branch_start_ref="reviewed-base",
+            expected_commit_sha=reviewed.sha,
+        )
+    assert write.await_args is not None
+    assert write.await_args.kwargs["parent"] == reviewed.sha
+    assert write.await_args.kwargs["expected_head"] is None
+    assert "sync/new" not in api._branches
+    assert not any(method == "POST" for method, _ in api.requests)
+
+
+@pytest.mark.anyio
+async def test_gitlab_stale_missing_branch_does_not_create_branch() -> None:
+    api = _MockGitLabApi(
+        project_path="group/subgroup/project", files={MANIFEST_FILENAME: _manifest()}
+    )
+    transport = _MockGitLabTransport(api=api)
+    reviewed = api._branches["main"]
+    api.commit_actions(
+        branch="main",
+        message="Concurrent write",
+        actions=[
+            {
+                "action": "create",
+                "file_path": "workflows/concurrent.yml",
+                "content": "new",
+            }
+        ],
+    )
+    with pytest.raises(TracecatValidationError, match="Target branch changed"):
+        await transport.write_files(
+            url=_git_url(),
+            files={MANIFEST_FILENAME: _manifest()},
+            message="Sync",
+            branch="sync/new",
+            create_pr=False,
+            expected_commit_sha=reviewed,
+        )
+    assert "sync/new" not in api._branches
+    assert not any(method == "POST" for method, _ in api.requests)
+
+
+@pytest.mark.anyio
+async def test_gitlab_branch_hint_ignores_same_name_tag() -> None:
+    api = _MockGitLabApi(
+        project_path="group/subgroup/project",
+        files={MANIFEST_FILENAME: _manifest(), "workflows/example.yml": "tag"},
+    )
+    tag_sha = api._branches["main"]
+    api._tags["main"] = tag_sha
+    branch_commit = api._new_commit(
+        branch="main",
+        message="Branch advances",
+        files={MANIFEST_FILENAME: _manifest(), "workflows/example.yml": "branch"},
+    )
+    api._branches["main"] = branch_commit.sha
+    transport = _MockGitLabTransport(api=api)
+    branch = await transport.read_files(url=_git_url(), ref="main", ref_kind="branch")
+    assert branch.commit_sha == branch_commit.sha
+    assert branch.files["workflows/example.yml"] == "branch"
+    commit = await transport.read_files(url=_git_url(), ref=tag_sha, ref_kind="commit")
+    assert commit.files["workflows/example.yml"] == "tag"
+    with patch.object(
+        transport, "_write_guarded_commit", new=AsyncMock(return_value="new-sha")
+    ) as write:
+        await transport.write_files(
+            url=_git_url(),
+            files={MANIFEST_FILENAME: _manifest(), "workflows/example.yml": "updated"},
+            message="Sync",
+            branch="main",
+            create_pr=False,
+            expected_commit_sha=branch.commit_sha,
+        )
+    assert write.await_args is not None
+    assert write.await_args.kwargs["parent"] == branch_commit.sha
+    del api._branches["main"]
+    with pytest.raises(GitLabApiError):
+        await transport.read_files(url=_git_url(), ref="main", ref_kind="branch")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("repository_status", [200, 403, 404])
+async def test_gitlab_branch_absence_requires_repository_access(
+    monkeypatch: pytest.MonkeyPatch, repository_status: int
+) -> None:
+    api = _MockGitLabApi(project_path="group/subgroup/project", files={})
+    response = api.response
+    probes: list[httpx.Request] = []
+
+    def repository_access(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/repository/branches"):
+            probes.append(request)
+            return httpx.Response(repository_status, json=[])
+        return response(request)
+
+    monkeypatch.setattr(api, "response", repository_access)
+    transport = _MockGitLabTransport(api=api)
+    # Metadata is readable even when the repository is hidden.
+    async with transport._authed_client(_git_url()) as client:
+        await transport._get_project(client=client, project_id=api.encoded_project_path)
+    if repository_status == 200:
+        assert not await transport.branch_exists(url=_git_url(), branch="missing")
+    else:
+        with pytest.raises(GitLabApiError) as caught:
+            await transport.branch_exists(url=_git_url(), branch="missing")
+        assert caught.value.status_code == repository_status
+    assert len(probes) == 1
+    assert probes[0].url.params["per_page"] == "1"
