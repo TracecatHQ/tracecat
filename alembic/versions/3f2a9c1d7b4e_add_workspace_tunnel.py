@@ -1,8 +1,8 @@
 """Add workspace_tunnel table.
 
-Revision ID: 8b51e0c47d2a
+Revision ID: 3f2a9c1d7b4e
 Revises: d9107f689ccf
-Create Date: 2026-10-12 19:15:00.000000
+Create Date: 2026-10-12 18:00:00.000000
 """
 
 from collections.abc import Sequence
@@ -16,7 +16,7 @@ from tracecat.db.tenant_rls import (
     enable_workspace_table_rls,
 )
 
-revision: str = "8b51e0c47d2a"
+revision: str = "3f2a9c1d7b4e"
 down_revision: str | None = "d9107f689ccf"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -47,17 +47,6 @@ def upgrade() -> None:
             sa.Boolean(),
             server_default=sa.text("true"),
             nullable=False,
-        ),
-        sa.Column("encrypted_gateway_key", sa.LargeBinary(), nullable=True),
-        sa.Column(
-            "managed", sa.Boolean(), server_default=sa.text("false"), nullable=False
-        ),
-        sa.Column("pangolin_site_id", sa.Integer(), nullable=True),
-        sa.Column("pangolin_client_id", sa.Integer(), nullable=True),
-        sa.Column(
-            "pangolin_resource_ids",
-            postgresql.JSONB(astext_type=sa.Text()),
-            nullable=True,
         ),
         sa.Column("workspace_id", sa.UUID(), nullable=False),
         sa.Column("surrogate_id", sa.Integer(), sa.Identity(), nullable=False),
