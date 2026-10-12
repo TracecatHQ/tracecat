@@ -20,9 +20,9 @@ import {
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -325,7 +325,7 @@ export function OrgSettingsScimConnection({
           }
         }}
       >
-        <DialogContent className="max-w-lg">
+        <DialogContent size="sm" className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Copy SCIM credentials</DialogTitle>
             <DialogDescription>
@@ -333,17 +333,14 @@ export function OrgSettingsScimConnection({
               once.
             </DialogDescription>
           </DialogHeader>
-          {issuedToken ? (
-            <div className="space-y-3">
-              <CredentialRow label="SCIM base URL" value={baseUrl ?? ""} />
-              <CredentialRow label="Bearer token" value={issuedToken} />
-            </div>
-          ) : null}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIssuedToken(null)}>
-              Close
-            </Button>
-          </DialogFooter>
+          <DialogBody>
+            {issuedToken ? (
+              <div className="space-y-3">
+                <CredentialRow label="SCIM base URL" value={baseUrl ?? ""} />
+                <CredentialRow label="Bearer token" value={issuedToken} />
+              </div>
+            ) : null}
+          </DialogBody>
         </DialogContent>
       </Dialog>
 

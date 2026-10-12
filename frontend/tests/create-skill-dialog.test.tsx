@@ -11,6 +11,7 @@ const SKILL_NAME_TRAILING_HYPHEN_ERROR = "Name cannot end with a hyphen."
 jest.mock("@/components/ui/dialog", () => ({
   Dialog: ({ open, children }: { open: boolean; children: ReactNode }) =>
     open ? <div>{children}</div> : null,
+  DialogBody: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   DialogContent: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),

@@ -10,6 +10,7 @@ import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -357,7 +358,7 @@ export function AddCustomFieldDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent size="md" className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>Add custom field</DialogTitle>
           <DialogDescription>
@@ -365,152 +366,156 @@ export function AddCustomFieldDialog({
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="displayName"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Analyst verdict" {...field} />
-                  </FormControl>
-                  <FormDescription>
-                    Reference: {fieldReference || "Enter a name"}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormItem>
-              <FormLabel>Data type</FormLabel>
-              <Select
-                value={pickerValue}
-                onValueChange={(value) => {
-                  const opt = findTypeOption(value)
-                  if (opt) {
-                    form.setValue("type", opt.type)
-                    form.setValue("kind", opt.kind ?? null)
-                  }
-                }}
-              >
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a data type" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  {CASE_FIELD_TYPE_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.kind ? (
-                        <span className="inline-flex items-center gap-2 whitespace-nowrap">
-                          {(() => {
-                            const Icon = CASE_FIELD_KIND_CONFIG[opt.kind].icon
-                            return <Icon className="size-4 shrink-0" />
-                          })()}
-                          <span className="text-xs font-normal leading-none whitespace-nowrap">
-                            {CASE_FIELD_KIND_CONFIG[opt.kind].label}
-                          </span>
-                        </span>
-                      ) : (
-                        <SqlTypeDisplay
-                          type={opt.type}
-                          labelClassName="text-xs"
-                        />
-                      )}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FormDescription>The data type for this field.</FormDescription>
-              <FormMessage />
-            </FormItem>
-
-            {requiresOptions && (
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DialogBody>
               <FormField
                 control={form.control}
-                name="options"
+                name="displayName"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Options</FormLabel>
+                    <FormLabel>Name</FormLabel>
                     <FormControl>
-                      <MultiTagCommandInput
-                        value={field.value || []}
-                        onChange={field.onChange}
-                        placeholder="Add allowed values..."
-                        allowCustomTags
-                        disableSuggestions
-                        className="w-full"
-                        searchKeys={["label"]}
-                      />
+                      <Input placeholder="Analyst verdict" {...field} />
                     </FormControl>
                     <FormDescription>
-                      Define the allowed values for this field.
+                      Reference: {fieldReference || "Enter a name"}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-            )}
 
-            {!selectedKind &&
-              selectedType !== "JSONB" &&
-              (selectedType === "MULTI_SELECT" ? (
+              <FormItem>
+                <FormLabel>Data type</FormLabel>
+                <Select
+                  value={pickerValue}
+                  onValueChange={(value) => {
+                    const opt = findTypeOption(value)
+                    if (opt) {
+                      form.setValue("type", opt.type)
+                      form.setValue("kind", opt.kind ?? null)
+                    }
+                  }}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a data type" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {CASE_FIELD_TYPE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.kind ? (
+                          <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                            {(() => {
+                              const Icon = CASE_FIELD_KIND_CONFIG[opt.kind].icon
+                              return <Icon className="size-4 shrink-0" />
+                            })()}
+                            <span className="text-xs font-normal leading-none whitespace-nowrap">
+                              {CASE_FIELD_KIND_CONFIG[opt.kind].label}
+                            </span>
+                          </span>
+                        ) : (
+                          <SqlTypeDisplay
+                            type={opt.type}
+                            labelClassName="text-xs"
+                          />
+                        )}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormDescription>The data type for this field.</FormDescription>
+                <FormMessage />
+              </FormItem>
+
+              {requiresOptions && (
                 <FormField
                   control={form.control}
-                  name="defaultMulti"
+                  name="options"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Default values (optional)</FormLabel>
+                      <FormLabel>Options</FormLabel>
                       <FormControl>
                         <MultiTagCommandInput
                           value={field.value || []}
                           onChange={field.onChange}
-                          placeholder="Select default values..."
-                          suggestions={sanitizeColumnOptions(
-                            form.watch("options")
-                          ).map((opt) => ({
-                            id: opt,
-                            label: opt,
-                            value: opt,
-                          }))}
-                          searchKeys={["label"]}
+                          placeholder="Add allowed values..."
+                          allowCustomTags
+                          disableSuggestions
                           className="w-full"
+                          searchKeys={["label"]}
                         />
                       </FormControl>
                       <FormDescription>
-                        Select default values from the options above.
+                        Define the allowed values for this field.
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-              ) : (
-                <FormField
-                  control={form.control}
-                  name="default"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Default value (optional)</FormLabel>
-                      <FormControl>
-                        <DefaultValueInput
-                          type={selectedType}
-                          field={field}
-                          options={form.watch("options")}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {getDefaultHelperText(selectedType)}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              ))}
+              )}
 
+              {!selectedKind &&
+                selectedType !== "JSONB" &&
+                (selectedType === "MULTI_SELECT" ? (
+                  <FormField
+                    control={form.control}
+                    name="defaultMulti"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Default values (optional)</FormLabel>
+                        <FormControl>
+                          <MultiTagCommandInput
+                            value={field.value || []}
+                            onChange={field.onChange}
+                            placeholder="Select default values..."
+                            suggestions={sanitizeColumnOptions(
+                              form.watch("options")
+                            ).map((opt) => ({
+                              id: opt,
+                              label: opt,
+                              value: opt,
+                            }))}
+                            searchKeys={["label"]}
+                            className="w-full"
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Select default values from the options above.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ) : (
+                  <FormField
+                    control={form.control}
+                    name="default"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Default value (optional)</FormLabel>
+                        <FormControl>
+                          <DefaultValueInput
+                            type={selectedType}
+                            field={field}
+                            options={form.watch("options")}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {getDefaultHelperText(selectedType)}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ))}
+            </DialogBody>
             <DialogFooter>
-              <Button type="submit" disabled={isSubmitting}>
+              <Button size="sm" type="submit" disabled={isSubmitting}>
                 Add field
               </Button>
             </DialogFooter>

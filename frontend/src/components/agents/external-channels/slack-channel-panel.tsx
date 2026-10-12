@@ -18,6 +18,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -457,7 +458,7 @@ export function SlackChannelPanel({
             }
           }}
         >
-          <DialogContent className="max-w-xl">
+          <DialogContent size="lg" className="max-w-xl">
             <DialogHeader>
               <DialogTitle
                 className={
@@ -481,246 +482,254 @@ export function SlackChannelPanel({
                 </DialogDescription>
               ) : null}
             </DialogHeader>
+            <DialogBody>
+              {dialogStage === "choose" ? (
+                <div className="space-y-5">
+                  <button
+                    type="button"
+                    className="group flex w-full items-center gap-4 rounded-lg border px-4 py-4 text-left transition-colors hover:bg-muted/20"
+                    disabled={isBusy}
+                    onClick={() => void handleSelectMethod("new")}
+                  >
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-md border bg-muted/20">
+                      <Plus className="size-4 text-muted-foreground" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-base font-medium tracking-tight">
+                        New App
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Create a new Slack App using a pre-filled manifest
+                      </p>
+                    </div>
+                    <span className="text-xs font-medium text-muted-foreground transition-colors group-hover:text-foreground">
+                      Choose
+                    </span>
+                  </button>
 
-            {dialogStage === "choose" ? (
-              <div className="space-y-5">
-                <button
-                  type="button"
-                  className="group flex w-full items-center gap-4 rounded-lg border px-4 py-4 text-left transition-colors hover:bg-muted/20"
-                  disabled={isBusy}
-                  onClick={() => void handleSelectMethod("new")}
-                >
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-md border bg-muted/20">
-                    <Plus className="size-4 text-muted-foreground" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-base font-medium tracking-tight">
-                      New App
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Create a new Slack App using a pre-filled manifest
-                    </p>
-                  </div>
-                  <span className="text-xs font-medium text-muted-foreground transition-colors group-hover:text-foreground">
-                    Choose
-                  </span>
-                </button>
+                  <button
+                    type="button"
+                    className="group flex w-full items-center gap-4 rounded-lg border px-4 py-4 text-left transition-colors hover:bg-muted/20"
+                    disabled={isBusy}
+                    onClick={() => void handleSelectMethod("existing")}
+                  >
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-md border bg-muted/20">
+                      <ArrowLeftRight className="size-4 text-muted-foreground" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-base font-medium tracking-tight">
+                        Existing App
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Connect an existing Slack App to this agent
+                      </p>
+                    </div>
+                    <span className="text-xs font-medium text-muted-foreground transition-colors group-hover:text-foreground">
+                      Choose
+                    </span>
+                  </button>
+                </div>
+              ) : null}
 
-                <button
-                  type="button"
-                  className="group flex w-full items-center gap-4 rounded-lg border px-4 py-4 text-left transition-colors hover:bg-muted/20"
-                  disabled={isBusy}
-                  onClick={() => void handleSelectMethod("existing")}
-                >
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-md border bg-muted/20">
-                    <ArrowLeftRight className="size-4 text-muted-foreground" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-base font-medium tracking-tight">
-                      Existing App
+              {dialogStage === "guide" ? (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      In Tracecat
                     </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Connect an existing Slack App to this agent
-                    </p>
+                    <SetupListItem
+                      index={1}
+                      title="Export app manifest"
+                      description="Copy the manifest generated for this agent preset."
+                      action={
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={handleCopyManifest}
+                          disabled={!manifestText}
+                        >
+                          Copy
+                        </Button>
+                      }
+                    />
                   </div>
-                  <span className="text-xs font-medium text-muted-foreground transition-colors group-hover:text-foreground">
-                    Choose
-                  </span>
-                </button>
-              </div>
-            ) : null}
 
-            {dialogStage === "guide" ? (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                    In Tracecat
-                  </p>
-                  <SetupListItem
-                    index={1}
-                    title="Export app manifest"
-                    description="Copy the manifest generated for this agent preset."
-                    action={
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      In Slack
+                    </p>
+                    <SetupListItem
+                      index={2}
+                      title="Create app from manifest"
+                      description="Open Slack Apps, choose Create New App, then select From an app manifest."
+                      action={
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          asChild
+                        >
+                          <a
+                            href="https://api.slack.com/apps"
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <ExternalLink className="mr-2 size-4" />
+                            Open
+                          </a>
+                        </Button>
+                      }
+                    />
+                    <SetupListItem
+                      index={3}
+                      title="Install the app"
+                      description="Install to your workspace. You will add Event Subscriptions after connecting app credentials in Tracecat."
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Back in Tracecat
+                    </p>
+                    <SetupListItem
+                      index={4}
+                      title='Continue with "Next"'
+                      description="Proceed to connect your Client ID, client secret, and signing secret."
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              {dialogStage === "connect" ? (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium">Endpoint URL</label>
+                    <Input
+                      readOnly
+                      value={endpointUrl}
+                      placeholder="Will appear after initial connect"
+                    />
+                    {endpointUrl ? (
+                      <CopyButton
+                        value={endpointUrl}
+                        toastMessage="Endpoint URL copied"
+                        tooltipMessage="Copy endpoint URL"
+                      />
+                    ) : null}
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium">
+                      OAuth redirect URL
+                    </label>
+                    <Input
+                      readOnly
+                      value={oauthRedirectUrl}
+                      placeholder="Will appear after initial connect"
+                    />
+                    {oauthRedirectUrl ? (
+                      <CopyButton
+                        value={oauthRedirectUrl}
+                        toastMessage="OAuth redirect URL copied"
+                        tooltipMessage="Copy OAuth redirect URL"
+                      />
+                    ) : null}
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium">Client ID</label>
+                    <Input
+                      value={slackClientId}
+                      onChange={(event) => setSlackClientId(event.target.value)}
+                      disabled={isBusy}
+                      placeholder="1234567890.1234567890"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium">Client secret</label>
+                    <Input
+                      type="password"
+                      value={slackClientSecret}
+                      onChange={(event) =>
+                        setSlackClientSecret(event.target.value)
+                      }
+                      disabled={isBusy}
+                      placeholder="Slack App client secret"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium">
+                      Signing secret
+                    </label>
+                    <Input
+                      type="password"
+                      value={slackSigningSecret}
+                      onChange={(event) =>
+                        setSlackSigningSecret(event.target.value)
+                      }
+                      disabled={isBusy}
+                      placeholder="Slack signing secret"
+                    />
+                  </div>
+                  {token ? (
+                    <div className="flex flex-wrap gap-2">
                       <Button
                         type="button"
-                        size="sm"
                         variant="outline"
-                        onClick={handleCopyManifest}
-                        disabled={!manifestText}
+                        onClick={() => void handleRotate()}
+                        disabled={isBusy}
                       >
-                        Copy
+                        <RefreshCw className="mr-2 size-4" />
+                        Rotate endpoint
                       </Button>
-                    }
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                    In Slack
-                  </p>
-                  <SetupListItem
-                    index={2}
-                    title="Create app from manifest"
-                    description="Open Slack Apps, choose Create New App, then select From an app manifest."
-                    action={
-                      <Button type="button" size="sm" variant="outline" asChild>
-                        <a
-                          href="https://api.slack.com/apps"
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          <ExternalLink className="mr-2 size-4" />
-                          Open
-                        </a>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void handleDelete()}
+                        disabled={isBusy}
+                      >
+                        Disconnect
                       </Button>
-                    }
-                  />
-                  <SetupListItem
-                    index={3}
-                    title="Install the app"
-                    description="Install to your workspace. You will add Event Subscriptions after connecting app credentials in Tracecat."
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Back in Tracecat
-                  </p>
-                  <SetupListItem
-                    index={4}
-                    title='Continue with "Next"'
-                    description="Proceed to connect your Client ID, client secret, and signing secret."
-                  />
-                </div>
-              </div>
-            ) : null}
-
-            {dialogStage === "connect" ? (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-medium">Endpoint URL</label>
-                  <Input
-                    readOnly
-                    value={endpointUrl}
-                    placeholder="Will appear after initial connect"
-                  />
-                  {endpointUrl ? (
-                    <CopyButton
-                      value={endpointUrl}
-                      toastMessage="Endpoint URL copied"
-                      tooltipMessage="Copy endpoint URL"
-                    />
+                    </div>
                   ) : null}
                 </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-medium">
-                    OAuth redirect URL
-                  </label>
-                  <Input
-                    readOnly
-                    value={oauthRedirectUrl}
-                    placeholder="Will appear after initial connect"
-                  />
-                  {oauthRedirectUrl ? (
-                    <CopyButton
-                      value={oauthRedirectUrl}
-                      toastMessage="OAuth redirect URL copied"
-                      tooltipMessage="Copy OAuth redirect URL"
-                    />
-                  ) : null}
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-medium">Client ID</label>
-                  <Input
-                    value={slackClientId}
-                    onChange={(event) => setSlackClientId(event.target.value)}
-                    disabled={isBusy}
-                    placeholder="1234567890.1234567890"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-medium">Client secret</label>
-                  <Input
-                    type="password"
-                    value={slackClientSecret}
-                    onChange={(event) =>
-                      setSlackClientSecret(event.target.value)
-                    }
-                    disabled={isBusy}
-                    placeholder="Slack App client secret"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-medium">Signing secret</label>
-                  <Input
-                    type="password"
-                    value={slackSigningSecret}
-                    onChange={(event) =>
-                      setSlackSigningSecret(event.target.value)
-                    }
-                    disabled={isBusy}
-                    placeholder="Slack signing secret"
-                  />
-                </div>
-                {token ? (
-                  <div className="flex flex-wrap gap-2">
+              ) : null}
+
+              {dialogStage !== "choose" ? (
+                <>
+                  <Separator />
+
+                  <div className="flex items-center justify-between">
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => void handleRotate()}
-                      disabled={isBusy}
+                      onClick={() => {
+                        if (dialogStage === "guide") {
+                          setDialogStage("choose")
+                          return
+                        }
+                        if (dialogStage === "connect") {
+                          setDialogStage(
+                            setupMethod === "new" ? "guide" : "choose"
+                          )
+                        }
+                      }}
                     >
-                      <RefreshCw className="mr-2 size-4" />
-                      Rotate endpoint
+                      <ArrowLeft className="mr-2 size-4" />
+                      Back
                     </Button>
                     <Button
                       type="button"
-                      variant="outline"
-                      onClick={() => void handleDelete()}
-                      disabled={isBusy}
+                      onClick={() => void handleNextFromDialog()}
                     >
-                      Disconnect
+                      {isBusy ? (
+                        <Loader2 className="mr-2 size-4 animate-spin" />
+                      ) : null}
+                      {dialogStage === "connect" ? "Connect to Slack" : "Next"}
                     </Button>
                   </div>
-                ) : null}
-              </div>
-            ) : null}
-
-            {dialogStage !== "choose" ? (
-              <>
-                <Separator />
-
-                <div className="flex items-center justify-between">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      if (dialogStage === "guide") {
-                        setDialogStage("choose")
-                        return
-                      }
-                      if (dialogStage === "connect") {
-                        setDialogStage(
-                          setupMethod === "new" ? "guide" : "choose"
-                        )
-                      }
-                    }}
-                  >
-                    <ArrowLeft className="mr-2 size-4" />
-                    Back
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={() => void handleNextFromDialog()}
-                  >
-                    {isBusy ? (
-                      <Loader2 className="mr-2 size-4 animate-spin" />
-                    ) : null}
-                    {dialogStage === "connect" ? "Connect to Slack" : "Next"}
-                  </Button>
-                </div>
-              </>
-            ) : null}
+                </>
+              ) : null}
+            </DialogBody>
           </DialogContent>
         </Dialog>
 

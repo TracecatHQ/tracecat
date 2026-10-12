@@ -9,6 +9,7 @@ import { ProviderConfigForm } from "@/components/provider-config-form"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -116,8 +117,8 @@ export function OAuthIntegrationDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
-      <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
-        <DialogHeader className="flex flex-col gap-3 p-8 pb-10 text-left">
+      <DialogContent size="sm" className="sm:max-w-2xl">
+        <DialogHeader>
           <div className="flex items-start gap-4">
             <ProviderIcon providerId={providerId} className="size-10" />
             <div className="space-y-1">
@@ -129,41 +130,36 @@ export function OAuthIntegrationDialog({
             </div>
           </div>
         </DialogHeader>
-        <div className="flex-1 overflow-y-auto px-8 pb-8">
-          {providerIsLoading && <CenteredSpinner />}
-          {providerError && (
-            <div className="text-sm text-destructive">
-              Failed to load provider details.
-            </div>
-          )}
-          {!providerIsLoading && provider && (
-            <div className="space-y-6">
-              <ProviderConfigForm
-                provider={provider}
-                onSuccess={handleSubmitSuccess}
-                formId={formId}
-                formRef={formRef}
-                hideActions
-              />
-              {integration?.status === "configured" && (
-                <p className="text-xs text-muted-foreground">
-                  Saved configuration will stay in place even if the connection
-                  is not completed.
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-        <DialogFooter className="sticky bottom-0 border-t bg-background px-8 py-4">
+        <DialogBody>
+          <div className="flex-1 overflow-y-auto px-8 pb-8">
+            {providerIsLoading && <CenteredSpinner />}
+            {providerError && (
+              <div className="text-sm text-destructive">
+                Failed to load provider details.
+              </div>
+            )}
+            {!providerIsLoading && provider && (
+              <div className="space-y-6">
+                <ProviderConfigForm
+                  provider={provider}
+                  onSuccess={handleSubmitSuccess}
+                  formId={formId}
+                  formRef={formRef}
+                  hideActions
+                />
+                {integration?.status === "configured" && (
+                  <p className="text-xs text-muted-foreground">
+                    Saved configuration will stay in place even if the
+                    connection is not completed.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </DialogBody>
+        <DialogFooter>
           <Button
-            type="button"
-            variant="outline"
-            onClick={() => handleDialogOpenChange(false)}
-            disabled={connectProviderIsPending || testConnectionIsPending}
-          >
-            Cancel
-          </Button>
-          <Button
+            size="sm"
             type="submit"
             form={formId}
             onClick={(event) => {

@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
-  DialogClose,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -226,8 +226,8 @@ export function WorkspaceResourceSyncActions({
           Push
         </Button>
       </DialogTrigger>
-      <DialogContent className="flex max-h-[85vh] max-w-2xl flex-col gap-0 overflow-hidden p-0">
-        <DialogHeader className="shrink-0 flex-row items-start gap-3 space-y-0 border-b p-6">
+      <DialogContent size="md" className="max-w-2xl">
+        <DialogHeader>
           <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
             <GitBranchIcon className="size-[18px]" />
           </div>
@@ -238,71 +238,73 @@ export function WorkspaceResourceSyncActions({
             </DialogDescription>
           </div>
         </DialogHeader>
-
-        {gitRepoUrl ? (
-          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
-            <PushFlow
-              total={totalResourceCount}
-              isLoading={visiblePreviewIsLoading}
-              targetBranch={targetBranch}
-              defaultBranch={baseBranch}
-              outcome={pushOutcome}
-              provider={provider}
-            />
-
-            <PushResourcePreview
-              preview={visiblePreview}
-              isLoading={visiblePreviewIsLoading}
-              compareRef={compareRef}
-              errorMessage={previewRequested ? previewErrorMessage : undefined}
-              hasRequestedPreview={previewRequested}
-              onRequestPreview={handlePreview}
-            />
-
-            <div className="space-y-2">
-              <label
-                className="text-sm font-medium"
-                htmlFor={`sync-message-${branchSlug}`}
-              >
-                Commit message
-              </label>
-              <Textarea
-                id={`sync-message-${branchSlug}`}
-                className="min-h-[64px] resize-none text-sm"
-                value={exportMessage}
-                onChange={(event) => setExportMessage(event.target.value)}
+        <DialogBody>
+          {gitRepoUrl ? (
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
+              <PushFlow
+                total={totalResourceCount}
+                isLoading={visiblePreviewIsLoading}
+                targetBranch={targetBranch}
+                defaultBranch={baseBranch}
+                outcome={pushOutcome}
+                provider={provider}
               />
+
+              <PushResourcePreview
+                preview={visiblePreview}
+                isLoading={visiblePreviewIsLoading}
+                compareRef={compareRef}
+                errorMessage={
+                  previewRequested ? previewErrorMessage : undefined
+                }
+                hasRequestedPreview={previewRequested}
+                onRequestPreview={handlePreview}
+              />
+
+              <div className="space-y-2">
+                <label
+                  className="text-sm font-medium"
+                  htmlFor={`sync-message-${branchSlug}`}
+                >
+                  Commit message
+                </label>
+                <Textarea
+                  id={`sync-message-${branchSlug}`}
+                  className="min-h-[64px] resize-none text-sm"
+                  value={exportMessage}
+                  onChange={(event) => setExportMessage(event.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label
+                  className="text-sm font-medium"
+                  htmlFor={`sync-branch-${branchSlug}`}
+                >
+                  Target branch
+                </label>
+                <WorkspaceSyncBranchSelector
+                  id={`sync-branch-${branchSlug}`}
+                  branches={repoBranches}
+                  branch={exportBranch}
+                  isCreatingBranch={isCreatingBranch}
+                  branchesIsLoading={branchesIsLoading}
+                  hasBranches={hasBranches}
+                  branchesError={branchesError}
+                  newBranchPlaceholder={`sync/${branchSlug}`}
+                  onSelectBranch={selectExportBranch}
+                  onBranchChange={setExportBranch}
+                  showNoBranchesMessage={Boolean(gitRepoUrl)}
+                />
+                <WorkspaceSyncPushWarning
+                  warning={pushWarning}
+                  blocked={pushOutcome.isPullRequestBlocked}
+                />
+              </div>
             </div>
-
-            <div className="space-y-2">
-              <label
-                className="text-sm font-medium"
-                htmlFor={`sync-branch-${branchSlug}`}
-              >
-                Target branch
-              </label>
-              <WorkspaceSyncBranchSelector
-                id={`sync-branch-${branchSlug}`}
-                branches={repoBranches}
-                branch={exportBranch}
-                isCreatingBranch={isCreatingBranch}
-                branchesIsLoading={branchesIsLoading}
-                hasBranches={hasBranches}
-                branchesError={branchesError}
-                newBranchPlaceholder={`sync/${branchSlug}`}
-                onSelectBranch={selectExportBranch}
-                onBranchChange={setExportBranch}
-                showNoBranchesMessage={Boolean(gitRepoUrl)}
-              />
-              <WorkspaceSyncPushWarning
-                warning={pushWarning}
-                blocked={pushOutcome.isPullRequestBlocked}
-              />
-            </div>
-          </div>
-        ) : null}
-
-        <DialogFooter className="shrink-0 items-center gap-3 border-t bg-muted/30 px-6 py-4 sm:justify-between">
+          ) : null}
+        </DialogBody>
+        <DialogFooter>
           <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             {repoName ? (
               <>
@@ -312,11 +314,6 @@ export function WorkspaceResourceSyncActions({
             ) : null}
           </span>
           <div className="flex items-center gap-2">
-            <DialogClose asChild>
-              <Button type="button" size="sm" variant="outline">
-                Cancel
-              </Button>
-            </DialogClose>
             <Button
               type="button"
               size="sm"

@@ -39,6 +39,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -1112,18 +1113,20 @@ function ToolCallRow({ toolCall }: { toolCall: WatchtowerAgentToolCallRead }) {
       </Tool>
 
       <Dialog open={showArgsDialog} onOpenChange={setShowArgsDialog}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent size="xl" className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="text-base">{toolName}</DialogTitle>
             <DialogDescription>
               Full redacted arguments captured for this tool call.
             </DialogDescription>
           </DialogHeader>
-          <JsonViewWithControls
-            src={toolCall.args_redacted}
-            defaultExpanded
-            className="max-h-[60vh] overflow-auto"
-          />
+          <DialogBody>
+            <JsonViewWithControls
+              src={toolCall.args_redacted}
+              defaultExpanded
+              className="max-h-[60vh] overflow-auto"
+            />
+          </DialogBody>
         </DialogContent>
       </Dialog>
     </>

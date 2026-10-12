@@ -12,6 +12,7 @@ import { CsvPreview } from "@/components/tables/table-import-csv-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -170,80 +171,74 @@ export function TableImportTableDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader className="space-y-4">
+      <DialogContent size="md" className="max-w-3xl">
+        <DialogHeader>
           <DialogTitle>Import table from CSV</DialogTitle>
           <DialogDescription>
             Upload a CSV file to create a new table. Columns and data types will
             be inferred automatically.
           </DialogDescription>
-          <ProtectedColumnsAlert />
         </DialogHeader>
         <FormProvider {...form}>
           <form
             onSubmit={form.handleSubmit(handleSubmit)}
-            className="min-w-0 space-y-6"
+            className="flex min-h-0 flex-1 flex-col"
           >
-            <FormField
-              control={form.control}
-              name="file"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>CSV file</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="file"
-                      accept=".csv,text/csv"
-                      className="min-h-9 w-full py-2"
-                      onChange={async (event) => {
-                        const file = event.target.files?.[0]
-                        if (!file) {
-                          field.onChange(undefined)
-                          setCsvPreview(null)
-                          return
-                        }
-                        field.onChange(file)
-                        await createPreview(file)
-                      }}
-                      name={field.name}
-                      ref={field.ref}
-                      onBlur={field.onBlur}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    CSV files up to {FILE_SIZE_LIMIT_MB}MB are supported.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
+            <DialogBody>
+              <ProtectedColumnsAlert />
+              <FormField
+                control={form.control}
+                name="file"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>CSV file</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="file"
+                        accept=".csv,text/csv"
+                        className="min-h-9 w-full py-2"
+                        onChange={async (event) => {
+                          const file = event.target.files?.[0]
+                          if (!file) {
+                            field.onChange(undefined)
+                            setCsvPreview(null)
+                            return
+                          }
+                          field.onChange(file)
+                          await createPreview(file)
+                        }}
+                        name={field.name}
+                        ref={field.ref}
+                        onBlur={field.onBlur}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      CSV files up to {FILE_SIZE_LIMIT_MB}MB are supported.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {csvPreview && (
+                <div className="space-y-2">
+                  <CsvPreview csvData={csvPreview} />
+                  <p className="text-xs text-muted-foreground">
+                    Column names will be sanitised automatically. Duplicate or
+                    invalid column names are adjusted to remain unique.
+                  </p>
+                </div>
               )}
-            />
 
-            {csvPreview && (
-              <div className="space-y-2">
-                <CsvPreview csvData={csvPreview} />
-                <p className="text-xs text-muted-foreground">
-                  Column names will be sanitised automatically. Duplicate or
-                  invalid column names are adjusted to remain unique.
-                </p>
-              </div>
-            )}
-
-            <TableNameField />
-
-            <DialogFooter className="gap-2 sm:justify-between">
+              <TableNameField />
+            </DialogBody>
+            <DialogFooter>
               <div className="text-xs text-muted-foreground">
                 Leave the table name blank to derive it from the file name.
               </div>
               <div className="flex gap-2">
                 <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => onOpenChange?.(false)}
-                  disabled={importTableIsPending}
-                >
-                  Cancel
-                </Button>
-                <Button
+                  size="sm"
                   type="submit"
                   disabled={importTableIsPending || isParsing}
                 >

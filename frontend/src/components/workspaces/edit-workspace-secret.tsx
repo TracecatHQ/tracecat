@@ -19,6 +19,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -649,8 +650,8 @@ export function EditCredentialsDialog({
       onOpenChange={handleDialogOpenChange}
     >
       {children}
-      <DialogContent className={`${className} max-h-[85vh] flex flex-col`}>
-        <DialogHeader className="flex-shrink-0">
+      <DialogContent size="xl" className={className}>
+        <DialogHeader>
           <DialogTitle>Edit secret</DialogTitle>
           <DialogDescription className="flex flex-col">
             {isSshKey ? (
@@ -681,7 +682,7 @@ export function EditCredentialsDialog({
             onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}
             className="flex min-h-0 flex-1 flex-col"
           >
-            <div className="flex-1 space-y-4 overflow-y-auto px-1 py-2">
+            <DialogBody>
               {selectedSecret?.is_corrupted && (
                 <Alert>
                   <AlertTriangleIcon className="size-4 !text-amber-600" />
@@ -1228,9 +1229,9 @@ export function EditCredentialsDialog({
                   )}
                 </>
               )}
-            </div>
-            <DialogFooter className="flex-shrink-0 pt-4">
-              <Button className="ml-auto space-x-2" type="submit">
+            </DialogBody>
+            <DialogFooter>
+              <Button size="sm" type="submit">
                 <SaveIcon className="mr-2 size-4" />
                 Save
               </Button>

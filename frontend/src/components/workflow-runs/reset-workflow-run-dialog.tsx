@@ -8,6 +8,7 @@ import type {
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -111,7 +112,7 @@ export function ResetWorkflowRunDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent size="md" className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>Reset workflow run</DialogTitle>
           <DialogDescription>
@@ -120,83 +121,78 @@ export function ResetWorkflowRunDialog({
               : `Reset ${executionCount} selected workflow runs from start or a specific event.`}
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="event-id">
-              {useResetPointSelect ? "Reset point" : "Event ID"}
-            </Label>
-            {useResetPointSelect ? (
-              <Select value={selectedPoint} onValueChange={setSelectedPoint}>
-                <SelectTrigger id="event-id">
+        <DialogBody>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="event-id">
+                {useResetPointSelect ? "Reset point" : "Event ID"}
+              </Label>
+              {useResetPointSelect ? (
+                <Select value={selectedPoint} onValueChange={setSelectedPoint}>
+                  <SelectTrigger id="event-id">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="start">Start</SelectItem>
+                    {resettablePoints.map((point) => (
+                      <SelectItem
+                        key={point.event_id}
+                        value={String(point.event_id)}
+                      >
+                        Event {point.event_id} -{" "}
+                        {point.event_type.replaceAll("_", " ").toLowerCase()}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  id="event-id"
+                  type="number"
+                  min={1}
+                  placeholder="Start"
+                  value={eventIdText}
+                  onChange={(event) => setEventIdText(event.target.value)}
+                />
+              )}
+              <p className="text-xs text-muted-foreground">{helperText}</p>
+              {resetPointsLoading ? (
+                <p className="text-xs text-muted-foreground">
+                  Loading reset points...
+                </p>
+              ) : null}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="reapply-type">Reapply type</Label>
+              <Select
+                value={reapplyType}
+                onValueChange={(value: WorkflowExecutionResetReapplyType) =>
+                  setReapplyType(value)
+                }
+              >
+                <SelectTrigger id="reapply-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="start">Start</SelectItem>
-                  {resettablePoints.map((point) => (
-                    <SelectItem
-                      key={point.event_id}
-                      value={String(point.event_id)}
-                    >
-                      Event {point.event_id} -{" "}
-                      {point.event_type.replaceAll("_", " ").toLowerCase()}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="all_eligible">All eligible</SelectItem>
+                  <SelectItem value="signal_only">Signals only</SelectItem>
+                  <SelectItem value="none">None</SelectItem>
                 </SelectContent>
               </Select>
-            ) : (
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="reason">Reason</Label>
               <Input
-                id="event-id"
-                type="number"
-                min={1}
-                placeholder="Start"
-                value={eventIdText}
-                onChange={(event) => setEventIdText(event.target.value)}
+                id="reason"
+                placeholder="Optional reason"
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
               />
-            )}
-            <p className="text-xs text-muted-foreground">{helperText}</p>
-            {resetPointsLoading ? (
-              <p className="text-xs text-muted-foreground">
-                Loading reset points...
-              </p>
-            ) : null}
+            </div>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="reapply-type">Reapply type</Label>
-            <Select
-              value={reapplyType}
-              onValueChange={(value: WorkflowExecutionResetReapplyType) =>
-                setReapplyType(value)
-              }
-            >
-              <SelectTrigger id="reapply-type">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all_eligible">All eligible</SelectItem>
-                <SelectItem value="signal_only">Signals only</SelectItem>
-                <SelectItem value="none">None</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="reason">Reason</Label>
-            <Input
-              id="reason"
-              placeholder="Optional reason"
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-            />
-          </div>
-        </div>
+        </DialogBody>
         <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={isSubmitting}
-          >
-            Cancel
-          </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting}>
+          <Button size="sm" onClick={handleSubmit} disabled={isSubmitting}>
             Reset
           </Button>
         </DialogFooter>

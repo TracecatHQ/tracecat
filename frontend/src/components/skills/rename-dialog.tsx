@@ -4,6 +4,7 @@ import { type FormEvent, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -58,34 +59,34 @@ export function RenameDialog({
         }
       }}
     >
-      <DialogContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <DialogHeader>
-            <DialogTitle>
-              Rename {target.isFolder ? "folder" : "file"}
-            </DialogTitle>
-            <DialogDescription>
-              Update the relative path. Folders will be renamed by moving every
-              file inside them.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="rename-path">Relative path</Label>
-            <Input
-              id="rename-path"
-              autoFocus
-              value={value}
-              onChange={(event) => setValue(event.target.value)}
-            />
-            {error ? (
-              <p className="text-xs font-light text-destructive">{error}</p>
-            ) : null}
-          </div>
+      <DialogContent size="sm">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <DialogBody>
+            <DialogHeader>
+              <DialogTitle>
+                Rename {target.isFolder ? "folder" : "file"}
+              </DialogTitle>
+              <DialogDescription>
+                Update the relative path. Folders will be renamed by moving
+                every file inside them.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label htmlFor="rename-path">Relative path</Label>
+              <Input
+                id="rename-path"
+                autoFocus
+                value={value}
+                onChange={(event) => setValue(event.target.value)}
+              />
+              {error ? (
+                <p className="text-xs font-light text-destructive">{error}</p>
+              ) : null}
+            </div>
+          </DialogBody>
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={onCancel}>
-              Cancel
-            </Button>
             <Button
+              size="sm"
               type="submit"
               disabled={!value.trim() || value.trim() === target.fromPath}
             >
