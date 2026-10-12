@@ -26,6 +26,7 @@ own embedded collection truncation behavior below.
 - `list_workflow_executions(workspace_id, workflow_id, limit=20, cursor=None)`
 - `get_workflow_execution(workspace_id, execution_id, action_refs=None, include_results=True)`
 - `get_execution_action_result(workspace_id, execution_id, action_ref, stream_id=None, max_bytes=65536, offset=0)`
+- `cancel_workflow_execution(workspace_id, execution_id)`
 
 ### Workflow definition editing
 
@@ -78,6 +79,10 @@ own embedded collection truncation behavior below.
   `next_offset`; `max_bytes` is capped at 1 MiB). Results the engine offloaded
   to blob storage are dereferenced server-side. When a ref ran in several
   streams (scatter items), pass `stream_id`; the error lists the available ids.
+- `cancel_workflow_execution` requests graceful cancellation and needs the
+  `workflow:terminate` scope. It returns once the request is sent; call
+  `get_workflow_execution` to confirm the run closed as `CANCELED`. Cancelling
+  a run that already finished does nothing.
 
 ## Action discovery and authoring context
 
