@@ -1,0 +1,71 @@
+frontend/src/components/workspace-chat/artifacts/artifact-content.tsx
+  s_7f6729d1c18d55::t_e658b7ecb68d3b 279-284
+frontend/src/hooks/use-chat.ts
+  s_7f6729d1c18d55::t_13e73143c7b79a 675
+  s_7f6729d1c18d55::t_870c6cc368c39d 31
+  s_7f6729d1c18d55::t_7876dc743b025b 592,600-601
+frontend/src/components/workspaces/workspace-chat-sidebar.test.tsx
+  s_7f6729d1c18d55::t_541f48bb92c27b 1-4,7-21,26-40,42-44
+  s_7f6729d1c18d55::t_c129f9b109c5b4 5-6,22-25,41
+frontend/src/hooks/use-chat-page-context.test.tsx
+  s_7f6729d1c18d55::t_ed9777f33c030a 1-44,48-49,51-68
+  s_7f6729d1c18d55::t_d9f33a42100bcb 45-47,50
+frontend/src/components/workspace-chat/artifacts/artifact-registry.tsx
+  s_7f6729d1c18d55::t_00c4910f0ae5f1 128-146
+  s_7f6729d1c18d55::t_f94fbda02c3a04 16
+  s_7f6729d1c18d55::t_e134a017191a34 6
+frontend/src/components/chat/chat-tools-picker.tsx
+  s_7f6729d1c18d55::t_4cd4c39f1366df 38-41
+  s_7f6729d1c18d55::t_2c7ed69fa4216a 217,223-231
+  s_7f6729d1c18d55::t_fce27128448a3f 159-174,178-186
+  s_7f6729d1c18d55::t_c6086cb3fda035 37
+frontend/src/components/forms/forms-route-layout.tsx
+  s_7f6729d1c18d55::t_533944c822d74c 9
+  s_7f6729d1c18d55::t_ea0162709780ee 3
+  s_7f6729d1c18d55::t_d562d6004936c8 21,28-29,31-44
+frontend/src/components/forms/forms-route-layout.test.tsx
+  s_7f6729d1c18d55::t_349ade272651d1 30-34,39,46
+  s_7f6729d1c18d55::t_f8f1f1626f6aba 11-12,15
+  s_7f6729d1c18d55::t_04544cf7008815 5
+  s_7f6729d1c18d55::t_7a31a828782b4a 93-119
+frontend/src/components/workspace-chat/workspace-chat-view.tsx
+  s_7f6729d1c18d55::t_01004647ce36d6 3,24,29-31,44,131-132
+frontend/src/components/chat/chat-session-pane.test.tsx
+  s_7f6729d1c18d55::t_87e2a7d0fda17c 125-127
+frontend/src/components/chat/chat-tools-picker.test.tsx
+  s_7f6729d1c18d55::t_097c3d0d1907e0 133-153
+  s_7f6729d1c18d55::t_24a0987be4e31a 507-549
+  s_7f6729d1c18d55::t_eb5dd8d873395c 6
+frontend/src/hooks/use-artifact-invalidation.test.tsx
+  s_7f6729d1c18d55::t_f78a29a569f09e 1-147
+frontend/src/hooks/use-artifact-invalidation.ts
+  s_7f6729d1c18d55::t_e9339e1eb67dd4 1-48
+frontend/src/components/chat/chat-session-pane.tsx
+  s_7f6729d1c18d55::t_e9bafdc1b08618 1284
+  s_7f6729d1c18d55::t_2d6b0565c94cec 436
+  s_7f6729d1c18d55::t_fa40596c7cfdcf 106
+  s_7f6729d1c18d55::t_0920fe28104046 133
+  s_7f6729d1c18d55::t_6d17468a4927cf 344-345
+frontend/src/providers/chat-page-context.tsx
+  s_7f6729d1c18d55::t_4eedc8816feb32 1-35
+frontend/src/components/workspaces/workspace-chat-sidebar.tsx
+  s_7f6729d1c18d55::t_ba48fa0724a4ad 5,8-13,16,21-25
+frontend/src/types/workspace-chat-artifacts.ts
+  s_7f6729d1c18d55::t_01004647ce36d6 58-64,88,212-218
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f8ac91974bbc20e41ee9e002cdb8a14530a2cfe9",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
