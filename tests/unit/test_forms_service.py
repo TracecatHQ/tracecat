@@ -710,12 +710,26 @@ USER_LAYOUT = [{"field": "recipient", "widget": "user"}]
 
 
 async def test_user_search_needs_a_user_field(
-    session: AsyncSession, service: FormsService, published_workflow: Workflow
+    session: AsyncSession, intake_role: Role, published_workflow: Workflow
 ) -> None:
     form = await create_form(session, published_workflow)
 
     with pytest.raises(TracecatNotFoundError):
-        await service.search_users(form, PageParams())
+        await FormsService(session, intake_role).search_users(form, PageParams())
+
+
+async def test_form_editor_searches_users_before_saving_a_user_field(
+    session: AsyncSession,
+    service: FormsService,
+    requester: User,
+    published_workflow: Workflow,
+) -> None:
+    """An unsaved preview can add a user field the saved config lacks."""
+    form = await create_form(session, published_workflow)
+
+    found = await service.search_users(form, PageParams())
+
+    assert [user.user_id for user in found.items] == [requester.id]
 
 
 async def test_user_search_lists_active_members_of_the_organization(
