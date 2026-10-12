@@ -324,3 +324,27 @@ describe("model provider icons", () => {
     expect(getModelProviderIconId(provider)).toBe(iconId)
   })
 })
+
+describe("Core and AI action icon mappings", () => {
+  it.each(["ai.action", "ai.agent", "ai.preset_agent", "ai.skill.list_skills"])(
+    "renders the primary mouse-pointer-click icon for %s",
+    (action) => {
+      const container = renderIcon(getIcon(action))
+      expect(container.firstElementChild).toHaveClass("bg-primary/10")
+      expect(container.firstElementChild).toHaveClass("text-primary")
+      expect(
+        container.querySelector("svg.lucide-mouse-pointer-click")
+      ).not.toBeNull()
+    }
+  )
+
+  it("keeps the Slack mark for ai.slackbot", () => {
+    expect(getIconSource("ai.slackbot")).not.toBe(getIconSource("ai.action"))
+  })
+
+  it("renders the HTTP icon for core.http_paginate", () => {
+    const container = renderIcon(getIcon("core.http_paginate"))
+    expect(container.querySelector("svg.lucide-globe")).not.toBeNull()
+    expect(container.firstElementChild).toHaveClass("bg-emerald-500/10")
+  })
+})

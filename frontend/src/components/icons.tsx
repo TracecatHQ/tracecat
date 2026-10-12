@@ -50,6 +50,7 @@ import {
   MessageCirclePlus,
   Microscope,
   MonitorX,
+  MousePointerClick,
   Newspaper,
   Plug2,
   Radar,
@@ -68,7 +69,6 @@ import {
   Telescope,
   UserSearch,
   Users,
-  WandSparkles,
   Waypoints,
   WorkflowIcon,
   ZapIcon,
@@ -230,17 +230,6 @@ export const Icons = {
   login: (props: IconProps) => <LogInIcon {...props} />,
 }
 
-export function getFlairSize(size: "sm" | "md" | "lg"): string {
-  switch (size) {
-    case "sm":
-      return "size-2"
-    case "lg":
-      return "size-6"
-    default:
-      return "size-4"
-  }
-}
-
 function resolveIconKey(key: string): string | undefined {
   const segments = key.split(".")
   for (let i = segments.length; i > 0; i--) {
@@ -394,6 +383,17 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       </div>
     ),
 
+    "core.http_paginate": ({ className, ...rest }) => (
+      <div
+        className={cn(
+          basicIconsCommon,
+          "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+          className
+        )}
+      >
+        <Globe {...rest} />
+      </div>
+    ),
     "core.http_poll": ({ className, ...rest }) => (
       <div
         className={cn(
@@ -571,24 +571,6 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         )}
       >
         <Code {...rest} />
-      </div>
-    ),
-    /* AI subnamespace */
-    "core.ai_action": ({ className, flairsize = "md", ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-          className
-        )}
-      >
-        <WandSparkles {...rest} />
-        <Sparkles
-          className={cn(
-            "absolute top-0 right-0 -translate-y-1/8 translate-x-1/8 fill-yellow-500/70 text-amber-500/70",
-            getFlairSize(flairsize)
-          )}
-        />
       </div>
     ),
     "core.workflow": ({ className, ...rest }) => (
@@ -860,6 +842,10 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     ),
     "tools.wazuh": createIconRenderer(WazuhIcon),
     // AI namespace
+    ai: createColoredLucideRenderer(
+      MousePointerClick,
+      "bg-primary/10 text-primary"
+    ),
     "ai.slackbot": createIconRenderer(SlackIcon),
   }
 
