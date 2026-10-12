@@ -1,0 +1,53 @@
+frontend/src/client/types.gen.ts
+  s_7f6729d1c18d55::t_f6f63e8ba5312a 4461-4464,4590-4593,4771
+tests/unit/test_form_scopes.py
+  s_7f6729d1c18d55::t_499d71424f1a98 1-95
+tests/unit/test_forms_gating.py
+  s_7f6729d1c18d55::t_3b258b36b18149 1-37,42-43,45,47-48,50-151
+  s_7f6729d1c18d55::t_1c7bca8332c7f5 38-41,44,46,49
+tests/unit/test_rbac_scopes.py
+  s_7f6729d1c18d55::t_eb681a9840b0fa 288-289
+tests/unit/test_tier_defaults.py
+  s_7f6729d1c18d55::t_0e488f8aec89ea 22,40,72
+  s_7f6729d1c18d55::t_cff6e31439f36f 50-56
+frontend/src/client/schemas.gen.ts
+  s_7f6729d1c18d55::t_f6f63e8ba5312a 14998-15003,15234-15238,15832
+tracecat/audit/types.py
+  s_7f6729d1c18d55::t_2d9c8e282b86fa 57-58
+tracecat/authz/scopes.py
+  s_7f6729d1c18d55::t_efc851f4eb25c6 31-38,41-43,61-62,92-93,179-185,287-293,371,413-419
+tracecat/authz/seeding.py
+  s_7f6729d1c18d55::t_44cb6e95a1f8ed 305-319,394-398
+tracecat/feature_flags/enums.py
+  s_7f6729d1c18d55::t_ef669a3f3466d5 25-26
+tracecat/forms/dependencies.py
+  s_7f6729d1c18d55::t_ba149b30c21252 1-37
+tracecat/service_accounts/constants.py
+  s_7f6729d1c18d55::t_542d7b2d9e495f 16-22
+tracecat/tiers/defaults.py
+  s_7f6729d1c18d55::t_29bb4cf4d52ae1 54-56,76,96,117
+tracecat/tiers/enums.py
+  s_7f6729d1c18d55::t_15e73a669bb6f8 21
+tracecat/tiers/schemas.py
+  s_7f6729d1c18d55::t_2d50b7691bbb98 100-104
+tracecat/tiers/service.py
+  s_7f6729d1c18d55::t_f20c2af8df7833 183
+tracecat/tiers/types.py
+  s_7f6729d1c18d55::t_b0f17badec9030 88-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "83356f23c45fa9270a6b978fc3e569a0cd80aa4c",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
