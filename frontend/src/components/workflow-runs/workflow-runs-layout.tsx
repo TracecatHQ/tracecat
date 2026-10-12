@@ -13,6 +13,7 @@ import {
   ChevronRightIcon,
   CircleHelpIcon,
   CirclePauseIcon,
+  ClipboardListIcon,
   Clock3Icon,
   FlagTriangleRightIcon,
   Minus,
@@ -236,6 +237,12 @@ const TRIGGER_FILTER_OPTIONS: Array<{
     label: "Case",
     icon: SignalIcon,
     iconClassName: "text-orange-600",
+  },
+  {
+    value: "form",
+    label: "Form",
+    icon: ClipboardListIcon,
+    iconClassName: "text-sky-600",
   },
 ]
 

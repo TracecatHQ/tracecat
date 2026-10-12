@@ -16,7 +16,7 @@ const AVAILABLE_TRIGGER_TYPES: readonly TriggerType[] = $TriggerType.enum
 export function EventsSidebarToolbar() {
   const [selectedTriggerTypes, setSelectedTriggerTypes] = useLocalStorage<
     TriggerType[]
-  >("selected-trigger-types", [...AVAILABLE_TRIGGER_TYPES])
+  >("selected-trigger-types-v2", [...AVAILABLE_TRIGGER_TYPES])
 
   const handleTriggerTypeToggle = (triggerType: TriggerType) => {
     if (selectedTriggerTypes.includes(triggerType)) {

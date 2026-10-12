@@ -82,7 +82,9 @@ export function useResolvedLastExecution(
   const { workflowId } = useWorkflow()
   const { currentExecutionId } = useWorkflowBuilder()
   const [selectedTriggerTypes] = useLocalStorage<TriggerType[]>(
-    "selected-trigger-types",
+    // v2: `form` joined the trigger types. A stored v1 selection predates it
+    // and would hide form runs, so everyone starts again from all types.
+    "selected-trigger-types-v2",
     [...AVAILABLE_TRIGGER_TYPES]
   )
 
