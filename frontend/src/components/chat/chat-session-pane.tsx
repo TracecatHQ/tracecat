@@ -258,6 +258,8 @@ export interface ChatSessionPaneProps {
   /** Called whenever the underlying chat transport status changes. */
   onStatusChange?: (status: ChatStatus) => void
   modelInfo?: ModelInfo
+  /** Shown in the message area until the conversation has content. */
+  emptyState?: ReactNode
   toolsEnabled?: boolean
   /** Whether `@` offers agent presets on this surface. */
   agentMentionsSupported?: boolean
@@ -324,6 +326,7 @@ export function ChatSessionPane({
   onData,
   onStatusChange,
   modelInfo,
+  emptyState,
   toolsEnabled = true,
   agentMentionsSupported = false,
   mcpEnabled = false,
@@ -1318,13 +1321,12 @@ export function ChatSessionPane({
     </div>
   )
 
-  const showEmptyHero =
-    isWorkspaceChat &&
-    !isReadonly &&
+  const isEmptyConversation =
     !displayedError &&
     !optimisticMessageText &&
     !isWaitingForResponse &&
     !transformedMessages.some(messageHasVisibleParts)
+  const showEmptyHero = isWorkspaceChat && !isReadonly && isEmptyConversation
 
   if (showEmptyHero) {
     return (
@@ -1356,6 +1358,11 @@ export function ChatSessionPane({
               )}
               {optimisticMessageText ? (
                 <OptimisticPendingMessage text={optimisticMessageText} />
+              ) : null}
+              {emptyState && isEmptyConversation ? (
+                <div className="flex min-h-[50vh] items-center justify-center">
+                  {emptyState}
+                </div>
               ) : null}
               {transformedMessages.map(({ id, role, parts }, index) => {
                 const visibleParts = parts?.filter(

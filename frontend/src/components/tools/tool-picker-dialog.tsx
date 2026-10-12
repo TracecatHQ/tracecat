@@ -48,6 +48,8 @@ export interface ToolPickerDialogProps {
   mcpEnabled?: boolean
   /** Called instead of selecting when a locked entry is chosen. */
   onLockedSelect?: (entry: ToolEntry) => void
+  /** Group id to open on instead of all tools. */
+  initialSource?: string
 }
 
 // Catalogue rows share one grid: a leading column exactly as wide as the
@@ -139,6 +141,7 @@ function PickerBody({
   mcpEnabled = true,
   approvalsEnabled = true,
   onLockedSelect,
+  initialSource,
   searchRef,
 }: Omit<ToolPickerDialogProps, "open"> & {
   searchRef: React.RefObject<HTMLInputElement>
@@ -149,7 +152,11 @@ function PickerBody({
   }))
   const [query, setQuery] = useState("")
   const deferredQuery = useDeferredValue(query)
-  const [source, setSource] = useState("all")
+  const [source, setSource] = useState(() =>
+    initialSource && index.groups.some((group) => group.id === initialSource)
+      ? initialSource
+      : "all"
+  )
   const [activeId, setActiveId] = useState<string | null>(null)
   const railRef = useRef<HTMLElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -324,6 +331,8 @@ function PickerBody({
   function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
     const inList = event.currentTarget === listRef.current
     if (event.nativeEvent.isComposing) return
+    // Section checkboxes handle their own Space and Enter.
+    if (inList && event.target !== event.currentTarget) return
     if (event.key === "Enter" && query !== deferredQuery) {
       event.preventDefault()
       return
@@ -492,6 +501,12 @@ function PickerBody({
     getScrollElement: () => railRef.current,
     estimateSize: () => 36,
     getItemKey: getRailItemKey,
+    // Open with the starting group in the upper half of the list.
+    initialOffset: () =>
+      Math.max(
+        0,
+        railRowsRef.current.findIndex((row) => row.id === source) - 8
+      ) * 36,
     overscan: 8,
   })
 
@@ -621,7 +636,13 @@ function PickerBody({
                         disabled={disabled}
                       />
                     ) : (
-                      <SectionHeader title={row.title} group={row.group} />
+                      <SectionHeader
+                        title={row.title}
+                        group={row.group}
+                        selected={selectedIds}
+                        onToggleGroup={toggleGroup}
+                        disabled={disabled}
+                      />
                     )}
                   </div>
                 )
@@ -760,17 +781,8 @@ export function ToolIcon({
   return getIcon(entry.key, { className, inline: true })
 }
 
-function GroupHeader({
-  group,
-  selected,
-  onToggle,
-  disabled,
-}: {
-  group: ToolGroup
-  selected: Set<string>
-  onToggle: () => void
-  disabled?: boolean
-}) {
+/** Checkbox state and summary for a group's select-all control. */
+function getGroupCheck(group: ToolGroup, selected: Set<string>) {
   const grant = group.entries.find((entry) => entry.grantsGroup)
   const granted = grant !== undefined && selected.has(grant.id)
   const selectable = group.entries.filter(
@@ -784,26 +796,67 @@ function GroupHeader({
   let summary = `${count} of ${selectable.length} selected`
   if (granted) summary = "All tools"
   else if (grant && selectable.length === 0) summary = ""
+  return {
+    checked,
+    summary,
+    toggleable: selectable.length > 0 || grant !== undefined,
+  }
+}
+
+function GroupCheckbox({
+  group,
+  checked,
+  onToggle,
+  disabled,
+  tabIndex,
+}: {
+  group: ToolGroup
+  checked: boolean | "indeterminate"
+  onToggle: () => void
+  disabled?: boolean
+  tabIndex?: number
+}) {
+  return (
+    <span className="relative flex">
+      <Checkbox
+        className={checked === "indeterminate" ? "[&_svg]:hidden" : undefined}
+        aria-label={`Select all in ${group.title}`}
+        checked={checked}
+        onCheckedChange={onToggle}
+        disabled={disabled}
+        tabIndex={tabIndex}
+      />
+      {checked === "indeterminate" && (
+        <Minus
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 m-auto size-3"
+        />
+      )}
+    </span>
+  )
+}
+
+function GroupHeader({
+  group,
+  selected,
+  onToggle,
+  disabled,
+}: {
+  group: ToolGroup
+  selected: Set<string>
+  onToggle: () => void
+  disabled?: boolean
+}) {
+  const { checked, summary, toggleable } = getGroupCheck(group, selected)
   return (
     <div className="flex h-11 shrink-0 items-center gap-3 border-b px-4 text-xs">
       <span className={LEAD}>
-        <span className="relative flex">
-          <Checkbox
-            className={
-              checked === "indeterminate" ? "[&_svg]:hidden" : undefined
-            }
-            aria-label={`Select all in ${group.title}`}
-            checked={checked}
-            onCheckedChange={onToggle}
-            disabled={disabled || (selectable.length === 0 && !grant)}
-          />
-          {checked === "indeterminate" && (
-            <Minus
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 m-auto size-3"
-            />
-          )}
-        </span>
+        <GroupCheckbox
+          group={group}
+          checked={checked}
+          onToggle={onToggle}
+          disabled={disabled || !toggleable}
+        />
       </span>
       <span className={LEAD}>
         <ToolIcon entry={group.entries[0]} small />
@@ -887,22 +940,43 @@ const ToolOption = memo(function ToolOption({
 const SectionHeader = memo(function SectionHeader({
   title,
   group,
+  selected,
+  onToggleGroup,
+  disabled,
 }: {
   title: string
   group?: ToolGroup
+  selected: Set<string>
+  onToggleGroup: (group: ToolGroup) => void
+  disabled?: boolean
 }) {
+  const check = group ? getGroupCheck(group, selected) : null
   return (
     <div
       role="presentation"
       className="flex h-11 items-center gap-3 border-b border-border/50 px-4 text-xs"
     >
+      {group && check ? (
+        <span className={LEAD}>
+          <GroupCheckbox
+            group={group}
+            checked={check.checked}
+            onToggle={() => onToggleGroup(group)}
+            disabled={disabled || !check.toggleable}
+            tabIndex={-1}
+          />
+        </span>
+      ) : null}
       <span className={LEAD}>
         {group && <ToolIcon entry={group.entries[0]} small />}
       </span>
       <span className="truncate font-medium">{title}</span>
-      <span className="truncate font-mono text-[11px] text-muted-foreground">
+      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
         {group?.namespace}
       </span>
+      {check?.summary && check.checked !== false ? (
+        <span className="shrink-0 text-muted-foreground">{check.summary}</span>
+      ) : null}
     </div>
   )
 })

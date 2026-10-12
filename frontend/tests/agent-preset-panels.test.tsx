@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useFieldArray, useForm } from "react-hook-form"
 import {
   type AgentPresetReadMinimal,
@@ -15,6 +15,7 @@ import {
   type AgentPresetFormValues,
   AgentPresetSkillsPanel,
   AgentPresetStructuredOutputPanel,
+  AgentPresetSubagentDetail,
   AgentPresetSubagentsPanel,
   agentPresetSchema,
   formValuesToPayload,
@@ -100,13 +101,16 @@ function TestForm({
   error,
   presets = [preset],
   isSaving = false,
+  openIndex: initialOpenIndex = null,
 }: {
   panel: "output" | "skills" | "subagents"
   defaults?: Partial<AgentPresetFormValues>
   error?: "alias" | "output" | "json"
   presets?: AgentPresetReadMinimal[]
   isSaving?: boolean
+  openIndex?: number | null
 }) {
+  const [openIndex, setOpenIndex] = useState(initialOpenIndex)
   const form = useForm<AgentPresetFormValues>({
     resolver: zodResolver(agentPresetSchema),
     defaultValues: {
@@ -149,12 +153,29 @@ function TestForm({
             parentPreset={null}
             agentPresets={presets}
             subagentFields={subagents.fields}
-            onAddSubagent={(binding) =>
+            onAddSubagent={(binding) => {
+              setOpenIndex(subagents.fields.length)
               subagents.append(binding, { shouldFocus: false })
-            }
-            onRemoveSubagent={subagents.remove}
+            }}
+            onOpenSubagent={setOpenIndex}
           />
         )}
+        {panel === "subagents" &&
+        openIndex !== null &&
+        subagents.fields[openIndex] ? (
+          <AgentPresetSubagentDetail
+            key={subagents.fields[openIndex].id}
+            form={form}
+            index={openIndex}
+            isSaving={isSaving}
+            parentPreset={null}
+            agentPresets={presets}
+            onRemove={(index) => {
+              subagents.remove(index)
+              setOpenIndex(null)
+            }}
+          />
+        ) : null}
         {panel === "skills" && (
           <AgentPresetSkillsPanel
             form={form}
@@ -249,12 +270,12 @@ it("shows output validation and disables edits during save", () => {
   expect(screen.getByRole("switch", { name: "List of values" })).toBeDisabled()
 })
 
-it("shows a saved skill version and removes the binding", async () => {
+it("shows a saved skill without a version badge and removes the binding", async () => {
   const user = userEvent.setup()
   render(
     <TestForm panel="skills" defaults={{ skills: [{ skillId: skill.id }] }} />
   )
-  expect(screen.getByText("v3")).toBeInTheDocument()
+  expect(screen.queryByText("v3")).not.toBeInTheDocument()
   expect(screen.queryByText(skill.description ?? "")).not.toBeInTheDocument()
   await user.hover(screen.getByRole("button", { name: skill.name }))
   expect(
@@ -262,7 +283,6 @@ it("shows a saved skill version and removes the binding", async () => {
   ).toBeInTheDocument()
   await user.click(screen.getByRole("button", { name: `Remove ${skill.name}` }))
   expect(values().skills).toEqual([])
-  expect(screen.queryByText("v3")).not.toBeInTheDocument()
 })
 
 it("adds an unsaved skill without a version badge", async () => {
@@ -299,7 +319,7 @@ it("explains the disabled skill picker in a tooltip", async () => {
   )
 })
 
-it("adds a subagent from the dialog with immutable IDs and expands it", async () => {
+it("adds a subagent from the dialog with immutable IDs and opens it", async () => {
   const user = userEvent.setup()
   render(<TestForm panel="subagents" />)
   await user.click(screen.getByRole("button", { name: "Add subagent" }))
@@ -310,18 +330,19 @@ it("adds a subagent from the dialog with immutable IDs and expands it", async ()
     preset.slug
   )
   expect(
-    screen.getByRole("button", { name: /Example agent example-agent/ })
-  ).toHaveAttribute("aria-expanded", "true")
-  expect(screen.getByText("example-model")).toBeInTheDocument()
+    screen.getByRole("button", { name: "Example agent example-agent" })
+  ).toBeInTheDocument()
+  expect(screen.getAllByText("example-model").length).toBeGreaterThan(0)
   expect(screen.getByText("Internet access limited")).toBeInTheDocument()
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
-  await user.click(
-    screen.getByRole("button", { name: `Remove ${preset.name}` })
-  )
+  await user.click(screen.getByRole("button", { name: "Remove subagent" }))
   expect(values().subagents).toEqual([])
+  expect(
+    screen.queryByRole("textbox", { name: "Alias" })
+  ).not.toBeInTheDocument()
 })
 
-it("keeps a row with validation errors expanded", async () => {
+it("flags a row with validation errors and shows them in its detail", async () => {
   const user = userEvent.setup()
   render(
     <TestForm
@@ -330,21 +351,15 @@ it("keeps a row with validation errors expanded", async () => {
       error="alias"
     />
   )
-  expect(screen.getByText("Alias must be unique")).toBeInTheDocument()
-  const toggle = screen.getByRole("button", {
-    name: /Example agent example-agent/,
+  const row = screen.getByRole("button", {
+    name: "Example agent example-agent",
   })
-  expect(toggle).toHaveAttribute("aria-expanded", "true")
-  expect(toggle).toBeDisabled()
-  expect(toggle).toHaveAttribute("aria-disabled", "true")
-  expect(
-    document.getElementById(toggle.getAttribute("aria-controls") ?? "")
-  ).toBeInTheDocument()
-  await user.click(toggle)
-  expect(screen.getByRole("textbox", { name: "Alias" })).toBeInTheDocument()
+  expect(within(row).getByLabelText("Needs attention")).toBeInTheDocument()
+  await user.click(row)
+  expect(screen.getByText("Alias must be unique")).toBeInTheDocument()
 })
 
-it("keeps ineligible presets inspectable and expanded with their alert", async () => {
+it("keeps ineligible presets inspectable and opens them with their alert", async () => {
   const user = userEvent.setup()
   render(
     <TestForm
@@ -401,15 +416,13 @@ it("shows saved subagents even if the preset catalog is empty", async () => {
     />
   )
   expect(screen.getByRole("button", { name: "Add subagent" })).toBeDisabled()
-  const toggle = screen.getByRole("button", {
-    name: /^example-agent unavailable/,
-  })
-  expect(toggle).toHaveAttribute("aria-expanded", "false")
-  await user.click(toggle)
+  await user.click(
+    screen.getByRole("button", { name: /^example-agent unavailable/ })
+  )
   expect(screen.getByRole("textbox", { name: "Alias" })).toBeInTheDocument()
 })
 
-it("keeps the remaining row's values and expanded state when the first row is removed", async () => {
+it("keeps the remaining subagent's values when another is removed", async () => {
   const user = userEvent.setup()
   const second = {
     ...subagent,
@@ -423,90 +436,68 @@ it("keeps the remaining row's values and expanded state when the first row is re
       defaults={{ subagents: [{ ...subagent, name: "first" }, second] }}
     />
   )
-  const toggle = screen.getByRole("button", { name: /Example agent second/ })
-  expect(toggle).not.toHaveAttribute("aria-controls")
-  await user.click(toggle)
+  expect(
+    screen.queryByRole("textbox", { name: "Alias" })
+  ).not.toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: /Example agent first/ }))
+  await user.click(screen.getByRole("button", { name: "Remove subagent" }))
+  expect(values().subagents).toEqual([second])
+  await user.click(screen.getByRole("button", { name: /Example agent second/ }))
   await user.type(screen.getByRole("textbox", { name: "Alias" }), "-edited")
-  await user.click(
-    screen.getAllByRole("button", { name: `Remove ${preset.name}` })[0]
-  )
   expect(values().subagents).toEqual([{ ...second, name: "second-edited" }])
-  expect(screen.getByRole("textbox", { name: "Alias" })).toHaveValue(
-    "second-edited"
-  )
   expect(screen.getByRole("textbox", { name: "Delegate when" })).toHaveValue(
     second.description
   )
   expect(screen.getByRole("spinbutton", { name: "Max turns" })).toHaveValue(5)
-  expect(
-    screen.getByRole("button", { name: /Example agent second-edited/ })
-  ).toHaveAttribute("aria-expanded", "true")
-})
-
-it("starts saved rows collapsed and collapses them again after reset", async () => {
-  const user = userEvent.setup()
-  render(
-    <TestForm
-      panel="subagents"
-      defaults={{ subagents: [subagent, { ...subagent, name: "second" }] }}
-    />
-  )
-  expect(
-    screen.queryByRole("textbox", { name: "Alias" })
-  ).not.toBeInTheDocument()
-  await user.click(screen.getByRole("button", { name: /Example agent second/ }))
-  await user.click(screen.getByRole("button", { name: "Reset saved values" }))
-  expect(
-    screen.queryByRole("textbox", { name: "Alias" })
-  ).not.toBeInTheDocument()
-  expect(
-    screen.getByRole("button", { name: /Example agent second/ })
-  ).toHaveAttribute("aria-expanded", "false")
-})
-
-it("collapses a newly appended row after saving with reset", async () => {
-  const user = userEvent.setup()
-  render(<TestForm panel="subagents" />)
-  await user.click(screen.getByRole("button", { name: "Add subagent" }))
-  await user.click(screen.getByRole("option", { name: /Example agent/ }))
-  expect(screen.getByRole("textbox", { name: "Alias" })).toBeInTheDocument()
-  await user.click(screen.getByRole("button", { name: "Reset saved values" }))
-  expect(
-    screen.queryByRole("textbox", { name: "Alias" })
-  ).not.toBeInTheDocument()
 })
 
 it.each([
-  { rows: [subagent, subagent], message: "Subagent aliases must be unique" },
+  {
+    rows: [subagent, subagent],
+    open: 1,
+    message: "Subagent aliases must be unique",
+  },
   {
     rows: [{ ...subagent, preset: "root", presetId: "" }],
+    open: 0,
     message: "This alias is reserved",
   },
-  { rows: [{ ...subagent, name: "root" }], message: "This alias is reserved" },
-])("renders schema error $message under Alias", async ({ rows, message }) => {
-  const user = userEvent.setup()
-  render(<TestForm panel="subagents" defaults={{ subagents: rows }} />)
-  await user.click(screen.getByRole("button", { name: "Validate" }))
-  const alias = await screen.findByRole("textbox", { name: "Alias" })
-  expect(
-    within(alias.parentElement as HTMLElement).getByText(message)
-  ).toBeInTheDocument()
-  expect(screen.getByText(message).tagName).toBe("P")
-})
+  {
+    rows: [{ ...subagent, name: "root" }],
+    open: 0,
+    message: "This alias is reserved",
+  },
+])(
+  "renders schema error $message under Alias",
+  async ({ rows, open, message }) => {
+    const user = userEvent.setup()
+    render(
+      <TestForm
+        panel="subagents"
+        defaults={{ subagents: rows }}
+        openIndex={open}
+      />
+    )
+    await user.click(screen.getByRole("button", { name: "Validate" }))
+    const alias = await screen.findByRole("textbox", { name: "Alias" })
+    expect(
+      within(alias.parentElement as HTMLElement).getByText(message)
+    ).toBeInTheDocument()
+    expect(screen.getByText(message).tagName).toBe("P")
+  }
+)
 
-it("renders a missing preset error beside the row title", async () => {
+it("renders a missing preset error in the subagent detail", async () => {
   const user = userEvent.setup()
   render(
     <TestForm
       panel="subagents"
       defaults={{ subagents: [{ ...subagent, preset: "", presetId: "" }] }}
+      openIndex={0}
     />
   )
   await user.click(screen.getByRole("button", { name: "Validate" }))
-  const toggle = screen.getByRole("button", { name: /^unavailable$/ })
-  expect(
-    within(toggle.parentElement as HTMLElement).getByText("Select a preset")
-  ).toBeInTheDocument()
+  expect(await screen.findByText("Select a preset")).toBeInTheDocument()
 })
 
 it("leaves the form clean after switching Structured then Text", async () => {
@@ -616,8 +607,7 @@ it.each([
       .mockReturnValue({ skills, skillsLoading: false, skillsError: null })
     render(<TestForm panel="skills" defaults={{ skills: bindings }} />)
     expect(screen.getByRole("button", { name: "Add skill" })).toBeDisabled()
-    if (!bindings.length)
-      expect(screen.getByText("No skills attached yet.")).toBeInTheDocument()
+    if (!bindings.length) expect(screen.getByText("None")).toBeInTheDocument()
     await user.tab()
     expect(
       await screen.findByRole("tooltip", {}, { timeout: 2000 })
@@ -703,10 +693,8 @@ function ConfigurationTestForm({
           registryLoading={false}
           mcpLoading={false}
           toolsLoadError={false}
-          enabledModelOptions={[]}
-          enabledModelsLoaded={false}
           mcpIntegrations={[]}
-          hasStdioMcp={false}
+          onOpenGroup={() => {}}
         />
         <button
           type="button"
@@ -757,6 +745,18 @@ it("uses saved skill policy when ids and namespace filters are unchanged, ignori
   expect(
     within(group).queryByText("tools.test.authored")
   ).not.toBeInTheDocument()
+})
+
+it("toggles approval for a tool that only a skill provides", async () => {
+  const user = userEvent.setup()
+  renderConfiguration({ savedSkillIds: ["first-skill"] })
+  const toggle = screen.getByRole("button", {
+    name: "Require approval for tools.test.saved",
+  })
+  expect(toggle).toHaveAttribute("aria-pressed", "false")
+  await user.click(toggle)
+  expect(toggle).toHaveAttribute("aria-pressed", "true")
+  expect(toggle).toHaveTextContent("Needs approval")
 })
 
 it("previews changed skills and removes the group without a request when all skills are removed", async () => {
@@ -930,34 +930,21 @@ it("previews skills on a new preset and uses the preview tool limit", async () =
   ).toBeInTheDocument()
 })
 
-it("uses one accessible subagent toggle and keeps the name and removal independent", async () => {
+it("opens a subagent from its row and links to the attached preset", async () => {
   const user = userEvent.setup()
-  const open = jest.spyOn(window, "open").mockImplementation(() => null)
   render(<TestForm panel="subagents" defaults={{ subagents: [subagent] }} />)
-  const toggle = screen.getByRole("button", {
-    name: "Example agent example-agent",
-  })
-  const header = toggle.parentElement as HTMLElement
-  expect(within(header).getAllByRole("button", { hidden: true })).toHaveLength(
-    3
+  await user.click(
+    screen.getByRole("button", { name: "Example agent example-agent" })
   )
-  expect(header.querySelector("button[aria-hidden=true]")).toBeNull()
-  expect(header.querySelector("button div")).toBeNull()
-  await user.click(screen.getByRole("button", { name: "Example agent" }))
-  expect(open).toHaveBeenCalledWith(
-    "/workspaces/workspace-example/agents/preset-example",
-    "_blank",
-    "noopener,noreferrer"
+  expect(screen.getByRole("link", { name: "Example agent" })).toHaveAttribute(
+    "href",
+    "/workspaces/workspace-example/agents/preset-example"
   )
-  expect(toggle).toHaveAttribute("aria-expanded", "false")
-  await user.click(toggle)
-  expect(toggle).toHaveAttribute("aria-expanded", "true")
   await user.type(
     screen.getByRole("textbox", { name: "Delegate when" }),
     "Example task"
   )
-  expect(toggle).toHaveAttribute("aria-expanded", "true")
-  await user.click(screen.getByRole("button", { name: "Remove Example agent" }))
+  expect(values().subagents[0].description).toBe("Example task")
+  await user.click(screen.getByRole("button", { name: "Remove subagent" }))
   expect(values().subagents).toEqual([])
-  open.mockRestore()
 })
