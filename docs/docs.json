@@ -369,7 +369,8 @@
               "manage-platform/ip-allowlist",
               "manage-platform/custom-roles",
               "manage-platform/service-accounts",
-              "manage-platform/git-sync"
+              "manage-platform/git-sync",
+              "manage-platform/tunnels"
             ]
           },
           {
