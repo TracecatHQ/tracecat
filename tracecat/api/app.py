@@ -32,6 +32,7 @@ from tracecat_ee.secrets.references.router import (
     stores_router as workspace_secret_stores_router,
 )
 from tracecat_ee.secrets.stores.router import router as org_secret_stores_router
+from tracecat_ee.tunnels.router import router as tunnels_router
 from tracecat_ee.watchtower.router import router as watchtower_router
 
 from tracecat import __version__ as APP_VERSION
@@ -605,6 +606,7 @@ def create_app(**kwargs) -> FastAPI:
     _include_workspace_scoped_router(app, workspace_secret_stores_router)
     _include_workspace_scoped_router(app, secrets_router)
     _include_workspace_scoped_router(app, variables_router)
+    _include_workspace_scoped_router(app, tunnels_router)
     _include_workspace_scoped_router(app, schedules_router)
     _include_workspace_scoped_router(app, tags_router)
     app.include_router(users_router)
