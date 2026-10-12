@@ -892,6 +892,17 @@ class WorkspaceTunnel(WorkspaceModel):
     endpoint: Mapped[str] = mapped_column(String(2048), nullable=False)
     client_id: Mapped[str] = mapped_column(String(255), nullable=False)
     encrypted_client_secret: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    encrypted_gateway_key: Mapped[bytes | None] = mapped_column(
+        LargeBinary, nullable=True
+    )
+    managed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    pangolin_site_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pangolin_client_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pangolin_resource_ids: Mapped[dict[str, int] | None] = mapped_column(
+        JSONB, nullable=True
+    )
     allowed_targets: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, nullable=False, default=list
     )

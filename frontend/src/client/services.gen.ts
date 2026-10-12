@@ -935,12 +935,18 @@ import type {
   TriggersUpdateCaseTriggerResponse,
   TriggersUpdateWebhookData,
   TriggersUpdateWebhookResponse,
+  TunnelsCreateManagedTunnelData,
+  TunnelsCreateManagedTunnelResponse,
   TunnelsCreateTunnelData,
   TunnelsCreateTunnelResponse,
   TunnelsDeleteTunnelData,
   TunnelsDeleteTunnelResponse,
   TunnelsGetTunnelData,
   TunnelsGetTunnelResponse,
+  TunnelsGetTunnelStatusData,
+  TunnelsGetTunnelStatusResponse,
+  TunnelsIssueTunnelGatewayKeyData,
+  TunnelsIssueTunnelGatewayKeyResponse,
   TunnelsListTunnelsData,
   TunnelsListTunnelsResponse,
   TunnelsUpdateTunnelData,
@@ -4071,6 +4077,59 @@ export const tunnelsCreateTunnel = (
 }
 
 /**
+ * Create Managed Tunnel
+ * Create a tunnel whose Pangolin site, machine client, and resources Tracecat provisions.
+ *
+ * The site credentials and install command are returned only in this response.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns ManagedTunnelCreated Successful Response
+ * @throws ApiError
+ */
+export const tunnelsCreateManagedTunnel = (
+  data: TunnelsCreateManagedTunnelData
+): CancelablePromise<TunnelsCreateManagedTunnelResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/tunnels/managed",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Tunnel Status
+ * Get whether a managed tunnel's on-prem site is connected.
+ * @param data The data for the request.
+ * @param data.tunnelId
+ * @param data.workspaceId
+ * @returns TunnelStatusRead Successful Response
+ * @throws ApiError
+ */
+export const tunnelsGetTunnelStatus = (
+  data: TunnelsGetTunnelStatusData
+): CancelablePromise<TunnelsGetTunnelStatusResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/tunnels/{tunnel_id}/status",
+    path: {
+      tunnel_id: data.tunnelId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Get Tunnel
  * Get a tunnel in the workspace.
  * @param data The data for the request.
@@ -4138,6 +4197,33 @@ export const tunnelsDeleteTunnel = (
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/workspaces/{workspace_id}/tunnels/{tunnel_id}",
+    path: {
+      tunnel_id: data.tunnelId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Issue Tunnel Gateway Key
+ * Issue a gateway key for the tunnel, revoking the previous key.
+ *
+ * The key is returned only in this response.
+ * @param data The data for the request.
+ * @param data.tunnelId
+ * @param data.workspaceId
+ * @returns TunnelGatewayKeyRead Successful Response
+ * @throws ApiError
+ */
+export const tunnelsIssueTunnelGatewayKey = (
+  data: TunnelsIssueTunnelGatewayKeyData
+): CancelablePromise<TunnelsIssueTunnelGatewayKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/tunnels/{tunnel_id}/gateway-key",
     path: {
       tunnel_id: data.tunnelId,
       workspace_id: data.workspaceId,

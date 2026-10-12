@@ -5,18 +5,34 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.exc import IntegrityError
 
 from tracecat import config
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
-from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import Page, PageParams, PaginationError
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
-from tracecat_ee.tunnels.schemas import TunnelCreate, TunnelRead, TunnelUpdate
-from tracecat_ee.tunnels.service import TunnelsService
+from tracecat_ee.tunnels.pangolin import PangolinError
+from tracecat_ee.tunnels.schemas import (
+    ManagedTunnelCreate,
+    ManagedTunnelCreated,
+    TunnelCreate,
+    TunnelGatewayKeyRead,
+    TunnelGatewayPolicyRead,
+    TunnelRead,
+    TunnelStatusRead,
+    TunnelUpdate,
+)
+from tracecat_ee.tunnels.service import (
+    TunnelDisabledError,
+    TunnelsService,
+    get_gateway_policy,
+)
+from tracecat_ee.tunnels.tokens import TunnelTokenError
 
 
 async def _require_entitlement(
@@ -77,6 +93,56 @@ async def create_tunnel(
             status_code=status.HTTP_409_CONFLICT, detail=_TUNNEL_EXISTS
         ) from exc
     return TunnelRead.from_database(tunnel)
+
+
+@router.post("/managed", status_code=status.HTTP_201_CREATED)
+@require_scope("tunnel:create")
+async def create_managed_tunnel(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    params: ManagedTunnelCreate,
+) -> ManagedTunnelCreated:
+    """Create a tunnel whose Pangolin site, machine client, and resources Tracecat provisions.
+
+    The site credentials and install command are returned only in this response.
+    """
+    service = TunnelsService(session, role=role)
+    try:
+        return await service.create_managed_tunnel(params)
+    except IntegrityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_TUNNEL_EXISTS
+        ) from exc
+    except PangolinError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to provision the tunnel in Pangolin",
+        ) from exc
+
+
+@router.get("/{tunnel_id}/status")
+@require_scope("tunnel:read")
+async def get_tunnel_status(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    tunnel_id: uuid.UUID,
+) -> TunnelStatusRead:
+    """Get whether a managed tunnel's on-prem site is connected."""
+    service = TunnelsService(session, role=role)
+    try:
+        tunnel = await service.get_tunnel(tunnel_id)
+        return await service.get_tunnel_status(tunnel)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except PangolinError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to read the tunnel status from Pangolin",
+        ) from exc
 
 
 @router.get("/{tunnel_id}")
@@ -140,3 +206,58 @@ async def delete_tunnel(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
+    except PangolinError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to delete the tunnel's Pangolin objects; retry the delete",
+        ) from exc
+
+
+@router.post("/{tunnel_id}/gateway-key", status_code=status.HTTP_201_CREATED)
+@require_scope("tunnel:update")
+async def issue_tunnel_gateway_key(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    tunnel_id: uuid.UUID,
+) -> TunnelGatewayKeyRead:
+    """Issue a gateway key for the tunnel, revoking the previous key.
+
+    The key is returned only in this response.
+    """
+    service = TunnelsService(session, role=role)
+    try:
+        tunnel = await service.get_tunnel(tunnel_id)
+        gateway_key = await service.issue_gateway_key(tunnel)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    return TunnelGatewayKeyRead(tunnel_id=tunnel.id, gateway_key=gateway_key)
+
+
+gateway_router = APIRouter(
+    prefix="/tunnel-gateway", tags=["tunnels"], include_in_schema=False
+)
+_gateway_bearer = HTTPBearer(auto_error=False)
+
+
+@gateway_router.post("/policy")
+async def get_tunnel_gateway_policy(
+    *,
+    session: AsyncDBSessionBypass,
+    credentials: HTTPAuthorizationCredentials | None = Depends(_gateway_bearer),
+) -> TunnelGatewayPolicyRead:
+    """Return the tunnel policy for the gateway that holds the tunnel's gateway key.
+
+    Gateways poll this so disabling a tunnel, rotating its key, or deleting it
+    revokes a running gateway.
+    """
+    if credentials is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+    try:
+        return await get_gateway_policy(session, credentials.credentials)
+    except TunnelTokenError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED) from exc
+    except TunnelDisabledError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN) from exc

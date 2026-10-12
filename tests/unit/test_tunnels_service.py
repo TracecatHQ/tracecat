@@ -15,6 +15,7 @@ from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
     TracecatNotFoundError,
+    TracecatValidationError,
 )
 from tracecat.pagination import PageParams
 from tracecat.secrets.encryption import decrypt_value
@@ -194,3 +195,43 @@ async def test_viewer_cannot_manage_tunnels(
         await viewer.update_tunnel(tunnel, TunnelUpdate(enabled=False))
     with pytest.raises(ScopeDeniedError):
         await viewer.delete_tunnel(tunnel)
+
+
+async def test_gateway_key_issue_and_rotate(service: TunnelsService) -> None:
+    tunnel = await service.create_tunnel(_params())
+    assert tunnel.encrypted_gateway_key is None
+    with pytest.raises(TracecatValidationError):
+        await service.get_gateway_key(tunnel)
+
+    first = await service.issue_gateway_key(tunnel)
+    assert tunnel.encrypted_gateway_key is not None
+    assert first.encode() not in tunnel.encrypted_gateway_key
+    assert await service.get_gateway_key(tunnel) == first
+
+    second = await service.issue_gateway_key(tunnel)
+    assert second != first
+    assert await service.get_gateway_key(tunnel) == second
+
+
+async def test_gateway_key_cross_workspace_is_not_found(
+    service: TunnelsService, other_service: TunnelsService
+) -> None:
+    victim = await service.create_tunnel(_params())
+    key = await service.issue_gateway_key(victim)
+
+    with pytest.raises(TracecatNotFoundError):
+        await other_service.issue_gateway_key(victim)
+    with pytest.raises(TracecatNotFoundError):
+        await other_service.get_gateway_key(victim)
+    assert await service.get_gateway_key(victim) == key
+
+
+async def test_viewer_cannot_issue_gateway_key(
+    session: AsyncSession, service: TunnelsService, svc_role: Role
+) -> None:
+    tunnel = await service.create_tunnel(_params())
+    viewer = TunnelsService(
+        session=session, role=svc_role.model_copy(update={"scopes": VIEWER_SCOPES})
+    )
+    with pytest.raises(ScopeDeniedError):
+        await viewer.issue_gateway_key(tunnel)

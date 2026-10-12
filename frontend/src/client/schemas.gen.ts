@@ -20438,6 +20438,80 @@ export const $MCPVerificationStatusRead = {
   description: "Response model for saved MCP verification status.",
 } as const
 
+export const $ManagedTunnelCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 63,
+      minLength: 1,
+      pattern: "^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    allowed_targets: {
+      items: {
+        $ref: "#/components/schemas/TunnelTarget",
+      },
+      type: "array",
+      maxItems: 100,
+      minItems: 1,
+      title: "Allowed Targets",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["name", "allowed_targets"],
+  title: "ManagedTunnelCreate",
+  description:
+    "Create a tunnel whose Pangolin site, machine client, and resources Tracecat manages.",
+} as const
+
+export const $ManagedTunnelCreated = {
+  properties: {
+    tunnel: {
+      $ref: "#/components/schemas/TunnelRead",
+    },
+    site_id: {
+      type: "string",
+      title: "Site Id",
+    },
+    site_secret: {
+      type: "string",
+      title: "Site Secret",
+    },
+    site_endpoint: {
+      type: "string",
+      title: "Site Endpoint",
+    },
+    site_install_command: {
+      type: "string",
+      title: "Site Install Command",
+    },
+  },
+  type: "object",
+  required: [
+    "tunnel",
+    "site_id",
+    "site_secret",
+    "site_endpoint",
+    "site_install_command",
+  ],
+  title: "ManagedTunnelCreated",
+  description:
+    "A new managed tunnel. The site credentials are only returned once.",
+} as const
+
 export const $McpIntegrationMappingAffectedPreset = {
   properties: {
     preset_slug: {
@@ -33672,6 +33746,27 @@ export const $TunnelCreate = {
   title: "TunnelCreate",
 } as const
 
+export const $TunnelGatewayKeyRead = {
+  properties: {
+    tunnel_id: {
+      type: "string",
+      format: "uuid",
+      title: "Tunnel Id",
+    },
+    gateway_key: {
+      type: "string",
+      title: "Gateway Key",
+      description:
+        "Configure this on the tunnel gateway. Issuing a new key revokes the old one.",
+    },
+  },
+  type: "object",
+  required: ["tunnel_id", "gateway_key"],
+  title: "TunnelGatewayKeyRead",
+  description:
+    "A newly issued gateway key. It is only returned once, at issue time.",
+} as const
+
 export const $TunnelProvider = {
   type: "string",
   enum: ["pangolin"],
@@ -33727,6 +33822,14 @@ export const $TunnelRead = {
       type: "boolean",
       title: "Enabled",
     },
+    has_gateway_key: {
+      type: "boolean",
+      title: "Has Gateway Key",
+    },
+    managed: {
+      type: "boolean",
+      title: "Managed",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -33749,12 +33852,42 @@ export const $TunnelRead = {
     "client_id",
     "allowed_targets",
     "enabled",
+    "has_gateway_key",
+    "managed",
     "created_at",
     "updated_at",
   ],
   title: "TunnelRead",
   description:
     "Tunnel metadata. The client secret is write-only and never returned.",
+} as const
+
+export const $TunnelStatusRead = {
+  properties: {
+    tunnel_id: {
+      type: "string",
+      format: "uuid",
+      title: "Tunnel Id",
+    },
+    managed: {
+      type: "boolean",
+      title: "Managed",
+    },
+    site_online: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Site Online",
+    },
+  },
+  type: "object",
+  required: ["tunnel_id", "managed", "site_online"],
+  title: "TunnelStatusRead",
 } as const
 
 export const $TunnelTarget = {

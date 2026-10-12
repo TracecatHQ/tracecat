@@ -174,6 +174,8 @@ class TunnelRead(BaseModel):
     client_id: str
     allowed_targets: list[TunnelTarget]
     enabled: bool
+    has_gateway_key: bool
+    managed: bool
     created_at: datetime
     updated_at: datetime
 
@@ -191,9 +193,61 @@ class TunnelRead(BaseModel):
                 TunnelTarget.model_validate(target) for target in obj.allowed_targets
             ],
             enabled=obj.enabled,
+            has_gateway_key=obj.encrypted_gateway_key is not None,
+            managed=obj.managed,
             created_at=obj.created_at,
             updated_at=obj.updated_at,
         )
+
+
+class TunnelGatewayKeyRead(BaseModel):
+    """A newly issued gateway key. It is only returned once, at issue time."""
+
+    tunnel_id: uuid.UUID
+    gateway_key: str = Field(
+        ...,
+        description="Configure this on the tunnel gateway. Issuing a new key revokes the old one.",
+    )
+
+
+class TunnelGatewayPolicyRead(BaseModel):
+    """What a running gateway may currently do. Fetched with its gateway key."""
+
+    tunnel_id: uuid.UUID
+    workspace_id: WorkspaceID
+    allowed_targets: list[TunnelTarget]
+    managed: bool
+
+
+class ManagedTunnelCreate(BaseModel):
+    """Create a tunnel whose Pangolin site, machine client, and resources Tracecat manages."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: TunnelName
+    description: str | None = Field(default=None, max_length=1000)
+    allowed_targets: list[TunnelTarget] = Field(..., min_length=1, max_length=100)
+
+    @field_validator("allowed_targets")
+    @classmethod
+    def validate_allowed_targets(cls, value: list[TunnelTarget]) -> list[TunnelTarget]:
+        return _validate_targets(value)
+
+
+class ManagedTunnelCreated(BaseModel):
+    """A new managed tunnel. The site credentials are only returned once."""
+
+    tunnel: TunnelRead
+    site_id: str
+    site_secret: str
+    site_endpoint: str
+    site_install_command: str
+
+
+class TunnelStatusRead(BaseModel):
+    tunnel_id: uuid.UUID
+    managed: bool
+    site_online: bool | None
 
 
 def serialize_targets(targets: list[TunnelTarget]) -> list[dict[str, Any]]:
