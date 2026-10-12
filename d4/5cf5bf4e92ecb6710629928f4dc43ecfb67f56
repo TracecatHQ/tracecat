@@ -1,0 +1,43 @@
+frontend/src/components/settings/workspace-model-settings.tsx
+  s_7f6729d1c18d55::t_42ae20c79b8a4f 113-115,123,132-134,142,151-153,161,207-208,217-218,227-228
+tracecat/agent/access/service.py
+  s_7f6729d1c18d55::t_57ec5970460733 121-127,131-136
+frontend/src/client/services.gen.ts
+  s_7f6729d1c18d55::t_3226ccfb538da8 5228,5396-5400,5404
+  s_7f6729d1c18d55::t_cbc855fabac99f 5243,5417
+tracecat/agent/access/router.py
+  s_7f6729d1c18d55::t_57ec5970460733 13,57,62-68,73
+frontend/src/client/types.gen.ts
+  s_7f6729d1c18d55::t_cbc855fabac99f 13251
+tracecat/agent/catalog/router.py
+  s_7f6729d1c18d55::t_57ec5970460733 16,35
+tracecat/auth/dependencies.py
+  s_7f6729d1c18d55::t_57ec5970460733 173-183
+frontend/src/lib/hooks.tsx
+  s_7f6729d1c18d55::t_42ae20c79b8a4f 13,144,146,5836-5838,5840,5867-5904,5949-6002,6235
+tests/unit/api/test_api_actor_roles.py
+  s_7f6729d1c18d55::t_4f9a4daf7c210c 15,20,564,571-576,579-580,582
+tests/unit/test_agent_org_read_routes.py
+  s_7f6729d1c18d55::t_4f9a4daf7c210c 57,219-221,433-439
+  s_7f6729d1c18d55::t_9e56c39cca6898 461-464
+  s_7f6729d1c18d55::t_c7754289b9e827 11,19,21-23,25,28-31,34-35,38-48,74-92,97-98,130,135-143,146,154,156-171,184-188,193,201,206-217,222-225,257-324,326,332,337-432,440-460,465-466
+  s_7f6729d1c18d55::t_edf4297eccc8a7 218
+tests/unit/api/conftest.py
+  s_7f6729d1c18d55::t_4f9a4daf7c210c 17,98
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d45cf5bf4e92ecb6710629928f4dc43ecfb67f56",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
