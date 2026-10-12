@@ -54,7 +54,8 @@
                   "automations/triggers/error-workflows",
                   "automations/triggers/case-triggers",
                   "automations/triggers/task-triggers",
-                  "automations/triggers/comment-triggers"
+                  "automations/triggers/comment-triggers",
+                  "automations/triggers/forms"
                 ]
               },
               {
