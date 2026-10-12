@@ -1114,6 +1114,48 @@ class TestS3Operations:
         )
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("filename", "expected"),
+        [
+            (
+                "Q3 quote.pdf",
+                "attachment; filename=\"Q3 quote.pdf\"; filename*=UTF-8''Q3%20quote.pdf",
+            ),
+            (
+                'a"; filename="evil.exe\r\nX: y.pdf',
+                'attachment; filename="a___filename__evil.exe__X_ y.pdf"; '
+                "filename*=UTF-8''a%22%3B%20filename%3D%22evil.exe%0D%0AX%3A%20y.pdf",
+            ),
+            (
+                "résumé.pdf",
+                "attachment; filename=\"r_sum_.pdf\"; filename*=UTF-8''r%C3%A9sum%C3%A9.pdf",
+            ),
+        ],
+    )
+    @patch("tracecat.storage.blob.get_storage_client")
+    async def test_presigned_download_sanitizes_a_download_filename(
+        self, mock_get_client, filename, expected
+    ):
+        """The filename goes into the header only, never into the key."""
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+        mock_client.generate_presigned_url.return_value = "https://example.com/url"
+
+        await generate_presigned_download_url(
+            "forms/a/b/c", "test-bucket", 60, download_filename=filename
+        )
+
+        mock_client.generate_presigned_url.assert_called_once_with(
+            "get_object",
+            Params={
+                "Bucket": "test-bucket",
+                "Key": "forms/a/b/c",
+                "ResponseContentDisposition": expected,
+            },
+            ExpiresIn=60,
+        )
+
+    @pytest.mark.anyio
     @patch("tracecat.storage.blob.logger")
     @patch("tracecat.storage.blob.get_storage_client")
     async def test_presigned_download_can_redact_provider_failure(

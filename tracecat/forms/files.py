@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, delete, false, func, select
+from sqlalchemy import ColumnElement, delete, false, func, or_, select
 
 from tracecat import config
 from tracecat.authz.controls import has_scope
@@ -35,6 +35,7 @@ from tracecat.forms.schemas import (
     FormFileRead,
 )
 from tracecat.forms.service import FormsService
+from tracecat.forms.storage import delete_file_blobs, file_blob_key
 from tracecat.service import BaseWorkspaceService
 from tracecat.storage import blob
 from tracecat.storage.exceptions import (
@@ -48,13 +49,6 @@ from tracecat.storage.validation import (
     FileValidationResult,
     mime_equivalence_key,
 )
-
-
-def file_blob_key(
-    workspace_id: uuid.UUID, form_id: uuid.UUID, file_id: uuid.UUID
-) -> str:
-    """Storage key of a form file. Built from IDs only, never from a filename."""
-    return f"forms/{workspace_id}/{form_id}/{file_id}"
 
 
 def matches_accept(
@@ -311,7 +305,7 @@ class FormFilesService(BaseWorkspaceService):
         if not file_ids:
             return
         await self.session.commit()
-        await self.delete_blobs(
+        await delete_file_blobs(
             [file_blob_key(self.workspace_id, form_id, file_id) for file_id in file_ids]
         )
 
@@ -404,16 +398,19 @@ class FormFilesService(BaseWorkspaceService):
     ) -> FormFile | None:
         """Get a file the caller may download.
 
-        A caller downloads the files they uploaded. Anyone else's needs
-        ``form:submission:read``.
+        A caller downloads the files they uploaded, pending or claimed. With
+        ``form:submission:read`` a caller also downloads any file a submission
+        has claimed. Nobody else reads a pending file.
         """
         statement = select(FormFile).where(
             FormFile.workspace_id == self.workspace_id, FormFile.id == file_id
         )
         if form_id is not None:
             statement = statement.where(FormFile.form_id == form_id)
-        if not has_scope(self.role.scopes or frozenset(), "form:submission:read"):
-            statement = statement.where(self._uploaded_by_caller())
+        readable = self._uploaded_by_caller()
+        if has_scope(self.role.scopes or frozenset(), "form:submission:read"):
+            readable = or_(readable, FormFile.submission_id.is_not(None))
+        statement = statement.where(readable)
         return (await self.session.execute(statement)).scalar_one_or_none()
 
     async def get_download(
@@ -437,6 +434,8 @@ class FormFilesService(BaseWorkspaceService):
             force_download=True,
             override_content_type="application/octet-stream",
             redact_log_identifiers=True,
+            # Header only. The key above holds IDs and nothing else.
+            download_filename=file.name,
         )
         return FormFileDownload(
             download_url=download_url,
@@ -476,22 +475,3 @@ class FormFilesService(BaseWorkspaceService):
             sha256=file.sha256,
             content_base64=base64.b64encode(content).decode("ascii"),
         )
-
-    # ----- Delete -----
-
-    async def delete_blobs(self, keys: Sequence[str]) -> None:
-        """Delete blobs whose rows are already gone. Best effort."""
-        for key in keys:
-            try:
-                await blob.delete_file(
-                    key=key,
-                    bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
-                    redact_log_identifiers=True,
-                )
-            except Exception as e:
-                # The key holds IDs only, so it is safe to log.
-                self.logger.warning(
-                    "Failed to delete a form file from storage",
-                    key=key,
-                    error_type=type(e).__name__,
-                )

@@ -27,6 +27,7 @@ from tests._forms_utils import (
 )
 from tracecat import config
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
     Form,
     FormFile,
@@ -947,8 +948,51 @@ async def test_uploader_gets_a_forced_download_url(
             "force_download": True,
             "override_content_type": "application/octet-stream",
             "redact_log_identifiers": True,
+            # The name is a response header. It is not in the key.
+            "download_filename": "Q3 quote.pdf",
         }
     ]
+
+
+async def test_a_pending_file_is_downloadable_by_its_uploader_only(
+    session: AsyncSession,
+    files: FormFilesService,
+    submissions: FormSubmissionsService,
+    store: FakeBlobStore,
+    temporal: AsyncMock,
+    form: Form,
+    reader_role: Role,
+    svc_workspace: Workspace,
+) -> None:
+    uploaded = await _upload(files, form)
+    reader = FormFilesService(session, reader_role)
+    executor = FormFilesService(
+        session,
+        Role(
+            type="service",
+            service_id="tracecat-executor",
+            workspace_id=svc_workspace.id,
+            organization_id=svc_workspace.organization_id,
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-executor"],
+        ),
+    )
+
+    # Unclaimed: form:submission:read is not enough, on either route.
+    assert await reader.get_download(form.id, uploaded.id) is None
+    assert await reader.read_content(uploaded.id) is None
+    assert await executor.read_content(uploaded.id) is None
+    with pytest.raises(HTTPException) as exc_info:
+        await forms_router.download_form_file(
+            role=reader_role, session=session, form_id=form.id, file_id=uploaded.id
+        )
+    assert exc_info.value.status_code == 404
+    assert store.presigned == []
+    assert await files.get_download(form.id, uploaded.id) is not None
+
+    await submissions.submit(form, _values({"quote": str(uploaded.id)}))
+
+    assert await reader.get_download(form.id, uploaded.id) is not None
+    assert await executor.read_content(uploaded.id) is not None
 
 
 async def test_download_is_for_the_uploader_or_a_submission_reader(
@@ -1030,11 +1074,14 @@ async def test_download_route_answers_404_for_unknown_and_unauthorised_ids(
 async def test_read_content_returns_the_verified_bytes(
     session: AsyncSession,
     files: FormFilesService,
+    submissions: FormSubmissionsService,
     store: FakeBlobStore,
+    temporal: AsyncMock,
     form: Form,
     reader_role: Role,
 ) -> None:
     uploaded = await _upload(files, form)
+    await submissions.submit(form, _values({"quote": str(uploaded.id)}))
     reader = FormFilesService(session, reader_role)
     key = file_blob_key(form.workspace_id, form.id, uploaded.id)
 
