@@ -80,7 +80,12 @@ class PangolinAPI:
         await self._client.aclose()
 
     async def _request(
-        self, method: str, path: str, body: dict[str, Any] | None = None
+        self,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None = None,
+        *,
+        missing_ok: bool = False,
     ) -> dict[str, Any]:
         try:
             response = await self._client.request(method, path, json=body)
@@ -92,6 +97,8 @@ class PangolinAPI:
             payload = response.json()
         except ValueError:
             payload = {}
+        if missing_ok and response.status_code == 404:
+            return {}
         if response.status_code >= 400 or payload.get("success") is False:
             message = payload.get("message") or response.reason_phrase
             raise PangolinError(
@@ -178,10 +185,12 @@ class PangolinAPI:
         return {int(c["clientId"]) for c in data.get("clients", [])}
 
     async def delete_resource(self, resource_id: int) -> None:
-        await self._request("DELETE", f"/private-resource/{resource_id}")
+        await self._request(
+            "DELETE", f"/private-resource/{resource_id}", missing_ok=True
+        )
 
     async def delete_client(self, client_id: int) -> None:
-        await self._request("DELETE", f"/client/{client_id}")
+        await self._request("DELETE", f"/client/{client_id}", missing_ok=True)
 
     async def delete_site(self, site_id: int) -> None:
-        await self._request("DELETE", f"/site/{site_id}")
+        await self._request("DELETE", f"/site/{site_id}", missing_ok=True)

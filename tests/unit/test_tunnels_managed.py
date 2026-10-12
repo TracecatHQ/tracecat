@@ -176,6 +176,17 @@ class TestPangolinAPI:
             with pytest.raises(PangolinError, match="denied"):
                 await api.delete_site(1)
 
+    async def test_delete_treats_missing_as_deleted(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, json={"success": False, "message": "gone"})
+
+        async with PangolinAPI(SETTINGS, transport=httpx.MockTransport(handler)) as api:
+            await api.delete_resource(1)
+            await api.delete_client(2)
+            await api.delete_site(3)
+            with pytest.raises(PangolinError):
+                await api.site_online(3)
+
     def test_settings_require_all_values(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from tracecat import config
 

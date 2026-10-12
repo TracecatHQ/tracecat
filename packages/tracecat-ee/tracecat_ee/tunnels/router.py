@@ -199,6 +199,11 @@ async def delete_tunnel(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
+    except PangolinError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to delete the tunnel's Pangolin objects; retry the delete",
+        ) from exc
 
 
 @router.post("/{tunnel_id}/gateway-key", status_code=status.HTTP_201_CREATED)
