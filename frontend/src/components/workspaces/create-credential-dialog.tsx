@@ -32,6 +32,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -918,8 +919,8 @@ export function CreateCredentialDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {children}
-      <DialogContent className={`${className} max-h-[85vh] flex flex-col`}>
-        <DialogHeader className="flex-shrink-0">
+      <DialogContent size="xl" className={className}>
+        <DialogHeader>
           <DialogTitle>
             {selectedTool
               ? `Configure ${selectedTool.name}`
@@ -927,16 +928,21 @@ export function CreateCredentialDialog({
           </DialogTitle>
         </DialogHeader>
 
-        {!isAwsReference && <CreateSecretTooltip />}
-        {secretType === "custom" && externalSecretStoresEnabled && (
-          <div className="flex-shrink-0 space-y-2 px-1">
-            <Label htmlFor={credentialSourceId}>Secret source</Label>
-            <SecretSourcePicker
-              id={credentialSourceId}
-              workspaceId={workspaceId}
-              value={secretSource}
-              onChange={setSecretSource}
-            />
+        {(!isAwsReference ||
+          (secretType === "custom" && externalSecretStoresEnabled)) && (
+          <div className="shrink-0 space-y-3 border-b p-4">
+            {!isAwsReference && <CreateSecretTooltip />}
+            {secretType === "custom" && externalSecretStoresEnabled && (
+              <div className="space-y-2">
+                <Label htmlFor={credentialSourceId}>Secret source</Label>
+                <SecretSourcePicker
+                  id={credentialSourceId}
+                  workspaceId={workspaceId}
+                  value={secretSource}
+                  onChange={setSecretSource}
+                />
+              </div>
+            )}
           </div>
         )}
         {isAwsReference ? (
@@ -953,9 +959,9 @@ export function CreateCredentialDialog({
           <Form {...methods}>
             <form
               onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}
-              className="flex flex-col flex-1 min-h-0"
+              className="flex min-h-0 flex-1 flex-col"
             >
-              <div className="space-y-4 overflow-y-auto flex-1 py-2 px-1">
+              <DialogBody>
                 <FormField
                   key="name"
                   control={control}
@@ -1618,9 +1624,9 @@ export function CreateCredentialDialog({
                     "CA certificate",
                     "-----BEGIN CERTIFICATE-----"
                   )}
-              </div>
-              <DialogFooter className="flex-shrink-0 pt-4">
-                <Button className="ml-auto space-x-2" type="submit">
+              </DialogBody>
+              <DialogFooter>
+                <Button size="sm" type="submit">
                   <KeyRoundIcon className="mr-2 size-4" />
                   Create secret
                 </Button>

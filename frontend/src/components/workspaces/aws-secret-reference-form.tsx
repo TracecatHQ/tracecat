@@ -12,7 +12,7 @@ import type {
 } from "@/client"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { DialogFooter } from "@/components/ui/dialog"
+import { DialogBody, DialogFooter } from "@/components/ui/dialog"
 import {
   Form,
   FormControl,
@@ -223,10 +223,10 @@ export function AwsSecretReferenceForm({
     <Form {...methods}>
       <form
         onSubmit={methods.handleSubmit(onSubmit)}
-        className="flex flex-col flex-1 min-h-0"
+        className="flex min-h-0 flex-1 flex-col"
         data-testid="aws-secret-reference-form"
       >
-        <div className="space-y-4 overflow-y-auto flex-1 py-2 px-1">
+        <DialogBody>
           {!storeControlled && storesError && (
             <Alert variant="destructive">
               <AlertTitle>Could not load secret stores</AlertTitle>
@@ -480,10 +480,10 @@ export function AwsSecretReferenceForm({
               )}
             />
           )}
-        </div>
-        <DialogFooter className="flex-shrink-0 pt-4">
+        </DialogBody>
+        <DialogFooter>
           <Button
-            className="ml-auto"
+            size="sm"
             type="submit"
             disabled={
               storesLoading ||

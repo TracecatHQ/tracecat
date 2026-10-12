@@ -15,6 +15,7 @@ import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -91,7 +92,7 @@ export function AddWorkspaceMember({
         Add member
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="w-[calc(100%-2rem)] max-w-lg">
+        <DialogContent size="sm" className="w-[calc(100%-2rem)] max-w-lg">
           {/* Mounted only while open so its queries stay idle when closed. */}
           {open && (
             <AddWorkspaceMemberForm
@@ -208,33 +209,31 @@ function AddWorkspaceMemberForm({
         </DialogDescription>
       </DialogHeader>
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-          <FormField
-            control={form.control}
-            name="email"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Email</FormLabel>
-                <FormControl>
-                  <Input
-                    placeholder="user@example.com"
-                    type="email"
-                    {...field}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+        <form
+          onSubmit={form.handleSubmit(onSubmit)}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <DialogBody>
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Email</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="user@example.com"
+                      type="email"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </DialogBody>
           <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={submitDisabled}>
+            <Button size="sm" type="submit" disabled={submitDisabled}>
               {isSubmitting ? "Adding..." : "Add member"}
             </Button>
           </DialogFooter>

@@ -65,6 +65,7 @@ import {
 } from "@/components/ui/context-menu"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -269,32 +270,28 @@ export function SkillFolderCreateDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Create folder</DialogTitle>
           <DialogDescription>
             Create a new folder to organize your skills.
           </DialogDescription>
         </DialogHeader>
-        <div className="py-2">
-          <Input
-            placeholder="Folder name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void handleSubmit()
-            }}
-          />
-        </div>
+        <DialogBody>
+          <div className="py-2">
+            <Input
+              placeholder="Folder name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void handleSubmit()
+              }}
+            />
+          </div>
+        </DialogBody>
         <DialogFooter>
           <Button
-            variant="secondary"
-            onClick={() => onOpenChange(false)}
-            disabled={createFolderIsPending}
-          >
-            Cancel
-          </Button>
-          <Button
+            size="sm"
             onClick={() => void handleSubmit()}
             disabled={createFolderIsPending || !name.trim()}
           >
@@ -338,31 +335,27 @@ function SkillFolderRenameDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Rename folder</DialogTitle>
           <DialogDescription>
             Enter a new name for the folder.
           </DialogDescription>
         </DialogHeader>
-        <div className="py-2">
-          <Input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void handleSubmit()
-            }}
-          />
-        </div>
+        <DialogBody>
+          <div className="py-2">
+            <Input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void handleSubmit()
+              }}
+            />
+          </div>
+        </DialogBody>
         <DialogFooter>
           <Button
-            variant="secondary"
-            onClick={() => onOpenChange(false)}
-            disabled={updateFolderIsPending}
-          >
-            Cancel
-          </Button>
-          <Button
+            size="sm"
             onClick={() => void handleSubmit()}
             disabled={updateFolderIsPending || !name.trim()}
           >
@@ -415,7 +408,7 @@ function SkillFolderMoveDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Move folder</DialogTitle>
           <DialogDescription>
@@ -423,40 +416,36 @@ function SkillFolderMoveDialog({
             <span className="font-medium">{folder.name}</span>.
           </DialogDescription>
         </DialogHeader>
-        <Popover open={selectorOpen} onOpenChange={setSelectorOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="outline"
-              role="combobox"
-              aria-expanded={selectorOpen}
-              className="w-full justify-between"
-              disabled={moveFolderIsPending}
-            >
-              <span className="flex min-w-0 items-center gap-2 truncate">
-                <FolderIcon className="size-4 shrink-0" />
-                {destinationPath === "/" ? ROOT_FOLDER_NAME : destinationPath}
-              </span>
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-            <FileTreeCommand
-              items={getFileTreeItems(availableFolders)}
-              onSelect={(path) => {
-                setDestinationPath(path)
-                setSelectorOpen(false)
-              }}
-            />
-          </PopoverContent>
-        </Popover>
+        <DialogBody>
+          <Popover open={selectorOpen} onOpenChange={setSelectorOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                aria-expanded={selectorOpen}
+                className="w-full justify-between"
+                disabled={moveFolderIsPending}
+              >
+                <span className="flex min-w-0 items-center gap-2 truncate">
+                  <FolderIcon className="size-4 shrink-0" />
+                  {destinationPath === "/" ? ROOT_FOLDER_NAME : destinationPath}
+                </span>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+              <FileTreeCommand
+                items={getFileTreeItems(availableFolders)}
+                onSelect={(path) => {
+                  setDestinationPath(path)
+                  setSelectorOpen(false)
+                }}
+              />
+            </PopoverContent>
+          </Popover>
+        </DialogBody>
         <DialogFooter>
           <Button
-            variant="secondary"
-            onClick={() => onOpenChange(false)}
-            disabled={moveFolderIsPending}
-          >
-            Cancel
-          </Button>
-          <Button
+            size="sm"
             onClick={() => void handleMove()}
             disabled={moveFolderIsPending}
           >
@@ -499,7 +488,7 @@ function SkillMoveDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Move skill</DialogTitle>
           <DialogDescription>
@@ -507,40 +496,36 @@ function SkillMoveDialog({
             <span className="font-medium">{skill.name}</span>.
           </DialogDescription>
         </DialogHeader>
-        <Popover open={selectorOpen} onOpenChange={setSelectorOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="outline"
-              role="combobox"
-              aria-expanded={selectorOpen}
-              className="w-full justify-between"
-              disabled={moveSkillIsPending}
-            >
-              <span className="flex min-w-0 items-center gap-2 truncate">
-                <FolderIcon className="size-4 shrink-0" />
-                {destinationPath === "/" ? ROOT_FOLDER_NAME : destinationPath}
-              </span>
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-            <FileTreeCommand
-              items={getFileTreeItems(folders)}
-              onSelect={(path) => {
-                setDestinationPath(path)
-                setSelectorOpen(false)
-              }}
-            />
-          </PopoverContent>
-        </Popover>
+        <DialogBody>
+          <Popover open={selectorOpen} onOpenChange={setSelectorOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                aria-expanded={selectorOpen}
+                className="w-full justify-between"
+                disabled={moveSkillIsPending}
+              >
+                <span className="flex min-w-0 items-center gap-2 truncate">
+                  <FolderIcon className="size-4 shrink-0" />
+                  {destinationPath === "/" ? ROOT_FOLDER_NAME : destinationPath}
+                </span>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+              <FileTreeCommand
+                items={getFileTreeItems(folders)}
+                onSelect={(path) => {
+                  setDestinationPath(path)
+                  setSelectorOpen(false)
+                }}
+              />
+            </PopoverContent>
+          </Popover>
+        </DialogBody>
         <DialogFooter>
           <Button
-            variant="secondary"
-            onClick={() => onOpenChange(false)}
-            disabled={moveSkillIsPending}
-          >
-            Cancel
-          </Button>
-          <Button
+            size="sm"
             onClick={() => void handleMove()}
             disabled={moveSkillIsPending}
           >

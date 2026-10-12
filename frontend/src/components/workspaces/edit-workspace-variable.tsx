@@ -10,6 +10,7 @@ import type { VariableReadMinimal, VariableUpdate } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogClose,
   DialogContent,
   DialogDescription,
@@ -143,7 +144,7 @@ export function EditVariableDialog({
   return (
     <Dialog {...props}>
       {children}
-      <DialogContent className={className}>
+      <DialogContent size="lg" className={className}>
         <DialogHeader>
           <DialogTitle>Edit variable</DialogTitle>
           <DialogDescription className="flex flex-col">
@@ -154,8 +155,11 @@ export function EditVariableDialog({
           </DialogDescription>
         </DialogHeader>
         <Form {...methods}>
-          <form onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}>
-            <div className="space-y-4">
+          <form
+            className="flex min-h-0 flex-1 flex-col"
+            onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}
+          >
+            <DialogBody>
               <FormField
                 key="name"
                 control={control}
@@ -299,15 +303,15 @@ export function EditVariableDialog({
                   Values will be left unchanged.
                 </span>
               )}
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button className="ml-auto space-x-2" type="submit">
-                    <SaveIcon className="mr-2 size-4" />
-                    Save
-                  </Button>
-                </DialogClose>
-              </DialogFooter>
-            </div>
+            </DialogBody>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button size="sm" type="submit">
+                  <SaveIcon className="mr-2 size-4" />
+                  Save
+                </Button>
+              </DialogClose>
+            </DialogFooter>
           </form>
         </Form>
       </DialogContent>

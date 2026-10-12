@@ -16,6 +16,7 @@ import { CreateSecretTooltip } from "@/components/secrets/create-secret-tooltip"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogClose,
   DialogContent,
   DialogFooter,
@@ -101,14 +102,17 @@ export function CreateOrgSecretDialog({
   return (
     <Dialog open={showDialog} onOpenChange={setShowDialog}>
       {children}
-      <DialogContent className={className}>
+      <DialogContent size="md" className={className}>
         <DialogHeader>
           <DialogTitle>Create new organization secret</DialogTitle>
         </DialogHeader>
         <CreateSecretTooltip />
         <Form {...methods}>
-          <form onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}>
-            <div className="space-y-4">
+          <form
+            onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DialogBody>
               <FormField
                 key="name"
                 control={control}
@@ -236,15 +240,15 @@ export function CreateOrgSecretDialog({
                   </FormItem>
                 )}
               />
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button className="ml-auto space-x-2" type="submit">
-                    <KeyRoundIcon className="mr-2 size-4" />
-                    Create secret
-                  </Button>
-                </DialogClose>
-              </DialogFooter>
-            </div>
+            </DialogBody>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button size="sm" type="submit">
+                  <KeyRoundIcon className="mr-2 size-4" />
+                  Create secret
+                </Button>
+              </DialogClose>
+            </DialogFooter>
           </form>
         </Form>
       </DialogContent>

@@ -27,6 +27,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -235,51 +236,48 @@ function CreateSecretStoreDialog({
           onClose={onClose}
         />
       ) : (
-        <DialogContent>
+        <DialogContent size="sm">
           <DialogHeader>
             <DialogTitle>{provider.createTitle}</DialogTitle>
             <DialogDescription>{provider.createDescription}</DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="space-y-2">
-              <Label htmlFor="store-name">Name</Label>
-              <Input
-                id="store-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="production-secrets"
-                required
-              />
-            </div>
-            <provider.CreateFields
-              config={config}
-              onChange={setConfig}
-              errors={showErrors ? configErrors : {}}
-            />
-            <div className="flex items-center justify-between gap-4 border-t pt-4">
-              <div className="space-y-0.5">
-                <Label htmlFor="store-all-workspaces">All workspaces</Label>
-                <p className="text-xs text-muted-foreground">
-                  Allow every current and future workspace.
-                </p>
+          <form
+            onSubmit={handleSubmit}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DialogBody>
+              <div className="space-y-2">
+                <Label htmlFor="store-name">Name</Label>
+                <Input
+                  id="store-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="production-secrets"
+                  required
+                />
               </div>
-              <Switch
-                id="store-all-workspaces"
-                checked={allWorkspaces}
-                onCheckedChange={setAllWorkspaces}
+              <provider.CreateFields
+                config={config}
+                onChange={setConfig}
+                errors={showErrors ? configErrors : {}}
               />
-            </div>
-            <DialogFooter className="gap-2 sm:gap-0">
+              <div className="flex items-center justify-between gap-4 border-t pt-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="store-all-workspaces">All workspaces</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Allow every current and future workspace.
+                  </p>
+                </div>
+                <Switch
+                  id="store-all-workspaces"
+                  checked={allWorkspaces}
+                  onCheckedChange={setAllWorkspaces}
+                />
+              </div>
+            </DialogBody>
+            <DialogFooter>
               <Button
-                type="button"
-                variant="outline"
-                className="shadow-none"
-                onClick={onClose}
-                disabled={createStorePending}
-              >
-                Cancel
-              </Button>
-              <Button
+                size="sm"
                 type="submit"
                 disabled={createStorePending}
                 className="shadow-none"
@@ -612,21 +610,24 @@ function StoreSetupDialogContent({
   }
 
   return (
-    <DialogContent className="sm:max-w-3xl">
+    <DialogContent size="sm" className="sm:max-w-3xl">
       <DialogHeader>
         <DialogTitle>{provider.setupTitle}</DialogTitle>
         <DialogDescription>{provider.setupDescription}</DialogDescription>
       </DialogHeader>
-      <form onSubmit={handleSubmit} className="space-y-5">
-        <provider.SetupFields
-          store={store}
-          config={config}
-          onChange={setConfig}
-          errors={showErrors ? configErrors : {}}
-          canEdit={canUpdate}
-        />
-        <DialogFooter className="gap-2 sm:gap-0">
+      <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+        <DialogBody>
+          <provider.SetupFields
+            store={store}
+            config={config}
+            onChange={setConfig}
+            errors={showErrors ? configErrors : {}}
+            canEdit={canUpdate}
+          />
+        </DialogBody>
+        <DialogFooter>
           <Button
+            size="sm"
             type="button"
             variant="outline"
             className="shadow-none"
@@ -636,7 +637,12 @@ function StoreSetupDialogContent({
             {cancelLabel}
           </Button>
           {canUpdate && (
-            <Button type="submit" className="shadow-none" disabled={pending}>
+            <Button
+              size="sm"
+              type="submit"
+              className="shadow-none"
+              disabled={pending}
+            >
               {pending ? "Saving…" : "Save and enable"}
             </Button>
           )}
@@ -972,7 +978,7 @@ function EditSecretStoreDialog({
         if (!open) onClose()
       }}
     >
-      <DialogContent>
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Edit {store.name}</DialogTitle>
           <DialogDescription>
@@ -980,32 +986,30 @@ function EditSecretStoreDialog({
             trust policy keeps working.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div className="space-y-2">
-            <Label htmlFor="edit-store-name">Name</Label>
-            <Input
-              id="edit-store-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              required
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <DialogBody>
+            <div className="space-y-2">
+              <Label htmlFor="edit-store-name">Name</Label>
+              <Input
+                id="edit-store-name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                required
+              />
+            </div>
+            <provider.EditFields
+              config={config}
+              onChange={setConfig}
+              errors={showErrors ? configErrors : {}}
             />
-          </div>
-          <provider.EditFields
-            config={config}
-            onChange={setConfig}
-            errors={showErrors ? configErrors : {}}
-          />
-          <DialogFooter className="gap-2 sm:gap-0">
+          </DialogBody>
+          <DialogFooter>
             <Button
-              type="button"
-              variant="outline"
+              size="sm"
+              type="submit"
               className="shadow-none"
-              onClick={onClose}
               disabled={pending}
             >
-              Cancel
-            </Button>
-            <Button type="submit" className="shadow-none" disabled={pending}>
               {pending ? "Saving…" : "Save changes"}
             </Button>
           </DialogFooter>

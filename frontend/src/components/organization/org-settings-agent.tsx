@@ -68,6 +68,7 @@ import {
 } from "@/components/ui/collapsible"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -1048,7 +1049,7 @@ function CustomProviderDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[560px]">
+      <DialogContent size="lg" className="sm:max-w-[560px]">
         <DialogHeader>
           <DialogTitle>
             {provider ? "Edit custom source" : "Add custom source"}
@@ -1064,141 +1065,148 @@ function CustomProviderDialog({
             onSubmit={form.handleSubmit(handleSubmit, () => {
               if (form.formState.errors.customHeadersJson) setAdvancedOpen(true)
             })}
-            className="space-y-4"
+            className="flex min-h-0 flex-1 flex-col"
           >
-            <FormField
-              control={form.control}
-              name="displayName"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input {...field} placeholder="Local gateway" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <DialogBody>
+              <FormField
+                control={form.control}
+                name="displayName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Name</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="Local gateway" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            <FormField
-              control={form.control}
-              name="baseUrl"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Base URL</FormLabel>
-                  <FormControl>
-                    <Input {...field} placeholder="http://localhost:11434/v1" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+              <FormField
+                control={form.control}
+                name="baseUrl"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Base URL</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        placeholder="http://localhost:11434/v1"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            <div className="space-y-2">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="apiKeyHeader"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Auth header</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="Authorization" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="apiKey"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Auth value</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          type="password"
-                          placeholder={
-                            provider
-                              ? "Leave blank to keep saved value"
-                              : "sk-••••••••"
-                          }
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <p className="text-muted-foreground text-xs">
-                Defaults to{" "}
-                <code className="bg-muted rounded px-1 py-0.5 font-mono">
-                  Authorization: Bearer &lt;value&gt;
-                </code>{" "}
-                if no header is set.
-              </p>
-            </div>
-
-            <FormField
-              control={form.control}
-              name="passthrough"
-              render={({ field }) => (
-                <FormItem className="flex items-center justify-between gap-4 rounded-md border p-3">
-                  <div className="space-y-1">
-                    <FormLabel className="text-sm">Passthrough mode</FormLabel>
-                    <FormDescription>
-                      Recommended for bring-your-own gateways (LiteLLM, vLLM,
-                      etc.). Skips Tracecat&apos;s transforms and forwards
-                      requests directly to your endpoint.
-                    </FormDescription>
-                  </div>
-                  <FormControl>
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-
-            <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-              <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-sm [&[data-state=open]>svg]:rotate-180">
-                <ChevronDown className="size-4 transition-transform duration-200" />
-                Advanced
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="pt-3">
+              <div className="space-y-2">
+                <div className="grid gap-4 sm:grid-cols-2">
                   <FormField
                     control={form.control}
-                    name="customHeadersJson"
+                    name="apiKeyHeader"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Additional headers</FormLabel>
+                        <FormLabel>Auth header</FormLabel>
                         <FormControl>
-                          <Textarea
+                          <Input {...field} placeholder="Authorization" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="apiKey"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Auth value</FormLabel>
+                        <FormControl>
+                          <Input
                             {...field}
-                            className="min-h-28 font-mono text-xs"
-                            placeholder='{"X-Custom-Header":"value"}'
+                            type="password"
+                            placeholder={
+                              provider
+                                ? "Leave blank to keep saved value"
+                                : "sk-••••••••"
+                            }
                           />
                         </FormControl>
-                        <FormDescription>
-                          Optional JSON object of extra static headers sent on
-                          every request. Use this for non-auth headers not
-                          covered by the API key above. Saving new JSON replaces
-                          the saved value.
-                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
                 </div>
-              </CollapsibleContent>
-            </Collapsible>
+                <p className="text-muted-foreground text-xs">
+                  Defaults to{" "}
+                  <code className="bg-muted rounded px-1 py-0.5 font-mono">
+                    Authorization: Bearer &lt;value&gt;
+                  </code>{" "}
+                  if no header is set.
+                </p>
+              </div>
 
-            <DialogFooter className="gap-2 sm:gap-0">
+              <FormField
+                control={form.control}
+                name="passthrough"
+                render={({ field }) => (
+                  <FormItem className="flex items-center justify-between gap-4 rounded-md border p-3">
+                    <div className="space-y-1">
+                      <FormLabel className="text-sm">
+                        Passthrough mode
+                      </FormLabel>
+                      <FormDescription>
+                        Recommended for bring-your-own gateways (LiteLLM, vLLM,
+                        etc.). Skips Tracecat&apos;s transforms and forwards
+                        requests directly to your endpoint.
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+                <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-sm [&[data-state=open]>svg]:rotate-180">
+                  <ChevronDown className="size-4 transition-transform duration-200" />
+                  Advanced
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="pt-3">
+                    <FormField
+                      control={form.control}
+                      name="customHeadersJson"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Additional headers</FormLabel>
+                          <FormControl>
+                            <Textarea
+                              {...field}
+                              className="min-h-28 font-mono text-xs"
+                              placeholder='{"X-Custom-Header":"value"}'
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            Optional JSON object of extra static headers sent on
+                            every request. Use this for non-auth headers not
+                            covered by the API key above. Saving new JSON
+                            replaces the saved value.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            </DialogBody>
+            <DialogFooter>
               <Button
+                size="sm"
                 type="button"
                 variant="outline"
                 disabled={saveMutation.isPending || validateMutation.isPending}
@@ -1210,6 +1218,7 @@ function CustomProviderDialog({
                 Test connection
               </Button>
               <Button
+                size="sm"
                 type="submit"
                 disabled={saveMutation.isPending || validateMutation.isPending}
               >
@@ -1901,7 +1910,7 @@ function CloudCatalogModelDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[560px]">
+      <DialogContent size="lg" className="sm:max-w-[560px]">
         <DialogHeader>
           <DialogTitle>
             {isEdit ? `Edit ${label} model` : `Add ${label} model`}
@@ -1920,175 +1929,169 @@ function CloudCatalogModelDialog({
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit(handleSubmit)}
-            className="space-y-4"
+            className="flex min-h-0 flex-1 flex-col"
           >
-            <FormField
-              control={form.control}
-              name="model_name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Model name</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      disabled={isEdit}
-                      placeholder="e.g. claude-sonnet-4"
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Catalog identifier exposed to presets and default-model
-                    selection. Cannot be changed after creation.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <DialogBody>
+              <FormField
+                control={form.control}
+                name="model_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Model name</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        disabled={isEdit}
+                        placeholder="e.g. claude-sonnet-4"
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Catalog identifier exposed to presets and default-model
+                      selection. Cannot be changed after creation.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            <FormField
-              control={form.control}
-              name="display_name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Display name</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      value={field.value ?? ""}
-                      placeholder="Optional friendly label"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+              <FormField
+                control={form.control}
+                name="display_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Display name</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        value={field.value ?? ""}
+                        placeholder="Optional friendly label"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            {provider === "bedrock" ? (
-              <>
-                <FormField
-                  control={form.control}
-                  name="inference_profile_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Inference profile ID</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          value={field.value ?? ""}
-                          placeholder="us.anthropic.claude-sonnet-4-20250514-v1:0"
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Required for newer models. Provide either this or a
-                        direct model ID.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="model_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Model ID</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          value={field.value ?? ""}
-                          placeholder="anthropic.claude-3-haiku-20240307-v1:0"
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Direct model ID for older on-demand models.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="use_converse"
-                  render={({ field }) => (
-                    <FormItem className="flex items-center justify-between gap-4 rounded-md border p-3">
-                      <div className="space-y-1">
-                        <FormLabel className="text-sm">
-                          Use Converse API
-                        </FormLabel>
+              {provider === "bedrock" ? (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="inference_profile_id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Inference profile ID</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            value={field.value ?? ""}
+                            placeholder="us.anthropic.claude-sonnet-4-20250514-v1:0"
+                          />
+                        </FormControl>
                         <FormDescription>
-                          Force the Bedrock Converse API instead of InvokeModel.
-                          Enable this for models that require the Converse API.
+                          Required for newer models. Provide either this or a
+                          direct model ID.
                         </FormDescription>
-                      </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="model_id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Model ID</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            value={field.value ?? ""}
+                            placeholder="anthropic.claude-3-haiku-20240307-v1:0"
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Direct model ID for older on-demand models.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="use_converse"
+                    render={({ field }) => (
+                      <FormItem className="flex items-center justify-between gap-4 rounded-md border p-3">
+                        <div className="space-y-1">
+                          <FormLabel className="text-sm">
+                            Use Converse API
+                          </FormLabel>
+                          <FormDescription>
+                            Force the Bedrock Converse API instead of
+                            InvokeModel. Enable this for models that require the
+                            Converse API.
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                </>
+              ) : null}
+
+              {provider === "azure_openai" ? (
+                <FormField
+                  control={form.control}
+                  name="deployment_name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Deployment name</FormLabel>
                       <FormControl>
-                        <Switch
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
+                        <Input {...field} placeholder="gpt-4o" />
                       </FormControl>
+                      <FormMessage />
                     </FormItem>
                   )}
                 />
-              </>
-            ) : null}
+              ) : null}
 
-            {provider === "azure_openai" ? (
-              <FormField
-                control={form.control}
-                name="deployment_name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Deployment name</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="gpt-4o" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            ) : null}
+              {provider === "azure_ai" ? (
+                <FormField
+                  control={form.control}
+                  name="azure_ai_model_name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Azure AI model name</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="claude-sonnet-4-5" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : null}
 
-            {provider === "azure_ai" ? (
-              <FormField
-                control={form.control}
-                name="azure_ai_model_name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Azure AI model name</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="claude-sonnet-4-5" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            ) : null}
-
-            {provider === "vertex_ai" ? (
-              <FormField
-                control={form.control}
-                name="vertex_model"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Vertex model</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="gemini-3-flash" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            ) : null}
-
+              {provider === "vertex_ai" ? (
+                <FormField
+                  control={form.control}
+                  name="vertex_model"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Vertex model</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="gemini-3-flash" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : null}
+            </DialogBody>
             <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={saveMutation.isPending}
-                onClick={() => onOpenChange(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={saveMutation.isPending}>
+              <Button size="sm" type="submit" disabled={saveMutation.isPending}>
                 {saveMutation.isPending ? (
                   <Loader2 className="mr-2 size-4 animate-spin" />
                 ) : null}

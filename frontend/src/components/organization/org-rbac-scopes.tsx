@@ -26,6 +26,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -337,52 +338,47 @@ function CreateScopeDialog({
   }
 
   return (
-    <DialogContent>
-      <form onSubmit={handleSubmit}>
-        <DialogHeader>
-          <DialogTitle>Create custom scope</DialogTitle>
-          <DialogDescription>
-            Create a custom scope for your organization. Scope names should
-            follow the format <code>resource:action</code> (e.g.,{" "}
-            <code>workflow:execute</code>).
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4 py-4">
-          <div className="space-y-2">
-            <Label htmlFor="scope-name">Scope name</Label>
-            <Input
-              id="scope-name"
-              placeholder="e.g., custom:my-scope:read"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              pattern="^[a-z0-9:_.*-]+$"
-              required
-            />
-            <p className="text-xs text-muted-foreground">
-              Only lowercase letters, numbers, colons, underscores, dots,
-              asterisks, and hyphens allowed.
-            </p>
+    <DialogContent size="sm">
+      <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+        <DialogBody>
+          <DialogHeader>
+            <DialogTitle>Create custom scope</DialogTitle>
+            <DialogDescription>
+              Create a custom scope for your organization. Scope names should
+              follow the format <code>resource:action</code> (e.g.,{" "}
+              <code>workflow:execute</code>).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="scope-name">Scope name</Label>
+              <Input
+                id="scope-name"
+                placeholder="e.g., custom:my-scope:read"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                pattern="^[a-z0-9:_.*-]+$"
+                required
+              />
+              <p className="text-xs text-muted-foreground">
+                Only lowercase letters, numbers, colons, underscores, dots,
+                asterisks, and hyphens allowed.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="scope-description">Description (optional)</Label>
+              <Textarea
+                id="scope-description"
+                placeholder="Describe what this scope grants access to"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={3}
+              />
+            </div>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="scope-description">Description (optional)</Label>
-            <Textarea
-              id="scope-description"
-              placeholder="Describe what this scope grants access to"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-            />
-          </div>
-        </div>
+        </DialogBody>
         <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button type="submit" disabled={!name.trim() || isPending}>
+          <Button size="sm" type="submit" disabled={!name.trim() || isPending}>
             {isPending ? "Creating..." : "Create scope"}
           </Button>
         </DialogFooter>

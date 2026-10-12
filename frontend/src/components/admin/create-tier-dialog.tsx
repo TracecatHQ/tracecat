@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -109,7 +110,7 @@ export function CreateTierDialog() {
           New tier
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[calc(100vh-2rem)] max-w-lg overflow-y-auto">
+      <DialogContent size="lg" className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Create tier</DialogTitle>
           <DialogDescription>
@@ -117,67 +118,20 @@ export function CreateTierDialog() {
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="display_name"
-                render={({ field }) => (
-                  <FormItem className="col-span-2">
-                    <FormLabel>Name</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Pro" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="sort_order"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Sort order</FormLabel>
-                    <FormControl>
-                      <Input type="number" min={0} {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="is_default"
-                render={({ field }) => (
-                  <FormItem className="flex items-center gap-2 space-y-0 pt-6">
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                    <FormLabel className="font-normal">Default tier</FormLabel>
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            <div className="border-t pt-4">
-              <h4 className="text-sm font-medium mb-3">Resource limits</h4>
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DialogBody>
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
-                  name="max_concurrent_workflows"
+                  name="display_name"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Max concurrent workflows</FormLabel>
+                    <FormItem className="col-span-2">
+                      <FormLabel>Name</FormLabel>
                       <FormControl>
-                        <Input
-                          type="number"
-                          placeholder="Unlimited"
-                          {...field}
-                          value={field.value ?? ""}
-                        />
+                        <Input placeholder="Pro" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -185,17 +139,12 @@ export function CreateTierDialog() {
                 />
                 <FormField
                   control={form.control}
-                  name="max_action_executions_per_workflow"
+                  name="sort_order"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Max actions per workflow</FormLabel>
+                      <FormLabel>Sort order</FormLabel>
                       <FormControl>
-                        <Input
-                          type="number"
-                          placeholder="Unlimited"
-                          {...field}
-                          value={field.value ?? ""}
-                        />
+                        <Input type="number" min={0} {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -203,87 +152,138 @@ export function CreateTierDialog() {
                 />
                 <FormField
                   control={form.control}
-                  name="max_concurrent_actions"
+                  name="is_default"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Max concurrent actions</FormLabel>
+                    <FormItem className="flex items-center gap-2 space-y-0 pt-6">
                       <FormControl>
-                        <Input
-                          type="number"
-                          placeholder="Unlimited"
-                          {...field}
-                          value={field.value ?? ""}
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
                         />
                       </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="api_rate_limit"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>API rate limit</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          placeholder="Unlimited"
-                          {...field}
-                          value={field.value ?? ""}
-                        />
-                      </FormControl>
-                      <FormDescription>Requests per second</FormDescription>
-                      <FormMessage />
+                      <FormLabel className="font-normal">
+                        Default tier
+                      </FormLabel>
                     </FormItem>
                   )}
                 />
               </div>
-            </div>
-            <div className="border-t pt-4">
-              <h4 className="mb-3 text-sm font-medium">Entitlements</h4>
-              <div className="space-y-3">
-                {TIER_ENTITLEMENTS.map((entitlement) => (
+
+              <div className="border-t pt-4">
+                <h4 className="text-sm font-medium mb-3">Resource limits</h4>
+                <div className="grid grid-cols-2 gap-4">
                   <FormField
-                    key={entitlement.key}
                     control={form.control}
-                    name={`entitlements.${entitlement.key}` as const}
+                    name="max_concurrent_workflows"
                     render={({ field }) => (
-                      <FormItem className="flex items-start space-x-3 space-y-0">
+                      <FormItem>
+                        <FormLabel>Max concurrent workflows</FormLabel>
                         <FormControl>
-                          <Checkbox
-                            checked={field.value}
-                            onCheckedChange={(checked) =>
-                              field.onChange(checked === true)
-                            }
+                          <Input
+                            type="number"
+                            placeholder="Unlimited"
+                            {...field}
+                            value={field.value ?? ""}
                           />
                         </FormControl>
-                        <div className="space-y-1 leading-none">
-                          <FormLabel className="font-normal">
-                            {entitlement.label}
-                          </FormLabel>
-                          {entitlement.description ? (
-                            <FormDescription>
-                              {entitlement.description}
-                            </FormDescription>
-                          ) : null}
-                        </div>
+                        <FormMessage />
                       </FormItem>
                     )}
                   />
-                ))}
+                  <FormField
+                    control={form.control}
+                    name="max_action_executions_per_workflow"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Max actions per workflow</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            placeholder="Unlimited"
+                            {...field}
+                            value={field.value ?? ""}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="max_concurrent_actions"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Max concurrent actions</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            placeholder="Unlimited"
+                            {...field}
+                            value={field.value ?? ""}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="api_rate_limit"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>API rate limit</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            placeholder="Unlimited"
+                            {...field}
+                            value={field.value ?? ""}
+                          />
+                        </FormControl>
+                        <FormDescription>Requests per second</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
               </div>
-            </div>
-
+              <div className="border-t pt-4">
+                <h4 className="mb-3 text-sm font-medium">Entitlements</h4>
+                <div className="space-y-3">
+                  {TIER_ENTITLEMENTS.map((entitlement) => (
+                    <FormField
+                      key={entitlement.key}
+                      control={form.control}
+                      name={`entitlements.${entitlement.key}` as const}
+                      render={({ field }) => (
+                        <FormItem className="flex items-start space-x-3 space-y-0">
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={(checked) =>
+                                field.onChange(checked === true)
+                              }
+                            />
+                          </FormControl>
+                          <div className="space-y-1 leading-none">
+                            <FormLabel className="font-normal">
+                              {entitlement.label}
+                            </FormLabel>
+                            {entitlement.description ? (
+                              <FormDescription>
+                                {entitlement.description}
+                              </FormDescription>
+                            ) : null}
+                          </div>
+                        </FormItem>
+                      )}
+                    />
+                  ))}
+                </div>
+              </div>
+            </DialogBody>
             <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={createPending}>
+              <Button size="sm" type="submit" disabled={createPending}>
                 {createPending ? "Creating..." : "Create"}
               </Button>
             </DialogFooter>

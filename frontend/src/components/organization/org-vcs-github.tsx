@@ -26,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -322,75 +323,77 @@ function GitHubConnectionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent size="sm" className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
             {hasStoredCredentials ? "Update GitHub App" : "Connect GitHub App"}
           </DialogTitle>
         </DialogHeader>
-        <Tabs defaultValue="create" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="create" disableUnderline>
-              Create new
-            </TabsTrigger>
-            <TabsTrigger value="existing" disableUnderline>
-              Use existing
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value="create" className="space-y-4 pt-2">
-            <Form {...form}>
-              <form
-                onSubmit={form.handleSubmit(onSubmit)}
-                className="space-y-4"
-              >
-                <FormField
-                  control={form.control}
-                  name="organizationName"
-                  render={({ field }) => (
-                    <FormItem className="space-y-2">
-                      <FormLabel>Organization name</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="My Organization" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="githubHost"
-                  render={({ field }) => (
-                    <FormItem className="space-y-2">
-                      <FormLabel>GitHub host URL</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="https://github.com" />
-                      </FormControl>
-                      <p className="text-xs text-muted-foreground">
-                        For GitHub Enterprise, enter your instance URL
-                      </p>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button
-                  type="submit"
-                  className="gap-2"
-                  disabled={!manifest?.manifest}
+        <DialogBody>
+          <Tabs defaultValue="create" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="create" disableUnderline>
+                Create new
+              </TabsTrigger>
+              <TabsTrigger value="existing" disableUnderline>
+                Use existing
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="create" className="space-y-4 pt-2">
+              <Form {...form}>
+                <form
+                  onSubmit={form.handleSubmit(onSubmit)}
+                  className="space-y-4"
                 >
-                  <ExternalLinkIcon className="size-4" />
-                  Create GitHub App
-                </Button>
-              </form>
-            </Form>
-          </TabsContent>
-          <TabsContent value="existing" className="pt-2">
-            <GitHubAppManualForm
-              onSuccess={onFormSuccess}
-              existingAppId={existingAppId}
-              hasStoredCredentials={hasStoredCredentials}
-            />
-          </TabsContent>
-        </Tabs>
+                  <FormField
+                    control={form.control}
+                    name="organizationName"
+                    render={({ field }) => (
+                      <FormItem className="space-y-2">
+                        <FormLabel>Organization name</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="My Organization" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="githubHost"
+                    render={({ field }) => (
+                      <FormItem className="space-y-2">
+                        <FormLabel>GitHub host URL</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="https://github.com" />
+                        </FormControl>
+                        <p className="text-xs text-muted-foreground">
+                          For GitHub Enterprise, enter your instance URL
+                        </p>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <Button
+                    type="submit"
+                    className="gap-2"
+                    disabled={!manifest?.manifest}
+                  >
+                    <ExternalLinkIcon className="size-4" />
+                    Create GitHub App
+                  </Button>
+                </form>
+              </Form>
+            </TabsContent>
+            <TabsContent value="existing" className="pt-2">
+              <GitHubAppManualForm
+                onSuccess={onFormSuccess}
+                existingAppId={existingAppId}
+                hasStoredCredentials={hasStoredCredentials}
+              />
+            </TabsContent>
+          </Tabs>
+        </DialogBody>
       </DialogContent>
     </Dialog>
   )
