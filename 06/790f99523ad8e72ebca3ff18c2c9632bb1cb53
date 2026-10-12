@@ -1,0 +1,23 @@
+frontend/tests/workspace-landing-page.test.tsx
+  s_7f6729d1c18d55::t_0152500912bf2b 16-18
+  s_7f6729d1c18d55::t_61ce4b8e3b3b6f 167-233
+  s_7f6729d1c18d55::t_9d0a6746faa86e 7
+  s_7f6729d1c18d55::t_8572406efd3a53 48-51
+  s_7f6729d1c18d55::t_00eb3e451acef9 64-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "06790f99523ad8e72ebca3ff18c2c9632bb1cb53",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
