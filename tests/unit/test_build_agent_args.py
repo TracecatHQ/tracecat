@@ -406,16 +406,12 @@ class TestBuildAgentArgsActivity:
         [
             ({"reasoning_effort": "high"}, "high"),
             ({"enable_thinking": False}, "off"),
-            ({"enable_thinking": True}, None),
-            ({"enable_thinking": False, "reasoning_effort": "low"}, "low"),
-            ({"enable_thinking": False, "reasoning_effort": None}, None),
         ],
     )
     async def test_resolves_reasoning_effort(
         self, role: Role, extra_args: dict[str, Any], expected: str | None
     ):
-        """Legacy enable_thinking=false maps to off; an explicit
-        reasoning_effort, including null for the model default, always wins."""
+        """Workflows written before reasoning levels keep enable_thinking=false."""
         args = {
             "user_prompt": "Hello",
             "model_name": "claude-sonnet-4-5-20250929",

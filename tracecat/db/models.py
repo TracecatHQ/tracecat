@@ -59,7 +59,6 @@ from sqlalchemy.orm import (
     QueryableAttribute,
     mapped_column,
     relationship,
-    validates,
 )
 
 from tracecat import config
@@ -4122,9 +4121,9 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         nullable=True,
         doc="Reasoning level for agent runs; null uses the model default",
     )
-    # Deprecated: mirrors reasoning_effort so a rolled-back app keeps the
-    # user's choice. A database trigger also syncs older app writes. Drop both
-    # in a follow-up contract migration.
+    # Deprecated: a database trigger keeps this in sync with reasoning_effort
+    # so a rolled-back app keeps the user's choice. Drop both in a follow-up
+    # contract migration.
     enable_thinking: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
@@ -4176,13 +4175,6 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         back_populates="agent_preset",
         cascade="save-update",
     )
-
-    @validates("reasoning_effort")
-    def _sync_enable_thinking(
-        self, _key: str, value: ReasoningEffort | None
-    ) -> ReasoningEffort | None:
-        self.enable_thinking = value != "off"
-        return value
 
 
 class AgentPresetVersion(WorkspaceModel):
@@ -4283,9 +4275,9 @@ class AgentPresetVersion(WorkspaceModel):
         nullable=True,
         doc="Reasoning level for agent runs; null uses the model default",
     )
-    # Deprecated: mirrors reasoning_effort so a rolled-back app keeps the
-    # user's choice. A database trigger also syncs older app writes. Drop both
-    # in a follow-up contract migration.
+    # Deprecated: a database trigger keeps this in sync with reasoning_effort
+    # so a rolled-back app keeps the user's choice. Drop both in a follow-up
+    # contract migration.
     enable_thinking: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
@@ -4311,13 +4303,6 @@ class AgentPresetVersion(WorkspaceModel):
         back_populates="preset_version",
         cascade="all, delete-orphan",
     )
-
-    @validates("reasoning_effort")
-    def _sync_enable_thinking(
-        self, _key: str, value: ReasoningEffort | None
-    ) -> ReasoningEffort | None:
-        self.enable_thinking = value != "off"
-        return value
 
 
 class Skill(SoftDeleteMixin, WorkspaceModel):

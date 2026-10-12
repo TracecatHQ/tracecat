@@ -39,10 +39,7 @@ import {
   useDeleteAgentPreset,
 } from "@/hooks/use-agent-presets"
 import { useAuth } from "@/hooks/use-auth"
-import {
-  buildDuplicateAgentPresetPayload,
-  readAgentPresetReasoningEffort,
-} from "@/lib/agent-presets"
+import { buildDuplicateAgentPresetPayload } from "@/lib/agent-presets"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useListMcpIntegrations } from "@/lib/hooks"
 import { useQuery } from "@/lib/query"
@@ -176,7 +173,7 @@ function toDuplicateSourcePreset(
     library_skills: preset.library_skills ?? null,
     agents: preset.agents,
     retries: preset.retries,
-    reasoning_effort: readAgentPresetReasoningEffort(preset),
+    reasoning_effort: preset.reasoning_effort ?? null,
     enable_internet_access: preset.enable_internet_access,
   }
 }

@@ -35,6 +35,7 @@ from claude_agent_sdk import (
 from claude_agent_sdk.types import (
     AgentDefinition,
     AssistantMessage,
+    EffortLevel,
     HookContext,
     HookInput,
     McpHttpServerConfig,
@@ -234,7 +235,7 @@ class _StdioMCPServerSpec:
 
 def _reasoning_options(
     reasoning_effort: ReasoningEffort | None,
-) -> tuple[ThinkingConfig | None, Literal["low", "medium", "high", "max"] | None]:
+) -> tuple[ThinkingConfig | None, EffortLevel | None]:
     """Map a reasoning effort to Claude SDK ``thinking`` and ``effort`` options.
 
     ``None`` leaves both unset so the CLI applies the model default. ``"off"``
@@ -256,7 +257,7 @@ def _subagent_effort(
     reasoning_effort: ReasoningEffort | None,
     *,
     root_reasoning_effort: ReasoningEffort | None,
-) -> Literal["low", "medium", "high", "max"] | None:
+) -> EffortLevel | None:
     """Map a subagent's reasoning effort to its ``AgentDefinition`` effort.
 
     Subagents share the root session's thinking setting, so ``None`` inherits

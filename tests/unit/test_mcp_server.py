@@ -9994,12 +9994,7 @@ async def test_update_agent_preset_updates_existing_preset(
     await _tool(mcp_server.update_agent_preset)(
         workspace_id=str(workspace_id),
         preset_slug="security-triage",
-        instructions="Updated prompt",
-        actions=["tools.bravo"],
-        mcp_integration_ids=[integration_id],
-        retries=5,
         clear_reasoning_effort=True,
-        enable_internet_access=True,
     )
     params = updated["params"]
     assert "reasoning_effort" in params.model_fields_set

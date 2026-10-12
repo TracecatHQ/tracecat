@@ -39,21 +39,22 @@ def sdk_calls(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[dict[str, Any]]
 @pytest.mark.parametrize(
     ("args", "expected"),
     [
-        ({"enable_thinking": False}, "off"),
-        ({"enable_thinking": True}, None),
-        ({"reasoning_effort": "high", "enable_thinking": False}, "high"),
-        # An explicit null is indistinguishable from omission here.
-        ({"reasoning_effort": None, "enable_thinking": False}, "off"),
+        ({"enable_thinking": False}, {"enable_thinking": False}),
+        (
+            {"reasoning_effort": "high", "enable_thinking": False},
+            {"reasoning_effort": "high"},
+        ),
+        ({}, {}),
     ],
 )
-async def test_create_preset_applies_legacy_flag_when_effort_is_empty(
+async def test_create_preset_forwards_reasoning_inputs(
     sdk_calls: dict[str, list[dict[str, Any]]],
     args: dict[str, Any],
-    expected: str | None,
+    expected: dict[str, Any],
 ) -> None:
     await presets.create_preset(name="Triage preset", **args)
 
-    assert sdk_calls["create"][0]["reasoning_effort"] == expected
+    assert sdk_calls["create"] == [{"name": "Triage preset", **expected}]
 
 
 @pytest.mark.anyio

@@ -1076,7 +1076,6 @@ async def test_import_selected_fixture_reconciles_supported_non_workflow_resourc
     assert parent_preset.retries == 4
     # The fixture spec uses the legacy enable_thinking key.
     assert parent_preset.reasoning_effort == "off"
-    assert parent_preset.enable_thinking is False
     assert parent_preset.enable_internet_access is True
     first_parent_version_id = parent_preset.current_version_id
 

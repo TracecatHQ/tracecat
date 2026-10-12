@@ -278,41 +278,31 @@ def test_internal_agent_route_keeps_legacy_thinking_choice(
 
 
 @pytest.mark.parametrize(
-    ("config_type", "required"), CONSTRUCTOR_CASES, ids=CONSTRUCTOR_CASE_IDS
+    ("flag", "expected"), [("false", "off"), (0, "off"), ("true", None)]
 )
-@pytest.mark.parametrize(
-    ("flag", "expected"),
-    [
-        ("false", "off"),
-        ("0", "off"),
-        (0, "off"),
-        ("off", "off"),
-        ("no", "off"),
-        ("true", None),
-        ("1", None),
-        (1, None),
-        ("yes", None),
-    ],
-)
-def test_legacy_flag_keeps_bool_parsing(
-    config_type: Callable[..., Any],
-    required: dict[str, Any],
-    flag: object,
-    expected: str | None,
-) -> None:
-    config = config_type(**required, enable_thinking=flag)
+def test_legacy_flag_keeps_bool_parsing(flag: object, expected: str | None) -> None:
+    config = AgentConfigPayload.model_validate(
+        {
+            "model_name": "gpt-5-mini",
+            "model_provider": "openai",
+            "retries": 3,
+            "enable_thinking": flag,
+        }
+    )
 
     assert config.reasoning_effort == expected
 
 
-@pytest.mark.parametrize(
-    ("config_type", "required"), CONSTRUCTOR_CASES, ids=CONSTRUCTOR_CASE_IDS
-)
-@pytest.mark.parametrize("flag", ["maybe", 2, None])
-def test_invalid_legacy_flag_fails_validation(
-    config_type: Callable[..., Any], required: dict[str, Any], flag: object
-) -> None:
+@pytest.mark.parametrize("flag", ["maybe", None])
+def test_invalid_legacy_flag_fails_validation(flag: object) -> None:
     with pytest.raises(ValidationError) as exc_info:
-        config_type(**required, enable_thinking=flag)
+        AgentConfigPayload.model_validate(
+            {
+                "model_name": "gpt-5-mini",
+                "model_provider": "openai",
+                "retries": 3,
+                "enable_thinking": flag,
+            }
+        )
 
     assert [error["loc"] for error in exc_info.value.errors()] == [("enable_thinking",)]

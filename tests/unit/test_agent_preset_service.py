@@ -424,7 +424,6 @@ class TestAgentPresetService:
             created_preset.model_provider == agent_preset_create_params.model_provider
         )
         assert created_preset.reasoning_effort is None
-        assert created_preset.enable_thinking is True
         assert created_preset.workspace_id == agent_preset_service.workspace_id
 
         # Retrieve by ID
@@ -1022,8 +1021,6 @@ class TestAgentPresetService:
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
-        """Reasoning effort is versioned, and the deprecated enable_thinking
-        column mirrors it so a rolled-back app keeps the user's choice."""
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
         )
@@ -1034,7 +1031,6 @@ class TestAgentPresetService:
         )
 
         assert updated_preset.reasoning_effort == "off"
-        assert updated_preset.enable_thinking is False
         versions = await agent_preset_service.list_versions(
             created_preset.id,
             CursorPaginationParams(limit=10),
@@ -1043,7 +1039,6 @@ class TestAgentPresetService:
         latest_version = await agent_preset_service.get_version(versions.items[0].id)
         assert latest_version is not None
         assert latest_version.reasoning_effort == "off"
-        assert latest_version.enable_thinking is False
         preset_read = await agent_preset_service.build_preset_read(updated_preset)
         version_read = await agent_preset_service.build_version_read(latest_version)
         assert preset_read.reasoning_effort == "off"
@@ -1055,7 +1050,6 @@ class TestAgentPresetService:
         )
 
         assert reset_preset.reasoning_effort is None
-        assert reset_preset.enable_thinking is True
 
     @pytest.mark.parametrize(
         ("initial", "update", "expected"),
@@ -1064,8 +1058,6 @@ class TestAgentPresetService:
             ("off", {"enable_thinking": True}, None),
             ("high", {"enable_thinking": True}, "high"),
             (None, {"enable_thinking": True}, None),
-            ("high", {"enable_thinking": "0"}, "off"),
-            ("off", {"enable_thinking": "true"}, None),
             ("high", {"enable_thinking": False, "reasoning_effort": None}, None),
         ],
     )
@@ -1088,7 +1080,6 @@ class TestAgentPresetService:
         )
 
         assert updated_preset.reasoning_effort == expected
-        assert updated_preset.enable_thinking is (expected != "off")
 
     @pytest.mark.parametrize(
         ("loaded", "concurrent", "expected"),
@@ -1113,10 +1104,7 @@ class TestAgentPresetService:
         await agent_preset_service.session.execute(
             sa.update(AgentPreset)
             .where(AgentPreset.id == preset.id)
-            .values(
-                reasoning_effort=concurrent,
-                enable_thinking=concurrent != "off",
-            )
+            .values(reasoning_effort=concurrent)
             .execution_options(synchronize_session=False)
         )
         assert preset.reasoning_effort == loaded
@@ -1126,7 +1114,6 @@ class TestAgentPresetService:
         )
 
         assert updated_preset.reasoning_effort == expected
-        assert updated_preset.enable_thinking is True
 
     @pytest.mark.parametrize("enabled", [None, False])
     async def test_publishing_existing_head_normalizes_enabled(

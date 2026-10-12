@@ -174,8 +174,7 @@ async def create_preset(
     if reasoning_effort is not None:
         kwargs["reasoning_effort"] = reasoning_effort
     elif enable_thinking is not None:
-        # Legacy flag: on means the model default, off disables reasoning.
-        kwargs["reasoning_effort"] = None if enable_thinking else "off"
+        kwargs["enable_thinking"] = enable_thinking
     if enable_internet_access is not None:
         kwargs["enable_internet_access"] = enable_internet_access
     if skills is not None:
@@ -377,7 +376,6 @@ async def update_preset(
     elif reasoning_effort is not None:
         kwargs["reasoning_effort"] = reasoning_effort
     elif enable_thinking is not None:
-        # The API resolves the legacy flag against the preset's current level.
         kwargs["enable_thinking"] = enable_thinking
     if enable_internet_access is not None:
         kwargs["enable_internet_access"] = enable_internet_access

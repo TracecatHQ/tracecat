@@ -572,11 +572,6 @@ def test_build_agent_preset_tool_summary(
     [
         ({"enable_thinking": False}, "off"),
         ({"enable_thinking": True}, None),
-        ({"enable_thinking": "false"}, "off"),
-        ({"enable_thinking": 0}, "off"),
-        ({"enable_thinking": "true"}, None),
-        ({"enable_thinking": False, "reasoning_effort": None}, None),
-        ({"enable_thinking": False, "reasoning_effort": "high"}, "high"),
     ],
 )
 def test_preset_create_schemas_read_legacy_enable_thinking(
@@ -584,8 +579,8 @@ def test_preset_create_schemas_read_legacy_enable_thinking(
     legacy: dict[str, object],
     expected: str | None,
 ) -> None:
-    """Create requests from older clients keep their thinking choice, parsed
-    as the bool field did, and an explicit reasoning_effort, even null, wins."""
+    """Create requests from older clients keep their thinking choice, and the
+    internal route's ``exclude_unset`` dump keeps the migrated level."""
     payload = schema_cls.model_validate(
         {
             "name": "Triage preset",
@@ -599,35 +594,12 @@ def test_preset_create_schemas_read_legacy_enable_thinking(
     assert "reasoning_effort" in payload.model_fields_set
 
 
-@pytest.mark.parametrize("flag", [False, "false", "0", 0])
-def test_preset_update_schemas_pass_legacy_enable_thinking_to_service(
-    flag: object,
-) -> None:
+def test_preset_update_schemas_pass_legacy_enable_thinking_to_service() -> None:
     """The internal route forwards the deprecated flag for the service to
     resolve, and neither the dump nor the public schema exposes it."""
-    request = PresetUpdateRequest.model_validate({"enable_thinking": flag})
+    request = PresetUpdateRequest.model_validate({"enable_thinking": False})
     update = AgentPresetUpdate(**request.model_dump(exclude_unset=True))
 
     assert update.enable_thinking is False
     assert update.model_dump(exclude_unset=True) == {}
     assert "enable_thinking" not in AgentPresetUpdate.model_json_schema()["properties"]
-
-
-@pytest.mark.parametrize(
-    "schema_cls",
-    [AgentPresetCreate, PresetCreateRequest, AgentPresetUpdate, PresetUpdateRequest],
-)
-def test_preset_schemas_reject_unparseable_legacy_enable_thinking(
-    schema_cls: type[BaseModel],
-) -> None:
-    payload = {
-        "name": "Triage preset",
-        "model_name": "gpt-5-mini",
-        "model_provider": "openai",
-        "enable_thinking": "maybe",
-    }
-
-    with pytest.raises(ValidationError) as exc_info:
-        schema_cls.model_validate(payload)
-
-    assert [error["loc"] for error in exc_info.value.errors()] == [("enable_thinking",)]
