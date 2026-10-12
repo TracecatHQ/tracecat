@@ -27,24 +27,33 @@ import { workflowShortIdToUuid } from "@/lib/forms/workflow-id"
 import { useWorkflowManager } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
+/** What the new-form dialog says about a workflow, and whether it can be picked. */
+export interface FormWorkflowHint {
+  /** Shown next to the workflow, or `null` for nothing. */
+  text: string | null
+  /** Whether the workflow cannot get a new form. */
+  disabled: boolean
+}
+
 /**
- * Why a workflow cannot get a new form, or `null` when it can.
+ * Whether a workflow can get a new form, and the hint to show for it.
  *
- * A form takes its inputs from the published workflow, and a workflow has
- * at most one form.
+ * A workflow has at most one form. A form can be prepared on a workflow that
+ * was never published, from its draft inputs; it only cannot go online until
+ * the first publish.
  */
 export function getFormWorkflowHint(
   workflow: Pick<WorkflowReadMinimal, "id" | "version">,
   forms: readonly Pick<FormReadMinimal, "workflow_id">[]
-): string | null {
+): FormWorkflowHint {
   const workflowUuid = workflowShortIdToUuid(workflow.id) ?? workflow.id
   if (forms.some((form) => form.workflow_id === workflowUuid)) {
-    return "Already has a form"
+    return { text: "Already has a form", disabled: true }
   }
   if (workflow.version === null || workflow.version === undefined) {
-    return "Publish the workflow first"
+    return { text: "Offline until the workflow is published", disabled: false }
   }
-  return null
+  return { text: null, disabled: false }
 }
 
 /**
@@ -115,7 +124,7 @@ export function CreateFormDialog({
                   <CommandItem
                     key={workflow.id}
                     value={`${workflow.title} ${workflow.alias ?? ""} ${workflow.id}`}
-                    disabled={hint !== null || createFormIsPending}
+                    disabled={hint.disabled || createFormIsPending}
                     onSelect={() => handleSelect(workflow)}
                     className="text-xs"
                   >
@@ -123,9 +132,9 @@ export function CreateFormDialog({
                     <span className="min-w-0 flex-1 truncate">
                       {workflow.title}
                     </span>
-                    {hint && (
+                    {hint.text && (
                       <span className="flex-none text-muted-foreground">
-                        {hint}
+                        {hint.text}
                       </span>
                     )}
                   </CommandItem>

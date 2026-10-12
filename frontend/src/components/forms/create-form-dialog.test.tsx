@@ -104,27 +104,32 @@ describe("getFormWorkflowHint", () => {
   const forms = [{ workflow_id: TAKEN_UUID }]
 
   it("allows a published workflow with no form", () => {
-    expect(getFormWorkflowHint(workflow({}), forms)).toBeNull()
+    expect(getFormWorkflowHint(workflow({}), forms)).toEqual({
+      text: null,
+      disabled: false,
+    })
   })
 
   it("matches a form to its workflow across the two ID formats", () => {
-    expect(getFormWorkflowHint(workflow({ id: TAKEN_SHORT_ID }), forms)).toBe(
-      "Already has a form"
-    )
-    expect(getFormWorkflowHint(workflow({ id: TAKEN_UUID }), forms)).toBe(
-      "Already has a form"
+    const taken = { text: "Already has a form", disabled: true }
+    expect(
+      getFormWorkflowHint(workflow({ id: TAKEN_SHORT_ID }), forms)
+    ).toEqual(taken)
+    expect(getFormWorkflowHint(workflow({ id: TAKEN_UUID }), forms)).toEqual(
+      taken
     )
   })
 
-  it("refuses a workflow that was never published", () => {
-    expect(getFormWorkflowHint(workflow({ version: null }), forms)).toBe(
-      "Publish the workflow first"
-    )
+  it("allows a workflow that was never published, with a note", () => {
+    expect(getFormWorkflowHint(workflow({ version: null }), forms)).toEqual({
+      text: "Offline until the workflow is published",
+      disabled: false,
+    })
   })
 })
 
 describe("CreateFormDialog", () => {
-  it("disables workflows that have a form or are unpublished, with a hint", async () => {
+  it("disables workflows that have a form and notes unpublished ones", async () => {
     renderDialog()
 
     const taken = await screen.findByRole("option", {
@@ -134,8 +139,8 @@ describe("CreateFormDialog", () => {
     expect(taken).toHaveTextContent("Already has a form")
 
     const draft = screen.getByRole("option", { name: /Offboard employee/ })
-    expect(draft).toHaveAttribute("aria-disabled", "true")
-    expect(draft).toHaveTextContent("Publish the workflow first")
+    expect(draft).not.toHaveAttribute("aria-disabled", "true")
+    expect(draft).toHaveTextContent("Offline until the workflow is published")
 
     const free = screen.getByRole("option", { name: /Grant SaaS access/ })
     expect(free).not.toHaveAttribute("aria-disabled", "true")
@@ -172,6 +177,20 @@ describe("CreateFormDialog", () => {
       requestBody: { workflow_id: FREE_SHORT_ID },
     })
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it("creates a form on a workflow that was never published", async () => {
+    createForm.mockResolvedValue({ id: "form-9" } as Awaited<
+      ReturnType<typeof formsCreateForm>
+    >)
+    const { user } = renderDialog()
+
+    await user.click(
+      await screen.findByRole("option", { name: /Offboard employee/ })
+    )
+
+    await waitFor(() => expect(createForm).toHaveBeenCalledTimes(1))
+    expect(push).toHaveBeenCalledWith("/workspaces/workspace-1/forms/form-9")
   })
 
   it("says why a form could not be created and stays open", async () => {
