@@ -36,13 +36,14 @@ import {
   Globe,
   GlobeLock,
   Headset,
+  IterationCcw,
+  IterationCw,
   KeyRound,
   Landmark,
   Laptop,
   Link,
   ListChecks,
   LogInIcon,
-  MailIcon,
   MailSearch,
   MapPin,
   MergeIcon,
@@ -51,10 +52,11 @@ import {
   Microscope,
   MonitorX,
   MousePointerClick,
+  Network,
   Newspaper,
   Plug2,
   Radar,
-  RefreshCcw,
+  Repeat,
   ScanSearch,
   Search,
   SendIcon,
@@ -64,9 +66,12 @@ import {
   ShieldPlus,
   Sparkles,
   SplitIcon,
+  SquarePen,
+  SquareTerminal,
   Swords,
   Table,
   Telescope,
+  Timer,
   UserSearch,
   Users,
   Waypoints,
@@ -274,7 +279,7 @@ export function getIcon(
     <Wrapper
       className={cn(
         basicIconsCommon,
-        "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+        "bg-muted text-muted-foreground",
         className
       )}
     >
@@ -348,16 +353,9 @@ function createColoredLucideRenderer(Icon: LucideIcon, colorClassName: string) {
 export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
   {
     // Triggers namespace
-    trigger: ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
-          className
-        )}
-      >
-        <ZapIcon {...rest} />
-      </div>
+    trigger: createColoredLucideRenderer(
+      ZapIcon,
+      "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400"
     ),
     // Core namespace
     core: ({ className, ...rest }) => (
@@ -394,27 +392,13 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <Globe {...rest} />
       </div>
     ),
-    "core.http_poll": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-          className
-        )}
-      >
-        <RefreshCcw {...rest} />
-      </div>
+    "core.http_poll": createColoredLucideRenderer(
+      Timer,
+      "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
     ),
-    "core.require": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-rose-500/10 text-rose-600 dark:text-rose-400",
-          className
-        )}
-      >
-        <ListChecks {...rest} />
-      </div>
+    "core.require": createColoredLucideRenderer(
+      ListChecks,
+      "bg-amber-500/10 text-amber-600 dark:text-amber-400"
     ),
     "core.transform": ({ className, ...rest }) => (
       <div
@@ -451,38 +435,17 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <MergeIcon style={{ transform: "rotate(90deg)" }} {...rest} />
       </div>
     ),
-    "core.loop": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-orange-500/10 text-orange-600 dark:text-orange-400",
-          className
-        )}
-      >
-        <RefreshCcw {...rest} />
-      </div>
+    "core.loop": createColoredLucideRenderer(
+      Repeat,
+      "bg-orange-500/10 text-orange-600 dark:text-orange-400"
     ),
-    "core.loop.start": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-orange-500/10 text-orange-600 dark:text-orange-400",
-          className
-        )}
-      >
-        <SplitIcon style={{ transform: "rotate(90deg)" }} {...rest} />
-      </div>
+    "core.loop.start": createColoredLucideRenderer(
+      IterationCw,
+      "bg-orange-500/10 text-orange-600 dark:text-orange-400"
     ),
-    "core.loop.end": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-orange-500/10 text-orange-600 dark:text-orange-400",
-          className
-        )}
-      >
-        <MergeIcon style={{ transform: "rotate(90deg)" }} {...rest} />
-      </div>
+    "core.loop.end": createColoredLucideRenderer(
+      IterationCcw,
+      "bg-orange-500/10 text-orange-600 dark:text-orange-400"
     ),
     "core.cases": ({ className, ...rest }) => (
       <div
@@ -496,60 +459,21 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       </div>
     ),
 
-    "core.cases.update": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-rose-500/10 text-rose-600 dark:text-rose-400",
-          className
-        )}
-      >
-        <ShieldPlus {...rest} />
-      </div>
+    "core.cases.create_case": createColoredLucideRenderer(
+      ShieldPlus,
+      "bg-rose-500/10 text-rose-600 dark:text-rose-400"
     ),
-    "core.cases.create_comment": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-rose-500/10 text-rose-600 dark:text-rose-400",
-          className
-        )}
-      >
-        <MessageCircleMore {...rest} />
-      </div>
+    "core.cases.update_case": createColoredLucideRenderer(
+      SquarePen,
+      "bg-rose-500/10 text-rose-600 dark:text-rose-400"
     ),
-    "core.cases.update_comment": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-rose-500/10 text-rose-600 dark:text-rose-400",
-          className
-        )}
-      >
-        <MessageCirclePlus {...rest} />
-      </div>
+    "core.cases.create_comment": createColoredLucideRenderer(
+      MessageCirclePlus,
+      "bg-rose-500/10 text-rose-600 dark:text-rose-400"
     ),
-    "core.receive_email": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-purple-500/10 text-purple-600 dark:text-purple-400",
-          className
-        )}
-      >
-        <MailIcon {...rest} />
-      </div>
-    ),
-    "core.send_email": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-lime-500/10 text-lime-600 dark:text-lime-400",
-          className
-        )}
-      >
-        <SendIcon {...rest} />
-      </div>
+    "core.cases.update_comment": createColoredLucideRenderer(
+      MessageCircleMore,
+      "bg-rose-500/10 text-rose-600 dark:text-rose-400"
     ),
     "core.send_email_smtp": ({ className, ...rest }) => (
       <div
@@ -561,6 +485,14 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       >
         <SendIcon {...rest} />
       </div>
+    ),
+    "core.grpc": createColoredLucideRenderer(
+      Network,
+      "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400"
+    ),
+    "core.ssh": createColoredLucideRenderer(
+      SquareTerminal,
+      "bg-slate-500/10 text-slate-600 dark:text-slate-400"
     ),
     "core.script": ({ className, ...rest }) => (
       <div

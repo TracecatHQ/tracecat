@@ -342,6 +342,25 @@ describe("Core and AI action icon mappings", () => {
     expect(getIconSource("ai.slackbot")).not.toBe(getIconSource("ai.action"))
   })
 
+  it.each([
+    ["trigger", "zap", "bg-yellow-500/10"],
+    ["core.http_poll", "timer", "bg-emerald-500/10"],
+    ["core.require", "list-checks", "bg-amber-500/10"],
+    ["core.grpc.request", "network", "bg-cyan-500/10"],
+    ["core.ssh.execute_command", "square-terminal", "bg-slate-500/10"],
+    ["core.loop.start", "iteration-cw", "bg-orange-500/10"],
+    ["core.loop.end", "iteration-ccw", "bg-orange-500/10"],
+    ["core.cases.create_case", "shield-plus", "bg-rose-500/10"],
+    ["core.cases.update_case", "square-pen", "bg-rose-500/10"],
+    ["core.cases.create_comment", "message-circle-plus", "bg-rose-500/10"],
+    ["core.cases.update_comment", "message-circle-more", "bg-rose-500/10"],
+    ["unknown.namespace.action", "box", "bg-muted"],
+  ])("renders %s with the %s icon", (action, icon, fill) => {
+    const container = renderIcon(getIcon(action))
+    expect(container.querySelector(`svg.lucide-${icon}`)).not.toBeNull()
+    expect(container.firstElementChild).toHaveClass(fill)
+  })
+
   it("renders the HTTP icon for core.http_paginate", () => {
     const container = renderIcon(getIcon("core.http_paginate"))
     expect(container.querySelector("svg.lucide-globe")).not.toBeNull()
