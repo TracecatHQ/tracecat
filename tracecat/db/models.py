@@ -1682,6 +1682,68 @@ class FormEvent(WorkspaceModel):
     )
 
 
+class FormFile(WorkspaceModel):
+    """A file uploaded to a form's ``file`` field.
+
+    Not the shared ``File`` table: case attachments deduplicate by content
+    hash and share blobs. A form file owns its blob, stored under
+    ``forms/{workspace_id}/{form_id}/{id}``. ``submission_id`` is null until a
+    submission claims the file.
+    """
+
+    __tablename__ = "form_file"
+    __table_args__ = (
+        # Pending counts and expiry.
+        Index(
+            "ix_form_file_form_submission_created",
+            "workspace_id",
+            "form_id",
+            "submission_id",
+            "created_at",
+        ),
+        Index("ix_form_file_submission_id", "submission_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    form_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("form.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    submission_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("form_submission.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    field: Mapped[str] = mapped_column(
+        String, nullable=False, doc="Name of the form field the file was uploaded to"
+    )
+    uploaded_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    uploaded_by_service_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("service_account.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    name: Mapped[str] = mapped_column(
+        String(config.TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH),
+        nullable=False,
+        doc="Filename as uploaded. Data only, never part of a storage path.",
+    )
+    content_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False, doc="Size in bytes")
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
 class Schedule(WorkspaceModel):
     __tablename__ = "schedule"
 

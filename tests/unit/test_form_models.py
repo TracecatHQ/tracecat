@@ -1,4 +1,4 @@
-"""Tests for the form, form_submission and form_event tables."""
+"""Tests for the form, form_submission, form_event and form_file tables."""
 
 import uuid
 
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.db.models import (
     Form,
     FormEvent,
+    FormFile,
     FormSubmission,
     Workflow,
     Workspace,
@@ -20,7 +21,20 @@ from tracecat.forms.enums import FormEventType, FormStatus
 
 pytestmark = pytest.mark.usefixtures("db")
 
-FORM_MODELS = (Form, FormSubmission, FormEvent)
+FORM_MODELS = (Form, FormSubmission, FormEvent, FormFile)
+
+
+def _file(form: Form, submission: FormSubmission | None = None) -> FormFile:
+    return FormFile(
+        workspace_id=form.workspace_id,
+        form_id=form.id,
+        submission_id=submission.id if submission is not None else None,
+        field="quote",
+        name="quote.pdf",
+        content_type="application/pdf",
+        size=12,
+        sha256="0" * 64,
+    )
 
 
 def test_form_enum_values() -> None:
@@ -88,6 +102,16 @@ def test_form_indexes() -> None:
             "user_id",
             "created_at",
         ],
+    }
+    assert index_columns(FormFile) == {
+        "ix_form_file_id": ["id"],
+        "ix_form_file_form_submission_created": [
+            "workspace_id",
+            "form_id",
+            "submission_id",
+            "created_at",
+        ],
+        "ix_form_file_submission_id": ["submission_id"],
     }
 
 
@@ -190,6 +214,32 @@ async def test_deleting_a_submission_keeps_its_event(
 
 
 @pytest.mark.anyio
+async def test_deleting_a_submission_removes_its_files_only(
+    session: AsyncSession, form: Form
+) -> None:
+    submission = FormSubmission(
+        workspace_id=form.workspace_id,
+        form_id=form.id,
+        answers={},
+        definition_version=1,
+        wf_exec_id="wf_synthetic/exec_synthetic",
+    )
+    session.add(submission)
+    await session.flush()
+    pending = _file(form)
+    session.add_all([_file(form, submission), pending])
+    await session.commit()
+
+    await session.execute(
+        delete(FormSubmission).where(FormSubmission.id == submission.id)
+    )
+    await session.commit()
+
+    remaining = (await session.execute(select(FormFile.id))).scalars().all()
+    assert remaining == [pending.id]
+
+
+@pytest.mark.anyio
 async def test_deleting_the_workflow_removes_the_form_and_its_rows(
     session: AsyncSession, workflow: Workflow, form: Form
 ) -> None:
@@ -208,6 +258,8 @@ async def test_deleting_the_workflow_removes_the_form_and_its_rows(
             type=FormEventType.FORM_VIEWED.value,
         )
     )
+    await session.flush()
+    session.add_all([_file(form, submission), _file(form)])
     await session.commit()
 
     await session.execute(delete(Workflow).where(Workflow.id == workflow.id))
