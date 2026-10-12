@@ -490,6 +490,43 @@ class FormsService(BaseWorkspaceService):
         await self.session.delete(form)
         await self.session.commit()
 
+    async def sync_form(
+        self,
+        workflow_id: uuid.UUID,
+        form_config: FormConfig,
+        status: FormStatus,
+        *,
+        commit: bool = True,
+    ) -> Form:
+        """Create or replace a workflow's form without an audit event.
+
+        For callers that own the transaction and have already resolved the
+        config, such as a sync pull. Nothing is checked here.
+        """
+        form = await self.get_form_by_workflow_id(workflow_id)
+        if form is None:
+            form = Form(workspace_id=self.workspace_id, workflow_id=workflow_id)
+            self.session.add(form)
+        form.status = status.value
+        _set_form_config(form, form_config)
+        if commit:
+            await self.session.commit()
+            await self.session.refresh(form)
+        else:
+            await self.session.flush()
+        return form
+
+    async def take_offline(self, workflow_id: uuid.UUID) -> None:
+        """Set a workflow's form offline in the caller's transaction.
+
+        Its config and submissions are kept. A workflow with no form is left
+        alone.
+        """
+        if (form := await self.get_form_by_workflow_id(workflow_id)) is None:
+            return
+        form.status = FormStatus.OFFLINE.value
+        await self.session.flush()
+
     async def validate_config(
         self, workflow_id: uuid.UUID, form_config: FormConfig
     ) -> FormValidateResponse:

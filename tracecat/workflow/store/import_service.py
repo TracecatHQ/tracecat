@@ -12,6 +12,9 @@ from tracecat.db.models import Webhook, Workflow, WorkflowTag, WorkflowTagLink
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.forms.resolver import resolve_form
+from tracecat.forms.schemas import FormConfig
+from tracecat.forms.service import FormsService
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
@@ -28,6 +31,7 @@ from tracecat.workflow.schedules.schemas import ScheduleCreate
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workflow.store.schemas import (
     RemoteCaseTrigger,
+    RemoteForm,
     RemoteWebhook,
     RemoteWorkflowDefinition,
     RemoteWorkflowSchedule,
@@ -193,6 +197,9 @@ class WorkflowImportService(BaseWorkspaceService):
             # Check for conflicts
             wf_id = WorkflowUUID.new(remote_workflow.id)
             await self.wf_mgmt.get_workflow(wf_id, normalize=normalize_existing)
+
+            if form_diagnostic := _form_diagnostic(remote_workflow, workflow_path):
+                diagnostics.append(form_diagnostic)
 
         except ValidationError as e:
             diagnostics.append(
@@ -461,6 +468,7 @@ class WorkflowImportService(BaseWorkspaceService):
             await self._update_schedules(existing_workflow, remote_workflow.schedules)
         await self._update_webhook(existing_workflow.webhook, remote_workflow.webhook)
         await self._update_case_trigger(existing_workflow, remote_workflow.case_trigger)
+        await self._update_form(existing_workflow, remote_workflow.form)
         await self._update_tags(existing_workflow, remote_workflow.tags)
 
     async def _create_new_workflow(
@@ -504,6 +512,7 @@ class WorkflowImportService(BaseWorkspaceService):
             await self._create_schedules(workflow, remote_defn.schedules)
         await self._update_webhook(workflow.webhook, remote_defn.webhook)
         await self._update_case_trigger(workflow, remote_defn.case_trigger)
+        await self._update_form(workflow, remote_defn.form)
         await self._create_tags(workflow, remote_defn.tags)
 
     async def _update_schedules(
@@ -604,6 +613,26 @@ class WorkflowImportService(BaseWorkspaceService):
         case_trigger.tag_filters = []
         self.session.add(case_trigger)
         await self.session.flush()
+
+    async def _update_form(
+        self, workflow: Workflow, remote_form: RemoteForm | None
+    ) -> None:
+        """Apply the ``form:`` block of a workflow file.
+
+        A file with no block takes the form offline and keeps its config and
+        submissions. The block is stored whether or not the organization has
+        the forms entitlement; the form stays inert behind the gate.
+        """
+        service = FormsService(session=self.session, role=self.role)
+        if remote_form is None:
+            await service.take_offline(workflow.id)
+            return
+        await service.sync_form(
+            workflow.id,
+            _form_config(remote_form),
+            remote_form.status,
+            commit=False,
+        )
 
     async def _update_tags(
         self, workflow: Workflow, remote_tags: list[RemoteWorkflowTag] | None = None
@@ -727,3 +756,33 @@ def _unique_temporary_workflow_alias(
         candidate = f"{base}-{suffix}"
     reserved_aliases.add(candidate)
     return candidate
+
+
+def _form_config(remote_form: RemoteForm) -> FormConfig:
+    """The config part of a ``form:`` block, without its status."""
+    return FormConfig.model_validate(remote_form.model_dump(exclude={"status"}))
+
+
+def _form_diagnostic(
+    remote_workflow: RemoteWorkflowDefinition, workflow_path: str
+) -> PullDiagnostic | None:
+    """Resolve a workflow's ``form:`` block against the inputs in the same file.
+
+    Returns a diagnostic if the form has errors, such as a layout entry for an
+    input the workflow does not declare. Warnings do not block a pull.
+    """
+    if remote_workflow.form is None:
+        return None
+    expects = remote_workflow.definition.entrypoint.expects or {}
+    result = resolve_form(_form_config(remote_workflow.form), expects)
+    if not result.has_errors:
+        return None
+    return PullDiagnostic(
+        workflow_path=workflow_path,
+        workflow_title=remote_workflow.definition.title,
+        error_type="validation",
+        message="Form config does not match the workflow's inputs",
+        details={
+            "form_issues": [issue.model_dump(mode="json") for issue in result.issues]
+        },
+    )

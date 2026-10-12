@@ -23,14 +23,17 @@ from pydantic import ValidationError
 from slugify import slugify
 
 from tracecat.cases.enums import CaseEventType
-from tracecat.db.models import Workflow
+from tracecat.db.models import Form, Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
+from tracecat.forms.enums import FormStatus
+from tracecat.forms.service import stored_form_config
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import PullDiagnostic, serializable_validation_errors
 from tracecat.workflow.case_triggers.schemas import is_case_trigger_configured
 from tracecat.workflow.store.schemas import (
     RemoteCaseTrigger,
+    RemoteForm,
     RemoteWebhook,
     RemoteWorkflowDefinition,
     RemoteWorkflowSchedule,
@@ -90,17 +93,33 @@ def default_workflow_source_id(*, alias: str | None, title: str) -> str:
     return base[:96].strip("-") or "workflow"
 
 
+def remote_form_from_orm(form: Form | None) -> RemoteForm | None:
+    """Build the ``form:`` block of a workflow file, or ``None``.
+
+    Only a configured form is emitted: one that is online or has any config.
+    An untouched offline form adds nothing to the file.
+    """
+    if form is None:
+        return None
+    config = stored_form_config(form).model_dump()
+    if form.status != FormStatus.ONLINE and not config:
+        return None
+    return RemoteForm.model_validate({**config, "status": form.status})
+
+
 def workflow_spec_from_orm(
     workflow: Workflow,
     *,
     dsl: DSLInput,
     source_id: str,
     include_schedules: bool = False,
+    form: Form | None = None,
 ) -> WorkflowResourceSpec:
     """Build a :class:`WorkflowResourceSpec` from an ORM workflow and its DSL.
 
-    Carries over the folder path, tags, webhook, and a configured case trigger.
-    Schedules are included only when ``include_schedules`` is set.
+    Carries over the folder path, tags, webhook, a configured case trigger and
+    a configured form. ``form`` is passed in because ``Workflow`` has no form
+    relationship. Schedules are included only when ``include_schedules`` is set.
     """
     folder_path = workflow.folder.path if workflow.folder else None
     webhook = workflow.webhook
@@ -149,6 +168,7 @@ def workflow_spec_from_orm(
         if webhook
         else None,
         case_trigger=case_trigger,
+        form=remote_form_from_orm(form),
         definition=dsl,
     )
 
@@ -193,6 +213,7 @@ def workflow_spec_to_remote(
         schedules=spec.schedules,
         webhook=spec.webhook,
         case_trigger=spec.case_trigger,
+        form=spec.form,
         definition=definition,
     )
 
@@ -341,6 +362,7 @@ def workflow_spec_from_legacy(
         schedules=remote.schedules,
         webhook=remote.webhook,
         case_trigger=remote.case_trigger,
+        form=remote.form,
         definition=remote.definition,
     )
 

@@ -45,6 +45,8 @@ from tracecat.db.models import (
     CaseFields,
     CaseTag,
     CaseTrigger,
+    Form,
+    FormSubmission,
     MCPIntegration,
     OrganizationSecretStore,
     Secret,
@@ -65,6 +67,8 @@ from tracecat.exceptions import (
     TracecatCredentialsError,
     TracecatValidationError,
 )
+from tracecat.forms.dependencies import check_forms_enabled
+from tracecat.forms.enums import FormStatus
 from tracecat.git.types import GitUrl
 from tracecat.integrations.enums import MCPAuthType
 from tracecat.registry.lock.types import RegistryLock
@@ -9850,3 +9854,257 @@ def _yaml(data: dict[str, Any]) -> str:
     if payload.get("type") in {"agent_preset", "skill"}:
         payload["version"] = 2
     return yaml.safe_dump(payload, sort_keys=False)
+
+
+# ----- Workflow form block -----
+
+_PNG_DATA_URI = (
+    "data:image/png;base64,"
+    + base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16).decode()
+)
+
+_FORM_EXPECTS: dict[str, Any] = {
+    "model": {"type": 'enum["mba", "mbp"]'},
+    "justification": {"type": "str"},
+    "for_someone_else": {"type": "bool", "default": False},
+}
+
+_FORM_BLOCK: dict[str, Any] = {
+    "status": "online",
+    "title": "Laptop request",
+    "success_message": "IT will follow up by email.",
+    "layout": [
+        {"notice": "Requests are reviewed within 2 business days.", "tone": "info"},
+        {
+            "field": "model",
+            "label": "Choose your laptop",
+            "widget": "cards",
+            "options": [
+                {"value": "mba", "label": "MacBook Air", "image": _PNG_DATA_URI},
+                {"value": "mbp", "label": "MacBook Pro 14"},
+            ],
+        },
+        {"field": "justification", "widget": "long_text"},
+        {"heading": "Delivery"},
+        {"field": "for_someone_else"},
+    ],
+}
+
+
+def _form_workflow_git_tree(form: dict[str, Any] | None) -> dict[str, str]:
+    spec = _workflow_spec(
+        source_id="laptop-request",
+        title="Laptop request workflow",
+        alias="laptop-request",
+        folder_path="QA/Workflows",
+        actions=[
+            {
+                "ref": "reshape",
+                "action": "core.transform.reshape",
+                "args": {"value": "${{ TRIGGER.model }}"},
+            }
+        ],
+    )
+    spec["definition"]["entrypoint"]["expects"] = _FORM_EXPECTS
+    if form is not None:
+        spec["form"] = form
+    return {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{WORKFLOW_ROOT}/laptop-request/definition.yml": _yaml(spec),
+    }
+
+
+async def _pull_form_trees(
+    session: AsyncSession, role: Role, *forms: dict[str, Any] | None
+) -> tuple[WorkspaceSyncService, list[Any]]:
+    """Pull one tree per form block, in order. Returns the pull results."""
+    service = WorkspaceSyncService(session=session, role=role)
+    commits = [str(index) * 40 for index in range(len(forms))]
+    transport = AsyncMock()
+    transport.read_files.side_effect = [
+        VcsTreeSnapshot(
+            commit_sha=commit,
+            tree_sha=f"tree-{commit[0]}",
+            files=_form_workflow_git_tree(form),
+        )
+        for commit, form in zip(commits, forms, strict=True)
+    ]
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        patch(
+            "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+            AsyncMock(return_value=RegistryLock(origins={}, actions={})),
+        ),
+    ):
+        results = [
+            await service.pull(options=PullOptions(commit_sha=commit))
+            for commit in commits
+        ]
+    return service, results
+
+
+async def _only_form(session: AsyncSession, role: Role) -> Form | None:
+    return await session.scalar(
+        select(Form).where(Form.workspace_id == role.workspace_id)
+    )
+
+
+@pytest.mark.anyio
+async def test_workflow_form_block_round_trips(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service, results = await _pull_form_trees(session, svc_role, _FORM_BLOCK)
+
+    assert results[0].success is True
+    form = await _only_form(session, svc_role)
+    assert form is not None
+    assert form.status == FormStatus.ONLINE
+    assert form.title == "Laptop request"
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+    exported = yaml.safe_load(
+        projection.files[f"{WORKFLOW_ROOT}/laptop-request/definition.yml"]
+    )
+    assert exported["form"] == _FORM_BLOCK
+    # The author's input order survives the trip with the form.
+    assert list(exported["definition"]["entrypoint"]["expects"]) == list(_FORM_EXPECTS)
+
+
+@pytest.mark.anyio
+async def test_unconfigured_form_is_not_exported(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service, _ = await _pull_form_trees(session, svc_role, None)
+    workflow = await session.scalar(
+        select(Workflow).where(Workflow.workspace_id == svc_role.workspace_id)
+    )
+    assert workflow is not None
+    session.add(Form(workspace_id=svc_role.workspace_id, workflow_id=workflow.id))
+    await session.flush()
+
+    projection = await service.project_workspace(create_missing_mappings=False)
+
+    exported = yaml.safe_load(
+        projection.files[f"{WORKFLOW_ROOT}/laptop-request/definition.yml"]
+    )
+    assert "form" not in exported
+
+
+@pytest.mark.anyio
+async def test_workflow_form_block_with_invalid_image_fails_the_pull(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    form = deepcopy(_FORM_BLOCK)
+    form["layout"][1]["options"][0]["image"] = "https://example.com/laptop.png"
+
+    _, results = await _pull_form_trees(session, svc_role, form)
+
+    assert results[0].success is False
+    assert [diagnostic.error_type for diagnostic in results[0].diagnostics] == [
+        "validation"
+    ]
+    assert await _only_form(session, svc_role) is None
+    assert (
+        await session.scalar(
+            select(Workflow).where(Workflow.workspace_id == svc_role.workspace_id)
+        )
+        is None
+    )
+
+
+@pytest.mark.anyio
+async def test_workflow_form_block_is_resolved_against_the_file_inputs(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    form = {"status": "online", "layout": [{"field": "not_an_input"}]}
+
+    _, results = await _pull_form_trees(session, svc_role, form)
+
+    assert results[0].success is False
+    [diagnostic] = results[0].diagnostics
+    assert diagnostic.error_type == "validation"
+    assert diagnostic.workflow_title == "Laptop request workflow"
+    [issue] = diagnostic.details["form_issues"]
+    assert issue["code"] == "unknown_field"
+    assert issue["loc"] == ["layout", 0, "field"]
+    assert await _only_form(session, svc_role) is None
+
+
+@pytest.mark.anyio
+async def test_pull_without_form_block_takes_the_form_offline_and_keeps_it(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    _, first = await _pull_form_trees(session, svc_role, _FORM_BLOCK)
+    assert first[0].success is True
+    form = await _only_form(session, svc_role)
+    assert form is not None
+    form_id = form.id
+    session.add(
+        FormSubmission(
+            workspace_id=svc_role.workspace_id,
+            form_id=form_id,
+            answers={"model": "mba"},
+            definition_version=1,
+            wf_exec_id="wf-00000000000000000000000000000000/exec-1",
+        )
+    )
+    await session.commit()
+
+    _, second = await _pull_form_trees(session, svc_role, None)
+
+    assert second[0].success is True
+    session.expire_all()
+    form = await _only_form(session, svc_role)
+    assert form is not None
+    assert form.id == form_id
+    assert form.status == FormStatus.OFFLINE
+    assert form.title == "Laptop request"
+    assert form.layout is not None and len(form.layout) == 5
+    submissions = (
+        await session.scalars(
+            select(FormSubmission).where(FormSubmission.form_id == form_id)
+        )
+    ).all()
+    assert len(submissions) == 1
+    # The kept config is still the workspace's desired state for the next push.
+    projection = await service.project_workspace(create_missing_mappings=False)
+    exported = yaml.safe_load(
+        projection.files[f"{WORKFLOW_ROOT}/laptop-request/definition.yml"]
+    )
+    assert exported["form"] == {**_FORM_BLOCK, "status": "offline"}
+
+
+@pytest.mark.anyio
+async def test_pull_without_forms_entitlement_stores_the_form_block(
+    session: AsyncSession,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def entitled(_session: Any, _org_id: Any, entitlement: Entitlement) -> bool:
+        return entitlement is not Entitlement.FORMS
+
+    monkeypatch.setattr("tracecat.tiers.access.is_org_entitled", entitled)
+    monkeypatch.setattr(config, "TRACECAT__FEATURE_FLAGS", {"forms"})
+
+    _, results = await _pull_form_trees(session, svc_role, _FORM_BLOCK)
+
+    assert results[0].success is True
+    form = await _only_form(session, svc_role)
+    assert form is not None
+    assert form.status == FormStatus.ONLINE
+    assert form.layout is not None
+    # Stored, but still behind the gate.
+    with pytest.raises(EntitlementRequired):
+        await check_forms_enabled(session, svc_role)
