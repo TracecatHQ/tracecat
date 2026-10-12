@@ -1,0 +1,34 @@
+frontend/src/client/types.gen.ts
+  s_7f6729d1c18d55::t_e64566641a1cdc 10190
+tracecat/mcp/server.py
+  s_7f6729d1c18d55::t_e3f3cf686f939e 3269
+tests/unit/test_form_trigger_type.py
+  s_7f6729d1c18d55::t_c65eec8bc5376f 1-130
+tracecat/workflow/executions/service.py
+  s_7f6729d1c18d55::t_e3f3cf686f939e 1519,1526,1669
+tracecat/dsl/init_activities.py
+  s_7f6729d1c18d55::t_e3f3cf686f939e 30
+tracecat/workflow/executions/enums.py
+  s_7f6729d1c18d55::t_e3f3cf686f939e 114
+tests/unit/test_mcp_server.py
+  s_7f6729d1c18d55::t_07ce9e18e52be8 76
+  s_7f6729d1c18d55::t_13aa092f00e06b 261-266
+frontend/src/client/schemas.gen.ts
+  s_7f6729d1c18d55::t_e64566641a1cdc 33544
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "42b6b87df651dcbf5b988903dd29f425a56cb2aa",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
