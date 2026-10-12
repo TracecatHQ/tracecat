@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from tracecat import config as app_config
 from tracecat.expressions.schemas import ExpectedField
 from tracecat.forms.constants import MAX_CONFIG_IMAGE_BYTES, MAX_IMAGE_BYTES
 from tracecat.forms.enums import (
@@ -486,6 +487,7 @@ def test_single_file_field_takes_one_file() -> None:
     config = _field_blocks(result)["quote"].config
     assert config is not None
     assert config.max_files == 1
+    assert config.max_file_size == app_config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES
 
 
 ISSUE_CASES: list[tuple[FormIssueCode, list[dict[str, Any]], dict[str, Any], list]] = [

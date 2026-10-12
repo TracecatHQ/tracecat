@@ -8,6 +8,7 @@ can change after a form is saved.
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from tracecat import config as app_config
 from tracecat.expressions.schemas import ExpectedField
 from tracecat.forms.constants import MAX_FILES_PER_FIELD
 from tracecat.forms.enums import (
@@ -320,7 +321,11 @@ def _resolve_file_config(
             [*loc, "max_files"],
         )
     max_files = entry.max_files or MAX_FILES_PER_FIELD
-    return FormFieldConfig(accept=entry.accept, max_files=max_files if multiple else 1)
+    return FormFieldConfig(
+        accept=entry.accept,
+        max_files=max_files if multiple else 1,
+        max_file_size=app_config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES,
+    )
 
 
 def _resolve_visible_if(

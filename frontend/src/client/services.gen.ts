@@ -462,6 +462,8 @@ import type {
   FormsDeleteFormResponse,
   FormsDeleteFormSubmissionData,
   FormsDeleteFormSubmissionResponse,
+  FormsDownloadFormFileData,
+  FormsDownloadFormFileResponse,
   FormsGetFormData,
   FormsGetFormResponse,
   FormsGetFormSubmissionData,
@@ -488,6 +490,8 @@ import type {
   FormsSubmitFormResponse,
   FormsUpdateFormData,
   FormsUpdateFormResponse,
+  FormsUploadFormFileData,
+  FormsUploadFormFileResponse,
   FormsValidateFormData,
   FormsValidateFormResponse,
   GetCatalogEntryData,
@@ -11404,6 +11408,74 @@ export const formsListFormSubmissions = (
       submitted_before: data.submittedBefore,
       limit: data.limit,
       cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Upload Form File
+ * Upload a file for one of an online form's file fields.
+ *
+ * Submit the returned ID as the field's value. A file that is not submitted
+ * within 24 hours is deleted.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.workspaceId
+ * @param data.field Name of the file field the upload is for.
+ * @param data.formData
+ * @returns FormFileRead Successful Response
+ * @throws ApiError
+ */
+export const formsUploadFormFile = (
+  data: FormsUploadFormFileData
+): CancelablePromise<FormsUploadFormFileResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/forms/{form_id}/files",
+    path: {
+      form_id: data.formId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      field: data.field,
+    },
+    formData: data.formData,
+    mediaType: "multipart/form-data",
+    errors: {
+      400: "Bad Request",
+      409: "Conflict",
+      413: "Request Entity Too Large",
+      415: "Unsupported Media Type",
+      422: "Unprocessable Entity",
+      503: "Service Unavailable",
+    },
+  })
+}
+
+/**
+ * Download Form File
+ * Get a short-lived download URL for a file: one the caller uploaded, or
+ * any with form:submission:read.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.fileId
+ * @param data.workspaceId
+ * @returns FormFileDownload Successful Response
+ * @throws ApiError
+ */
+export const formsDownloadFormFile = (
+  data: FormsDownloadFormFileData
+): CancelablePromise<FormsDownloadFormFileResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/forms/{form_id}/files/{file_id}/download",
+    path: {
+      form_id: data.formId,
+      file_id: data.fileId,
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",

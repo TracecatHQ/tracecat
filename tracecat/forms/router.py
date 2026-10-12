@@ -2,10 +2,11 @@
 
 import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 
+from tracecat import config
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
@@ -16,11 +17,14 @@ from tracecat.forms.access import can_read_form_config
 from tracecat.forms.dependencies import require_forms_enabled
 from tracecat.forms.enums import FormErrorCode
 from tracecat.forms.exceptions import FormError
+from tracecat.forms.files import FormFilesService
 from tracecat.forms.schemas import (
     FormCreate,
     FormErrorDetail,
     FormErrorResponse,
     FormEventRead,
+    FormFileDownload,
+    FormFileRead,
     FormPreview,
     FormRead,
     FormReadMinimal,
@@ -54,7 +58,15 @@ _STATUS_BY_ERROR_CODE: dict[FormErrorCode, int] = {
     FormErrorCode.FORM_CHANGED: status.HTTP_409_CONFLICT,
     FormErrorCode.FORM_VALIDATION_ERROR: status.HTTP_422_UNPROCESSABLE_CONTENT,
     FormErrorCode.WORKFLOW_START_FAILED: status.HTTP_503_SERVICE_UNAVAILABLE,
+    FormErrorCode.FILE_FIELD_INVALID: status.HTTP_422_UNPROCESSABLE_CONTENT,
+    FormErrorCode.FILE_INVALID: status.HTTP_400_BAD_REQUEST,
+    FormErrorCode.FILE_TYPE_NOT_ALLOWED: status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+    FormErrorCode.FILE_TOO_LARGE: status.HTTP_413_CONTENT_TOO_LARGE,
+    FormErrorCode.FILE_LIMIT_REACHED: status.HTTP_409_CONFLICT,
+    FormErrorCode.FILE_UPLOAD_FAILED: status.HTTP_503_SERVICE_UNAVAILABLE,
 }
+
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
 
 
 def form_http_error(exc: FormError) -> HTTPException:
@@ -80,6 +92,25 @@ async def get_form_or_404(service: FormsService, form_id: uuid.UUID) -> Form:
             status_code=status.HTTP_404_NOT_FOUND, detail="Form not found"
         )
     return form
+
+
+async def read_upload(file: UploadFile) -> bytes:
+    """Read an upload in chunks, stopping as soon as it passes the size limit.
+
+    Raises:
+        FormError: ``file_too_large``.
+    """
+    max_size = config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES
+    await file.seek(0)
+    content = bytearray()
+    while chunk := await file.read(_UPLOAD_CHUNK_BYTES):
+        content.extend(chunk)
+        if len(content) > max_size:
+            raise FormError(
+                FormErrorCode.FILE_TOO_LARGE,
+                f"Files can be at most {max_size // (1024 * 1024)} MB",
+            )
+    return bytes(content)
 
 
 def require_config_access(role: Role) -> None:
@@ -324,6 +355,66 @@ async def submit_form(
         return await FormSubmissionsService(session, role).submit(form, params)
     except FormError as e:
         raise form_http_error(e) from e
+
+
+_FILE_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    code: {"model": FormErrorResponse} for code in (400, 409, 413, 415, 422, 503)
+}
+
+
+@router.post(
+    "/{form_id}/files",
+    status_code=status.HTTP_201_CREATED,
+    responses=_FILE_ERROR_RESPONSES,
+)
+@require_scope("form:read", "form:submit")
+async def upload_form_file(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    form_id: uuid.UUID,
+    file: UploadFile,
+    field: str = Query(
+        max_length=255, description="Name of the file field the upload is for."
+    ),
+) -> FormFileRead:
+    """Upload a file for one of an online form's file fields.
+
+    Submit the returned ID as the field's value. A file that is not submitted
+    within 24 hours is deleted.
+    """
+    form = await get_form_or_404(FormsService(session, role), form_id)
+    try:
+        content = await read_upload(file)
+        return await FormFilesService(session, role).upload(
+            form,
+            field,
+            filename=file.filename or "",
+            content_type=file.content_type or "application/octet-stream",
+            content=content,
+        )
+    except FormError as e:
+        raise form_http_error(e) from e
+
+
+@router.get("/{form_id}/files/{file_id}/download")
+@require_scope("form:read")
+async def download_form_file(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    form_id: uuid.UUID,
+    file_id: uuid.UUID,
+) -> FormFileDownload:
+    """Get a short-lived download URL for a file: one the caller uploaded, or
+    any with form:submission:read."""
+    form = await get_form_or_404(FormsService(session, role), form_id)
+    download = await FormFilesService(session, role).get_download(form.id, file_id)
+    if download is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="File not found"
+        )
+    return download
 
 
 @router.get("/{form_id}/submissions")

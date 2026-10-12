@@ -632,66 +632,6 @@ async def test_api_key_submission_fails_on_a_required_autofill_it_did_not_send(
     assert submission.answers == {"email": "maya.okafor@example.com"}
 
 
-# ----- File fields -----
-
-FILE_EXPECTS: dict[str, dict[str, Any]] = {
-    "has_quote": {"type": "bool", "default": False},
-    "quote": {"type": "dict | None", "default": None},
-}
-
-
-async def _file_form(
-    session: AsyncSession, role: Role, workspace: Workspace, *, conditional: bool
-) -> Form:
-    workflow = await create_workflow(session, workspace.id, title="Purchase")
-    await publish_workflow(session, role, workflow, FILE_EXPECTS)
-    quote: dict[str, Any] = {"field": "quote", "widget": "file", "accept": [".pdf"]}
-    if conditional:
-        quote["visible_if"] = {"field": "has_quote", "equals": True}
-    return await create_form(session, workflow, layout=[{"field": "has_quote"}, quote])
-
-
-@pytest.mark.parametrize("values", [{}, {"quote": str(uuid.uuid4())}])
-async def test_submit_with_a_visible_file_field_says_uploads_are_unavailable(
-    session: AsyncSession,
-    intake_role: Role,
-    temporal: FakeTemporal,
-    svc_workspace: Workspace,
-    values: dict[str, Any],
-) -> None:
-    form = await _file_form(session, intake_role, svc_workspace, conditional=False)
-    service = FormSubmissionsService(session, intake_role)
-
-    error = await _submit_error(service, form, values)
-
-    assert _field_errors(error) == {
-        "quote": FormFieldErrorCode.FILE_UPLOADS_UNAVAILABLE
-    }
-    [field_error] = error.errors or []
-    assert field_error.message == "File uploads are not available yet"
-    assert await _stored(session, FormSubmission) == []
-    temporal.connect.assert_not_awaited()
-
-
-async def test_file_field_the_requester_cannot_see_does_not_block_submit(
-    session: AsyncSession,
-    intake_role: Role,
-    temporal: FakeTemporal,
-    svc_workspace: Workspace,
-) -> None:
-    form = await _file_form(session, intake_role, svc_workspace, conditional=True)
-    service = FormSubmissionsService(session, intake_role)
-
-    await _submit(service, form, {})
-    error = await _submit_error(service, form, {"has_quote": True})
-
-    assert _field_errors(error) == {
-        "quote": FormFieldErrorCode.FILE_UPLOADS_UNAVAILABLE
-    }
-    [submission] = await _stored(session, FormSubmission)
-    assert submission.answers == {"has_quote": False, "quote": None}
-
-
 # ----- Form state -----
 
 
@@ -1065,6 +1005,12 @@ async def test_submissions_are_scoped_to_their_form(
         (FormErrorCode.FORM_CHANGED, 409),
         (FormErrorCode.FORM_VALIDATION_ERROR, 422),
         (FormErrorCode.WORKFLOW_START_FAILED, 503),
+        (FormErrorCode.FILE_FIELD_INVALID, 422),
+        (FormErrorCode.FILE_INVALID, 400),
+        (FormErrorCode.FILE_TYPE_NOT_ALLOWED, 415),
+        (FormErrorCode.FILE_TOO_LARGE, 413),
+        (FormErrorCode.FILE_LIMIT_REACHED, 409),
+        (FormErrorCode.FILE_UPLOAD_FAILED, 503),
     ],
 )
 def test_form_errors_map_to_http_statuses(

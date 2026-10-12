@@ -79,13 +79,13 @@ describe("mapFormFieldErrors", () => {
           { field: "quote", code: "required", message: "Required" },
           {
             field: "quote",
-            code: "file_uploads_unavailable",
-            message: "File uploads are not available yet",
+            code: "invalid_file",
+            message: "Upload the file again",
           },
         ],
         ["quote"]
       ).fieldErrors
-    ).toEqual({ quote: "File uploads are not available yet" })
+    ).toEqual({ quote: "Upload the file again" })
   })
 
   it("handles a response with no errors", () => {

@@ -454,8 +454,8 @@ describe("FormRenderer", () => {
             },
             {
               field: "quote",
-              code: "file_uploads_unavailable",
-              message: "File uploads are not available yet",
+              code: "invalid_file",
+              message: "Upload the file again",
             },
           ],
         })
@@ -469,7 +469,7 @@ describe("FormRenderer", () => {
       await user.click(submitButton())
 
       expect(
-        await screen.findByText("File uploads are not available yet")
+        await screen.findByText("Upload the file again")
       ).toBeInTheDocument()
       // No uploader was given, so there is no file ID to send.
       expect(onSubmit).toHaveBeenCalledWith({})

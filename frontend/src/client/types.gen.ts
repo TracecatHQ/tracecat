@@ -1917,6 +1917,10 @@ export type Body_case_attachments_create_attachment = {
   file: Blob | File
 }
 
+export type Body_forms_upload_form_file = {
+  file: Blob | File
+}
+
 export type Body_tables_import_csv = {
   file: Blob | File
   column_mapping: string
@@ -5119,6 +5123,12 @@ export type FormErrorCode =
   | "form_changed"
   | "form_validation_error"
   | "workflow_start_failed"
+  | "file_field_invalid"
+  | "file_invalid"
+  | "file_type_not_allowed"
+  | "file_too_large"
+  | "file_limit_reached"
+  | "file_upload_failed"
 
 export type FormErrorDetail = {
   code: FormErrorCode
@@ -5177,6 +5187,10 @@ export type FormFieldBlock = {
 export type FormFieldConfig = {
   accept?: Array<string> | null
   max_files?: number | null
+  /**
+   * Largest file the field takes, in bytes.
+   */
+  max_file_size?: number | null
 }
 
 /**
@@ -5218,13 +5232,36 @@ export type FormFieldErrorCode =
   | "invalid_option"
   | "invalid_date"
   | "invalid_user"
-  | "file_uploads_unavailable"
+  | "invalid_file"
+  | "too_many_files"
 
 export type FormFieldOption = {
   value: string
   label: string
   description?: string | null
   image?: string | null
+}
+
+export type FormFileDownload = {
+  /**
+   * Short-lived URL that forces a download.
+   */
+  download_url: string
+  file_name: string
+  content_type: string
+}
+
+/**
+ * An uploaded file. Also what a file ID expands to in the answers.
+ *
+ * Carries no storage key and no URL.
+ */
+export type FormFileRead = {
+  id: string
+  name: string
+  content_type: string
+  size: number
+  sha256: string
 }
 
 export type FormHeadingBlock = {
@@ -15809,6 +15846,26 @@ export type FormsListFormSubmissionsData = {
 export type FormsListFormSubmissionsResponse =
   CursorPaginatedResponse_FormSubmissionRead_
 
+export type FormsUploadFormFileData = {
+  /**
+   * Name of the file field the upload is for.
+   */
+  field: string
+  formData: Body_forms_upload_form_file
+  formId: string
+  workspaceId: string
+}
+
+export type FormsUploadFormFileResponse = FormFileRead
+
+export type FormsDownloadFormFileData = {
+  fileId: string
+  formId: string
+  workspaceId: string
+}
+
+export type FormsDownloadFormFileResponse = FormFileDownload
+
 export type FormsGetFormSubmissionData = {
   formId: string
   submissionId: string
@@ -23191,6 +23248,56 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: CursorPaginatedResponse_FormSubmissionRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/forms/{form_id}/files": {
+    post: {
+      req: FormsUploadFormFileData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: FormFileRead
+        /**
+         * Bad Request
+         */
+        400: FormErrorResponse
+        /**
+         * Conflict
+         */
+        409: FormErrorResponse
+        /**
+         * Request Entity Too Large
+         */
+        413: FormErrorResponse
+        /**
+         * Unsupported Media Type
+         */
+        415: FormErrorResponse
+        /**
+         * Unprocessable Entity
+         */
+        422: FormErrorResponse
+        /**
+         * Service Unavailable
+         */
+        503: FormErrorResponse
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/forms/{form_id}/files/{file_id}/download": {
+    get: {
+      req: FormsDownloadFormFileData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FormFileDownload
         /**
          * Validation Error
          */

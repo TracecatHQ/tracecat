@@ -25,6 +25,7 @@ from tracecat.forms.enums import (
     FormWidget,
 )
 from tracecat.forms.exceptions import FormError
+from tracecat.forms.files import FormFilesService
 from tracecat.forms.schemas import (
     FormFieldBlock,
     FormFieldError,
@@ -147,10 +148,15 @@ class FormSubmissionsService(BaseWorkspaceService):
             }
         checked = check_values(resolved.blocks, values)
         answers = checked.values
+        files = FormFilesService(self.session, self.role)
+        await files.purge_expired(form_id)
+        file_errors, claimed_files = await files.claim(
+            form_id, checked.visible, answers
+        )
         errors = [
             *checked.errors,
             *await self._expand_users(checked.visible, answers),
-            *await self._claim_files(checked.visible, answers),
+            *file_errors,
         ]
         if errors:
             raise FormError(
@@ -187,6 +193,9 @@ class FormSubmissionsService(BaseWorkspaceService):
         )
         self.session.add(submission)
         await self.session.flush()
+        # Claim the files. A start failure rolls this back with the row.
+        for file in claimed_files:
+            file.submission_id = submission_id
         self.session.add(
             FormEvent(
                 workspace_id=self.workspace_id,
@@ -314,25 +323,6 @@ class FormSubmissionsService(BaseWorkspaceService):
             expanded = [users[user_id] for user_id in user_ids]
             answers[name] = expanded if multiple[name] else expanded[0]
         return errors
-
-    async def _claim_files(
-        self, fields: Sequence[FormFieldBlock], answers: dict[str, Any]
-    ) -> list[FormFieldError]:
-        """Replace the file IDs of ``file`` fields with file objects, in place.
-
-        File uploads are not built yet. This is the seam: until the upload
-        milestone replaces this method, a submission that shows a ``file``
-        field is rejected, whether or not a file was sent.
-        """
-        return [
-            FormFieldError(
-                field=field.name,
-                code=FormFieldErrorCode.FILE_UPLOADS_UNAVAILABLE,
-                message="File uploads are not available yet",
-            )
-            for field in fields
-            if field.widget is FormWidget.FILE
-        ]
 
     async def _autofill(
         self,

@@ -7323,6 +7323,19 @@ export const $Body_case_attachments_create_attachment = {
   title: "Body_case-attachments-create_attachment",
 } as const
 
+export const $Body_forms_upload_form_file = {
+  properties: {
+    file: {
+      type: "string",
+      title: "File",
+      format: "binary",
+    },
+  },
+  type: "object",
+  required: ["file"],
+  title: "Body_forms-upload_form_file",
+} as const
+
 export const $Body_tables_import_csv = {
   properties: {
     file: {
@@ -16834,6 +16847,12 @@ export const $FormErrorCode = {
     "form_changed",
     "form_validation_error",
     "workflow_start_failed",
+    "file_field_invalid",
+    "file_invalid",
+    "file_type_not_allowed",
+    "file_too_large",
+    "file_limit_reached",
+    "file_upload_failed",
   ],
   title: "FormErrorCode",
   description: "Machine-readable failures of a forms request.",
@@ -17077,6 +17096,18 @@ export const $FormFieldConfig = {
       ],
       title: "Max Files",
     },
+    max_file_size: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max File Size",
+      description: "Largest file the field takes, in bytes.",
+    },
   },
   type: "object",
   title: "FormFieldConfig",
@@ -17243,7 +17274,8 @@ export const $FormFieldErrorCode = {
     "invalid_option",
     "invalid_date",
     "invalid_user",
-    "file_uploads_unavailable",
+    "invalid_file",
+    "too_many_files",
   ],
   title: "FormFieldErrorCode",
   description: "Why a submitted value was rejected.",
@@ -17285,6 +17317,59 @@ export const $FormFieldOption = {
   type: "object",
   required: ["value", "label"],
   title: "FormFieldOption",
+} as const
+
+export const $FormFileDownload = {
+  properties: {
+    download_url: {
+      type: "string",
+      title: "Download Url",
+      description: "Short-lived URL that forces a download.",
+    },
+    file_name: {
+      type: "string",
+      title: "File Name",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+    },
+  },
+  type: "object",
+  required: ["download_url", "file_name", "content_type"],
+  title: "FormFileDownload",
+} as const
+
+export const $FormFileRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+    },
+    size: {
+      type: "integer",
+      title: "Size",
+    },
+    sha256: {
+      type: "string",
+      title: "Sha256",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "content_type", "size", "sha256"],
+  title: "FormFileRead",
+  description: `An uploaded file. Also what a file ID expands to in the answers.
+
+Carries no storage key and no URL.`,
 } as const
 
 export const $FormHeadingBlock = {

@@ -247,6 +247,9 @@ class FormFieldConfig(Schema):
 
     accept: list[str] | None = None
     max_files: int | None = None
+    max_file_size: int | None = Field(
+        default=None, description="Largest file the field takes, in bytes."
+    )
 
 
 class FormFieldBlock(Schema):
@@ -433,6 +436,34 @@ class FormSubmissionRead(Schema):
         description="Null without form:submission:read, or if it is not known.",
     )
     submitted_at: datetime
+
+
+# ----- Files -----
+
+
+class FormFileRead(Schema):
+    """An uploaded file. Also what a file ID expands to in the answers.
+
+    Carries no storage key and no URL.
+    """
+
+    id: uuid.UUID
+    name: str
+    content_type: str
+    size: int
+    sha256: str
+
+
+class FormFileContent(FormFileRead):
+    """A file with its bytes, as a workflow run downloads it."""
+
+    content_base64: str
+
+
+class FormFileDownload(Schema):
+    download_url: str = Field(description="Short-lived URL that forces a download.")
+    file_name: str
+    content_type: str
 
 
 # ----- Requester API -----

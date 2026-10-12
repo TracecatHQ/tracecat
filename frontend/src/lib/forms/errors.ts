@@ -78,7 +78,7 @@ export interface MappedFormErrors {
  * Split a rejected submission's errors into per-field and form-level ones.
  *
  * The server can report several errors for one field (a required `file`
- * field reports both `required` and `file_uploads_unavailable`). Later errors
+ * field can report both `required` and `invalid_file`). Later errors
  * come from later, more specific checks, so the last one wins.
  */
 export function mapFormFieldErrors(

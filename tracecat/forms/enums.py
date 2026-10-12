@@ -107,6 +107,12 @@ class FormErrorCode(StrEnum):
     FORM_CHANGED = "form_changed"
     FORM_VALIDATION_ERROR = "form_validation_error"
     WORKFLOW_START_FAILED = "workflow_start_failed"
+    FILE_FIELD_INVALID = "file_field_invalid"
+    FILE_INVALID = "file_invalid"
+    FILE_TYPE_NOT_ALLOWED = "file_type_not_allowed"
+    FILE_TOO_LARGE = "file_too_large"
+    FILE_LIMIT_REACHED = "file_limit_reached"
+    FILE_UPLOAD_FAILED = "file_upload_failed"
 
 
 class FormFieldErrorCode(StrEnum):
@@ -118,4 +124,5 @@ class FormFieldErrorCode(StrEnum):
     INVALID_OPTION = "invalid_option"
     INVALID_DATE = "invalid_date"
     INVALID_USER = "invalid_user"
-    FILE_UPLOADS_UNAVAILABLE = "file_uploads_unavailable"
+    INVALID_FILE = "invalid_file"
+    TOO_MANY_FILES = "too_many_files"
