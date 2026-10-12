@@ -4,7 +4,11 @@ import { ChevronDown } from "lucide-react"
 import Link from "next/link"
 import { useCallback, useRef, useState } from "react"
 import { agentSessionsForkSession } from "@/client"
-import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+import { useScopeCheck } from "@/components/auth/scope-guard"
+import {
+  AGENT_EXECUTE_REQUIRED_MESSAGE,
+  ChatSessionPane,
+} from "@/components/chat/chat-session-pane"
 import { NoMessages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"
@@ -56,7 +60,10 @@ export function InboxDetail({
   // Block input when there are pending approvals and we haven't forked yet
   // User must make an approval decision before they can send messages
   const hasPendingApprovals = session.pendingApprovalCount > 0
-  const inputDisabled = !isForkedSession && hasPendingApprovals
+  // Replying forks the session and sends a message; both need agent:execute.
+  const cannotExecuteAgents = useScopeCheck("agent:execute") === false
+  const inputDisabled =
+    cannotExecuteAgents || (!isForkedSession && hasPendingApprovals)
   const resume = isLiveAgentStatus(session.derivedStatus)
 
   /**
@@ -172,7 +179,11 @@ export function InboxDetail({
       pendingMessage={pendingMessage}
       onPendingMessageSent={onPendingMessageSent}
       inputDisabled={inputDisabled}
-      inputDisabledPlaceholder="Make an approval decision to continue..."
+      inputDisabledPlaceholder={
+        cannotExecuteAgents
+          ? AGENT_EXECUTE_REQUIRED_MESSAGE
+          : "Make an approval decision to continue..."
+      }
       // Re-arm the SDK reconnect when an externally resolved approval moves
       // the session from PENDING_APPROVAL to RUNNING.
       resume={resume}

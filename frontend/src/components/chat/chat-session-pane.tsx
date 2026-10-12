@@ -313,6 +313,10 @@ export interface ChatSessionPaneProps {
   resume?: boolean
 }
 
+/** Composer placeholder for users whose role lacks `agent:execute`. */
+export const AGENT_EXECUTE_REQUIRED_MESSAGE =
+  "Your role cannot run agents. Ask an admin for the agent:execute scope."
+
 export function ChatSessionPane({
   chat,
   workspaceId,

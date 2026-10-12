@@ -60,11 +60,15 @@ import { AgentPresetDetailActions } from "@/components/agents/agent-preset-detai
 import { AgentPresetToolsList } from "@/components/agents/agent-preset-tools-list"
 import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
 import { SlackChannelPanel } from "@/components/agents/external-channels/slack-channel-panel"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   ChatHistoryDropdown,
   type ChatHistoryScope,
 } from "@/components/chat/chat-history-dropdown"
-import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+import {
+  AGENT_EXECUTE_REQUIRED_MESSAGE,
+  ChatSessionPane,
+} from "@/components/chat/chat-session-pane"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getModelProviderIconId, ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -607,6 +611,16 @@ export function AgentPresetArtifactView({
   )
 }
 
+/** Shown in place of a chat when the user's role lacks `agent:execute`. */
+function AgentExecuteRequiredNotice() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground">
+      <AlertCircle className="size-5 text-amber-500" />
+      <p className="max-w-xs text-pretty">{AGENT_EXECUTE_REQUIRED_MESSAGE}</p>
+    </div>
+  )
+}
+
 function AgentPresetChatPane({
   preset,
   workspaceId,
@@ -619,8 +633,11 @@ function AgentPresetChatPane({
   enabledModelsLoaded: boolean
 }) {
   const { user } = useAuth()
+  const canExecuteAgents = useScopeCheck("agent:execute")
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
   const [historyScope, setHistoryScope] = useState<ChatHistoryScope>("team")
+  // A failed create must not re-arm the auto-create effect below.
+  const [createChatFailed, setCreateChatFailed] = useState(false)
 
   const { chats, chatsLoading, chatsError, refetchChats } = useListChats(
     {
@@ -634,6 +651,7 @@ function AgentPresetChatPane({
 
   useEffect(() => {
     setSelectedChatId(null)
+    setCreateChatFailed(false)
   }, [preset?.id])
 
   const latestChatId =
@@ -699,19 +717,25 @@ function AgentPresetChatPane({
   }, [effectiveModelConfig, selectedModel])
 
   const canStartChat = Boolean(
-    preset &&
+    canExecuteAgents &&
+      preset &&
       effectiveModelConfig &&
       (!enabledModelsLoaded || selectedModel !== null || hasLegacyModelConfig)
   )
   const shouldAutoCreateChat =
-    canStartChat && !activeChatId && !chatsLoading && !createChatPending
+    canStartChat &&
+    !activeChatId &&
+    !chatsLoading &&
+    !createChatPending &&
+    !createChatFailed
 
   const handleCreateChat = async () => {
-    if (!preset || createChatPending) {
+    if (!preset || createChatPending || !canExecuteAgents) {
       return
     }
 
     try {
+      setCreateChatFailed(false)
       const newChat = await createChat({
         title: `${preset.name} chat`,
         entity_type: "agent_preset",
@@ -724,6 +748,7 @@ function AgentPresetChatPane({
       await refetchChats()
     } catch (error) {
       console.error("Failed to create agent preset chat", error)
+      setCreateChatFailed(true)
     }
   }
 
@@ -769,6 +794,10 @@ function AgentPresetChatPane({
           </Empty>
         </div>
       )
+    }
+
+    if (canExecuteAgents === false && !activeChatId && !chatsLoading) {
+      return <AgentExecuteRequiredNotice />
     }
 
     if (selectedVersionConfigIsLoading) {
@@ -852,6 +881,8 @@ function AgentPresetChatPane({
         placeholder={`Talk to ${preset.name}...`}
         modelInfo={modelInfo ?? undefined}
         toolsEnabled={false}
+        inputDisabled={canExecuteAgents === false}
+        inputDisabledPlaceholder={AGENT_EXECUTE_REQUIRED_MESSAGE}
       />
     )
   }
@@ -3107,9 +3138,12 @@ function AgentPresetBuilderChatPane({
   builderPrompt?: string
 }) {
   const { user } = useAuth()
+  const canExecuteAgents = useScopeCheck("agent:execute")
   const presetId = preset?.id
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
   const [historyScope, setHistoryScope] = useState<ChatHistoryScope>("team")
+  // A failed create must not re-arm the auto-create effect below.
+  const [createChatFailed, setCreateChatFailed] = useState(false)
   const [pendingBuilderPrompt, setPendingBuilderPrompt] = useState<
     string | undefined
   >(builderPrompt?.trim() ? builderPrompt.trim() : undefined)
@@ -3133,6 +3167,7 @@ function AgentPresetBuilderChatPane({
 
   useEffect(() => {
     setSelectedChatId(null)
+    setCreateChatFailed(false)
   }, [presetId])
 
   useEffect(() => {
@@ -3156,16 +3191,23 @@ function AgentPresetBuilderChatPane({
     workspaceId,
   })
 
-  const canStartChat = Boolean(presetId && chatReady && modelInfo)
+  const canStartChat = Boolean(
+    canExecuteAgents && presetId && chatReady && modelInfo
+  )
   const shouldAutoCreateChat =
-    canStartChat && !activeChatId && !chatsLoading && !createChatPending
+    canStartChat &&
+    !activeChatId &&
+    !chatsLoading &&
+    !createChatPending &&
+    !createChatFailed
 
   const handleCreateChat = async () => {
-    if (!preset || !presetId || createChatPending || !chatReady || !modelInfo) {
+    if (!preset || !presetId || createChatPending || !canStartChat) {
       return
     }
 
     try {
+      setCreateChatFailed(false)
       const newChat = await createChat({
         title: `${preset.name} builder assistant`,
         entity_type: "agent_preset_builder",
@@ -3175,6 +3217,7 @@ function AgentPresetBuilderChatPane({
       await refetchChats()
     } catch (error) {
       console.error("Failed to create builder assistant chat", error)
+      setCreateChatFailed(true)
     }
   }
 
@@ -3203,6 +3246,10 @@ function AgentPresetBuilderChatPane({
           </Empty>
         </div>
       )
+    }
+
+    if (canExecuteAgents === false && !activeChatId && !chatsLoading) {
+      return <AgentExecuteRequiredNotice />
     }
 
     if (chatReadyLoading) {
@@ -3306,8 +3353,12 @@ function AgentPresetBuilderChatPane({
         placeholder={`Talk to the builder assistant about your agent's prompt, tools, and approval rules...`}
         modelInfo={modelInfo ?? undefined}
         toolsEnabled={false}
-        pendingMessage={pendingBuilderPrompt}
+        pendingMessage={
+          canExecuteAgents === false ? undefined : pendingBuilderPrompt
+        }
         onPendingMessageSent={() => setPendingBuilderPrompt(undefined)}
+        inputDisabled={canExecuteAgents === false}
+        inputDisabledPlaceholder={AGENT_EXECUTE_REQUIRED_MESSAGE}
       />
     )
   }

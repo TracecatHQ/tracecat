@@ -1,13 +1,31 @@
 import { render, screen } from "@testing-library/react"
 import type { AgentSessionsGetSessionVercelResponse } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { InboxDetail } from "@/components/inbox/inbox-detail"
 import { useGetChatVercel } from "@/hooks/use-chat"
 import type { InboxSessionItem } from "@/lib/agents"
 import { useChatReadiness } from "@/lib/hooks"
 
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: jest.fn(),
+}))
 jest.mock("@/components/chat/chat-session-pane", () => ({
-  ChatSessionPane: ({ resume }: { resume?: boolean }) => (
-    <div data-testid="chat-session-pane" data-resume={String(resume)} />
+  AGENT_EXECUTE_REQUIRED_MESSAGE: "agent:execute required",
+  ChatSessionPane: ({
+    resume,
+    inputDisabled,
+    inputDisabledPlaceholder,
+  }: {
+    resume?: boolean
+    inputDisabled?: boolean
+    inputDisabledPlaceholder?: string
+  }) => (
+    <div
+      data-testid="chat-session-pane"
+      data-resume={String(resume)}
+      data-input-disabled={String(inputDisabled)}
+      data-input-disabled-placeholder={inputDisabledPlaceholder}
+    />
   ),
 }))
 jest.mock("@/hooks/use-chat", () => ({
@@ -25,6 +43,9 @@ const mockUseGetChatVercel = useGetChatVercel as jest.MockedFunction<
 >
 const mockUseChatReadiness = useChatReadiness as jest.MockedFunction<
   typeof useChatReadiness
+>
+const mockUseScopeCheck = useScopeCheck as jest.MockedFunction<
+  typeof useScopeCheck
 >
 
 const chat = {
@@ -73,6 +94,7 @@ describe("InboxDetail", () => {
       loading: false,
       modelInfo: { name: "gpt-4o-mini", provider: "openai" },
     })
+    mockUseScopeCheck.mockReturnValue(true)
   })
 
   afterEach(() => {
@@ -110,6 +132,41 @@ describe("InboxDetail", () => {
     expect(screen.getByTestId("chat-session-pane")).toHaveAttribute(
       "data-resume",
       "true"
+    )
+  })
+
+  it("disables replies with a reason when the role lacks agent:execute", () => {
+    mockUseScopeCheck.mockReturnValue(false)
+
+    render(
+      <InboxDetail
+        sessionId="session-1"
+        parentSessionId="session-1"
+        session={inboxSession({ pendingApprovalCount: 0 })}
+      />
+    )
+
+    const pane = screen.getByTestId("chat-session-pane")
+    expect(mockUseScopeCheck).toHaveBeenCalledWith("agent:execute")
+    expect(pane).toHaveAttribute("data-input-disabled", "true")
+    expect(pane).toHaveAttribute(
+      "data-input-disabled-placeholder",
+      "agent:execute required"
+    )
+  })
+
+  it("keeps replies enabled when the role has agent:execute", () => {
+    render(
+      <InboxDetail
+        sessionId="session-1"
+        parentSessionId="session-1"
+        session={inboxSession({ pendingApprovalCount: 0 })}
+      />
+    )
+
+    expect(screen.getByTestId("chat-session-pane")).toHaveAttribute(
+      "data-input-disabled",
+      "false"
     )
   })
 })

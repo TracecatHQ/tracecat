@@ -22,7 +22,10 @@ import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
 import type { ChatHistoryScope } from "@/components/chat/chat-history-dropdown"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
-import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+import {
+  AGENT_EXECUTE_REQUIRED_MESSAGE,
+  ChatSessionPane,
+} from "@/components/chat/chat-session-pane"
 import { NoMessages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -716,6 +719,7 @@ function ChatBody({
         }
       : undefined
   )
+  const cannotExecuteAgents = useScopeCheck("agent:execute") === false
 
   if (chatError) {
     return (
@@ -806,8 +810,12 @@ function ChatBody({
         presetSelector={presetSelector}
         onBeforeSend={onCreateSessionBeforeSend}
         optimisticBeforeSend
-        inputDisabled={draftInputDisabled}
-        inputDisabledPlaceholder="Creating chat..."
+        inputDisabled={draftInputDisabled || cannotExecuteAgents}
+        inputDisabledPlaceholder={
+          cannotExecuteAgents
+            ? AGENT_EXECUTE_REQUIRED_MESSAGE
+            : "Creating chat..."
+        }
         surface={surface}
         onMessagesChange={onMessagesChange}
         onData={onData}
@@ -839,6 +847,8 @@ function ChatBody({
       presetSelector={presetSelector}
       pendingMessage={pendingMessage ?? undefined}
       onPendingMessageSent={onPendingMessageSent}
+      inputDisabled={cannotExecuteAgents}
+      inputDisabledPlaceholder={AGENT_EXECUTE_REQUIRED_MESSAGE}
       surface={surface}
       onMessagesChange={onMessagesChange}
       onData={onData}
