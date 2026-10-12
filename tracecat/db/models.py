@@ -79,6 +79,7 @@ from tracecat.cases.enums import (
     CaseTaskStatus,
     CaseVersionField,
 )
+from tracecat.forms.enums import FormStatus
 from tracecat.identifiers import (
     OrganizationID,
     OwnerID,
@@ -1532,6 +1533,153 @@ class CaseTrigger(WorkspaceModel):
     )
 
     workflow: Mapped[Workflow] = relationship(back_populates="case_trigger")
+
+
+class Form(WorkspaceModel):
+    """Form configuration for a workflow. One form per workflow.
+
+    Deliberately has no relationship on ``Workflow``: ``layout`` can carry
+    inline images and must not load with every workflow.
+    """
+
+    __tablename__ = "form"
+    __table_args__ = (Index("ix_form_workspace_status", "workspace_id", "status"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("workflow.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), default=FormStatus.OFFLINE.value, nullable=False
+    )
+    title: Mapped[str | None] = mapped_column(String, nullable=True)
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
+    success_message: Mapped[str | None] = mapped_column(String, nullable=True)
+    layout: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Ordered layout entries. Null renders every input in schema order.",
+    )
+
+
+class FormSubmission(WorkspaceModel):
+    """One submission of a form, with the answers that started the run."""
+
+    __tablename__ = "form_submission"
+    __table_args__ = (
+        Index(
+            "ix_form_submission_form_created",
+            "workspace_id",
+            "form_id",
+            "created_at",
+            "surrogate_id",
+        ),
+        Index(
+            "ix_form_submission_user_created",
+            "submitted_by_user_id",
+            "created_at",
+            "surrogate_id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    form_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("form.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    submitted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    submitted_by_service_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("service_account.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    answers: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        default=dict,
+        nullable=False,
+        doc="Normalized trigger inputs the run was started with",
+    )
+    definition_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        doc="Workflow definition version the submission ran against",
+    )
+    wf_exec_id: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class FormEvent(WorkspaceModel):
+    """Activity record for a form (views and submissions)."""
+
+    __tablename__ = "form_event"
+    __table_args__ = (
+        Index(
+            "ix_form_event_form_created",
+            "workspace_id",
+            "form_id",
+            "created_at",
+            "surrogate_id",
+        ),
+        # View dedupe lookup.
+        Index(
+            "ix_form_event_view_dedupe",
+            "workspace_id",
+            "form_id",
+            "type",
+            "user_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    form_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("form.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    type: Mapped[str] = mapped_column(
+        String(32), nullable=False, doc="A FormEventType value"
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    service_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("service_account.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    submission_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("form_submission.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
 
 class Schedule(WorkspaceModel):
