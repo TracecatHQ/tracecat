@@ -1,0 +1,48 @@
+tracecat/workflow/management/management.py
+  s_7f6729d1c18d55::t_61ad919e5a2375 37,154,804-805,1065-1067
+tracecat/workflow/management/draft.py
+  s_7f6729d1c18d55::t_61ad919e5a2375 39,288,924,1034
+  s_7f6729d1c18d55::t_fcabdf1d982bbe 128
+alembic/versions/a7c1e5f20b34_add_workflow_expects_order.py
+  s_7f6729d1c18d55::t_61ad919e5a2375 1-33
+tests/unit/test_mcp_server.py
+  s_7f6729d1c18d55::t_0260a34192480f 1638,1720,1868,2659,2919
+  s_7f6729d1c18d55::t_6051100838b909 181
+tracecat/dsl/common.py
+  s_7f6729d1c18d55::t_fcabdf1d982bbe 133
+  s_7f6729d1c18d55::t_6b2ea0e415c539 6
+  s_7f6729d1c18d55::t_35bfad91c20bf8 24
+  s_7f6729d1c18d55::t_d712de8ab20526 134-176
+tracecat/workflow/management/definitions.py
+  s_7f6729d1c18d55::t_61ad919e5a2375 10,114-117,121
+tests/unit/test_workflow_management.py
+  s_7f6729d1c18d55::t_0260a34192480f 124,475
+tracecat/workflow/management/router.py
+  s_7f6729d1c18d55::t_61ad919e5a2375 42,376,379,392
+tests/unit/test_workflow_expects_order.py
+  s_7f6729d1c18d55::t_8e6e3b31c9d2a9 38
+  s_7f6729d1c18d55::t_2a54710ebeb320 188-190
+  s_7f6729d1c18d55::t_dae9a0c94e8a05 1-18,20-37,39-124,127,129-171,174-175,177-187,191-245,247-291
+  s_7f6729d1c18d55::t_004d4c2f3527cd 125-126,128,172-173,176,246
+  s_7f6729d1c18d55::t_5659989b884bf7 19
+tracecat/db/models.py
+  s_7f6729d1c18d55::t_61ad919e5a2375 1049-1053
+tests/unit/test_control_plane_audit.py
+  s_7f6729d1c18d55::t_0260a34192480f 230
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7ea44c4d542b99559294fb8573b4c721b1dee1c5",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
