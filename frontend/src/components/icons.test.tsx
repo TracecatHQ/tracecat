@@ -350,7 +350,7 @@ describe("Core and AI action icon mappings", () => {
     ["core.grpc.request", "network", "bg-cyan-500/10"],
     ["core.ssh.execute_command", "square-terminal", "bg-slate-500/10"],
     ["core.loop.start", "iteration-cw", "bg-orange-500/10"],
-    ["core.loop.end", "iteration-ccw", "bg-orange-500/10"],
+    ["core.loop.end", "circle-stop", "bg-orange-500/10"],
     ["core.cases.create_case", "shield-plus", "bg-rose-500/10"],
     ["core.cases.update_case", "square-pen", "bg-rose-500/10"],
     ["core.cases.create_comment", "message-circle-plus", "bg-rose-500/10"],

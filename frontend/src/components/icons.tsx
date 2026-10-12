@@ -23,6 +23,7 @@ import {
   Bug,
   Building2Icon,
   CirclePlay,
+  CircleStop,
   Code,
   Cpu,
   Crosshair,
@@ -36,7 +37,6 @@ import {
   Globe,
   GlobeLock,
   Headset,
-  IterationCcw,
   IterationCw,
   KeyRound,
   Landmark,
@@ -444,7 +444,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       "bg-orange-500/10 text-orange-600 dark:text-orange-400"
     ),
     "core.loop.end": createColoredLucideRenderer(
-      IterationCcw,
+      CircleStop,
       "bg-orange-500/10 text-orange-600 dark:text-orange-400"
     ),
     "core.cases": ({ className, ...rest }) => (
