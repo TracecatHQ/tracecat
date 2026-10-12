@@ -3266,7 +3266,7 @@ success, error
 ## Workflow Execution
 
 ### Trigger Type
-manual, scheduled, webhook, case
+manual, scheduled, webhook, case, form
 
 ### Execution Type
 draft, published

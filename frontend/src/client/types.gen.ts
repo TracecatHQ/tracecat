@@ -10187,7 +10187,7 @@ export type type5 = "schedule" | "webhook"
 /**
  * Trigger type for a workflow execution.
  */
-export type TriggerType = "manual" | "scheduled" | "webhook" | "case"
+export type TriggerType = "manual" | "scheduled" | "webhook" | "case" | "form"
 
 /**
  * Pydantic model for AI SDK UI Messages, used for validation between

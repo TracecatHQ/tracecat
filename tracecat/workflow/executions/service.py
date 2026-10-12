@@ -1516,13 +1516,14 @@ class WorkflowExecutionsService:
         ):
             kwargs["execution_timeout"] = execution_timeout
 
-        # Mint time_anchor for webhook/manual triggers if not explicitly provided.
+        # Mint time_anchor for webhook/manual/case/form triggers if not explicitly provided.
         # This ensures the time_anchor is baked into workflow input and survives resets.
         # Scheduled workflows resolve time_anchor via local activity using TemporalScheduledStartTime.
         if time_anchor is None and trigger_type in (
             TriggerType.WEBHOOK,
             TriggerType.MANUAL,
             TriggerType.CASE,
+            TriggerType.FORM,
         ):
             time_anchor = datetime.datetime.now(datetime.UTC)
 
@@ -1665,6 +1666,7 @@ class WorkflowExecutionsService:
             TriggerType.WEBHOOK,
             TriggerType.MANUAL,
             TriggerType.CASE,
+            TriggerType.FORM,
         ):
             time_anchor = datetime.datetime.now(datetime.UTC)
 

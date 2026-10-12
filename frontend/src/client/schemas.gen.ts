@@ -33541,7 +33541,7 @@ export const $Trigger = {
 
 export const $TriggerType = {
   type: "string",
-  enum: ["manual", "scheduled", "webhook", "case"],
+  enum: ["manual", "scheduled", "webhook", "case", "form"],
   title: "TriggerType",
   description: "Trigger type for a workflow execution.",
 } as const

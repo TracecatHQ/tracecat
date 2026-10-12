@@ -73,6 +73,7 @@ from tracecat.validation.schemas import (
 )
 from tracecat.workflow.executions.constants import WF_COMPLETED_REF, WF_TRIGGER_REF
 from tracecat.workflow.executions.enums import (
+    TriggerType,
     WorkflowEventType,
     WorkflowExecutionEventStatus,
 )
@@ -255,6 +256,12 @@ def _edit_role() -> Role:
         service_id="tracecat-api",
         scopes=frozenset({"*"}),
     )
+
+
+def test_domain_reference_lists_every_trigger_type():
+    expected = ", ".join(member.value for member in TriggerType)
+
+    assert f"### Trigger Type\n{expected}\n" in mcp_server._DOMAIN_REFERENCE_RENDERED
 
 
 @pytest.mark.anyio
