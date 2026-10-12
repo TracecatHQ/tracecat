@@ -22,7 +22,7 @@ import yaml
 from cryptography.fernet import Fernet
 from pydantic import SecretStr, ValidationError
 from pydantic_core import PydanticSerializationError
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.secrets.references.service import SecretReferencesService
 
@@ -71,11 +71,14 @@ from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets.enums import SecretSource
 from tracecat.secrets.schemas import AwsSecretReferenceUpdate, SecretKeyValue
 from tracecat.secrets.service import SecretsService, build_external_secret_reference
-from tracecat.sync import PullOptions, PushStatus
+from tracecat.sync import PullOptions, PullResult, PushStatus
 from tracecat.tables.schemas import TableUpdate
 from tracecat.tables.service import BaseTablesService
 from tracecat.tiers.enums import Entitlement
-from tracecat.workflow.store.schemas import WorkflowSyncPullRequest
+from tracecat.workflow.store.schemas import (
+    SecretStoreMappingSelection,
+    WorkflowSyncPullRequest,
+)
 from tracecat.workspace_sync.adapters import (
     AGENT_PRESET_RESOURCE_ADAPTER,
     RESOURCE_ADAPTERS_BY_TYPE,
@@ -86,6 +89,9 @@ from tracecat.workspace_sync.adapters import (
 from tracecat.workspace_sync.adapters.base import VersionedSlug
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.importer import WorkspaceResourceImportService
+from tracecat.workspace_sync.operations.domain import DurableSyncService
+from tracecat.workspace_sync.operations.schemas import PreparedSync, SyncOperationCreate
+from tracecat.workspace_sync.operations.types import StaleSyncPreviewError
 from tracecat.workspace_sync.resources import workflow_references
 from tracecat.workspace_sync.schemas import (
     AGENT_PRESET_ROOT,
@@ -9850,3 +9856,118 @@ def _yaml(data: dict[str, Any]) -> str:
     if payload.get("type") in {"agent_preset", "skill"}:
         payload["version"] = 2
     return yaml.safe_dump(payload, sort_keys=False)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "store_change",
+    [
+        None,
+        "rename",
+        "replace",
+        "disable",
+        "reconfigure",
+        "revoke",
+        "unrelated",
+        "legacy",
+    ],
+)
+@pytest.mark.parametrize("explicit_selection", [True, False])
+async def test_durable_pull_preserves_secret_store_mapping(
+    explicit_selection: bool,
+    store_change: str | None,
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    store_name = "chosen" if explicit_selection else "missing"
+    chosen = await _aws_store(session, svc_role, name=store_name)
+    server = FakeVcsServer()
+    url = GitUrl(host="github.com", org="example", repo="sync-test")
+    workspace = await session.scalar(
+        select(Workspace).where(Workspace.id == svc_role.workspace_id)
+    )
+    assert workspace is not None
+    workspace.settings = {
+        "git_repo_url": url.to_url(),
+        "git_provider": VcsProvider.GITHUB,
+    }
+    await session.flush()
+    service = DurableSyncService(
+        session, svc_role, transport_factory=server.transport_factory
+    )
+    snapshot = await _secret_snapshot(service, "vendor_api", "vendor_app")
+    commit = await service._transport_for_provider().write_files(
+        url=url,
+        files=snapshot.files,
+        message="Synthetic secret metadata",
+        branch="main",
+        create_pr=False,
+    )
+    assert commit.sha is not None
+    inputs = SyncOperationCreate(
+        id=uuid.uuid4(),
+        direction="pull",
+        pull=WorkflowSyncPullRequest(commit_sha=commit.sha, dry_run=True),
+    )
+    if explicit_selection:
+        unresolved = await service.prepare(inputs)
+        assert isinstance(unresolved.preview, PullResult)
+        assert unresolved.preview.secret_store_mapping_requirements
+        assert (
+            unresolved.preview.secret_store_mapping_requirements[0].source_store
+            == "missing"
+        )
+        assert inputs.pull is not None
+        inputs.pull.secret_store_mappings = [
+            SecretStoreMappingSelection(
+                source_store="missing", target_store_id=chosen.id
+            )
+        ]
+    prepared = await service.prepare(inputs)
+    prepared = PreparedSync.model_validate_json(prepared.model_dump_json())
+    assert isinstance(prepared.preview, PullResult)
+    assert prepared.preview.success is True
+    assert prepared.snapshot is not None
+    assert {spec.store for spec in prepared.snapshot.spec.secret_metadata.values()} == {
+        store_name
+    }
+    if store_change == "unrelated":
+        await _aws_store(session, svc_role, name="unrelated")
+    elif store_change:
+        if store_change in {"rename", "replace"}:
+            chosen.name = "renamed"
+        elif store_change == "disable":
+            chosen.enabled = False
+        elif store_change == "reconfigure":
+            chosen.config = {
+                **chosen.config,
+                "role_arn": "arn:aws:iam::123456789012:role/replacement",
+            }
+        elif store_change == "legacy":
+            prepared.secret_store_fingerprint = None
+        elif store_change == "revoke":
+            await session.execute(
+                delete(WorkspaceSecretStoreAuthorization).where(
+                    WorkspaceSecretStoreAuthorization.store_id == chosen.id
+                )
+            )
+        await session.flush()
+        if store_change == "replace":
+            await _aws_store(session, svc_role, name=store_name)
+        with pytest.raises(StaleSyncPreviewError):
+            await service.apply(inputs, prepared, inputs.id)
+        assert (
+            await session.scalar(
+                select(Secret.id).where(Secret.workspace_id == svc_role.workspace_id)
+            )
+            is None
+        )
+        return
+
+    # Confirmation imports the reviewed, correlated snapshot without asking again.
+    result = await service.apply(inputs, prepared, inputs.id)
+    assert isinstance(result, PullResult)
+    assert result.success is True, result.diagnostics
+    for name in ("vendor_api", "vendor_app"):
+        assert (await _workspace_secret(session, svc_role, name)).store_id == chosen.id

@@ -921,6 +921,9 @@ class WorkspaceSyncService(SyncMappingService):
                 root = str(getattr(projection.manifest.resources, adapter.spec_attr))
                 if cleaned := root.strip("/"):
                     roots.append(cleaned)
+            self._enforce_required_scopes(
+                sorted(_export_read_scopes_for_projection(projection, roots))
+            )
             return tuple(roots)
 
         roots = []
@@ -941,6 +944,9 @@ class WorkspaceSyncService(SyncMappingService):
                 source_path = adapter.source_path(source_id)
                 if "/" in source_path:
                     roots.append(source_path.rsplit("/", maxsplit=1)[0])
+        self._enforce_required_scopes(
+            sorted(_export_read_scopes_for_projection(projection, roots))
+        )
         return tuple(sorted(set(roots)))
 
     def _validate_projected_workspace_dependencies(self, spec: WorkspaceSpec) -> None:
@@ -2362,6 +2368,21 @@ def _export_read_scopes_for_spec(spec: WorkspaceSpec) -> set[str]:
     for adapter in WORKSPACE_RESOURCE_ADAPTERS:
         if adapter.specs(spec) and (scope := adapter.read_scope):
             scopes.add(scope)
+    return scopes
+
+
+def _export_read_scopes_for_projection(
+    projection: WorkspaceProjection, delete_roots: Sequence[str]
+) -> set[str]:
+    """Authorize exported data and every resource root the push can delete."""
+    scopes = _export_read_scopes_for_spec(projection.spec)
+    roots = projection.manifest.resources.model_dump()
+    for adapter in WORKSPACE_RESOURCE_ADAPTERS:
+        root = roots[adapter.spec_attr].strip("/")
+        if adapter.read_scope and any(
+            path == root or path.startswith(root + "/") for path in delete_roots
+        ):
+            scopes.add(adapter.read_scope)
     return scopes
 
 

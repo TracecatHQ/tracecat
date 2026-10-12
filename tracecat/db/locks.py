@@ -5,9 +5,56 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
 from tracecat.identifiers import WorkspaceID
+
+
+@asynccontextmanager
+async def pg_advisory_connection_lock(
+    connection: AsyncConnection, key: int
+) -> AsyncIterator[None]:
+    """Hold a lock across transactions on a pinned connection.
+
+    End the acquisition transaction before yielding so a subsequent repeatable
+    snapshot includes everything committed by the previous lock holder.
+    """
+    if not (-(2**63) <= key < 2**63):
+        raise ValueError(f"Lock key {key} out of range for PostgreSQL advisory locks")
+    try:
+        await connection.execute(text("SELECT pg_advisory_lock(:key)"), {"key": key})
+        await connection.commit()
+    except BaseException:
+        # Cancellation may race with lock acquisition. Never return a connection
+        # carrying a session lock to the pool, even if cleanup SQL cannot run.
+        await connection.invalidate()
+        raise
+    try:
+        yield
+    except Exception:
+        try:
+            await _release_connection_lock(connection, key)
+        except BaseException:
+            # Cleanup must not replace the original domain error.
+            await connection.invalidate()
+        raise
+    except BaseException:
+        await connection.invalidate()
+        raise
+    else:
+        try:
+            await _release_connection_lock(connection, key)
+        except BaseException:
+            await connection.invalidate()
+            raise
+
+
+async def _release_connection_lock(connection: AsyncConnection, key: int) -> None:
+    if connection.invalidated:
+        return
+    await connection.rollback()
+    await connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": key})
+    await connection.commit()
 
 
 @asynccontextmanager
@@ -70,6 +117,17 @@ async def try_pg_advisory_xact_lock(session: AsyncSession, key: int) -> bool:
         text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": key}
     )
     return result.scalar() is True
+
+
+async def pg_advisory_xact_lock(session: AsyncSession, key: int) -> None:
+    """Acquire a transaction-scoped lock; use before reading at READ COMMITTED.
+
+    Repeatable snapshots that may wait need ``pg_advisory_connection_lock``
+    before the snapshot transaction starts instead.
+    """
+    if not (-(2**63) <= key < 2**63):
+        raise ValueError(f"Lock key {key} out of range for PostgreSQL advisory locks")
+    await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
 
 
 async def pg_advisory_unlock(session: AsyncSession, key: int) -> bool:
