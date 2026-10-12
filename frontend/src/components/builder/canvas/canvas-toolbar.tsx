@@ -506,8 +506,6 @@ function ToolbarCategoryDropdown({
     },
     [onOpenChange]
   )
-  const isAiCategory = category.id === "ai"
-  const isAgentCategory = category.id === "agent"
   const categoryStyle = CATEGORY_STYLES[category.id]
 
   const filteredActions = useMemo(() => {
@@ -536,20 +534,6 @@ function ToolbarCategoryDropdown({
   )
 
   function renderActionIcon(action: RegistryActionReadMinimal) {
-    if (isAiCategory) {
-      return (
-        <div className="flex size-8 items-center justify-center rounded-md border border-sky-100 bg-sky-50/80 dark:border-sky-900 dark:bg-sky-500/10">
-          <SparklesIcon className="size-4 text-foreground" />
-        </div>
-      )
-    }
-    if (isAgentCategory) {
-      return (
-        <div className="flex size-8 items-center justify-center rounded-md border border-emerald-100 bg-emerald-50/80 dark:border-emerald-900 dark:bg-emerald-500/10">
-          <MousePointerClickIcon className="size-4 text-foreground" />
-        </div>
-      )
-    }
     return getIcon(action.action, {
       className: "size-8 rounded-md border p-1.5",
     })
