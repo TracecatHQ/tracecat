@@ -1,0 +1,39 @@
+tracecat/workspace_sync/schemas.py
+  s_7f6729d1c18d55::t_4ec9fc6e045ddc 24,162-164
+  s_7f6729d1c18d55::t_c6ddb152966183 165
+tracecat/workflow/store/schemas.py
+  s_7f6729d1c18d55::t_4419966b29d58f 16-17
+  s_7f6729d1c18d55::t_4ec9fc6e045ddc 221-230,304-305
+  s_7f6729d1c18d55::t_bab93ea7114c3e 306
+tracecat/forms/service.py
+  s_7f6729d1c18d55::t_4419966b29d58f 493-529
+tracecat/workflow/store/import_service.py
+  s_7f6729d1c18d55::t_4419966b29d58f 15-17,34,201-203,471,515,617-636,759-788
+tests/unit/test_workflow_import_service_folders.py
+  s_7f6729d1c18d55::t_923d818fe156fe 152,188,220
+tracecat/workspace_sync/workflow.py
+  s_7f6729d1c18d55::t_4ec9fc6e045ddc 26,29-30,36,96-109,116,120-122,171,216,365
+tracecat/workspace_sync/service.py
+  s_7f6729d1c18d55::t_4419966b29d58f 26
+  s_7f6729d1c18d55::t_4ec9fc6e045ddc 503-506,531,584-595
+  s_7f6729d1c18d55::t_b6d6ef9c24f014 596
+tests/unit/test_workspace_sync_acceptance_contract.py
+  s_7f6729d1c18d55::t_1deef595c475a7 48-49,70-71,9857-9860,9865-10110
+  s_7f6729d1c18d55::t_c4a53b604e5c28 9861-9864
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "341e73cba85973e5898caf5240e619b50d460874",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
