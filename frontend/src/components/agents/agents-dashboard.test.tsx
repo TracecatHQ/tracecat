@@ -377,7 +377,7 @@ describe("AgentsDashboard entitlement split", () => {
     it.each([
       ["custom.first", "custom.second"],
       ["tools.gitlab", "tools.misp", "tools.opensearch"],
-      ["ai", "ai.agent", "ai.skill", "custom.first"],
+      ["ai", "ai.agent", "ai.skill"],
     ])("preserves namespaces sharing one icon: %s", async (...namespaces) => {
       renderPreset({
         tool_count: 2,
