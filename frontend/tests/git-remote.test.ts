@@ -4,7 +4,6 @@ import {
   type GitRemoteTarget,
   getAppRepositoryGitUrl,
   getBaseUrlHost,
-  getBaseUrlPath,
   parseGitRemote,
 } from "@/lib/git-remote"
 
@@ -54,11 +53,6 @@ describe("parseGitRemote", () => {
   })
 
   it.each([
-    "TracecatHQ/detections",
-    "https://github.com/TracecatHQ/detections",
-    "https://github.com/TracecatHQ/detections/tree/main/workflows",
-    "https://www.github.com/TracecatHQ/detections.git/",
-    "github.com/TracecatHQ/detections/blob/main/README.md",
     "git@github.com:TracecatHQ/detections.git",
     "git+ssh://git@github.com/TracecatHQ/detections.git",
     "ssh://git@github.com/TracecatHQ/detections",
@@ -86,9 +80,21 @@ describe("parseGitRemote", () => {
     })
   })
 
+  it.each([
+    "TracecatHQ/detections",
+    "github.com/TracecatHQ/detections",
+    "https://github.com/TracecatHQ/detections",
+  ])("rejects non-SSH input %s", (input) => {
+    expectError(
+      input,
+      github,
+      "Paste the SSH clone URL, e.g. git@github.com:owner/repository.git."
+    )
+  })
+
   it("rejects a host the organization has not set up", () => {
     expectError(
-      "https://gitlab.com/TracecatHQ/detections",
+      "git@gitlab.com:TracecatHQ/detections.git",
       github,
       "gitlab.com isn't set up for this organization. GitHub here is github.com."
     )
@@ -96,7 +102,7 @@ describe("parseGitRemote", () => {
 
   it("accepts another GitHub host when the host is not known", () => {
     expectGitUrl(
-      "https://github.example.com/TracecatHQ/detections",
+      "git@github.example.com:TracecatHQ/detections.git",
       { ...github, hostIsKnown: false },
       "git+ssh://git@github.example.com/TracecatHQ/detections.git"
     )
@@ -104,19 +110,15 @@ describe("parseGitRemote", () => {
 
   it("rejects a GitHub path without a repository", () => {
     expectError(
-      "TracecatHQ",
+      "git@github.com:TracecatHQ.git",
       github,
-      "Enter owner/repository or a GitHub repository URL."
+      "Paste the SSH clone URL, e.g. git@github.com:owner/repository.git."
     )
   })
 
   it.each([
-    "group/sub/project",
-    "https://gitlab.example.com/group/sub/project",
-    "https://gitlab.example.com/group/sub/project/-/tree/main",
-    "https://gitlab.example.com/group/sub/project.git",
-    "gitlab.example.com/group/sub/project",
     "git@gitlab.example.com:group/sub/project.git",
+    "ssh://git@gitlab.example.com/group/sub/project.git",
   ])("keeps GitLab nested groups for %s", (input) => {
     expectGitUrl(
       input,
@@ -125,45 +127,10 @@ describe("parseGitRemote", () => {
     )
   })
 
-  it("reads a dotted first segment as a GitLab group on a known host", () => {
-    expectGitUrl(
-      "security.tools/platform/project",
-      gitlab,
-      "git+ssh://git@gitlab.example.com/security.tools/platform/project.git"
-    )
-  })
-
-  it("keeps www. on a self-hosted host", () => {
-    expectGitUrl(
-      "https://www.gitlab.example.com/group/project",
-      { ...gitlab, host: "www.gitlab.example.com" },
-      "git+ssh://git@www.gitlab.example.com/group/project.git"
-    )
-  })
-
-  it("reads www. before the GitLab host as that host", () => {
-    for (const input of [
-      "www.gitlab.example.com/group/project",
-      "https://www.gitlab.example.com/group/project",
-    ]) {
-      expectGitUrl(
-        input,
-        gitlab,
-        "git+ssh://git@gitlab.example.com/group/project.git"
-      )
-    }
-  })
-
-  it("drops a GitLab base path from browser URLs only", () => {
-    const target = { ...gitlab, basePath: "/gitlab" }
-    expectGitUrl(
-      "https://gitlab.example.com/gitlab/group/project/-/tree/main",
-      target,
-      "git+ssh://git@gitlab.example.com/group/project.git"
-    )
+  it("keeps a GitLab path that looks like a base path", () => {
     expectGitUrl(
       "git@gitlab.example.com:gitlab/project.git",
-      target,
+      gitlab,
       "git+ssh://git@gitlab.example.com/gitlab/project.git"
     )
   })
@@ -178,13 +145,13 @@ describe("parseGitRemote", () => {
 
   it("rejects a GitLab host that is not the organization's", () => {
     expectError(
-      "https://gitlab.com/group/project",
+      "git@gitlab.com:group/project.git",
       gitlab,
       "gitlab.com isn't set up for this organization. GitLab here is gitlab.example.com."
     )
   })
 
-  it("asks for a full URL when the GitLab host is unknown", () => {
+  it("takes the host from SSH input when the GitLab host is unknown", () => {
     const target = {
       ...gitlab,
       host: undefined,
@@ -192,22 +159,20 @@ describe("parseGitRemote", () => {
       orgConfigured: false,
     }
     expectError(
-      "group/project",
+      "https://gitlab.example.com/gitlab/group/project",
       target,
-      "Paste the full repository URL from GitLab."
+      "Paste the SSH clone URL, e.g. git@gitlab.example.com:group/project.git."
     )
     expectGitUrl(
-      "https://gitlab.example.com/group/project",
+      "git@gitlab.example.com:group/project.git",
       target,
       "git+ssh://git@gitlab.example.com/group/project.git"
     )
   })
 
   it.each([
-    "example-workspace/example-repo",
-    "https://bitbucket.org/example-workspace/example-repo/src/main/",
-    "https://user@bitbucket.org/example-workspace/example-repo.git",
     "git@bitbucket.org:example-workspace/example-repo.git",
+    "ssh://git@bitbucket.org/example-workspace/example-repo.git",
   ])("resolves Bitbucket Cloud input %s", (input) => {
     expectGitUrl(
       input,
@@ -218,22 +183,9 @@ describe("parseGitRemote", () => {
 
   it("rejects non-bitbucket.org hosts for Bitbucket Cloud", () => {
     expectError(
-      "https://bitbucket.example.com/example-workspace/example-repo",
+      "git@bitbucket.example.com:example-workspace/example-repo.git",
       bitbucket,
       "Bitbucket Cloud repositories here are on bitbucket.org, not bitbucket.example.com."
-    )
-  })
-
-  it.each([
-    "PROJ/detections",
-    "https://bitbucket.example.com/projects/PROJ/repos/detections/browse",
-    "https://bitbucket.example.com/context/projects/PROJ/repos/detections",
-    "https://bitbucket.example.com/scm/PROJ/detections.git",
-  ])("resolves Bitbucket Data Center input %s", (input) => {
-    expectGitUrl(
-      input,
-      dataCenter,
-      "git+ssh://git@bitbucket.example.com/PROJ/detections.git"
     )
   })
 
@@ -270,7 +222,7 @@ describe("parseGitRemote", () => {
     expectError(
       "git+ssh://git@bitbucket.example.com/PROJ/sub/detections.git",
       dataCenter,
-      "Enter PROJECT/repository or a Bitbucket Data Center repository URL."
+      "Paste the SSH clone URL, e.g. git@bitbucket.example.com:PROJECT/repository.git."
     )
   })
 })
@@ -281,11 +233,6 @@ describe("git remote helpers", () => {
       "gitlab.example.com"
     )
     expect(getBaseUrlHost("not a url")).toBeUndefined()
-  })
-
-  it("reads base paths from provider base URLs", () => {
-    expect(getBaseUrlPath("https://gitlab.example.com/gitlab/")).toBe("/gitlab")
-    expect(getBaseUrlPath("https://gitlab.example.com")).toBeUndefined()
   })
 
   it("pins a non-main default branch for app repositories", () => {

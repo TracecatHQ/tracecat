@@ -71,6 +71,7 @@ import {
   type GitRemoteTarget,
   getAppRepositoryGitUrl,
   getGitSshHost,
+  getSshCloneExample,
   parseGitRemote,
 } from "@/lib/git-remote"
 import { useGitHubAppRepositories, useWorkspaceSettings } from "@/lib/hooks"
@@ -342,7 +343,7 @@ function GitSyncConnect({
                 : input.trim()
             }
             onSelect={(appRepository) => {
-              setInput(appRepository.full_name)
+              setInput(getAppRepositoryGitUrl(appRepository))
               setHasAttempted(false)
             }}
           />
@@ -457,31 +458,6 @@ function getInitialProvider(
   return undefined
 }
 
-/** Prefill a short path when the stored URL is the plain form for its host. */
-function getPrefill(
-  persistedUrl: string | undefined,
-  persistedProvider: VcsProvider | undefined,
-  candidates: ConfiguredGitProvider[]
-) {
-  if (!persistedUrl) {
-    return ""
-  }
-  const host = getGitSshHost(persistedUrl)
-  const path = getRepoDisplayName(persistedUrl)
-  const providerHost =
-    candidates.find((entry) => entry.id === persistedProvider)?.host ??
-    (persistedProvider ? DEFAULT_GIT_HOSTS[persistedProvider] : undefined)
-  if (
-    host &&
-    path &&
-    host === providerHost &&
-    persistedUrl === `git+ssh://git@${host}/${path}.git`
-  ) {
-    return path
-  }
-  return persistedUrl
-}
-
 function getRemoteTarget(
   candidate: ConfiguredGitProvider,
   orgConfigured: boolean,
@@ -510,7 +486,6 @@ function getRemoteTarget(
     host: candidate.host,
     hostIsKnown: orgConfigured && Boolean(candidate.host),
     orgConfigured,
-    basePath: candidate.basePath,
   }
 }
 
@@ -560,33 +535,11 @@ function resolveConnection(
   return { kind: "ok", gitUrl: getAppRepositoryGitUrl(repository) }
 }
 
-function getPlaceholder(provider: VcsProvider) {
-  switch (provider) {
-    case "github":
-      return "owner/repository"
-    case "gitlab":
-      return "group/project"
-    case "bitbucket":
-      return "workspace/repository"
-    case "bitbucket_data_center":
-      return "https://bitbucket.example.com/projects/PROJECT/repos/repository"
-  }
-}
-
 function getProviderHint(provider: VcsProvider, host: string | undefined) {
-  // A bare path needs a known host, so without one only a full URL works.
-  if (!host) {
-    return `Paste the full repository URL from ${GIT_PROVIDER_LABELS[provider]}.`
+  if (provider === "github") {
+    return "Pick a repository below, or paste its SSH clone URL."
   }
-  const source = host
-  switch (provider) {
-    case "gitlab":
-      return `Paste the project URL from ${source}, or type group/project. Nested groups work.`
-    case "bitbucket_data_center":
-      return `Paste the repository URL from ${source}.`
-    default:
-      return `Paste the repository URL from ${source}, or type ${getPlaceholder(provider)}.`
-  }
+  return `Paste the SSH clone URL from ${host ?? GIT_PROVIDER_LABELS[provider]}.`
 }
 
 /** Access source for the provider, claiming only what the data supports. */
@@ -710,7 +663,7 @@ function RepositoryField({
           "h-10 font-mono",
           error && "border-destructive focus-visible:ring-destructive"
         )}
-        placeholder={provider ? getPlaceholder(provider) : undefined}
+        placeholder={provider ? getSshCloneExample(provider, host) : undefined}
         value={value}
         disabled={disabled}
         autoFocus={autoFocus}
@@ -754,13 +707,13 @@ function AppRepositoryList({
   } else if (hasError) {
     content = (
       <p className="text-sm text-muted-foreground">
-        Couldn&apos;t load the list. A pasted repository URL still works.
+        Couldn&apos;t load the list. A pasted SSH clone URL still works.
       </p>
     )
   } else if (matches.length === 0) {
     content = (
       <p className="text-sm text-muted-foreground">
-        No match. Paste the full URL to check it.
+        No match. Paste the SSH clone URL to check it.
       </p>
     )
   } else {
@@ -932,9 +885,7 @@ function RepositoryEditor({
     provider,
     persistedUrl
   )
-  const [input, setInput] = useState(() =>
-    getPrefill(persistedUrl, provider, candidates)
-  )
+  const [input, setInput] = useState(persistedUrl ?? "")
   const [hasAttempted, setHasAttempted] = useState(false)
   const queryClient = useQueryClient()
   const { updateWorkspace, isUpdating } = useWorkspaceSettings(workspace.id)

@@ -18,14 +18,12 @@ export const DEFAULT_GIT_HOSTS: Partial<Record<VcsProvider, string>> = {
 /** Where pasted repository references are resolved for one provider. */
 export interface GitRemoteTarget {
   provider: VcsProvider
-  /** Host used for bare `owner/repo` input; undefined when unknown. */
+  /** Host the provider is set up on; undefined when unknown. */
   host?: string
   /** True when `host` is authoritative, so other hosts are rejected. */
   hostIsKnown: boolean
   /** True when the host comes from the organization's provider setup. */
   orgConfigured: boolean
-  /** Web path a self-hosted GitLab is served under, e.g. `/gitlab`. */
-  basePath?: string
 }
 
 /** A repository reference resolved to the git+ssh URL the workspace stores. */
@@ -50,18 +48,17 @@ const PATH_SEGMENT_REGEX = /^[\w.~-]+$/
 
 interface RawRemote {
   user: string
-  host?: string
+  host: string
   port?: string
   segments: string[]
   ref?: string
 }
 
 /**
- * Parse remote line input into the git+ssh URL a workspace stores.
+ * Parse an SSH clone URL into the git+ssh URL a workspace stores.
  *
- * Accepts https URLs, scp-style `git@host:owner/repo.git`, `git+ssh://` and
- * `ssh://` URLs, `host/owner/repo`, and bare `owner/repo` (resolved against
- * the target host). Web URLs drop UI suffixes such as `/tree/main`.
+ * Accepts scp-style `git@host:owner/repo.git` and `git+ssh://` or `ssh://`
+ * URLs. Web URLs are rejected: only SSH remotes are supported.
  */
 export function parseGitRemote(
   input: string,
@@ -71,17 +68,14 @@ export function parseGitRemote(
   if (!value) {
     return { kind: "empty" }
   }
-  const raw = toRawRemote(value, target)
+  const raw = toRawRemote(value)
   if (!raw) {
     return { kind: "invalid", message: describeExpectedInput(target) }
   }
   return validateRawRemote(raw, target)
 }
 
-function toRawRemote(
-  value: string,
-  target: GitRemoteTarget
-): RawRemote | undefined {
+function toRawRemote(value: string): RawRemote | undefined {
   const ssh = SSH_URL_REGEX.exec(value)?.groups
   if (ssh) {
     return splitSshPath({
@@ -95,43 +89,7 @@ function toRawRemote(
   if (scp && !value.includes("://")) {
     return splitSshPath({ user: scp.user, host: scp.host, rest: scp.rest })
   }
-  if (/^https?:\/\//i.test(value)) {
-    let url: URL
-    try {
-      url = new URL(value)
-    } catch {
-      return undefined
-    }
-    return {
-      user: "git",
-      host: resolveHost(url.hostname, target),
-      segments: webPathSegments(url.pathname, target),
-    }
-  }
-  if (value.includes("://") || /\s/.test(value)) {
-    return undefined
-  }
-  const segments = value.split("/").filter(Boolean)
-  const [first] = segments
-  // GitLab group names may contain dots, so on a known GitLab host a dotted
-  // first segment is a group, not another host.
-  const dottedFirstIsGroup = target.provider === "gitlab" && target.hostIsKnown
-  const firstIsHost =
-    first !== undefined &&
-    (resolveHost(first, target) === target.host ||
-      (segments.length >= 3 && !dottedFirstIsGroup && /[.:]/.test(first)))
-  if (firstIsHost) {
-    return {
-      user: "git",
-      host: resolveHost(first.split(":")[0], target),
-      segments: webPathSegments(segments.slice(1).join("/"), target),
-    }
-  }
-  return {
-    user: "git",
-    host: target.host,
-    segments: webPathSegments(value, { ...target, basePath: undefined }),
-  }
+  return undefined
 }
 
 function splitSshPath({
@@ -156,55 +114,11 @@ function splitSshPath({
   }
 }
 
-/** Repository path segments from a web URL path, without UI suffixes. */
-function webPathSegments(pathname: string, target: GitRemoteTarget): string[] {
-  const segments = pathname.split("/").filter(Boolean)
-  switch (target.provider) {
-    case "gitlab": {
-      // Browser URLs include the instance's base path; SSH paths do not.
-      const repoPath = stripPathPrefix(segments, target.basePath)
-      const uiIndex = repoPath.indexOf("-")
-      const repoSegments = uiIndex >= 0 ? repoPath.slice(0, uiIndex) : repoPath
-      return stripLastGitSuffix(repoSegments)
-    }
-    case "bitbucket_data_center": {
-      const projectsIndex = segments.findIndex(
-        (segment) => segment.toLowerCase() === "projects"
-      )
-      if (
-        projectsIndex >= 0 &&
-        segments[projectsIndex + 2]?.toLowerCase() === "repos"
-      ) {
-        return stripLastGitSuffix([
-          segments[projectsIndex + 1],
-          segments[projectsIndex + 3],
-        ])
-      }
-      const scmIndex = segments.findIndex(
-        (segment) => segment.toLowerCase() === "scm"
-      )
-      if (scmIndex >= 0) {
-        return stripLastGitSuffix(segments.slice(scmIndex + 1, scmIndex + 3))
-      }
-      return stripLastGitSuffix(segments.slice(0, 2))
-    }
-    case "github":
-    case "bitbucket":
-      return stripLastGitSuffix(segments.slice(0, 2))
-  }
-}
-
 function validateRawRemote(
   raw: RawRemote,
   target: GitRemoteTarget
 ): GitRemoteParseResult {
   const label = GIT_PROVIDER_LABELS[target.provider]
-  if (!raw.host) {
-    return {
-      kind: "invalid",
-      message: `Paste the full repository URL from ${label}.`,
-    }
-  }
   // Data Center SSH included: its transport requires the instance host exactly.
   if (
     target.hostIsKnown &&
@@ -252,15 +166,23 @@ function validateRawRemote(
 }
 
 function describeExpectedInput(target: GitRemoteTarget): string {
-  switch (target.provider) {
+  return `Paste the SSH clone URL, e.g. ${getSshCloneExample(target.provider, target.host)}.`
+}
+
+/** Example SSH clone URL for a provider, on its host when known. */
+export function getSshCloneExample(
+  provider: VcsProvider,
+  host: string | undefined
+): string {
+  switch (provider) {
     case "github":
-      return "Enter owner/repository or a GitHub repository URL."
+      return `git@${host ?? "github.com"}:owner/repository.git`
     case "gitlab":
-      return "Enter group/project or a GitLab repository URL."
+      return `git@${host ?? "gitlab.example.com"}:group/project.git`
     case "bitbucket":
-      return "Enter workspace/repository or a bitbucket.org repository URL."
+      return "git@bitbucket.org:workspace/repository.git"
     case "bitbucket_data_center":
-      return "Enter PROJECT/repository or a Bitbucket Data Center repository URL."
+      return `git@${host ?? "bitbucket.example.com"}:PROJECT/repository.git`
   }
 }
 
@@ -281,37 +203,8 @@ function normalizeHost(host: string): string {
   return WWW_ALIAS_HOSTS.has(bare) ? bare : lower
 }
 
-/** A `www.` alias of the target host is the target host. */
-function resolveHost(host: string, target: GitRemoteTarget): string {
-  const normalized = normalizeHost(host)
-  if (target.host && normalized === `www.${target.host}`) {
-    return target.host
-  }
-  return normalized
-}
-
-function stripPathPrefix(segments: string[], prefix: string | undefined) {
-  const prefixSegments = prefix?.split("/").filter(Boolean) ?? []
-  if (
-    prefixSegments.length === 0 ||
-    !prefixSegments.every((segment, index) => segments[index] === segment)
-  ) {
-    return segments
-  }
-  return segments.slice(prefixSegments.length)
-}
-
 function stripGitSuffix(path: string): string {
   return path.replace(/\/+$/, "").replace(/\.git$/, "")
-}
-
-function stripLastGitSuffix(segments: string[]): string[] {
-  const cleaned = segments.filter(Boolean)
-  const last = cleaned.at(-1)
-  if (last === undefined) {
-    return cleaned
-  }
-  return [...cleaned.slice(0, -1), last.replace(/\.git$/, "")]
 }
 
 /**
@@ -333,19 +226,6 @@ export function getBaseUrlHost(baseUrl: string | null | undefined) {
   }
   try {
     return normalizeHost(new URL(baseUrl).hostname)
-  } catch {
-    return undefined
-  }
-}
-
-/** Path of a provider base URL, e.g. `/gitlab`; undefined at the root. */
-export function getBaseUrlPath(baseUrl: string | null | undefined) {
-  if (!baseUrl) {
-    return undefined
-  }
-  try {
-    const path = new URL(baseUrl).pathname.replace(/\/+$/, "")
-    return path || undefined
   } catch {
     return undefined
   }

@@ -194,7 +194,10 @@ describe("GitSyncConnectionPanel remote line", () => {
       screen.getByText("Uses the GitHub App on TracecatHQ.")
     ).toBeInTheDocument()
 
-    await user.type(repositoryInput(), "TracecatHQ/detections")
+    await user.type(
+      repositoryInput(),
+      "git@github.com:TracecatHQ/detections.git"
+    )
     expect(repositoryInput().nextElementSibling).toHaveTextContent(
       "TracecatHQ/detections on github.com"
     )
@@ -218,7 +221,9 @@ describe("GitSyncConnectionPanel remote line", () => {
     expect(screen.getByText("Private")).toBeInTheDocument()
     expect(screen.getByText("Public")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: /playbooks/ }))
-    expect(repositoryInput()).toHaveValue("TracecatHQ/playbooks")
+    expect(repositoryInput()).toHaveValue(
+      "git+ssh://git@github.com/TracecatHQ/playbooks.git@trunk"
+    )
     await user.click(screen.getByRole("button", { name: "Connect" }))
 
     await waitFor(() =>
@@ -236,14 +241,14 @@ describe("GitSyncConnectionPanel remote line", () => {
     const user = userEvent.setup()
     render(<GitSyncConnectionPanel workspace={setup()} />)
 
-    await user.type(repositoryInput(), "https://github.com/TracecatHQ/play")
+    await user.type(repositoryInput(), "TracecatHQ/play")
     expect(
       screen.queryByRole("button", { name: /detections/ })
     ).not.toBeInTheDocument()
     await user.clear(repositoryInput())
     await user.type(repositoryInput(), "zzz")
     expect(
-      screen.getByText("No match. Paste the full URL to check it.")
+      screen.getByText("No match. Paste the SSH clone URL to check it.")
     ).toBeInTheDocument()
   })
 
@@ -257,7 +262,10 @@ describe("GitSyncConnectionPanel remote line", () => {
     const user = userEvent.setup()
     render(<GitSyncConnectionPanel workspace={setup({ scopes })} />)
 
-    await user.type(repositoryInput(), "TracecatHQ/elsewhere{Enter}")
+    await user.type(
+      repositoryInput(),
+      "git@github.com:TracecatHQ/elsewhere.git{Enter}"
+    )
 
     expect(screen.getByRole("alert")).toHaveTextContent(
       `The GitHub App can't reach TracecatHQ/elsewhere. ${hint}`
@@ -280,12 +288,12 @@ describe("GitSyncConnectionPanel remote line", () => {
 
     expect(
       screen.getByText(
-        "Couldn't load the list. A pasted repository URL still works."
+        "Couldn't load the list. A pasted SSH clone URL still works."
       )
     ).toBeInTheDocument()
     await user.type(
       repositoryInput(),
-      "https://github.com/TracecatHQ/elsewhere/tree/main{Enter}"
+      "git@github.com:TracecatHQ/elsewhere.git{Enter}"
     )
     await waitFor(() =>
       expect(mockUpdateWorkspace).toHaveBeenCalledWith({
@@ -310,7 +318,10 @@ describe("GitSyncConnectionPanel remote line", () => {
       />
     )
 
-    await user.type(repositoryInput(), "TracecatHQ/elsewhere{Enter}")
+    await user.type(
+      repositoryInput(),
+      "git@github.com:TracecatHQ/elsewhere.git{Enter}"
+    )
 
     expect(screen.getByRole("button", { name: "Connect" })).toBeDisabled()
     expect(mockUpdateWorkspace).not.toHaveBeenCalled()
@@ -340,11 +351,12 @@ describe("GitSyncConnectionPanel remote line", () => {
       enabled: false,
     })
     expect(providerSelect()).toHaveTextContent("GitLabgitlab.example.com")
-    expect(repositoryInput()).toHaveAttribute("placeholder", "group/project")
+    expect(repositoryInput()).toHaveAttribute(
+      "placeholder",
+      "git@gitlab.example.com:group/project.git"
+    )
     expect(
-      screen.getByText(
-        "Paste the project URL from gitlab.example.com, or type group/project. Nested groups work."
-      )
+      screen.getByText("Paste the SSH clone URL from gitlab.example.com.")
     ).toBeInTheDocument()
     expect(
       screen.getByText("Uses the organization's GitLab token.")
@@ -352,14 +364,26 @@ describe("GitSyncConnectionPanel remote line", () => {
 
     await user.type(
       repositoryInput(),
-      "https://gitlab.com/group/project{Enter}"
+      "git@gitlab.com:group/project.git{Enter}"
     )
     expect(screen.getByRole("alert")).toHaveTextContent(
       "gitlab.com isn't set up for this organization. GitLab here is gitlab.example.com."
     )
 
     await user.clear(repositoryInput())
-    await user.type(repositoryInput(), "group/sub/project{Enter}")
+    await user.type(
+      repositoryInput(),
+      "https://gitlab.example.com/group/sub/project{Enter}"
+    )
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Paste the SSH clone URL, e.g. git@gitlab.example.com:group/project.git."
+    )
+
+    await user.clear(repositoryInput())
+    await user.type(
+      repositoryInput(),
+      "git@gitlab.example.com:group/sub/project.git{Enter}"
+    )
     await waitFor(() =>
       expect(mockUpdateWorkspace).toHaveBeenCalledWith({
         settings: {
@@ -399,7 +423,10 @@ describe("GitSyncConnectionPanel remote line", () => {
 
     expect(providerSelect()).toHaveTextContent("GitLabgitlab.example.com")
     expect(repositoryInput()).toBeEnabled()
-    expect(repositoryInput()).toHaveAttribute("placeholder", "group/project")
+    expect(repositoryInput()).toHaveAttribute(
+      "placeholder",
+      "git@gitlab.example.com:group/project.git"
+    )
   })
 
   it("lets viewers without provider status pick a provider explicitly", async () => {
@@ -421,11 +448,15 @@ describe("GitSyncConnectionPanel remote line", () => {
       screen.getByText("Uses the organization's GitLab token.")
     ).toBeInTheDocument()
     expect(
-      screen.getByText("Paste the full repository URL from GitLab.")
+      screen.getByText("Paste the SSH clone URL from GitLab.")
     ).toBeInTheDocument()
-    await user.type(repositoryInput(), "group/project{Enter}")
+    // Without the instance's base path, a web URL can't be mapped to SSH.
+    await user.type(
+      repositoryInput(),
+      "https://gitlab.example.com/gitlab/group/project{Enter}"
+    )
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "Paste the full repository URL from GitLab."
+      "Paste the SSH clone URL, e.g. git@gitlab.example.com:group/project.git."
     )
     expect(mockUpdateWorkspace).not.toHaveBeenCalled()
   })
@@ -530,7 +561,7 @@ describe("GitSyncConnectionPanel connected repository", () => {
     )
 
     await user.click(screen.getByRole("button", { name: "Change" }))
-    expect(repositoryInput()).toHaveValue("TracecatHQ/detections")
+    expect(repositoryInput()).toHaveValue(url)
     expect(repositoryInput()).toHaveFocus()
     expect(
       screen.getByText(
@@ -539,8 +570,10 @@ describe("GitSyncConnectionPanel connected repository", () => {
     ).toBeInTheDocument()
 
     // Focus selected the prefill, so typing replaces it.
-    await user.keyboard("TracecatHQ/playbooks")
-    expect(repositoryInput()).toHaveValue("TracecatHQ/playbooks")
+    await user.keyboard("git@github.com:TracecatHQ/playbooks.git")
+    expect(repositoryInput()).toHaveValue(
+      "git@github.com:TracecatHQ/playbooks.git"
+    )
     await user.click(screen.getByRole("button", { name: "Save" }))
 
     await waitFor(() =>
@@ -576,7 +609,7 @@ describe("GitSyncConnectionPanel connected repository", () => {
     )
 
     await user.click(screen.getByRole("button", { name: "Change" }))
-    await user.keyboard("TracecatHQ/playbooks")
+    await user.keyboard("git@github.com:TracecatHQ/playbooks.git")
     await user.click(screen.getByRole("button", { name: "Cancel" }))
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
     expect(screen.getByText("TracecatHQ/detections")).toBeInTheDocument()

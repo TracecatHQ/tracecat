@@ -68,6 +68,26 @@ export function GitSyncCommitPicker({
 
   const selectedIndex = commits.findIndex((commit) => commit.sha === commitSha)
   const selected = commits[selectedIndex]
+  // A refresh can push the chosen commit out of the list; keep it visible.
+  const missingSha = selected ? undefined : commitSha?.substring(0, 7)
+  const fallback = missingSha ? (
+    <>
+      <span className="shrink-0 font-mono text-xs font-medium">
+        {missingSha}
+      </span>
+      <span className="min-w-0 truncate text-muted-foreground">
+        Not in recent commits
+      </span>
+    </>
+  ) : (
+    <span className="text-muted-foreground">Pick a commit</span>
+  )
+  let ariaLabel = "Commit"
+  if (selected) {
+    ariaLabel = `Commit ${selected.sha.substring(0, 7)}: ${getCommitTitle(selected)}`
+  } else if (missingSha) {
+    ariaLabel = `Commit ${missingSha}`
+  }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -75,11 +95,7 @@ export function GitSyncCommitPicker({
         <button
           type="button"
           role="combobox"
-          aria-label={
-            selected
-              ? `Commit ${selected.sha.substring(0, 7)}: ${getCommitTitle(selected)}`
-              : "Commit"
-          }
+          aria-label={ariaLabel}
           aria-expanded={open}
           disabled={disabled}
           className={cn(
@@ -103,7 +119,7 @@ export function GitSyncCommitPicker({
               {selectedIndex === 0 && <LatestTag />}
             </>
           ) : (
-            <span className="text-muted-foreground">Pick a commit</span>
+            fallback
           )}
           <ChevronDownIcon className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
         </button>
