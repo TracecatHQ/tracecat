@@ -54,6 +54,8 @@ AuditResourceType = Literal[
     "workflow_execution",
     "schedule",
     "case_trigger",
+    "form",
+    "form_submission",
     "webhook",
     "webhook_api_key",
     "workspace_variable",

@@ -14995,6 +14995,12 @@ export const $EffectiveEntitlements = {
         "Whether semantic (vector) search over table columns is enabled",
       default: false,
     },
+    forms: {
+      type: "boolean",
+      title: "Forms",
+      description: "Whether workflow forms are enabled",
+      default: false,
+    },
   },
   type: "object",
   title: "EffectiveEntitlements",
@@ -15224,6 +15230,11 @@ export const $EntitlementsDict = {
       title: "Semantic search",
       description:
         "Whether semantic (vector) search over table columns is enabled",
+    },
+    forms: {
+      type: "boolean",
+      title: "Forms",
+      description: "Whether workflow forms are enabled",
     },
   },
   type: "object",
@@ -15818,6 +15829,7 @@ export const $FeatureFlag = {
     "agent-fs-persistence",
     "agent-runtime",
     "workspace-sync-github-archive",
+    "forms",
   ],
   title: "FeatureFlag",
   description: "Feature flag enum reserved for engineering rollouts.",

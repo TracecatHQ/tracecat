@@ -4458,6 +4458,10 @@ export type EffectiveEntitlements = {
    * Whether semantic (vector) search over table columns is enabled
    */
   semantic_search?: boolean
+  /**
+   * Whether workflow forms are enabled
+   */
+  forms?: boolean
 }
 
 /**
@@ -4583,6 +4587,10 @@ export type EntitlementsDict = {
    * Whether semantic (vector) search over table columns is enabled
    */
   semantic_search?: boolean
+  /**
+   * Whether workflow forms are enabled
+   */
+  forms?: boolean
 }
 
 export type ErrorModel = {
@@ -4760,6 +4768,7 @@ export type FeatureFlag =
   | "agent-fs-persistence"
   | "agent-runtime"
   | "workspace-sync-github-archive"
+  | "forms"
 
 /**
  * Response model for feature flags.

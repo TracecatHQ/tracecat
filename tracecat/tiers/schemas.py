@@ -97,6 +97,11 @@ class EffectiveEntitlements(Schema):
         title="Semantic search",
         description="Whether semantic (vector) search over table columns is enabled",
     )
+    forms: bool = Field(
+        default=False,
+        title="Forms",
+        description="Whether workflow forms are enabled",
+    )
 
 
 class TierRead(Schema):
