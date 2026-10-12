@@ -79,6 +79,11 @@ async def query_effective_scopes(
         if workspace_id is not None
         else GroupRoleAssignment.workspace_id.is_(None)
     )
+    # Role-scope links are insert-only, so the implicit member role keeps links
+    # to scopes that have since left the floor. The floor constant is the
+    # source of truth for that role; its rows are skipped on both role paths.
+    not_member_role = DBRole.slug.is_distinct_from(ORG_MEMBER_ROLE_SLUG)
+
     # Direct user role assignments → Role → RoleScope → Scope
     user_scopes = (
         select(Scope.name)
@@ -89,6 +94,7 @@ async def query_effective_scopes(
             UserRoleAssignment.user_id == user_id,
             UserRoleAssignment.organization_id == organization_id,
             user_workspace_condition,
+            not_member_role,
         )
     )
 
@@ -106,6 +112,7 @@ async def query_effective_scopes(
             effective_group_members.c.user_id == user_id,
             GroupRoleAssignment.organization_id == organization_id,
             group_workspace_condition,
+            not_member_role,
         )
     )
 

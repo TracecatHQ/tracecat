@@ -1785,6 +1785,83 @@ class TestMembershipScopeFloor:
         scopes = await query_effective_scopes(session, member.id, org.id, workspace.id)
         assert ORG_MEMBER_FLOOR_SCOPES.issubset(scopes)
 
+    async def test_floor_grants_no_agent_scopes(
+        self, session: AsyncSession, org: Organization, workspace: Workspace
+    ):
+        """Agent access comes from a role, so it is absent without one."""
+        await seed_system_scopes(session)
+        member = await _workspace_only_user(session, org, workspace)
+
+        org_scopes = await query_effective_scopes(session, member.id, org.id, None)
+        workspace_scopes = await query_effective_scopes(
+            session, member.id, org.id, workspace.id
+        )
+
+        assert not {"agent:read", "agent:execute"} & org_scopes
+        assert {"agent:read", "agent:execute"} <= workspace_scopes
+
+    async def test_stale_member_role_links_are_ignored(
+        self, session: AsyncSession, org: Organization
+    ):
+        """Seeding never unlinks, so old member-role links must not grant."""
+        legacy = User(
+            id=uuid.uuid4(),
+            email=f"stale-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="test",
+        )
+        session.add(legacy)
+        await session.flush()
+        await seed_system_scopes(session)
+        # Direct legacy assignment to the implicit member role.
+        await grant_org_membership(session, user_id=legacy.id, organization_id=org.id)
+        member_role_id = await session.scalar(
+            select(DBRole.id).where(
+                DBRole.organization_id == org.id,
+                DBRole.slug == "organization-member",
+            )
+        )
+        assert member_role_id is not None
+        # The same role reached through a group.
+        group = Group(id=uuid.uuid4(), name="Legacy members", organization_id=org.id)
+        session.add(group)
+        await session.flush()
+        session.add_all(
+            [
+                GroupMember(
+                    group_id=group.id, user_id=legacy.id, organization_id=org.id
+                ),
+                GroupRoleAssignment(
+                    organization_id=org.id,
+                    group_id=group.id,
+                    workspace_id=None,
+                    role_id=member_role_id,
+                ),
+            ]
+        )
+        # Links left behind from when the floor still carried agent scopes.
+        stale_scope_ids = await session.scalars(
+            select(Scope.id).where(
+                Scope.organization_id.is_(None),
+                Scope.name.in_(["agent:read", "agent:execute"]),
+            )
+        )
+        session.add_all(
+            RoleScope(role_id=member_role_id, scope_id=scope_id)
+            for scope_id in stale_scope_ids.all()
+        )
+        await session.commit()
+
+        linked = await session.scalars(
+            select(Scope.name)
+            .join(RoleScope, RoleScope.scope_id == Scope.id)
+            .where(RoleScope.role_id == member_role_id)
+        )
+        assert {"agent:read", "agent:execute"} <= set(linked.all())
+        assert (
+            await query_effective_scopes(session, legacy.id, org.id, None)
+            == ORG_MEMBER_FLOOR_SCOPES
+        )
+
 
 @pytest.mark.anyio
 class TestReplaceToEmptyKeepsPresence:

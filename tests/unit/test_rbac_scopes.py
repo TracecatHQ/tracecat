@@ -326,16 +326,19 @@ class TestOrgRoleScopes:
                 "org:read",
                 "org:member:read",
                 "org:registry:read",
-                "agent:read",
-                "agent:execute",
                 "org:secret:read",
             }
         )
 
-    def test_member_can_execute_agents_with_org_secret_read(self):
-        required_scopes = {"agent:read", "agent:execute", "org:secret:read"}
+    def test_member_floor_grants_no_agent_scopes(self):
+        assert not any(scope.startswith("agent:") for scope in ORG_MEMBER_SCOPES)
+        assert PRESET_ROLE_SCOPES["organization-member"] == ORG_MEMBER_SCOPES
 
-        assert required_scopes.issubset(PRESET_ROLE_SCOPES["organization-member"])
+    def test_workspace_roles_carry_the_agent_scopes(self):
+        assert "agent:read" in VIEWER_SCOPES
+        assert "agent:execute" not in VIEWER_SCOPES
+        assert {"agent:read", "agent:execute"} <= EDITOR_SCOPES
+        assert {"agent:read", "agent:execute"} <= ADMIN_SCOPES
 
 
 class TestRequireScopeDecorator:

@@ -319,8 +319,6 @@ ORG_MEMBER_SCOPES: frozenset[str] = frozenset(
         "org:read",
         "org:member:read",
         "org:registry:read",
-        "agent:read",
-        "agent:execute",
         "org:secret:read",
     }
 )
