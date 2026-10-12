@@ -40,3 +40,138 @@ export function isAllowedImageDataUri(value: unknown): value is string {
     return false
   }
 }
+
+/** Image types a form config may hold. */
+export const FORM_IMAGE_TYPES: readonly string[] = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+]
+
+/** Longest edge of an inserted image, in pixels. */
+export const FORM_IMAGE_MAX_EDGE = 320
+
+const ENCODE_QUALITY = 0.85
+
+/** Decoded size in bytes of a base64 `data:` URI. */
+export function getDataUriByteSize(dataUri: string): number {
+  const encoded = dataUri.slice(dataUri.indexOf(",") + 1)
+  let padding = 0
+  if (encoded.endsWith("==")) {
+    padding = 2
+  } else if (encoded.endsWith("=")) {
+    padding = 1
+  }
+  return Math.max(0, Math.floor((encoded.length * 3) / 4) - padding)
+}
+
+/** Where an inline image sits in a config text. */
+export interface ImageDataUriRange {
+  from: number
+  to: number
+  /** Decoded size in bytes. */
+  bytes: number
+}
+
+/**
+ * Find every base64 image `data:` URI in a config text.
+ *
+ * The editor folds each one into a chip, so this matches any image type:
+ * a type the server refuses still has to be folded to be readable.
+ */
+export function findImageDataUris(text: string): ImageDataUriRange[] {
+  const ranges: ImageDataUriRange[] = []
+  for (const match of text.matchAll(
+    /data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/]*={0,2}/g
+  )) {
+    ranges.push({
+      from: match.index,
+      to: match.index + match[0].length,
+      bytes: getDataUriByteSize(match[0]),
+    })
+  }
+  return ranges
+}
+
+/** An image the author picked cannot be inserted. `message` is shown as is. */
+export class FormImageError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "FormImageError"
+  }
+}
+
+/** Turns a picked file into a resized `data:` URI. */
+export type FormImageEncoder = (file: File) => Promise<string>
+
+/**
+ * Draw an image onto a canvas no longer than {@link FORM_IMAGE_MAX_EDGE} on
+ * its long edge and re-encode it. Small images are not scaled up.
+ *
+ * Encodes WebP. A browser without a WebP encoder answers with PNG; a photo
+ * is then encoded as JPEG instead, because PNG would be far over the limit.
+ */
+export async function resizeImageToDataUri(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file)
+  try {
+    const scale = Math.min(
+      1,
+      FORM_IMAGE_MAX_EDGE / Math.max(bitmap.width, bitmap.height)
+    )
+    const canvas = document.createElement("canvas")
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale))
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+    const context = canvas.getContext("2d")
+    if (!context) {
+      throw new FormImageError("This browser can't resize images.")
+    }
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+    const encoded = canvas.toDataURL("image/webp", ENCODE_QUALITY)
+    if (encoded.startsWith("data:image/webp") || file.type === "image/png") {
+      return encoded
+    }
+    return canvas.toDataURL("image/jpeg", ENCODE_QUALITY)
+  } finally {
+    bitmap.close()
+  }
+}
+
+function formatKilobytes(bytes: number): string {
+  return `${Math.ceil(bytes / 1024)} KB`
+}
+
+/**
+ * Turn a picked file into an inline image a form config accepts.
+ *
+ * Takes PNG, JPEG and WebP only, resizes through `encode`, and refuses a
+ * result the server would reject for its size.
+ *
+ * @throws FormImageError with a message for the author.
+ */
+export async function prepareFormImage(
+  file: File,
+  encode: FormImageEncoder = resizeImageToDataUri
+): Promise<string> {
+  if (!FORM_IMAGE_TYPES.includes(file.type)) {
+    throw new FormImageError("Use a PNG, JPEG or WebP image.")
+  }
+  let dataUri: string
+  try {
+    dataUri = await encode(file)
+  } catch (error) {
+    if (error instanceof FormImageError) {
+      throw error
+    }
+    throw new FormImageError("This file could not be read as an image.")
+  }
+  const bytes = getDataUriByteSize(dataUri)
+  if (bytes > MAX_FORM_IMAGE_BYTES) {
+    throw new FormImageError(
+      `This image is ${formatKilobytes(bytes)} after resizing. The limit is ${formatKilobytes(MAX_FORM_IMAGE_BYTES)}. Use a simpler image.`
+    )
+  }
+  if (!isAllowedImageDataUri(dataUri)) {
+    throw new FormImageError("This file could not be read as an image.")
+  }
+  return dataUri
+}

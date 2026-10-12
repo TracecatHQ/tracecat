@@ -1,4 +1,5 @@
 import type { FormErrorCode, FormErrorDetail, FormFieldError } from "@/client"
+import type { FormConfigIssue } from "@/lib/forms/yaml-diagnostics"
 
 interface ApiErrorLike {
   status?: unknown
@@ -94,4 +95,52 @@ export function mapFormFieldErrors(
     }
   }
   return mapped
+}
+
+function isLoc(value: unknown): value is Array<string | number> {
+  return (
+    Array.isArray(value) &&
+    value.every((part) => typeof part === "string" || typeof part === "number")
+  )
+}
+
+// Request validation paths start at the body: `["body", "config", ...]`.
+function toConfigLoc(loc: Array<string | number>): Array<string | number> {
+  const path = loc[0] === "body" ? loc.slice(1) : loc
+  return path[0] === "config" ? path.slice(1) : []
+}
+
+/**
+ * Read the config problems out of a rejected save or validate request.
+ *
+ * The server rejects a config in two shapes: `form_config_invalid` with the
+ * resolver's issues, and a request validation error whose entries carry a
+ * path into the request body (a misspelt key, a bad tone, an oversized
+ * image). Both come back as issues with a path into the config. Returns
+ * `null` for any other failure.
+ */
+export function getFormConfigIssues(error: unknown): FormConfigIssue[] | null {
+  const typed = getFormErrorDetail(error)
+  if (typed) {
+    return typed.code === "form_config_invalid" ? (typed.issues ?? []) : null
+  }
+  const detail = asApiError(error)?.body?.detail
+  if (!Array.isArray(detail)) {
+    return null
+  }
+  const issues: FormConfigIssue[] = []
+  for (const item of detail as unknown[]) {
+    if (typeof item !== "object" || item === null) {
+      continue
+    }
+    const { msg, loc } = item as { msg?: unknown; loc?: unknown }
+    if (typeof msg === "string") {
+      issues.push({
+        severity: "error",
+        message: msg,
+        loc: isLoc(loc) ? toConfigLoc(loc) : [],
+      })
+    }
+  }
+  return issues.length > 0 ? issues : null
 }
