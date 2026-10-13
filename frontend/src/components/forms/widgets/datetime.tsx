@@ -81,7 +81,7 @@ export function DatetimeWidget({
             variant="outline"
             disabled={disabled}
             aria-invalid={invalid}
-            aria-describedby={describedBy(id)}
+            aria-describedby={describedBy(id, field, invalid)}
             className={formControlClass(
               invalid,
               cn(

@@ -159,7 +159,7 @@ export function FileWidget({
             onClick={() => inputRef.current?.click()}
             onBlur={onBlur}
             aria-invalid={invalid}
-            aria-describedby={describedBy(id)}
+            aria-describedby={describedBy(id, field, invalid)}
             className="rounded-sm font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:no-underline"
           >
             {maxFiles === 1 ? "Choose a file" : "Choose files"}

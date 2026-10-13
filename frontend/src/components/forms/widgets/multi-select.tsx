@@ -1,8 +1,16 @@
 "use client"
 
 import { useMemo } from "react"
-import type { FormWidgetProps } from "@/components/forms/widgets/types"
-import { MultiTagCommandInput, type Suggestion } from "@/components/tags-input"
+import type { FormFieldBlock } from "@/client"
+import {
+  describedBy,
+  type FormWidgetProps,
+} from "@/components/forms/widgets/types"
+import {
+  MultiTagCommandInput,
+  type MultiTagCommandInputProps,
+  type Suggestion,
+} from "@/components/tags-input"
 import { cn } from "@/lib/utils"
 
 /**
@@ -16,6 +24,19 @@ export function tagInputClass(invalid: boolean): string {
   )
 }
 
+/** ARIA state for the text input of `MultiTagCommandInput` inside a form. */
+export function tagInputAria(
+  id: string,
+  field: FormFieldBlock,
+  invalid: boolean
+): MultiTagCommandInputProps["inputAria"] {
+  return {
+    "aria-invalid": invalid,
+    "aria-required": field.required,
+    "aria-describedby": describedBy(id, field, invalid),
+  }
+}
+
 const SEARCH_KEYS: (keyof Suggestion)[] = ["label", "value"]
 
 /** Pick several of the field's options. Submits a list of option values. */
@@ -24,6 +45,7 @@ export function MultiSelectWidget({
   field,
   value,
   onChange,
+  onBlur,
   disabled,
   invalid,
 }: FormWidgetProps) {
@@ -40,6 +62,8 @@ export function MultiSelectWidget({
   return (
     <MultiTagCommandInput
       inputId={id}
+      inputAria={tagInputAria(id, field, invalid)}
+      onBlur={onBlur}
       value={Array.isArray(value) ? value : []}
       onChange={onChange}
       suggestions={suggestions}

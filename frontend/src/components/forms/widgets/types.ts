@@ -36,7 +36,23 @@ export interface FormWidgetProps {
   runtime: FormWidgetRuntime
 }
 
-/** Ids of the help and error text a control is described by. */
-export function describedBy(id: string): string {
-  return `${id}-help ${id}-error`
+/**
+ * Ids of the help and error text a control is described by.
+ *
+ * Names only the elements the field row renders: help text when the field has
+ * some, the error while the field is invalid. `undefined` when there is none.
+ */
+export function describedBy(
+  id: string,
+  field: FormFieldBlock,
+  invalid: boolean
+): string | undefined {
+  const ids: string[] = []
+  if (field.help) {
+    ids.push(`${id}-help`)
+  }
+  if (invalid) {
+    ids.push(`${id}-error`)
+  }
+  return ids.length > 0 ? ids.join(" ") : undefined
 }

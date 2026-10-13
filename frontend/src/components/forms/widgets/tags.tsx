@@ -1,6 +1,9 @@
 "use client"
 
-import { tagInputClass } from "@/components/forms/widgets/multi-select"
+import {
+  tagInputAria,
+  tagInputClass,
+} from "@/components/forms/widgets/multi-select"
 import type { FormWidgetProps } from "@/components/forms/widgets/types"
 import { MultiTagCommandInput, type Suggestion } from "@/components/tags-input"
 
@@ -12,12 +15,15 @@ export function TagsWidget({
   field,
   value,
   onChange,
+  onBlur,
   disabled,
   invalid,
 }: FormWidgetProps) {
   return (
     <MultiTagCommandInput
       inputId={id}
+      inputAria={tagInputAria(id, field, invalid)}
+      onBlur={onBlur}
       value={Array.isArray(value) ? value : []}
       onChange={onChange}
       searchKeys={SEARCH_KEYS}

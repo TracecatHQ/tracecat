@@ -127,7 +127,8 @@ export function UserWidget({
           role="combobox"
           aria-expanded={open}
           aria-invalid={invalid}
-          aria-describedby={describedBy(id)}
+          aria-required={field.required}
+          aria-describedby={describedBy(id, field, invalid)}
           disabled={disabled}
           className={formControlClass(
             invalid,

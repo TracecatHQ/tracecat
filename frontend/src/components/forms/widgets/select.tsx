@@ -39,7 +39,8 @@ export function SelectWidget({
         id={id}
         onBlur={onBlur}
         aria-invalid={invalid}
-        aria-describedby={describedBy(id)}
+        aria-required={field.required}
+        aria-describedby={describedBy(id, field, invalid)}
         className={formControlClass(invalid)}
       >
         <SelectValue placeholder={field.placeholder ?? "Select an option"} />

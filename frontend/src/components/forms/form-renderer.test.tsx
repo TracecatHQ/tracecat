@@ -658,5 +658,197 @@ describe("FormRenderer", () => {
         expect(onSubmit).toHaveBeenCalledWith({ model: "mbp" })
       )
     })
+
+    it("is one tab stop whose arrow keys move and select", async () => {
+      const { user } = renderForm({ form: cardsForm })
+      const card = (name: RegExp) => screen.getByRole("radio", { name })
+
+      // Nothing chosen yet: Tab lands on the first card and skips the rest.
+      await user.tab()
+      expect(card(/MacBook Air/)).toHaveFocus()
+      await user.tab()
+      expect(submitButton()).toHaveFocus()
+
+      await user.tab({ shift: true })
+      await user.keyboard("{ArrowRight}")
+      expect(card(/MacBook Pro/)).toHaveFocus()
+      expect(card(/MacBook Pro/)).toBeChecked()
+      await user.keyboard("{ArrowDown}")
+      expect(card(/Other/)).toBeChecked()
+      // Wraps at both ends.
+      await user.keyboard("{ArrowRight}")
+      expect(card(/MacBook Air/)).toBeChecked()
+      await user.keyboard("{ArrowLeft}")
+      expect(card(/Other/)).toHaveFocus()
+      expect(card(/Other/)).toBeChecked()
+
+      // The chosen card is now the tab stop.
+      await user.tab()
+      await user.tab({ shift: true })
+      expect(card(/Other/)).toHaveFocus()
+    })
+
+    it("moves focus to the first card when the group is invalid", async () => {
+      const { user } = renderForm({ form: cardsForm })
+
+      await user.click(submitButton())
+
+      await screen.findByText("This field is required")
+      expect(screen.getByRole("radio", { name: /MacBook Air/ })).toHaveFocus()
+      expect(
+        screen.getByRole("radiogroup", { name: /Laptop model/ })
+      ).toHaveAttribute("aria-required", "true")
+    })
+
+    it("is a group of checkboxes for a list field", async () => {
+      const multiForm = resolvedForm({
+        blocks: [
+          fieldBlock({
+            name: "models",
+            label: "Laptop models",
+            widget: "cards",
+            multiple: true,
+            options: [
+              { value: "mba", label: "MacBook Air" },
+              { value: "mbp", label: "MacBook Pro" },
+            ],
+          }),
+        ],
+      })
+      const { user, onSubmit } = renderForm({ form: multiForm })
+      const air = screen.getByRole("checkbox", { name: /MacBook Air/ })
+      const pro = screen.getByRole("checkbox", { name: /MacBook Pro/ })
+
+      // Every card is a tab stop and Space toggles it.
+      await user.tab()
+      expect(air).toHaveFocus()
+      await user.tab()
+      expect(pro).toHaveFocus()
+      await user.keyboard(" ")
+      expect(pro).toBeChecked()
+      // Arrow keys do not move or change the selection.
+      await user.keyboard("{ArrowLeft}")
+      expect(pro).toHaveFocus()
+      expect(air).not.toBeChecked()
+
+      await user.click(air)
+      await user.click(submitButton())
+      await waitFor(() =>
+        expect(onSubmit).toHaveBeenCalledWith({ models: ["mba", "mbp"] })
+      )
+    })
+  })
+
+  describe("errors and assistive technology", () => {
+    it("moves focus to the first invalid field after a failed submit", async () => {
+      const { user } = renderForm()
+      await user.click(screen.getByRole("switch", { name: "For someone else" }))
+
+      await user.click(submitButton())
+
+      await screen.findAllByText("This field is required")
+      expect(screen.getByLabelText(/Justification/)).toHaveFocus()
+    })
+
+    it("moves focus to the field the server rejected", async () => {
+      const { user, onSubmit } = renderForm()
+      onSubmit.mockRejectedValueOnce(
+        apiError(422, {
+          code: "form_validation_error",
+          message: "Some answers are not valid",
+          errors: [
+            {
+              field: "justification",
+              code: "invalid_value",
+              message: "Say more about why",
+            },
+          ],
+        })
+      )
+      await user.type(screen.getByLabelText(/Justification/), "Because")
+
+      await user.click(submitButton())
+
+      await screen.findByText("Say more about why")
+      expect(screen.getByLabelText(/Justification/)).toHaveFocus()
+    })
+
+    it("submits once when the button is pressed twice", async () => {
+      const { user, onSubmit } = renderForm()
+      let finish: (receipt: unknown) => void = () => {}
+      onSubmit.mockReturnValueOnce(
+        new Promise((resolve) => {
+          finish = resolve
+        })
+      )
+      await user.type(screen.getByLabelText(/Justification/), "Screen cracked")
+
+      await user.click(submitButton())
+      const pending = await screen.findByRole("button", {
+        name: "Submitting...",
+      })
+      expect(pending).toBeDisabled()
+      await user.click(pending)
+      await user.keyboard("{Enter}")
+
+      expect(onSubmit).toHaveBeenCalledTimes(1)
+      finish({
+        id: "submission-1",
+        reference: "FRM-8F3K2A1C",
+        submitted_at: "2026-10-12T10:42:00Z",
+      })
+      expect(
+        await screen.findByRole("heading", { name: "Request submitted" })
+      ).toBeInTheDocument()
+    })
+
+    it("marks required controls and describes them by text that exists", async () => {
+      const a11yForm = resolvedForm({
+        blocks: [
+          fieldBlock({
+            name: "cost center",
+            label: "Cost center",
+            help: "Ask your manager.",
+            required: true,
+          }),
+          fieldBlock({ name: "notes", label: "Notes", default: "" }),
+          fieldBlock({
+            name: "teams",
+            label: "Teams",
+            widget: "multi_select",
+            multiple: true,
+            required: true,
+            options: [{ value: "it", label: "IT" }],
+          }),
+        ],
+      })
+      const { user } = renderForm({ form: a11yForm })
+      const described = (element: HTMLElement) =>
+        (element.getAttribute("aria-describedby") ?? "")
+          .split(" ")
+          .filter(Boolean)
+          .map((id) => document.getElementById(id)?.textContent)
+
+      const costCenter = screen.getByLabelText(/Cost center/)
+      const notes = screen.getByLabelText(/Notes/)
+      const teams = screen.getByLabelText(/Teams/)
+      expect(costCenter).toHaveAttribute("aria-required", "true")
+      expect(notes).toHaveAttribute("aria-required", "false")
+      expect(teams).toHaveAttribute("aria-required", "true")
+      // A name with a space still yields ids that resolve.
+      expect(described(costCenter)).toEqual(["Ask your manager."])
+      expect(notes).not.toHaveAttribute("aria-describedby")
+      expect(teams).not.toHaveAttribute("aria-describedby")
+
+      await user.click(submitButton())
+
+      await screen.findAllByText("This field is required")
+      expect(described(costCenter)).toEqual([
+        "Ask your manager.",
+        "This field is required",
+      ])
+      expect(teams).toHaveAttribute("aria-invalid", "true")
+      expect(described(teams)).toEqual(["This field is required"])
+    })
   })
 })

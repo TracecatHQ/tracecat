@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch"
 /** On/off switch. Submits a boolean; off is a valid answer. */
 export function ToggleWidget({
   id,
+  field,
   value,
   onChange,
   onBlur,
@@ -25,7 +26,7 @@ export function ToggleWidget({
       disabled={disabled}
       aria-invalid={invalid}
       aria-labelledby={`${id}-label`}
-      aria-describedby={describedBy(id)}
+      aria-describedby={describedBy(id, field, invalid)}
       className="shadow-none"
     />
   )

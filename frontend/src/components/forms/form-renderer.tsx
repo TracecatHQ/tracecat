@@ -52,6 +52,8 @@ const FORM_CHANGED_MESSAGE =
   "This form was updated while you were filling it in. Check your answers and submit again."
 const GENERIC_ERROR_MESSAGE = "Something went wrong. Try again."
 const READ_ONLY_MESSAGE = "You can view this form but you can't submit it."
+const FOCUSABLE_SELECTOR =
+  'input:not([disabled]):not([hidden]), textarea:not([disabled]), button:not([disabled]):not([tabindex="-1"])'
 
 /** Props of {@link FormRenderer}. */
 export interface FormRendererProps {
@@ -248,18 +250,42 @@ export function FormRenderer({
     [formId, form.workspace_id, mode, uploadFile]
   )
 
-  const fieldId = (name: string) => `${baseId}-${name}`
+  // An input name can hold spaces, which would split an id inside
+  // `aria-describedby`. The field key has letters, digits and `_` only.
+  const fieldId = (name: string) => `${baseId}-${toFieldKey(name)}`
 
-  function scrollToFirstError(names: Iterable<string>) {
+  // Controls are disabled while a submit is in flight and a disabled control
+  // cannot take focus, so the names wait here until the submit has settled.
+  const invalidNames = useRef<string[] | null>(null)
+  const isSubmitting = formState.isSubmitting
+  useEffect(() => {
+    if (isSubmitting || !invalidNames.current) {
+      return
+    }
+    focusFirstError(invalidNames.current)
+    invalidNames.current = null
+  }, [isSubmitting])
+
+  /** Scroll to the first invalid field and move keyboard focus into it. */
+  function focusFirstError(names: string[]) {
     const invalid = new Set(names)
     const first = blocks
       .filter(isFieldBlock)
       .find((field) => invalid.has(field.name))
-    if (first) {
-      document
-        .getElementById(`${fieldId(first.name)}-row`)
-        ?.scrollIntoView({ behavior: "smooth", block: "center" })
+    if (!first) {
+      return
     }
+    const id = fieldId(first.name)
+    document
+      .getElementById(`${id}-row`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" })
+    // Most widgets put the id on the control. Cards put it on the group, so
+    // fall back to the first control inside that can take focus.
+    const control = document.getElementById(id)
+    const target = control?.matches(FOCUSABLE_SELECTOR)
+      ? control
+      : control?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)
+    target?.focus({ preventScroll: true })
   }
 
   async function submit(state: FormValues) {
@@ -297,7 +323,7 @@ export function FormRenderer({
         setFormErrors(
           unplaced.length > 0 || names.length > 0 ? unplaced : [detail.message]
         )
-        scrollToFirstError(names)
+        invalidNames.current = names
       } else if (detail?.code === "form_changed") {
         setFormErrors([FORM_CHANGED_MESSAGE])
       } else {
@@ -344,9 +370,9 @@ export function FormRenderer({
   return (
     <form
       noValidate
-      onSubmit={handleSubmit(submit, (errors) =>
-        scrollToFirstError(Object.keys(errors).map(fromFieldKey))
-      )}
+      onSubmit={handleSubmit(submit, (errors) => {
+        invalidNames.current = Object.keys(errors).map(fromFieldKey)
+      })}
       className={cn(formStyles.card, className)}
     >
       <FormHeader title={form.title} description={form.description} />

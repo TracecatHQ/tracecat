@@ -26,7 +26,8 @@ export function LongTextWidget({
       disabled={disabled}
       placeholder={field.placeholder ?? undefined}
       aria-invalid={invalid}
-      aria-describedby={describedBy(id)}
+      aria-required={field.required}
+      aria-describedby={describedBy(id, field, invalid)}
       className={formControlClass(invalid, "h-24 resize-y leading-5")}
     />
   )
