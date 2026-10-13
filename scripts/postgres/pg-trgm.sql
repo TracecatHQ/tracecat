@@ -33,7 +33,7 @@ BEGIN
 EXCEPTION WHEN insufficient_privilege THEN
     RAISE EXCEPTION 'Cannot install pg_trgm with the current role'
         USING ERRCODE = 'insufficient_privilege', DETAIL = SQLERRM,
-              HINT = 'Use an authorized provisioning role with CREATE on the application database and public schema. On RDS, also check rds.allowed_extensions. Do not grant installation privileges to the application or migration job.';
+              HINT = 'Use an authorized provisioning role with CREATE on the application database and public schema. On RDS, also check rds.allowed_extensions. Restricted migration roles can use an extension preinstalled by an administrator.';
 END
 $$;
 \endif

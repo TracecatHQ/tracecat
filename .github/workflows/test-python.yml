@@ -5,6 +5,7 @@ on:
     branches: ["main"]
     paths:
       - tracecat/**
+      - alembic/**
       - registry/**
       - tests/**
       - packages/tracecat-ee/**
@@ -25,6 +26,7 @@ on:
     branches: ["main", "staging"]
     paths:
       - tracecat/**
+      - alembic/**
       - registry/**
       - tests/**
       - packages/tracecat-ee/**

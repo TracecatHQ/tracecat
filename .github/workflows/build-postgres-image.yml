@@ -7,6 +7,7 @@ on:
       - scripts/postgres/**
       - scripts/tests/test_pgvector*.sh
       - scripts/tests/test_pg_trgm.sh
+      - alembic/versions/3e54217aadda_enable_pg_trgm_for_text_search.py
       - docker-compose*.yml
       - .github/workflows/build-postgres-image.yml
       - .dockerignore
@@ -48,6 +49,14 @@ jobs:
         with:
           persist-credentials: false
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: "0.9.7"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install locked migration dependencies
+        run: uv sync --frozen --no-dev
       - name: Build and test candidate
         env:
           VARIANT: ${{ matrix.variant }}

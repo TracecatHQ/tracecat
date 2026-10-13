@@ -2,7 +2,7 @@
 
 Semantic search uses PostgreSQL's `vector` extension (pgvector). The application
 schema migration requires pgvector >= 0.8.0 in `public`, even while search is
-disabled. Indexed text search additionally requires `pg_trgm` in `public`; see
+disabled. The application migrations also enable `pg_trgm` in `public`; see
 the [trigram prerequisite](#trigram-search-prerequisite) below. The Temporal
 database does not need either extension.
 
@@ -129,24 +129,25 @@ Every separate application database needs its own extension registration.
 PostgreSQL provides full-text search directly. Literal fragment matching uses
 the [supplied `pg_trgm` extension](https://www.postgresql.org/docs/16/pgtrgm.html)
 and its `public.gin_trgm_ops` operator class for `text`. This prerequisite is
-shared by case and table search. Provision it once per application database,
-before running search-dependent migrations, for both fresh and existing
-installations. Keep the pgvector setup and version requirement above.
+shared by case and table search. `alembic upgrade head` enables and validates it
+once per application database on both fresh and existing installations, using
+`CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public`. Keep the pgvector
+setup and version requirement above.
 
 | Deployment | Application database and provisioning |
 | --- | --- |
-| Docker Compose | Use the bundled `postgres_db` service, whose PostgreSQL 16.14 image includes `pg_trgm`. The pgvector startup hook does not provision `pg_trgm`; run the explicit command below after PostgreSQL is ready. |
-| Fargate / RDS | Use the `core_database` RDS endpoint. The checked-in PostgreSQL 16.10 default supports `pg_trgm`; review the actual engine inventory and `rds.allowed_extensions` before installing. |
-| Helm / Kubernetes | Use the external application PostgreSQL connection configured for Tracecat. Provision with an authorized database role before running the Helm migration job; the reviewed EKS PostgreSQL 16.13 default supports `pg_trgm`. |
+| Docker Compose | The bundled PostgreSQL 16.14 image includes `pg_trgm`. The existing migrations service enables it after PostgreSQL is healthy; no manual setup command or image change is needed for the default deployment. |
+| Fargate / RDS | The existing API migrations init container enables it in `core_database` before API startup. The checked-in PostgreSQL 16.10 default supports `pg_trgm`; review engine overrides and `rds.allowed_extensions`. |
+| Helm / Kubernetes | The existing pre-upgrade migration job enables it in the configured external application database. The reviewed EKS PostgreSQL 16.13 default supports `pg_trgm`; restricted migration roles require administrator preinstallation. |
 
 The [RDS extension version matrix](https://docs.aws.amazon.com/AmazonRDS/latest/PostgreSQLReleaseNotes/postgresql-extensions.html)
-lists `pg_trgm` for these PostgreSQL 16 versions. No custom image, server restart,
-or application extension-installation privilege is required. On another
-self-hosted distribution, install its PostgreSQL contrib package if `pg_trgm`
-is absent. For overridden engine versions, check the installed server rather
+lists `pg_trgm` for these PostgreSQL 16 versions. No custom image or server restart
+is required. The migration role must be allowed to install the extension, or an
+administrator must preinstall it. On another self-hosted distribution, install
+its PostgreSQL contrib package if `pg_trgm` is absent. For overridden engine versions, check the installed server rather
 than assuming its extension availability matches the defaults.
 
-From the repository root, a Compose administrator can provision the bundled
+For a restricted migration role, an administrator can provision the bundled
 application database (adjust the username if `POSTGRES_USER` is customized):
 
 ```bash
@@ -164,7 +165,8 @@ SELECT name, default_version, installed_version
 FROM pg_available_extensions WHERE name IN ('vector', 'pg_trgm');
 ```
 
-An authorized provisioning role then installs and validates `pg_trgm`:
+If migration installation is denied, an authorized provisioning role installs
+and validates `pg_trgm`, then the normal migrations can be rerun:
 
 ```bash
 psql -X -v install=true -f scripts/postgres/pg-trgm.sql
@@ -190,13 +192,15 @@ role can install it with `CREATE` on the database and target schema. On RDS,
 also check `SHOW rds.allowed_extensions`; an authorized administrator must allow
 `pg_trgm` when an allowlist is configured. See
 [RDS trusted extensions and restrictions](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/PostgreSQL.Concepts.General.FeatureSupport.Extensions.html).
-The application, Fargate init container, and Helm migration job must not assume
-superuser or extension-installation privileges.
+The migration uses its existing database permissions and does not grant
+privileges. Restricted roles use the administrator fallback above; the running
+application only needs the permissions to use the installed extension.
 
 Installation is transactional and idempotent. It does not upgrade, relocate,
 or drop an existing extension, and it does not change pgvector or source data.
 An extension already installed outside `public` requires administrator review.
-Retain `pg_trgm` when rolling back application code while indexes depend on it.
+The Alembic downgrade retains `pg_trgm`, since other migrations or operators may
+depend on it. Retain its server files when rolling back application code.
 Case and table index migrations consume this shared prerequisite; they must not
 add another extension bootstrap. Helm manifest changes belong in the separate
 Kubernetes repository.
@@ -249,10 +253,13 @@ bash scripts/tests/test_pgvector.sh postgres:16.14-bookworm
 ```
 
 The trigram test uses an explicitly selected disposable PostgreSQL container
-with pgvector available and local psql administrator access. It creates and
-removes only its uniquely named synthetic databases and role; it never starts
+with pgvector available, local psql administrator access, and synced project
+dependencies for `uv run`. It executes the revision through Alembic's offline
+SQL context and applies the resulting transactions to the live database. It creates
+and removes only its uniquely named synthetic databases and role; it never starts
 services or removes volumes. Its three scenarios cover fresh provisioning and
-GIN use, existing data/pgvector preservation and read-only role permissions,
+GIN use, trusted/restricted-role migration behavior and retained downgrade,
+existing data/pgvector preservation and read-only role permissions,
 and incorrect schema or unrelated same-named objects. Do not point it at a
 production server or a database used by another test suite.
 
