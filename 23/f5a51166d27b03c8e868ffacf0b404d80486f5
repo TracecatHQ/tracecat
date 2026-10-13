@@ -1,0 +1,400 @@
+frontend/src/components/workflow-runs/reset-workflow-run-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 11,115,124-173,177-179,182-184,186-189,191,193,195
+frontend/src/components/organization/org-settings-audit.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 23,482,492-526,528-532,534-537,539-553,555-570,572-687
+frontend/package.json
+  s_7f6729d1c18d55::t_4bfcc206a57a15 31
+frontend/src/components/cases/add-case-dropdown-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 38,331,339-343,441-446
+frontend/src/client/schemas.gen.ts
+  s_7f6729d1c18d55::t_4bfcc206a57a15 22791-22864,24659-24697,36025-36373
+  s_7f6729d1c18d55::t_34cf1810d369b6 15424-15430,15666-15671
+  s_7f6729d1c18d55::t_e786aaa48f5230 36374
+docs/automations/core-actions/_manifest.yaml
+  s_7f6729d1c18d55::t_4bfcc206a57a15 59-68
+frontend/src/lib/git.ts
+  s_7f6729d1c18d55::t_4bfcc206a57a15 125-157
+frontend/src/components/tables/table-import-table-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 15,174-175,185,187-221,223-231,233-235,241
+frontend/src/components/workspaces/edit-workspace-secret.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 22,653-654,685,1232-1234
+frontend/src/components/organization/org-settings-agent.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 71,1052,1068,1070-1083,1085-1103,1106,1109,1111-1124,1126-1131,1139-1146,1148-1207,1209,1221,1913,1932,1934-2045,2048,2051,2053,2059-2061,2064,2067,2069,2075-2077,2080,2082-2083,2085,2087,2091-2092,2094
+frontend/src/components/organization/scim-review-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 13,347,364-395,397-401,403-404,407-412,416-417,420-423,428-429,431-465,467-471,474,477,483,485-490,492-495,498,501
+frontend/src/hooks/use-cases.ts
+  s_7f6729d1c18d55::t_4bfcc206a57a15 26,33,605-608,729,857-866,918,928
+frontend/src/components/workspace-sync/git-sync-connection.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-1283
+frontend/src/components/organization/org-secret-update.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 13,138,156-160,308-316
+frontend/src/components/workspace-sync/mapping-requirements-card.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 3-12,20,23,26,35-36,39-41,43-44,46,60-78,80-90,109,112-113,120,122,137-399
+docs/custom-actions/python-udf.mdx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 110-113
+frontend/tests/organization-sidebar.test.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-65
+frontend/src/components/admin/admin-org-domains-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 9,181,188-214,217-219,221-225,227-232,234-238,241-311,313
+frontend/src/components/skills/skills-dashboard.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 68,273,280-291,294,338,345-355,358,411,419-445,448,491,499-525,528
+tests/unit/test_agent_llm_proxy.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 2190-2196,2201-2205,2459-2463,2468-2469
+frontend/tests/settings-modal.test.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 55,141-144,165,189,255
+packages/tracecat-ee/tracecat_ee/tunnels/schemas.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-258
+tracecat/mcp/server.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 355-360,9032-9034,9066-9068,9091,9139-9141,9183-9185,9195
+frontend/src/components/workspace-sync/git-sync-branch-picker.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-234
+frontend/src/components/workspaces/edit-workspace-variable.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 13,147,158-162,306-314
+frontend/src/components/workspaces/workspaces-admin-button.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 12,15,109,118-151
+frontend/src/components/cases/case-duration-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 31,511,517-579,581-638,641,644-646,649,651,662-716,718-724,727,729-750,755-793,796,798-811,816-818,821,823-844,849-873,875,877
+frontend/src/components/workspaces/edit-aws-secret-reference-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 8,11,40-59
+tracecat/db/models.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 875-914
+frontend/src/hooks/use-cases.test.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-90
+frontend/src/components/admin/admin-org-registry-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 18,70-71,112-126
+frontend/src/components/dashboard/folder-move-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 12,135,152-157,159-204
+frontend/src/components/ui/drawer.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-175
+frontend/tests/git-sync-commit-picker.test.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-53
+frontend/src/components/admin/admin-organization-edit-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 11,112,130-185,187
+frontend/src/components/skills/rename-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 7,62-86,89
+frontend/tests/oauth-integration-details-dialog.test.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 34
+frontend/AGENTS.md
+  s_7f6729d1c18d55::t_4bfcc206a57a15 78-120
+frontend/src/components/integrations/create-custom-provider-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 12,178,188,192,195,198,200,208,211-317,320,328-368,370
+frontend/src/components/watchtower/watchtower-monitor.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 42,1116,1123-1129
+frontend/tests/git-sync-route.test.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-138
+frontend/tests/secret-store-access.test.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 238
+frontend/src/components/icons.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 26,40,54-55,59,69-70,74,282,356-358,384,392,395-401,438-440,442-444,446-448,462-464,466-468,470-472,474-476,489-496,777-785
+frontend/src/components/organization/vcs-icons.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1,3-5,15-102
+packages/tracecat-ee/tracecat_ee/tunnels/router.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-263
+frontend/tests/git-sync-connection.test.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-834
+frontend/src/client/services.gen.ts
+  s_7f6729d1c18d55::t_4bfcc206a57a15 976-991,4062-4273
+  s_7f6729d1c18d55::t_d8ab38d2b83410 4274
+frontend/src/components/workspace-sync/resource-metadata.ts
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1,114-115,117-125,127
+docs/manage-platform/git-sync.mdx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 13-18,22-23,26,52-53,55-56,58,60,62-64,68-77,98,101,105,108,150,153,157-161,164,168-171,181,187
+frontend/src/components/nav/controls-header.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 137,1700-1701,1708-1716,1718,1741-1742,1749-1757,1759
+tracecat/tiers/defaults.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 77,119
+docs/snippets/mcp-tools.mdx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 476-477,490-491
+frontend/src/components/cases/cases-accordion.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 119-171,179,210,227,339,361,391-394,524
+frontend/src/components/sidebar/app-sidebar.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 9,120-124,131-132,143,244-252,270-271
+frontend/src/components/workspace-sync/git-sync-commit-picker.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-260
+frontend/src/components/workspace-sync/git-sync-pull.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-1089
+frontend/tests/create-skill-dialog.test.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 14
+frontend/src/components/integrations/oauth-integration-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 12,120-121,133-160,162
+packages/tracecat-ee/tracecat_ee/tunnels/service.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-376
+frontend/tests/service-accounts-manager.test.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 52
+tracecat/api/app.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 35-36,612-613
+tests/unit/test_tunnel_tokens.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-151
+tests/unit/test_tunnels_service.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-237
+frontend/src/components/organization/org-members-table.test.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 120,237,247
+tracecat/tiers/service.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 184
+frontend/src/components/chat/chat-tools-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 9-14,63,68-89,91
+frontend/src/components/dashboard/create-workflow-button.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 21,125,132-157,159-180,182-192,243,254,256-274,276-277
+frontend/src/components/organization/org-agent-credentials-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 18,265,293-310,312-316,318-320,322-367,369
+frontend/src/components/organization/org-vcs-github.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 29,326,332-346,348-396
+frontend/src/components/workspace-sync/resource-diff-review.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 173,224
+frontend/src/lib/hooks.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 2784-2790,2799-2802
+frontend/tests/app-sidebar.test.tsx
+  s_7f6729d1c18d55::t_43a81ad13e5a36 25-26
+  s_7f6729d1c18d55::t_ca88b2d7f9c084 166-170
+  s_7f6729d1c18d55::t_4bfcc206a57a15 9-12,286-317
+  s_7f6729d1c18d55::t_c36c98514cfb78 318
+frontend/tests/create-agent-dialog.test.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 41
+packages/tracecat-ee/tracecat_ee/tunnels/pangolin.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-223
+frontend/src/hooks/use-workspace-sync.ts
+  s_7f6729d1c18d55::t_4bfcc206a57a15 212
+packages/tracecat-ee/tracecat_ee/tunnels/tokens.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-154
+tests/unit/test_workspace_sync_service.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 2259-2298
+tracecat/tiers/enums.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 22
+tracecat/agent/sandbox/llm_proxy.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 155-157,347-354,372-373,934-939,1308-1309,1311-1320,1332-1338,1340,1342-1344,1349,1352-1363,1365-1366,1368-1375,1377-1385,1388-1423,1425-1450
+frontend/src/components/cases/cases-layout.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 20,25-28,143,461-473,518,523,547-558
+tracecat/workspace_sync/transport.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 954-957,959-960
+frontend/src/components/agents/agent-approvals-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 12,243,250-285,287-295,298-318,320-321,323-324,327,329,331-337,339-349,352-361,364,367,369-375,377-388,391-434,436-438,440,442-448,450
+frontend/src/components/organization/org-vcs-bitbucket-data-center.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 23,79,246,252-319
+frontend/src/components/admin/admin-users-table.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 30,208,218,220,223,226,228-232,240,243,245-249,251-253,258-306,308
+frontend/src/components/organization/org-secret-create.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 19,105,111-115,243-251
+frontend/src/components/tables/ag-grid-bulk-actions.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 25,226,233-268,270,273
+docs/docs.json
+  s_7f6729d1c18d55::t_4bfcc206a57a15 372-373
+frontend/src/components/cases/edit-custom-field-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 13,393,401-405,408,411,413,416,425,428,430,433-434,440,443-476,479-554,556
+frontend/src/components/admin/admin-org-invitations-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 28,210,217-220,222-228,230-259,262-280,282-294,296-314,316-324,326-333,336-433,435-436,438
+frontend/src/components/builder/panel/trigger-panel.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 66,1081,1088-1107,1109,1826-1827,1842,1851-1852,2224-2226
+frontend/src/components/organization/org-rbac-scopes.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 29,341-377,379,381
+frontend/src/components/admin/admin-org-tier-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 9,93,100-109,111-131,133-154,156-205,208-212,214-218,221
+frontend/src/components/workspace-sync/resource-sync-actions.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 5,10,18,231-232,243-253,255-264,266-279,281-305,307-317,319-321,468
+frontend/src/components/integrations/oauth-integration-details-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 19,145-146,177-179,181-187,189-230,234-242,244-277,282,286,288-309,311-313,316-324,327-329,332-363,365-385,387-403,405-416,418-436,438-459
+frontend/src/components/workspaces/aws-secret-reference-form.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 15,226,229,483-484,486
+frontend/tests/invite-member-dialog.test.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 41-42
+  s_7f6729d1c18d55::t_4a04a72fdc13ca 40
+frontend/tests/git-sync-page.test.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-1175
+frontend/src/components/workspace-sync/git-sync-view.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-271
+tracecat/audit/types.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 62
+tracecat/authz/scopes.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 54,102-104,218-221,330-333,457
+tracecat/db/tenant_rls.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 101
+frontend/tests/git-remote.test.ts
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-262
+frontend/src/components/icons.test.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 327-370
+frontend/tests/git-sync-change-list.test.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-113
+tracecat/tiers/schemas.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 105-109
+  s_7f6729d1c18d55::t_18da8195406916 110
+frontend/src/components/cases/case-create-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 17,121,129-133,136,139,141-145,154,157,159-164,171-204,206-272,275-280,282
+frontend/src/components/organization/org-vcs-gitlab.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 22,104,226,230-288
+tests/unit/test_tunnels_router.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-377
+frontend/src/components/sidebar/app-menu.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 18,190-213,215,218
+frontend/src/components/organization/org-settings-secret-stores.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 30,239,244-257,259-262,264-278,280,613,618-628,630,640-645,981,989-1003,1005-1006,1008-1009
+frontend/src/components/organization/org-rbac-assignments.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 35,435-457,459-476,478-491,493-494,497-511,513,516-518,554-588,590,593
+tracecat/tiers/types.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 95-100
+  s_7f6729d1c18d55::t_261c501c5a4b81 101-102
+tests/unit/test_tunnel_gateway_proxy.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-531
+frontend/src/components/admin/create-organization-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 11,117,125-169,172-174
+frontend/src/components/admin/create-tier-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 12,113,121-125,129,131-132,134,142,145,147,155,157,159-161,164-166,171-210,213,215-216,218-222,225,229-248,250-284,286
+docs/automations/core-actions/request-actions/http.mdx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 45-54
+frontend/src/components/workspace-sync/git-sync-change-list.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-598
+frontend/src/components/cases/dropdowns-table.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 71,672,680-684,782-793
+frontend/src/components/settings/settings-modal.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 73,198-199
+frontend/src/components/organization/service-accounts-manager.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 47,1168,1176-1226,1229-1247,1249-1272,1276,1279,1306,1314-1329,1337,1354-1365,1368-1369
+frontend/src/components/workspace-sync/connection-form.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 11
+frontend/src/components/cases/case-closure-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 34,186-190,199-209,211-226,228-229,231-262,265
+frontend/src/components/workspaces/add-workspace-variable.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 18,123,128-133,261-269
+frontend/src/components/cases/case-item.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 11,142-143,164,676-684
+  s_7f6729d1c18d55::t_2173183b83cad7 685
+frontend/src/components/workspaces/create-credential-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 35,922-923,931-945,962,964,1627-1629
+frontend/src/components/organization/org-members-table.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 39,815,823-832,834-855,857-865,867-880,882,884-887,889-925,927-939,943-989,992
+frontend/src/components/organization/org-settings-scim-connection.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 23,328,336-343
+frontend/src/components/tables/table-import-csv-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 16,236-237,240,250,252-253,256,281-305,308,315,327,354
+frontend/src/lib/rbac.ts
+  s_7f6729d1c18d55::t_4bfcc206a57a15 67-68
+packages/tracecat-ee/tracecat_ee/tunnels/gateway/__main__.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-8
+tests/unit/test_mcp_server.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 9387-9400,9833,9838,10008,10013,10157
+  s_7f6729d1c18d55::t_77d88e139b8e5d 9386
+frontend/src/components/organization/org-settings-security.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 32,448,461,464-524,526
+docs/snippets/environment-variables.mdx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 84-94
+frontend/src/components/skills/create-skill-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 9,78,87,95-144,146
+frontend/src/components/tags/create-tag-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 11,100,106-110,154-159
+frontend/src/components/integrations/mcp-integration-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 62,111-112,1010-1011,1015,1064,1470,1656,1757,1805,1817-1830,1832,1835-1836,1838-1839,1841-1887
+frontend/src/components/workspace-sync/git-sync-action-bar.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-25
+frontend/src/lib/git-remote.ts
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-258
+frontend/tests/add-workspace-member.test.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 44-46
+frontend/src/hooks/use-git-sync-providers.ts
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-162
+frontend/tests/app-menu.test.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 64
+frontend/src/client/types.gen.ts
+  s_7f6729d1c18d55::t_4bfcc206a57a15 4631-4634,4764-4767,6997-7016,7500-7511,10982-11054,13782-13839,19199-19312
+frontend/src/components/workspaces/delete-workspace.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 6,38,48-54,57
+frontend/src/components/workspace-sync/git-sync-repo-status.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-81
+tests/unit/test_tunnels_managed.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-360
+frontend/src/components/cases/case-sub-cases.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 31,405-406,410-424,427
+docs/manage-platform/tunnels.mdx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-204
+frontend/src/components/admin/admin-tier-edit-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 11,156,173-177,181,183-184,186,194,197,199,205,208,210,214,217-219,223-238,241-408,410
+frontend/src/components/cases/case-side-panel.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-252
+frontend/src/components/rbac/role-form-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 11,128-134,136-156,159-180,184,186
+frontend/src/components/workspace-sync/branch-target-selector.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 3,48-63,77-97,101-102,111,117-118,122-133,136,148-153,164
+frontend/src/components/sidebar/organization-sidebar.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 145
+frontend/src/components/agents/agents-dashboard.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 103,974,981-994,997,1048,1055-1068,1071,1132,1140-1145,1147-1190,1192
+frontend/src/components/ui/dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 7,12-27,67-71,73,76-84,90-114,123-135,138-155,159-172,178-191,197-210,220
+frontend/src/components/ssh-keys/ssh-key-create-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 15,133,141-145,214-220
+packages/tracecat-ee/tracecat_ee/tunnels/gateway/proxy.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-500
+frontend/src/components/registry/dialogs/version-diff-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 9,41-42,51-64
+frontend/src/components/organization/org-settings-scim-mappings.test.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 347
+frontend/src/components/organization/invite-member-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 29,115,196,198,368,371-373
+tracecat/authz/seeding.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 337-341
+tracecat/config.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1389-1401
+frontend/src/components/cases/add-custom-field-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 13,361,369-373,376,379,381,384,391-435,438,441,446-448,450,454,460,462-516,518
+frontend/src/components/dashboard/workflow-move-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 14,100,109-114,116-159,161-163
+frontend/src/components/dashboard/folder-rename-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 13,104-105,112-135,137
+frontend/src/components/workspaces/add-workspace-member.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 18,95,212-234,236
+frontend/src/components/tables/table-insert-column-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 14,153,161-165,168,171,173,179-241,243
+frontend/src/components/organization/org-vcs-bitbucket.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 23,236,240-304
+alembic/versions/8b51e0c47d2a_add_workspace_tunnel.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-98
+frontend/src/components/organization/workspace-mcp-access.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 33,226-235,237,239,241-244,248-285,287,311,327-340,342
+docs/custom-actions/yaml-template.mdx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 92-95
+frontend/src/components/skills/upload-skill-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 9,46,54-60,62-64,66-89,91-102
+frontend/src/components/workspace-sync/git-sync-push.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-455
+tracecat/service_accounts/constants.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 47-50
+frontend/src/components/organization/org-rbac-user-assignments.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 35,441-463,465-482,484-497,499-500,503-517,519,522-524,560-594,596,599
+tests/unit/test_tunnels_schemas.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-99
+tests/unit/test_tier_defaults.py
+  s_7f6729d1c18d55::t_4bfcc206a57a15 23,42,75
+frontend/src/components/dashboard/workflow-rename-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 12,118-119,126-146,148-152
+frontend/tests/use-git-sync-providers.test.ts
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-114
+frontend/src/components/agents/create-agent-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 14,209,223,230-234,254,294,306-310,348-362
+frontend/src/components/agents/external-channels/slack-channel-panel.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 21,461,485-532,534-555,557-560,562-593,595-599,601-619,621-657,659-674,678-679,681-682,684-690,692,695-701,705-715,717-718,722,724-727,730-732
+frontend/src/components/tables/table-create-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 15,227-228,235-240,243-244,246-253,255,257-274,276-278,281,283,285-288,295-365,367-389,391
+frontend/src/components/tables/table-insert-row-dialog.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 17,349,357,359-386,388-390
+frontend/src/components/agents/agents-dashboard.test.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 380
+frontend/src/app/workspaces/[workspaceId]/git-sync/page.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 1-113
+frontend/src/components/organization/org-vcs-bitbucket-settings.tsx
+  s_7f6729d1c18d55::t_4bfcc206a57a15 10,58,66-73
+frontend/pnpm-lock.yaml
+  s_7f6729d1c18d55::t_2484a9266dccaa 64-66,243,249,252,736-739,764-790,1165-1167,1171-1173,1180-1185,1195-1197,5390-5392,6237-6238,6285-6309,6646-6649,6655-6659,6666-6671,6682-6683,8187,8259,8261,8396,8409,8712,8714,8729,8731,11631-11632
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "23f5a51166d27b03c8e868ffacf0b404d80486f5",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
