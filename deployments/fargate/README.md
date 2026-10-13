@@ -81,8 +81,10 @@ Application migrations enable and validate pgvector and `pg_trgm` in the
 application RDS database. The default init container uses the existing managed
 master credentials for `core_database`; no new role or privilege grant is needed.
 The PostgreSQL 16.10 default supports both extensions; no engine-version change
-is required. For restricted migration roles or extension allowlists, an authorized
-administrator must preinstall the extensions before rerunning migrations. See the
+is required. If an RDS allowlist excludes `vector` or `pg_trgm`, an authorized
+administrator must first allow them in `rds.allowed_extensions`. For restricted
+migration roles, an administrator must preinstall the extensions before rerunning
+migrations. See the
 [application database prerequisite and upgrade guide](../postgres/README.md).
 Use the `core_database` connection, not the Temporal RDS connection; Temporal
 does not need either extension.
