@@ -93,6 +93,7 @@ class GatewaySettings:
     api_url: str
     port: int = 8080
     tun_resource: str = "squat.ai/tun"
+    blocked_cidrs: tuple[str, ...] = ()
 
     @classmethod
     def from_config(cls) -> GatewaySettings:
@@ -102,6 +103,10 @@ class GatewaySettings:
             api_url=config.TRACECAT__TUNNEL_GATEWAY_API_URL.rstrip("/"),
             port=config.TRACECAT__TUNNEL_GATEWAY_PORT,
             tun_resource=config.TRACECAT__TUNNEL_GATEWAY_TUN_RESOURCE,
+            blocked_cidrs=tuple(
+                str(network)
+                for network in config.TRACECAT__TUNNEL_GATEWAY_BLOCKED_CIDRS
+            ),
         )
 
 
@@ -173,7 +178,11 @@ def build_deployment(spec: GatewaySpec, settings: GatewaySettings) -> dict[str, 
                                 {
                                     "name": "TRACECAT_TUNNEL_GATEWAY_PORT",
                                     "value": str(settings.port),
-                                }
+                                },
+                                {
+                                    "name": "TRACECAT_TUNNEL_GATEWAY_BLOCKED_CIDRS",
+                                    "value": ",".join(settings.blocked_cidrs),
+                                },
                             ],
                             "ports": [
                                 {

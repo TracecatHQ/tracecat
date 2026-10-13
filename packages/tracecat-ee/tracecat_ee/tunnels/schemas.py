@@ -58,9 +58,11 @@ class TunnelTarget(BaseModel):
     def validate_host(cls, value: str) -> str:
         host = value.strip().lower().rstrip(".")
         try:
-            return str(ipaddress.ip_address(host))
+            address = ipaddress.ip_address(host)
         except ValueError:
             pass
+        else:
+            return str(address)
         labels = host.split(".")
         if not host or not all(_HOSTNAME_LABEL.fullmatch(label) for label in labels):
             raise ValueError("host must be an exact hostname or IP address")
@@ -88,7 +90,37 @@ def _validate_targets(targets: list[TunnelTarget]) -> list[TunnelTarget]:
     hosts = [target.host for target in targets]
     if len(set(hosts)) != len(hosts):
         raise ValueError("allowed_targets must not repeat a host")
+    _reject_internal_hosts(targets)
     return targets
+
+
+def _is_internal_host(host: str) -> bool:
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+        address = address.ipv4_mapped
+    return (
+        address.is_loopback
+        or address.is_link_local
+        or address.is_unspecified
+        or address.is_multicast
+    )
+
+
+def _reject_internal_hosts(targets: list[TunnelTarget] | None) -> None:
+    """Reject loopback, link-local, and metadata targets on create and update.
+
+    Gateways also refuse these at dial time, after DNS resolution.
+    """
+    for target in targets or ():
+        if _is_internal_host(target.host):
+            raise ValueError(
+                f"{target.host} is a loopback, link-local, or metadata address"
+            )
 
 
 class TunnelCreate(BaseModel):

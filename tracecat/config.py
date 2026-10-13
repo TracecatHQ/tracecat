@@ -5,6 +5,7 @@ from enum import StrEnum
 from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import Literal, cast
 
+from tracecat import __version__
 from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
 from tracecat.auth.enums import AuthType
 from tracecat.executor.enums import ExecutorBackendType
@@ -1417,9 +1418,17 @@ TRACECAT__TUNNEL_GATEWAY_NAMESPACE = os.environ.get(
 
 TRACECAT__TUNNEL_GATEWAY_IMAGE = os.environ.get(
     "TRACECAT__TUNNEL_GATEWAY_IMAGE",
-    "ghcr.io/tracecathq/tracecat-tunnel-gateway:latest",
+    f"ghcr.io/tracecathq/tracecat-tunnel-gateway:{__version__}",
 )
-"""Container image for tunnel gateways created by the ``kubernetes`` backend."""
+"""Container image for tunnel gateways created by the ``kubernetes`` backend.
+
+Defaults to this release's version tag. Pin a digest for an immutable image.
+"""
+
+TRACECAT__TUNNEL_GATEWAY_BLOCKED_CIDRS = env_networks(
+    "TRACECAT__TUNNEL_GATEWAY_BLOCKED_CIDRS"
+)
+"""Extra CIDRs, such as cluster pod and service ranges, that gateways never dial."""
 
 TRACECAT__TUNNEL_GATEWAY_API_URL = os.environ.get(
     "TRACECAT__TUNNEL_GATEWAY_API_URL", TRACECAT__API_URL

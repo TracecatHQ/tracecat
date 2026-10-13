@@ -263,12 +263,17 @@ The image starts the Pangolin machine client with `--upstream-dns` set to the co
 | `TRACECAT_TUNNEL_API_URL` | | Internal Tracecat API URL, e.g. `http://api:8000`. |
 | `TRACECAT_TUNNEL_GATEWAY_HOST` | `0.0.0.0` | Listen address. |
 | `TRACECAT_TUNNEL_GATEWAY_PORT` | `8080` | Listen port. |
+| `TRACECAT_TUNNEL_GATEWAY_BLOCKED_CIDRS` | | Comma-separated CIDRs the gateway never dials, in addition to the built-in list. |
 
 The gateway loads the tunnel's workspace and allowed targets from the Tracecat API with its gateway key, and refreshes them every 15 seconds. Within one refresh of you disabling or deleting the tunnel, issuing a new gateway key, or removing a target, the gateway rejects new requests and closes the affected open connections. After a key rotation, restart the gateway with the new key; Tracecat-run gateways restart automatically. If the gateway can't reach the API for 60 seconds, it stops accepting requests until the API is back.
 
-The gateway answers `407` for a missing, expired, or wrong-tunnel token, `403` for a host or port outside the allowed targets or a revoked tunnel, `503` while it can't load the tunnel's policy, and `504` when Pangolin does not reach the target. It never falls back to direct egress.
+The gateway resolves each target once and dials the resolved address. It refuses loopback, link-local, cloud metadata, multicast, and unspecified addresses, the Tracecat API's own addresses, and any CIDR in `TRACECAT_TUNNEL_GATEWAY_BLOCKED_CIDRS`, even when a hostname in the allowed targets resolves to one of them. On Kubernetes, the `api` service passes `TRACECAT__TUNNEL_GATEWAY_BLOCKED_CIDRS` to every gateway; set it to the cluster's pod and service ranges.
+
+The gateway answers `407` for a missing, expired, or wrong-tunnel token, `403` for a host or port outside the allowed targets, a blocked address, or a revoked tunnel, `503` while it can't load the tunnel's policy, and `504` when Pangolin does not reach the target. It never falls back to direct egress.
 
 ## Use TLS with private services
+
+Allowed targets limit which host and TCP port a connection opens to, not which application answers on it. The gateway relays TLS without decrypting it, so a client can pick another virtual host on the same IP address and port with SNI or the `Host` header. Don't rely on allowed targets to isolate applications behind a shared reverse proxy; give each one its own address or port, or restrict access at the proxy.
 
 HTTPS through a tunnel stays encrypted end to end. The gateway relays the TLS connection without decrypting it, and the action verifies the server certificate against the hostname in the URL, such as `splunk.internal`. Issue the certificate for the hostname you list in `allowed_targets`.
 
