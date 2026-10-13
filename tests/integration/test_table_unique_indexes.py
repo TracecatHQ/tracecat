@@ -266,19 +266,31 @@ async def test_unsupported_unique_indexes_are_not_lookup_targets(
     conn = await service.session.connection()
     await conn.execute(
         sa.DDL(
-            "ALTER TABLE %s ADD CONSTRAINT deferred_key UNIQUE (key) "
-            "DEFERRABLE INITIALLY DEFERRED",
-            (full_name,),
+            "ALTER TABLE %s DROP CONSTRAINT %s",
+            (full_name, quote_identifier(f"{table.name}_pkey")),
         )
     )
-    assert await service.get_index(table) == ["key"]
-    with pytest.raises(ValueError, match="deferrable unique constraint"):
-        await service.insert_row(
-            table, TableRowInsert(data={"key": "fourth", "body": "single"}, upsert=True)
+    for constraint_kind in ("UNIQUE", "PRIMARY KEY"):
+        await conn.execute(
+            sa.DDL(
+                # SAFE: the constraint kind comes from the fixed tuple above.
+                f"ALTER TABLE %s ADD CONSTRAINT deferred_key {constraint_kind} (key) "
+                "DEFERRABLE INITIALLY DEFERRED",
+                (full_name,),
+            )
         )
-    with pytest.raises(ValueError, match="deferrable unique constraint"):
-        await service.batch_insert_rows(
-            table, [{"key": "fourth", "body": "batch"}], upsert=True
+        assert await service.get_index(table) == ["key"]
+        with pytest.raises(ValueError, match="deferrable unique constraint"):
+            await service.insert_row(
+                table,
+                TableRowInsert(data={"key": "fourth", "body": "single"}, upsert=True),
+            )
+        with pytest.raises(ValueError, match="deferrable unique constraint"):
+            await service.batch_insert_rows(
+                table, [{"key": "fourth", "body": "batch"}], upsert=True
+            )
+        await conn.execute(
+            sa.DDL("ALTER TABLE %s DROP CONSTRAINT deferred_key", (full_name,))
         )
     rows = await service.list_rows(table, CursorPaginationParams())
     assert {item["key"] for item in rows.items} == {"first", "second", "third"}

@@ -511,7 +511,7 @@ class BaseTablesService(BaseWorkspaceService):
                 WHERE namespace.nspname = :schema_name
                     AND table_relation.relname = :table_name
                     AND index.indisunique
-                    AND NOT index.indisprimary
+                    AND (NOT index.indisprimary OR NOT index.indimmediate)
                     AND NOT index.indisexclusion
                     AND index.indisvalid
                     AND index.indisready
