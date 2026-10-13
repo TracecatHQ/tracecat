@@ -23,24 +23,107 @@ Actions use a tunnel when you select it on the action or as the workflow's defau
 - `tunnel:read` to list tunnels and check status, and `tunnel:create`, `tunnel:update`, or `tunnel:delete` to manage them. Workspace admins and organization owners and admins hold all four; workspace viewers hold `tunnel:read`.
 - A Pangolin server: Pangolin Cloud for Tracecat Cloud, or your own Pangolin deployment for self-hosted Tracecat. See [Configure Pangolin for self-hosted Tracecat](#configure-pangolin-for-self-hosted-tracecat).
 
-## Create a tunnel in the UI
+## Set up a tunnel from start to finish
+
+This guide takes you from nothing to a workflow that calls an internal URL, using an on-premises Splunk at `https://splunk.internal:8089` as the example. On Tracecat Cloud you only run the site connector inside your network; Tracecat runs the gateway.
+
+### Before you start
+
+- The `tunnels` entitlement and the `tunnel:create` scope in the workspace.
+- The internal hostname or IP address and TCP port of each service, such as `splunk.internal:8089`.
+- A Linux host inside your network, with Docker or the ability to run a binary, that can resolve and reach every service. It needs outbound access to the Pangolin endpoint, `https://app.pangolin.net` on Tracecat Cloud, and no inbound ports. The connector uses TCP 443 and UDP 51820 to the Pangolin endpoint.
+- The PEM-encoded CA certificate if an internal CA signs the service's certificate.
 
 <Steps>
-  <Step title="Open tunnels">
-    In the workspace sidebar, open **Tunnels** and select **Create tunnel**.
+  <Step title="Create the tunnel">
+    In the workspace sidebar, open **Tunnels** and select **Create tunnel**. Enter a name, such as `onprem-splunk`, and list one target per line as `host:port`, or `host:port,port` for several ports. Use the exact hostname your workflows will call; wildcards and CIDR ranges are rejected. Select **Create tunnel**.
+
+    <Frame>
+      <img src="/img/manage-platform/tunnels-create.png" alt="Create a tunnel with splunk.internal:8089 as the target" />
+    </Frame>
   </Step>
-  <Step title="Add allowed targets">
-    Enter a name and list one target per line as `host:port`, or `host:port,port` for several ports, such as `splunk.internal:8089`. Select **Create tunnel**.
+  <Step title="Copy the site connector credentials">
+    Tracecat shows the site connector command once. It contains the site ID, the site secret, and the Pangolin endpoint. Copy it, and store the secret in your secrets manager.
+
+    <Frame>
+      <img src="/img/manage-platform/tunnels-install-command.png" alt="One-time site connector command" />
+    </Frame>
   </Step>
-  <Step title="Install the site connector">
-    Copy the install command and run it on a host inside your network that can reach every target. Tracecat shows the command once.
+  <Step title="Run the site connector on your host">
+    On the host inside your network, run the connector (Newt) with the values from the command. With Docker:
+
+    ```bash
+    docker run -d --name tracecat-tunnel --restart unless-stopped \
+      -e PANGOLIN_ENDPOINT=https://app.pangolin.net \
+      -e NEWT_ID=<site_id> \
+      -e NEWT_SECRET=<site_secret> \
+      fosrl/newt
+    ```
+
+    Without Docker, install the `newt` binary from the [Newt releases](https://github.com/fosrl/newt/releases) and run the copied command, `newt --id <site_id> --secret <site_secret> --endpoint https://app.pangolin.net`, under a service manager such as systemd so it restarts with the host.
   </Step>
-  <Step title="Check the status">
-    The site shows **Online** once the connector connects, and the gateway shows **Ready** once Tracecat's gateway for the tunnel is running.
+  <Step title="Check the tunnel status">
+    Back on the **Tunnels** page, the tunnel shows **Site online** once the connector connects and **Gateway ready** once Tracecat's gateway for the tunnel is running. Both must be green before actions can use the tunnel.
+
+    <Frame>
+      <img src="/img/manage-platform/tunnels-status.png" alt="Tunnel status on the Tunnels page" />
+    </Frame>
+  </Step>
+  <Step title="Add your internal CA">
+    If an internal CA signs the service's certificate, open **Credentials**, select **Add credential**, name it `ca_cert`, set **Type** to **CA certificate**, and paste the PEM certificate. See [Use TLS with private services](#use-tls-with-private-services).
+  </Step>
+  <Step title="Call the internal URL from a workflow">
+    In a workflow, add a **HTTP request** (`core.http_request`) action. Set **URL** to the internal URL, such as `https://splunk.internal:8089/services/server/info?output_mode=json`, and **Method** to `GET`. In the action's **Control flow** tab, set **Tunnel** to `onprem-splunk`.
+
+    <Frame>
+      <img src="/img/manage-platform/tunnels-action-tunnel.png" alt="Tunnel selected in the action's Control flow tab" />
+    </Frame>
+
+    To route every action in the workflow, set **Default tunnel** in the workflow settings instead. An action's own **Tunnel** overrides the default.
+
+    <Frame>
+      <img src="/img/manage-platform/tunnels-workflow-default.png" alt="Default tunnel in the workflow settings" />
+    </Frame>
+  </Step>
+  <Step title="Run the workflow">
+    Save, then run the workflow. The action's result shows the response from the internal service.
+
+    <Frame>
+      <img src="/img/manage-platform/tunnels-http-result.png" alt="Successful HTTP request through the tunnel" />
+    </Frame>
   </Step>
 </Steps>
 
-From the same page you can turn a tunnel on or off, issue a new gateway key, or delete it. Without the `tunnels` entitlement, the page and the tunnel selectors show an upgrade prompt.
+### Run a Splunk search through the tunnel
+
+Integration actions that make HTTP requests, such as **Splunk: Search events** (`tools.splunk.search_events`), use the tunnel the same way.
+
+<Steps>
+  <Step title="Add the Splunk credential">
+    In **Credentials**, add a credential named `splunk` with the key `SPLUNK_API_KEY` set to a Splunk authentication token.
+  </Step>
+  <Step title="Add the search action">
+    Add **Splunk: Search events**. Set `base_url` to `https://splunk.internal:8089`, `query` to a search that starts with `search`, such as `search index=main | head 10`, and the start and end times. In the **Control flow** tab, set **Tunnel** to `onprem-splunk`, or rely on the workflow's **Default tunnel**.
+  </Step>
+  <Step title="Run the workflow">
+    The action returns the search results.
+
+    <Frame>
+      <img src="/img/manage-platform/tunnels-splunk-result.png" alt="Splunk search results through the tunnel" />
+    </Frame>
+  </Step>
+</Steps>
+
+### Troubleshoot
+
+| Symptom | Fix |
+| :------ | :-- |
+| The site stays offline. | Check that the connector is running and that the host can reach the Pangolin endpoint. Check the connector logs with `docker logs tracecat-tunnel`. |
+| Saving or publishing fails with a tunnel error. | Check that the tunnel name matches a tunnel in this workspace and that the action supports tunnels. |
+| The action fails with `403`. | Add the host and port to the tunnel's allowed targets. Managed tunnels can't change targets, so create a new tunnel. Use the same hostname in the URL as in the target. |
+| The action fails with `504`. | The connector host can't reach the target. From that host, check that the hostname resolves and the port is open. |
+| The action fails with `503`, or the gateway isn't ready. | The gateway can't load the tunnel's policy. Check that the tunnel is turned on and wait for the gateway to start. |
+| The action fails with a certificate error. | Add the internal CA as `ca_cert` and use the hostname on the certificate. Keep `verify_ssl` set to `true`. |
 
 ## Create a managed tunnel with the API
 
@@ -158,7 +241,7 @@ curl -X POST "https://<tracecat-host>/api/tunnels/<tunnel_id>/gateway-key?worksp
 
 Issuing a key revokes the previous one, and Tracecat returns each key once.
 
-The gateway runs the Pangolin machine client and the Tracecat proxy in the same network namespace. The machine client needs `NET_ADMIN` and `/dev/net/tun`, so run gateways apart from executors and allow only executors to reach them.
+The gateway runs the Pangolin machine client and the Tracecat proxy in the same network namespace. The machine client needs `NET_ADMIN` and `/dev/net/tun`, so run gateways apart from executors and allow only executors to reach them. The gateway needs outbound TCP 443 and UDP 21820 to the Pangolin endpoint.
 
 ```bash
 docker run -d --name tunnel-gateway --cap-add NET_ADMIN --device /dev/net/tun \
