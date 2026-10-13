@@ -1441,18 +1441,18 @@ TRACECAT__TUNNEL_GATEWAY_TUN_RESOURCE = os.environ.get(
 """Extended resource that grants a gateway pod ``/dev/net/tun``. Empty disables the request."""
 
 TRACECAT__TUNNEL_GATEWAY_RECONCILE_INTERVAL = float(
-    os.environ.get("TRACECAT__TUNNEL_GATEWAY_RECONCILE_INTERVAL", 60)
+    os.environ.get("TRACECAT__TUNNEL_GATEWAY_RECONCILE_INTERVAL") or 60
 )
 """Seconds between reconciles of gateway objects against tunnels."""
 
-TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE = os.environ.get(
-    "TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE",
-    "tunnel-{tunnel_id}.tracecat-tunnels.svc.cluster.local",
+TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE = (
+    os.environ.get("TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE")
+    or f"tunnel-{{tunnel_id}}.{TRACECAT__TUNNEL_GATEWAY_NAMESPACE}.svc.cluster.local"
 )
 """Host executors use to reach a tunnel's gateway. ``{tunnel_id}`` is replaced."""
 
 TRACECAT__TUNNEL_GATEWAY_PORT = int(
-    os.environ.get("TRACECAT__TUNNEL_GATEWAY_PORT", 8080)
+    os.environ.get("TRACECAT__TUNNEL_GATEWAY_PORT") or 8080
 )
 """Port tunnel gateways listen on."""
 
