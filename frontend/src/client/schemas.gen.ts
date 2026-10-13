@@ -17840,12 +17840,28 @@ export const $FormReadMinimal = {
       title: "Id",
     },
     workflow_id: {
-      type: "string",
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Workflow Id",
+      description: "Null without form:update or form:submission:read.",
     },
     workflow_title: {
-      type: "string",
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Workflow Title",
+      description: "Null without form:update or form:submission:read.",
     },
     status: {
       $ref: "#/components/schemas/FormStatus",
@@ -17901,15 +17917,7 @@ export const $FormReadMinimal = {
     },
   },
   type: "object",
-  required: [
-    "id",
-    "workflow_id",
-    "workflow_title",
-    "status",
-    "title",
-    "created_at",
-    "updated_at",
-  ],
+  required: ["id", "status", "title", "created_at", "updated_at"],
   title: "FormReadMinimal",
 } as const
 
@@ -18076,8 +18084,16 @@ export const $FormSubmissionRead = {
       ],
     },
     definition_version: {
-      type: "integer",
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Definition Version",
+      description: "Null without form:submission:read.",
     },
     wf_exec_id: {
       anyOf: [
@@ -18119,14 +18135,7 @@ export const $FormSubmissionRead = {
     },
   },
   type: "object",
-  required: [
-    "id",
-    "form_id",
-    "reference",
-    "answers",
-    "definition_version",
-    "submitted_at",
-  ],
+  required: ["id", "form_id", "reference", "answers", "submitted_at"],
   title: "FormSubmissionRead",
 } as const
 

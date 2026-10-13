@@ -31,6 +31,7 @@ from tracecat.db.models import (
 from tracecat.dsl.common import DSLInput, apply_expects_order
 from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 from tracecat.expressions.schemas import ExpectedField
+from tracecat.forms.access import can_read_form_config
 from tracecat.forms.constants import (
     FORM_VIEW_EVENT_DEDUP_WINDOW,
     SUBMISSION_REFERENCE_PREFIX,
@@ -326,7 +327,8 @@ class FormsService(BaseWorkspaceService):
         """List forms newest first.
 
         Callers without ``form:update`` only see online forms. Submission
-        counts need ``form:submission:read``.
+        counts need ``form:submission:read``. The workflow fields need
+        ``form:update`` or ``form:submission:read``.
         """
         submissions = (
             select(
@@ -360,12 +362,14 @@ class FormsService(BaseWorkspaceService):
         if not self._has_scope("form:update"):
             statement = statement.where(Form.status == FormStatus.ONLINE)
         show_counts = self._has_scope("form:submission:read")
+        # A requester never handles the workflow behind a form.
+        show_workflow = can_read_form_config(self.role)
 
         def to_read(values: tuple[object, ...]) -> FormReadMinimal:
             return FormReadMinimal(
                 id=cast(uuid.UUID, values[0]),
-                workflow_id=WorkflowUUID.new(values[1]),
-                workflow_title=cast(str, values[2]),
+                workflow_id=WorkflowUUID.new(values[1]) if show_workflow else None,
+                workflow_title=cast(str, values[2]) if show_workflow else None,
                 status=FormStatus(cast(str, values[3])),
                 title=cast(str, values[4]),
                 description=cast(str | None, values[5]),

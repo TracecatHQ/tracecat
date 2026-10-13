@@ -5406,8 +5406,14 @@ export type FormRead = {
 
 export type FormReadMinimal = {
   id: string
-  workflow_id: string
-  workflow_title: string
+  /**
+   * Null without form:update or form:submission:read.
+   */
+  workflow_id?: string | null
+  /**
+   * Null without form:update or form:submission:read.
+   */
+  workflow_title?: string | null
   status: FormStatus
   title: string
   description?: string | null
@@ -5470,7 +5476,10 @@ export type FormSubmissionRead = {
     [key: string]: unknown
   }
   submitted_by?: FormActorRead | null
-  definition_version: number
+  /**
+   * Null without form:submission:read.
+   */
+  definition_version?: number | null
   /**
    * Null without form:submission:read.
    */

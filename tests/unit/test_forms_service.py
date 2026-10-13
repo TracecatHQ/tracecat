@@ -394,6 +394,7 @@ async def test_list_forms_hides_offline_forms_from_callers_without_update(
     assert set(by_id) == {online.id, offline.id}
     assert by_id[online.id].title == "Report phishing"
     assert by_id[online.id].workflow_title == "Triage phishing report"
+    assert by_id[online.id].workflow_id == WorkflowUUID.new(online_workflow.id)
     assert by_id[online.id].submission_count == 1
     assert by_id[online.id].last_submitted_at is not None
     # Title and description fall back to the workflow's.
@@ -404,6 +405,10 @@ async def test_list_forms_hides_offline_forms_from_callers_without_update(
     assert [form.id for form in intake_page.items] == [online.id]
     assert intake_page.items[0].submission_count is None
     assert intake_page.items[0].last_submitted_at is None
+    # A requester is not told which workflow a form runs.
+    assert intake_page.items[0].title == "Report phishing"
+    assert intake_page.items[0].workflow_id is None
+    assert intake_page.items[0].workflow_title is None
 
 
 async def test_list_forms_is_cursor_paginated(

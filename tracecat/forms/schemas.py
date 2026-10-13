@@ -334,8 +334,14 @@ class FormCounts(Schema):
 
 class FormReadMinimal(Schema):
     id: uuid.UUID
-    workflow_id: WorkflowUUID
-    workflow_title: str
+    workflow_id: WorkflowUUID | None = Field(
+        default=None,
+        description="Null without form:update or form:submission:read.",
+    )
+    workflow_title: str | None = Field(
+        default=None,
+        description="Null without form:update or form:submission:read.",
+    )
     status: FormStatus
     title: str
     description: str | None = None
@@ -427,7 +433,9 @@ class FormSubmissionRead(Schema):
     reference: str
     answers: dict[str, Any]
     submitted_by: FormActorRead | None = None
-    definition_version: int
+    definition_version: int | None = Field(
+        default=None, description="Null without form:submission:read."
+    )
     wf_exec_id: str | None = Field(
         default=None, description="Null without form:submission:read."
     )

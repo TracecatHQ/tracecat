@@ -839,9 +839,18 @@ async def test_requester_reads_their_own_submission_without_run_fields(
     assert own is not None
     assert own.id == receipt.id
     assert own.reference == receipt.reference
-    assert own.answers["justification"] == "Mine broke"
+    # Only what the form showed them: no hidden default, no autofilled value.
+    assert own.answers == {
+        "model": "mbp",
+        "justification": "Mine broke",
+        "quantity": 1,
+        "for_someone_else": False,
+        "recipient": None,
+        "needed_by": None,
+    }
     assert own.submitted_by is not None
     assert own.submitted_by.email == "maya.okafor@example.com"
+    assert own.definition_version is None
     assert own.wf_exec_id is None
     assert own.run_status is None
     # No status lookup is made for a requester.
@@ -871,6 +880,27 @@ async def test_submission_readers_see_any_submission_with_run_fields(
     assert submission is not None
     assert submission.wf_exec_id == stored.wf_exec_id
     assert submission.run_status == "COMPLETED"
+    assert submission.definition_version == 1
+    assert submission.answers == stored.answers
+    assert submission.answers["priority"] == "normal"
+
+
+async def test_requester_reads_no_answers_once_the_form_stops_resolving(
+    session: AsyncSession,
+    service: FormSubmissionsService,
+    intake_role: Role,
+    temporal: FakeTemporal,
+    workflow: Workflow,
+    form: Form,
+) -> None:
+    receipt = await _submit(service, form, VALID_VALUES)
+    # A later publish drops inputs the layout names.
+    await publish_workflow(session, intake_role, workflow, {"model": {"type": "str"}})
+
+    own = await service.read_submission(form, receipt.id)
+
+    assert own is not None
+    assert own.answers == {}
 
 
 async def test_list_submissions_filters_by_date_and_attaches_run_status(

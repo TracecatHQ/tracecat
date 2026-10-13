@@ -96,13 +96,15 @@ function FormRow({
         >
           {form.title}
         </Link>
-        <Link
-          href={formWorkflowHref(workspaceId, form.workflow_id)}
-          className="flex w-fit max-w-full items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-        >
-          <WorkflowIcon className="size-3 flex-none" />
-          <span className="truncate">{form.workflow_title}</span>
-        </Link>
+        {form.workflow_id && (
+          <Link
+            href={formWorkflowHref(workspaceId, form.workflow_id)}
+            className="flex w-fit max-w-full items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+          >
+            <WorkflowIcon className="size-3 flex-none" />
+            <span className="truncate">{form.workflow_title}</span>
+          </Link>
+        )}
       </div>
       <div className="flex flex-none items-center gap-2">
         <FormStatusBadge status={form.status} />
@@ -180,7 +182,7 @@ export function FormsDashboard() {
         (form) =>
           search.length === 0 ||
           form.title.toLowerCase().includes(search) ||
-          form.workflow_title.toLowerCase().includes(search)
+          form.workflow_title?.toLowerCase().includes(search)
       ),
     [forms, search]
   )

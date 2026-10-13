@@ -26,6 +26,7 @@ from tracecat.forms.enums import (
 )
 from tracecat.forms.exceptions import FormError
 from tracecat.forms.files import FormFilesService
+from tracecat.forms.resolver import resolve_form
 from tracecat.forms.schemas import (
     FormFieldBlock,
     FormFieldError,
@@ -40,6 +41,7 @@ from tracecat.forms.service import (
     actor_read,
     org_users,
     page_response,
+    stored_form_config,
     submission_reference,
     user_read,
 )
@@ -473,7 +475,8 @@ class FormSubmissionsService(BaseWorkspaceService):
         """Read one submission.
 
         A caller reads their own submissions. Reading anyone else's, and the
-        run fields of any, needs ``form:submission:read``.
+        run fields, the workflow version and the answers to inputs the form
+        does not show, needs ``form:submission:read``.
 
         Returns:
             The submission, or None if it does not exist or is not the
@@ -489,8 +492,40 @@ class FormSubmissionsService(BaseWorkspaceService):
             return submission
         if not self._is_own(submission):
             return None
-        # Requesters never see the run.
-        return submission.model_copy(update={"wf_exec_id": None, "run_status": None})
+        # Requesters never see the run, nor what the form filled in for them.
+        shown = await self._shown_field_names(form)
+        return submission.model_copy(
+            update={
+                "answers": {
+                    name: answer
+                    for name, answer in submission.answers.items()
+                    if name in shown
+                },
+                "definition_version": None,
+                "wf_exec_id": None,
+                "run_status": None,
+            }
+        )
+
+    async def _shown_field_names(self, form: Form) -> set[str]:
+        """Names of the inputs the form shows a requester today.
+
+        Hidden and autofilled inputs are not among them. Empty if the form
+        cannot be resolved.
+        """
+        forms = FormsService(self.session, self.role)
+        try:
+            inputs = await forms.load_inputs(form.workflow_id)
+        except FormError:
+            return set()
+        if inputs is None:
+            return set()
+        result = resolve_form(stored_form_config(form), inputs.expects)
+        if result.has_errors:
+            return set()
+        return {
+            block.name for block in result.blocks if isinstance(block, FormFieldBlock)
+        }
 
     def _is_own(self, submission: FormSubmissionRead) -> bool:
         submitter = submission.submitted_by
