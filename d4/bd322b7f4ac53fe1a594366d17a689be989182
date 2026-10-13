@@ -1,0 +1,31 @@
+tracecat/forms/service.py
+  s_7f6729d1c18d55::t_986971d4596763 65-69,489,495-498,524-525,531
+tracecat/forms/submissions.py
+  s_7f6729d1c18d55::t_986971d4596763 56-60,179
+tests/unit/test_forms_files.py
+  s_7f6729d1c18d55::t_ff3c8f29ec594f 25,42,51-58
+  s_7f6729d1c18d55::t_16f02336e52b16 670-680,687-711,713,715-740,743,745,747,751-791
+  s_7f6729d1c18d55::t_5c8364029580f9 741-742
+  s_7f6729d1c18d55::t_dc702f86f0fc60 792-795
+tracecat/forms/storage.py
+  s_7f6729d1c18d55::t_986971d4596763 10,12,17,68-96
+  s_7f6729d1c18d55::t_04de124f7eec56 97
+tracecat/forms/files.py
+  s_7f6729d1c18d55::t_986971d4596763 37,179
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d4bd322b7f4ac53fe1a594366d17a689be989182",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
