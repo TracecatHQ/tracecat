@@ -181,7 +181,9 @@ A merged pull request changes nothing in a workspace until you or your pipeline 
   A pull can overwrite local edits made after the preview. Coordinate workspace edits, run one push or pull at a time, and wait for it to finish before starting another. Leaving the page does not cancel an in-flight sync. A push exports the workspace state when you submit it, so preview again after editing resources.
 </Warning>
 
-A pull creates or replaces a workflow's form from the `form:` block in its file; a block without `status` leaves the form offline. When the file has no `form:` block, the pull sets the workflow's existing form offline and keeps its config and submissions. The preview reports `Form config does not match the workflow's inputs` when the block has errors against the inputs in the same file.
+A pull creates or replaces a workflow's form from the `form:` block in its file; a block without `status` leaves the form offline. When the file has no `form:` block, the pull sets the workflow's existing form offline and clears its config; the form keeps its ID and submissions. A block that no longer matches the workflow's inputs does not fail the pull: Tracecat stores it as written, and the form stops accepting submissions until you fix it.
+
+An instance on a version without Forms writes `definition.yml` without the `form:` block, so its push removes the block and the next pull on a newer instance takes the form offline. Upgrade every instance that pushes to the repository before you build forms in it.
 
 Until you publish a pulled workflow, its runs resolve actions against the workspace's current registry versions. Publishing it records the registry lock.
 

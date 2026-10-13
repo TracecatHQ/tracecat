@@ -90,6 +90,17 @@ A `field` entry takes these keys:
 | `accept` | `file` widget only. See [File uploads](#file-uploads). |
 | `max_files` | `file` widget only. See [File uploads](#file-uploads). |
 
+Tracecat rejects a config over these limits:
+
+| Part of the config | Limit |
+| --- | --- |
+| `title`, `heading`, `label`, `placeholder`, and an option's `value` and `label` | 255 characters |
+| `description`, `success_message`, `help`, `text`, `notice`, and an option's `description` | 10,000 characters |
+| `layout` | 200 entries |
+| `options` | 100 choices per field |
+| `accept` | 20 entries per field |
+| `image` | 100 KB each, 1 MB per form. See [Options and images](#options-and-images). |
+
 This config:
 
 ```yaml
@@ -224,7 +235,9 @@ The server re-evaluates every rule on submit and drops values for fields the req
 }
 ```
 
-A service account that submits through the API has no user profile. It sends the `requester` autofill inputs itself in `values`, and each one it leaves out is `null`. Tracecat always fills `submission.id`.
+Tracecat fills every autofill input itself and rejects one sent in `values` with `unknown_field`, so a `requester` value is always a verified Tracecat user.
+
+A service account that submits through the API has no user profile, so every `requester` source is `null` for its submissions. Type those inputs to take `null`, such as `str | None`; otherwise the submission fails with `invalid_value`. To record your own end user, add an ordinary input such as `end_user_email` and send it in `values`.
 
 ## Hidden fields
 
@@ -248,9 +261,48 @@ The `file` widget lets requesters attach files. Use a `dict` input for one file 
   max_files: 2
 ```
 
-Tracecat accepts a file when the workspace attachment settings allow its type and it matches `accept`. Each file is limited to the attachment size limit, `TRACECAT__MAX_ATTACHMENT_SIZE_BYTES` (20 MB by default).
+An `accept` entry is an extension such as `.pdf`, a MIME type such as `application/pdf`, or a wildcard such as `image/*`. Without `accept`, the field takes every type the workspace allows.
 
-The workflow receives one object per file with `id`, `name`, `content_type`, `size`, and `sha256`. Fetch the content with `core.forms.download_file`.
+Tracecat accepts a file when all of these hold:
+
+- The workspace attachment settings allow its extension and MIME type.
+- It matches `accept`.
+- Its content matches its declared type.
+- It is not empty and is at most `TRACECAT__MAX_ATTACHMENT_SIZE_BYTES` (20 MB by default).
+
+| Limit | Value |
+| --- | --- |
+| Files per field | `max_files`, at most 10 |
+| Uploaded files one requester holds on one form before submitting | 20 |
+| Time an uploaded file waits for its submission | 24 hours, then Tracecat deletes it |
+
+The workflow receives one object per file, or a list of them for a `list[dict]` input:
+
+```json
+{
+  "id": "3d5f1a7c-2b8e-4c69-a1f4-9e0b6d2c8a35",
+  "name": "quote.pdf",
+  "content_type": "application/pdf",
+  "size": 48213,
+  "sha256": "9f2b6c1e0a7d4f83b5c2e1d09a8f7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a"
+}
+```
+
+Read the content in the workflow with [`core.forms.download_file`](/automations/core-actions/form-actions/forms), which returns the same object plus `content_base64`:
+
+```yaml
+- ref: download_quote
+  action: core.forms.download_file
+  args:
+    file_id: ${{ TRIGGER.quote.id }}
+```
+
+| Who | Can download |
+| --- | --- |
+| The requester who uploaded the file | That file, before and after submitting. |
+| A member with `form:submission:read` | Every submitted file. Click the file in a submission on the `Activity` tab. |
+
+Deleting a submission, its form, or the form's workflow deletes the files.
 
 ## What requesters see
 
@@ -302,19 +354,19 @@ The `Activity` tab of a form shows `Views` and `Submissions` counts and lists su
 
 Tracecat records one view per user per form every five minutes.
 
-Tracecat keeps submissions until you delete them. Deleting a submission removes its stored answers and leaves the workflow run and its inputs in place. See [Delete old submissions](#delete-old-submissions).
+Tracecat keeps submissions until you delete them. Deleting a submission removes its stored answers and files and leaves the workflow run and its inputs in place. See [Delete old submissions](#delete-old-submissions).
 
 ## Permissions
 
 | Scope | Allows |
 | --- | --- |
 | `form:read` | Open online forms and the requester pages. |
-| `form:submit` | Submit a form. |
-| `form:submission:read` | Read every submission, the Activity tab, and run status. |
+| `form:submit` | Submit a form and upload its files. |
+| `form:submission:read` | Read every submission, the Activity tab, and run status, and download submitted files. |
 | `form:create` | Create a form. |
 | `form:update` | Edit the config, change the status, and see offline forms. |
-| `form:delete` | Delete a form with its submissions and activity. |
-| `form:submission:delete` | Delete a submission. |
+| `form:delete` | Delete a form with its submissions, files, and activity. |
+| `form:submission:delete` | Delete a submission and its files. |
 
 | Role | Form scopes |
 | --- | --- |
@@ -352,8 +404,10 @@ form:
 | --- | --- |
 | Export | Writes the block when the form is online or has any config. Submissions and activity stay in the workspace. |
 | Pull, block present | Creates or replaces the form with the block's config and `status`. `status` defaults to `offline`. |
-| Pull, block absent | Sets the workflow's existing form offline and keeps its config and submissions. |
-| Pull, config errors | The pull preview reports `Form config does not match the workflow's inputs` for that workflow. |
+| Pull, block absent | Sets the workflow's existing form offline and clears its config. The form keeps its ID and submissions. |
+| Pull, block no longer matches the inputs | The pull succeeds and stores the block as written. The form stops accepting submissions until you fix the issues on its `Config` tab. |
+
+A Tracecat instance on a version without Forms writes `definition.yml` without the `form:` block. When instances on different versions push to one repository, the next pull on the newer instance takes that form offline and clears its config. Upgrade every instance that pushes to the repository before you build forms in it.
 
 ## REST API
 
@@ -367,12 +421,16 @@ Build your own frontend on these endpoints. Workspace endpoints live under `/wor
 | List a workspace's forms | `GET /workspaces/{workspace_id}/forms` | `form:read` |
 | Get the form to render | `GET /workspaces/{workspace_id}/forms/{form_id}/render` | `form:read` |
 | Search people for a `user` field | `GET /workspaces/{workspace_id}/forms/{form_id}/users?search=` | `form:read` |
+| Upload a file for a `file` field | `POST /workspaces/{workspace_id}/forms/{form_id}/files?field=` | `form:read`, `form:submit` |
 | Submit | `POST /workspaces/{workspace_id}/forms/{form_id}/submissions` | `form:read`, `form:submit` |
 | Get one submission | `GET /workspaces/{workspace_id}/forms/{form_id}/submissions/{submission_id}` | `form:read` for your own, `form:submission:read` for any |
+| Get a file's download URL | `GET /workspaces/{workspace_id}/forms/{form_id}/files/{file_id}/download` | `form:read` for a file you uploaded, `form:submission:read` for any submitted file |
 | List submissions | `GET /workspaces/{workspace_id}/forms/{form_id}/submissions` | `form:submission:read` |
 | Delete a submission | `DELETE /workspaces/{workspace_id}/forms/{form_id}/submissions/{submission_id}` | `form:submission:delete` |
 
 List endpoints take `limit` (default 20, at most 200) and `cursor`, and return `items` with `next_cursor`. The submissions list also takes `submitted_after` and `submitted_before`.
+
+In the forms list, `workflow_id` and `workflow_title` are `null` unless the caller holds `form:update` or `form:submission:read`. The users endpoint needs an online form with a `user` field unless the caller holds `form:update`.
 
 ### Render
 
@@ -403,6 +461,8 @@ List endpoints take `limit` (default 20, at most 200) and `cursor`, and return `
 
 Show a field with `visible_if` only while the named field equals `equals`. Treat a controlling field the requester has not touched as its `default`.
 
+A `file` field's `config` holds `accept`, `max_files`, and `max_file_size` in bytes.
+
 ### Submit
 
 Send the answers keyed by field `name`, with the `definition_version` from `render`.
@@ -431,9 +491,7 @@ curl -X POST "https://platform.tracecat.com/api/workspaces/<WORKSPACE_ID>/forms/
 | `date` | `YYYY-MM-DD` |
 | `datetime` | ISO 8601 date and time |
 | `user` | A `user_id` from the users endpoint, or a list when `multiple` is `true` |
-| `file` | A file ID, or a list when `multiple` is `true` |
-
-For a `file` field, upload each file with `POST /workspaces/{workspace_id}/forms/{form_id}/files` (`form:submit`) and send the returned file IDs.
+| `file` | A file `id` from [Upload a file](#upload-a-file), or a list when `multiple` is `true` |
 
 A `201` response is the receipt:
 
@@ -453,10 +511,48 @@ Errors return `detail.code` and `detail.message`.
 | `409` | `form_offline` | The form is offline. |
 | `409` | `form_unavailable` | The workflow is unpublished, or the config no longer matches the Input schema. |
 | `409` | `form_changed` | `definition_version` is stale. Render again and resubmit. |
-| `422` | `form_validation_error` | `detail.errors` lists `{field, code, message}`. Codes: `required`, `unknown_field`, `invalid_value`, `invalid_option`, `invalid_date`, `invalid_user`. |
-| `503` | `workflow_start_failed` | The workflow did not start and Tracecat stored nothing. Retry. |
+| `422` | `form_validation_error` | `detail.errors` lists `{field, code, message}`. Codes: `required`, `unknown_field`, `invalid_value`, `invalid_option`, `invalid_date`, `invalid_user`, `invalid_file`, `too_many_files`. |
+| `503` | `workflow_start_failed` | The workflow did not start. Tracecat removes the submission and releases its files, so you can retry. When Tracecat cannot tell whether the run started, such as after a timeout, it keeps the submission. |
 
-`wf_exec_id` and `run_status` on a submission are `null` unless the caller holds `form:submission:read`.
+`invalid_file` means a file ID is not a file you uploaded to that field of this form in the last 24 hours, or a submission already holds it. `too_many_files` means the field got more files than its `max_files`.
+
+Without `form:submission:read`, a caller reads only their own submissions: `answers` holds the fields the form shows, and `definition_version`, `wf_exec_id`, and `run_status` are `null`.
+
+### Upload a file
+
+Upload each file before you submit, as `multipart/form-data` with one `file` part. Name the `file` field in the `field` query parameter.
+
+```bash
+curl -X POST "https://platform.tracecat.com/api/workspaces/<WORKSPACE_ID>/forms/<FORM_ID>/files?field=quote" \
+  --header "Authorization: Bearer <SERVICE_ACCOUNT_API_KEY>" \
+  --form "file=@quote.pdf;type=application/pdf"
+```
+
+A `201` response is the file object. Send its `id` as the field's value when you submit.
+
+```json
+{
+  "id": "3d5f1a7c-2b8e-4c69-a1f4-9e0b6d2c8a35",
+  "name": "quote.pdf",
+  "content_type": "application/pdf",
+  "size": 48213,
+  "sha256": "9f2b6c1e0a7d4f83b5c2e1d09a8f7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a"
+}
+```
+
+| Status | `detail.code` | Meaning |
+| --- | --- | --- |
+| `400` | `file_invalid` | The file is empty, or its name or content failed validation. |
+| `409` | `form_offline`, `form_unavailable` | The form is not accepting submissions. |
+| `409` | `file_limit_reached` | You hold 20 uploaded files on this form. Submit, or wait for them to expire. |
+| `413` | `file_too_large` | The file is over the size limit. |
+| `415` | `file_type_not_allowed` | The workspace or the field's `accept` does not allow the type. |
+| `422` | `file_field_invalid` | The form has no `file` field with that name. |
+| `503` | `file_upload_failed` | Tracecat could not store the file. Retry. |
+
+### Download a file
+
+The download endpoint returns `download_url`, `file_name`, and `content_type`. `download_url` is a short-lived URL that downloads the file as an attachment. The endpoint returns `404` for a file the caller cannot read.
 
 ## Delete old submissions
 
