@@ -254,6 +254,7 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   const isCasesPage = Boolean(pathname?.match(/\/cases(\/|$)/))
   const isInboxPage = pathname?.includes("/inbox")
   const isTablesPage = Boolean(pathname?.match(/\/tables(\/|$)/))
+  const isFormsPage = Boolean(pathname?.match(/\/forms(\/|$)/))
   const isSettingsPage = pathname?.includes("/settings")
   const isOrganizationPage = pathname?.includes("/organization")
 
@@ -297,6 +298,11 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
 
   // Tables pages have their own layout with side panels.
   if (isTablesPage) {
+    return <>{children}</>
+  }
+
+  // Forms pages have their own layout with the docked chat sidebar.
+  if (isFormsPage) {
     return <>{children}</>
   }
 

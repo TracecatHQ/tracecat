@@ -289,6 +289,23 @@ describe("intake-only redirect", () => {
     expect(screen.getByRole("navigation", { name: "Workspace" })).toBeVisible()
   })
 
+  it.each([
+    `/workspaces/${WORKSPACE_ID}/forms`,
+    `/workspaces/${WORKSPACE_ID}/forms/form-1`,
+  ])("leaves the shell to the Forms route layout on %s", (pathname) => {
+    // The Forms pages render their own sidebar and header, as Cases and
+    // Tables do. A second shell here would nest one inside the other.
+    mockScopes = { "workspace:read": true, "form:read": true }
+    mockPathname = pathname
+
+    renderLayout()
+
+    expect(screen.getByText("Workspace page")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("navigation", { name: "Workspace" })
+    ).not.toBeInTheDocument()
+  })
+
   it("gives a viewer the shell while the flag is still loading", () => {
     mockScopes = { "workspace:read": true, "form:read": true }
     mockFormsAccess = "loading"
