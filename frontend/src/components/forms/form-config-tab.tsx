@@ -1,9 +1,9 @@
 "use client"
 
-import type { EditorView } from "@codemirror/view"
+import { EditorView } from "@codemirror/view"
 import { CircleXIcon, TriangleAlertIcon, WorkflowIcon } from "lucide-react"
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import type { FormRead } from "@/client"
 import { FormConfigEditor } from "@/components/forms/form-config-editor"
 import { InsertImageButton } from "@/components/forms/insert-image-button"
@@ -125,6 +125,21 @@ export function FormConfigTab({
     (problem) => problem.severity === "error"
   ).length
   const canSave = canEdit && draft.isDirty && !isSaving && errorCount === 0
+
+  // The problems list takes its height from the editor. When it appears or
+  // grows while the builder is typing, keep the cursor line in view.
+  const problemCount = problems.length
+  useEffect(() => {
+    if (!view?.hasFocus) {
+      return
+    }
+    const frame = requestAnimationFrame(() => {
+      view.dispatch({
+        effects: EditorView.scrollIntoView(view.state.selection.main.head),
+      })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [view, problemCount])
 
   /**
    * Save the buffer. While the saved config has changed elsewhere, only an
