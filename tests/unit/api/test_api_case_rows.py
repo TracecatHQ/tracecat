@@ -62,27 +62,10 @@ def _duplicate_case_row_link_error() -> IntegrityError:
 async def test_list_cases_include_rows_hydration_error_is_sanitized(
     client: TestClient, test_admin_role: Role
 ) -> None:
-    case_id = uuid.uuid4()
-    with (
-        patch.object(cases_router, "CasesService") as mock_cases_service_cls,
-        patch.object(cases_router, "CaseTableRowsService") as mock_rows_service_cls,
-    ):
-        mock_cases_service = AsyncMock()
-        mock_cases_service.list_cases.return_value = CursorPaginatedResponse(
-            items=[_build_case_read(case_id)],
-            next_cursor=None,
-            prev_cursor=None,
-            has_more=False,
-            has_previous=False,
-        )
-        mock_cases_service_cls.return_value = mock_cases_service
-
-        mock_rows_service = AsyncMock()
-        mock_rows_service.hydrate_case_rows.side_effect = RuntimeError(
-            "sensitive error details"
-        )
-        mock_rows_service_cls.return_value = mock_rows_service
-
+    with patch.object(cases_router, "CasesService") as service_cls:
+        service = AsyncMock()
+        service.list_cases.side_effect = RuntimeError("sensitive error details")
+        service_cls.return_value = service
         response = client.get(
             "/cases",
             params={
@@ -90,9 +73,9 @@ async def test_list_cases_include_rows_hydration_error_is_sanitized(
                 "include_rows": "true",
             },
         )
-
     assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-    assert response.json()["detail"] == "Failed to hydrate linked rows"
+    assert response.json()["detail"] == "Failed to retrieve cases"
+    assert service.list_cases.call_args.kwargs["include_rows"] is True
 
 
 _ROW_LIMIT_ERROR = f"A case can have at most {MAX_LINKED_ROWS_PER_CASE} linked rows"

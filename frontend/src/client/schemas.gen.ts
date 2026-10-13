@@ -5477,6 +5477,24 @@ export const $AlertArtifact = {
   description: "Alert artifact stub. Extend when alert surfaces are wired.",
 } as const
 
+export const $AndClause = {
+  properties: {
+    and: {
+      items: {
+        $ref: "#/components/schemas/Filter",
+      },
+      type: "array",
+      minItems: 1,
+      title: "And",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["and"],
+  title: "AndClause",
+  description: "A conjunction of one or more filters.",
+} as const
+
 export const $AnyAttachedSubagentRef = {
   anyOf: [
     {
@@ -10115,6 +10133,234 @@ Values:
     OTHER (99): The priority is not normalized`,
 } as const
 
+export const $CaseQuery = {
+  properties: {
+    filters: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/Filter",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    search_term: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search Term",
+    },
+    short_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Short Id",
+    },
+    case_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Case Id",
+    },
+    hierarchy: {
+      type: "string",
+      enum: ["all", "top_level"],
+      title: "Hierarchy",
+      default: "all",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    status: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseStatus",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Status",
+    },
+    priority: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CasePriority",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Priority",
+    },
+    severity: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseSeverity",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Severity",
+    },
+    assignee_id: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+                format: "uuid",
+              },
+              {
+                type: "string",
+                enum: ["unassigned", "__UNASSIGNED__"],
+              },
+            ],
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assignee Id",
+    },
+    tags: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    dropdown: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 50,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Dropdown",
+    },
+    start_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start Time",
+    },
+    end_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End Time",
+    },
+    updated_after: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated After",
+    },
+    updated_before: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated Before",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "CaseQuery",
+  description: `Matching criteria shared by case search and filtered status counts.
+
+Explicit text, identity, and hierarchy constraints are combined with
+\`\`filters\`\` using AND. Workspace and entitlement checks belong to the
+service and cannot be supplied or negated by this request.
+
+Tag membership uses existing filter nodes: \`\`in\`\` matches any tag, an
+\`\`and\`\` of \`\`contains\`\` conditions requires all tags, and \`\`not\`\` around
+\`\`in\`\` excludes the selected tags. \`\`is_null\`\` matches no tags.
+
+Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
+\`\`ne\`\`, \`\`not_in\`\`, and negated comparisons exclude unset values. Include
+unset values explicitly with an \`\`or\`\` containing \`\`is_null\`\`.`,
+} as const
+
 export const $CaseRead = {
   properties: {
     id: {
@@ -10424,6 +10670,321 @@ export const $CaseSearchAggregateRead = {
   type: "object",
   required: ["total", "status_groups"],
   title: "CaseSearchAggregateRead",
+} as const
+
+export const $CaseSearchOrder = {
+  type: "string",
+  enum: [
+    "created_at",
+    "updated_at",
+    "priority",
+    "severity",
+    "status",
+    "tasks",
+    "id",
+    "short_id",
+    "assignee",
+    "tags",
+  ],
+} as const
+
+export const $CaseSearchRequest = {
+  properties: {
+    limit: {
+      type: "integer",
+      maximum: 200,
+      minimum: 1,
+      title: "Limit",
+      description: "Maximum items per page",
+      default: 20,
+    },
+    cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Cursor",
+      description: "Cursor for pagination",
+    },
+    reverse: {
+      type: "boolean",
+      title: "Reverse",
+      description: "Reverse pagination direction",
+      default: false,
+    },
+    filters: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/Filter",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    search_term: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search Term",
+    },
+    short_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Short Id",
+    },
+    case_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Case Id",
+    },
+    hierarchy: {
+      type: "string",
+      enum: ["all", "top_level"],
+      title: "Hierarchy",
+      default: "all",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    status: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseStatus",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Status",
+    },
+    priority: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CasePriority",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Priority",
+    },
+    severity: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseSeverity",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Severity",
+    },
+    assignee_id: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+                format: "uuid",
+              },
+              {
+                type: "string",
+                enum: ["unassigned", "__UNASSIGNED__"],
+              },
+            ],
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assignee Id",
+    },
+    tags: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    dropdown: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 50,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Dropdown",
+    },
+    start_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Start Time",
+    },
+    end_time: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "End Time",
+    },
+    updated_after: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated After",
+    },
+    updated_before: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated Before",
+    },
+    order_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchOrder",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    sort: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["asc", "desc"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Sort",
+    },
+    include_rows: {
+      type: "boolean",
+      title: "Include Rows",
+      default: false,
+    },
+    field_ids: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Field Ids",
+    },
+    include_durations: {
+      type: "boolean",
+      title: "Include Durations",
+      default: false,
+    },
+    include_payload: {
+      type: "boolean",
+      title: "Include Payload",
+      default: false,
+    },
+    include_count: {
+      type: "boolean",
+      title: "Include Count",
+      default: true,
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "CaseSearchRequest",
+  description:
+    "A case query with pagination, sorting, and independent result details.",
 } as const
 
 export const $CaseSeverity = {
@@ -12780,6 +13341,34 @@ export const $CommitInfo = {
   type: "object",
   required: ["status", "sha", "ref", "base_ref"],
   title: "CommitInfo",
+} as const
+
+export const $Condition = {
+  properties: {
+    field: {
+      type: "string",
+      minLength: 1,
+      title: "Field",
+    },
+    op: {
+      $ref: "#/components/schemas/FilterOp",
+    },
+    value: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FilterValue",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["field", "op"],
+  title: "Condition",
+  description: "A predicate over one resolver-defined field.",
 } as const
 
 export const $ContinueRunRequest = {
@@ -16555,6 +17144,89 @@ export const $FileUIPart = {
   required: ["type", "mediaType", "url"],
   title: "FileUIPart",
   description: "A file part of a message.",
+} as const
+
+export const $Filter = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/Condition",
+    },
+    {
+      $ref: "#/components/schemas/AndClause",
+    },
+    {
+      $ref: "#/components/schemas/OrClause",
+    },
+    {
+      $ref: "#/components/schemas/NotClause",
+    },
+  ],
+} as const
+
+export const $FilterOp = {
+  type: "string",
+  enum: [
+    "eq",
+    "ne",
+    "in",
+    "not_in",
+    "gt",
+    "gte",
+    "lt",
+    "lte",
+    "contains",
+    "starts_with",
+    "is_null",
+  ],
+  title: "FilterOp",
+  description: "Operations supported by the shared filter language.",
+} as const
+
+export const $FilterScalar = {
+  anyOf: [
+    {
+      type: "string",
+    },
+    {
+      type: "integer",
+    },
+    {
+      type: "number",
+    },
+    {
+      type: "boolean",
+    },
+    {
+      type: "string",
+      pattern: "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+    },
+    {
+      type: "string",
+      format: "date-time",
+    },
+    {
+      type: "string",
+      format: "date",
+    },
+    {
+      type: "string",
+      format: "uuid",
+    },
+  ],
+} as const
+
+export const $FilterValue = {
+  anyOf: [
+    {
+      $ref: "#/components/schemas/FilterScalar",
+    },
+    {
+      items: {
+        $ref: "#/components/schemas/FilterScalar",
+      },
+      type: "array",
+    },
+  ],
 } as const
 
 export const $FixedActionResult = {
@@ -23516,6 +24188,19 @@ Keys match the TypeScript SDK's \`\`ModelUsage\`\` shape (camelCase), since
 the value is passed through verbatim from the CLI's \`\`modelUsage\`\` field.`,
 } as const
 
+export const $NotClause = {
+  properties: {
+    not: {
+      $ref: "#/components/schemas/Filter",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["not"],
+  title: "NotClause",
+  description: "The negation of one filter.",
+} as const
+
 export const $OAuth2AuthorizeResponse = {
   properties: {
     authorization_url: {
@@ -23583,6 +24268,24 @@ export const $ObjectRef = {
 
 This is a typed reference that replaces large payloads in workflow context.
 Only dereference ObjectRef instances created by Tracecat - never arbitrary URIs.`,
+} as const
+
+export const $OrClause = {
+  properties: {
+    or: {
+      items: {
+        $ref: "#/components/schemas/Filter",
+      },
+      type: "array",
+      minItems: 1,
+      title: "Or",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["or"],
+  title: "OrClause",
+  description: "A disjunction of one or more filters.",
 } as const
 
 export const $OrgCreate = {

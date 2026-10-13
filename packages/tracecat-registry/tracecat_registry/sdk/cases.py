@@ -256,6 +256,11 @@ class CasesClient:
         cursor: str | Unset = UNSET,
         reverse: bool | Unset = UNSET,
         search_term: str | Unset = UNSET,
+        short_id: str | Unset = UNSET,
+        case_id: str | Unset = UNSET,
+        filters: dict[str, Any] | Unset = UNSET,
+        hierarchy: Literal["all", "top_level"] | Unset = UNSET,
+        parent_id: str | Unset = UNSET,
         status: list[CaseStatus] | Unset = UNSET,
         priority: list[CasePriority] | Unset = UNSET,
         severity: list[CaseSeverity] | Unset = UNSET,
@@ -272,8 +277,17 @@ class CasesClient:
         include_payload: bool | Unset = UNSET,
         payload_fields: list[str] | Unset = UNSET,
         payload_paths: list[list[str]] | Unset = UNSET,
+        include_durations: bool | Unset = UNSET,
+        include_count: bool | Unset = UNSET,
+        field_ids: list[str] | Unset = UNSET,
     ) -> types.CaseListResponse:
         """Search cases with filtering and pagination.
+
+        filters accepts the server's AND/OR/NOT JSON filter tree. Tags support
+        in (any), AND of contains (all), NOT in (none), and is_null (untagged).
+        Scalar exclusions omit unset values unless ORed with is_null.
+        Exact IDs and compatibility criteria are ANDed with the filter tree.
+        Returned details are independent of matching.
 
         Either non-empty selector returns the selected subset. payload_fields
         and payload_paths combine and override include_payload. Up to 100 paths
@@ -341,7 +355,20 @@ class CasesClient:
         if is_set(payload_paths) and payload_paths:
             params["payload_paths"] = orjson.dumps(payload_paths).decode()
 
-        return await self._client.get("/cases/search", params=params)
+        for name, value in (
+            ("short_id", short_id),
+            ("case_id", case_id),
+            ("filters", filters),
+            ("hierarchy", hierarchy),
+            ("parent_id", parent_id),
+            ("include_durations", include_durations),
+            ("include_count", include_count),
+            ("field_ids", field_ids),
+        ):
+            if is_set(value):
+                params[name] = value
+        # The standalone registry forwards JSON; the server validates the shared AST.
+        return await self._client.post("/cases/search", json=params)
 
     # === Comments === #
 

@@ -395,6 +395,10 @@ import type {
   CasesListTagsResponse,
   CasesListTasksData,
   CasesListTasksResponse,
+  CasesQueryCaseAggregatesData,
+  CasesQueryCaseAggregatesResponse,
+  CasesQueryCasesData,
+  CasesQueryCasesResponse,
   CasesRemoveTagData,
   CasesRemoveTagResponse,
   CasesRestoreCaseVersionData,
@@ -12047,6 +12051,32 @@ export const casesCreateCase = (
 }
 
 /**
+ * Query Cases
+ * Search with typed AND/OR/NOT filters and independent result details.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
+ * @throws ApiError
+ */
+export const casesQueryCases = (
+  data: CasesQueryCasesData
+): CancelablePromise<CasesQueryCasesResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/cases/search",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Search Cases
  * Search cases with cursor-based pagination, filtering, and sorting.
  * @param data The data for the request.
@@ -12130,11 +12160,39 @@ export const casesSearchCases = (
 }
 
 /**
+ * Query Case Aggregates
+ * Count the same typed matching conditions as search.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseSearchAggregateRead Successful Response
+ * @throws ApiError
+ */
+export const casesQueryCaseAggregates = (
+  data: CasesQueryCaseAggregatesData
+): CancelablePromise<CasesQueryCaseAggregatesResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/cases/search/aggregate",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Search Case Aggregates
  * Return global case totals and per-stage counts for the current filters.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.searchTerm Text to search for in case summary, description, short ID, or case UUID
+ * @param data.shortId
+ * @param data.caseId
  * @param data.status Filter by case status
  * @param data.priority Filter by case priority
  * @param data.severity Filter by case severity
@@ -12161,6 +12219,8 @@ export const casesSearchCaseAggregates = (
     },
     query: {
       search_term: data.searchTerm,
+      short_id: data.shortId,
+      case_id: data.caseId,
       status: data.status,
       priority: data.priority,
       severity: data.severity,
