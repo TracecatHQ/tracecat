@@ -220,8 +220,10 @@ TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED = env_bool(
 )
 """Prefer SquashFS registry artifacts when sidecars and mount support are available."""
 
-TRACECAT__EXECUTOR_SQUASHFS_MOUNT_MAX_ATTEMPTS = int(
-    os.environ.get("TRACECAT__EXECUTOR_SQUASHFS_MOUNT_MAX_ATTEMPTS") or 3
+TRACECAT__EXECUTOR_SQUASHFS_MOUNT_MAX_ATTEMPTS = bound_env(
+    "TRACECAT__EXECUTOR_SQUASHFS_MOUNT_MAX_ATTEMPTS",
+    3,
+    lower=1,
 )
 """Mount attempts per SquashFS artifact before falling back to extraction.
 
