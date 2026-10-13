@@ -199,7 +199,9 @@ def build_deployment(spec: GatewaySpec, settings: GatewaySettings) -> dict[str, 
                             "securityContext": {
                                 "allowPrivilegeEscalation": False,
                                 "privileged": False,
-                                "readOnlyRootFilesystem": True,
+                                # The Pangolin client rewrites /etc/resolv.conf to
+                                # resolve tunnel aliases, so the root stays writable.
+                                "readOnlyRootFilesystem": False,
                                 "capabilities": {
                                     "drop": ["ALL"],
                                     "add": ["NET_ADMIN"],
