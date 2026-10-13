@@ -9,10 +9,21 @@ Supported formats:
 
 import csv
 import io
+import re
 import xml.dom.minidom
 import xml.etree.ElementTree as ET
 from html import escape
 from typing import Any, Literal
+
+
+def _escape_markdown_cell(value: Any) -> str:
+    """Escape a value so it stays inside one markdown table cell.
+
+    A raw pipe starts a new cell and a raw line break ends the row, so escape
+    pipes and render line breaks as `<br>`.
+    """
+    text = str(value).replace("|", "\\|")
+    return re.sub(r"\r\n|\r|\n", "<br>", text)
 
 
 def _format_markdown(x: list[dict[str, Any]], default_value: str = "") -> str:
@@ -37,7 +48,7 @@ def _format_markdown(x: list[dict[str, Any]], default_value: str = "") -> str:
     headers = sorted(all_keys)
 
     # Build header row
-    header_row = "|" + "|".join(headers) + "|"
+    header_row = "|" + "|".join(_escape_markdown_cell(h) for h in headers) + "|"
 
     # Build separator row
     separator_row = "|" + "|".join(["-" for _ in headers]) + "|"
@@ -51,7 +62,7 @@ def _format_markdown(x: list[dict[str, Any]], default_value: str = "") -> str:
             if value is None or value == "":
                 row_parts.append("")
             else:
-                row_parts.append(str(value))
+                row_parts.append(_escape_markdown_cell(value))
 
         row = "|" + "|".join(row_parts) + "|"
         data_rows.append(row)

@@ -115,6 +115,22 @@ class TestMarkdown:
             f"Expected empty cell ('||') somewhere in result:\n{result}"
         )
 
+    def test_pipes_and_line_breaks_stay_in_one_cell(self):
+        """A pipe or line break in a key or value must not split the cell or row."""
+        data = [
+            {"title": "a | b", "note": "line one\nline two"},
+            {"title": "c", "note": "x\r\ny\rz"},
+        ]
+        result = _format_markdown(data)
+
+        assert result.split("\n") == [
+            "|note|title|",
+            "|-|-|",
+            "|line one<br>line two|a \\| b|",
+            "|x<br>y<br>z|c|",
+        ]
+        assert _format_markdown([{"a|b": 1}]).split("\n")[0] == "|a\\|b|"
+
     @pytest.mark.parametrize(
         "input_data",
         [
