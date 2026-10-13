@@ -7,19 +7,40 @@ uv run pytest --noconftest tests/backends/test_agent_dispatch_transaction.py
 import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import replace
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import Table, select, text, update
+from google.protobuf import any_pb2
+from google.protobuf.message import Message
+from sqlalchemy import Table, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 from sqlalchemy.schema import CreateTable
-from temporalio.api.workflowservice.v1 import StartWorkflowExecutionResponse
+from temporalio.api.common.v1 import GrpcStatus
+from temporalio.api.enums.v1 import WorkflowExecutionStatus as ExecutionStatusProto
+from temporalio.api.enums.v1 import WorkflowIdReusePolicy
+from temporalio.api.errordetails.v1 import WorkflowExecutionAlreadyStartedFailure
+from temporalio.api.workflow.v1 import WorkflowExecutionInfo
+from temporalio.api.workflowservice.v1 import (
+    DescribeWorkflowExecutionResponse,
+    StartWorkflowExecutionRequest,
+    StartWorkflowExecutionResponse,
+    TerminateWorkflowExecutionRequest,
+    TerminateWorkflowExecutionResponse,
+)
 from temporalio.client import Client, WorkflowExecutionStatus
-from temporalio.common import RetryPolicy
-from temporalio.service import ConnectConfig, RPCError, RPCStatusCode, ServiceClient
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.service import (
+    ConnectConfig,
+    RPCError,
+    RPCStatusCode,
+    ServiceClient,
+    WorkflowService,
+)
 
 from tests.database import TEST_DB_CONFIG
 from tracecat.agent.backends.default import DefaultBackend
@@ -113,7 +134,81 @@ def temporal_client(rpc: AsyncMock) -> Client:
     service = Mock(spec=ServiceClient)
     service.config = ConnectConfig(target_host="localhost:7233", identity="test-client")
     service._rpc_call = rpc
+    # Recovery's describe and tombstone calls use the process-wide client.
+    service.workflow_service = WorkflowService(service)
     return Client(service, data_converter=get_data_converter())
+
+
+class ScriptedTemporal:
+    """Answer each Temporal RPC from a per-method script and record requests."""
+
+    def __init__(self, **scripts: list[Message | Exception]) -> None:
+        self.scripts = scripts
+        self.starts: list[StartWorkflowExecutionRequest] = []
+        self.terminations: list[TerminateWorkflowExecutionRequest] = []
+
+    async def rpc(self, rpc: str, req: Message, *_args, **_kwargs) -> Message:
+        match req:
+            case StartWorkflowExecutionRequest():
+                self.starts.append(req)
+            case TerminateWorkflowExecutionRequest():
+                self.terminations.append(req)
+        outcome = self.scripts[rpc].pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+def unavailable() -> RPCError:
+    return RPCError("Temporal frontend paused", RPCStatusCode.UNAVAILABLE, b"")
+
+
+def not_found() -> RPCError:
+    return RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")
+
+
+def already_started() -> RPCError:
+    detail = any_pb2.Any()
+    detail.Pack(WorkflowExecutionAlreadyStartedFailure(run_id="original"))
+    status = GrpcStatus(code=RPCStatusCode.ALREADY_EXISTS, details=[detail])
+    return RPCError(
+        "workflow already started",
+        RPCStatusCode.ALREADY_EXISTS,
+        status.SerializeToString(),
+    )
+
+
+async def lose_first_start(
+    backend: DefaultBackend, connection: AsyncConnection, context: SessionTurnContext
+) -> None:
+    """Fail the turn's start ambiguously and check it keeps the session."""
+    with pytest.raises(SessionDispatchUncertain):
+        await backend.start_turn(context)
+    await assert_reserved_by(connection, context.session.id, context.run_id)
+
+
+async def age_reservation(db: AsyncSession, session_id: UUID, by: timedelta) -> None:
+    """Move the reservation's commit stamp back, as if time had passed."""
+    await db.execute(
+        update(AgentSession)
+        .where(AgentSession.id == session_id)
+        .values(updated_at=AgentSession.updated_at - by)
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
+
+
+async def assert_reserved_by(
+    connection: AsyncConnection, session_id: UUID, run_id: UUID | None
+) -> AgentSession:
+    async with AsyncSession(connection) as reader:
+        saved = await reader.scalar(
+            select(AgentSession).where(AgentSession.id == session_id)
+        )
+    assert saved is not None
+    assert saved.curr_run_id == run_id
+    assert (saved.active_stream_id is None) == (run_id is None)
+    return saved
 
 
 @pytest.mark.parametrize("failure", ["preparation", "encoding", "validation", "rpc"])
@@ -532,3 +627,303 @@ async def test_rpc_rejection_releases_only_matching_reservation(
                     assert saved is not None
                     assert saved.curr_run_id == retry.run_id
                     assert saved.active_stream_id == retry.stream_id
+
+
+@pytest.mark.parametrize("preparation_fails", [False, True])
+async def test_lost_start_is_released_without_replay_once_a_tombstone_claims_it(
+    connection: AsyncConnection, preparation_fails: bool
+) -> None:
+    """A start lost to UNAVAILABLE is released, never replayed, once its ID is claimed."""
+    backend = PreparationBackend()
+    temporal = ScriptedTemporal(
+        start_workflow_execution=[
+            unavailable(),
+            StartWorkflowExecutionResponse(run_id="tombstone"),
+            StartWorkflowExecutionResponse(run_id="next"),
+        ],
+        describe_workflow_execution=[not_found()],
+        terminate_workflow_execution=[TerminateWorkflowExecutionResponse()],
+    )
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        next_turn = replace(context, run_id=uuid4(), stream_id=uuid4())
+        with patch(
+            "tracecat.agent.backends.base.get_temporal_client",
+            return_value=temporal_client(AsyncMock(side_effect=temporal.rpc)),
+        ):
+            await lose_first_start(backend, connection, context)
+            await age_reservation(db, session_id, timedelta(minutes=1))
+            backend.fail_preparation = preparation_fails
+            if preparation_fails:
+                with pytest.raises(RuntimeError, match="before dispatch"):
+                    await backend.start_turn(next_turn)
+            else:
+                await backend.start_turn(next_turn)
+
+    original, tombstone, *dispatched = temporal.starts
+    assert original.workflow_id == tombstone.workflow_id == f"agent/{context.run_id}"
+    # Both reject duplicates, so the claim still binds once the tombstone closes.
+    reject = WorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE
+    assert original.workflow_id_reuse_policy == reject
+    assert tombstone.workflow_id_reuse_policy == reject
+    assert tombstone.workflow_type.name == "AgentTurnStartTombstone"
+    assert tombstone.task_queue.name == "agent-turn-start-tombstone"
+    assert not tombstone.input.payloads
+    (termination,) = temporal.terminations
+    assert termination.workflow_execution.workflow_id == tombstone.workflow_id
+    assert termination.first_execution_run_id == "tombstone"
+    if preparation_fails:
+        assert dispatched == []
+        saved = await assert_reserved_by(connection, session_id, None)
+        assert saved.last_error == "Agent turn could not be started"
+    else:
+        assert [start.workflow_id for start in dispatched] == [
+            f"agent/{next_turn.run_id}"
+        ]
+        await assert_reserved_by(connection, session_id, next_turn.run_id)
+
+
+async def test_lost_acknowledgement_keeps_the_session_until_the_original_ends(
+    connection: AsyncConnection,
+) -> None:
+    """When the original start holds its ID, the session stays reserved until it ends."""
+    backend = PreparationBackend()
+    completed = DescribeWorkflowExecutionResponse(
+        workflow_execution_info=WorkflowExecutionInfo(
+            status=ExecutionStatusProto.WORKFLOW_EXECUTION_STATUS_COMPLETED
+        )
+    )
+    temporal = ScriptedTemporal(
+        start_workflow_execution=[
+            unavailable(),
+            already_started(),
+            StartWorkflowExecutionResponse(run_id="next"),
+        ],
+        describe_workflow_execution=[not_found(), completed],
+        terminate_workflow_execution=[],
+    )
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        next_turn = replace(context, run_id=uuid4(), stream_id=uuid4())
+        with patch(
+            "tracecat.agent.backends.base.get_temporal_client",
+            return_value=temporal_client(AsyncMock(side_effect=temporal.rpc)),
+        ):
+            await lose_first_start(backend, connection, context)
+            await age_reservation(db, session_id, timedelta(minutes=1))
+            with pytest.raises(TracecatConflictError):
+                await backend.start_turn(next_turn)
+            await assert_reserved_by(connection, session_id, context.run_id)
+            # The existing terminal-status path releases the original once it ends.
+            await backend.start_turn(next_turn)
+
+    assert [start.workflow_type.name for start in temporal.starts] == [
+        "DurableAgentWorkflow",
+        "AgentTurnStartTombstone",
+        "DurableAgentWorkflow",
+    ]
+    assert temporal.terminations == []
+    await assert_reserved_by(connection, session_id, next_turn.run_id)
+
+
+async def test_unknown_tombstone_outcome_keeps_the_session_and_next_send_retries(
+    connection: AsyncConnection,
+) -> None:
+    """An ambiguous tombstone start keeps the session; the next send claims again."""
+    backend = PreparationBackend()
+    temporal = ScriptedTemporal(
+        start_workflow_execution=[
+            unavailable(),
+            unavailable(),
+            StartWorkflowExecutionResponse(run_id="tombstone"),
+            StartWorkflowExecutionResponse(run_id="next"),
+        ],
+        describe_workflow_execution=[not_found(), not_found()],
+        terminate_workflow_execution=[TerminateWorkflowExecutionResponse()],
+    )
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        next_turn = replace(context, run_id=uuid4(), stream_id=uuid4())
+        with patch(
+            "tracecat.agent.backends.base.get_temporal_client",
+            return_value=temporal_client(AsyncMock(side_effect=temporal.rpc)),
+        ):
+            await lose_first_start(backend, connection, context)
+            await age_reservation(db, session_id, timedelta(minutes=1))
+            with pytest.raises(TracecatConflictError):
+                await backend.start_turn(next_turn)
+            await assert_reserved_by(connection, session_id, context.run_id)
+            assert temporal.terminations == []
+            await backend.start_turn(next_turn)
+
+    lost_id = f"agent/{context.run_id}"
+    assert [start.workflow_id for start in temporal.starts] == [
+        lost_id,
+        lost_id,
+        lost_id,
+        f"agent/{next_turn.run_id}",
+    ]
+    assert len(temporal.terminations) == 1
+    await assert_reserved_by(connection, session_id, next_turn.run_id)
+
+
+@pytest.mark.parametrize("reserved_ago", [timedelta(0), timedelta(seconds=34)])
+async def test_fresh_reservation_is_never_tombstoned(
+    connection: AsyncConnection, reserved_ago: timedelta
+) -> None:
+    """A missing turn younger than its 30 s start deadline plus margin keeps the session."""
+    backend = PreparationBackend()
+    temporal = ScriptedTemporal(
+        start_workflow_execution=[
+            unavailable(),
+            StartWorkflowExecutionResponse(run_id="tombstone"),
+            StartWorkflowExecutionResponse(run_id="next"),
+        ],
+        describe_workflow_execution=[not_found(), not_found()],
+        terminate_workflow_execution=[TerminateWorkflowExecutionResponse()],
+    )
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        next_turn = replace(context, run_id=uuid4(), stream_id=uuid4())
+        with patch(
+            "tracecat.agent.backends.base.get_temporal_client",
+            return_value=temporal_client(AsyncMock(side_effect=temporal.rpc)),
+        ):
+            await lose_first_start(backend, connection, context)
+            await age_reservation(db, session_id, reserved_ago)
+            # The first start may still be in flight, so a quick second send
+            # gets today's conflict instead of tombstoning that turn.
+            with pytest.raises(TracecatConflictError):
+                await backend.start_turn(next_turn)
+            assert len(temporal.starts) == 1
+            await assert_reserved_by(connection, session_id, context.run_id)
+
+            await age_reservation(db, session_id, timedelta(minutes=1))
+            await backend.start_turn(next_turn)
+
+    assert [start.workflow_type.name for start in temporal.starts] == [
+        "DurableAgentWorkflow",
+        "AgentTurnStartTombstone",
+        "DurableAgentWorkflow",
+    ]
+    await assert_reserved_by(connection, session_id, next_turn.run_id)
+
+
+async def test_reservation_is_stamped_at_commit_not_transaction_start(
+    connection: AsyncConnection,
+) -> None:
+    """The start deadline counts from the reservation commit, not its transaction."""
+    rpc = AsyncMock(return_value=StartWorkflowExecutionResponse(run_id="run-1"))
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        # Request preparation runs in the same transaction before dispatch.
+        began = await db.scalar(select(func.now()))
+        assert began is not None
+        await asyncio.sleep(0.2)
+        with patch(
+            "tracecat.agent.backends.base.get_temporal_client",
+            return_value=temporal_client(rpc),
+        ):
+            await PreparationBackend().start_turn(context)
+
+    saved = await assert_reserved_by(connection, session_id, context.run_id)
+    assert saved.updated_at - began >= timedelta(seconds=0.2)
+
+
+async def reserve_lost_turn(db: AsyncSession) -> tuple[SessionTurnContext, UUID]:
+    """Commit a reservation whose start never reached Temporal and timed out."""
+    context = await make_context(db)
+    lost_run_id = uuid4()
+    context.session.curr_run_id = lost_run_id
+    context.session.active_stream_id = uuid4()
+    context.session.last_error = None
+    await db.commit()
+    await age_reservation(db, context.session.id, timedelta(minutes=1))
+    return context, lost_run_id
+
+
+@pytest.mark.temporal
+async def test_real_tombstone_rejects_a_delayed_start_of_the_lost_turn(
+    connection: AsyncConnection, temporal_client: Client
+) -> None:
+    """On real Temporal, a claimed ID releases the session and rejects the original."""
+    backend = PreparationBackend()
+    # Admission is enough; never dispatch a real agent turn from this test.
+    backend.fail_preparation = True
+    queue = f"test-agent-turn-{uuid4()}"
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context, lost_run_id = await reserve_lost_turn(db)
+        session_id = context.session.id
+        with (
+            patch(
+                "tracecat.agent.backends.base.get_temporal_client",
+                return_value=temporal_client,
+            ),
+            pytest.raises(RuntimeError, match="before dispatch"),
+        ):
+            await backend.start_turn(context)
+
+    saved = await assert_reserved_by(connection, session_id, None)
+    assert saved.last_error == "Agent turn could not be started"
+    lost_id = backend.workflow_id(lost_run_id)
+    description = await temporal_client.get_workflow_handle(lost_id).describe()
+    assert description.workflow_type == "AgentTurnStartTombstone"
+    assert description.status == WorkflowExecutionStatus.TERMINATED
+    with pytest.raises(WorkflowAlreadyStartedError):
+        await temporal_client.start_workflow(
+            "DurableAgentWorkflow",
+            id=lost_id,
+            task_queue=queue,
+            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+        )
+    # The closed claim binds only REJECT_DUPLICATE starts, so every turn uses it.
+    duplicate = await temporal_client.start_workflow(
+        "DurableAgentWorkflow",
+        id=lost_id,
+        task_queue=queue,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+    )
+    await duplicate.terminate(reason="test cleanup")
+
+
+@pytest.mark.temporal
+async def test_real_tombstone_never_displaces_an_original_that_landed(
+    connection: AsyncConnection, temporal_client: Client
+) -> None:
+    """On real Temporal, an original that landed after describe keeps the session."""
+    backend = PreparationBackend()
+    queue = f"test-agent-turn-{uuid4()}"
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context, lost_run_id = await reserve_lost_turn(db)
+        session_id = context.session.id
+        original = await temporal_client.start_workflow(
+            "DurableAgentWorkflow",
+            id=backend.workflow_id(lost_run_id),
+            task_queue=queue,
+            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+        )
+        try:
+            # Describe ran just before the original start landed.
+            missing = Mock(describe=AsyncMock(side_effect=not_found()))
+            with (
+                patch(
+                    "tracecat.agent.backends.base.get_temporal_client",
+                    return_value=temporal_client,
+                ),
+                patch.object(backend, "handle", return_value=missing),
+                pytest.raises(TracecatConflictError),
+            ):
+                await backend.start_turn(
+                    replace(context, run_id=uuid4(), stream_id=uuid4())
+                )
+            await assert_reserved_by(connection, session_id, lost_run_id)
+            description = await original.describe()
+            assert description.workflow_type == "DurableAgentWorkflow"
+            assert description.status == WorkflowExecutionStatus.RUNNING
+        finally:
+            await original.terminate(reason="test cleanup")

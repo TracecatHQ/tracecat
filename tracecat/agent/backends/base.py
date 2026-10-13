@@ -9,7 +9,7 @@ from datetime import timedelta
 from typing import ClassVar
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from temporalio.client import (
     Client,
     WorkflowExecutionStatus,
@@ -22,7 +22,7 @@ from temporalio.common import (
     TypedSearchAttributes,
     WorkflowIDReusePolicy,
 )
-from temporalio.service import RPCError
+from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat.agent.backends.dispatch import TurnDispatchClient
 from tracecat.agent.backends.schemas import (
@@ -56,6 +56,18 @@ from tracecat.workflow.executions.enums import (
     TriggerType,
 )
 
+# A tombstone claims the workflow ID of a turn whose start outcome was lost. No
+# worker registers this type or polls this queue: the execution only has to exist.
+_TOMBSTONE_WORKFLOW = "AgentTurnStartTombstone"
+_TOMBSTONE_TASK_QUEUE = "agent-turn-start-tombstone"
+# Closes a tombstone whose termination was lost, so the next send can recover.
+_TOMBSTONE_TIMEOUT = timedelta(seconds=10)
+# sdk-core's default deadline, made explicit because recovery waits it out.
+_START_RPC_TIMEOUT = timedelta(seconds=30)
+# Until then a missing workflow may be a start still in flight. Tombstoning it
+# would drop that turn for a quick second send, so keep the conflict instead.
+_TOMBSTONE_MIN_AGE = _START_RPC_TIMEOUT + timedelta(seconds=5)
+
 
 class AgentBackend[InputT, OutputT](ABC):
     """Stateless backend with a typed workflow and a shared dispatch lifecycle.
@@ -76,9 +88,6 @@ class AgentBackend[InputT, OutputT](ABC):
     task_queue: ClassVar[str]
     priority: ClassVar[Priority] = Priority()
     retry_policy: ClassVar[RetryPolicy] = RetryPolicy(maximum_attempts=1)
-    id_reuse_policy: ClassVar[WorkflowIDReusePolicy] = (
-        WorkflowIDReusePolicy.REJECT_DUPLICATE
-    )
 
     def is_enabled(self) -> bool:
         """Whether this backend can execute new turns."""
@@ -152,7 +161,8 @@ class AgentBackend[InputT, OutputT](ABC):
         """Whether a terminal turn must keep its session reservation.
 
         Called only after Temporal confirms that the workflow for ``run_id`` is
-        terminal, and before the shared lifecycle releases that turn's ownership.
+        terminal or can never start, and before the shared lifecycle releases
+        that turn's ownership.
         ``context.session`` is the session row locked for update in
         ``context.db``. Return True when the backend's durable records show that
         the turn ended with an uncertain outcome that must be reconciled before
@@ -172,7 +182,7 @@ class AgentBackend[InputT, OutputT](ABC):
     async def _release_terminal_turn(
         self, context: SessionTurnContext, client: Client
     ) -> bool:
-        """Recover a locked reservation only when Temporal confirms it has ended."""
+        """Recover a locked reservation only when Temporal proves it cannot run."""
         session = context.session
         run_id = session.curr_run_id
         if run_id is None:
@@ -180,17 +190,30 @@ class AgentBackend[InputT, OutputT](ABC):
         try:
             handle = await self.handle(run_id, client=client)
             description = await handle.describe(rpc_timeout=timedelta(seconds=5))
+        except RPCError as e:
+            if e.status != RPCStatusCode.NOT_FOUND:
+                return False
+            description = None
         except Exception:
-            # NOT_FOUND can race with the commit-to-start gap. A lookup failure
-            # never proves that the original dispatch cannot still start.
             return False
-        if description.status not in {
+        if description is None:
+            # NOT_FOUND can race with the commit-to-start gap or a start whose
+            # acknowledgement was lost. Only claiming the workflow ID proves
+            # that the original dispatch can never start.
+            if not await self._outlived_start_deadline(context):
+                return False
+            if not await self._claim_unstarted_turn(run_id, client):
+                return False
+            last_error = "Agent turn could not be started"
+        elif description.status in {
             WorkflowExecutionStatus.COMPLETED,
             WorkflowExecutionStatus.FAILED,
             WorkflowExecutionStatus.CANCELED,
             WorkflowExecutionStatus.TERMINATED,
             WorkflowExecutionStatus.TIMED_OUT,
         }:
+            last_error = "Previous agent turn ended before session cleanup completed"
+        else:
             return False
         if await self.retains_terminal_ownership(context, run_id):
             return False
@@ -205,13 +228,63 @@ class AgentBackend[InputT, OutputT](ABC):
             .values(
                 curr_run_id=None,
                 active_stream_id=None,
-                last_error=session.last_error
-                or "Previous agent turn ended before session cleanup completed",
+                last_error=session.last_error or last_error,
             )
             .returning(AgentSession.id)
         )
         await context.db.commit()
         return released is not None
+
+    @staticmethod
+    async def _outlived_start_deadline(context: SessionTurnContext) -> bool:
+        """Whether the locked reservation is older than its start RPC's deadline.
+
+        Dispatch stamps ``updated_at`` with the database clock as it commits the
+        reservation, just before the start RPC. Later writes only make it newer.
+        """
+        outlived = await context.db.scalar(
+            select(AgentSession.id).where(
+                AgentSession.id == context.session.id,
+                AgentSession.workspace_id == context.role.workspace_id,
+                AgentSession.updated_at + _TOMBSTONE_MIN_AGE <= func.clock_timestamp(),
+            )
+        )
+        return outlived is not None
+
+    async def _claim_unstarted_turn(self, run_id: UUID, client: Client) -> bool:
+        """Claim a missing turn's workflow ID so its original start can never run.
+
+        Every turn starts with ``REJECT_DUPLICATE``, so once any execution holds
+        the ID, a delayed start of the original turn is rejected and its prompt
+        is never replayed. The tombstone needs no worker and is terminated at once.
+
+        Returns:
+            True only when the tombstone started. False when the original start
+            already holds the ID, so its terminal status releases the turn later,
+            or when the tombstone's own start outcome is unknown.
+        """
+        try:
+            tombstone = await client.start_workflow(
+                _TOMBSTONE_WORKFLOW,
+                id=self.workflow_id(run_id),
+                task_queue=_TOMBSTONE_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+                execution_timeout=_TOMBSTONE_TIMEOUT,
+                rpc_timeout=timedelta(seconds=5),
+            )
+        except Exception:
+            return False
+        try:
+            await tombstone.terminate(
+                reason="Agent turn could not be started",
+                rpc_timeout=timedelta(seconds=5),
+            )
+        except Exception:
+            # The ID is already claimed; the execution timeout closes the tombstone.
+            logger.warning(
+                "Failed to terminate agent turn tombstone", run_id=str(run_id)
+            )
+        return True
 
     async def _prepare_and_dispatch_turn(
         self, context: SessionTurnContext, client: Client
@@ -244,6 +317,9 @@ class AgentBackend[InputT, OutputT](ABC):
             session.curr_run_id = context.run_id
             session.active_stream_id = context.stream_id
             session.last_error = None
+            # The ORM default stamps the transaction start, which can be well
+            # before this commit. Recovery measures the start's deadline from here.
+            session.updated_at = func.clock_timestamp()
             context.db.add(session)
             # Clone the public client configuration to retain codecs and tracing
             # without changing the process-wide client's service connection.
@@ -258,9 +334,12 @@ class AgentBackend[InputT, OutputT](ABC):
                 id=self.workflow_id(context.run_id),
                 task_queue=self.task_queue,
                 retry_policy=self.retry_policy,
-                id_reuse_policy=self.id_reuse_policy,
+                # Recovery tombstones a lost start's ID. REJECT_DUPLICATE keeps a
+                # delayed start from running after that tombstone has closed.
+                id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
                 priority=self.priority,
                 search_attributes=search_attributes,
+                rpc_timeout=_START_RPC_TIMEOUT,
             )
         except asyncio.CancelledError:
             if not dispatch.committed:
