@@ -122,6 +122,21 @@ export function getFieldLabels(
 }
 
 /**
+ * Put a submission's answers in the order the form shows its fields.
+ *
+ * Answers are stored as JSONB, which does not keep key order. Inputs with no
+ * field on the form (hidden and autofill inputs) follow, in stored order.
+ */
+export function orderAnswers(
+  answers: Record<string, unknown>,
+  labels: Record<string, string>
+): [string, unknown][] {
+  const shown = Object.keys(labels).filter((name) => name in answers)
+  const rest = Object.keys(answers).filter((name) => !(name in labels))
+  return [...shown, ...rest].map((name) => [name, answers[name]])
+}
+
+/**
  * One answer of a submission. Files are buttons that download them; anything
  * else is text.
  */
@@ -216,7 +231,7 @@ function SubmissionRow({
   const [open, setOpen] = useState(false)
   const actor = submission.submitted_by
   const name = actorName(actor)
-  const answers = Object.entries(submission.answers)
+  const answers = orderAnswers(submission.answers, labels)
   const href = submission.wf_exec_id
     ? runHref(workspaceId, submission.wf_exec_id)
     : null
