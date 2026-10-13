@@ -4,6 +4,7 @@ import {
   ArrowUpRight,
   KeyRoundIcon,
   MoreHorizontal,
+  NetworkIcon,
   PlusIcon,
   Trash2Icon,
 } from "lucide-react"
@@ -45,17 +46,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { useEntitlements } from "@/hooks/use-entitlements"
@@ -107,214 +107,32 @@ function formatTargets(targets: TunnelTarget[]): string {
 }
 
 /** Header shared by every state of the tunnels page. */
-function TunnelsHeader({ action }: { action?: React.ReactNode }) {
-  return (
-    <div className="flex w-full items-start justify-between gap-4">
-      <div className="items-start space-y-3 text-left">
-        <h2 className="text-2xl font-semibold tracking-tight">Tunnels</h2>
-        <p className="text-base text-muted-foreground">
-          Reach private hosts from actions through a Pangolin tunnel.
-        </p>
-      </div>
-      {action}
-    </div>
-  )
-}
-
-/** Workspace settings page for creating and managing Pangolin tunnels. */
-export function WorkspaceTunnels() {
+export function CreateTunnelButton() {
   const workspaceId = useWorkspaceId()
   const canCreate = useScopeCheck("tunnel:create")
-  const canUpdate = useScopeCheck("tunnel:update")
-  const canDelete = useScopeCheck("tunnel:delete")
-  const {
-    hasEntitlement,
-    hasEntitlementData,
-    isLoading: entitlementsLoading,
-  } = useEntitlements()
+  const { hasEntitlement } = useEntitlements()
   const tunnelsEnabled = hasEntitlement("tunnels")
-  const {
-    tunnels,
-    isLoading,
-    error,
-    createManagedTunnel,
-    createPending,
-    updateTunnel,
-    deleteTunnel,
-    deletePending,
-    issueGatewayKey,
-    issueGatewayKeyPending,
-  } = useTunnels(workspaceId, { enabled: tunnelsEnabled })
-
+  const { createManagedTunnel, createPending } = useTunnels(workspaceId, {
+    enabled: tunnelsEnabled,
+  })
   const [createOpen, setCreateOpen] = useState(false)
   const [created, setCreated] = useState<ManagedTunnelCreated | null>(null)
-  const [rotateTarget, setRotateTarget] = useState<TunnelRead | null>(null)
-  const [issuedKey, setIssuedKey] = useState<TunnelGatewayKeyRead | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<TunnelRead | null>(null)
 
-  if (entitlementsLoading) {
-    return <CenteredSpinner />
-  }
-
-  let body: React.ReactNode
-  if (!hasEntitlementData) {
-    body = (
-      <EntitlementRequiredEmptyState
-        title="Unable to check plan access"
-        description="Reload the page to try again."
-      >
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => window.location.reload()}
-        >
-          Reload
-        </Button>
-      </EntitlementRequiredEmptyState>
-    )
-  } else if (!tunnelsEnabled) {
-    body = (
-      <EntitlementRequiredEmptyState
-        title="Upgrade required"
-        description="Tunnels are unavailable on your current plan."
-      >
-        <Button
-          variant="link"
-          asChild
-          className="text-muted-foreground"
-          size="sm"
-        >
-          <a
-            href="https://tracecat.com"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Learn more <ArrowUpRight className="size-4" />
-          </a>
-        </Button>
-      </EntitlementRequiredEmptyState>
-    )
-  } else if (error) {
-    body = (
-      <AlertNotification
-        level="error"
-        message={`Error loading tunnels: ${error.message}`}
-      />
-    )
-  } else if (isLoading) {
-    body = <CenteredSpinner />
-  } else if (tunnels.length === 0) {
-    body = (
-      <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
-        No tunnels yet.
-      </div>
-    )
-  } else {
-    body = (
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="text-xs">Name</TableHead>
-              <TableHead className="text-xs">Targets</TableHead>
-              <TableHead className="text-xs">Status</TableHead>
-              <TableHead className="text-xs">Enabled</TableHead>
-              <TableHead className="w-10" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {tunnels.map((tunnel) => (
-              <TableRow key={tunnel.id}>
-                <TableCell className="text-xs">
-                  <div className="font-medium">{tunnel.name}</div>
-                  {tunnel.description ? (
-                    <div className="text-muted-foreground">
-                      {tunnel.description}
-                    </div>
-                  ) : null}
-                </TableCell>
-                <TableCell className="max-w-[320px] truncate font-mono text-xs">
-                  {formatTargets(tunnel.allowed_targets)}
-                </TableCell>
-                <TableCell>
-                  <TunnelStatusCell workspaceId={workspaceId} tunnel={tunnel} />
-                </TableCell>
-                <TableCell>
-                  <Switch
-                    aria-label={`Enable ${tunnel.name}`}
-                    checked={tunnel.enabled}
-                    disabled={canUpdate !== true}
-                    onCheckedChange={async (enabled) => {
-                      try {
-                        await updateTunnel({
-                          tunnelId: tunnel.id,
-                          requestBody: { enabled },
-                        })
-                      } catch (err) {
-                        toast({
-                          title: "Failed to update tunnel",
-                          description: getApiErrorDetail(err),
-                          variant: "destructive",
-                        })
-                      }
-                    }}
-                  />
-                </TableCell>
-                <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7"
-                        aria-label={`Actions for ${tunnel.name}`}
-                      >
-                        <MoreHorizontal className="size-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        disabled={canUpdate !== true}
-                        onSelect={() => setRotateTarget(tunnel)}
-                      >
-                        <KeyRoundIcon className="mr-2 size-4" />
-                        Rotate gateway key
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={canDelete !== true}
-                        className="text-destructive"
-                        onSelect={() => setDeleteTarget(tunnel)}
-                      >
-                        <Trash2Icon className="mr-2 size-4" />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    )
+  if (!tunnelsEnabled || canCreate !== true) {
+    return null
   }
 
   return (
-    <div className="size-full overflow-auto">
-      <div className="container flex h-full max-w-[1000px] flex-col space-y-12 py-8">
-        <TunnelsHeader
-          action={
-            tunnelsEnabled && canCreate === true ? (
-              <Button size="sm" onClick={() => setCreateOpen(true)}>
-                <PlusIcon className="mr-1 size-4" />
-                Create tunnel
-              </Button>
-            ) : null
-          }
-        />
-        {body}
-      </div>
-
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 bg-background"
+        onClick={() => setCreateOpen(true)}
+      >
+        <PlusIcon className="mr-1 h-3.5 w-3.5" />
+        Create tunnel
+      </Button>
       <CreateTunnelDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
@@ -333,7 +151,6 @@ export function WorkspaceTunnels() {
           }
         }}
       />
-
       <Dialog
         open={created !== null}
         onOpenChange={(open) => !open && setCreated(null)}
@@ -356,6 +173,200 @@ export function WorkspaceTunnels() {
           </DialogBody>
         </DialogContent>
       </Dialog>
+    </>
+  )
+}
+
+export function WorkspaceTunnels() {
+  const workspaceId = useWorkspaceId()
+  const canUpdate = useScopeCheck("tunnel:update")
+  const canDelete = useScopeCheck("tunnel:delete")
+  const {
+    hasEntitlement,
+    hasEntitlementData,
+    isLoading: entitlementsLoading,
+  } = useEntitlements()
+  const tunnelsEnabled = hasEntitlement("tunnels")
+  const {
+    tunnels,
+    isLoading,
+    error,
+    updateTunnel,
+    deleteTunnel,
+    deletePending,
+    issueGatewayKey,
+    issueGatewayKeyPending,
+  } = useTunnels(workspaceId, { enabled: tunnelsEnabled })
+
+  const [rotateTarget, setRotateTarget] = useState<TunnelRead | null>(null)
+  const [issuedKey, setIssuedKey] = useState<TunnelGatewayKeyRead | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<TunnelRead | null>(null)
+
+  if (entitlementsLoading) {
+    return <CenteredSpinner />
+  }
+
+  let body: React.ReactNode
+  if (!hasEntitlementData) {
+    body = (
+      <div className="flex h-full p-6">
+        <EntitlementRequiredEmptyState
+          title="Unable to check plan access"
+          description="Reload the page to try again."
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.location.reload()}
+          >
+            Reload
+          </Button>
+        </EntitlementRequiredEmptyState>
+      </div>
+    )
+  } else if (!tunnelsEnabled) {
+    body = (
+      <div className="flex h-full p-6">
+        <EntitlementRequiredEmptyState
+          title="Upgrade required"
+          description="Tunnels are unavailable on your current plan."
+        >
+          <Button
+            variant="link"
+            asChild
+            className="text-muted-foreground"
+            size="sm"
+          >
+            <a
+              href="https://tracecat.com"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Learn more <ArrowUpRight className="size-4" />
+            </a>
+          </Button>
+        </EntitlementRequiredEmptyState>
+      </div>
+    )
+  } else if (error) {
+    body = (
+      <div className="p-6">
+        <AlertNotification
+          level="error"
+          message={`Error loading tunnels: ${error.message}`}
+        />
+      </div>
+    )
+  } else if (isLoading) {
+    body = (
+      <div className="flex h-full items-center justify-center">
+        <CenteredSpinner />
+      </div>
+    )
+  } else if (tunnels.length === 0) {
+    body = (
+      <div className="flex h-full p-6">
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <NetworkIcon className="size-5 text-muted-foreground/60" />
+            </EmptyMedia>
+            <EmptyTitle>No tunnels yet</EmptyTitle>
+            <EmptyDescription>
+              Create a tunnel to let actions reach hosts in your private
+              network.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </div>
+    )
+  } else {
+    body = (
+      <div className="divide-y">
+        {tunnels.map((tunnel) => (
+          <div
+            key={tunnel.id}
+            className="group/item flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/50"
+          >
+            <NetworkIcon className="size-4 shrink-0 text-muted-foreground" />
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <div className="flex w-56 min-w-0 shrink-0 flex-col">
+                <span className="truncate text-sm font-medium">
+                  {tunnel.name}
+                </span>
+                {tunnel.description ? (
+                  <span className="truncate text-xs text-muted-foreground">
+                    {tunnel.description}
+                  </span>
+                ) : null}
+              </div>
+              <span
+                className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground"
+                title={formatTargets(tunnel.allowed_targets)}
+              >
+                {formatTargets(tunnel.allowed_targets)}
+              </span>
+            </div>
+            <div className="w-36 shrink-0">
+              <TunnelStatusCell workspaceId={workspaceId} tunnel={tunnel} />
+            </div>
+            <Switch
+              aria-label={`Enable ${tunnel.name}`}
+              checked={tunnel.enabled}
+              disabled={canUpdate !== true}
+              onCheckedChange={async (enabled) => {
+                try {
+                  await updateTunnel({
+                    tunnelId: tunnel.id,
+                    requestBody: { enabled },
+                  })
+                } catch (err) {
+                  toast({
+                    title: "Failed to update tunnel",
+                    description: getApiErrorDetail(err),
+                    variant: "destructive",
+                  })
+                }
+              }}
+            />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  aria-label={`Actions for ${tunnel.name}`}
+                >
+                  <MoreHorizontal className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  disabled={canUpdate !== true}
+                  onSelect={() => setRotateTarget(tunnel)}
+                >
+                  <KeyRoundIcon className="mr-2 size-4" />
+                  Rotate gateway key
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={canDelete !== true}
+                  className="text-destructive"
+                  onSelect={() => setDeleteTarget(tunnel)}
+                >
+                  <Trash2Icon className="mr-2 size-4" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex size-full flex-col overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-auto">{body}</div>
 
       <AlertDialog
         open={rotateTarget !== null}
