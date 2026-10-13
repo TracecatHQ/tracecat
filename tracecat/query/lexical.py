@@ -129,7 +129,8 @@ def resolve_search_columns(
         searchable_columns: Columns the adapter permits for this lexical mode.
 
     Returns:
-        A nonempty tuple of canonical column names, preserving adapter order.
+        Canonical column names in adapter order for ``all_columns``, or in the
+        requested order for an explicit selection. The tuple is nonempty.
 
     Raises:
         ValueError: If scope is empty, duplicated, or contains invalid columns.
