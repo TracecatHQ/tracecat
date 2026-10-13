@@ -365,9 +365,9 @@ describe("case search ordering", () => {
             color: null,
           },
           {
-            id: "synthetic-tag-alpha",
-            name: "Alpha",
-            ref: "synthetic-alpha",
+            id: "synthetic-tag-yankee",
+            name: "Yankee",
+            ref: "synthetic-yankee",
             color: null,
           },
         ],
@@ -375,7 +375,12 @@ describe("case search ordering", () => {
       const second: CaseReadMinimal = {
         ...CASE,
         id: "00000000-0000-4000-8000-000000000043",
-        assignee: null,
+        assignee: {
+          id: "00000000-0000-4000-8000-000000000002",
+          email: "alpha@sorting.example.com",
+          role: "basic",
+          settings: {},
+        },
         tags: [
           {
             id: "synthetic-tag-bravo",
