@@ -286,16 +286,14 @@ export function WorkspaceTunnels() {
         {tunnels.map((tunnel) => (
           <div
             key={tunnel.id}
-            className="group/item flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/50"
+            className="group/item flex items-center gap-2 px-4 py-3 transition-colors hover:bg-muted/50"
           >
             <NetworkIcon className="size-4 shrink-0 text-muted-foreground" />
-            <div className="flex min-w-0 flex-1 items-center gap-3">
-              <div className="flex w-56 min-w-0 shrink-0 flex-col">
-                <span className="truncate text-sm font-medium">
-                  {tunnel.name}
-                </span>
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <div className="flex w-[340px] min-w-0 shrink-0 items-baseline gap-2 text-xs">
+                <span className="truncate">{tunnel.name}</span>
                 {tunnel.description ? (
-                  <span className="truncate text-xs text-muted-foreground">
+                  <span className="min-w-0 truncate text-muted-foreground">
                     {tunnel.description}
                   </span>
                 ) : null}
@@ -307,7 +305,7 @@ export function WorkspaceTunnels() {
                 {formatTargets(tunnel.allowed_targets)}
               </span>
             </div>
-            <div className="w-36 shrink-0">
+            <div className="shrink-0">
               <TunnelStatusCell workspaceId={workspaceId} tunnel={tunnel} />
             </div>
             <Switch
@@ -525,7 +523,7 @@ function TunnelStatusCell({
     return <StatusDot label="Unknown" ok={null} />
   }
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex items-center gap-3">
       {data.site_online !== null ? (
         <StatusDot
           label={data.site_online ? "Site online" : "Site offline"}
