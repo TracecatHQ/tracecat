@@ -302,7 +302,9 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
         className="mt-1 flex h-full w-full flex-col"
       >
         <div className="w-full">
-          <div className="flex items-center justify-start">
+          {/* Four tabs can be wider than the panel. Scroll the strip itself so
+              focusing the last tab does not shift the whole panel sideways. */}
+          <div className="no-scrollbar flex items-center justify-start overflow-x-auto">
             <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
               <TabsTrigger
                 className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
