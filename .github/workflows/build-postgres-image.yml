@@ -78,7 +78,11 @@ jobs:
             fi
             sleep 1
           done
-          docker exec "$trgm_container" pg_isready -h 127.0.0.1 -U postgres -d postgres
+          if ! docker exec "$trgm_container" pg_isready -h 127.0.0.1 -U postgres -d postgres; then
+            echo "PostgreSQL candidate did not become ready" >&2
+            docker logs "$trgm_container" >&2 || true
+            exit 1
+          fi
           PGTRGM_TEST_CONTAINER="$trgm_container" bash scripts/tests/test_pg_trgm.sh
       - name: Reject incompatible collation libraries
         if: matrix.variant == 'trixie'
