@@ -179,6 +179,25 @@ describe("RequesterForm", () => {
     expect(screen.getByRole("button", { name: "Submit" })).toBeDisabled()
   })
 
+  it("stays usable when the workspace's scopes request fails", async () => {
+    mockUseUserScopes.mockReturnValue({
+      userScopes: undefined,
+      isLoading: false,
+      error: new Error("network down"),
+    } as ReturnType<typeof useUserScopes>)
+
+    renderPage()
+
+    // Unknown scopes do not lock the form: the server decides on submit.
+    expect(
+      await screen.findByRole("heading", { name: "Laptop request" })
+    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Submit" })).toBeEnabled()
+    expect(
+      screen.queryByText("You can view this form but you can't submit it.")
+    ).not.toBeInTheDocument()
+  })
+
   it("submits with the rendered definition version and shows the confirmation", async () => {
     submit.mockResolvedValue({
       id: "submission-1",

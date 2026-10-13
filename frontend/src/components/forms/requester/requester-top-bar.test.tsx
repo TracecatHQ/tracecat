@@ -87,6 +87,45 @@ describe("RequesterTopBar account menu", () => {
     expect(screen.getByRole("menuitem", { name: "Sign out" })).toBeVisible()
   })
 
+  it("keeps working when one workspace's scopes request fails", async () => {
+    getMyScopes.mockImplementation(({ workspaceId } = {}) =>
+      workspaceId === "workspace-builder"
+        ? (Promise.reject(new Error("network down")) as never)
+        : (Promise.resolve({
+            scopes: SCOPES_BY_WORKSPACE[workspaceId ?? ""] ?? [],
+          }) as never)
+    )
+
+    renderTopBar()
+    await userEvent.click(
+      screen.getByRole("button", { name: "Account menu for Maya Okafor" })
+    )
+
+    // The other workspaces are still offered and the menu still signs out.
+    expect(
+      await screen.findByRole("menuitem", { name: "Platform" })
+    ).toHaveAttribute("href", "/workspaces/workspace-admin")
+    expect(screen.getByRole("menuitem", { name: "Sign out" })).toBeVisible()
+    // Not known to be readable, so not offered.
+    expect(
+      screen.queryByRole("menuitem", { name: "Security" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("keeps the menu when the workspace list itself fails", async () => {
+    listWorkspaces.mockRejectedValue(new Error("network down"))
+
+    renderTopBar()
+    await userEvent.click(
+      screen.getByRole("button", { name: "Account menu for Maya Okafor" })
+    )
+
+    expect(
+      await screen.findByRole("menuitem", { name: "Sign out" })
+    ).toBeVisible()
+    expect(screen.queryByText("Open workspace")).not.toBeInTheDocument()
+  })
+
   it("shows no workspace section to a user who is intake-only everywhere", async () => {
     listWorkspaces.mockResolvedValue([
       { id: "workspace-intake", name: "Helpdesk" },
