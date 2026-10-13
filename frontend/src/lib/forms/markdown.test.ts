@@ -158,4 +158,15 @@ describe("formMarkdownToPlainText", () => {
   ])("turns %j into %j", (markdown, expected) => {
     expect(formMarkdownToPlainText(markdown)).toBe(expected)
   })
+
+  it.each([
+    "<<a>script>alert(1)</script>",
+    "<scr<b>ipt>alert(1)</scr</b>ipt>",
+    "<<<i>b>script>alert(1)",
+  ])("leaves no tag behind when tags are nested in %j", (markdown) => {
+    const text = formMarkdownToPlainText(markdown)
+
+    expect(text).not.toContain("<script")
+    expect(text).not.toMatch(/<\/?[A-Za-z][^>]*>/)
+  })
 })

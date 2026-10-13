@@ -66,18 +66,29 @@ export function remarkFormMarkdown() {
  *
  * This is a display helper, not a sanitizer: the result is only ever rendered
  * as text. Images and raw HTML tags are dropped, links keep their text and
- * block and inline markers are removed.
+ * block and inline markers are removed. Tags are removed until none is left,
+ * so a tag split around another one (`<<a>script>`) does not survive.
  */
 export function formMarkdownToPlainText(markdown: string): string {
-  const text = markdown
-    .replace(/^\s*(```|~~~).*$/gm, "")
-    .replace(/<\/?[A-Za-z][^>]*>/g, "")
+  const text = stripHtmlTags(markdown.replace(/^\s*(```|~~~).*$/gm, ""))
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/^\s*(#{1,6}|>|[-*+]|\d+[.)])\s+/gm, "")
   return stripInlineMarkers(stripInlineMarkers(text))
     .replace(/\s+/g, " ")
     .trim()
+}
+
+// Removing a tag can join the text around it into a new tag, so repeat until
+// the text stops changing.
+function stripHtmlTags(text: string): string {
+  let previous: string
+  let current = text
+  do {
+    previous = current
+    current = current.replace(/<\/?[A-Za-z][^>]*>/g, "")
+  } while (current !== previous)
+  return current
 }
 
 // Run twice by the caller so nested markers such as `**_text_**` both go.
