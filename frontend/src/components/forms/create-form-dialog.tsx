@@ -104,17 +104,17 @@ export function CreateFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-lg">
-        <DialogHeader className="border-b px-4 py-3">
-          <DialogTitle className="text-sm">New form</DialogTitle>
-          <DialogDescription className="text-xs">
+      <DialogContent size="md">
+        <DialogHeader>
+          <DialogTitle>New form</DialogTitle>
+          <DialogDescription>
             Pick the workflow this form starts. Its inputs become the form's
             fields.
           </DialogDescription>
         </DialogHeader>
-        <Command>
+        <Command className="min-h-0 flex-1 rounded-none">
           <CommandInput placeholder="Search workflows..." />
-          <CommandList className="max-h-80">
+          <CommandList className="max-h-none flex-1">
             <CommandEmpty>
               {isLoading ? "Loading workflows..." : "No workflows found."}
             </CommandEmpty>
