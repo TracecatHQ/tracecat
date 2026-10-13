@@ -81,6 +81,10 @@ export function UserWidget({
       debouncedSearch,
       { enabled: open }
     )
+  // The query runs on the debounced text. Until it catches up, the loaded
+  // list answers an older query, so it is not shown.
+  const isCatchingUp = search.trim() !== debouncedSearch.trim()
+  const visibleUsers = isCatchingUp ? [] : users
   const selection = toSelection(value)
   const selectedIds = new Set(selection.map((user) => user.user_id))
 
@@ -153,10 +157,12 @@ export function UserWidget({
           />
           <CommandList>
             <CommandEmpty className={cn(formStyles.option, "py-6 text-center")}>
-              {usersIsLoading ? "Searching..." : "No people found."}
+              {usersIsLoading || isCatchingUp
+                ? "Searching..."
+                : "No people found."}
             </CommandEmpty>
             <CommandGroup>
-              {users.map((user) => {
+              {visibleUsers.map((user) => {
                 const checked = selectedIds.has(user.user_id)
                 return (
                   <CommandItem
@@ -173,7 +179,7 @@ export function UserWidget({
                   </CommandItem>
                 )
               })}
-              {hasNextPage && (
+              {hasNextPage && !isCatchingUp && (
                 <CommandItem
                   value="__load-more__"
                   onSelect={() => fetchNextPage()}
