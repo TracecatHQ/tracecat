@@ -317,6 +317,23 @@ describe("case search scope UI", () => {
     expect(
       screen.getByRole("button", { name: "Search all cases" })
     ).toBeInTheDocument()
+    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
+      target: { value: "" },
+    })
+    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
+      target: { value: CASE.short_id },
+    })
+    await waitFor(() =>
+      expect(casesSearchCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          searchTerm: CASE.short_id,
+          startTime: expect.any(String),
+        })
+      )
+    )
+    expect(
+      screen.getByRole("combobox", { name: "Case search scope" })
+    ).toHaveTextContent("Current view")
   })
 
   it("states an unavailable exact ID is absent from this workspace", async () => {
@@ -369,6 +386,61 @@ describe("case search scope UI", () => {
       )
     }
   )
+
+  it("preserves a manually selected all-cases scope when text is cleared", async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(
+      await screen.findByRole("button", { name: "Search all cases" })
+    )
+    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
+      target: { value: "synthetic" },
+    })
+    await waitFor(() =>
+      expect(casesSearchCases).toHaveBeenCalledWith(
+        expect.objectContaining({
+          searchTerm: "synthetic",
+          hierarchy: "all",
+        })
+      )
+    )
+    expect(
+      jest.mocked(casesSearchCases).mock.calls.at(-1)?.[0]
+    ).not.toHaveProperty("startTime")
+    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
+      target: { value: "" },
+    })
+    expect(
+      screen.getByRole("combobox", { name: "Case search scope" })
+    ).toHaveTextContent("All cases")
+    expect(screen.getByRole("status")).toHaveTextContent("Any date")
+    expect(
+      screen.getByRole("group", { name: "Current view filters" })
+    ).toBeDisabled()
+  })
+
+  it("resets an explicit scope to automatic lookup behavior", async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(
+      await screen.findByRole("button", { name: "Search all cases" })
+    )
+    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
+      target: { value: "synthetic" },
+    })
+    await user.click(screen.getByRole("button", { name: "Reset" }))
+    expect(
+      screen.getByRole("combobox", { name: "Case search scope" })
+    ).toHaveTextContent("Current view")
+    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
+      target: { value: CASE.short_id },
+    })
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Exact case ID lookup"
+      )
+    )
+  })
 
   it("clears the lookup and restores the saved view constraints", async () => {
     setup()

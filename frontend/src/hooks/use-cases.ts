@@ -127,7 +127,7 @@ export interface UseCasesResult {
   appliedSearchQuery: string
   effectiveHierarchy: CaseHierarchyFilter
   isSearchPending: boolean
-  setSearchScope: (scope: CaseSearchScope) => void
+  setSearchScope: (scope: CaseSearchScope | null) => void
   setSearchQuery: (query: string) => void
   setSortBy: (value: CaseSortValue) => void
   setStatusFilter: (status: CaseStatus[]) => void
@@ -633,7 +633,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       setSearchQueryState(query)
       if (!query.trim()) {
         setDebouncedSearchQuery("")
-        setSearchScope(null)
       }
     },
     [setDebouncedSearchQuery]

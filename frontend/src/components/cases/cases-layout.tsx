@@ -59,7 +59,7 @@ interface CasesLayoutProps {
   effectiveHierarchy: NonNullable<CasesSearchCasesData["hierarchy"]>
   isSearchPending: boolean
   searchScope: CaseSearchScope
-  onSearchScopeChange: (scope: CaseSearchScope) => void
+  onSearchScopeChange: (scope: CaseSearchScope | null) => void
   members?: WorkspaceMember[]
   tags?: CaseTagRead[]
   onSearchChange: (query: string) => void

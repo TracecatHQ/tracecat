@@ -376,7 +376,7 @@ interface CasesHeaderProps {
   effectiveHierarchy: NonNullable<CasesSearchCasesData["hierarchy"]>
   isSearchPending: boolean
   searchScope: CaseSearchScope
-  onSearchScopeChange: (scope: CaseSearchScope) => void
+  onSearchScopeChange: (scope: CaseSearchScope | null) => void
   onSearchChange: (query: string) => void
   sortBy: CaseSortValue
   onSortByChange: (value: CaseSortValue) => void
@@ -609,6 +609,7 @@ export function CasesHeader({
 
   const handleReset = () => {
     onSearchChange("")
+    onSearchScopeChange(null)
     onSortByChange(DEFAULT_CASE_SORT)
     onStatusChange([])
     onStatusModeChange("include")
