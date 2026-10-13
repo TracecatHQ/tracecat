@@ -32,7 +32,9 @@ export function isFieldBlock(block: FormBlock): block is FormFieldBlock {
  *
  * Mirrors `visible_fields` in `tracecat/forms/values.py`: a conditional field
  * shows while its controller strictly equals the rule's value, and a
- * controller with no value counts as its default.
+ * controller the submission leaves out counts as its default. Empty answers
+ * are left out (see `toSubmissionValues`), so a cleared controller falls back
+ * to its default here exactly as it does on the server.
  */
 export function getVisibleFields(
   blocks: FormBlock[],
@@ -49,8 +51,8 @@ export function getVisibleFields(
     if (!controller) {
       return false
     }
-    const value =
-      values[rule.field] === undefined ? controller.default : values[rule.field]
+    const answer = toSubmittedValue(controller, values[rule.field])
+    const value = isEmptyFormValue(answer) ? controller.default : answer
     return value === rule.equals
   })
 }

@@ -49,6 +49,56 @@ describe("getVisibleFields", () => {
     ).toContain("recipient")
   })
 
+  describe("when the requester clears the controller", () => {
+    // A cleared answer is not submitted, so the server sees no value and
+    // applies the controller's default. The client has to agree.
+    function clearedController(fallback?: string): FormBlock[] {
+      return [
+        fieldBlock({ name: "kind", widget: "select", default: fallback }),
+        fieldBlock({
+          name: "details",
+          default: "none",
+          visible_if: { field: "kind", equals: "other" },
+        }),
+      ]
+    }
+    const cleared = ["", null, undefined]
+
+    it.each(cleared)("shows the field when the default matches: %p", (kind) => {
+      const form = clearedController("other")
+      expect(getVisibleFields(form, { kind }).map((f) => f.name)).toEqual([
+        "kind",
+        "details",
+      ])
+      // The controller itself is left out, which is what triggers the default.
+      expect(toSubmissionValues(form, { kind, details: "x" })).toEqual({
+        details: "x",
+      })
+    })
+
+    it.each(cleared)("hides it when the default differs: %p", (kind) => {
+      const form = clearedController("laptop")
+      expect(getVisibleFields(form, { kind }).map((f) => f.name)).toEqual([
+        "kind",
+      ])
+      expect(toSubmissionValues(form, { kind, details: "x" })).toEqual({})
+    })
+
+    it.each(cleared)("hides it when there is no default: %p", (kind) => {
+      const form = clearedController()
+      expect(getVisibleFields(form, { kind }).map((f) => f.name)).toEqual([
+        "kind",
+      ])
+    })
+
+    it("still follows an answer that differs from the default", () => {
+      const form = clearedController("other")
+      expect(
+        getVisibleFields(form, { kind: "laptop" }).map((f) => f.name)
+      ).toEqual(["kind"])
+    })
+  })
+
   it("compares strictly, so a toggle never satisfies a number rule", () => {
     const numeric: FormBlock[] = [
       fieldBlock({ name: "count", widget: "number" }),
