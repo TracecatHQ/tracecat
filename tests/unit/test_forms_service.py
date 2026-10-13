@@ -723,6 +723,44 @@ async def test_user_search_needs_a_user_field(
         await FormsService(session, intake_role).search_users(form, PageParams())
 
 
+async def test_user_search_needs_an_online_form_unless_the_caller_edits_forms(
+    session: AsyncSession,
+    service: FormsService,
+    builder_role: Role,
+    intake_role: Role,
+    requester: User,
+    workflow: Workflow,
+) -> None:
+    await publish_workflow(session, builder_role, workflow, USER_EXPECTS)
+    form = await create_form(
+        session, workflow, status=FormStatus.OFFLINE, layout=USER_LAYOUT
+    )
+    intake = FormsService(session, intake_role)
+
+    with pytest.raises(FormError) as exc_info:
+        await intake.search_users(form, PageParams())
+    assert exc_info.value.code is FormErrorCode.FORM_OFFLINE
+    # An editor previews an offline form.
+    found = await service.search_users(form, PageParams())
+    assert [user.user_id for user in found.items] == [requester.id]
+
+    form.status = FormStatus.ONLINE.value
+    await session.commit()
+    found = await intake.search_users(form, PageParams())
+    assert [user.user_id for user in found.items] == [requester.id]
+
+
+async def test_user_search_needs_a_published_workflow_unless_the_caller_edits_forms(
+    session: AsyncSession, intake_role: Role, workflow: Workflow
+) -> None:
+    form = await create_form(session, workflow, layout=USER_LAYOUT)
+
+    with pytest.raises(FormError) as exc_info:
+        await FormsService(session, intake_role).search_users(form, PageParams())
+
+    assert exc_info.value.code is FormErrorCode.FORM_UNAVAILABLE
+
+
 async def test_form_editor_searches_users_before_saving_a_user_field(
     session: AsyncSession,
     service: FormsService,

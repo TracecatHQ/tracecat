@@ -718,16 +718,18 @@ class FormsService(BaseWorkspaceService):
         """Search organization members for a form's ``user`` widget.
 
         A caller with ``form:update`` can search whatever the saved config
-        holds, so the preview of an unsaved config that adds a ``user`` field
-        works.
+        holds and whatever the form's status, so the preview of an unsaved
+        config that adds a ``user`` field works. Anyone else needs a form
+        they could fill in: online, with a ``user`` field.
 
         Raises:
-            TracecatNotFoundError: If the saved form has no ``user`` widget and
-                the caller cannot edit the form.
+            FormError: ``form_offline`` or ``form_unavailable`` if the caller
+                cannot edit the form and it cannot be filled in.
+            TracecatNotFoundError: If the form has no ``user`` widget and the
+                caller cannot edit the form.
         """
         if not self._has_scope("form:update"):
-            inputs = await self._require_inputs(form.workflow_id)
-            result = resolve_form(stored_form_config(form), inputs.expects)
+            _, _, result = await self.resolve_published(form)
             if not any(
                 isinstance(block, FormFieldBlock) and block.widget is FormWidget.USER
                 for block in result.blocks
