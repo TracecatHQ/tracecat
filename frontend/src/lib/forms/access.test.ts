@@ -3,6 +3,7 @@ import {
   type FormsAccessInput,
   getIntakeRedirect,
   type IntakeRedirectInput,
+  isTriggerTypeVisible,
   resolveFormsAccess,
 } from "@/lib/forms/access"
 
@@ -12,6 +13,21 @@ const intakeOnly: IntakeRedirectInput = {
   formsAccess: "enabled",
   pathname: "/workspaces/workspace-1/workflows",
 }
+
+describe("isTriggerTypeVisible", () => {
+  it("leaves out the form trigger only with the feature flag off", () => {
+    expect(isTriggerTypeVisible("form", "hidden")).toBe(false)
+    for (const access of ["loading", "locked", "enabled"] as const) {
+      expect(isTriggerTypeVisible("form", access)).toBe(true)
+    }
+  })
+
+  it("never hides another trigger type", () => {
+    for (const type of ["manual", "scheduled", "webhook", "case"]) {
+      expect(isTriggerTypeVisible(type, "hidden")).toBe(true)
+    }
+  })
+})
 
 describe("getIntakeRedirect", () => {
   it("sends an intake-only user to the requester catalog", () => {

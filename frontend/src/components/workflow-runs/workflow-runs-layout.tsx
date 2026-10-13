@@ -63,6 +63,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import { useFormsAccess } from "@/hooks/use-forms-access"
 import {
   groupWorkflowRunsByStatus,
   useWorkflowExecutionResetPoints,
@@ -71,6 +72,7 @@ import {
 } from "@/hooks/use-workflow-runs"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import { getDisplayName } from "@/lib/auth"
+import { isTriggerTypeVisible } from "@/lib/forms/access"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -1005,6 +1007,15 @@ export function WorkflowRunsLayout() {
   const [statusFilter, setStatusFilter] = useState<RunStatus[]>([])
   const [statusMode, setStatusMode] = useState<FilterMode>("include")
   const [triggerFilter, setTriggerFilter] = useState<TriggerType[]>([])
+  // With the `forms` flag off no run can come from a form.
+  const formsAccess = useFormsAccess()
+  const triggerFilterOptions = useMemo(
+    () =>
+      TRIGGER_FILTER_OPTIONS.filter((option) =>
+        isTriggerTypeVisible(option.value, formsAccess)
+      ),
+    [formsAccess]
+  )
   const [userFilter, setUserFilter] = useState<string[]>([])
   const [startTimeFilter, setStartTimeFilter] = useState<TimeFilterState>(() =>
     createDefaultTimeFilterState()
@@ -1483,7 +1494,7 @@ export function WorkflowRunsLayout() {
             placeholder="Trigger"
             icon={WebhookIcon}
             value={triggerFilter}
-            options={TRIGGER_FILTER_OPTIONS}
+            options={triggerFilterOptions}
             onChange={setTriggerFilter}
             mode="include"
             onModeChange={() => {}}

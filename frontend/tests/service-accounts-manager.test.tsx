@@ -31,6 +31,10 @@ jest.mock("@/components/cases/case-panel-section", () => ({
   ),
 }))
 
+jest.mock("@/hooks/use-forms-access", () => ({
+  useFormsAccess: () => "hidden",
+}))
+
 jest.mock("@/components/copy-button", () => ({
   CopyButton: () => <button type="button">Copy</button>,
 }))

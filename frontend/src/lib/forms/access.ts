@@ -37,6 +37,19 @@ export function resolveFormsAccess({
   return entitled ? "enabled" : "locked"
 }
 
+/**
+ * Whether a workflow trigger type is offered in run filters.
+ *
+ * Only `form` is ever left out, and only with the feature flag off, when no
+ * run can have come from a form. It stays while the flag is loading.
+ */
+export function isTriggerTypeVisible(
+  triggerType: string,
+  formsAccess: FormsAccess
+): boolean {
+  return triggerType !== "form" || formsAccess !== "hidden"
+}
+
 const FORM_DEEP_LINK = /^\/workspaces\/[^/]+\/forms\/([^/?#]+)/
 
 /** Inputs of {@link getIntakeRedirect}. `undefined` means still loading. */
