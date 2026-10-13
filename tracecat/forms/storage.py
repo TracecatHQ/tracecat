@@ -71,6 +71,9 @@ async def purge_expired_files(session: AsyncSession, workspace_id: uuid.UUID) ->
     Covers every form of the workspace, online or not. Commits the row
     deletion, then deletes the blobs.
     """
+    # Lock the batch first, in a statement of its own. As a subquery of the
+    # DELETE, Postgres may run the limited select once per file row, and each
+    # run skips the rows already deleted, so the DELETE passes the limit.
     expired = (
         select(FormFile.id)
         .where(
@@ -81,9 +84,12 @@ async def purge_expired_files(session: AsyncSession, workspace_id: uuid.UUID) ->
         .limit(EXPIRED_FILE_PURGE_BATCH)
         .with_for_update(skip_locked=True)
     )
+    file_ids = (await session.execute(expired)).scalars().all()
+    if not file_ids:
+        return
     statement = (
         delete(FormFile)
-        .where(FormFile.id.in_(expired))
+        .where(FormFile.id.in_(file_ids))
         .returning(FormFile.form_id, FormFile.id)
     )
     rows = (await session.execute(statement)).tuples().all()

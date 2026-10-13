@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException, UploadFile
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import Headers
 
@@ -738,14 +738,23 @@ async def test_purge_removes_a_bounded_batch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(forms_storage, "EXPIRED_FILE_PURGE_BATCH", 2)
-    uploads = [await _upload(files, form) for _ in range(3)]
+    uploads = [await _upload(files, form)]
+    # Statistics of a one-row table make Postgres pick a nested loop that
+    # rescans a row-limiting subquery once per file row. A purge that limits
+    # in a subquery of its DELETE then removes every expired file.
+    await session.execute(text("ANALYZE form_file"))
+    uploads += [await _upload(files, form) for _ in range(2)]
     for uploaded in uploads:
         await _age(session, uploaded.id, PENDING_FILE_TTL + timedelta(minutes=1))
 
     await purge_expired_files(session, form.workspace_id)
 
-    assert len(await _rows(session)) == 1
-    assert len(store.objects) == 1
+    remaining = await _rows(session)
+    assert len(remaining) == 1
+    # Only the blobs of the deleted rows are gone.
+    assert set(store.objects) == {
+        file_blob_key(form.workspace_id, form.id, file_id) for file_id in remaining
+    }
 
 
 async def test_taking_a_form_offline_purges_expired_pending_files(
