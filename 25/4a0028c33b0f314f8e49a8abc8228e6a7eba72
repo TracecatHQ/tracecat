@@ -1,0 +1,28 @@
+frontend/src/hooks/use-chat-page-context.test.tsx
+  s_7f6729d1c18d55::t_0ab75142ea55e8 19-20,23-26
+  s_7f6729d1c18d55::t_b46a0d025de9f1 21-22
+  s_7f6729d1c18d55::t_191f2ef9e4c295 69
+  s_7f6729d1c18d55::t_ac3f0f34177cea 1,7-8,12-14,16-17,37-39,45,47,49-61,66-68,70,72-74,77-80,83-89,92-109
+  s_7f6729d1c18d55::t_ab38ca762d9508 18
+  s_7f6729d1c18d55::t_20373f04243399 71
+frontend/src/hooks/use-chat.ts
+  s_7f6729d1c18d55::t_a48a142025365b 631-636
+  s_7f6729d1c18d55::t_7b4d8157976840 681
+  s_7f6729d1c18d55::t_0943c81b376501 682
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "254a0028c33b0f314f8e49a8abc8228e6a7eba72",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
