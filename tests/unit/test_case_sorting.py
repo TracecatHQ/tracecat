@@ -102,7 +102,7 @@ async def dataset(session: AsyncSession, svc_workspace: Workspace) -> SortDatase
     tags = [
         CaseTag(workspace_id=svc_workspace.id, name=name, ref=f"synthetic-tag-{index}")
         for index, name in enumerate(
-            ("Zulu", " alpha ", "ALPHA", "2024-01-01", "bravo")
+            ("Zulu", " \talpha\n ", "ALPHA", "\t2024-01-01\r", "bravo")
         )
     ]
     foreign_tag = CaseTag(
