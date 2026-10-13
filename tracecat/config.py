@@ -231,6 +231,20 @@ TRACECAT__EXECUTOR_SQUASHFS_MOUNT_MAX_ATTEMPTS = bound_env(
 Losers of a node-wide loop-device race retry; raise this before raising
 in-pod mount concurrency."""
 
+TRACECAT__EXECUTOR_REGISTRY_DOWNLOAD_SLOTS = max(
+    1, int(os.environ.get("TRACECAT__EXECUTOR_REGISTRY_DOWNLOAD_SLOTS") or 2)
+)
+"""Concurrent cold registry artifact downloads per executor process.
+
+Each download reserves its bytes against the cache cap before writing."""
+
+TRACECAT__EXECUTOR_REGISTRY_EXTRACT_SLOTS = max(
+    1, int(os.environ.get("TRACECAT__EXECUTOR_REGISTRY_EXTRACT_SLOTS") or 1)
+)
+"""Concurrent registry artifact extractions per executor process.
+
+unsquashfs already uses every visible core, so one is the default."""
+
 TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = int(
     os.environ.get("TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES") or 64
 )

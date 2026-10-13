@@ -10,6 +10,7 @@ import signal
 import tarfile
 import tempfile
 import threading
+import time
 from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,14 +20,18 @@ import httpx
 import pytest
 import tracecat_registry
 
+from tracecat.concurrency import run_blocking_rejoin_on_cancel
 from tracecat.executor.registry_artifact_storage import (
     MeteredAdmissionLock,
+    MeteredSlots,
+    RegistryArtifactByteReservation,
     RegistryArtifactMaterializationContext,
     _allocated_stat_size,
     _delete_cache_path,
     _directory_footprint,
     _filesystem_allocation_unit,
     allocated_size_bound,
+    unique_work_path,
 )
 from tracecat.executor.registry_artifacts import (
     SQUASHFS_MOUNT_OPTIONS,
@@ -624,10 +629,10 @@ class TestRegistryArtifactCache:
         assert waiter_holds_key.is_set()
 
     @pytest.mark.anyio
-    async def test_warm_remount_skips_admission_held_by_cold_download(
+    async def test_warm_remount_completes_during_cold_download(
         self, temp_cache_dir: Path
     ) -> None:
-        """An image already on disk mounts while a cold download holds admission."""
+        """An image already on disk mounts while another key is still downloading."""
         cache = RegistryArtifactCache(temp_cache_dir)
         await cache.ensure_swept()
         warm_uri = "s3://bucket/warm.squashfs"
@@ -658,11 +663,10 @@ class TestRegistryArtifactCache:
         ):
             cold = asyncio.create_task(take_lease("s3://bucket/cold.tar.gz"))
             await cold_started.wait()
-            assert cache._admission_lock.locked()
 
             warm_paths = await asyncio.wait_for(take_lease(warm_uri), timeout=1)
 
-            assert cache._admission_lock.locked()
+            assert not cold.done()
             release_cold.set()
             await cold
 
@@ -680,13 +684,13 @@ class TestRegistryArtifactCache:
     async def test_failed_warm_remount_falls_back_to_cold_extraction(
         self, temp_cache_dir: Path, mount_error: Exception
     ) -> None:
-        """A failed remount releases the key, then the cold path extracts under admission."""
+        """A failed remount releases the key, then the cold path extracts with admission."""
         cache = RegistryArtifactCache(temp_cache_dir)
         await cache.ensure_swept()
         uri = "s3://bucket/fallback.squashfs"
         _seed_squashfs_images(cache, [uri])
         cache_key = compute_registry_artifact_cache_key(uri)
-        extract_held_admission: list[bool] = []
+        extract_had_admission: list[bool] = []
         mount_squashfs = AsyncMock(side_effect=mount_error)
 
         async def fake_extract(
@@ -695,7 +699,7 @@ class TestRegistryArtifactCache:
             image_path: Path,
         ) -> Path:
             del self, image_path
-            extract_held_admission.append(cache._admission_lock.locked())
+            extract_had_admission.append(ctx.admission is not None)
             ctx.paths.squashfs_extract_dir.mkdir(parents=True)
             return ctx.paths.squashfs_extract_dir
 
@@ -713,7 +717,7 @@ class TestRegistryArtifactCache:
                 async with cache.lease([uri]) as paths:
                     assert paths == [cache._paths_for(cache_key).squashfs_extract_dir]
 
-        assert extract_held_admission == [True]
+        assert extract_had_admission == [True]
         mount_squashfs.assert_awaited_once()
 
     @pytest.mark.anyio
@@ -847,10 +851,276 @@ class TestRegistryArtifactCache:
         assert hold_ms.record.call_args.args[0] >= 40
 
     @pytest.mark.anyio
-    async def test_different_cold_keys_serialize_materialization(
+    async def test_reserved_staging_bytes_are_charged_once(
         self, temp_cache_dir: Path
     ) -> None:
-        """Distinct cold keys cannot multiply staging and extraction peaks."""
+        """A writer's partial staging file counts against its reservation, not twice."""
+        mib = 1024 * 1024
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        first_key, second_key, third_key = "a" * 16, "b" * 16, "c" * 16
+        first = RegistryArtifactByteReservation()
+        second = RegistryArtifactByteReservation()
+        third = RegistryArtifactByteReservation()
+
+        with patch(MAX_BYTES_CONFIG, 10 * mib):
+            first_admission = cache._admission_for(first_key, first)
+            assert first_admission is not None
+            partial = unique_work_path(cache.staging_dir, first_key, suffix=".squashfs")
+            first.staging_paths.append(partial)
+            await first_admission.ensure_capacity(4 * mib)
+            partial.write_bytes(b"\0" * (3 * mib))
+
+            # 4 + 4 fits in 10; charging the partial file again (3 + 4 + 4) would not.
+            second_admission = cache._admission_for(second_key, second)
+            assert second_admission is not None
+            await second_admission.ensure_capacity(4 * mib)
+            cache._release_reservation(first)
+            cache._release_reservation(second)
+
+            # Released reservations leave the leftover file unowned and charged.
+            third_admission = cache._admission_for(third_key, third)
+            assert third_admission is not None
+            with pytest.raises(RegistryArtifactCacheCapacityError):
+                await third_admission.ensure_capacity(8 * mib)
+            cache._release_reservation(third)
+
+        assert cache._reserved_bytes == 0
+
+    @pytest.mark.anyio
+    async def test_reservation_blocked_writer_waits_for_release(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Space held only by another reservation is temporary: wait, then admit."""
+        mib = 1024 * 1024
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        holder = RegistryArtifactByteReservation()
+        waiter = RegistryArtifactByteReservation()
+
+        with patch(MAX_BYTES_CONFIG, 10 * mib):
+            holder_admission = cache._admission_for("a" * 16, holder)
+            waiter_admission = cache._admission_for("b" * 16, waiter)
+            assert holder_admission is not None and waiter_admission is not None
+            await holder_admission.ensure_capacity(7 * mib)
+
+            waiting = asyncio.ensure_future(waiter_admission.ensure_capacity(4 * mib))
+            await asyncio.sleep(0.05)
+            assert not waiting.done()
+
+            cache._release_reservation(holder)
+            await asyncio.wait_for(waiting, timeout=1)
+            assert waiter.bytes >= 4 * mib
+            cache._release_reservation(waiter)
+
+        assert cache._reserved_bytes == 0
+
+    @pytest.mark.anyio
+    async def test_reservation_wait_classifies_permanent_and_timeout(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Nothing in flight is permanent; an expired wait stays retryable."""
+        mib = 1024 * 1024
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        holder = RegistryArtifactByteReservation()
+        oversized = RegistryArtifactByteReservation()
+        blocked = RegistryArtifactByteReservation()
+
+        with (
+            patch(MAX_BYTES_CONFIG, 10 * mib),
+            patch(
+                "tracecat.executor.registry_artifact_storage.RESERVATION_WAIT_SECONDS",
+                0.05,
+            ),
+        ):
+            oversized_admission = cache._admission_for("c" * 16, oversized)
+            assert oversized_admission is not None
+            with pytest.raises(RegistryArtifactCacheCapacityError) as permanent:
+                await oversized_admission.ensure_capacity(11 * mib)
+            assert not isinstance(
+                permanent.value, RegistryArtifactCacheLeaseContentionError
+            )
+            cache._release_reservation(oversized)
+
+            holder_admission = cache._admission_for("a" * 16, holder)
+            blocked_admission = cache._admission_for("b" * 16, blocked)
+            assert holder_admission is not None and blocked_admission is not None
+            await holder_admission.ensure_capacity(7 * mib)
+            with pytest.raises(RegistryArtifactCacheLeaseContentionError):
+                await blocked_admission.ensure_capacity(4 * mib)
+            cache._release_reservation(holder)
+            cache._release_reservation(blocked)
+
+        assert cache._reserved_bytes == 0
+
+    @pytest.mark.anyio
+    async def test_cancelled_writer_releases_reservation_after_write_stops(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Repeated cancellation never leaks a reservation or frees it mid-write."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        events: list[str] = []
+        write_started = threading.Event()
+
+        def slow_write() -> None:
+            write_started.set()
+            time.sleep(0.2)
+            events.append("write finished")
+
+        async def fake_download(
+            *,
+            output_path: Path,
+            ensure_capacity: Callable[[int], Awaitable[None]] | None,
+            **_: object,
+        ) -> None:
+            assert ensure_capacity is not None
+            await ensure_capacity(1024)
+            await run_blocking_rejoin_on_cancel(slow_write)
+            output_path.write_bytes(b"x")
+
+        release = cache._release_reservation
+
+        def tracking_release(reservation: RegistryArtifactByteReservation) -> None:
+            events.append("reservation released")
+            release(reservation)
+
+        async def take_lease() -> None:
+            async with cache.lease(["s3://bucket/cancelled.squashfs"]):
+                pass
+
+        with (
+            patch(MAX_BYTES_CONFIG, 10 * 1024 * 1024),
+            patch(SQUASHFS_ENABLED_CONFIG, True),
+            patch(
+                "tracecat.executor.registry_artifacts.blob.download_file_to_path",
+                fake_download,
+            ),
+            patch.object(cache, "_release_reservation", tracking_release),
+        ):
+            task = asyncio.create_task(take_lease())
+            assert await asyncio.to_thread(write_started.wait, 1)
+            task.cancel()
+            await asyncio.sleep(0)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert events == ["write finished", "reservation released"]
+        assert cache._reserved_bytes == 0
+        assert not cache._live_reservations
+        assert cache._download_slots.in_use == 0
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("download_slots", [1, 2])
+    async def test_download_slots_cap_concurrent_downloads(
+        self, temp_cache_dir: Path, download_slots: int
+    ) -> None:
+        """Distinct cold keys download concurrently, up to the configured slots."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        cache._download_slots = MeteredSlots("download", download_slots)
+        in_flight = 0
+        peak_in_flight = 0
+
+        async def fake_download(
+            *,
+            output_path: Path,
+            ensure_capacity: Callable[[int], Awaitable[None]] | None,
+            **_: object,
+        ) -> None:
+            nonlocal in_flight, peak_in_flight
+            if ensure_capacity is not None:
+                await ensure_capacity(1024)
+            in_flight += 1
+            peak_in_flight = max(peak_in_flight, in_flight)
+            await asyncio.sleep(0.02)
+            in_flight -= 1
+            output_path.write_bytes(b"squashfs")
+
+        async def take_lease(uri: str) -> None:
+            async with cache.lease([uri]):
+                pass
+
+        mounted: set[Path] = set()
+        with (
+            patch(MAX_BYTES_CONFIG, 10 * 1024 * 1024),
+            _fake_squashfs_mounts(cache, mounted),
+            patch(
+                "tracecat.executor.registry_artifacts.blob.download_file_to_path",
+                fake_download,
+            ),
+        ):
+            await asyncio.gather(
+                *(
+                    take_lease(f"s3://bucket/cold-{index}.squashfs")
+                    for index in range(4)
+                )
+            )
+
+        assert peak_in_flight == download_slots
+        assert cache._download_slots.in_use == 0
+        assert cache._reserved_bytes == 0
+
+    @pytest.mark.anyio
+    async def test_download_slot_frees_before_mount(self, temp_cache_dir: Path) -> None:
+        """A slow mount never holds a download slot another artifact needs."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        cache._download_slots = MeteredSlots("download", 1)
+        first_uri, second_uri = (
+            "s3://bucket/first.squashfs",
+            "s3://bucket/second.squashfs",
+        )
+        first_mounting = asyncio.Event()
+        release_first_mount = asyncio.Event()
+        second_downloaded = asyncio.Event()
+        mounted: set[Path] = set()
+
+        async def fake_download(
+            *,
+            key: str,
+            output_path: Path,
+            ensure_capacity: Callable[[int], Awaitable[None]] | None,
+            **_: object,
+        ) -> None:
+            if ensure_capacity is not None:
+                await ensure_capacity(1024)
+            output_path.write_bytes(b"squashfs")
+            if key == "second.squashfs":
+                second_downloaded.set()
+
+        async def slow_first_mount(image_path: Path, target_dir: Path) -> None:
+            if image_path.parent.name == compute_registry_artifact_cache_key(first_uri):
+                first_mounting.set()
+                await release_first_mount.wait()
+            mounted.add(target_dir)
+
+        async def take_lease(uri: str) -> None:
+            async with cache.lease([uri]):
+                pass
+
+        with (
+            patch(MAX_BYTES_CONFIG, 10 * 1024 * 1024),
+            _fake_squashfs_mounts(cache, mounted, mount=slow_first_mount),
+            patch(
+                "tracecat.executor.registry_artifacts.blob.download_file_to_path",
+                fake_download,
+            ),
+        ):
+            first = asyncio.create_task(take_lease(first_uri))
+            await asyncio.wait_for(first_mounting.wait(), timeout=1)
+            second = asyncio.create_task(take_lease(second_uri))
+            await asyncio.wait_for(second_downloaded.wait(), timeout=1)
+            release_first_mount.set()
+            await asyncio.gather(first, second)
+
+    @pytest.mark.anyio
+    async def test_different_cold_keys_materialize_concurrently(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Distinct cold keys no longer queue behind each other's materialization."""
         cache = RegistryArtifactCache(temp_cache_dir)
         await cache.ensure_swept()
         uris = ["s3://bucket/first.tar.gz", "s3://bucket/second.tar.gz"]
@@ -886,11 +1156,9 @@ class TestRegistryArtifactCache:
             first = asyncio.create_task(take_lease(uris[0]))
             await first_started.wait()
             second = asyncio.create_task(take_lease(uris[1]))
-            await asyncio.sleep(0)
-            assert not second_started.is_set()
+            await asyncio.wait_for(second_started.wait(), timeout=1)
 
             release_first.set()
-            await second_started.wait()
             await asyncio.gather(first, second)
 
         assert started_keys == [
@@ -3174,7 +3442,8 @@ class TestRegistryArtifactCacheEviction:
                 async with cache.lease([artifact_uri]):
                     pass
 
-        assert raised.value.additional_bytes == extracted_size
+        # The staged tarball is charged to the writer's reservation, not the scan.
+        assert raised.value.additional_bytes == extracted_size + payload_reservation
         assert raised.value.max_bytes == max_bytes
         extract.assert_not_awaited()
         evict_entry.assert_not_awaited()
