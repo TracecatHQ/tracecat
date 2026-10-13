@@ -737,10 +737,10 @@ async def test_submit_claims_a_list_of_files_up_to_max_files(
 @pytest.mark.parametrize(
     "value",
     [
-        str(uuid.uuid4()),
+        "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a5b",
         "not-a-file-id",
         17,
-        {"id": str(uuid.uuid4()), "name": "quote.pdf"},
+        {"id": "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a5b", "name": "quote.pdf"},
     ],
 )
 async def test_submit_rejects_values_that_are_not_ids_of_uploaded_files(

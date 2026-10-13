@@ -1123,7 +1123,7 @@ class TestS3Operations:
             ),
             (
                 'a"; filename="evil.exe\r\nX: y.pdf',
-                'attachment; filename="a___filename__evil.exe__X_ y.pdf"; '
+                'attachment; filename="a__ filename__evil.exe__X_ y.pdf"; '
                 "filename*=UTF-8''a%22%3B%20filename%3D%22evil.exe%0D%0AX%3A%20y.pdf",
             ),
             (
