@@ -77,13 +77,17 @@ For Terraform Cloud direct OIDC runs, the target account and role come from `TFC
 
 ## Self-contained migrations
 
-Before introducing vector-dependent application migrations, provision pgvector
-in the application RDS database using a database administrator, then run the
-read-only check as the migration role. The PostgreSQL 16.10 default supports
-pgvector; no engine-version change is required. See the
+Application migrations enable and validate pgvector and `pg_trgm` in the
+application RDS database. The default init container uses the existing managed
+master credentials for `core_database`; no new role or privilege grant is needed.
+The PostgreSQL 16.10 default supports both extensions; no engine-version change
+is required. If an RDS allowlist excludes `vector` or `pg_trgm`, an authorized
+administrator must first allow them in `rds.allowed_extensions`. For restricted
+migration roles, an administrator must preinstall the extensions before rerunning
+migrations. See the
 [application database prerequisite and upgrade guide](../postgres/README.md).
-The migrations init container must not assume extension-installation privileges.
-The Temporal RDS database does not need pgvector.
+Use the `core_database` connection, not the Temporal RDS connection; Temporal
+does not need either extension.
 
 - API task startup includes an internal migrations init container.
 - API container starts only if migrations succeed (`dependsOn: SUCCESS`).

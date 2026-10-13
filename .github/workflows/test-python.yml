@@ -5,6 +5,7 @@ on:
     branches: ["main"]
     paths:
       - tracecat/**
+      - alembic/**
       - registry/**
       - tests/**
       - packages/tracecat-ee/**
@@ -17,6 +18,7 @@ on:
       - deployments/postgres/**
       - scripts/postgres/**
       - scripts/tests/test_pgvector*.sh
+      - scripts/tests/test_pg_trgm.sh
       - .env.example
       - env.sh
       - .github/workflows/test-python.yml
@@ -24,6 +26,7 @@ on:
     branches: ["main", "staging"]
     paths:
       - tracecat/**
+      - alembic/**
       - registry/**
       - tests/**
       - packages/tracecat-ee/**
@@ -36,6 +39,7 @@ on:
       - deployments/postgres/**
       - scripts/postgres/**
       - scripts/tests/test_pgvector*.sh
+      - scripts/tests/test_pg_trgm.sh
       - .env.example
       - env.sh
       - .github/workflows/test-python.yml
@@ -52,6 +56,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
@@ -89,6 +95,8 @@ jobs:
           # - ee # TODO: re-enable this when we have tests
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4

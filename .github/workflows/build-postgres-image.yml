@@ -6,6 +6,8 @@ on:
       - deployments/postgres/**
       - scripts/postgres/**
       - scripts/tests/test_pgvector*.sh
+      - scripts/tests/test_pg_trgm.sh
+      - alembic/versions/3e54217aadda_enable_pg_trgm_for_text_search.py
       - docker-compose*.yml
       - .github/workflows/build-postgres-image.yml
       - .dockerignore
@@ -47,6 +49,14 @@ jobs:
         with:
           persist-credentials: false
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: "0.9.7"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install locked migration dependencies
+        run: uv sync --frozen --no-dev
       - name: Build and test candidate
         env:
           VARIANT: ${{ matrix.variant }}
@@ -63,6 +73,26 @@ jobs:
           bash scripts/tests/test_pgvector_startup.sh "$VARIANT" existing
           bash scripts/tests/test_pgvector_startup.sh "$VARIANT" fresh synthetic_admin
           PGVECTOR_TEST_IMAGE="$image" bash scripts/tests/test_pgvector.sh "$base"
+          trgm_container="pg-trgm-$VARIANT-test"
+          cleanup_trgm() {
+            docker rm -f "$trgm_container" >/dev/null 2>&1 || true
+          }
+          trap cleanup_trgm EXIT
+          docker run -d --name "$trgm_container" \
+            --tmpfs /var/lib/postgresql/data \
+            -e POSTGRES_PASSWORD=synthetic-test-password "$image" >/dev/null
+          for ((attempt = 0; attempt < 60; attempt++)); do
+            if docker exec "$trgm_container" pg_isready -h 127.0.0.1 -U postgres -d postgres >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          if ! docker exec "$trgm_container" pg_isready -h 127.0.0.1 -U postgres -d postgres; then
+            echo "PostgreSQL candidate did not become ready" >&2
+            docker logs "$trgm_container" >&2 || true
+            exit 1
+          fi
+          PGTRGM_TEST_CONTAINER="$trgm_container" bash scripts/tests/test_pg_trgm.sh
       - name: Reject incompatible collation libraries
         if: matrix.variant == 'trixie'
         run: |
