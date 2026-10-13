@@ -80,6 +80,9 @@ export function DatetimeWidget({
             type="button"
             variant="outline"
             disabled={disabled}
+            // Named by the field label and the text it shows, so the picked date
+            // is announced. The label alone would hide it.
+            aria-labelledby={`${id}-label ${id}-value`}
             aria-invalid={invalid}
             aria-describedby={describedBy(id, field, invalid)}
             className={formControlClass(
@@ -91,9 +94,11 @@ export function DatetimeWidget({
             )}
           >
             <CalendarIcon className="size-4 text-muted-foreground" />
-            {date
-              ? format(date, "MMM d, yyyy")
-              : (field.placeholder ?? "Pick a date")}
+            <span id={`${id}-value`}>
+              {date
+                ? format(date, "MMM d, yyyy")
+                : (field.placeholder ?? "Pick a date")}
+            </span>
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-auto overflow-hidden p-0" align="start">
