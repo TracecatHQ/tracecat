@@ -235,7 +235,7 @@ test("failed store edits retain their draft and delete-only users cannot edit", 
   )
   expect(mockUpdateStore).toHaveBeenCalledTimes(1)
   expect(screen.getByLabelText("Name")).toHaveValue("example-renamed")
-  await user.click(screen.getByRole("button", { name: "Cancel" }))
+  await user.click(screen.getByRole("button", { name: "Close" }))
   mockCanUpdate = false
   view.rerender(<OrgSettingsSecretStores />)
   screen.getByRole("button", { name: "Actions for example-production" }).focus()

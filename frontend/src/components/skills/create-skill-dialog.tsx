@@ -6,6 +6,7 @@ import { z } from "zod"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -74,7 +75,7 @@ export function CreateSkillDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Create skill</DialogTitle>
           <DialogDescription>
@@ -83,7 +84,7 @@ export function CreateSkillDialog({
         </DialogHeader>
         <Form {...form}>
           <form
-            className="flex flex-col gap-4"
+            className="flex min-h-0 flex-1 flex-col"
             onSubmit={form.handleSubmit((values) => {
               if (pending) {
                 return
@@ -91,56 +92,58 @@ export function CreateSkillDialog({
               return onCreate(values)
             })}
           >
-            <div className="flex flex-col gap-3">
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field, fieldState }) => (
-                  <FormItem>
-                    <FormLabel>Name</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        onChange={(event) => {
-                          form.clearErrors("name")
-                          field.onChange(
-                            normalizeSkillNameInput(event.target.value)
-                          )
-                        }}
-                        placeholder="threat-intel"
-                        className={cn(
-                          fieldState.invalid &&
-                            "border-destructive focus-visible:ring-destructive"
-                        )}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Lowercase letters, numbers, and single hyphens. Max 64
-                      characters.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Description</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        {...field}
-                        placeholder="Optional description"
-                        rows={3}
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-            </div>
+            <DialogBody>
+              <div className="flex flex-col gap-3">
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field, fieldState }) => (
+                    <FormItem>
+                      <FormLabel>Name</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          onChange={(event) => {
+                            form.clearErrors("name")
+                            field.onChange(
+                              normalizeSkillNameInput(event.target.value)
+                            )
+                          }}
+                          placeholder="threat-intel"
+                          className={cn(
+                            fieldState.invalid &&
+                              "border-destructive focus-visible:ring-destructive"
+                          )}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Lowercase letters, numbers, and single hyphens. Max 64
+                        characters.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Description</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          {...field}
+                          placeholder="Optional description"
+                          rows={3}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </DialogBody>
             <DialogFooter>
-              <Button type="submit" disabled={pending}>
+              <Button size="sm" type="submit" disabled={pending}>
                 {pending ? (
                   <Loader2 className="mr-2 size-4 animate-spin" />
                 ) : null}

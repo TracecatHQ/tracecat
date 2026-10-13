@@ -57,8 +57,8 @@ export const RESOURCE_CATEGORIES: Record<
   },
   secrets: {
     label: "Secrets",
-    description: "Credential and secret management",
-    resources: ["secret"],
+    description: "Credential, secret, and network tunnel management",
+    resources: ["secret", "tunnel"],
   },
   integrations: {
     label: "Integrations",

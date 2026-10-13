@@ -11,6 +11,7 @@ import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -149,7 +150,7 @@ export function TableInsertColumnDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>Add new column</DialogTitle>
           <DialogDescription>
@@ -157,81 +158,89 @@ export function TableInsertColumnDialog({
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Column name</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="type"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="flex items-center gap-2">
-                    <span>Data type</span>
-                    <span className="text-xs text-muted-foreground">
-                      (required)
-                    </span>
-                  </FormLabel>
-                  <FormControl>
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a type..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {SqlTypeCreatableEnum.map((type) => (
-                          <SelectItem key={type} value={type}>
-                            <SqlTypeDisplay
-                              type={type}
-                              labelClassName="text-xs"
-                            />
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            {requiresOptions && (
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DialogBody>
               <FormField
                 control={form.control}
-                name="options"
+                name="name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Options</FormLabel>
+                    <FormLabel>Column name</FormLabel>
                     <FormControl>
-                      <MultiTagCommandInput
-                        value={field.value || []}
-                        onChange={field.onChange}
-                        placeholder="Add allowed values..."
-                        allowCustomTags
-                        disableSuggestions
-                        className="w-full"
-                        searchKeys={["label"]}
-                      />
+                      <Input {...field} />
                     </FormControl>
-                    <FormDescription className="text-xs">
-                      Define the values users can choose from when inserting
-                      rows.
-                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-            )}
+              <FormField
+                control={form.control}
+                name="type"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="flex items-center gap-2">
+                      <span>Data type</span>
+                      <span className="text-xs text-muted-foreground">
+                        (required)
+                      </span>
+                    </FormLabel>
+                    <FormControl>
+                      <Select
+                        value={field.value}
+                        onValueChange={field.onChange}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a type..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {SqlTypeCreatableEnum.map((type) => (
+                            <SelectItem key={type} value={type}>
+                              <SqlTypeDisplay
+                                type={type}
+                                labelClassName="text-xs"
+                              />
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              {requiresOptions && (
+                <FormField
+                  control={form.control}
+                  name="options"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Options</FormLabel>
+                      <FormControl>
+                        <MultiTagCommandInput
+                          value={field.value || []}
+                          onChange={field.onChange}
+                          placeholder="Add allowed values..."
+                          allowCustomTags
+                          disableSuggestions
+                          className="w-full"
+                          searchKeys={["label"]}
+                        />
+                      </FormControl>
+                      <FormDescription className="text-xs">
+                        Define the values users can choose from when inserting
+                        rows.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+            </DialogBody>
             <DialogFooter>
-              <Button type="submit" disabled={insertColumnIsPending}>
+              <Button size="sm" type="submit" disabled={insertColumnIsPending}>
                 Add column
               </Button>
             </DialogFooter>

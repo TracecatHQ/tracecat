@@ -11,6 +11,7 @@ import { useSettingsModal } from "@/components/settings/settings-modal-context"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -205,7 +206,7 @@ function CreateAgentDialogContent({
 
   if (modelsError || defaultModelError) {
     return (
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-lg">
+      <DialogContent size="sm" className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Unable to load models</DialogTitle>
           <DialogDescription>
@@ -219,16 +220,18 @@ function CreateAgentDialogContent({
 
   if (modelsLoading || defaultModelLoading || !models) {
     return (
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-lg">
+      <DialogContent size="sm" className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Loading models</DialogTitle>
           <DialogDescription>
             Loading the models available for this workspace.
           </DialogDescription>
         </DialogHeader>
-        <div className="flex justify-center py-4" aria-label="Loading models">
-          <Spinner className="size-6" />
-        </div>
+        <DialogBody>
+          <div className="flex justify-center py-4" aria-label="Loading models">
+            <Spinner className="size-6" />
+          </div>
+        </DialogBody>
       </DialogContent>
     )
   }
@@ -248,7 +251,7 @@ function CreateAgentDialogContent({
     }
 
     return (
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-lg">
+      <DialogContent size="sm" className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
             {hasDefaultModel
@@ -288,7 +291,7 @@ function CreateAgentDialogContent({
   }
 
   return (
-    <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-lg">
+    <DialogContent size="lg" className="sm:max-w-lg">
       <DialogHeader>
         <DialogTitle>Create agent</DialogTitle>
         <DialogDescription>
@@ -300,8 +303,11 @@ function CreateAgentDialogContent({
         </DialogDescription>
       </DialogHeader>
       <Form {...methods}>
-        <form onSubmit={methods.handleSubmit(handleSubmit)}>
-          <div className="grid gap-4">
+        <form
+          className="flex min-h-0 flex-1 flex-col"
+          onSubmit={methods.handleSubmit(handleSubmit)}
+        >
+          <DialogBody>
             <FormField
               control={methods.control}
               name="name"
@@ -339,20 +345,21 @@ function CreateAgentDialogContent({
                 </FormItem>
               )}
             />
-            <DialogFooter>
-              <Button
-                type="submit"
-                disabled={
-                  createAgentPresetIsPending ||
-                  moveAgentPresetIsPending ||
-                  modelsLoading ||
-                  defaultModelLoading
-                }
-              >
-                Create agent
-              </Button>
-            </DialogFooter>
-          </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button
+              size="sm"
+              type="submit"
+              disabled={
+                createAgentPresetIsPending ||
+                moveAgentPresetIsPending ||
+                modelsLoading ||
+                defaultModelLoading
+              }
+            >
+              Create agent
+            </Button>
+          </DialogFooter>
         </form>
       </Form>
     </DialogContent>

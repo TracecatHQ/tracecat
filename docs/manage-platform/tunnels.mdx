@@ -1,0 +1,204 @@
+---
+title: Tunnels
+description: "Connect Tracecat to private and on-premises services, such as an internal Splunk, through Pangolin tunnels restricted to exact hosts and ports."
+icon: lock
+keywords: ["tunnel", "Pangolin", "on-premises", "private network", "zero trust", "Newt", "proxy"]
+---
+
+## Overview
+
+A tunnel lets actions in one workspace reach hosts on a private network without opening inbound firewall ports. Tracecat uses [Pangolin](https://docs.pangolin.net):
+
+- A site connector (Newt) runs inside your network and opens an outbound tunnel to the Pangolin server.
+- Pangolin grants the tunnel's machine client access to each allowed target, on its listed TCP ports only. UDP and ICMP are off.
+- A tunnel gateway runs the machine client and forwards action traffic. It accepts only short-lived tokens for its own tunnel and workspace, connects only to the tunnel's allowed targets, and logs every connection.
+
+Tunnels belong to one workspace. Every lookup, update, delete, and status check is scoped to the workspace in the request, so one workspace cannot read or use another workspace's tunnel.
+
+Workflow actions cannot select a tunnel yet. This page covers creating and connecting tunnels; action routing follows in a later release.
+
+## Requirements
+
+- The `tunnels` Enterprise entitlement.
+- `tunnel:read` to list tunnels and check status, and `tunnel:create`, `tunnel:update`, or `tunnel:delete` to manage them. Workspace admins and organization owners and admins hold all four; workspace viewers hold `tunnel:read`.
+- A Pangolin server: Pangolin Cloud for Tracecat Cloud, or your own Pangolin deployment for self-hosted Tracecat. See [Configure Pangolin for self-hosted Tracecat](#configure-pangolin-for-self-hosted-tracecat).
+
+Call the API with a [service account API key](/api-reference/authentication) and pass `workspace_id` as a query parameter on every request.
+
+## Create a managed tunnel
+
+<Steps>
+  <Step title="Create the tunnel">
+    List every private host the workspace may reach, with its exact TCP ports:
+
+    ```bash
+    curl -X POST "https://<tracecat-host>/api/tunnels/managed?workspace_id=<workspace_id>" \
+      -H "Authorization: Bearer <api_key>" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "onprem-splunk",
+        "description": "Splunk management API in the primary data center",
+        "allowed_targets": [
+          {"host": "splunk.internal", "ports": [8089]},
+          {"host": "10.20.0.15", "ports": [8089]}
+        ]
+      }'
+    ```
+
+    `host` is an exact hostname or IP address; wildcards and CIDR ranges are rejected. Each target takes 1 to 64 unique ports, and a tunnel takes up to 100 targets.
+
+    Tracecat creates a Pangolin site, one machine client for the tunnel, and one private resource per target granted only to that client. If any step fails, Tracecat deletes what it created and returns `502`.
+  </Step>
+  <Step title="Save the site credentials">
+    The `201` response returns the site credentials once:
+
+    ```json
+    {
+      "tunnel": {"id": "<tunnel_id>", "name": "onprem-splunk", "managed": true, "...": "..."},
+      "site_id": "<site_id>",
+      "site_secret": "<site_secret>",
+      "site_endpoint": "https://app.pangolin.net",
+      "site_install_command": "newt --id <site_id> --secret <site_secret> --endpoint https://app.pangolin.net"
+    }
+    ```
+
+    Store `site_secret` in your secrets manager. Tracecat does not return it again.
+  </Step>
+  <Step title="Install the site connector">
+    Run the connector on a host inside your network that can reach every target:
+
+    ```bash
+    docker run -d --name tracecat-tunnel --restart unless-stopped \
+      -e PANGOLIN_ENDPOINT=<site_endpoint> \
+      -e NEWT_ID=<site_id> \
+      -e NEWT_SECRET=<site_secret> \
+      fosrl/newt
+    ```
+
+    To run the binary directly, use `site_install_command`. The connector needs outbound access to the Pangolin endpoint only.
+  </Step>
+  <Step title="Check the site status">
+    ```bash
+    curl "https://<tracecat-host>/api/tunnels/<tunnel_id>/status?workspace_id=<workspace_id>" \
+      -H "Authorization: Bearer <api_key>"
+    ```
+
+    `site_online` turns `true` once the connector connects.
+  </Step>
+</Steps>
+
+## Bring your own Pangolin
+
+If you already run Pangolin and manage the site, resources, and access yourself, create a machine client in Pangolin, grant it only the resources Tracecat needs, and register it:
+
+```bash
+curl -X POST "https://<tracecat-host>/api/tunnels?workspace_id=<workspace_id>" \
+  -H "Authorization: Bearer <api_key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "onprem-splunk",
+    "endpoint": "https://pangolin.example.com",
+    "client_id": "<machine_client_id>",
+    "client_secret": "<machine_client_secret>",
+    "allowed_targets": [{"host": "splunk.internal", "ports": [8089]}]
+  }'
+```
+
+`endpoint` must use `https`. Tracecat encrypts `client_secret` and never returns it. Keep `allowed_targets` in step with the Pangolin resources; Tracecat enforces both, so a port must appear in each.
+
+## Run the tunnel gateway
+
+Each tunnel has one gateway. It needs the tunnel's gateway key, which signs the tokens actions present:
+
+```bash
+curl -X POST "https://<tracecat-host>/api/tunnels/<tunnel_id>/gateway-key?workspace_id=<workspace_id>" \
+  -H "Authorization: Bearer <api_key>"
+# {"tunnel_id": "<tunnel_id>", "gateway_key": "<gateway_key>"}
+```
+
+Issuing a key revokes the previous one, and Tracecat returns each key once.
+
+The gateway runs the Pangolin machine client and the Tracecat proxy in the same network namespace. The machine client needs `NET_ADMIN` and `/dev/net/tun`, so run gateways apart from executors and allow only executors to reach them.
+
+```bash
+pangolin up --id <machine_client_id> --secret <machine_client_secret> --endpoint <pangolin_endpoint> --attach
+python -m tracecat_ee.tunnels.gateway
+```
+
+The proxy reads:
+
+| Variable | Default | Description |
+| :------- | :------ | :---------- |
+| `TRACECAT_TUNNEL_ID` | | Tunnel ID. |
+| `TRACECAT_TUNNEL_GATEWAY_KEY` | | Gateway key from the endpoint above. |
+| `TRACECAT_TUNNEL_API_URL` | | Internal Tracecat API URL, e.g. `http://api:8000`. |
+| `TRACECAT_TUNNEL_GATEWAY_HOST` | `0.0.0.0` | Listen address. |
+| `TRACECAT_TUNNEL_GATEWAY_PORT` | `8080` | Listen port. |
+
+The gateway loads the tunnel's workspace and allowed targets from the Tracecat API with its gateway key, and refreshes them every 15 seconds. Within one refresh of you disabling or deleting the tunnel, issuing a new gateway key, or removing a target, the gateway rejects new requests and closes the affected open connections. After a key rotation, restart the gateway with the new key. If the gateway can't reach the API for 60 seconds, it stops accepting requests until the API is back.
+
+The gateway answers `407` for a missing, expired, or wrong-tunnel token, `403` for a host or port outside the allowed targets or a revoked tunnel, `503` while it can't load the tunnel's policy, and `504` when Pangolin does not reach the target. It never falls back to direct egress.
+
+## Use TLS with private services
+
+HTTPS through a tunnel stays encrypted end to end. The gateway relays the TLS connection without decrypting it, and the action verifies the server certificate against the hostname in the URL, such as `splunk.internal`. Issue the certificate for the hostname you list in `allowed_targets`.
+
+If an internal CA signs the certificate, add the CA to the workspace:
+
+<Steps>
+  <Step title="Create a CA certificate credential">
+    In the workspace, open **Credentials** and select **Add credential**. Name the secret `ca_cert`, set **Type** to **CA certificate**, paste the PEM-encoded CA certificate, and select **Create secret**. Tracecat stores it as the `CA_CERTIFICATE` key.
+
+    <Frame>
+      <img src="/img/manage-platform/tunnels-ca-certificate.png" alt="Create a CA certificate credential" />
+    </Frame>
+  </Step>
+  <Step title="Keep certificate verification on">
+    `core.http_request`, `core.http_poll`, and `core.http_paginate` load the `ca_cert` credential automatically. Leave `verify_ssl` set to `true`; requests then fail if the certificate does not chain to your CA or does not match the hostname.
+  </Step>
+</Steps>
+
+If the service requires client certificates, add a credential named `mtls` with the **mTLS certificate + key** type. See [Secrets](/automations/core-concepts/secrets) for every credential type.
+
+Plain `http://` requests are encrypted inside the Pangolin tunnel, but not between the site connector and the target, and the gateway can read them. Prefer `https://` for anything that carries credentials.
+
+## Manage tunnels
+
+- List tunnels with `GET /tunnels` and read one with `GET /tunnels/{tunnel_id}`.
+- Rename, describe, or disable a tunnel with `PATCH /tunnels/{tunnel_id}`. Managed tunnels reject changes to `endpoint`, `client_id`, `client_secret`, and `allowed_targets`; create a new managed tunnel to change targets.
+- Delete a tunnel with `DELETE /tunnels/{tunnel_id}`. For managed tunnels, Tracecat deletes the Pangolin resources, machine client, and site first. If Pangolin cleanup fails, the request returns `502` and keeps the tunnel so you can retry. Stop the site connector afterwards.
+
+## Configure Pangolin for self-hosted Tracecat
+
+Tracecat Cloud manages Pangolin for you, so this section applies only to self-hosted Tracecat. Managed tunnels provision Pangolin through its Integration API.
+
+<Steps>
+  <Step title="Enable the Integration API">
+    Deploy Pangolin separately and enable its [Integration API](https://docs.pangolin.net). The API base URL ends in `/v1`.
+  </Step>
+  <Step title="Create an organization API key">
+    In the Pangolin dashboard, open your organization's API keys and create a key with these permissions:
+
+    - Sites: pick site defaults, create, get, and delete.
+    - Clients: pick client defaults, create, get, and delete.
+    - Private resources: create, get, delete, and list resource clients.
+  </Step>
+  <Step title="Set the Tracecat environment variables">
+    Set these on the `api` service and restart it:
+
+    ```bash
+    TRACECAT__PANGOLIN_ENDPOINT=https://pangolin.example.com
+    TRACECAT__PANGOLIN_API_URL=https://pangolin.example.com/v1
+    TRACECAT__PANGOLIN_ORG_ID=<pangolin-org-id>
+    TRACECAT__PANGOLIN_API_KEY=<pangolin-org-api-key>
+    ```
+
+    Managed tunnels stay off until all four are set. See [Environment variables](/self-hosting/environment-variables).
+  </Step>
+</Steps>
+
+## Related pages
+
+- See [HTTP](/automations/core-actions/request-actions/http#private-services) for calling private services with `core.http_request`.
+- See [Python UDFs](/custom-actions/python-udf#private-network-access) for keeping custom actions compatible with tunnels.
+- See [Roles and permissions](/manage-platform/rbac) for which built-in roles hold the `tunnel:*` scopes.

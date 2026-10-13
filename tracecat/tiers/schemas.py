@@ -97,6 +97,12 @@ class EffectiveEntitlements(Schema):
         title="Semantic search",
         description="Whether semantic (vector) search over table columns is enabled",
     )
+    tunnels: bool = Field(
+        default=False,
+        title="Tunnels",
+        description="Whether workspaces may route actions through private"
+        " network tunnels such as Pangolin",
+    )
 
 
 class TierRead(Schema):

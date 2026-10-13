@@ -89,6 +89,10 @@ Declare what each template needs under `definition.secrets` (API keys, structure
 
 <RegistrySecretsAndOAuth />
 
+## Private network access
+
+Templates built on `core.http_request`, `core.http_poll`, or `core.http_paginate` reach private hosts through a [tunnel](/manage-platform/tunnels) without template changes. Write the private URL in `args` as usual; see [Private services](/automations/core-actions/request-actions/http#private-services).
+
 ## Limitations
 
 - Template steps only support `ref`, `action`, and `args`.

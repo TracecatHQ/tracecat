@@ -8,6 +8,7 @@ import { z } from "zod"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -113,7 +114,7 @@ export function CreateOrganizationDialog() {
           New organization
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Create organization</DialogTitle>
           <DialogDescription>
@@ -121,55 +122,57 @@ export function CreateOrganizationDialog() {
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="Acme Inc"
-                      {...field}
-                      onChange={(e) => {
-                        field.onChange(e)
-                        handleNameChange(e.target.value)
-                      }}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    The display name of the organization.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="slug"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Slug</FormLabel>
-                  <FormControl>
-                    <Input placeholder="acme-inc" {...field} />
-                  </FormControl>
-                  <FormDescription>
-                    Unique identifier for the organization. Used in URLs.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DialogBody>
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Name</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Acme Inc"
+                        {...field}
+                        onChange={(e) => {
+                          field.onChange(e)
+                          handleNameChange(e.target.value)
+                        }}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      The display name of the organization.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="slug"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Slug</FormLabel>
+                    <FormControl>
+                      <Input placeholder="acme-inc" {...field} />
+                    </FormControl>
+                    <FormDescription>
+                      Unique identifier for the organization. Used in URLs.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </DialogBody>
             <DialogFooter>
               <Button
-                type="button"
-                variant="outline"
-                onClick={() => setOpen(false)}
+                size="sm"
+                type="submit"
+                disabled={createPending || createDisabled}
               >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={createPending || createDisabled}>
                 {createPending ? "Creating..." : "Create"}
               </Button>
             </DialogFooter>

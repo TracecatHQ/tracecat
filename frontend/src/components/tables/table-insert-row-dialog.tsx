@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -345,7 +346,7 @@ export function TableRowFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="flex max-h-[85vh] max-w-3xl flex-col overflow-hidden">
+      <DialogContent size="sm" className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit row" : "Add new row"}</DialogTitle>
           <DialogDescription>{resolvedDescription}</DialogDescription>
@@ -353,38 +354,40 @@ export function TableRowFormDialog({
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit(handleSubmit)}
-            className="flex min-h-0 flex-1 flex-col overflow-hidden"
+            className="flex min-h-0 flex-1 flex-col"
           >
-            <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
-              <div className="space-y-4 pr-1">
-                {columns.map((column) => (
-                  <FormField
-                    key={column.name}
-                    control={form.control}
-                    name={column.name}
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="flex items-center gap-2">
-                          <span>{column.name}</span>
-                          <SqlTypeBadge type={column.type as SqlType} />
-                          {isColumnRequired(column) && (
-                            <span className="text-xs text-muted-foreground">
-                              (required)
-                            </span>
-                          )}
-                        </FormLabel>
-                        <FormControl>
-                          <DynamicInput column={column} field={field} />
-                        </FormControl>
-                        <FormMessage className="text-xs" />
-                      </FormItem>
-                    )}
-                  />
-                ))}
+            <DialogBody>
+              <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
+                <div className="space-y-4 pr-1">
+                  {columns.map((column) => (
+                    <FormField
+                      key={column.name}
+                      control={form.control}
+                      name={column.name}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="flex items-center gap-2">
+                            <span>{column.name}</span>
+                            <SqlTypeBadge type={column.type as SqlType} />
+                            {isColumnRequired(column) && (
+                              <span className="text-xs text-muted-foreground">
+                                (required)
+                              </span>
+                            )}
+                          </FormLabel>
+                          <FormControl>
+                            <DynamicInput column={column} field={field} />
+                          </FormControl>
+                          <FormMessage className="text-xs" />
+                        </FormItem>
+                      )}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
-            <DialogFooter className="pt-4">
-              <Button type="submit" disabled={isPending}>
+            </DialogBody>
+            <DialogFooter>
+              <Button size="sm" type="submit" disabled={isPending}>
                 {isEdit ? "Save" : "Add row"}
               </Button>
             </DialogFooter>

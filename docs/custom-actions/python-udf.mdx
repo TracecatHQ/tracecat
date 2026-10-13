@@ -107,6 +107,10 @@ api_secret = RegistrySecret(
 
 <RegistrySecretsAndOAuth />
 
+## Private network access
+
+Python UDFs can call hosts on a private or on-premises network through a [tunnel](/manage-platform/tunnels). The tunnel reaches your action as the standard `HTTP_PROXY` and `HTTPS_PROXY` environment variables, which `httpx`, `requests`, and most SDKs read by default. Keep that default: do not set `trust_env=False` or open raw sockets, or the request bypasses the tunnel and fails.
+
 ## Example actions
 
 You can browse all open-source integrations in Tracecat in [tools actions](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/integrations). Use [template actions](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/templates/tools) to see how actions are composed, and use [core actions](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/core) to inspect built-in implementations.
