@@ -1,0 +1,41 @@
+tracecat/forms/schemas.py
+  s_7f6729d1c18d55::t_fb474f6e93eef8 436-438
+  s_7f6729d1c18d55::t_131dae2503a625 337-344
+tracecat/forms/service.py
+  s_7f6729d1c18d55::t_2e9871a95da0f2 330-331
+  s_7f6729d1c18d55::t_254fff1aa8e4a4 34
+  s_7f6729d1c18d55::t_50c8463b95aa36 365-366,371-372
+tests/unit/test_forms_submissions.py
+  s_7f6729d1c18d55::t_a126eb77232d9e 883-903
+  s_7f6729d1c18d55::t_6e19a0b1401910 842-850,853
+frontend/src/client/schemas.gen.ts
+  s_7f6729d1c18d55::t_ea67bb51eee73f 17843-17850,17852,17855-17862,17864,17920,18087-18094,18096,18138
+frontend/src/components/forms/forms-dashboard.tsx
+  s_7f6729d1c18d55::t_0a43b13869ac3d 99-107
+  s_7f6729d1c18d55::t_2d396d0ef5eea1 185
+tests/unit/test_forms_service.py
+  s_7f6729d1c18d55::t_a270bbf95d71cc 408-411
+  s_7f6729d1c18d55::t_257722aa49d80a 397
+tracecat/forms/submissions.py
+  s_7f6729d1c18d55::t_be4f21ab74fd22 44
+  s_7f6729d1c18d55::t_019902a46878c8 478-479,495-528
+  s_7f6729d1c18d55::t_77f1778232ea44 29
+frontend/src/client/types.gen.ts
+  s_7f6729d1c18d55::t_62716e90ae44af 5409-5416,5479-5482
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f9ee6bbd5c863235d8afd7a31f477d6fb8e49de9",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
