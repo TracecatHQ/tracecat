@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/collapsible"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -401,29 +402,29 @@ export function CasePickerDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-xl">
-        <DialogHeader className="text-left">
+      <DialogContent size="sm" className="max-w-xl">
+        <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <CasePickerList
-          search={search}
-          onSearchChange={setSearch}
-          isLoading={picker.isLoading}
-          candidates={candidates}
-          hasNextPage={picker.hasNextPage}
-          isFetchingNextPage={picker.isFetchingNextPage}
-          onLoadMore={() => picker.fetchNextPage()}
-          isSelected={(item) => selected.has(item.id)}
-          isDisabled={isDisabled}
-          onToggle={toggle}
-          multiple={multiple}
-        />
+        <DialogBody>
+          <CasePickerList
+            search={search}
+            onSearchChange={setSearch}
+            isLoading={picker.isLoading}
+            candidates={candidates}
+            hasNextPage={picker.hasNextPage}
+            isFetchingNextPage={picker.isFetchingNextPage}
+            onLoadMore={() => picker.fetchNextPage()}
+            isSelected={(item) => selected.has(item.id)}
+            isDisabled={isDisabled}
+            onToggle={toggle}
+            multiple={multiple}
+          />
+        </DialogBody>
         <DialogFooter>
-          <Button variant="outline" onClick={() => handleOpenChange(false)}>
-            Cancel
-          </Button>
           <Button
+            size="sm"
             onClick={handleConfirm}
             disabled={selected.size === 0 || isSubmitting}
           >

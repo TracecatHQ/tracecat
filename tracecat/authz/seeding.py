@@ -319,6 +319,11 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
     ScopeDefinition("variable:create", "variable", "create", "Create new variables"),
     ScopeDefinition("variable:update", "variable", "update", "Modify variables"),
     ScopeDefinition("variable:delete", "variable", "delete", "Delete variables"),
+    # Tunnel scopes
+    ScopeDefinition("tunnel:read", "tunnel", "read", "View network tunnels"),
+    ScopeDefinition("tunnel:create", "tunnel", "create", "Create network tunnels"),
+    ScopeDefinition("tunnel:update", "tunnel", "update", "Modify network tunnels"),
+    ScopeDefinition("tunnel:delete", "tunnel", "delete", "Delete network tunnels"),
     # Schedule scopes
     ScopeDefinition("schedule:read", "schedule", "read", "View schedules"),
     ScopeDefinition("schedule:create", "schedule", "create", "Create new schedules"),

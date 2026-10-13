@@ -2781,8 +2781,13 @@ export function useGitHubAppManifest() {
   }
 }
 
-export function useGitHubAppCredentialsStatus() {
-  // Get GitHub App credentials status
+/**
+ * Fetch whether the organization has GitHub App credentials configured.
+ */
+export function useGitHubAppCredentialsStatus(options?: {
+  enabled?: boolean
+  suppressErrorToast?: boolean
+}) {
   const {
     data: credentialsStatus,
     isLoading: credentialsStatusIsLoading,
@@ -2791,6 +2796,10 @@ export function useGitHubAppCredentialsStatus() {
   } = useQuery<VcsGetGithubAppCredentialsStatusResponse>({
     queryKey: ["github-app-credentials-status"],
     queryFn: async () => await vcsGetGithubAppCredentialsStatus(),
+    enabled: options?.enabled !== false,
+    ...(options?.suppressErrorToast
+      ? { retry: false, meta: { suppressErrorToast: true } }
+      : {}),
   })
 
   return {

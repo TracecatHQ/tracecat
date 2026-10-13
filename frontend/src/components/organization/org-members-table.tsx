@@ -36,6 +36,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -811,6 +812,7 @@ export function ManageUserRolesDialog({
 
   return (
     <DialogContent
+      size="lg"
       className="max-w-2xl"
       aria-describedby={undefined}
       onCloseAutoFocus={onCloseAutoFocus}
@@ -818,174 +820,176 @@ export function ManageUserRolesDialog({
       <DialogHeader>
         <DialogTitle>Manage roles - {member.email}</DialogTitle>
       </DialogHeader>
-      <div className="space-y-4 py-4">
-        {(canCreateAssignment || canUpdateAssignment) && (
-          <div className="space-y-2">
-            <Label>Add role assignment</Label>
-            <div className="flex gap-2">
-              <Select
-                value={roleId}
-                onValueChange={setRoleId}
-                disabled={!ready || isSaving}
-              >
-                <SelectTrigger className="min-w-0 flex-1" aria-label="Role">
-                  <SelectValue placeholder="Select a role" />
-                </SelectTrigger>
-                <SelectContent>
-                  {rolesForScope(roles, selectedWorkspaceId).map((role) => (
-                    <SelectItem key={role.id} value={role.id}>
-                      {role.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select
-                value={workspaceId}
-                onValueChange={(value) => {
-                  setWorkspaceId(value)
-                  setRoleId("")
-                }}
-                disabled={!ready || isSaving}
-              >
-                <SelectTrigger
-                  className="w-[180px] min-w-0 shrink"
-                  aria-label="Scope"
+      <DialogBody>
+        <div className="space-y-4 py-4">
+          {(canCreateAssignment || canUpdateAssignment) && (
+            <div className="space-y-2">
+              <Label>Add role assignment</Label>
+              <div className="flex gap-2">
+                <Select
+                  value={roleId}
+                  onValueChange={setRoleId}
+                  disabled={!ready || isSaving}
                 >
-                  <SelectValue placeholder="Scope" />
-                </SelectTrigger>
-                <SelectContent className="max-w-[calc(100vw-2rem)]">
-                  <SelectItem value="org-wide">Organization</SelectItem>
-                  {workspaces?.map((workspace) => (
-                    <SelectItem
-                      key={workspace.id}
-                      value={workspace.id}
-                      className="break-words whitespace-normal"
-                    >
-                      {workspace.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                type="button"
-                aria-label="Add role"
-                onClick={handleAddRole}
-                disabled={!roleId || !ready || isSaving || !canAdd}
-              >
-                <PlusIcon className="size-4" />
-              </Button>
-            </div>
-          </div>
-        )}
-        <div className="space-y-2">
-          <Label>
-            Direct roles ({ready ? visibleAssignments.length : "…"})
-          </Label>
-          <ScrollArea className="h-[320px] rounded-md border">
-            <div className="px-4 py-2">
-              {ready &&
-                visibleAssignments.map((assignment) => (
-                  <div
-                    key={assignment.workspace_id ?? "org-wide"}
-                    className="flex min-h-9 items-center justify-between gap-2 border-b py-1 last:border-0"
+                  <SelectTrigger className="min-w-0 flex-1" aria-label="Role">
+                    <SelectValue placeholder="Select a role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {rolesForScope(roles, selectedWorkspaceId).map((role) => (
+                      <SelectItem key={role.id} value={role.id}>
+                        {role.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={workspaceId}
+                  onValueChange={(value) => {
+                    setWorkspaceId(value)
+                    setRoleId("")
+                  }}
+                  disabled={!ready || isSaving}
+                >
+                  <SelectTrigger
+                    className="w-[180px] min-w-0 shrink"
+                    aria-label="Scope"
                   >
-                    <div className="flex min-w-0 items-center gap-2">
-                      <Badge variant="secondary">{assignment.role_name}</Badge>
-                      <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-                        {assignment.workspace_id ? (
-                          <FolderIcon className="size-3" />
-                        ) : (
-                          <GlobeIcon className="size-3" />
-                        )}
-                        {assignment.workspace_name ?? "Organization-wide"}
-                      </span>
-                    </div>
-                    {(canDeleteAssignment ||
-                      !original.some(
-                        (item) =>
-                          (item.workspace_id ?? null) ===
-                            (assignment.workspace_id ?? null) &&
-                          item.role_id === assignment.role_id
-                      )) && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        aria-label={`Remove ${assignment.role_name} from ${assignment.workspace_name ?? "organization"}`}
-                        onClick={() => handleRemoveRole(assignment)}
-                        disabled={isSaving}
-                        className="size-7 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+                    <SelectValue placeholder="Scope" />
+                  </SelectTrigger>
+                  <SelectContent className="max-w-[calc(100vw-2rem)]">
+                    <SelectItem value="org-wide">Organization</SelectItem>
+                    {workspaces?.map((workspace) => (
+                      <SelectItem
+                        key={workspace.id}
+                        value={workspace.id}
+                        className="break-words whitespace-normal"
                       >
-                        <MinusIcon className="size-4" />
-                      </Button>
-                    )}
-                  </div>
-                ))}
-              {ready && visibleAssignments.length === 0 && (
-                <p className="text-sm text-muted-foreground">No direct roles</p>
-              )}
-              {!ready && (
-                <p role="status" className="text-sm text-muted-foreground">
-                  {userAssignmentsError || rolesError || groupsError
-                    ? "Unable to load roles and group access. Close and reopen to retry."
-                    : "Loading roles and group access…"}
-                </p>
-              )}
+                        {workspace.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  aria-label="Add role"
+                  onClick={handleAddRole}
+                  disabled={!roleId || !ready || isSaving || !canAdd}
+                >
+                  <PlusIcon className="size-4" />
+                </Button>
+              </div>
             </div>
-          </ScrollArea>
-        </div>
-        {ready && groupAccessKnown && visibleGroupAssignments.length > 0 && (
+          )}
           <div className="space-y-2">
-            <Label>Roles from groups</Label>
-            <ScrollArea className="rounded-md border [&>[data-radix-scroll-area-viewport]]:max-h-[320px]">
+            <Label>
+              Direct roles ({ready ? visibleAssignments.length : "…"})
+            </Label>
+            <ScrollArea className="h-[320px] rounded-md border">
               <div className="px-4 py-2">
-                {visibleGroupAssignments.map((assignment) => (
-                  <div
-                    key={assignment.id}
-                    className="flex min-h-9 items-center justify-between gap-2 border-b py-1 last:border-0"
-                  >
-                    <div className="flex min-w-0 items-center gap-2">
-                      <Badge variant="secondary">{assignment.role_name}</Badge>
-                      <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-                        {assignment.workspace_id ? (
-                          <FolderIcon className="size-3" />
-                        ) : (
-                          <GlobeIcon className="size-3" />
-                        )}
-                        {assignment.workspace_name ?? "Organization-wide"}
-                      </span>
+                {ready &&
+                  visibleAssignments.map((assignment) => (
+                    <div
+                      key={assignment.workspace_id ?? "org-wide"}
+                      className="flex min-h-9 items-center justify-between gap-2 border-b py-1 last:border-0"
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Badge variant="secondary">
+                          {assignment.role_name}
+                        </Badge>
+                        <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                          {assignment.workspace_id ? (
+                            <FolderIcon className="size-3" />
+                          ) : (
+                            <GlobeIcon className="size-3" />
+                          )}
+                          {assignment.workspace_name ?? "Organization-wide"}
+                        </span>
+                      </div>
+                      {(canDeleteAssignment ||
+                        !original.some(
+                          (item) =>
+                            (item.workspace_id ?? null) ===
+                              (assignment.workspace_id ?? null) &&
+                            item.role_id === assignment.role_id
+                        )) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Remove ${assignment.role_name} from ${assignment.workspace_name ?? "organization"}`}
+                          onClick={() => handleRemoveRole(assignment)}
+                          disabled={isSaving}
+                          className="size-7 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+                        >
+                          <MinusIcon className="size-4" />
+                        </Button>
+                      )}
                     </div>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      via {assignment.group_name}
-                    </span>
-                  </div>
-                ))}
+                  ))}
+                {ready && visibleAssignments.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    No direct roles
+                  </p>
+                )}
+                {!ready && (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    {userAssignmentsError || rolesError || groupsError
+                      ? "Unable to load roles and group access. Close and reopen to retry."
+                      : "Loading roles and group access…"}
+                  </p>
+                )}
               </div>
             </ScrollArea>
-            <p className="text-xs text-muted-foreground">
-              Manage these roles through the group.
-            </p>
           </div>
-        )}
-        {ready && !groupAccessKnown && !groupsIsLoading && (
-          <p role="status" className="text-sm text-muted-foreground">
-            Group access cannot be checked. Only direct roles are shown.
-          </p>
-        )}
-        {saveError && (
-          <p role="alert" className="text-sm text-destructive">
-            {saveError}
-          </p>
-        )}
-      </div>
+          {ready && groupAccessKnown && visibleGroupAssignments.length > 0 && (
+            <div className="space-y-2">
+              <Label>Roles from groups</Label>
+              <ScrollArea className="rounded-md border [&>[data-radix-scroll-area-viewport]]:max-h-[320px]">
+                <div className="px-4 py-2">
+                  {visibleGroupAssignments.map((assignment) => (
+                    <div
+                      key={assignment.id}
+                      className="flex min-h-9 items-center justify-between gap-2 border-b py-1 last:border-0"
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Badge variant="secondary">
+                          {assignment.role_name}
+                        </Badge>
+                        <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                          {assignment.workspace_id ? (
+                            <FolderIcon className="size-3" />
+                          ) : (
+                            <GlobeIcon className="size-3" />
+                          )}
+                          {assignment.workspace_name ?? "Organization-wide"}
+                        </span>
+                      </div>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        via {assignment.group_name}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+              <p className="text-xs text-muted-foreground">
+                Manage these roles through the group.
+              </p>
+            </div>
+          )}
+          {ready && !groupAccessKnown && !groupsIsLoading && (
+            <p role="status" className="text-sm text-muted-foreground">
+              Group access cannot be checked. Only direct roles are shown.
+            </p>
+          )}
+          {saveError && (
+            <p role="alert" className="text-sm text-destructive">
+              {saveError}
+            </p>
+          )}
+        </div>
+      </DialogBody>
       <DialogFooter>
         <Button
-          variant="outline"
-          disabled={isSaving}
-          onClick={() => onOpenChange(false)}
-        >
-          Cancel
-        </Button>
-        <Button
+          size="sm"
           disabled={isSaving || (hasChanges && !canSave)}
           onClick={() => handleDone()}
         >

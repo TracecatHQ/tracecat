@@ -100,6 +100,7 @@ import {
 } from "@/components/ui/context-menu"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -970,34 +971,30 @@ export function AgentFolderCreateDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Create folder</DialogTitle>
           <DialogDescription>
             Create a new folder to organize your agents.
           </DialogDescription>
         </DialogHeader>
-        <div className="py-2">
-          <Input
-            placeholder="Folder name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                void handleSubmit()
-              }
-            }}
-          />
-        </div>
+        <DialogBody>
+          <div className="py-2">
+            <Input
+              placeholder="Folder name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  void handleSubmit()
+                }
+              }}
+            />
+          </div>
+        </DialogBody>
         <DialogFooter>
           <Button
-            variant="secondary"
-            onClick={() => onOpenChange(false)}
-            disabled={createFolderIsPending}
-          >
-            Cancel
-          </Button>
-          <Button
+            size="sm"
             onClick={() => void handleSubmit()}
             disabled={createFolderIsPending || !name.trim()}
           >
@@ -1048,34 +1045,30 @@ function AgentFolderRenameDialog({
         onOpenChange(isOpen)
       }}
     >
-      <DialogContent>
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Rename folder</DialogTitle>
           <DialogDescription>
             Enter a new name for the folder.
           </DialogDescription>
         </DialogHeader>
-        <div className="py-2">
-          <Input
-            placeholder="New folder name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                void handleSubmit()
-              }
-            }}
-          />
-        </div>
+        <DialogBody>
+          <div className="py-2">
+            <Input
+              placeholder="New folder name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  void handleSubmit()
+                }
+              }}
+            />
+          </div>
+        </DialogBody>
         <DialogFooter>
           <Button
-            variant="secondary"
-            onClick={() => onOpenChange(false)}
-            disabled={updateFolderIsPending}
-          >
-            Cancel
-          </Button>
-          <Button
+            size="sm"
             onClick={() => void handleSubmit()}
             disabled={updateFolderIsPending || !name.trim()}
           >
@@ -1136,7 +1129,7 @@ function AgentPresetMoveDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent size="md" className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Move agent</DialogTitle>
           <DialogDescription>
@@ -1144,63 +1137,59 @@ function AgentPresetMoveDialog({
             <span className="font-medium">{preset.name}</span> to.
           </DialogDescription>
         </DialogHeader>
-        <div className="flex w-full items-center py-4">
-          <Popover
-            modal
-            open={openFolderSelect}
-            onOpenChange={setOpenFolderSelect}
-          >
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                role="combobox"
-                aria-expanded={openFolderSelect}
-                className="flex w-96 max-w-full min-w-0 justify-between overflow-hidden"
-              >
-                {selectedFolder ? (
-                  <div className="flex min-w-0 flex-1 items-center gap-2">
-                    <FolderIcon className="size-4 shrink-0" />
-                    <span
-                      className="truncate"
-                      title={
-                        selectedFolder === "/"
-                          ? ROOT_FOLDER_NAME
-                          : selectedFolder
-                      }
-                    >
-                      {selectedFolder === "/"
-                        ? ROOT_FOLDER_NAME
-                        : selectedFolder}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    Select a folder...
-                  </div>
-                )}
-                <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent
-              className="w-[--radix-popover-trigger-width] overflow-hidden p-0"
-              portal={true}
+        <DialogBody>
+          <div className="flex w-full items-center py-4">
+            <Popover
+              modal
+              open={openFolderSelect}
+              onOpenChange={setOpenFolderSelect}
             >
-              <FileTreeCommand
-                items={fileTreeItems}
-                onSelect={handleSelectFolder}
-              />
-            </PopoverContent>
-          </Popover>
-        </div>
-        <DialogFooter className="sm:justify-end">
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={openFolderSelect}
+                  className="flex w-96 max-w-full min-w-0 justify-between overflow-hidden"
+                >
+                  {selectedFolder ? (
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <FolderIcon className="size-4 shrink-0" />
+                      <span
+                        className="truncate"
+                        title={
+                          selectedFolder === "/"
+                            ? ROOT_FOLDER_NAME
+                            : selectedFolder
+                        }
+                      >
+                        {selectedFolder === "/"
+                          ? ROOT_FOLDER_NAME
+                          : selectedFolder}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      Select a folder...
+                    </div>
+                  )}
+                  <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                className="w-[--radix-popover-trigger-width] overflow-hidden p-0"
+                portal={true}
+              >
+                <FileTreeCommand
+                  items={fileTreeItems}
+                  onSelect={handleSelectFolder}
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+        </DialogBody>
+        <DialogFooter>
           <Button
-            variant="secondary"
-            onClick={() => onOpenChange(false)}
-            disabled={moveAgentPresetIsPending}
-          >
-            Cancel
-          </Button>
-          <Button
+            size="sm"
             onClick={() => void handleMove()}
             disabled={moveAgentPresetIsPending || !selectedFolder}
           >

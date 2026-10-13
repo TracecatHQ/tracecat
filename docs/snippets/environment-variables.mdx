@@ -81,6 +81,17 @@
 | `TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT` | `60` | Seconds Temporal waits for a heartbeat from an executor activity before failing it and retrying on a healthy worker. Set to `0` to disable. Read by the `worker` service. The Compose files and the Fargate module do not pass this variable through, so set it on that container directly. To disable heartbeats, set this and `TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL` to `0` together. |
 | `TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL` | `30` | Seconds between heartbeats from executor activities. A value at or above `TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT` lets Temporal fail the activity between two heartbeats. Set to `0` to disable heartbeats. Read by the `executor` service and not passed through by the Compose files or the Fargate module, so set it on that container directly. `0` alone stops the executor heartbeating while the worker still expects one every `TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT` seconds, which fails actions that run longer than that. |
 
+### Tunnels
+
+Set all four on the `api` service to enable [managed tunnels](/manage-platform/tunnels). Managed tunnels are off while any is unset.
+
+| Variable | Default | Description |
+| :------- | :------ | :---------- |
+| `TRACECAT__PANGOLIN_ENDPOINT` | | Pangolin server URL that site connectors and machine clients connect to, e.g. `https://app.pangolin.net` or `https://pangolin.example.com`. |
+| `TRACECAT__PANGOLIN_API_URL` | | Pangolin Integration API base URL ending in `/v1`, e.g. `https://api.pangolin.net/v1`. |
+| `TRACECAT__PANGOLIN_ORG_ID` | | Pangolin organization ID that holds every managed site, client, and resource. |
+| `TRACECAT__PANGOLIN_API_KEY` | | Pangolin organization API key with site, client, and private resource permissions. Store it in your secrets manager. |
+
 ### Agents
 
 | Variable | Default | Description |

@@ -10,6 +10,7 @@ import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -389,7 +390,7 @@ export function EditCustomFieldDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent size="lg" className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>Edit custom field</DialogTitle>
           <DialogDescription>
@@ -397,158 +398,162 @@ export function EditCustomFieldDialog({
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="displayName"
-              render={({ field: fieldInput }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input {...fieldInput} />
-                  </FormControl>
-                  <FormDescription>
-                    Human-readable label shown throughout the product.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="reference"
-              render={({ field: fieldInput }) => (
-                <FormItem>
-                  <FormLabel>Reference</FormLabel>
-                  <FormControl>
-                    <Input {...fieldInput} className="font-mono" />
-                  </FormControl>
-                  <FormDescription>
-                    Used in APIs and workflows. Changing it may break existing
-                    references.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="type"
-              render={({ field: fieldInput }) => {
-                const typeConfig = getCaseFieldTypeConfig(
-                  fieldInput.value,
-                  field?.kind
-                )
-                const Icon = typeConfig?.icon
-                return (
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DialogBody>
+              <FormField
+                control={form.control}
+                name="displayName"
+                render={({ field: fieldInput }) => (
                   <FormItem>
-                    <FormLabel>Data type</FormLabel>
+                    <FormLabel>Name</FormLabel>
                     <FormControl>
-                      <div className="flex h-10 items-center rounded-md border border-input px-3 text-xs">
-                        {field?.kind && Icon ? (
-                          <span className="inline-flex items-center gap-2 whitespace-nowrap">
-                            <Icon className="size-4 shrink-0" />
-                            <span className="text-xs font-normal leading-none whitespace-nowrap">
-                              {typeConfig?.label}
+                      <Input {...fieldInput} />
+                    </FormControl>
+                    <FormDescription>
+                      Human-readable label shown throughout the product.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="reference"
+                render={({ field: fieldInput }) => (
+                  <FormItem>
+                    <FormLabel>Reference</FormLabel>
+                    <FormControl>
+                      <Input {...fieldInput} className="font-mono" />
+                    </FormControl>
+                    <FormDescription>
+                      Used in APIs and workflows. Changing it may break existing
+                      references.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="type"
+                render={({ field: fieldInput }) => {
+                  const typeConfig = getCaseFieldTypeConfig(
+                    fieldInput.value,
+                    field?.kind
+                  )
+                  const Icon = typeConfig?.icon
+                  return (
+                    <FormItem>
+                      <FormLabel>Data type</FormLabel>
+                      <FormControl>
+                        <div className="flex h-10 items-center rounded-md border border-input px-3 text-xs">
+                          {field?.kind && Icon ? (
+                            <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                              <Icon className="size-4 shrink-0" />
+                              <span className="text-xs font-normal leading-none whitespace-nowrap">
+                                {typeConfig?.label}
+                              </span>
                             </span>
-                          </span>
-                        ) : (
-                          <SqlTypeDisplay
-                            type={fieldInput.value}
-                            labelClassName="text-xs"
-                          />
-                        )}
-                      </div>
-                    </FormControl>
-                    <FormDescription>
-                      Data type is fixed after field creation.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )
-              }}
-            />
-
-            {requiresOptions && (
-              <FormField
-                control={form.control}
-                name="options"
-                render={({ field: fieldInput }) => (
-                  <FormItem>
-                    <FormLabel>Options</FormLabel>
-                    <FormControl>
-                      <MultiTagCommandInput
-                        value={fieldInput.value || []}
-                        onChange={fieldInput.onChange}
-                        placeholder="Add allowed values..."
-                        allowCustomTags
-                        disableSuggestions
-                        className="w-full"
-                        searchKeys={["label"]}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Define the allowed values for this field.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
+                          ) : (
+                            <SqlTypeDisplay
+                              type={fieldInput.value}
+                              labelClassName="text-xs"
+                            />
+                          )}
+                        </div>
+                      </FormControl>
+                      <FormDescription>
+                        Data type is fixed after field creation.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )
+                }}
               />
-            )}
 
-            {selectedType === "MULTI_SELECT" ? (
-              <FormField
-                control={form.control}
-                name="defaultMulti"
-                render={({ field: fieldInput }) => (
-                  <FormItem>
-                    <FormLabel>Default values (optional)</FormLabel>
-                    <FormControl>
-                      <MultiTagCommandInput
-                        value={fieldInput.value || []}
-                        onChange={fieldInput.onChange}
-                        placeholder="Select default values..."
-                        suggestions={sanitizeColumnOptions(
-                          form.watch("options")
-                        ).map((opt) => ({ id: opt, label: opt, value: opt }))}
-                        searchKeys={["label"]}
-                        className="w-full"
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Select default values from the options above.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            ) : (
-              <FormField
-                control={form.control}
-                name="default"
-                render={({ field: fieldInput }) => (
-                  <FormItem>
-                    <FormLabel>Default value (optional)</FormLabel>
-                    <FormControl>
-                      <DefaultValueInput
-                        type={selectedType}
-                        field={fieldInput}
-                        options={form.watch("options")}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {getDefaultHelperText(selectedType)}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
+              {requiresOptions && (
+                <FormField
+                  control={form.control}
+                  name="options"
+                  render={({ field: fieldInput }) => (
+                    <FormItem>
+                      <FormLabel>Options</FormLabel>
+                      <FormControl>
+                        <MultiTagCommandInput
+                          value={fieldInput.value || []}
+                          onChange={fieldInput.onChange}
+                          placeholder="Add allowed values..."
+                          allowCustomTags
+                          disableSuggestions
+                          className="w-full"
+                          searchKeys={["label"]}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Define the allowed values for this field.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
+              {selectedType === "MULTI_SELECT" ? (
+                <FormField
+                  control={form.control}
+                  name="defaultMulti"
+                  render={({ field: fieldInput }) => (
+                    <FormItem>
+                      <FormLabel>Default values (optional)</FormLabel>
+                      <FormControl>
+                        <MultiTagCommandInput
+                          value={fieldInput.value || []}
+                          onChange={fieldInput.onChange}
+                          placeholder="Select default values..."
+                          suggestions={sanitizeColumnOptions(
+                            form.watch("options")
+                          ).map((opt) => ({ id: opt, label: opt, value: opt }))}
+                          searchKeys={["label"]}
+                          className="w-full"
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Select default values from the options above.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : (
+                <FormField
+                  control={form.control}
+                  name="default"
+                  render={({ field: fieldInput }) => (
+                    <FormItem>
+                      <FormLabel>Default value (optional)</FormLabel>
+                      <FormControl>
+                        <DefaultValueInput
+                          type={selectedType}
+                          field={fieldInput}
+                          options={form.watch("options")}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {getDefaultHelperText(selectedType)}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+            </DialogBody>
             <DialogFooter>
-              <Button type="submit" disabled={isSubmitting}>
+              <Button size="sm" type="submit" disabled={isSubmitting}>
                 Save changes
               </Button>
             </DialogFooter>

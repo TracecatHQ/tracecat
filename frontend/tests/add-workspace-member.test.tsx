@@ -41,6 +41,9 @@ jest.mock("@/components/ui/dialog", () => ({
   Dialog: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
   ),
+  DialogBody: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
   DialogContent: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
   ),

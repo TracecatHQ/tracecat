@@ -29,6 +29,7 @@ import {
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -444,7 +445,7 @@ function AllowlistDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent size="md" className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
             {initial ? "Edit IP allowlist" : "Create IP allowlist"}
@@ -457,77 +458,72 @@ function AllowlistDialog({
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit(onSubmit)}
-            className="space-y-5"
+            className="flex min-h-0 flex-1 flex-col"
             noValidate
           >
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      placeholder="Corporate VPN"
-                      autoComplete="off"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Description (optional)</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      placeholder="Egress ranges for the office VPN, owned by IT"
-                      autoComplete="off"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="cidrs"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Allowed IP ranges</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      {...field}
-                      rows={5}
-                      placeholder={"203.0.113.0/24\n2001:db8::/32"}
-                      className="font-mono"
-                      autoComplete="off"
-                      spellCheck={false}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    One IPv4 or IPv6 address or CIDR range per line.
-                    {rangeCount > 0 &&
-                      ` ${rangeCount} ${rangeCount === 1 ? "range" : "ranges"}.`}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <DialogBody>
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Name</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        placeholder="Corporate VPN"
+                        autoComplete="off"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description (optional)</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        placeholder="Egress ranges for the office VPN, owned by IT"
+                        autoComplete="off"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="cidrs"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Allowed IP ranges</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        {...field}
+                        rows={5}
+                        placeholder={"203.0.113.0/24\n2001:db8::/32"}
+                        className="font-mono"
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      One IPv4 or IPv6 address or CIDR range per line.
+                      {rangeCount > 0 &&
+                        ` ${rangeCount} ${rangeCount === 1 ? "range" : "ranges"}.`}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </DialogBody>
             <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isPending}>
+              <Button size="sm" type="submit" disabled={isPending}>
                 {initial ? "Save" : "Create"}
               </Button>
             </DialogFooter>

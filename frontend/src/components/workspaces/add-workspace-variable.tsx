@@ -15,6 +15,7 @@ import type { VariableCreate } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogClose,
   DialogContent,
   DialogFooter,
@@ -119,14 +120,17 @@ export function NewVariableDialog({
   return (
     <Dialog open={showDialog} onOpenChange={setShowDialog}>
       {children}
-      <DialogContent className={className}>
+      <DialogContent size="lg" className={className}>
         <DialogHeader>
           <DialogTitle>Create new variable</DialogTitle>
         </DialogHeader>
-        <CreateVariableTooltip />
         <Form {...methods}>
-          <form onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}>
-            <div className="space-y-4">
+          <form
+            className="flex min-h-0 flex-1 flex-col"
+            onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}
+          >
+            <DialogBody>
+              <CreateVariableTooltip />
               <FormField
                 key="name"
                 control={control}
@@ -254,15 +258,15 @@ export function NewVariableDialog({
                   </FormItem>
                 )}
               />
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button className="ml-auto space-x-2" type="submit">
-                    <BracketsIcon className="mr-2 size-4" />
-                    Create variable
-                  </Button>
-                </DialogClose>
-              </DialogFooter>
-            </div>
+            </DialogBody>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button size="sm" type="submit">
+                  <BracketsIcon className="mr-2 size-4" />
+                  Create variable
+                </Button>
+              </DialogClose>
+            </DialogFooter>
           </form>
         </Form>
       </DialogContent>

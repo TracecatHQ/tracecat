@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/command"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -111,7 +112,7 @@ export function InviteMemberDialog({
 }: InviteMemberDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[min(85dvh,640px)] w-[calc(100%-2rem)] max-w-lg flex-col overflow-hidden">
+      <DialogContent size="lg" className="w-[calc(100%-2rem)] max-w-lg">
         {/* Mounted only while open so its queries stay idle when closed. */}
         {open && <InviteMemberForm onOpenChange={onOpenChange} />}
       </DialogContent>
@@ -192,10 +193,9 @@ function InviteMemberForm({
       <Form {...form}>
         <form
           onSubmit={form.handleSubmit(handleSubmit)}
-          className="flex min-h-0 flex-1 flex-col gap-4"
+          className="flex min-h-0 flex-1 flex-col"
         >
-          {/* Scrolling body; the right padding keeps the scrollbar off the rows. */}
-          <div className="-ml-1 -mr-3 min-h-0 flex-1 space-y-4 overflow-y-auto pl-1 pr-3">
+          <DialogBody>
             {warning && (
               <Alert variant="warning">
                 <TriangleAlertIcon className="size-4" />
@@ -365,16 +365,13 @@ function InviteMemberForm({
                 Add grant
               </Button>
             </div>
-          </div>
+          </DialogBody>
           <DialogFooter>
             <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
+              size="sm"
+              type="submit"
+              disabled={createInvitationIsPending}
             >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={createInvitationIsPending}>
               {createInvitationIsPending ? "Sending..." : "Send invitation"}
             </Button>
           </DialogFooter>

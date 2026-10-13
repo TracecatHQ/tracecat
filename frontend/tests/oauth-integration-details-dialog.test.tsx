@@ -31,6 +31,7 @@ jest.mock("@/components/ui/dialog", () => ({
     onOpenChange?: (open: boolean) => void
     children: ReactNode
   }) => (open ? <div>{children}</div> : null),
+  DialogBody: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   DialogContent: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),

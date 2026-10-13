@@ -68,6 +68,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -668,7 +669,7 @@ function EditDefinitionDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent size="md" className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Edit dropdown</DialogTitle>
           <DialogDescription>
@@ -676,8 +677,11 @@ function EditDefinitionDialog({
           </DialogDescription>
         </DialogHeader>
         <Form {...methods}>
-          <form onSubmit={methods.handleSubmit(handleSave)}>
-            <div className="space-y-4">
+          <form
+            onSubmit={methods.handleSubmit(handleSave)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DialogBody>
               <div className="flex items-start gap-3">
                 <FormField
                   control={methods.control}
@@ -775,25 +779,18 @@ function EditDefinitionDialog({
                   Add option
                 </Button>
               </div>
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={onClose}
-                  disabled={saving}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  className="flex items-center gap-2"
-                  disabled={saving}
-                >
-                  <PencilIcon className="size-4" />
-                  Save changes
-                </Button>
-              </DialogFooter>
-            </div>
+            </DialogBody>
+            <DialogFooter>
+              <Button
+                size="sm"
+                type="submit"
+                className="flex items-center gap-2"
+                disabled={saving}
+              >
+                <PencilIcon className="size-4" />
+                Save changes
+              </Button>
+            </DialogFooter>
           </form>
         </Form>
       </DialogContent>
