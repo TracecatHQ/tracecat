@@ -1,6 +1,7 @@
 """Typed contracts for resolving case query fields."""
 
 from dataclasses import dataclass
+from uuid import UUID
 
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.selectable import FromClause
@@ -11,6 +12,14 @@ from tracecat.tables.enums import SqlType
 
 # Requested object keys; None selects the complete value at a key.
 type PayloadSelection = dict[str, PayloadSelection | None]
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedCaseTag:
+    """Workspace-owned tag identity resolved for a search filter."""
+
+    id: UUID
+    ref: str
 
 
 @dataclass(frozen=True, slots=True)

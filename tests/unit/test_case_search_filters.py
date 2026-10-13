@@ -5,13 +5,14 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
-from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.cases.filters import resolve_tag_ids
 from tracecat.cases.service import CasesService
-from tracecat.db.models import Case, CaseTag
+from tracecat.cases.types import ResolvedCaseTag
+from tracecat.db.models import Case
+from tracecat.exceptions import TracecatValidationError
 
 
 @pytest.fixture
@@ -46,13 +47,15 @@ def test_search_predicates_escape_literal_metacharacters(
 async def test_empty_tag_filters_remain_unfiltered(
     search_role: Role, tags: list[str] | None
 ) -> None:
-    with patch("tracecat.cases.filters.CaseTagsService") as tags_service_cls:
+    with patch(
+        "tracecat.cases.filters.resolve_case_tag_filters", new_callable=AsyncMock
+    ) as resolve:
         result = await resolve_tag_ids(
             tags=tags, role=search_role, session=AsyncMock(spec=AsyncSession)
         )
 
     assert result is None
-    tags_service_cls.assert_not_called()
+    resolve.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -60,17 +63,19 @@ async def test_empty_tag_filters_remain_unfiltered(
 async def test_unresolved_tag_filters_are_rejected(
     search_role: Role, include_known: bool
 ) -> None:
-    known_tag = CaseTag(id=uuid.uuid4(), workspace_id=search_role.workspace_id)
     tags = ["known-tag", "missing-tag"] if include_known else ["missing-tag"]
-    results = [known_tag, NoResultFound()] if include_known else [NoResultFound()]
-    with patch("tracecat.cases.filters.CaseTagsService") as tags_service_cls:
-        tags_service_cls.return_value.get_tag_by_ref_or_id = AsyncMock(
-            side_effect=results
+    session = AsyncMock(spec=AsyncSession)
+    with patch(
+        "tracecat.cases.filters.resolve_case_tag_filters", new_callable=AsyncMock
+    ) as resolve:
+        resolve.side_effect = TracecatValidationError(
+            "Unknown case tag filter: 'missing-tag'"
         )
         with pytest.raises(HTTPException) as error:
-            await resolve_tag_ids(
-                tags=tags, role=search_role, session=AsyncMock(spec=AsyncSession)
-            )
+            await resolve_tag_ids(tags=tags, role=search_role, session=session)
+    resolve.assert_awaited_once_with(
+        session=session, workspace_id=search_role.workspace_id, tags=tags
+    )
 
     assert error.value.status_code == 400
     assert error.value.detail == "Unknown case tag filter: 'missing-tag'"
@@ -78,19 +83,19 @@ async def test_unresolved_tag_filters_are_rejected(
 
 @pytest.mark.anyio
 async def test_tag_filters_preserve_ref_and_uuid_resolution(search_role: Role) -> None:
-    first = CaseTag(id=uuid.uuid4(), workspace_id=search_role.workspace_id)
-    second = CaseTag(id=uuid.uuid4(), workspace_id=search_role.workspace_id)
+    first = ResolvedCaseTag(id=uuid.uuid4(), ref="first-tag")
+    second = ResolvedCaseTag(id=uuid.uuid4(), ref="second-tag")
     session = AsyncMock(spec=AsyncSession)
-    with patch("tracecat.cases.filters.CaseTagsService") as tags_service_cls:
-        resolve = AsyncMock(side_effect=[first, second])
-        tags_service_cls.return_value.get_tag_by_ref_or_id = resolve
+    with patch(
+        "tracecat.cases.filters.resolve_case_tag_filters", new_callable=AsyncMock
+    ) as resolve:
+        resolve.return_value = [first, second]
         result = await resolve_tag_ids(
             tags=["first-tag", "", str(second.id)], role=search_role, session=session
         )
-
     assert result == [first.id, second.id]
-    tags_service_cls.assert_called_once_with(session, search_role)
-    assert [call.args[0] for call in resolve.await_args_list] == [
-        "first-tag",
-        str(second.id),
-    ]
+    resolve.assert_awaited_once_with(
+        session=session,
+        workspace_id=search_role.workspace_id,
+        tags=["first-tag", str(second.id)],
+    )
