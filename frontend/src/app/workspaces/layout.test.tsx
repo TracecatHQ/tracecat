@@ -1,13 +1,23 @@
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
 import WorkspaceLayout from "@/app/workspaces/layout"
+import { usersGetMyScopes } from "@/client"
 import type { FormsAccess } from "@/lib/forms/access"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 const WORKSPACE_ID = "workspace-1"
+const DEFAULT_WORKSPACES = [{ id: WORKSPACE_ID, name: "Security" }]
+
+type ScopeAnswers = Record<string, boolean | undefined>
 
 let mockPathname = `/workspaces/${WORKSPACE_ID}/workflows`
 let mockParams: Record<string, string | undefined> = {}
-let mockScopes: Record<string, boolean | undefined> = {}
+let mockScopes: ScopeAnswers = {}
+// Scope answers for one workspace, when a test needs them to differ.
+let mockScopesByWorkspace: Record<string, ScopeAnswers> = {}
+let mockSelectedWorkspaceId: string | undefined
+let mockWorkspaces = DEFAULT_WORKSPACES
+let mockLastWorkspaceId: string | undefined
 let mockFormsAccess: FormsAccess = "enabled"
 const mockRouter = { replace: jest.fn() }
 const mockSetLastWorkspaceId = jest.fn()
@@ -33,8 +43,14 @@ jest.mock("@/components/auth/scope-guard", () => ({
     if (scope.startsWith("agent:") || scope.startsWith("org:")) {
       throw new Error(`The workspace shell must not read ${scope}`)
     }
-    return mockScopes[scope]
+    const answers =
+      mockScopesByWorkspace[mockSelectedWorkspaceId ?? ""] ?? mockScopes
+    return answers[scope]
   },
+}))
+jest.mock("@/client", () => ({
+  ApiError: class ApiError extends Error {},
+  usersGetMyScopes: jest.fn(),
 }))
 jest.mock("@/components/auth/no-organization-access", () => ({
   NoOrganizationAccess: () => null,
@@ -74,11 +90,11 @@ jest.mock("@/hooks/use-forms-access", () => ({
 }))
 jest.mock("@/lib/hooks", () => ({
   useWorkspaceManager: () => ({
-    workspaces: [{ id: "workspace-1", name: "Security" }],
+    workspaces: mockWorkspaces,
     workspacesLoading: false,
     workspacesError: null,
     setLastWorkspaceId: mockSetLastWorkspaceId,
-    getLastWorkspaceId: () => undefined,
+    getLastWorkspaceId: () => mockLastWorkspaceId,
     createWorkspace: jest.fn(),
   }),
 }))
@@ -94,11 +110,27 @@ jest.mock("@/providers/skills-studio", () => ({
 }))
 jest.mock("@/providers/workflow", () => ({ WorkflowProvider: passthrough }))
 jest.mock("@/providers/workspace-id", () => ({
-  WorkspaceIdProvider: passthrough,
+  WorkspaceIdProvider: ({
+    workspaceId,
+    children,
+  }: {
+    workspaceId: string
+    children: ReactNode
+  }) => {
+    mockSelectedWorkspaceId = workspaceId
+    return <>{children}</>
+  },
 }))
 
 function renderLayout() {
-  return render(<WorkspaceLayout>Workspace page</WorkspaceLayout>)
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <WorkspaceLayout>Workspace page</WorkspaceLayout>
+    </QueryClientProvider>
+  )
 }
 
 beforeEach(() => {
@@ -106,7 +138,92 @@ beforeEach(() => {
   mockPathname = `/workspaces/${WORKSPACE_ID}/workflows`
   mockParams = { workspaceId: WORKSPACE_ID }
   mockScopes = { "workspace:read": false, "form:read": true }
+  mockScopesByWorkspace = {}
+  mockSelectedWorkspaceId = undefined
+  mockWorkspaces = DEFAULT_WORKSPACES
+  mockLastWorkspaceId = undefined
   mockFormsAccess = "enabled"
+})
+
+describe("landing with no workspace in the URL", () => {
+  const INTAKE: ScopeAnswers = { "workspace:read": false, "form:read": true }
+  const BUILDER: ScopeAnswers = { "workspace:read": true, "form:read": true }
+  const scopeNames = (answers: ScopeAnswers) =>
+    Object.keys(answers).filter((scope) => answers[scope])
+
+  beforeEach(() => {
+    mockParams = {}
+    mockPathname = "/workspaces"
+    mockWorkspaces = [
+      { id: "workspace-helpdesk", name: "Helpdesk" },
+      { id: "workspace-security", name: "Security" },
+    ]
+    mockScopesByWorkspace = {
+      "workspace-helpdesk": INTAKE,
+      "workspace-security": BUILDER,
+    }
+    jest.mocked(usersGetMyScopes).mockImplementation((({
+      workspaceId = "",
+    } = {}) =>
+      Promise.resolve({
+        scopes: scopeNames(mockScopesByWorkspace[workspaceId] ?? {}),
+      })) as unknown as typeof usersGetMyScopes)
+  })
+
+  it("lands a mixed-role user in the workspace they build in, not on /forms", async () => {
+    // No last-viewed cookie, intake-only in the first-listed workspace.
+    renderLayout()
+
+    expect(await screen.findByText("Workspace page")).toBeInTheDocument()
+    expect(mockSelectedWorkspaceId).toBe("workspace-security")
+    expect(mockRouter.replace).not.toHaveBeenCalled()
+  })
+
+  it("renders nothing and redirects nowhere while scopes load", () => {
+    jest
+      .mocked(usersGetMyScopes)
+      .mockReturnValue(new Promise(() => {}) as never)
+
+    renderLayout()
+
+    expect(mockSelectedWorkspaceId).toBeUndefined()
+    expect(mockRouter.replace).not.toHaveBeenCalled()
+    expect(screen.queryByText("Workspace page")).not.toBeInTheDocument()
+    expect(screen.queryByText("Access denied")).not.toBeInTheDocument()
+  })
+
+  it("still sends a user who is intake-only everywhere to /forms", async () => {
+    mockScopesByWorkspace["workspace-security"] = INTAKE
+
+    renderLayout()
+
+    await waitFor(() =>
+      expect(mockRouter.replace).toHaveBeenCalledWith("/forms")
+    )
+    expect(mockSelectedWorkspaceId).toBe("workspace-helpdesk")
+    expect(screen.queryByText("Workspace page")).not.toBeInTheDocument()
+  })
+
+  it("keeps the last-viewed workspace and asks for no scopes", () => {
+    mockLastWorkspaceId = "workspace-helpdesk"
+    mockScopesByWorkspace["workspace-helpdesk"] = BUILDER
+
+    renderLayout()
+
+    expect(mockSelectedWorkspaceId).toBe("workspace-helpdesk")
+    expect(screen.getByText("Workspace page")).toBeInTheDocument()
+    expect(usersGetMyScopes).not.toHaveBeenCalled()
+  })
+
+  it("asks for no scopes when the URL names a workspace", () => {
+    mockParams = { workspaceId: "workspace-security" }
+    mockPathname = "/workspaces/workspace-security/workflows"
+
+    renderLayout()
+
+    expect(screen.getByText("Workspace page")).toBeInTheDocument()
+    expect(usersGetMyScopes).not.toHaveBeenCalled()
+  })
 })
 
 describe("intake-only redirect", () => {

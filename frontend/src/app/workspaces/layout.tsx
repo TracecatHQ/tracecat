@@ -22,6 +22,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useFormsAccess } from "@/hooks/use-forms-access"
+import { useLandingWorkspace } from "@/hooks/use-landing-workspace"
 import { getIntakeRedirect } from "@/lib/forms/access"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
@@ -92,12 +93,13 @@ export default function WorkspaceLayout({
     return undefined
   }, [getLastWorkspaceId, workspaces])
 
-  const fallbackWorkspaceId = useMemo(() => {
-    if (!workspaces || workspaces.length === 0) {
-      return undefined
-    }
-    return lastViewedWorkspaceId ?? workspaces[0]?.id
-  }, [lastViewedWorkspaceId, workspaces])
+  // Only needed when the URL names no workspace the user belongs to.
+  // `undefined` while the landing workspace is being worked out.
+  const { workspaceId: fallbackWorkspaceId } = useLandingWorkspace({
+    workspaces,
+    lastViewedWorkspaceId,
+    enabled: !workspaceId || !requestedWorkspaceExists,
+  })
   const hasNoOrgMemberships =
     workspacesError && isNoOrgMembershipsError(workspacesError)
 
@@ -155,16 +157,17 @@ export default function WorkspaceLayout({
   let selectedWorkspaceId: string
   if (workspaceId) {
     selectedWorkspaceId = workspaceId
-  } else if (lastViewedWorkspaceId) {
-    selectedWorkspaceId = lastViewedWorkspaceId
-  } else if (workspaces.length > 0) {
-    selectedWorkspaceId = workspaces[0].id
-  } else {
+  } else if (workspaces.length === 0) {
     return (
       <ScopeProvider>
         <NoWorkspaces />
       </ScopeProvider>
     )
+  } else if (fallbackWorkspaceId) {
+    // The last-viewed workspace, else the first one the user can read.
+    selectedWorkspaceId = fallbackWorkspaceId
+  } else {
+    return <CenteredSpinner />
   }
 
   return (
