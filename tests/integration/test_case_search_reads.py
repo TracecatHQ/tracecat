@@ -9,10 +9,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import delete, event, select
+from sqlalchemy import delete, event, select, text
 from sqlalchemy.engine import Connection
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import ORMExecuteState
+from sqlalchemy.schema import DropTable
+from sqlalchemy.sql.schema import MetaData
+from sqlalchemy.sql.schema import Table as SqlTable
 
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
@@ -452,3 +456,125 @@ async def test_canonical_result_flags_and_selected_page_hydration(
             assert field_queries and set(field_queries[-1].parameters) == set(
                 synthetic_search_cases.ids[:2]
             )
+
+
+async def test_missing_physical_table_keeps_later_rows_fields_and_session_usable(
+    session: AsyncSession, svc_role: Role, synthetic_search_cases: SyntheticSearchCases
+) -> None:
+    service = CasesService(session, svc_role)
+    case_id = synthetic_search_cases.ids[0]
+    await service.fields.create_field(
+        CaseFieldCreate(name="risk_score", type=SqlType.INTEGER)
+    )
+    case = await session.scalar(select(Case).where(Case.id == case_id))
+    assert case is not None
+    await service.fields.upsert_field_values(case, {"risk_score": 80})
+    missing = await service.tables.create_table(
+        TableCreate(name="synthetic_missing_rows")
+    )
+    available = await service.tables.create_table(
+        TableCreate(
+            name="synthetic_available_rows",
+            columns=[TableColumnCreate(name="value", type=SqlType.TEXT)],
+        )
+    )
+    available_row = await service.tables.insert_row(
+        available, TableRowInsert(data={"value": "synthetic available"})
+    )
+    available_row_id = available_row["id"]
+    assert isinstance(available_row_id, uuid.UUID)
+    missing_table_id = missing.id
+    available_table_id = available.id
+    session.add_all(
+        [
+            CaseTableRow(
+                workspace_id=service.workspace_id,
+                case_id=case_id,
+                table_id=missing_table_id,
+                row_id=uuid.uuid4(),
+                created_at=datetime(2026, 3, 9, tzinfo=UTC),
+            ),
+            CaseTableRow(
+                workspace_id=service.workspace_id,
+                case_id=case_id,
+                table_id=available_table_id,
+                row_id=available_row_id,
+                created_at=datetime(2026, 3, 8, tzinfo=UTC),
+            ),
+        ]
+    )
+    await session.flush()
+    await session.execute(
+        DropTable(
+            SqlTable(missing.name, MetaData(), schema=service.tables._get_schema_name())
+        )
+    )
+    session.expunge_all()
+    with capture_search_queries(session) as queries:
+        page = await service.query_cases(
+            CaseSearchRequest(
+                case_id=case_id,
+                include_rows=True,
+                field_ids=["risk_score"],
+                include_count=False,
+            )
+        )
+    assert len(page.items) == 1
+    item = page.items[0]
+    assert item.field_values == {"risk_score": 80}
+    assert item.rows is not None
+    assert [row.table_id for row in item.rows] == [missing_table_id, available_table_id]
+    missing_row, available_link = item.rows
+    assert not missing_row.is_row_available and missing_row.row_data is None
+    assert available_link.is_row_available
+    assert available_link.row_data is not None
+    assert available_link.row_data["value"] == "synthetic available"
+    physical_reads = [
+        query.statement
+        for query in queries
+        if "synthetic_missing_rows" in query.statement
+        or "synthetic_available_rows" in query.statement
+    ]
+    assert len(physical_reads) == 2
+    assert "synthetic_missing_rows" in physical_reads[0]
+    assert "synthetic_available_rows" in physical_reads[1]
+    assert await session.scalar(select(1)) == 1
+
+
+async def test_unrelated_row_read_error_is_rethrown_and_savepoint_recovers(
+    session: AsyncSession, svc_role: Role, synthetic_search_cases: SyntheticSearchCases
+) -> None:
+    service = CasesService(session, svc_role)
+    table = await service.tables.create_table(
+        TableCreate(
+            name="synthetic_invalid_column_rows",
+            columns=[TableColumnCreate(name="value", type=SqlType.TEXT)],
+        )
+    )
+    row = await service.tables.insert_row(
+        table, TableRowInsert(data={"value": "synthetic"})
+    )
+    row_id = row["id"]
+    assert isinstance(row_id, uuid.UUID)
+    session.add(
+        CaseTableRow(
+            workspace_id=service.workspace_id,
+            case_id=synthetic_search_cases.ids[0],
+            table_id=table.id,
+            row_id=row_id,
+        )
+    )
+    await session.flush()
+    physical = SqlTable(
+        table.name, MetaData(), schema=service.tables._get_schema_name()
+    )
+    # Keep metadata unchanged while simulating another physical-schema failure.
+    await session.execute(
+        text(f'ALTER TABLE "{physical.schema}"."{physical.name}" DROP COLUMN value')
+    )
+    session.expunge_all()
+    with pytest.raises(DBAPIError):
+        await service.query_cases(
+            CaseSearchRequest(case_id=synthetic_search_cases.ids[0], include_rows=True)
+        )
+    assert await session.scalar(select(1)) == 1

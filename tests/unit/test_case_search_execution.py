@@ -293,6 +293,9 @@ async def test_workspace_identity_and_max_depth_are_conjunctive(
         {"not": {"field": "dropdowns.missing", "op": "is_null"}},
         {"field": "fields.missing", "op": "eq", "value": 1},
         {"field": "priority", "op": "contains", "value": "critical"},
+        {"field": "tags", "op": "contains", "value": "synthetic\x00tag"},
+        {"field": "dropdowns.synthetic\x00ref", "op": "is_null"},
+        {"field": "dropdowns.synthetic", "op": "eq", "value": "selected\x00"},
     ],
 )
 async def test_unknown_metadata_and_operators_fail_on_every_entry(
@@ -307,6 +310,44 @@ async def test_unknown_metadata_and_operators_fail_on_every_entry(
     ]:
         response = await search_client.post(path, json=body)
         assert response.status_code == 400, response.text
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("tags", "synthetic\x00tag"),
+        ("dropdown", "synthetic\x00ref:selected"),
+        ("dropdown", "synthetic:selected\x00"),
+    ],
+)
+async def test_null_legacy_metadata_is_400_on_search_and_counts(
+    search_client: httpx.AsyncClient, key: str, value: str
+) -> None:
+    for prefix in ("", "/internal"):
+        response = await search_client.get(
+            f"{prefix}/cases/search", params={key: value}
+        )
+        assert response.status_code == 400, response.text
+        for path in ("/cases/search", "/cases/search/aggregate"):
+            response = await search_client.post(f"{prefix}{path}", json={key: [value]})
+            assert response.status_code == 400, response.text
+    response = await search_client.get("/cases/search/aggregate", params={key: value})
+    assert response.status_code == 400, response.text
+
+
+@pytest.mark.parametrize("use", ["group", "metric"])
+async def test_null_aggregation_dropdown_refs_rejected_by_schema(
+    search_client: httpx.AsyncClient,
+    use: str,
+) -> None:
+    field = "dropdowns.synthetic\x00ref"
+    body = (
+        {"group_by": [field]}
+        if use == "group"
+        else {"group_by": [], "aggs": [{"function": "count", "field": field}]}
+    )
+    response = await search_client.post("/internal/cases/aggregate", json=body)
+    assert response.status_code == 422, response.text
 
 
 async def test_scope_denial_on_legacy_canonical_and_service_paths(
@@ -338,15 +379,16 @@ async def test_scope_denial_on_legacy_canonical_and_service_paths(
                 await invoke()
 
 
+@pytest.mark.parametrize("ref", ["synthetic", "synthetic\x00ref"])
 async def test_negated_dropdown_entitlement_denial_is_typed(
-    search_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+    search_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, ref: str
 ) -> None:
     monkeypatch.setattr(
         tier_defaults,
         "DEFAULT_ENTITLEMENTS",
         tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"case_addons": False}),
     )
-    filters = {"not": {"field": "dropdowns.synthetic", "op": "is_null"}}
+    filters = {"not": {"field": f"dropdowns.{ref}", "op": "is_null"}}
     for prefix in ("", "/internal"):
         for path in ("/cases/search", "/cases/search/aggregate"):
             response = await search_client.post(
@@ -355,7 +397,7 @@ async def test_negated_dropdown_entitlement_denial_is_typed(
             assert response.status_code == 403, response.text
             assert response.json()["type"] == "EntitlementRequired"
         response = await search_client.get(
-            f"{prefix}/cases/search", params={"dropdown": "synthetic:selected"}
+            f"{prefix}/cases/search", params={"dropdown": f"{ref}:selected"}
         )
         assert response.status_code == 403, response.text
 

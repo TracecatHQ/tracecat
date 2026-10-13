@@ -58,6 +58,10 @@ async def test_no_metadata_means_no_metadata_queries() -> None:
             field="dropdowns.verdict", op=FilterOp.IS_NULL, value="synthetic-option"
         ),
         Condition(field="dropdowns.verdict", op=FilterOp.IN, value=[True]),
+        Condition(field="tags", op=FilterOp.CONTAINS, value="synthetic\x00tag"),
+        Condition(
+            field="dropdowns.verdict", op=FilterOp.EQ, value="synthetic\x00option"
+        ),
     ],
 )
 async def test_shared_compiler_rejects_invalid_metadata_condition_before_querying(
@@ -104,6 +108,27 @@ async def test_aggregation_dropdown_refs_require_entitlement() -> None:
             case_addons_enabled=False,
             extra_dropdown_refs=["verdict"],
         )
+
+
+@pytest.mark.parametrize("extra", [False, True])
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_null_dropdown_refs_never_query_and_preserve_entitlement_first(
+    extra: bool, enabled: bool
+) -> None:
+    session = AsyncMock(spec=AsyncSession)
+    expected_error = TracecatValidationError if enabled else EntitlementRequired
+    with pytest.raises(expected_error):
+        await validate_case_filter_metadata(
+            session=session,
+            workspace_id=WORKSPACE_ID,
+            filters=[]
+            if extra
+            else [Condition(field="dropdowns.synthetic\x00ref", op=FilterOp.IS_NULL)],
+            case_addons_enabled=enabled,
+            extra_dropdown_refs=["synthetic\x00ref"] if extra else [],
+        )
+    session.execute.assert_not_awaited()
+    session.scalars.assert_not_awaited()
 
 
 async def test_batch_metadata_validation_preserves_separate_trees(
