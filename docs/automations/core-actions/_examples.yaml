@@ -1082,3 +1082,12 @@ examples:
         for_each: ${{ for var.submission in ACTIONS.list_expired.result.items }}
         args:
           submission_id: ${{ var.submission.id }}
+
+  forms-download-file:
+    title: Download a file attached to the submission
+    language: yaml
+    code: |
+      - ref: download_quote
+        action: core.forms.download_file
+        args:
+          file_id: ${{ TRIGGER.quote.id }}

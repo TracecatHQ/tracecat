@@ -826,3 +826,6 @@ pages:
       - id: core.forms.delete_submission
         examples:
           - forms-delete-submission
+      - id: core.forms.download_file
+        examples:
+          - forms-download-file

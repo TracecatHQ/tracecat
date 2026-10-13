@@ -6020,6 +6020,8 @@ async def list_forms(
 
     Returns JSON with `items` (id, workflow_id, workflow_title, status, title,
     description, submission_count, last_submitted_at) and the cursor fields.
+    `workflow_id` and `workflow_title` are null unless the caller holds
+    `form:update` or `form:submission:read`.
     """
 
     try:
