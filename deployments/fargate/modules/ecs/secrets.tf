@@ -217,10 +217,12 @@ locals {
     }
   ] : []
 
+  # Pin the secret version so a DSN change updates container_definitions,
+  # creating new task-definition revisions that roll the services.
   sentry_dsn_secret = local.sentry_dsn_enabled ? [
     {
       name      = "SENTRY_DSN"
-      valueFrom = aws_secretsmanager_secret_version.sentry_dsn[0].arn
+      valueFrom = "${aws_secretsmanager_secret_version.sentry_dsn[0].arn}:::${aws_secretsmanager_secret_version.sentry_dsn[0].version_id}"
     }
   ] : []
 
