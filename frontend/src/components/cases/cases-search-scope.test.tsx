@@ -387,7 +387,7 @@ describe("case search scope UI", () => {
     }
   )
 
-  it("preserves a manually selected all-cases scope when text is cleared", async () => {
+  it("preserves manual all-cases scope on clear until Reset is used", async () => {
     const user = userEvent.setup()
     setup()
     await user.click(
@@ -417,6 +417,10 @@ describe("case search scope UI", () => {
     expect(
       screen.getByRole("group", { name: "Current view filters" })
     ).toBeDisabled()
+    await user.click(screen.getByRole("button", { name: "Reset" }))
+    expect(
+      screen.getByRole("combobox", { name: "Case search scope" })
+    ).toHaveTextContent("Current view")
   })
 
   it("resets an explicit scope to automatic lookup behavior", async () => {

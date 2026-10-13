@@ -596,6 +596,7 @@ export function CasesHeader({
 
   const hasFilters =
     searchQuery.trim().length > 0 ||
+    isAllCasesSearch ||
     !isDefaultCaseSort(sortBy) ||
     statusFilter.length > 0 ||
     priorityFilter.length > 0 ||
