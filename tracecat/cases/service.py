@@ -104,7 +104,6 @@ from tracecat.cases.search_adapters import legacy_case_filters
 from tracecat.cases.search_schemas import CaseQuery, CaseSearchRequest
 from tracecat.cases.search_service import (
     CaseSearchService,
-    case_identity_predicates,
     parse_case_short_id,
 )
 from tracecat.cases.tags.service import CaseTagsService
@@ -310,14 +309,6 @@ class CasesService(BaseWorkspaceService):
     ) -> dict[uuid.UUID, dict[str, int]]:
         """Get task counts (completed/total) for cases."""
         return await self._search_service().get_task_counts(case_ids)
-
-    def _build_search_filters(
-        self, *, search_term: str | None = None
-    ) -> list[ColumnElement[bool]]:
-        return [
-            Case.workspace_id == self.workspace_id,
-            *case_identity_predicates(CaseQuery(search_term=search_term)),
-        ]
 
     def _search_service(self) -> CaseSearchService:
         return CaseSearchService(
