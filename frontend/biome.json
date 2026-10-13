@@ -6,8 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "ignoreUnknown": true,
-    "maxSize": 4194304
+    "ignoreUnknown": true
   },
   "formatter": {
     "enabled": true,
@@ -103,6 +102,12 @@
     }
   },
   "overrides": [
+    {
+      "includes": ["src/client/**"],
+      "files": {
+        "maxSize": 4194304
+      }
+    },
     {
       "includes": ["*.ts", "*.tsx"]
     },
