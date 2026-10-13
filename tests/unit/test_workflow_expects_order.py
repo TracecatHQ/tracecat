@@ -93,6 +93,81 @@ def test_apply_expects_order_handles_missing_and_stale_names() -> None:
     ]
 
 
+MALFORMED_ORDERS: list[Any] = [
+    "zeta",
+    5,
+    {"zeta": 0},
+    ["zeta", 5],
+    [["zeta"]],
+    [{"name": "zeta"}],
+]
+
+
+@pytest.mark.parametrize("order", MALFORMED_ORDERS, ids=repr)
+def test_malformed_stored_order_is_ignored(order: Any) -> None:
+    """The order is a hint. A bad one must not stop a run or a read."""
+    stored_expects = {name: EXPECTS[name] for name in JSONB_ORDER}
+
+    assert list(apply_expects_order(stored_expects, order) or {}) == JSONB_ORDER
+
+    entrypoint = DSLEntrypoint.model_validate(
+        {"ref": "start", "expects": stored_expects, "expects_order": order}
+    )
+    assert list(entrypoint.expects or {}) == JSONB_ORDER
+    assert entrypoint.expects_order is None
+
+    dsl = DSLInput.model_validate(
+        {**_dsl_data(), "entrypoint": {**_stored_entrypoint(), "expects_order": order}}
+    )
+    assert list(dsl.entrypoint.expects or {}) == JSONB_ORDER
+
+    content = {
+        "title": "Malformed order",
+        "entrypoint": {
+            "ref": "start",
+            "expects": stored_expects,
+            "expects_order": order,
+        },
+    }
+    read = WorkflowDefinitionRead.model_validate(
+        {
+            "id": uuid.uuid4(),
+            "workflow_id": None,
+            "workspace_id": uuid.uuid4(),
+            "version": 1,
+            "content": content,
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+        }
+    )
+    assert read.content is not None
+    assert read.content["entrypoint"] == {"ref": "start", "expects": stored_expects}
+    assert list(read.content["entrypoint"]["expects"]) == JSONB_ORDER
+
+
+def test_workflow_without_a_stored_order_loads_as_before() -> None:
+    """A workflow saved before the order existed is read exactly as stored."""
+    stored = {**_dsl_data(), "entrypoint": {"ref": "start", "expects": EXPECTS}}
+    stored["entrypoint"]["expects"] = {name: EXPECTS[name] for name in JSONB_ORDER}
+
+    dsl = DSLInput.model_validate(stored)
+
+    assert list(dsl.entrypoint.expects or {}) == JSONB_ORDER
+    assert "expects_order" not in dsl.entrypoint.model_fields_set
+    dumped = dsl.model_dump(mode="json", exclude_unset=True)
+    assert dumped["entrypoint"] == {
+        "ref": "start",
+        "expects": {
+            name: DSLEntrypoint.model_validate(stored["entrypoint"]).model_dump(
+                mode="json", exclude_unset=True
+            )["expects"][name]
+            for name in JSONB_ORDER
+        },
+    }
+    assert list(dumped["entrypoint"]["expects"]) == JSONB_ORDER
+    assert expects_key_order(None) is None
+
+
 def test_expects_key_order() -> None:
     assert expects_key_order(EXPECTS) == AUTHOR_ORDER
     assert expects_key_order({}) is None

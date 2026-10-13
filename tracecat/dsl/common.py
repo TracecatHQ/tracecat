@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
@@ -138,6 +138,12 @@ class DSLEntrypoint(BaseModel):
     never serialized.
     """
 
+    @field_validator("expects_order", mode="before")
+    @classmethod
+    def _ignore_malformed_expects_order(cls, value: Any) -> list[str] | None:
+        # The order is a presentation hint. A bad one must not stop a run.
+        return valid_expects_order(value)
+
     @model_validator(mode="after")
     def _apply_expects_order(self) -> Self:
         if self.expects_order is None:
@@ -150,14 +156,24 @@ class DSLEntrypoint(BaseModel):
         return self
 
 
+def valid_expects_order(order: object) -> list[str] | None:
+    """Return a stored key order if it is a list of names, else None."""
+    if not isinstance(order, list | tuple):
+        return None
+    names = [name for name in order if isinstance(name, str)]
+    return names if len(names) == len(order) else None
+
+
 def apply_expects_order[T](
-    expects: Mapping[str, T] | None, order: Sequence[str] | None
+    expects: Mapping[str, T] | None, order: object
 ) -> dict[str, T] | None:
     """Return ``expects`` with its keys in the author's order.
 
     Args:
         expects: Trigger input schema, in whatever key order storage returned.
         order: Input names in the author's order, or None if never captured.
+            Read from storage, so anything that is not a list of names is
+            ignored.
 
     Returns:
         A dict with the keys named in ``order`` first, followed by any other
@@ -165,7 +181,7 @@ def apply_expects_order[T](
     """
     if expects is None:
         return None
-    if not order:
+    if not (order := valid_expects_order(order)):
         return dict(expects)
     ordered = {name: expects[name] for name in order if name in expects}
     return ordered | {name: expects[name] for name in expects if name not in ordered}
