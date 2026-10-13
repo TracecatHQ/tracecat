@@ -286,7 +286,7 @@ export function WorkspaceTunnels() {
         {tunnels.map((tunnel) => (
           <div
             key={tunnel.id}
-            className="group/item flex items-center gap-2 px-4 py-3 transition-colors hover:bg-muted/50"
+            className="group/item flex items-center gap-2 px-4 py-2 transition-colors hover:bg-muted/50"
           >
             <NetworkIcon className="size-4 shrink-0 text-muted-foreground" />
             <div className="flex min-w-0 flex-1 items-center gap-2">
