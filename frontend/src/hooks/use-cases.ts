@@ -1002,9 +1002,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       JSON.stringify({
         apiQueryParams,
         hasImpossibleEnumFilter,
-        exactReference: isExactLookup ? caseReference : null,
       }),
-    [apiQueryParams, hasImpossibleEnumFilter, isExactLookup, caseReference]
+    [apiQueryParams, hasImpossibleEnumFilter]
   )
 
   const rowsKey = useMemo(
