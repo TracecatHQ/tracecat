@@ -957,17 +957,32 @@ class TestSearchCases:
             priority="critical",
             payload={"value": "synthetic"},
         )
-        await create_case(
+        other = await create_case(
             summary="Synthetic unrelated case", description="Synthetic", priority="low"
         )
         case_id = str(target["id"])
         target_read = await get_case(case_id=case_id)
+        by_short_id = _case_items(await search_cases(short_id=target_read["short_id"]))
+        assert [str(item["id"]) for item in by_short_id] == [case_id]
         filters = {
             "or": [
                 {"field": "priority", "op": "eq", "value": "critical"},
-                {"field": "summary", "op": "contains", "value": "unrelated"},
+                {"field": "summary", "op": "contains", "value": "no match"},
             ]
         }
+        by_filters = _case_items(await search_cases(filters=filters))
+        assert [str(item["id"]) for item in by_filters] == [case_id]
+        assert not _case_items(
+            await search_cases(
+                short_id=target_read["short_id"], case_id=str(other["id"])
+            )
+        )
+        assert not _case_items(
+            await search_cases(
+                short_id=target_read["short_id"],
+                filters={"field": "priority", "op": "eq", "value": "low"},
+            )
+        )
         items = _case_items(
             await search_cases(
                 short_id=target_read["short_id"],
