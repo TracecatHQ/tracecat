@@ -12,6 +12,7 @@ import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -223,165 +224,171 @@ export function CreateTableDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[625px]">
-        <DialogHeader className="space-y-4">
+      <DialogContent size="lg" className="sm:max-w-[625px]">
+        <DialogHeader>
           <DialogTitle>Create new table</DialogTitle>
           <DialogDescription>
             Define your table structure by adding columns and their data types.
           </DialogDescription>
-          <ProtectedColumnsAlert />
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="Enter table name..."
-                      {...field}
-                      value={field.value ?? ""}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Name of the table. Must be unique within the workspace.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <div className="space-y-4">
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DialogBody>
+              <ProtectedColumnsAlert />
               <FormField
                 control={form.control}
-                name="columns"
-                render={() => (
+                name="name"
+                render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Columns</FormLabel>
+                    <FormLabel>Name</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Enter table name..."
+                        {...field}
+                        value={field.value ?? ""}
+                      />
+                    </FormControl>
                     <FormDescription>
-                      Define the columns of the table.
+                      Name of the table. Must be unique within the workspace.
                     </FormDescription>
-                    {fields.map((field, index) => {
-                      const columnType = form.watch(`columns.${index}.type`)
-                      const requiresOptions = isSelectableColumnType(columnType)
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="columns"
+                  render={() => (
+                    <FormItem>
+                      <FormLabel>Columns</FormLabel>
+                      <FormDescription>
+                        Define the columns of the table.
+                      </FormDescription>
+                      {fields.map((field, index) => {
+                        const columnType = form.watch(`columns.${index}.type`)
+                        const requiresOptions =
+                          isSelectableColumnType(columnType)
 
-                      return (
-                        <div key={field.id} className="mb-2 flex items-start">
-                          <div className="grid flex-1 grid-cols-3 gap-2">
-                            <FormField
-                              control={form.control}
-                              name={`columns.${index}.name`}
-                              render={({ field }) => (
-                                <FormItem className="col-span-2">
-                                  <FormControl>
-                                    <Input
-                                      placeholder="Enter column name..."
-                                      {...field}
-                                      value={field.value ?? ""}
-                                    />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={form.control}
-                              name={`columns.${index}.type`}
-                              render={({ field }) => (
-                                <FormItem className="col-span-1">
-                                  <FormControl>
-                                    <Select
-                                      value={field.value}
-                                      onValueChange={field.onChange}
-                                    >
-                                      <SelectTrigger className="[&>span]:!flex [&>span]:items-center">
-                                        <SelectValue placeholder="Select column type" />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {SqlTypeCreatableEnum.map((type) => (
-                                          <SelectItem key={type} value={type}>
-                                            <SqlTypeDisplay
-                                              type={type}
-                                              labelClassName="text-xs"
-                                            />
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            {requiresOptions && (
+                        return (
+                          <div key={field.id} className="mb-2 flex items-start">
+                            <div className="grid flex-1 grid-cols-3 gap-2">
                               <FormField
                                 control={form.control}
-                                name={`columns.${index}.options`}
+                                name={`columns.${index}.name`}
                                 render={({ field }) => (
-                                  <FormItem className="col-span-3">
-                                    <FormLabel>Options</FormLabel>
+                                  <FormItem className="col-span-2">
                                     <FormControl>
-                                      <MultiTagCommandInput
-                                        value={field.value || []}
-                                        onChange={field.onChange}
-                                        placeholder="Add allowed values..."
-                                        allowCustomTags
-                                        disableSuggestions
-                                        className="w-full"
-                                        searchKeys={["label"]}
+                                      <Input
+                                        placeholder="Enter column name..."
+                                        {...field}
+                                        value={field.value ?? ""}
                                       />
                                     </FormControl>
-                                    <FormDescription className="text-xs">
-                                      Values that will be available when
-                                      inserting rows.
-                                    </FormDescription>
                                     <FormMessage />
                                   </FormItem>
                                 )}
                               />
-                            )}
+                              <FormField
+                                control={form.control}
+                                name={`columns.${index}.type`}
+                                render={({ field }) => (
+                                  <FormItem className="col-span-1">
+                                    <FormControl>
+                                      <Select
+                                        value={field.value}
+                                        onValueChange={field.onChange}
+                                      >
+                                        <SelectTrigger className="[&>span]:!flex [&>span]:items-center">
+                                          <SelectValue placeholder="Select column type" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {SqlTypeCreatableEnum.map((type) => (
+                                            <SelectItem key={type} value={type}>
+                                              <SqlTypeDisplay
+                                                type={type}
+                                                labelClassName="text-xs"
+                                              />
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                              {requiresOptions && (
+                                <FormField
+                                  control={form.control}
+                                  name={`columns.${index}.options`}
+                                  render={({ field }) => (
+                                    <FormItem className="col-span-3">
+                                      <FormLabel>Options</FormLabel>
+                                      <FormControl>
+                                        <MultiTagCommandInput
+                                          value={field.value || []}
+                                          onChange={field.onChange}
+                                          placeholder="Add allowed values..."
+                                          allowCustomTags
+                                          disableSuggestions
+                                          className="w-full"
+                                          searchKeys={["label"]}
+                                        />
+                                      </FormControl>
+                                      <FormDescription className="text-xs">
+                                        Values that will be available when
+                                        inserting rows.
+                                      </FormDescription>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              )}
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="ml-2"
+                              onClick={() => {
+                                if (fields.length > 1) {
+                                  remove(index)
+                                }
+                              }}
+                              disabled={fields.length <= 1}
+                              aria-label="Remove column"
+                            >
+                              <Trash2Icon className="size-3.5" />
+                            </Button>
                           </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="ml-2"
-                            onClick={() => {
-                              if (fields.length > 1) {
-                                remove(index)
-                              }
-                            }}
-                            disabled={fields.length <= 1}
-                            aria-label="Remove column"
-                          >
-                            <Trash2Icon className="size-3.5" />
-                          </Button>
-                        </div>
-                      )
-                    })}
-                  </FormItem>
-                )}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() =>
-                  append({
-                    name: "",
-                    type: SqlTypeCreatableEnum[0],
-                    options: [],
-                  })
-                }
-                className="space-x-2 text-xs"
-                aria-label="Add new column"
-              >
-                <PlusCircle className="mr-2 size-4" />
-                Add column
-              </Button>
-            </div>
+                        )
+                      })}
+                    </FormItem>
+                  )}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    append({
+                      name: "",
+                      type: SqlTypeCreatableEnum[0],
+                      options: [],
+                    })
+                  }
+                  className="space-x-2 text-xs"
+                  aria-label="Add new column"
+                >
+                  <PlusCircle className="mr-2 size-4" />
+                  Add column
+                </Button>
+              </div>
+            </DialogBody>
             <DialogFooter>
-              <Button type="submit" disabled={createTableIsPending}>
+              <Button size="sm" type="submit" disabled={createTableIsPending}>
                 Create table
               </Button>
             </DialogFooter>

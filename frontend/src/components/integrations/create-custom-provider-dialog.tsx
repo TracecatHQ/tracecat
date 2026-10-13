@@ -9,6 +9,7 @@ import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button, type ButtonProps } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -174,7 +175,7 @@ export function CreateCustomProviderDialog({
           </Button>
         </DialogTrigger>
       )}
-      <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+      <DialogContent size="lg" className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Add custom OAuth provider</DialogTitle>
           <DialogDescription>
@@ -184,95 +185,19 @@ export function CreateCustomProviderDialog({
         </DialogHeader>
         <Form {...form}>
           <form
-            className="space-y-5 overflow-y-auto px-1"
+            className="flex min-h-0 flex-1 flex-col"
             onSubmit={form.handleSubmit(onSubmit)}
             noValidate
           >
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Provider name</FormLabel>
-                  <FormControl>
-                    <Input placeholder="My Security Platform" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Description</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Optional description for this provider"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormDescription className="text-xs">
-                    Appears in the integrations list for this workspace.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="grant_type"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Grant type</FormLabel>
-                  <FormControl>
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select grant type">
-                          {field.value
-                            ? GRANT_OPTIONS.find(
-                                (opt) => opt.value === field.value
-                              )?.title
-                            : null}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {GRANT_OPTIONS.map((option) => (
-                          <SelectItem
-                            key={option.value}
-                            value={option.value}
-                            textValue={option.title}
-                          >
-                            <div className="flex flex-col gap-1">
-                              <span className="text-sm font-medium">
-                                {option.title}
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                {option.description}
-                              </span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </FormControl>
-                  <FormDescription className="text-xs">
-                    Choose how Tracecat authenticates with this provider.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <div className="grid gap-4 sm:grid-cols-2">
+            <DialogBody>
               <FormField
                 control={form.control}
-                name="client_id"
+                name="name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Client ID</FormLabel>
+                    <FormLabel>Provider name</FormLabel>
                     <FormControl>
-                      <Input placeholder="Client ID" {...field} />
+                      <Input placeholder="My Security Platform" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -280,22 +205,119 @@ export function CreateCustomProviderDialog({
               />
               <FormField
                 control={form.control}
-                name="client_secret"
+                name="description"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>
-                      Client secret{" "}
-                      {grantType === "authorization_code" && (
-                        <span className="text-xs text-muted-foreground">
-                          (optional)
-                        </span>
-                      )}
-                    </FormLabel>
+                    <FormLabel>Description</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Optional description for this provider"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription className="text-xs">
+                      Appears in the integrations list for this workspace.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="grant_type"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Grant type</FormLabel>
+                    <FormControl>
+                      <Select
+                        value={field.value}
+                        onValueChange={field.onChange}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select grant type">
+                            {field.value
+                              ? GRANT_OPTIONS.find(
+                                  (opt) => opt.value === field.value
+                                )?.title
+                              : null}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {GRANT_OPTIONS.map((option) => (
+                            <SelectItem
+                              key={option.value}
+                              value={option.value}
+                              textValue={option.title}
+                            >
+                              <div className="flex flex-col gap-1">
+                                <span className="text-sm font-medium">
+                                  {option.title}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  {option.description}
+                                </span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </FormControl>
+                    <FormDescription className="text-xs">
+                      Choose how Tracecat authenticates with this provider.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="client_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Client ID</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Client ID" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="client_secret"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        Client secret{" "}
+                        {grantType === "authorization_code" && (
+                          <span className="text-xs text-muted-foreground">
+                            (optional)
+                          </span>
+                        )}
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="Client secret"
+                          type="password"
+                          autoComplete="new-password"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <FormField
+                control={form.control}
+                name="authorization_endpoint"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Authorization endpoint</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder="Client secret"
-                        type="password"
-                        autoComplete="new-password"
+                        placeholder="https://example.com/oauth2/authorize"
                         {...field}
                       />
                     </FormControl>
@@ -303,72 +325,49 @@ export function CreateCustomProviderDialog({
                   </FormItem>
                 )}
               />
-            </div>
-            <FormField
-              control={form.control}
-              name="authorization_endpoint"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Authorization endpoint</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="https://example.com/oauth2/authorize"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="token_endpoint"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Token endpoint</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="https://example.com/oauth2/token"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="scopes"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Scopes</FormLabel>
-                  <FormControl>
-                    <MultiTagCommandInput
-                      value={field.value ?? []}
-                      onChange={field.onChange}
-                      suggestions={[]}
-                      searchKeys={["label", "value"]}
-                      allowCustomTags
-                      placeholder="Add scopes"
-                    />
-                  </FormControl>
-                  <FormDescription className="text-xs">
-                    Provide the OAuth scopes to request by default.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <DialogFooter className="flex flex-col gap-2 sm:flex-row">
+              <FormField
+                control={form.control}
+                name="token_endpoint"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Token endpoint</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="https://example.com/oauth2/token"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="scopes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Scopes</FormLabel>
+                    <FormControl>
+                      <MultiTagCommandInput
+                        value={field.value ?? []}
+                        onChange={field.onChange}
+                        suggestions={[]}
+                        searchKeys={["label", "value"]}
+                        allowCustomTags
+                        placeholder="Add scopes"
+                      />
+                    </FormControl>
+                    <FormDescription className="text-xs">
+                      Provide the OAuth scopes to request by default.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </DialogBody>
+            <DialogFooter>
               <Button
-                type="button"
-                variant="outline"
-                onClick={() => handleOpenChange(false)}
-                disabled={createCustomProviderIsPending}
-              >
-                Cancel
-              </Button>
-              <Button
+                size="sm"
                 type="submit"
                 className="gap-2"
                 disabled={createCustomProviderIsPending}

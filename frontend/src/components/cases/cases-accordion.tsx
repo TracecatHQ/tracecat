@@ -116,6 +116,59 @@ function isStatusGroup(value: string): value is StatusGroup {
   return value in STATUS_GROUPS
 }
 
+/**
+ * Buckets cases into the accordion's status groups. Without an explicit sort,
+ * each group lists the most recently updated cases first.
+ */
+export function groupCasesByStatus(
+  cases: CaseReadMinimal[],
+  hasExplicitSort: boolean
+): Record<StatusGroup, CaseReadMinimal[]> {
+  const groups: Record<StatusGroup, CaseReadMinimal[]> = {
+    new: [],
+    in_progress: [],
+    on_hold: [],
+    resolved: [],
+    closed: [],
+    other: [],
+    unknown: [],
+  }
+
+  for (const caseData of cases) {
+    let matched = false
+    for (const [groupKey, config] of Object.entries(STATUS_GROUPS)) {
+      if (config.statuses.includes(caseData.status)) {
+        groups[groupKey as StatusGroup].push(caseData)
+        matched = true
+        break
+      }
+    }
+    if (!matched) {
+      groups.other.push(caseData)
+    }
+  }
+
+  if (!hasExplicitSort) {
+    for (const groupKey of Object.keys(groups) as StatusGroup[]) {
+      groups[groupKey].sort(
+        (a, b) =>
+          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+      )
+    }
+  }
+
+  return groups
+}
+
+/** Flattens cases into the top-to-bottom order the accordion renders them. */
+export function orderCasesForDisplay(
+  cases: CaseReadMinimal[],
+  hasExplicitSort: boolean
+): CaseReadMinimal[] {
+  const groups = groupCasesByStatus(cases, hasExplicitSort)
+  return GROUP_ORDER.flatMap((groupKey) => groups[groupKey])
+}
+
 interface CasesAccordionProps {
   cases: CaseReadMinimal[]
   selectedId: string | null
@@ -123,6 +176,7 @@ interface CasesAccordionProps {
   onSelect: (id: string) => void
   onCheckChange: (id: string, checked: boolean) => void
   onDeleteRequest?: (caseData: CaseReadMinimal) => void
+  onOpenInSidePanel?: (caseData: CaseReadMinimal) => void
   tags?: CaseTagRead[]
   members?: WorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
@@ -153,6 +207,7 @@ interface VirtualizedGroupRowsProps {
   onSelect: (id: string) => void
   onCheckChange: (id: string, checked: boolean) => void
   onDeleteRequest?: (caseData: CaseReadMinimal) => void
+  onOpenInSidePanel?: (caseData: CaseReadMinimal) => void
   tags?: CaseTagRead[]
   members?: WorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
@@ -169,6 +224,7 @@ function VirtualizedGroupRows({
   onSelect,
   onCheckChange,
   onDeleteRequest,
+  onOpenInSidePanel,
   tags,
   members,
   dropdownDefinitions,
@@ -280,6 +336,7 @@ function VirtualizedGroupRows({
               onCheckChange={(checked) => onCheckChange(caseData.id, checked)}
               onClick={() => onSelect(caseData.id)}
               onDeleteRequest={onDeleteRequest}
+              onOpenInSidePanel={onOpenInSidePanel}
               tags={tags}
               members={members}
               dropdownDefinitions={dropdownDefinitions}
@@ -301,6 +358,7 @@ export function CasesAccordion({
   onSelect,
   onCheckChange,
   onDeleteRequest,
+  onOpenInSidePanel,
   tags,
   members,
   dropdownDefinitions,
@@ -330,42 +388,10 @@ export function CasesAccordion({
     assigneeSortDirection ||
     tagSortDirection
 
-  const groupedCases = useMemo(() => {
-    const groups: Record<StatusGroup, CaseReadMinimal[]> = {
-      new: [],
-      in_progress: [],
-      on_hold: [],
-      resolved: [],
-      closed: [],
-      other: [],
-      unknown: [],
-    }
-
-    for (const caseData of cases) {
-      let matched = false
-      for (const [groupKey, config] of Object.entries(STATUS_GROUPS)) {
-        if (config.statuses.includes(caseData.status)) {
-          groups[groupKey as StatusGroup].push(caseData)
-          matched = true
-          break
-        }
-      }
-      if (!matched) {
-        groups.other.push(caseData)
-      }
-    }
-
-    if (!hasExplicitSort) {
-      for (const groupKey of Object.keys(groups) as StatusGroup[]) {
-        groups[groupKey].sort(
-          (a, b) =>
-            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-        )
-      }
-    }
-
-    return groups
-  }, [cases, hasExplicitSort])
+  const groupedCases = useMemo(
+    () => groupCasesByStatus(cases, Boolean(hasExplicitSort)),
+    [cases, hasExplicitSort]
+  )
 
   const singleFilteredGroup = useMemo<StatusGroup | null>(() => {
     if (statusMode !== "include" || statusFilter.length === 0) {
@@ -495,6 +521,7 @@ export function CasesAccordion({
                     onSelect={onSelect}
                     onCheckChange={onCheckChange}
                     onDeleteRequest={onDeleteRequest}
+                    onOpenInSidePanel={onOpenInSidePanel}
                     tags={tags}
                     members={members}
                     dropdownDefinitions={dropdownDefinitions}

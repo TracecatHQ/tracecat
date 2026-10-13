@@ -56,6 +56,16 @@ pages:
       - id: core.http_request
         examples:
           - http-request-basic
+        info: |
+          ### Private services
+
+          To call a host on a private or on-premises network, such as
+          `http://splunk.internal:8089`, route the action through a
+          [tunnel](/manage-platform/tunnels). The request uses the same `url`,
+          with `http://` or `https://`. The host and port must be in the
+          tunnel's allowed targets, otherwise the request fails with `403`.
+          HTTPS stays encrypted end to end; add an internal CA with the
+          `ca_cert` secret.
       - id: core.http_poll
         info: |
           ### Poll condition examples

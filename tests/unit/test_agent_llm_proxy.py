@@ -2187,11 +2187,22 @@ async def test_stop_cancels_stream_before_closing_client(
             client_closed.set()
 
     client = httpx.AsyncClient(transport=Transport())
-    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: client)
+    client_kwargs: list[dict[str, object]] = []
+
+    def make_client(**kwargs: object) -> httpx.AsyncClient:
+        client_kwargs.append(kwargs)
+        return client
+
+    monkeypatch.setattr(httpx, "AsyncClient", make_client)
     proxy = LLMSocketProxy(short_socket_path, _routing_plan(), errors.append)
     await proxy.start()
     reader, writer = await asyncio.open_unix_connection(proxy.socket_path)
     try:
+        # Managed connections must expire before LiteLLM's 5s uvicorn keep-alive.
+        limits = client_kwargs[0]["limits"]
+        assert isinstance(limits, httpx.Limits)
+        assert limits.keepalive_expiry is not None
+        assert limits.keepalive_expiry < 5.0
         writer.write(b"POST /v1/messages HTTP/1.1\r\nContent-Length: 0\r\n\r\n")
         await writer.drain()
         await asyncio.wait_for(reading.wait(), timeout=2)
@@ -2445,11 +2456,17 @@ async def test_forward_request_emits_rate_limit_after_bounded_retries(
     async def handler(request: httpx.Request) -> httpx.Response:
         nonlocal attempts
         attempts += 1
+        if attempts == 1:
+            # A pooled socket the gateway closed on its keep-alive timer.
+            raise httpx.RemoteProtocolError(
+                "Server disconnected without sending a response.", request=request
+            )
         return httpx.Response(429, json={"error": {"type": "rate_limit_error"}})
 
     response_text, errors = await _forward_with_handler(tmp_path, handler)
 
-    assert attempts == llm_proxy._RATE_LIMIT_MAX_ATTEMPTS
+    # The pre-header connection drop is retried without using rate-limit budget.
+    assert attempts == llm_proxy._RATE_LIMIT_MAX_ATTEMPTS + 1
     assert response_text.startswith("HTTP/1.1 429 Too Many Requests")
     assert response_text.count("HTTP/1.1") == 1
     assert len(errors) == 1

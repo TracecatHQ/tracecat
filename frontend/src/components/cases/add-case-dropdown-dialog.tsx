@@ -35,6 +35,7 @@ const IconPicker = dynamic<IconPickerProps>(
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -327,7 +328,7 @@ export function AddCaseDropdownDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent size="md" className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Create new dropdown</DialogTitle>
           <DialogDescription>
@@ -335,8 +336,11 @@ export function AddCaseDropdownDialog({
           </DialogDescription>
         </DialogHeader>
         <Form {...methods}>
-          <form onSubmit={methods.handleSubmit(handleCreate)}>
-            <div className="space-y-4">
+          <form
+            onSubmit={methods.handleSubmit(handleCreate)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DialogBody>
               <FormField
                 control={methods.control}
                 name="name"
@@ -434,12 +438,12 @@ export function AddCaseDropdownDialog({
                   Add option
                 </Button>
               </div>
-              <DialogFooter>
-                <Button className="ml-auto space-x-2" type="submit">
-                  Create dropdown
-                </Button>
-              </DialogFooter>
-            </div>
+            </DialogBody>
+            <DialogFooter>
+              <Button size="sm" type="submit">
+                Create dropdown
+              </Button>
+            </DialogFooter>
           </form>
         </Form>
       </DialogContent>

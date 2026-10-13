@@ -15,7 +15,7 @@ import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
-  DialogClose,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -187,38 +187,35 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
                     </div>
                   </DropdownMenuItem>
                 </DialogTrigger>
-                <DialogContent className="sm:max-w-[425px]">
-                  <form onSubmit={handleCreateWorkspace}>
-                    <DialogHeader>
-                      <DialogTitle>Create a new workspace</DialogTitle>
-                      <DialogDescription>
-                        Workspaces are isolated environments where a team can
-                        work on cases, automations, and credentials.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                      <div className="grid gap-2">
-                        <Label htmlFor="workspace-name">Workspace name</Label>
-                        <Input
-                          id="workspace-name"
-                          value={workspaceName}
-                          onChange={(e) => setWorkspaceName(e.target.value)}
-                          placeholder="My workspace"
-                          disabled={isCreating}
-                        />
+                <DialogContent size="sm" className="sm:max-w-[425px]">
+                  <DialogHeader>
+                    <DialogTitle>Create a new workspace</DialogTitle>
+                    <DialogDescription>
+                      Workspaces are isolated environments where a team can work
+                      on cases, automations, and credentials.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <form
+                    onSubmit={handleCreateWorkspace}
+                    className="flex min-h-0 flex-1 flex-col"
+                  >
+                    <DialogBody>
+                      <div className="grid gap-4">
+                        <div className="grid gap-2">
+                          <Label htmlFor="workspace-name">Workspace name</Label>
+                          <Input
+                            id="workspace-name"
+                            value={workspaceName}
+                            onChange={(e) => setWorkspaceName(e.target.value)}
+                            placeholder="My workspace"
+                            disabled={isCreating}
+                          />
+                        </div>
                       </div>
-                    </div>
+                    </DialogBody>
                     <DialogFooter>
-                      <DialogClose asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          disabled={isCreating}
-                        >
-                          Cancel
-                        </Button>
-                      </DialogClose>
                       <Button
+                        size="sm"
                         type="submit"
                         disabled={isCreating || !workspaceName.trim()}
                       >

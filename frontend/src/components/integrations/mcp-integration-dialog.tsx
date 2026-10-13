@@ -59,6 +59,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button, type ButtonProps } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -106,6 +107,8 @@ import {
 import { findProviderForIntegration, isMcpProvider } from "@/lib/integrations"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
+
+const MCP_INTEGRATION_FORM_ID = "mcp-integration-form"
 
 function transportLabel(
   spec: PlatformMCPCatalogRead["connection_spec"] | null | undefined
@@ -1004,12 +1007,12 @@ export function MCPIntegrationDialog({
           </Button>
         </DialogTrigger>
       )}
-      <DialogContent className="max-h-[88vh] max-w-2xl overflow-hidden p-0">
-        <DialogHeader className="px-6 pt-6 text-left">
+      <DialogContent size="xl" className="max-w-2xl">
+        <DialogHeader>
           <DialogTitle>{dialogTitle}</DialogTitle>
           <DialogDescription>{dialogDescription}</DialogDescription>
         </DialogHeader>
-        <div className="max-h-[calc(88vh-92px)] overflow-y-auto px-6 py-5">
+        <DialogBody>
           {catalogEntry ? (
             <div className="mb-6">
               <CatalogEntrySummary
@@ -1058,6 +1061,7 @@ export function MCPIntegrationDialog({
                 mcpIntegration?.id === mcpIntegrationId)) && (
               <Form {...form}>
                 <form
+                  id={MCP_INTEGRATION_FORM_ID}
                   className="space-y-5"
                   onSubmit={form.handleSubmit(onSubmit)}
                   noValidate
@@ -1463,7 +1467,7 @@ export function MCPIntegrationDialog({
                                 value={field.value || ""}
                                 onChange={field.onChange}
                                 language="json"
-                                className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[80px]"
+                                className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[220px]"
                               />
                             </FormControl>
                             <FormDescription className="text-xs">
@@ -1649,7 +1653,7 @@ export function MCPIntegrationDialog({
                                     value={field.value || ""}
                                     onChange={field.onChange}
                                     language="json"
-                                    className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[96px]"
+                                    className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[160px]"
                                   />
                                 </FormControl>
                                 <FormDescription className="text-xs">
@@ -1750,7 +1754,7 @@ export function MCPIntegrationDialog({
                                     value={field.value || ""}
                                     onChange={field.onChange}
                                     language="json"
-                                    className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[120px]"
+                                    className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[220px]"
                                   />
                                 </FormControl>
                                 <FormDescription className="text-xs">
@@ -1798,7 +1802,7 @@ export function MCPIntegrationDialog({
                               value={field.value || ""}
                               onChange={field.onChange}
                               language="json"
-                              className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[120px]"
+                              className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[220px]"
                             />
                           </FormControl>
                           <FormDescription className="text-xs">
@@ -1810,83 +1814,77 @@ export function MCPIntegrationDialog({
                       )}
                     />
                   )}
-
-                  <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
-                    <div className="flex items-center gap-2">
-                      {isEditMode && mcpIntegrationId && canDelete ? (
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                              disabled={
-                                isPending || deleteMcpIntegrationIsPending
-                              }
-                            >
-                              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                              Delete
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>
-                                Remove MCP server?
-                              </AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Agents will no longer be able to call{" "}
-                                <span className="font-medium">
-                                  {mcpIntegration?.name ?? "this server"}
-                                </span>
-                                .
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                disabled={deleteMcpIntegrationIsPending}
-                                onClick={async (event) => {
-                                  event.preventDefault()
-                                  await deleteMcpIntegration(mcpIntegrationId)
-                                  handleOpenChange(false)
-                                }}
-                              >
-                                {deleteMcpIntegrationIsPending && (
-                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                )}
-                                Remove
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      ) : null}
-                    </div>
-                    <div className="flex items-center justify-end gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => handleOpenChange(false)}
-                        disabled={isPending}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        type="submit"
-                        className="gap-2"
-                        disabled={isPending}
-                      >
-                        {isPending && (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        )}
-                        {isEditMode ? "Update" : "Connect"}
-                      </Button>
-                    </div>
-                  </DialogFooter>
                 </form>
               </Form>
             )}
-        </div>
+        </DialogBody>
+        {!integrationsIsLoading &&
+          (!isEditMode ||
+            (isEditHydrated &&
+              !mcpIntegrationIsLoading &&
+              mcpIntegration?.id === mcpIntegrationId)) && (
+            <DialogFooter className="justify-between">
+              <div className="flex items-center gap-2">
+                {isEditMode && mcpIntegrationId && canDelete ? (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        disabled={isPending || deleteMcpIntegrationIsPending}
+                      >
+                        <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                        Delete
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Remove MCP server?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Agents will no longer be able to call{" "}
+                          <span className="font-medium">
+                            {mcpIntegration?.name ?? "this server"}
+                          </span>
+                          .
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          disabled={deleteMcpIntegrationIsPending}
+                          onClick={async (event) => {
+                            event.preventDefault()
+                            await deleteMcpIntegration(mcpIntegrationId)
+                            handleOpenChange(false)
+                          }}
+                        >
+                          {deleteMcpIntegrationIsPending && (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          )}
+                          Remove
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                ) : null}
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  size="sm"
+                  type="submit"
+                  form={MCP_INTEGRATION_FORM_ID}
+                  className="gap-2"
+                  disabled={isPending}
+                >
+                  {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {isEditMode ? "Update" : "Connect"}
+                </Button>
+              </div>
+            </DialogFooter>
+          )}
       </DialogContent>
     </Dialog>
   )

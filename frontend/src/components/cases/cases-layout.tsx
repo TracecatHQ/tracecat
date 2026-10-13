@@ -17,11 +17,15 @@ import type {
   WorkspaceMember,
 } from "@/client"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
+import { CaseSidePanel } from "@/components/cases/case-side-panel"
 import {
   type CaseSortValue,
   DEFAULT_CASE_SORT,
 } from "@/components/cases/case-sort"
-import { CasesAccordion } from "@/components/cases/cases-accordion"
+import {
+  CasesAccordion,
+  orderCasesForDisplay,
+} from "@/components/cases/cases-accordion"
 import { CasesHeader } from "@/components/cases/cases-header"
 import { DeleteCaseAlertDialog } from "@/components/cases/delete-case-dialog"
 import type {
@@ -136,6 +140,7 @@ export function CasesLayout({
   const [isBulkUpdating, setIsBulkUpdating] = useState(false)
   const [isChangingParent, setIsChangingParent] = useState(false)
   const [caseToDelete, setCaseToDelete] = useState<CaseReadMinimal | null>(null)
+  const [sidePanelCaseId, setSidePanelCaseId] = useState<string | null>(null)
 
   const { updateSelection, resetSelection } = useCaseSelection()
   const queryClient = useQueryClient()
@@ -453,6 +458,19 @@ export function CasesLayout({
       Boolean(filter.sortDirection)
     )
 
+  const displayOrderedCases = useMemo(
+    () => orderCasesForDisplay(cases, hasExplicitSort),
+    [cases, hasExplicitSort]
+  )
+
+  const handleOpenInSidePanel = useCallback((caseData: CaseReadMinimal) => {
+    setSidePanelCaseId(caseData.id)
+  }, [])
+
+  const handleCloseSidePanel = useCallback(() => {
+    setSidePanelCaseId(null)
+  }, [])
+
   if (isLoading) {
     return (
       <DeleteCaseAlertDialog
@@ -497,11 +515,12 @@ export function CasesLayout({
         <div className="min-h-0 flex-1">
           <CasesAccordion
             cases={cases}
-            selectedId={selectedId}
+            selectedId={sidePanelCaseId ?? selectedId}
             selectedCaseIds={selectedCaseIdsSet}
             onSelect={handleSelectCase}
             onCheckChange={handleCheckChange}
             onDeleteRequest={handleDeleteRequest}
+            onOpenInSidePanel={handleOpenInSidePanel}
             tags={tags}
             members={members}
             dropdownDefinitions={dropdownDefinitions}
@@ -525,6 +544,18 @@ export function CasesLayout({
           />
         </div>
       </div>
+      {workspaceId && (
+        <CaseSidePanel
+          caseId={sidePanelCaseId}
+          cases={displayOrderedCases}
+          workspaceId={workspaceId}
+          onCaseChange={setSidePanelCaseId}
+          onClose={handleCloseSidePanel}
+          hasNextPage={hasNextPage}
+          isFetchingNextPage={isFetchingNextPage}
+          onLoadMore={onLoadMore}
+        />
+      )}
     </DeleteCaseAlertDialog>
   )
 }

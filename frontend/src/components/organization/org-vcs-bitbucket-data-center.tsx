@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -75,7 +76,7 @@ export function BitbucketDataCenterTokenSetup() {
     statusLabel =
       "Stored credentials are unreadable. Re-enter the API token to reconnect."
   } else if (isConfigured) {
-    statusLabel = `Instance URL: ${credentialsStatus?.base_url ?? "unknown"}`
+    statusLabel = credentialsStatus?.base_url ?? "Unknown server"
   }
 
   async function handleDelete() {
@@ -242,78 +243,80 @@ function BitbucketDataCenterConnectionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent size="md" className="max-w-lg">
         <DialogHeader>
           <DialogTitle>
             Bitbucket Data Center workspace sync credential
           </DialogTitle>
         </DialogHeader>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="base_url"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Instance URL</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="https://bitbucket.example.com"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Use the HTTPS instance URL, including its context path if
-                    configured.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="token"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Credential token</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="password"
-                      autoComplete="off"
-                      placeholder="HTTP access token"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Use a Data Center HTTP access token with repository write
-                    permission.{" "}
-                    <a
-                      className="underline"
-                      href="https://confluence.atlassian.com/bitbucketserver/http-access-tokens-939515499.html"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Token permissions
-                    </a>
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <div className="flex justify-end gap-2 pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={saveCredentials.isPending}>
-                {saveCredentials.isPending ? "Saving..." : "Save"}
-              </Button>
-            </div>
-          </form>
-        </Form>
+        <DialogBody>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <FormField
+                control={form.control}
+                name="base_url"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Instance URL</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="https://bitbucket.example.com"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Use the HTTPS instance URL, including its context path if
+                      configured.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="token"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Credential token</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="password"
+                        autoComplete="off"
+                        placeholder="HTTP access token"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Use a Data Center HTTP access token with repository write
+                      permission.{" "}
+                      <a
+                        className="underline"
+                        href="https://confluence.atlassian.com/bitbucketserver/http-access-tokens-939515499.html"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Token permissions
+                      </a>
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => onOpenChange(false)}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={saveCredentials.isPending}>
+                  {saveCredentials.isPending ? "Saving..." : "Save"}
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </DialogBody>
       </DialogContent>
     </Dialog>
   )

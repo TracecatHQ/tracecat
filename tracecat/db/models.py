@@ -871,6 +871,46 @@ class WorkspaceVariable(WorkspaceModel):
     workspace: Mapped[Workspace] = relationship(back_populates="variables")
 
 
+class WorkspaceTunnel(WorkspaceModel):
+    """Workspace-owned private network tunnel to a customer-managed provider."""
+
+    __tablename__ = "workspace_tunnel"
+    __table_args__ = (UniqueConstraint("workspace_id", "name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(63), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    provider: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="pangolin", server_default="pangolin"
+    )
+    endpoint: Mapped[str] = mapped_column(String(2048), nullable=False)
+    client_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    encrypted_client_secret: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    encrypted_gateway_key: Mapped[bytes | None] = mapped_column(
+        LargeBinary, nullable=True
+    )
+    managed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    pangolin_site_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pangolin_client_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pangolin_resource_ids: Mapped[dict[str, int] | None] = mapped_column(
+        JSONB, nullable=True
+    )
+    allowed_targets: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+
+
 class WorkflowDefinition(WorkspaceModel):
     """A workflow definition.
 

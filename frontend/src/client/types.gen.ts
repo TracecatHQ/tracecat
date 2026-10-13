@@ -4458,6 +4458,10 @@ export type EffectiveEntitlements = {
    * Whether semantic (vector) search over table columns is enabled
    */
   semantic_search?: boolean
+  /**
+   * Whether workspaces may route actions through private network tunnels such as Pangolin
+   */
+  tunnels?: boolean
 }
 
 /**
@@ -4583,6 +4587,10 @@ export type EntitlementsDict = {
    * Whether semantic (vector) search over table columns is enabled
    */
   semantic_search?: boolean
+  /**
+   * Whether workspaces may route actions through private network tunnels such as Pangolin
+   */
+  tunnels?: boolean
 }
 
 export type ErrorModel = {
@@ -6236,6 +6244,26 @@ export type status6 =
   | "failed"
   | "superseded"
 
+/**
+ * Create a tunnel whose Pangolin site, machine client, and resources Tracecat manages.
+ */
+export type ManagedTunnelCreate = {
+  name: string
+  description?: string | null
+  allowed_targets: Array<TunnelTarget>
+}
+
+/**
+ * A new managed tunnel. The site credentials are only returned once.
+ */
+export type ManagedTunnelCreated = {
+  tunnel: TunnelRead
+  site_id: string
+  site_secret: string
+  site_endpoint: string
+  site_install_command: string
+}
+
 export type McpIntegrationMappingAffectedPreset = {
   preset_slug: string
   preset_name: string
@@ -6709,6 +6737,18 @@ export type Page_ExternalGroupRead_ = {
 
 export type Page_SecretStoreRead_ = {
   items: Array<SecretStoreRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
+export type Page_TunnelRead_ = {
+  items: Array<TunnelRead>
   /**
    * Next-page cursor
    */
@@ -10189,6 +10229,79 @@ export type type5 = "schedule" | "webhook"
  */
 export type TriggerType = "manual" | "scheduled" | "webhook" | "case"
 
+export type TunnelCreate = {
+  name: string
+  description?: string | null
+  provider?: TunnelProvider
+  /**
+   * Base URL of the Pangolin server, either Pangolin Cloud or self-hosted.
+   */
+  endpoint: string
+  client_id: string
+  client_secret: string
+  allowed_targets: Array<TunnelTarget>
+  enabled?: boolean
+}
+
+/**
+ * A newly issued gateway key. It is only returned once, at issue time.
+ */
+export type TunnelGatewayKeyRead = {
+  tunnel_id: string
+  /**
+   * Configure this on the tunnel gateway. Issuing a new key revokes the old one.
+   */
+  gateway_key: string
+}
+
+export type TunnelProvider = "pangolin"
+
+/**
+ * Tunnel metadata. The client secret is write-only and never returned.
+ */
+export type TunnelRead = {
+  id: string
+  workspace_id: string
+  name: string
+  description: string | null
+  provider: TunnelProvider
+  endpoint: string
+  client_id: string
+  allowed_targets: Array<TunnelTarget>
+  enabled: boolean
+  has_gateway_key: boolean
+  managed: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type TunnelStatusRead = {
+  tunnel_id: string
+  managed: boolean
+  site_online: boolean | null
+}
+
+/**
+ * A single private host and the TCP ports actions may reach through the tunnel.
+ */
+export type TunnelTarget = {
+  /**
+   * Exact hostname or IP address. Wildcards and CIDR ranges are not allowed.
+   */
+  host: string
+  ports: Array<number>
+}
+
+export type TunnelUpdate = {
+  name?: string | null
+  description?: string | null
+  endpoint?: string | null
+  client_id?: string | null
+  client_secret?: string | null
+  allowed_targets?: Array<TunnelTarget> | null
+  enabled?: boolean | null
+}
+
 /**
  * Pydantic model for AI SDK UI Messages, used for validation between
  * frontend and backend.
@@ -12911,6 +13024,64 @@ export type VariablesDeleteVariableByIdData = {
 }
 
 export type VariablesDeleteVariableByIdResponse = void
+
+export type TunnelsListTunnelsData = {
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type TunnelsListTunnelsResponse = Page_TunnelRead_
+
+export type TunnelsCreateTunnelData = {
+  requestBody: TunnelCreate
+  workspaceId: string
+}
+
+export type TunnelsCreateTunnelResponse = TunnelRead
+
+export type TunnelsCreateManagedTunnelData = {
+  requestBody: ManagedTunnelCreate
+  workspaceId: string
+}
+
+export type TunnelsCreateManagedTunnelResponse = ManagedTunnelCreated
+
+export type TunnelsGetTunnelStatusData = {
+  tunnelId: string
+  workspaceId: string
+}
+
+export type TunnelsGetTunnelStatusResponse = TunnelStatusRead
+
+export type TunnelsGetTunnelData = {
+  tunnelId: string
+  workspaceId: string
+}
+
+export type TunnelsGetTunnelResponse = TunnelRead
+
+export type TunnelsUpdateTunnelData = {
+  requestBody: TunnelUpdate
+  tunnelId: string
+  workspaceId: string
+}
+
+export type TunnelsUpdateTunnelResponse = TunnelRead
+
+export type TunnelsDeleteTunnelData = {
+  tunnelId: string
+  workspaceId: string
+}
+
+export type TunnelsDeleteTunnelResponse = void
+
+export type TunnelsIssueTunnelGatewayKeyData = {
+  tunnelId: string
+  workspaceId: string
+}
+
+export type TunnelsIssueTunnelGatewayKeyResponse = TunnelGatewayKeyRead
 
 export type SchedulesListSchedulesData = {
   workflowId?: string | null
@@ -18101,6 +18272,120 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tunnels": {
+    get: {
+      req: TunnelsListTunnelsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_TunnelRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: TunnelsCreateTunnelData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: TunnelRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tunnels/managed": {
+    post: {
+      req: TunnelsCreateManagedTunnelData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ManagedTunnelCreated
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tunnels/{tunnel_id}/status": {
+    get: {
+      req: TunnelsGetTunnelStatusData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TunnelStatusRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tunnels/{tunnel_id}": {
+    get: {
+      req: TunnelsGetTunnelData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TunnelRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: TunnelsUpdateTunnelData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TunnelRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: TunnelsDeleteTunnelData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tunnels/{tunnel_id}/gateway-key": {
+    post: {
+      req: TunnelsIssueTunnelGatewayKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: TunnelGatewayKeyRead
         /**
          * Validation Error
          */
