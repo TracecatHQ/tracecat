@@ -149,6 +149,7 @@ export interface UseCasesResult {
   stageCounts: CaseSearchAggregateRead["status_groups"] | null
   isCountsLoading: boolean
   isCountsFetching: boolean
+  isCountsError: boolean
   hasNextPage: boolean
   isFetchingNextPage: boolean
   fetchNextPage: () => void
@@ -1073,6 +1074,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     data: aggregateData,
     isLoading: isCountsLoading,
     isFetching: isCountsFetching,
+    isError: isCountsError,
     refetch: refetchCounts,
   } = useQuery<CasesSearchCaseAggregatesResponse, TracecatApiError>({
     queryKey: ["cases", "aggregate", workspaceId, filtersKey],
@@ -1222,6 +1224,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     isCountsFetching: hasImpossibleEnumFilter
       ? false
       : hasHydratedFilters && isCountsFetching,
+    isCountsError:
+      enabled && hasHydratedFilters && !hasImpossibleEnumFilter && isCountsError,
     hasNextPage: hasImpossibleEnumFilter ? false : Boolean(hasNextPage),
     isFetchingNextPage: hasImpossibleEnumFilter
       ? false

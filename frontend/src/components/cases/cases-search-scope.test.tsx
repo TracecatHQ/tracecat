@@ -86,6 +86,9 @@ jest.mock("@/components/cases/cases-accordion", () => ({
 }))
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
+const { CasesAccordion: ActualCasesAccordion } = jest.requireActual<
+  typeof import("@/components/cases/cases-accordion")
+>("@/components/cases/cases-accordion")
 const CASE: CaseReadMinimal = {
   id: "00000000-0000-4000-8000-000000000042",
   short_id: "CASE-0042",
@@ -138,6 +141,7 @@ function Harness({ hierarchyEnabled = true }: { hierarchyEnabled?: boolean }) {
       stageCounts={search.stageCounts}
       isCountsLoading={search.isCountsLoading}
       isCountsFetching={search.isCountsFetching}
+      isCountsError={search.isCountsError}
       hasNextPage={search.hasNextPage}
       isFetchingNextPage={search.isFetchingNextPage}
       onLoadMore={search.fetchNextPage}
