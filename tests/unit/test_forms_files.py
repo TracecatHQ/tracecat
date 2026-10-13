@@ -22,6 +22,7 @@ from starlette.datastructures import Headers
 from tests._forms_utils import (
     create_form,
     create_org_user,
+    create_organization_with_workspace,
     create_workflow,
     publish_workflow,
 )
@@ -38,6 +39,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import TracecatException
 from tracecat.forms import router as forms_router
+from tracecat.forms import storage as forms_storage
 from tracecat.forms.constants import (
     MAX_FILES_PER_FIELD,
     MAX_PENDING_FILES_PER_UPLOADER,
@@ -46,7 +48,14 @@ from tracecat.forms.constants import (
 from tracecat.forms.enums import FormErrorCode, FormFieldErrorCode, FormStatus
 from tracecat.forms.exceptions import FormError
 from tracecat.forms.files import FormFilesService, file_blob_key, matches_accept
-from tracecat.forms.schemas import FormFileRead, FormSubmissionCreate
+from tracecat.forms.schemas import (
+    FormConfig,
+    FormFileRead,
+    FormSubmissionCreate,
+    FormUpdate,
+)
+from tracecat.forms.service import FormsService
+from tracecat.forms.storage import purge_expired_files
 from tracecat.forms.submissions import FormSubmissionsService
 from tracecat.storage import blob
 from tracecat.workflow.executions.service import WorkflowExecutionsService
@@ -658,23 +667,130 @@ async def test_submit_deletes_expired_pending_files_and_cannot_claim_them(
     assert store.objects == {}
 
 
-async def test_purge_is_scoped_to_the_form(
+async def _expired_file_elsewhere(
+    session: AsyncSession, files: FormFilesService, role: Role, form: Form
+) -> tuple[Form, FormFileRead]:
+    """An expired pending file on another form of the same workspace."""
+    other_form = await _online_form(session, role, form.workspace_id, title="Other")
+    elsewhere = await _upload(files, other_form)
+    await _age(session, elsewhere.id, PENDING_FILE_TTL + timedelta(minutes=1))
+    return other_form, elsewhere
+
+
+async def test_purge_covers_every_form_of_the_workspace(
     session: AsyncSession,
     files: FormFilesService,
     store: FakeBlobStore,
     form: Form,
     intake_role: Role,
 ) -> None:
-    other_form = await _online_form(
-        session, intake_role, form.workspace_id, title="Other"
+    other_form, elsewhere = await _expired_file_elsewhere(
+        session, files, intake_role, form
     )
-    elsewhere = await _upload(files, other_form)
-    await _age(session, elsewhere.id, PENDING_FILE_TTL + timedelta(minutes=1))
+    # Nothing uploads to an offline form, so only another form's upload or
+    # submit can remove what was left on it.
+    other_form.status = FormStatus.OFFLINE.value
+    await session.commit()
 
-    await files.purge_expired(form.id)
+    uploaded = await _upload(files, form)
 
-    assert set(await _rows(session)) == {elsewhere.id}
+    assert set(await _rows(session)) == {uploaded.id}
+    assert set(store.objects) == {
+        file_blob_key(form.workspace_id, form.id, uploaded.id)
+    }
+    assert elsewhere.id != uploaded.id
+
+
+async def test_purge_leaves_other_workspaces_alone(
+    session: AsyncSession,
+    files: FormFilesService,
+    store: FakeBlobStore,
+    form: Form,
+    intake_role: Role,
+) -> None:
+    other_workspace = await create_organization_with_workspace(session, name="other")
+    other_form = await _online_form(
+        session, intake_role, other_workspace.id, title="Other"
+    )
+    foreign = FormFile(
+        workspace_id=other_workspace.id,
+        form_id=other_form.id,
+        field="quote",
+        name="quote.pdf",
+        content_type="application/pdf",
+        size=len(PDF),
+        sha256="0" * 64,
+    )
+    session.add(foreign)
+    await session.commit()
+    await _age(session, foreign.id, PENDING_FILE_TTL + timedelta(minutes=1))
+
+    await purge_expired_files(session, form.workspace_id)
+
+    assert set(await _rows(session)) == {foreign.id}
+
+
+async def test_purge_removes_a_bounded_batch(
+    session: AsyncSession,
+    files: FormFilesService,
+    store: FakeBlobStore,
+    form: Form,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(forms_storage, "EXPIRED_FILE_PURGE_BATCH", 2)
+    uploads = [await _upload(files, form) for _ in range(3)]
+    for uploaded in uploads:
+        await _age(session, uploaded.id, PENDING_FILE_TTL + timedelta(minutes=1))
+
+    await purge_expired_files(session, form.workspace_id)
+
+    assert len(await _rows(session)) == 1
     assert len(store.objects) == 1
+
+
+async def test_taking_a_form_offline_purges_expired_pending_files(
+    session: AsyncSession,
+    files: FormFilesService,
+    store: FakeBlobStore,
+    form: Form,
+    intake_role: Role,
+) -> None:
+    expired = await _upload(files, form)
+    fresh = await _upload(files, form)
+    await _age(session, expired.id, PENDING_FILE_TTL + timedelta(minutes=1))
+    builder = FormsService(
+        session, intake_role.model_copy(update={"scopes": frozenset({"form:update"})})
+    )
+
+    # Saving without a status change purges nothing.
+    await builder.update_form(
+        form, FormUpdate(config=FormConfig.model_validate({"layout": LAYOUT}))
+    )
+    assert set(await _rows(session)) == {expired.id, fresh.id}
+
+    await builder.update_form(form, FormUpdate(status=FormStatus.OFFLINE))
+
+    assert set(await _rows(session)) == {fresh.id}
+    assert set(store.objects) == {file_blob_key(form.workspace_id, form.id, fresh.id)}
+
+
+async def test_deleting_a_form_purges_expired_pending_files_of_other_forms(
+    session: AsyncSession,
+    files: FormFilesService,
+    store: FakeBlobStore,
+    form: Form,
+    intake_role: Role,
+) -> None:
+    await _expired_file_elsewhere(session, files, intake_role, form)
+    await _upload(files, form)
+    builder = FormsService(
+        session, intake_role.model_copy(update={"scopes": frozenset({"form:delete"})})
+    )
+
+    await builder.delete_form(form)
+
+    assert await _rows(session) == {}
+    assert store.objects == {}
 
 
 # ----- Claiming on submit -----

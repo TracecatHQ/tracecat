@@ -20,7 +20,6 @@ from tracecat.authz.controls import has_scope
 from tracecat.db.models import Form, FormFile, Workspace
 from tracecat.exceptions import TracecatAuthorizationError, TracecatException
 from tracecat.forms.constants import (
-    EXPIRED_FILE_PURGE_BATCH,
     MAX_FILES_PER_FIELD,
     MAX_PENDING_FILES_PER_UPLOADER,
     PENDING_FILE_TTL,
@@ -35,7 +34,7 @@ from tracecat.forms.schemas import (
     FormFileRead,
 )
 from tracecat.forms.service import FormsService
-from tracecat.forms.storage import delete_file_blobs, file_blob_key
+from tracecat.forms.storage import file_blob_key, purge_expired_files
 from tracecat.service import BaseWorkspaceService
 from tracecat.storage import blob
 from tracecat.storage.exceptions import (
@@ -177,7 +176,7 @@ class FormFilesService(BaseWorkspaceService):
                 FormErrorCode.FILE_FIELD_INVALID, "This form has no such file field"
             )
 
-        await self.purge_expired(form_id)
+        await purge_expired_files(self.session, self.workspace_id)
         validated = await self._validate(
             field, filename=filename, content_type=content_type, content=content
         )
@@ -283,31 +282,6 @@ class FormFilesService(BaseWorkspaceService):
                 "This field does not take this type of file",
             )
         return validated
-
-    async def purge_expired(self, form_id: uuid.UUID) -> None:
-        """Delete a bounded batch of a form's files nobody claimed in time.
-
-        Commits the row deletion, then deletes the blobs.
-        """
-        expired = (
-            select(FormFile.id)
-            .where(
-                *self._pending(form_id),
-                FormFile.created_at < datetime.now(UTC) - PENDING_FILE_TTL,
-            )
-            .limit(EXPIRED_FILE_PURGE_BATCH)
-            .with_for_update(skip_locked=True)
-        )
-        statement = (
-            delete(FormFile).where(FormFile.id.in_(expired)).returning(FormFile.id)
-        )
-        file_ids = (await self.session.execute(statement)).scalars().all()
-        if not file_ids:
-            return
-        await self.session.commit()
-        await delete_file_blobs(
-            [file_blob_key(self.workspace_id, form_id, file_id) for file_id in file_ids]
-        )
 
     # ----- Claim -----
 

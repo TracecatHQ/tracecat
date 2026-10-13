@@ -7,12 +7,14 @@ it without an import cycle.
 import os
 import uuid
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
-from sqlalchemy import ColumnElement, select
+from sqlalchemy import ColumnElement, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.db.models import Form, FormFile
+from tracecat.forms.constants import EXPIRED_FILE_PURGE_BATCH, PENDING_FILE_TTL
 from tracecat.logger import logger
 from tracecat.storage import blob
 
@@ -61,6 +63,36 @@ async def workflow_file_blob_keys(
         Form.workspace_id == workspace_id, Form.workflow_id == workflow_id
     )
     return await _file_blob_keys(session, workspace_id, FormFile.form_id.in_(form_ids))
+
+
+async def purge_expired_files(session: AsyncSession, workspace_id: uuid.UUID) -> None:
+    """Delete a bounded batch of a workspace's files nobody claimed in time.
+
+    Covers every form of the workspace, online or not. Commits the row
+    deletion, then deletes the blobs.
+    """
+    expired = (
+        select(FormFile.id)
+        .where(
+            FormFile.workspace_id == workspace_id,
+            FormFile.submission_id.is_(None),
+            FormFile.created_at < datetime.now(UTC) - PENDING_FILE_TTL,
+        )
+        .limit(EXPIRED_FILE_PURGE_BATCH)
+        .with_for_update(skip_locked=True)
+    )
+    statement = (
+        delete(FormFile)
+        .where(FormFile.id.in_(expired))
+        .returning(FormFile.form_id, FormFile.id)
+    )
+    rows = (await session.execute(statement)).tuples().all()
+    if not rows:
+        return
+    await session.commit()
+    await delete_file_blobs(
+        [file_blob_key(workspace_id, form_id, file_id) for form_id, file_id in rows]
+    )
 
 
 async def delete_file_blobs(keys: Sequence[str]) -> None:

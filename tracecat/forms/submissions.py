@@ -53,7 +53,11 @@ from tracecat.forms.service import (
     submission_reference,
     user_read,
 )
-from tracecat.forms.storage import delete_file_blobs, submission_file_blob_keys
+from tracecat.forms.storage import (
+    delete_file_blobs,
+    purge_expired_files,
+    submission_file_blob_keys,
+)
 from tracecat.forms.values import check_values
 from tracecat.identifiers import InternalServiceID
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
@@ -172,7 +176,7 @@ class FormSubmissionsService(BaseWorkspaceService):
         checked = check_values(resolved.blocks, params.values)
         answers = checked.values
         files = FormFilesService(self.session, self.role)
-        await files.purge_expired(form_id)
+        await purge_expired_files(self.session, self.workspace_id)
         file_errors, claimed_files = await files.claim(
             form_id, checked.visible, answers
         )

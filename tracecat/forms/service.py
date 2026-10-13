@@ -62,7 +62,11 @@ from tracecat.forms.schemas import (
     FormUserRead,
     FormValidateResponse,
 )
-from tracecat.forms.storage import delete_file_blobs, form_file_blob_keys
+from tracecat.forms.storage import (
+    delete_file_blobs,
+    form_file_blob_keys,
+    purge_expired_files,
+)
 from tracecat.forms.types import ResolveResult
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -482,11 +486,16 @@ class FormsService(BaseWorkspaceService):
             inputs = await self._require_inputs(form.workflow_id)
             self._check_saveable(new_config, inputs, status)
 
+        goes_offline = form.status == FormStatus.ONLINE and status is FormStatus.OFFLINE
         form.status = status.value
         if params.config is not None:
             _set_form_config(form, params.config)
         await self.session.commit()
         await self.session.refresh(form)
+        if goes_offline:
+            # Nothing uploads to or submits an offline form, so nothing else
+            # would remove what its requesters left behind.
+            await purge_expired_files(self.session, self.workspace_id)
         return form
 
     async def upsert_form(self, workflow_id: uuid.UUID, params: FormUpdate) -> Form:
@@ -512,12 +521,14 @@ class FormsService(BaseWorkspaceService):
     async def delete_form(self, form: Form) -> None:
         """Delete a form. Its submissions, events and files go with it.
 
-        The file blobs are deleted after the commit, best effort.
+        The file blobs are deleted after the commit, best effort. Expired
+        pending files of the workspace's other forms are purged too.
         """
         keys = await form_file_blob_keys(self.session, self.workspace_id, form.id)
         await self.session.delete(form)
         await self.session.commit()
         await delete_file_blobs(keys)
+        await purge_expired_files(self.session, self.workspace_id)
 
     async def sync_form(
         self,
