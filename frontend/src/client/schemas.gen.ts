@@ -16611,6 +16611,7 @@ export const $FormConfig_Input = {
       anyOf: [
         {
           type: "string",
+          maxLength: 255,
         },
         {
           type: "null",
@@ -16623,6 +16624,7 @@ export const $FormConfig_Input = {
       anyOf: [
         {
           type: "string",
+          maxLength: 10000,
         },
         {
           type: "null",
@@ -16635,6 +16637,7 @@ export const $FormConfig_Input = {
       anyOf: [
         {
           type: "string",
+          maxLength: 10000,
         },
         {
           type: "null",
@@ -16665,6 +16668,7 @@ export const $FormConfig_Input = {
             ],
           },
           type: "array",
+          maxItems: 200,
         },
         {
           type: "null",
@@ -16688,6 +16692,7 @@ export const $FormConfig_Output = {
       anyOf: [
         {
           type: "string",
+          maxLength: 255,
         },
         {
           type: "null",
@@ -16700,6 +16705,7 @@ export const $FormConfig_Output = {
       anyOf: [
         {
           type: "string",
+          maxLength: 10000,
         },
         {
           type: "null",
@@ -16712,6 +16718,7 @@ export const $FormConfig_Output = {
       anyOf: [
         {
           type: "string",
+          maxLength: 10000,
         },
         {
           type: "null",
@@ -16742,6 +16749,7 @@ export const $FormConfig_Output = {
             ],
           },
           type: "array",
+          maxItems: 200,
         },
         {
           type: "null",
@@ -17118,6 +17126,7 @@ export const $FormFieldEntry = {
   properties: {
     field: {
       type: "string",
+      maxLength: 255,
       title: "Field",
       description: "Name of the workflow input.",
     },
@@ -17125,6 +17134,7 @@ export const $FormFieldEntry = {
       anyOf: [
         {
           type: "string",
+          maxLength: 255,
         },
         {
           type: "null",
@@ -17136,6 +17146,7 @@ export const $FormFieldEntry = {
       anyOf: [
         {
           type: "string",
+          maxLength: 10000,
         },
         {
           type: "null",
@@ -17147,6 +17158,7 @@ export const $FormFieldEntry = {
       anyOf: [
         {
           type: "string",
+          maxLength: 255,
         },
         {
           type: "null",
@@ -17171,6 +17183,7 @@ export const $FormFieldEntry = {
             $ref: "#/components/schemas/FormOption",
           },
           type: "array",
+          maxItems: 100,
           minItems: 1,
         },
         {
@@ -17215,8 +17228,10 @@ export const $FormFieldEntry = {
         {
           items: {
             type: "string",
+            maxLength: 255,
           },
           type: "array",
+          maxItems: 20,
         },
         {
           type: "null",
@@ -17393,6 +17408,7 @@ export const $FormHeadingEntry = {
   properties: {
     heading: {
       type: "string",
+      maxLength: 255,
       title: "Heading",
     },
   },
@@ -17598,6 +17614,7 @@ export const $FormNoticeEntry = {
   properties: {
     notice: {
       type: "string",
+      maxLength: 10000,
       title: "Notice",
     },
     tone: {
@@ -17621,12 +17638,14 @@ export const $FormOption = {
   properties: {
     value: {
       type: "string",
+      maxLength: 255,
       title: "Value",
     },
     label: {
       anyOf: [
         {
           type: "string",
+          maxLength: 255,
         },
         {
           type: "null",
@@ -17638,6 +17657,7 @@ export const $FormOption = {
       anyOf: [
         {
           type: "string",
+          maxLength: 10000,
         },
         {
           type: "null",
@@ -18195,6 +18215,7 @@ export const $FormTextEntry = {
   properties: {
     text: {
       type: "string",
+      maxLength: 10000,
       title: "Text",
       description: "Markdown.",
     },
@@ -18324,6 +18345,7 @@ export const $FormVisibleIf = {
   properties: {
     field: {
       type: "string",
+      maxLength: 255,
       title: "Field",
     },
     equals: {
@@ -18339,6 +18361,7 @@ export const $FormVisibleIf = {
         },
         {
           type: "string",
+          maxLength: 255,
         },
       ],
       title: "Equals",

@@ -21,7 +21,15 @@ from pydantic import (
 )
 
 from tracecat.core.schemas import Schema
-from tracecat.forms.constants import MAX_CONFIG_IMAGE_BYTES, MAX_FILES_PER_FIELD
+from tracecat.forms.constants import (
+    MAX_ACCEPT_ENTRIES,
+    MAX_CONFIG_IMAGE_BYTES,
+    MAX_FIELD_OPTIONS,
+    MAX_FILES_PER_FIELD,
+    MAX_LAYOUT_ENTRIES,
+    MAX_LONG_TEXT_LENGTH,
+    MAX_SHORT_TEXT_LENGTH,
+)
 from tracecat.forms.enums import (
     FormAutofillSource,
     FormErrorCode,
@@ -58,12 +66,16 @@ class FormConfigModel(BaseModel):
         return {key: value for key, value in dumped.items() if value is not None}
 
 
+ShortText = Annotated[str, Field(max_length=MAX_SHORT_TEXT_LENGTH)]
+LongText = Annotated[str, Field(max_length=MAX_LONG_TEXT_LENGTH)]
+
+
 class FormOption(FormConfigModel):
     """One choice of a select, multi-select or cards field."""
 
-    value: str
-    label: str | None = None
-    description: str | None = None
+    value: ShortText
+    label: ShortText | None = None
+    description: LongText | None = None
     image: str | None = Field(
         default=None, description="Inline PNG, JPEG or WebP data URI."
     )
@@ -76,30 +88,41 @@ class FormOption(FormConfigModel):
         return value
 
 
-FormScalar = StrictBool | StrictInt | StrictFloat | StrictStr
+FormScalar = (
+    StrictBool
+    | StrictInt
+    | StrictFloat
+    | Annotated[StrictStr, Field(max_length=MAX_SHORT_TEXT_LENGTH)]
+)
 
 
 class FormVisibleIf(FormConfigModel):
     """Show a field only while another field has this value."""
 
-    field: str
+    field: ShortText
     equals: FormScalar
 
 
 class FormFieldEntry(FormConfigModel):
     """Presentation of one workflow input."""
 
-    field: str = Field(description="Name of the workflow input.")
-    label: str | None = None
-    help: str | None = None
-    placeholder: str | None = None
+    field: str = Field(
+        max_length=MAX_SHORT_TEXT_LENGTH, description="Name of the workflow input."
+    )
+    label: ShortText | None = None
+    help: LongText | None = None
+    placeholder: ShortText | None = None
     widget: FormWidget | None = None
-    options: list[FormOption] | None = Field(default=None, min_length=1)
+    options: list[FormOption] | None = Field(
+        default=None, min_length=1, max_length=MAX_FIELD_OPTIONS
+    )
     visible_if: FormVisibleIf | None = None
     autofill: FormAutofillSource | None = None
     hidden: bool | None = None
-    accept: list[str] | None = Field(
-        default=None, description="File extensions or MIME types a file field takes."
+    accept: list[ShortText] | None = Field(
+        default=None,
+        max_length=MAX_ACCEPT_ENTRIES,
+        description="File extensions or MIME types a file field takes.",
     )
     max_files: int | None = Field(default=None, ge=1, le=MAX_FILES_PER_FIELD)
 
@@ -127,15 +150,15 @@ class FormFieldEntry(FormConfigModel):
 
 
 class FormHeadingEntry(FormConfigModel):
-    heading: str
+    heading: ShortText
 
 
 class FormTextEntry(FormConfigModel):
-    text: str = Field(description="Markdown.")
+    text: str = Field(max_length=MAX_LONG_TEXT_LENGTH, description="Markdown.")
 
 
 class FormNoticeEntry(FormConfigModel):
-    notice: str
+    notice: LongText
     tone: FormNoticeTone = Field(default=FormNoticeTone.INFO)
 
 
@@ -175,14 +198,19 @@ class FormConfig(FormConfigModel):
     """Presentation layer of a form. The workflow input schema supplies the rest."""
 
     title: str | None = Field(
-        default=None, description="Defaults to the workflow title."
+        default=None,
+        max_length=MAX_SHORT_TEXT_LENGTH,
+        description="Defaults to the workflow title.",
     )
     description: str | None = Field(
-        default=None, description="Markdown. Defaults to the workflow description."
+        default=None,
+        max_length=MAX_LONG_TEXT_LENGTH,
+        description="Markdown. Defaults to the workflow description.",
     )
-    success_message: str | None = None
+    success_message: LongText | None = None
     layout: list[FormLayoutEntry] | None = Field(
         default=None,
+        max_length=MAX_LAYOUT_ENTRIES,
         description="Ordered blocks. Inputs left out are appended in schema order.",
     )
 

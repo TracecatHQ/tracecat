@@ -8,7 +8,15 @@ from pydantic import ValidationError
 
 from tracecat import config as app_config
 from tracecat.expressions.schemas import ExpectedField
-from tracecat.forms.constants import MAX_CONFIG_IMAGE_BYTES, MAX_IMAGE_BYTES
+from tracecat.forms.constants import (
+    MAX_ACCEPT_ENTRIES,
+    MAX_CONFIG_IMAGE_BYTES,
+    MAX_FIELD_OPTIONS,
+    MAX_IMAGE_BYTES,
+    MAX_LAYOUT_ENTRIES,
+    MAX_LONG_TEXT_LENGTH,
+    MAX_SHORT_TEXT_LENGTH,
+)
 from tracecat.forms.enums import (
     FormAutofillSource,
     FormInputKind,
@@ -191,6 +199,90 @@ def test_invalid_layout_entries_are_rejected(entry: dict[str, Any]) -> None:
 def test_config_rejects_unknown_top_level_keys() -> None:
     with pytest.raises(ValidationError):
         FormConfig.model_validate({"status": "online"})
+
+
+_SHORT = "x" * (MAX_SHORT_TEXT_LENGTH + 1)
+_LONG = "x" * (MAX_LONG_TEXT_LENGTH + 1)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param({"title": _SHORT}, id="title"),
+        pytest.param({"description": _LONG}, id="description"),
+        pytest.param({"success_message": _LONG}, id="success_message"),
+        pytest.param(
+            {"layout": [{"divider": True}] * (MAX_LAYOUT_ENTRIES + 1)}, id="layout"
+        ),
+        pytest.param({"layout": [{"heading": _SHORT}]}, id="heading"),
+        pytest.param({"layout": [{"text": _LONG}]}, id="text"),
+        pytest.param({"layout": [{"notice": _LONG}]}, id="notice"),
+        pytest.param({"layout": [{"field": _SHORT}]}, id="field"),
+        pytest.param({"layout": [{"field": "a", "label": _SHORT}]}, id="label"),
+        pytest.param({"layout": [{"field": "a", "help": _LONG}]}, id="help"),
+        pytest.param(
+            {"layout": [{"field": "a", "placeholder": _SHORT}]}, id="placeholder"
+        ),
+        pytest.param(
+            {
+                "layout": [
+                    {
+                        "field": "a",
+                        "options": [
+                            {"value": str(index)}
+                            for index in range(MAX_FIELD_OPTIONS + 1)
+                        ],
+                    }
+                ]
+            },
+            id="options",
+        ),
+        pytest.param(
+            {"layout": [{"field": "a", "options": [{"value": _SHORT}]}]},
+            id="option_value",
+        ),
+        pytest.param(
+            {"layout": [{"field": "a", "options": [{"value": "v", "label": _SHORT}]}]},
+            id="option_label",
+        ),
+        pytest.param(
+            {
+                "layout": [
+                    {"field": "a", "options": [{"value": "v", "description": _LONG}]}
+                ]
+            },
+            id="option_description",
+        ),
+        pytest.param(
+            {"layout": [{"field": "a", "accept": [".pdf"] * (MAX_ACCEPT_ENTRIES + 1)}]},
+            id="accept",
+        ),
+        pytest.param(
+            {"layout": [{"field": "a", "accept": [_SHORT]}]}, id="accept_entry"
+        ),
+        pytest.param(
+            {
+                "layout": [
+                    {"field": "a", "visible_if": {"field": "b", "equals": _SHORT}}
+                ]
+            },
+            id="visible_if_equals",
+        ),
+    ],
+)
+def test_config_text_and_lists_are_bounded(config: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError):
+        FormConfig.model_validate(config)
+
+
+def test_config_accepts_text_and_lists_at_their_limits() -> None:
+    FormConfig.model_validate(
+        {
+            "title": "x" * MAX_SHORT_TEXT_LENGTH,
+            "description": "x" * MAX_LONG_TEXT_LENGTH,
+            "layout": [{"divider": True}] * MAX_LAYOUT_ENTRIES,
+        }
+    )
 
 
 @pytest.mark.parametrize(
