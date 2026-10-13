@@ -1,0 +1,19 @@
+frontend/src/components/forms/form-detail.test.tsx
+  s_7f6729d1c18d55::t_7770eab04572ce 722-725
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0733fbbbc36a7276a66a45f1877be2b4a0f7b792",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
