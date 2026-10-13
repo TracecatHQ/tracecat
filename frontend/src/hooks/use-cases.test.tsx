@@ -268,4 +268,41 @@ describe("case search aggregate counts", () => {
     expect(result.current.totalFilteredCaseEstimate).toBe(12)
     expect(result.current.stageCounts?.new).toBe(12)
   })
+
+  it("keeps successful rows when population counts exhaust retries", async () => {
+    jest.mocked(casesSearchCases).mockImplementation(() =>
+      resolved<CasesSearchCasesResponse>({
+        items: [CASE],
+        has_more: true,
+        next_cursor: "synthetic-next-page",
+        total_estimate: null,
+      })
+    )
+    jest.mocked(casesSearchCaseAggregates).mockImplementation(
+      () =>
+        new CancelablePromise((_resolve, reject) =>
+          reject(
+            Object.assign(new Error("Synthetic count failure"), {
+              status: 500,
+            })
+          )
+        )
+    )
+    const { result } = setup()
+    await advance(8000)
+    expect(casesSearchCaseAggregates).toHaveBeenCalledTimes(4)
+    expect(result.current).toMatchObject({
+      cases: [CASE],
+      error: null,
+      isLoading: false,
+      totalFilteredCaseEstimate: null,
+      stageCounts: null,
+      isCountsLoading: false,
+      isCountsFetching: false,
+      isCountsError: true,
+    })
+    act(() => result.current.setSearchQuery(CASE.short_id))
+    await advance(300)
+    expect(result.current).toMatchObject({ isCountsError: false })
+  })
 })

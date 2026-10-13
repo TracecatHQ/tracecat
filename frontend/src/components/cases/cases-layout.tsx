@@ -91,6 +91,7 @@ interface CasesLayoutProps {
   stageCounts: CaseSearchAggregateRead["status_groups"] | null
   isCountsLoading: boolean
   isCountsFetching: boolean
+  isCountsError?: boolean
   hasNextPage: boolean
   isFetchingNextPage: boolean
   onLoadMore: () => void
@@ -138,6 +139,7 @@ export function CasesLayout({
   stageCounts,
   isCountsLoading,
   isCountsFetching,
+  isCountsError = false,
   hasNextPage,
   isFetchingNextPage,
   onLoadMore,
@@ -455,6 +457,7 @@ export function CasesLayout({
     onDropdownSortDirectionChange,
     totalCaseCount: cases.length,
     displayCaseCount: totalFilteredCaseEstimate,
+    isCountsError,
     selectedCount: selectedCaseIds.size,
     onSelectAll: handleSelectAll,
     onDeselectAll: handleDeselectAll,
