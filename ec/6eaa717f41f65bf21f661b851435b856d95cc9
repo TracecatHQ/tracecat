@@ -9,6 +9,22 @@ docs/automations/triggers/forms.mdx
   s_7f6729d1c18d55::t_0a8a57036bab9a 22
 docs/docs.json
   s_7f6729d1c18d55::t_e59e9c279753e2 57-58
+docs/automations/triggers/error-workflows.mdx
+  s_7f6729d1c18d55::t_21e59036f3a5ca 23
+docs/security/architecture.mdx
+  s_7f6729d1c18d55::t_21e59036f3a5ca 225
+docs/manage-platform/custom-roles.mdx
+  s_7f6729d1c18d55::t_21e59036f3a5ca 34
+docs/automations/core-concepts/workflow-metadata.mdx
+  s_7f6729d1c18d55::t_21e59036f3a5ca 37
+docs/manage-platform/service-accounts.mdx
+  s_7f6729d1c18d55::t_21e59036f3a5ca 31
+docs/manage-platform/rbac.mdx
+  s_7f6729d1c18d55::t_21e59036f3a5ca 14,18-32
+docs/manage-platform/git-sync.mdx
+  s_7f6729d1c18d55::t_21e59036f3a5ca 82-92,95,184
+docs/cheatsheets/workflow-metadata.mdx
+  s_7f6729d1c18d55::t_21e59036f3a5ca 17
 ---
 {
   "schema_version": "authorship/3.0.0",
