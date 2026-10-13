@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests._forms_utils import (
@@ -18,8 +19,19 @@ from tests._forms_utils import (
     create_workflow,
     use_session,
 )
+from tracecat.auth import credentials
 from tracecat.auth.types import Role
-from tracecat.db.models import Form, FormSubmission, User, Workspace
+from tracecat.authz.enums import ScopeSource
+from tracecat.db.models import (
+    Form,
+    FormSubmission,
+    RoleScope,
+    Scope,
+    User,
+    UserRoleAssignment,
+    Workspace,
+)
+from tracecat.db.models import Role as DBRole
 from tracecat.forms import requester_router
 from tracecat.forms import service as forms_service
 from tracecat.forms.enums import FormStatus
@@ -391,3 +403,167 @@ async def test_my_submissions_lists_only_the_callers_own(
         "workspace_name",
         "submitted_at",
     }
+
+
+# ----- Real scope resolution -----
+#
+# The tests above hand the service a scope set per workspace. These resolve
+# scopes the way a request does: ``compute_effective_scopes`` runs the RBAC
+# query over role assignments stored in the database.
+
+
+@pytest.fixture
+def rbac(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> None:
+    """Run the real scope query, and the RLS-bypass reads, on the test session.
+
+    The test's rows are uncommitted, so only its own connection can see them.
+    """
+    monkeypatch.setattr(
+        credentials, "get_async_session_auth_context_manager", use_session(session)
+    )
+    monkeypatch.setattr(
+        forms_service,
+        "get_async_session_bypass_rls_context_manager",
+        use_session(session),
+    )
+    _clear_scope_cache()
+
+
+def _clear_scope_cache() -> None:
+    credentials._compute_effective_scopes_cached.cache_clear()
+
+
+async def _assign_role(
+    session: AsyncSession,
+    user: User,
+    workspace: Workspace,
+    scope_names: frozenset[str],
+) -> UserRoleAssignment:
+    """Give a user a custom role holding these scopes in one workspace."""
+    role = DBRole(
+        name=f"Synthetic role {uuid.uuid4().hex[:8]}",
+        organization_id=workspace.organization_id,
+    )
+    session.add(role)
+    await session.flush()
+    for name in sorted(scope_names):
+        resource, _, action = name.rpartition(":")
+        scope = await session.scalar(
+            select(Scope).where(
+                Scope.organization_id == workspace.organization_id, Scope.name == name
+            )
+        )
+        if scope is None:
+            scope = Scope(
+                name=name,
+                resource=resource,
+                action=action,
+                source=ScopeSource.CUSTOM,
+                organization_id=workspace.organization_id,
+            )
+            session.add(scope)
+            await session.flush()
+        session.add(RoleScope(role_id=role.id, scope_id=scope.id))
+    assignment = UserRoleAssignment(
+        organization_id=workspace.organization_id,
+        user_id=user.id,
+        workspace_id=workspace.id,
+        role_id=role.id,
+    )
+    session.add(assignment)
+    await session.commit()
+    _clear_scope_cache()
+    return assignment
+
+
+@pytest.mark.usefixtures("rbac")
+async def test_locate_follows_the_callers_role_assignment(
+    session: AsyncSession,
+    role: Role,
+    requester: User,
+    svc_workspace: Workspace,
+    second_workspace: Workspace,
+) -> None:
+    form = await _form_in(session, svc_workspace, title="Laptop request")
+    elsewhere = await _form_in(session, second_workspace, title="Access request")
+
+    # An organization member with no role in the workspace reads no forms.
+    assert await _locate_status(session, role, form.id) == 404
+
+    assignment = await _assign_role(session, requester, svc_workspace, INTAKE_SCOPES)
+    assert await _locate_status(session, role, form.id) == 200
+    # The assignment is for one workspace.
+    assert await _locate_status(session, role, elsewhere.id) == 404
+
+    await session.delete(assignment)
+    await session.commit()
+    _clear_scope_cache()
+    assert await _locate_status(session, role, form.id) == 404
+
+
+@pytest.mark.usefixtures("rbac")
+@pytest.mark.parametrize(
+    ("scope_names", "status"),
+    [
+        (frozenset({"form:read"}), 200),
+        (frozenset({"form:*"}), 200),
+        (frozenset({"form:submit", "workflow:read"}), 404),
+        (frozenset({"form:submission:read"}), 404),
+    ],
+    ids=["form_read", "wildcard", "other_scopes", "submission_read_only"],
+)
+async def test_locate_needs_form_read_from_the_assigned_role(
+    session: AsyncSession,
+    role: Role,
+    requester: User,
+    svc_workspace: Workspace,
+    scope_names: frozenset[str],
+    status: int,
+) -> None:
+    form = await _form_in(session, svc_workspace, title="Laptop request")
+    await _assign_role(session, requester, svc_workspace, scope_names)
+
+    assert await _locate_status(session, role, form.id) == status
+
+
+@pytest.mark.usefixtures("rbac")
+async def test_another_users_role_assignment_grants_the_caller_nothing(
+    session: AsyncSession,
+    role: Role,
+    svc_workspace: Workspace,
+) -> None:
+    form = await _form_in(session, svc_workspace, title="Laptop request")
+    colleague = await create_org_user(
+        session, svc_workspace.organization_id, email="arjun.rao@example.com"
+    )
+    await _assign_role(session, colleague, svc_workspace, INTAKE_SCOPES)
+
+    assert await _locate_status(session, role, form.id) == 404
+
+
+@pytest.mark.usefixtures("rbac")
+async def test_catalog_and_submissions_follow_role_assignments(
+    session: AsyncSession,
+    role: Role,
+    requester: User,
+    svc_workspace: Workspace,
+    second_workspace: Workspace,
+) -> None:
+    visible = await _form_in(session, svc_workspace, title="Laptop request")
+    hidden = await _form_in(session, second_workspace, title="Access request")
+    mine = await _submit_as(session, visible, requester.id)
+    await _submit_as(session, hidden, requester.id)
+    await _assign_role(session, requester, svc_workspace, INTAKE_SCOPES)
+    await _assign_role(
+        session, requester, second_workspace, frozenset({"workflow:read"})
+    )
+
+    forms = await requester_router.list_intake_forms(
+        role=role, session=session, page=PageParams()
+    )
+    submissions = await requester_router.list_intake_submissions(
+        role=role, session=session, page=PageParams()
+    )
+
+    assert [form.id for form in forms.items] == [visible.id]
+    assert [submission.id for submission in submissions.items] == [mine.id]

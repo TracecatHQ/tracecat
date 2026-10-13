@@ -29,6 +29,7 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.draft import (
     build_workflow_edit_document,
+    persist_workflow_edit_document,
     replace_workflow_definition_from_dsl,
 )
 from tracecat.workflow.management.management import WorkflowsManagementService
@@ -419,6 +420,55 @@ async def test_draft_save_from_dsl_keeps_input_order(
     assert loaded.expects_order == AUTHOR_ORDER
     dsl = await service.build_dsl_from_workflow(loaded)
     assert list(dsl.entrypoint.expects or {}) == AUTHOR_ORDER
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("with_actions", [False, True], ids=["empty", "with_actions"])
+async def test_workflow_edit_document_save_keeps_input_order(
+    session: AsyncSession, svc_role: Role, workflow: Workflow, with_actions: bool
+) -> None:
+    """The chat and MCP workflow editors both save through the edit document."""
+    service = WorkflowsManagementService(session, role=svc_role)
+    workflow_id = WorkflowUUID.new(workflow.id)
+    draft = await service.get_workflow(workflow_id)
+    assert draft is not None
+    if with_actions:
+        data = _dsl_data({"first": {"type": "str"}})
+        await replace_workflow_definition_from_dsl(
+            service=service, workflow=draft, dsl=DSLInput.model_validate(data)
+        )
+        await session.commit()
+        draft = await service.get_workflow(workflow_id)
+        assert draft is not None
+    original = build_workflow_edit_document(draft)
+    assert bool(original.definition.actions) is with_actions
+    entrypoint = DSLEntrypoint.model_validate(
+        {"ref": original.definition.entrypoint.ref, "expects": EXPECTS}
+    )
+    updated = original.model_copy(
+        update={
+            "definition": original.definition.model_copy(
+                update={"entrypoint": entrypoint}
+            )
+        }
+    )
+
+    await persist_workflow_edit_document(
+        role=svc_role,
+        service=service,
+        workflow=draft,
+        original_document=original,
+        updated_document=updated,
+    )
+    await session.commit()
+    session.expire_all()
+
+    loaded = await service.get_workflow(workflow_id)
+    assert loaded is not None
+    assert list(loaded.expects) == JSONB_ORDER
+    assert loaded.expects_order == AUTHOR_ORDER
+    reread = build_workflow_edit_document(loaded)
+    assert list(reread.definition.entrypoint.expects or {}) == AUTHOR_ORDER
 
 
 def test_workflow_fields_from_dsl_capture_input_order() -> None:

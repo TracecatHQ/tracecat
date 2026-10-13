@@ -5,18 +5,29 @@ import uuid
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from pydantic import TypeAdapter
 from temporalio.client import Client
+from temporalio.common import TypedSearchAttributes
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.dsl.common import DSLInput, DSLRunArgs
+from tracecat.dsl.common import (
+    DSLInput,
+    DSLRunArgs,
+    get_trigger_type_from_search_attr,
+)
 from tracecat.dsl.init_activities import (
     ResolveTimeAnchorActivityInputs,
     resolve_time_anchor_activity,
 )
+from tracecat.dsl.workflow import (
+    _inherit_search_attributes_with_alias,
+    _without_terminal_error_owner,
+)
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
 from tracecat.workflow.executions.service import WorkflowExecutionsService
+from tracecat.workflow.executions.types import ErrorHandlerWorkflowInput
 
 
 @pytest.fixture
@@ -127,4 +138,63 @@ async def test_form_trigger_mints_time_anchor_and_search_attribute(
     assert values[TemporalSearchAttr.TRIGGER_TYPE.value] == "form"
     assert values[TemporalSearchAttr.TRIGGERED_BY_USER_ID.value] == str(
         runner_role.user_id
+    )
+
+
+# ----- Runs started by a form-triggered run -----
+
+
+def _form_run_attributes() -> TypedSearchAttributes:
+    return TypedSearchAttributes(
+        search_attributes=[
+            TriggerType.FORM.to_temporal_search_attr_pair(),
+            TemporalSearchAttr.ALIAS.create_pair("parent-alias"),
+            TemporalSearchAttr.ERROR_OWNER.create_pair("wf_parent/exec_parent"),
+        ]
+    )
+
+
+def test_trigger_type_is_read_back_from_a_form_run() -> None:
+    assert (
+        get_trigger_type_from_search_attr(_form_run_attributes(), "wf_x/exec_y")
+        is TriggerType.FORM
+    )
+
+
+def test_child_run_inherits_the_form_trigger_type() -> None:
+    """A child run is started with its parent's search attributes."""
+    child = _without_terminal_error_owner(_form_run_attributes())
+    agent_child = _inherit_search_attributes_with_alias(
+        _form_run_attributes(), "child-alias"
+    )
+
+    for attributes in (child, agent_child):
+        assert (
+            get_trigger_type_from_search_attr(attributes, "wf_x/exec_y")
+            is TriggerType.FORM
+        )
+    assert agent_child.get(TemporalSearchAttr.ALIAS.key) == "child-alias"
+    assert child.get(TemporalSearchAttr.ERROR_OWNER.key) is None
+
+
+def test_error_handler_input_carries_the_form_trigger_type() -> None:
+    """The error handler is told how the failed run was triggered."""
+    handler_input = ErrorHandlerWorkflowInput(
+        message="Workflow failed",
+        handler_wf_id=WorkflowUUID.new_uuid4(),
+        orig_wf_id=WorkflowUUID.new_uuid4(),
+        orig_wf_exec_id="wf_x/exec_y",
+        orig_wf_title="Laptop request workflow",
+        trigger_type=get_trigger_type_from_search_attr(
+            _form_run_attributes(), "wf_x/exec_y"
+        ),
+    )
+
+    dumped = TypeAdapter(ErrorHandlerWorkflowInput).dump_python(
+        handler_input, mode="json"
+    )
+    assert dumped["trigger_type"] == "form"
+    assert (
+        TypeAdapter(ErrorHandlerWorkflowInput).validate_python(dumped).trigger_type
+        is TriggerType.FORM
     )

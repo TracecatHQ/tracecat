@@ -32,6 +32,7 @@ from tracecat.db.models import AgentSession, Form, Workspace
 from tracecat.feature_flags import FeatureFlag
 from tracecat.forms.enums import FormStatus
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.tiers import defaults as tier_defaults
 from tracecat.tiers.enums import Entitlement
 
 pytestmark = pytest.mark.anyio
@@ -273,6 +274,34 @@ async def test_page_context_is_silent_without_the_entitlement(
     role = _role(scopes=EDITOR_SCOPES, workspace=svc_workspace)
 
     assert await _context_line(session, role, form.id, entitled=False) is None
+
+
+@pytest.mark.usefixtures("db", "flag_on")
+@pytest.mark.parametrize(
+    ("flags", "named"), [("forms", True), ("git-sync", False)], ids=["on", "off"]
+)
+async def test_page_context_follows_the_real_entitlement_check(
+    session: AsyncSession,
+    svc_workspace: Workspace,
+    form: Form,
+    monkeypatch: pytest.MonkeyPatch,
+    flags: str,
+    named: bool,
+) -> None:
+    """Nothing is stubbed: the session, the entitlement check and the query."""
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+    monkeypatch.setattr(
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.resolve_oss_default_entitlements(flags),
+    )
+    role = _role(scopes=EDITOR_SCOPES, workspace=svc_workspace)
+
+    line = await AgentSessionService(session, role)._page_context_prompt(
+        _chat_session(role), ChatPageContext(kind="form", id=form.id)
+    )
+
+    assert (line is not None) is named
 
 
 @pytest.mark.usefixtures("db", "flag_off")
