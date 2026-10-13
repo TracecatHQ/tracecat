@@ -83,70 +83,74 @@ export function CardsWidget({
   }
 
   return (
-    <div
-      id={id}
-      role={field.multiple ? "group" : "radiogroup"}
-      aria-labelledby={`${id}-label`}
-      aria-required={field.multiple ? undefined : field.required}
-      aria-describedby={describedBy(id, field, invalid)}
-      aria-invalid={invalid}
-      className="grid grid-cols-1 gap-3 sm:grid-cols-3"
-    >
-      {options.map((option, index) => {
-        const checked = selected.has(option.value)
-        const image = images[index]
-        return (
-          <button
-            key={option.value}
-            ref={(element) => {
-              cardRefs.current[index] = element
-            }}
-            type="button"
-            role={field.multiple ? "checkbox" : "radio"}
-            aria-checked={checked}
-            tabIndex={field.multiple || index === tabStopIndex ? 0 : -1}
-            disabled={disabled}
-            onClick={() => handleSelect(option.value)}
-            onKeyDown={(event) => handleKeyDown(event, index)}
-            onBlur={onBlur}
-            className={cn(
-              "relative flex flex-col overflow-hidden rounded-lg border bg-background text-left transition-colors",
-              "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
-              "disabled:cursor-not-allowed disabled:opacity-50",
-              checked
-                ? "border-primary bg-primary/5 ring-1 ring-inset ring-primary"
-                : "hover:bg-muted/50",
-              invalid && !checked && "border-destructive"
-            )}
-          >
-            {image && (
-              // Card images are inline data URIs checked above. A plain <img>
-              // keeps them out of the Next image optimizer, so no
-              // `remotePatterns` or CSP change is needed.
-              <img
-                src={image}
-                alt=""
-                className="aspect-[4/3] w-full border-b object-cover"
-              />
-            )}
-            {checked && (
-              <span className="absolute right-2 top-2 flex size-[18px] items-center justify-center rounded-full bg-primary text-primary-foreground">
-                <CheckIcon className="size-3" />
-              </span>
-            )}
-            <span className="block px-3 pb-3 pt-2.5">
-              <span className={cn(formStyles.label, "block")}>
-                {option.label}
-              </span>
-              {option.description && (
-                <span className={cn(formStyles.help, "mt-0.5 block")}>
-                  {option.description}
+    // The columns follow the form's own width, not the viewport's, so the
+    // cards stack in a narrow preview pane instead of squeezing their text.
+    <div className="@container">
+      <div
+        id={id}
+        role={field.multiple ? "group" : "radiogroup"}
+        aria-labelledby={`${id}-label`}
+        aria-required={field.multiple ? undefined : field.required}
+        aria-describedby={describedBy(id, field, invalid)}
+        aria-invalid={invalid}
+        className="grid grid-cols-1 gap-3 @md:grid-cols-3"
+      >
+        {options.map((option, index) => {
+          const checked = selected.has(option.value)
+          const image = images[index]
+          return (
+            <button
+              key={option.value}
+              ref={(element) => {
+                cardRefs.current[index] = element
+              }}
+              type="button"
+              role={field.multiple ? "checkbox" : "radio"}
+              aria-checked={checked}
+              tabIndex={field.multiple || index === tabStopIndex ? 0 : -1}
+              disabled={disabled}
+              onClick={() => handleSelect(option.value)}
+              onKeyDown={(event) => handleKeyDown(event, index)}
+              onBlur={onBlur}
+              className={cn(
+                "relative flex flex-col overflow-hidden rounded-lg border bg-background text-left transition-colors",
+                "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
+                "disabled:cursor-not-allowed disabled:opacity-50",
+                checked
+                  ? "border-primary bg-primary/5 ring-1 ring-inset ring-primary"
+                  : "hover:bg-muted/50",
+                invalid && !checked && "border-destructive"
+              )}
+            >
+              {image && (
+                // Card images are inline data URIs checked above. A plain <img>
+                // keeps them out of the Next image optimizer, so no
+                // `remotePatterns` or CSP change is needed.
+                <img
+                  src={image}
+                  alt=""
+                  className="aspect-[4/3] w-full border-b object-cover"
+                />
+              )}
+              {checked && (
+                <span className="absolute right-2 top-2 flex size-[18px] items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  <CheckIcon className="size-3" />
                 </span>
               )}
-            </span>
-          </button>
-        )
-      })}
+              <span className="block px-3 pb-3 pt-2.5">
+                <span className={cn(formStyles.label, "block")}>
+                  {option.label}
+                </span>
+                {option.description && (
+                  <span className={cn(formStyles.help, "mt-0.5 block")}>
+                    {option.description}
+                  </span>
+                )}
+              </span>
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
