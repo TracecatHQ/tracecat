@@ -13,6 +13,7 @@ import Link from "next/link"
 import { useMemo, useState } from "react"
 import type {
   FormActorRead,
+  FormFieldBlock,
   FormPreview,
   FormRead,
   FormSubmissionRead,
@@ -95,6 +96,10 @@ export function formatAnswer(value: unknown): string {
     return value.length === 0 ? "-" : value.map(formatAnswer).join("\n")
   }
   if (isRecord(value)) {
+    // An unanswered `user` or `file` field keeps its `{}` default.
+    if (Object.keys(value).length === 0) {
+      return "-"
+    }
     const text = formatUserAnswer(value) ?? formatFileAnswer(value)
     if (text) {
       return text
@@ -136,22 +141,81 @@ export function orderAnswers(
   return [...shown, ...rest].map((name) => [name, answers[name]])
 }
 
+/** Map each input name to the field the form shows for it. */
+export function getFieldBlocks(
+  preview: Pick<FormPreview, "blocks"> | null | undefined
+): Record<string, FormFieldBlock> {
+  const fields: Record<string, FormFieldBlock> = {}
+  for (const block of preview?.blocks ?? []) {
+    if (block.type === "field") {
+      fields[block.name] = block
+    }
+  }
+  return fields
+}
+
+/** A stored date or datetime as the requester picked it, or `null`. */
+function formatDateAnswer(value: string, widget: string): string | null {
+  if (widget === "date") {
+    // A `date` field on a `datetime` input is stored at midnight. Read the
+    // day from the text so no time zone moves it.
+    const day = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
+    return day
+      ? format(
+          new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3])),
+          "MMM d, yyyy"
+        )
+      : null
+  }
+  const time = new Date(value)
+  return Number.isNaN(time.getTime()) ? null : format(time, "MMM d, yyyy p")
+}
+
+/**
+ * Show an answer the way its field showed it: an option by its label, a
+ * date as a date. Anything else falls back to {@link formatAnswer}.
+ */
+export function formatFieldAnswer(
+  value: unknown,
+  field: FormFieldBlock | undefined
+): string {
+  if (!field) {
+    return formatAnswer(value)
+  }
+  if (Array.isArray(value) && value.length > 0) {
+    return value.map((item) => formatFieldAnswer(item, field)).join("\n")
+  }
+  if (typeof value === "string" && value !== "") {
+    const option = field.options?.find((item) => item.value === value)
+    if (option) {
+      return option.label
+    }
+    if (field.widget === "date" || field.widget === "datetime") {
+      return formatDateAnswer(value, field.widget) ?? value
+    }
+  }
+  return formatAnswer(value)
+}
+
 /**
  * One answer of a submission. Files are buttons that download them; anything
  * else is text.
  */
 function Answer({
   value,
+  field,
   workspaceId,
   formId,
 }: {
   value: unknown
+  /** The field the answer was given in, if the form shows one. */
+  field?: FormFieldBlock
   workspaceId: string
   formId: string
 }) {
   const files = getFileAnswers(value)
   if (!files) {
-    return formatAnswer(value)
+    return formatFieldAnswer(value, field)
   }
 
   async function download(fileId: string) {
@@ -223,10 +287,12 @@ function SubmissionRow({
   submission,
   workspaceId,
   labels,
+  fields,
 }: {
   submission: FormSubmissionRead
   workspaceId: string
   labels: Record<string, string>
+  fields: Record<string, FormFieldBlock>
 }) {
   const [open, setOpen] = useState(false)
   const actor = submission.submitted_by
@@ -332,6 +398,7 @@ function SubmissionRow({
               <dd className="mt-0.5 whitespace-pre-wrap break-words">
                 <Answer
                   value={value}
+                  field={fields[key]}
                   workspaceId={workspaceId}
                   formId={submission.form_id}
                 />
@@ -363,6 +430,7 @@ export function FormActivityTab({
   preview?: FormPreview | null
 }) {
   const labels = useMemo(() => getFieldLabels(preview), [preview])
+  const fields = useMemo(() => getFieldBlocks(preview), [preview])
   const {
     submissions,
     submissionsIsLoading,
@@ -431,6 +499,7 @@ export function FormActivityTab({
               submission={submission}
               workspaceId={form.workspace_id}
               labels={labels}
+              fields={fields}
             />
           ))}
         </ul>
