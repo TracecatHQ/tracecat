@@ -687,46 +687,27 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   const [priorityMode, setPriorityMode] = useState<FilterMode>(
     initialFilterState.priorityMode
   )
-  const [prioritySortDirection, setPrioritySortDirectionState] =
-    useState<SortDirection>(initialFilterState.prioritySortDirection)
   const [severityFilter, setSeverityFilter] = useState<CaseSeverity[]>(
     initialFilterState.severityFilter
   )
   const [severityMode, setSeverityMode] = useState<FilterMode>(
     initialFilterState.severityMode
   )
-  const [severitySortDirection, setSeveritySortDirectionState] =
-    useState<SortDirection>(initialFilterState.severitySortDirection)
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>(
     initialFilterState.assigneeFilter
   )
   const [assigneeMode, setAssigneeModeState] = useState<FilterMode>(
     initialFilterState.assigneeMode
   )
-  const [assigneeSortDirection, setAssigneeSortDirectionState] =
-    useState<SortDirection>(initialFilterState.assigneeSortDirection)
   const [tagFilter, setTagFilter] = useState<string[]>(
     initialFilterState.tagFilter
   )
   const [tagMode, setTagModeState] = useState<FilterMode>(
     initialFilterState.tagMode
   )
-  const [tagSortDirection, setTagSortDirectionState] = useState<SortDirection>(
-    initialFilterState.tagSortDirection
-  )
 
   const setSortBy = useCallback((value: CaseSortValue) => {
     setSortByState(value)
-    setPrioritySortDirectionState(
-      value.field === "priority" ? value.direction : null
-    )
-    setSeveritySortDirectionState(
-      value.field === "severity" ? value.direction : null
-    )
-    setAssigneeSortDirectionState(
-      value.field === "assignee" ? value.direction : null
-    )
-    setTagSortDirectionState(value.field === "tags" ? value.direction : null)
     setDropdownFilters((prev) => {
       const next: Record<string, DropdownFilterState> = {}
       for (const [ref, state] of Object.entries(prev)) {
@@ -814,16 +795,12 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     setStatusMode(nextFilterState.statusMode)
     setPriorityFilter(nextFilterState.priorityFilter)
     setPriorityMode(nextFilterState.priorityMode)
-    setPrioritySortDirectionState(nextFilterState.prioritySortDirection)
     setSeverityFilter(nextFilterState.severityFilter)
     setSeverityMode(nextFilterState.severityMode)
-    setSeveritySortDirectionState(nextFilterState.severitySortDirection)
     setAssigneeFilter(nextFilterState.assigneeFilter)
     setAssigneeModeState(nextFilterState.assigneeMode)
-    setAssigneeSortDirectionState(nextFilterState.assigneeSortDirection)
     setTagFilter(nextFilterState.tagFilter)
     setTagModeState(nextFilterState.tagMode)
-    setTagSortDirectionState(nextFilterState.tagSortDirection)
     setDropdownFilters(nextFilterState.dropdownFilters)
     setUpdatedAfter(nextFilterState.updatedAfter)
     setCreatedAfter(nextFilterState.createdAfter)
@@ -845,16 +822,19 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         statusMode,
         priorityFilter,
         priorityMode,
-        prioritySortDirection,
+        prioritySortDirection:
+          sortBy.field === "priority" ? sortBy.direction : null,
         severityFilter,
         severityMode,
-        severitySortDirection,
+        severitySortDirection:
+          sortBy.field === "severity" ? sortBy.direction : null,
         assigneeFilter,
         assigneeMode,
-        assigneeSortDirection,
+        assigneeSortDirection:
+          sortBy.field === "assignee" ? sortBy.direction : null,
         tagFilter,
         tagMode,
-        tagSortDirection,
+        tagSortDirection: sortBy.field === "tags" ? sortBy.direction : null,
         dropdownFilters,
         updatedAfter,
         createdAfter,
@@ -869,16 +849,12 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     statusMode,
     priorityFilter,
     priorityMode,
-    prioritySortDirection,
     severityFilter,
     severityMode,
-    severitySortDirection,
     assigneeFilter,
     assigneeMode,
-    assigneeSortDirection,
     tagFilter,
     tagMode,
-    tagSortDirection,
     dropdownFilters,
     updatedAfter,
     createdAfter,
@@ -1018,6 +994,13 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   const serverSortParams = useMemo(() => {
     return { orderBy: sortBy.field, sort: sortBy.direction }
   }, [sortBy])
+  const prioritySortDirection =
+    sortBy.field === "priority" ? sortBy.direction : null
+  const severitySortDirection =
+    sortBy.field === "severity" ? sortBy.direction : null
+  const assigneeSortDirection =
+    sortBy.field === "assignee" ? sortBy.direction : null
+  const tagSortDirection = sortBy.field === "tags" ? sortBy.direction : null
 
   const filtersKey = useMemo(
     () =>

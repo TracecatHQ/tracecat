@@ -9,6 +9,7 @@ import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat import config
 from tracecat.auth.dependencies import ExecutorWorkspaceRole, WorkspaceActorRouteRole
@@ -21,7 +22,6 @@ from tracecat.cases.service import CasesService
 from tracecat.cases.sorting import (
     CaseRelationshipSort,
     CaseSortDirection,
-    case_relationship_ordering,
     case_relationship_sort_key,
 )
 from tracecat.contexts import ctx_role
@@ -180,8 +180,19 @@ async def get_page(
         session,
         sa.select(Case.id).where(Case.workspace_id == dataset.workspace_id),
         page=PageParams(limit=page_size, cursor=cursor),
-        order_by=case_relationship_ordering(dataset.workspace_id, field, direction),
+        order_by=relationship_ordering(dataset.workspace_id, field, direction),
     )
+
+
+def relationship_ordering(
+    workspace_id: uuid.UUID,
+    field: CaseRelationshipSort,
+    direction: CaseSortDirection,
+) -> tuple[ColumnElement[str], ColumnElement[uuid.UUID]]:
+    key = case_relationship_sort_key(workspace_id, field)
+    if direction == "asc":
+        return key.asc().nulls_last(), Case.id.asc()
+    return key.desc().nulls_last(), Case.id.desc()
 
 
 def expected_ids(
@@ -265,9 +276,7 @@ async def test_relationship_cursor_cannot_cross_workspace_or_sort_direction(
             session,
             sa.select(Case.id).where(Case.workspace_id == dataset.other_workspace_id),
             page=PageParams(limit=1, cursor=first.next_cursor),
-            order_by=case_relationship_ordering(
-                dataset.other_workspace_id, field, "asc"
-            ),
+            order_by=relationship_ordering(dataset.other_workspace_id, field, "asc"),
         )
     assert wrong_workspace.value.code == PaginationErrorCode.CURSOR_MISMATCH
 

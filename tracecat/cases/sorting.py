@@ -53,22 +53,3 @@ def case_relationship_sort_key(
             .scalar_subquery()
         )
     raise ValueError(f"Unsupported case relationship sort: {field}")
-
-
-def case_relationship_ordering(
-    workspace_id: uuid.UUID,
-    field: CaseRelationshipSort,
-    direction: CaseSortDirection,
-) -> tuple[ColumnElement[str], ColumnElement[uuid.UUID]]:
-    """Order globally by the relationship key, then UUID in the same direction.
-
-    Missing assignees and tags are last in both directions. Pass these clauses
-    to paginate(order_by=...); the paginator reverses seek and null placement
-    internally when following a previous-page cursor.
-    """
-    key = case_relationship_sort_key(workspace_id, field)
-    if direction == "asc":
-        return key.asc().nulls_last(), Case.id.asc()
-    if direction == "desc":
-        return key.desc().nulls_last(), Case.id.desc()
-    raise ValueError(f"Unsupported case sort direction: {direction}")
