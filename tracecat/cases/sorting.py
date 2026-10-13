@@ -18,8 +18,9 @@ def case_relationship_sort_key(
     """Return one nullable string key per case, without multiplying result rows.
 
     Assignees use the lowercased email of the stored User relationship, including
-    former workspace members. Tags use the minimum lowercased, edge-trimmed name
-    among linked tags belonging to the requested workspace. The multi-tag key
+    former workspace members. Tags use the minimum lowercased name among linked
+    tags belonging to the requested workspace, after trimming ASCII edge
+    whitespace. The multi-tag key
     stays the minimum in either sort direction, independent of relationship
     loading order. Normalized strings use bytewise C collation.
 
@@ -37,7 +38,8 @@ def case_relationship_sort_key(
         )
     if field == "tags":
         normalized_name = sa.func.lower(
-            sa.func.btrim(CaseTag.name, type_=sa.String()), type_=sa.String()
+            sa.func.btrim(CaseTag.name, " \t\n\r\f\v", type_=sa.String()),
+            type_=sa.String(),
         ).collate("C")
         return (
             sa.select(sa.func.min(normalized_name, type_=sa.String()))
