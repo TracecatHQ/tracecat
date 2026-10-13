@@ -135,3 +135,23 @@ def test_platform_catalog_includes_gpt_6_sol_luna_and_gpt_6_1_sol() -> None:
     assert entries["gpt-6-luna"].metadata["input_cost_per_token"] == 1e-07
     assert entries["gpt-6.1-sol"].metadata["cache_read_input_token_cost"] == 1e-07
     assert entries["gpt-6.1-sol"].metadata["max_input_tokens"] == 922000
+
+
+def test_platform_catalog_includes_claude_haiku_5_5_and_mythos() -> None:
+    entries = {
+        (entry.model_provider, entry.model_name): entry
+        for entry in loader.get_platform_catalog_models()
+    }
+
+    haiku = entries[("anthropic", "claude-haiku-5-5")]
+    assert haiku.metadata["input_cost_per_token"] == 1e-07
+    assert haiku.metadata["output_cost_per_token"] == 5e-07
+    assert haiku.metadata["max_input_tokens"] == 1000000
+
+    mythos = entries[("anthropic", "claude-mythos-5")]
+    assert mythos.metadata["input_cost_per_token"] == 1e-05
+    assert mythos.metadata["cache_read_input_token_cost"] == 1e-06
+
+    mythos_5_1 = entries[("anthropic", "claude-mythos-5-1")]
+    assert mythos_5_1.metadata["cache_read_input_token_cost"] == 2.5e-07
+    assert mythos_5_1.metadata["max_output_tokens"] == 128000
