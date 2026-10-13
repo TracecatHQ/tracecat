@@ -126,8 +126,12 @@ export function FormConfigTab({
   ).length
   const canSave = canEdit && draft.isDirty && !isSaving && errorCount === 0
 
-  async function save() {
-    if (!canSave) {
+  /**
+   * Save the buffer. While the saved config has changed elsewhere, only an
+   * explicit overwrite goes through: Save and the editor shortcut do nothing.
+   */
+  async function save(overwrite = false) {
+    if (!canSave || (draft.hasRemoteChange && !overwrite)) {
       return
     }
     const text = draft.text
@@ -190,13 +194,33 @@ export function FormConfigTab({
             type="button"
             size="sm"
             className="h-7 px-3 text-xs"
-            disabled={!canSave}
-            onClick={save}
+            disabled={!canSave || draft.hasRemoteChange}
+            onClick={() => save()}
           >
             {isSaving ? "Saving..." : "Save"}
           </Button>
         )}
       </div>
+
+      {draft.isRestored && !isSaving && (
+        <div
+          role="status"
+          className="flex flex-none items-center gap-2 border-b bg-muted/50 px-3 py-1.5 text-xs"
+        >
+          <span className="flex-1">
+            Unsaved draft restored. Save to keep it.
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-6 px-2 text-xs"
+            onClick={draft.reload}
+          >
+            Discard draft
+          </Button>
+        </div>
+      )}
 
       {draft.hasRemoteChange && !isSaving && (
         <div
@@ -204,8 +228,8 @@ export function FormConfigTab({
           className="flex flex-none items-center gap-2 border-b bg-muted/50 px-3 py-1.5 text-xs"
         >
           <span className="flex-1">
-            This form changed elsewhere. Reload to see it; your unsaved edits
-            will be lost.
+            This form changed elsewhere. Reload to see it and lose your unsaved
+            edits, or overwrite it with yours.
           </span>
           <Button
             type="button"
@@ -216,6 +240,18 @@ export function FormConfigTab({
           >
             Reload
           </Button>
+          {canEdit && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              disabled={!canSave}
+              onClick={() => save(true)}
+            >
+              Overwrite
+            </Button>
+          )}
         </div>
       )}
 
@@ -225,7 +261,7 @@ export function FormConfigTab({
           onChange={draft.setText}
           readOnly={!canEdit}
           problems={problems}
-          onSave={save}
+          onSave={() => save()}
           onCreateEditor={setView}
         />
       </div>

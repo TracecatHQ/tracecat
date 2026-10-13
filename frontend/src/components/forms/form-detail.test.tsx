@@ -1,5 +1,6 @@
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -146,14 +147,14 @@ function renderDetail() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  render(<FormDetail formId="form-1" />, {
+  const { unmount } = render(<FormDetail formId="form-1" />, {
     wrapper: ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>{children}</TooltipProvider>
       </QueryClientProvider>
     ),
   })
-  return { queryClient, user: userEvent.setup() }
+  return { queryClient, unmount, user: userEvent.setup() }
 }
 
 const editor = () => screen.getByLabelText("Form config")
@@ -188,6 +189,7 @@ function checkedConfigs() {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  sessionStorage.clear()
   scopes = new Set(["form:read", "form:update", "form:submission:read"])
   searchParams = new URLSearchParams()
   getForm.mockResolvedValue(formRead())
@@ -612,6 +614,130 @@ describe("FormDetail", () => {
         screen.queryByText(/This form changed elsewhere/)
       ).not.toBeInTheDocument()
       expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument()
+    })
+
+    it("saves over a remote change only through Overwrite", async () => {
+      const mine = { title: "My edit" }
+      updateForm.mockResolvedValue(formRead({ config: mine }))
+      const { queryClient, user } = renderDetail()
+      await waitFor(() => expect(editor()).toHaveValue(SAVED_YAML))
+      edit("title: My edit\n")
+      await waitFor(() => expect(saveButton()).toBeEnabled())
+
+      act(() => {
+        queryClient.setQueryData(
+          formKeys.detail("workspace-1", "form-1"),
+          remote
+        )
+      })
+      await screen.findByText(/This form changed elsewhere/)
+
+      // Save would replace the other change without saying so.
+      expect(saveButton()).toBeDisabled()
+      expect(updateForm).not.toHaveBeenCalled()
+
+      await user.click(screen.getByRole("button", { name: "Overwrite" }))
+
+      await waitFor(() =>
+        expect(updateForm).toHaveBeenCalledWith({
+          workspaceId: "workspace-1",
+          formId: "form-1",
+          requestBody: { config: mine },
+        })
+      )
+      await waitFor(() =>
+        expect(
+          screen.queryByText(/This form changed elsewhere/)
+        ).not.toBeInTheDocument()
+      )
+      expect(editor()).toHaveValue("title: My edit\n")
+    })
+  })
+
+  describe("unsaved drafts across navigation", () => {
+    it("restores an unsaved buffer when the form is opened again", async () => {
+      const first = renderDetail()
+      await waitFor(() => expect(editor()).toHaveValue(SAVED_YAML))
+      edit("title: Half done\n")
+      // In-app navigation unmounts the page without asking.
+      first.unmount()
+
+      const { user } = renderDetail()
+
+      await waitFor(() => expect(editor()).toHaveValue("title: Half done\n"))
+      expect(screen.getByText(/Unsaved draft restored/)).toBeInTheDocument()
+      expect(screen.getByText("Unsaved changes")).toBeInTheDocument()
+      expect(
+        screen.queryByText(/This form changed elsewhere/)
+      ).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole("button", { name: "Discard draft" }))
+
+      expect(editor()).toHaveValue(SAVED_YAML)
+      expect(
+        screen.queryByText(/Unsaved draft restored/)
+      ).not.toBeInTheDocument()
+      // A discarded draft does not come back.
+      cleanup()
+      renderDetail()
+      await waitFor(() => expect(editor()).toHaveValue(SAVED_YAML))
+      expect(
+        screen.queryByText(/Unsaved draft restored/)
+      ).not.toBeInTheDocument()
+    })
+
+    it("does not keep a draft once it is saved", async () => {
+      const stored = { title: "Laptop order" }
+      updateForm.mockResolvedValue(formRead({ config: stored }))
+      const { user } = renderDetail()
+      await waitFor(() => expect(editor()).toHaveValue(SAVED_YAML))
+      edit("title: Laptop order\n")
+      await waitFor(() => expect(saveButton()).toBeEnabled())
+      await user.click(saveButton())
+      await waitFor(() => expect(saveButton()).toBeDisabled())
+      cleanup()
+
+      getForm.mockResolvedValue(formRead({ config: stored }))
+      renderDetail()
+
+      await waitFor(() => expect(editor()).toHaveValue("title: Laptop order\n"))
+      expect(
+        screen.queryByText(/Unsaved draft restored/)
+      ).not.toBeInTheDocument()
+    })
+
+    it("flags a restored draft whose form changed in the meantime", async () => {
+      const first = renderDetail()
+      await waitFor(() => expect(editor()).toHaveValue(SAVED_YAML))
+      edit("title: Half done\n")
+      first.unmount()
+
+      getForm.mockResolvedValue(formRead({ config: { title: "Renamed" } }))
+      renderDetail()
+
+      await waitFor(() => expect(editor()).toHaveValue("title: Half done\n"))
+      expect(screen.getByText(/Unsaved draft restored/)).toBeInTheDocument()
+      expect(
+        screen.getByText(/This form changed elsewhere/)
+      ).toBeInTheDocument()
+      expect(saveButton()).toBeDisabled()
+    })
+
+    it("works when storage is unavailable", async () => {
+      const blocked = () => {
+        throw new Error("storage is blocked")
+      }
+      jest.spyOn(Storage.prototype, "getItem").mockImplementation(blocked)
+      jest.spyOn(Storage.prototype, "setItem").mockImplementation(blocked)
+      jest.spyOn(Storage.prototype, "removeItem").mockImplementation(blocked)
+
+      renderDetail()
+      await waitFor(() => expect(editor()).toHaveValue(SAVED_YAML))
+      edit("title: Half done\n")
+
+      expect(editor()).toHaveValue("title: Half done\n")
+      expect(screen.getByText("Unsaved changes")).toBeInTheDocument()
+      jest.restoreAllMocks()
     })
   })
 

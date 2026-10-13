@@ -25,10 +25,59 @@ export interface FormConfigDraft {
    * while the buffer holds unsaved edits.
    */
   hasRemoteChange: boolean
+  /**
+   * Whether the buffer holds unsaved edits from an earlier visit to this
+   * form in the same browser tab.
+   */
+  isRestored: boolean
   /** Drop the buffer and take the saved config. */
   reload: () => void
   /** Take a config this editor just saved as the new starting point. */
   markSaved: (config: FormConfig_Output) => void
+}
+
+interface StoredDraft {
+  text: string
+  baseText: string
+}
+
+function draftStorageKey(formId: string): string {
+  return `tracecat:form-config-draft:${formId}`
+}
+
+// Storage can be unavailable (private mode, blocked site data, quota). The
+// editor works without it; only the restore after navigation is lost.
+function readStoredDraft(formId: string): StoredDraft | null {
+  try {
+    const raw = sessionStorage.getItem(draftStorageKey(formId))
+    const stored: unknown = raw ? JSON.parse(raw) : null
+    if (
+      typeof stored === "object" &&
+      stored !== null &&
+      "text" in stored &&
+      "baseText" in stored &&
+      typeof stored.text === "string" &&
+      typeof stored.baseText === "string" &&
+      stored.text !== stored.baseText
+    ) {
+      return { text: stored.text, baseText: stored.baseText }
+    }
+  } catch {
+    // Fall through: no draft.
+  }
+  return null
+}
+
+function writeStoredDraft(formId: string, draft: StoredDraft | null): void {
+  try {
+    if (draft) {
+      sessionStorage.setItem(draftStorageKey(formId), JSON.stringify(draft))
+    } else {
+      sessionStorage.removeItem(draftStorageKey(formId))
+    }
+  } catch {
+    // Nothing to do: the draft just won't survive navigation.
+  }
 }
 
 /**
@@ -37,17 +86,25 @@ export interface FormConfigDraft {
  * The server stores JSON, so the buffer starts from a serialization of the
  * saved config and is re-serialized after every save: comments do not
  * survive. When the saved config changes underneath the editor, a clean
- * buffer follows it and a dirty one is left alone and flagged. Leaving the
- * page with unsaved edits asks for confirmation.
+ * buffer follows it and a dirty one is left alone and flagged.
+ *
+ * Unsaved edits are guarded two ways. Reloading or closing the tab asks for
+ * confirmation. Navigating inside the app does not ask: the unsaved buffer
+ * is kept in `sessionStorage` per form and put back, flagged `isRestored`,
+ * when the form is opened again in the same tab. Saving or `reload` drops it.
  */
 export function useFormConfigDraft(form: FormRead): FormConfigDraft {
   const serverText = useMemo(
     () => serializeFormConfig(form.config),
     [form.config]
   )
-  const [text, setText] = useState(serverText)
-  // The serialized config the buffer was last in sync with.
-  const [baseText, setBaseText] = useState(serverText)
+  const [stored] = useState(() => readStoredDraft(form.id))
+  const [text, setText] = useState(stored?.text ?? serverText)
+  // The serialized config the buffer was last in sync with. A restored draft
+  // keeps the base it was written against, so a config that changed since
+  // then shows as a remote change.
+  const [baseText, setBaseText] = useState(stored?.baseText ?? serverText)
+  const [isRestored, setIsRestored] = useState(stored !== null)
   const isDirty = text !== baseText
 
   useEffect(() => {
@@ -56,6 +113,10 @@ export function useFormConfigDraft(form: FormRead): FormConfigDraft {
       setBaseText(serverText)
     }
   }, [serverText, baseText, isDirty])
+
+  useEffect(() => {
+    writeStoredDraft(form.id, isDirty ? { text, baseText } : null)
+  }, [form.id, isDirty, text, baseText])
 
   useEffect(() => {
     if (!isDirty) {
@@ -71,12 +132,14 @@ export function useFormConfigDraft(form: FormRead): FormConfigDraft {
   const reload = useCallback(() => {
     setText(serverText)
     setBaseText(serverText)
+    setIsRestored(false)
   }, [serverText])
 
   const markSaved = useCallback((config: FormConfig_Output) => {
     const savedText = serializeFormConfig(config)
     setText(savedText)
     setBaseText(savedText)
+    setIsRestored(false)
   }, [])
 
   return {
@@ -84,6 +147,7 @@ export function useFormConfigDraft(form: FormRead): FormConfigDraft {
     setText,
     isDirty,
     hasRemoteChange: isDirty && serverText !== baseText,
+    isRestored: isRestored && isDirty,
     reload,
     markSaved,
   }
