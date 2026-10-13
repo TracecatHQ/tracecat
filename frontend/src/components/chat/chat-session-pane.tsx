@@ -523,7 +523,11 @@ export function ChatSessionPane({
       const isStreamingVisual =
         (lastPart.type === "text" && lastPart.text.length > 0) ||
         (lastPart.type === "reasoning" && lastPart.text.length > 0) ||
-        (isToolUIPart(lastPart) && lastPart.state === "input-streaming")
+        (isToolUIPart(lastPart) && lastPart.state === "input-streaming") ||
+        // The in-progress compaction badge shows its own spinner. A finished
+        // compaction doesn't, so the loader returns while the turn continues.
+        (lastPart.type === "data-compaction" &&
+          getCompactionData(lastPart).phase === "started")
 
       if (lastPart.type === "data-approval-request") return false
 
@@ -1755,9 +1759,7 @@ export function MessagePart({
   }
 
   if (part.type === "data-compaction") {
-    const payload = (part as { data?: unknown }).data
-    const compaction =
-      payload && typeof payload === "object" ? (payload as CompactionData) : {}
+    const compaction = getCompactionData(part)
     const { label, icon } = getCompactionStatus(compaction.phase)
     return (
       <Message key={`${id}-${partIdx}`} from={role}>
@@ -1880,6 +1882,14 @@ export function MessagePart({
   }
 
   return null
+}
+
+/** The payload of a `data-compaction` part, or an empty one if malformed. */
+function getCompactionData(part: UIMessage["parts"][number]): CompactionData {
+  const payload = (part as { data?: unknown }).data
+  return payload && typeof payload === "object"
+    ? (payload as CompactionData)
+    : {}
 }
 
 /** Label and icon for a compaction badge. A missing phase means completed. */

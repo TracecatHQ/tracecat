@@ -778,8 +778,9 @@ describe("ChatSessionPane compaction badge", () => {
     expect(screen.getByText("1,234 tokens")).toBeInTheDocument()
   })
 
-  it("shows a live compaction in progress until it completes", () => {
-    // A lone started part shows the in-progress badge and the loader.
+  it("shows one progress indicator for a live compaction until it completes", () => {
+    // A lone started part shows the in-progress badge with its own spinner,
+    // in place of the generic loader.
     mockUseVercelChatResult.status = "streaming"
     mockUseVercelChatResult.messages = [
       COMPACT_PROMPT,
@@ -787,13 +788,15 @@ describe("ChatSessionPane compaction badge", () => {
     ]
     const { rerenderChatSessionPane } = renderChatSessionPane()
 
-    expect(screen.getByText("Compacting conversation...")).toBeInTheDocument()
-    expect(screen.getByTestId("dots-loader")).toBeInTheDocument()
+    const badge = screen.getByText("Compacting conversation...").parentElement
+    expect(badge?.querySelector(".animate-spin")).toBeInTheDocument()
+    expect(screen.queryByTestId("dots-loader")).not.toBeInTheDocument()
     expect(
       screen.queryByText("Conversation compacted.")
     ).not.toBeInTheDocument()
 
-    mockUseVercelChatResult.status = "ready"
+    // The turn keeps streaming after an automatic compaction completes, so
+    // the generic loader returns.
     mockUseVercelChatResult.messages = [
       COMPACT_PROMPT,
       liveCompaction(
@@ -809,6 +812,7 @@ describe("ChatSessionPane compaction badge", () => {
     ).not.toBeInTheDocument()
     expect(screen.getByText("Conversation compacted.")).toBeInTheDocument()
     expect(screen.getByText("190,934 tokens")).toBeInTheDocument()
+    expect(screen.getByTestId("dots-loader")).toBeInTheDocument()
   })
 
   it("shows a failed compaction in place of the in-progress badge", () => {
