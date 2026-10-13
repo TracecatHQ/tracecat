@@ -331,29 +331,44 @@ describe("case search scope UI", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("shows the API's validation detail for an oversized exact ID", async () => {
-    jest.mocked(casesSearchCases).mockImplementation(
-      (request) =>
-        new CancelablePromise((_resolve, reject) =>
-          request.shortId
-            ? reject(
-                Object.assign(new Error("Bad Request"), {
-                  status: 400,
-                  body: { detail: "Short ID number cannot exceed 2147483647" },
-                })
-              )
-            : _resolve({ items: [], has_more: false })
-        )
-    )
-    setup()
-    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
-      target: { value: "CASE-9999999999" },
-    })
-    await screen.findByText(
-      "Failed to load cases: Short ID number cannot exceed 2147483647"
-    )
-    expect(screen.getByRole("status")).toHaveTextContent("Exact case ID lookup")
-  })
+  it.each([
+    ["CASE-9999999999", "Short ID number cannot exceed 2147483647"],
+    ["CASE-12345678901", "Short ID must match CASE-<number> or <number>"],
+  ])(
+    "shows API validation for %s instead of a filtered text search",
+    async (reference, detail) => {
+      jest.mocked(casesSearchCases).mockImplementation(
+        (request) =>
+          new CancelablePromise((_resolve, reject) =>
+            request.shortId
+              ? reject(
+                  Object.assign(new Error("Bad Request"), {
+                    status: 400,
+                    body: {
+                      detail,
+                    },
+                  })
+                )
+              : _resolve({ items: [], has_more: false })
+          )
+      )
+      setup()
+      fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
+        target: { value: reference },
+      })
+      await screen.findByText(`Failed to load cases: ${detail}`)
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Exact case ID lookup"
+      )
+      expect(casesSearchCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          shortId: reference,
+          searchTerm: undefined,
+          hierarchy: "all",
+        })
+      )
+    }
+  )
 
   it("clears the lookup and restores the saved view constraints", async () => {
     setup()

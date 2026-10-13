@@ -1,15 +1,15 @@
 /** Search the saved view or every authorized case in the current workspace. */
 export type CaseSearchScope = "view" | "all"
 
-/** A complete case reference that can be looked up without text matching. */
+/** A syntactically complete reference; the API validates its length and range. */
 export type CaseReference =
   | { type: "short_id"; value: string }
   | { type: "uuid"; value: string }
 
-/** Recognize complete prefixed short IDs and canonical UUIDs, not partial IDs. */
+/** Recognize prefixed IDs/UUIDs; numeric text stays in ordinary search scope. */
 export function parseCaseReference(query: string): CaseReference | null {
   const value = query.trim()
-  if (/^CASE-\d{1,10}$/i.test(value)) {
+  if (/^CASE-\d+$/i.test(value)) {
     return { type: "short_id", value: value.toUpperCase() }
   }
   if (

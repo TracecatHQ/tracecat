@@ -1627,9 +1627,18 @@ async def test_search_cases_rejects_invalid_exact_uuid(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("reference", "detail"),
+    [
+        ("CASE-9999999999", "Short ID number cannot exceed 2147483647"),
+        ("CASE-12345678901", "Short ID must match CASE-<number> or <number>"),
+    ],
+)
 async def test_search_cases_rejects_oversized_exact_short_id(
     client: TestClient,
     test_admin_role: Role,
+    reference: str,
+    detail: str,
 ) -> None:
     """Pasted oversized short IDs receive a readable 400 from real validation."""
     with (
@@ -1644,11 +1653,11 @@ async def test_search_cases_rejects_oversized_exact_short_id(
             "/cases/search",
             params={
                 "workspace_id": str(test_admin_role.workspace_id),
-                "short_id": "CASE-9999999999",
+                "short_id": reference,
             },
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == "Short ID number cannot exceed 2147483647"
+        assert response.json()["detail"] == detail
 
 
 @pytest.mark.anyio

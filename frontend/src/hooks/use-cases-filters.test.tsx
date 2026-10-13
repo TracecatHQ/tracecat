@@ -81,7 +81,7 @@ function mockAggregateResponse(response: CasesSearchCaseAggregatesResponse) {
 }
 
 describe("complete case references", () => {
-  it.each([" CASE-0042 ", "case-0042", "CASE-42"])(
+  it.each([" CASE-0042 ", "case-0042", "CASE-42", "CASE-12345678901"])(
     "recognizes %s as a short ID",
     (query) => {
       expect(parseCaseReference(query)).toEqual({
@@ -98,7 +98,7 @@ describe("complete case references", () => {
     })
   })
 
-  it.each(["42", "CASE-", "CASE-0042 alert", "CASE-12345678901", "alert"])(
+  it.each(["42", "CASE-", "CASE-0042 alert", "alert"])(
     "keeps ambiguous or partial query %s as text",
     (query) => expect(parseCaseReference(query)).toBeNull()
   )
