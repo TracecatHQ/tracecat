@@ -1,6 +1,7 @@
 """Typed contracts for resolving case query fields."""
 
 from dataclasses import dataclass
+from uuid import UUID
 
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.selectable import FromClause
@@ -8,6 +9,14 @@ from sqlalchemy.sql.selectable import FromClause
 from tracecat.cases.enums import CaseFieldKind
 from tracecat.query.resolver import ResolvedAggregationField
 from tracecat.tables.enums import SqlType
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedCaseTag:
+    """Workspace-owned tag identity resolved for a search filter."""
+
+    id: UUID
+    ref: str
 
 
 @dataclass(frozen=True, slots=True)

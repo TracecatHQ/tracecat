@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
 from sqlalchemy import cast, func, or_, select
-from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only, raiseload, selectinload
 from sqlalchemy.sql.base import ExecutableOption
@@ -36,7 +35,7 @@ from tracecat.cases.search_metadata import validate_case_filter_metadata
 from tracecat.cases.search_schemas import CaseQuery, CaseSearchRequest
 from tracecat.cases.sorting import case_relationship_sort_key
 from tracecat.cases.tags.schemas import CaseTagRead
-from tracecat.cases.tags.service import CaseTagsService
+from tracecat.cases.tags.search import resolve_case_tag_filters
 from tracecat.db.models import Case, CaseDropdownValue, CaseTableRow, CaseTag, CaseTask
 from tracecat.exceptions import TracecatValidationError
 from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
@@ -142,7 +141,6 @@ class CaseSearchService(BaseWorkspaceService):
         super().__init__(session, role)
         self.fields = fields
         self.hierarchy = hierarchy
-        self.tags = CaseTagsService(session, role)
 
     async def legacy_tag_refs(
         self, tag_ids: Sequence[uuid.UUID] | None
@@ -168,17 +166,9 @@ class CaseSearchService(BaseWorkspaceService):
 
     async def compatibility_filters(self, query: CaseQuery) -> Filter | None:
         """Translate shipped matching inputs separately from the authored tree."""
-        tag_refs: list[str] = []
-        for identifier in query.tags or []:
-            if not identifier.strip():
-                continue
-            try:
-                tag = await self.tags.get_tag_by_ref_or_id(identifier)
-            except NoResultFound as exc:
-                raise TracecatValidationError(
-                    f"Unknown case tag filter: {identifier!r}"
-                ) from exc
-            tag_refs.append(tag.ref)
+        tags = await resolve_case_tag_filters(
+            session=self.session, workspace_id=self.workspace_id, tags=query.tags
+        )
         dropdowns: dict[str, list[str]] = {}
         for entry in query.dropdown or []:
             if ":" not in entry:
@@ -194,7 +184,7 @@ class CaseSearchService(BaseWorkspaceService):
             severity=query.severity,
             assignee_ids=[value for value in assignees if isinstance(value, uuid.UUID)],
             include_unassigned=any(isinstance(value, str) for value in assignees),
-            tag_refs=tag_refs,
+            tag_refs=[tag.ref for tag in tags],
             dropdown_filters=dropdowns,
             start_time=query.start_time,
             end_time=query.end_time,

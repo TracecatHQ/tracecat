@@ -5,10 +5,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import NoResultFound
 
 from tracecat.auth.types import Role
 from tracecat.cases import dependencies as case_dependencies
+from tracecat.cases import filters as case_filters
 from tracecat.cases import internal_router as internal_cases_router
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.hierarchy import CaseHierarchyService
@@ -18,7 +18,6 @@ from tracecat.cases.schemas import (
     CaseCommentThreadRead,
     CaseReadMinimal,
 )
-from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.models import Case, CaseTag, Workspace
 from tracecat.exceptions import (
     EntitlementRequired,
@@ -290,13 +289,17 @@ async def test_internal_search_rejects_unresolved_tags(
     test_admin_role: Role,
     include_known: bool,
 ) -> None:
-    known_tag = CaseTag(id=uuid.uuid4(), workspace_id=test_admin_role.workspace_id)
     tags = ["known-tag", "missing-tag"] if include_known else ["missing-tag"]
-    results = [known_tag, NoResultFound()] if include_known else [NoResultFound()]
     with (
         patch.object(internal_cases_router, "CasesService") as service_cls,
         patch.object(
-            CaseTagsService, "get_tag_by_ref_or_id", new=AsyncMock(side_effect=results)
+            case_filters,
+            "resolve_case_tag_filters",
+            new=AsyncMock(
+                side_effect=TracecatValidationError(
+                    "Unknown case tag filter: 'missing-tag'"
+                )
+            ),
         ),
     ):
         response = action_gateway_client.get(
@@ -318,7 +321,7 @@ async def test_internal_search_empty_tags_remain_unfiltered(
     with (
         patch.object(internal_cases_router, "CasesService") as service_cls,
         patch.object(
-            CaseTagsService, "get_tag_by_ref_or_id", new=AsyncMock()
+            case_filters, "resolve_case_tag_filters", new=AsyncMock()
         ) as resolve,
     ):
         service = AsyncMock()

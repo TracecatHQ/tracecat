@@ -2,12 +2,12 @@ import uuid
 from typing import TypedDict
 
 from fastapi import HTTPException
-from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.status import HTTP_400_BAD_REQUEST
 
 from tracecat.auth.types import Role
-from tracecat.cases.tags.service import CaseTagsService
+from tracecat.cases.tags.search import resolve_case_tag_filters
+from tracecat.exceptions import TracecatValidationError
 
 UNASSIGNED_ASSIGNEE_IDENTIFIERS = frozenset({"unassigned", "__UNASSIGNED__"})
 
@@ -50,15 +50,12 @@ async def resolve_tag_ids(
     if not identifiers:
         return None
 
-    tags_service = CaseTagsService(session, role)
-    tag_ids: list[uuid.UUID] = []
-    for identifier in identifiers:
-        try:
-            tag = await tags_service.get_tag_by_ref_or_id(identifier)
-        except NoResultFound as exc:
-            raise HTTPException(
-                status_code=HTTP_400_BAD_REQUEST,
-                detail=f"Unknown case tag filter: {identifier!r}",
-            ) from exc
-        tag_ids.append(tag.id)
-    return tag_ids
+    if role.workspace_id is None:
+        raise ValueError("Workspace ID is required")
+    try:
+        resolved = await resolve_case_tag_filters(
+            session=session, workspace_id=role.workspace_id, tags=identifiers
+        )
+    except TracecatValidationError as exc:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return [tag.id for tag in resolved]

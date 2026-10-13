@@ -8,9 +8,10 @@ import pytest
 from asyncpg import DuplicateColumnError
 from fastapi import status
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import NoResultFound, ProgrammingError
+from sqlalchemy.exc import ProgrammingError
 
 from tracecat.auth.types import Role
+from tracecat.cases import filters as case_filters
 from tracecat.cases import router as cases_router
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.enums import (
@@ -31,7 +32,6 @@ from tracecat.cases.schemas import (
     CaseSearchAggregateRead,
     CaseStatusGroupCounts,
 )
-from tracecat.cases.tags.service import CaseTagsService
 from tracecat.cases.versions import router as case_versions_router
 from tracecat.cases.versions.schemas import (
     CaseVersionCompareRead,
@@ -1500,11 +1500,16 @@ async def test_case_search_rejects_unresolved_tags(
     include_known: bool,
 ) -> None:
     tags = [mock_case_tag.ref, "missing-tag"] if include_known else ["missing-tag"]
-    results = [mock_case_tag, NoResultFound()] if include_known else [NoResultFound()]
     with (
         patch.object(cases_router, "CasesService") as service_cls,
         patch.object(
-            CaseTagsService, "get_tag_by_ref_or_id", new=AsyncMock(side_effect=results)
+            case_filters,
+            "resolve_case_tag_filters",
+            new=AsyncMock(
+                side_effect=TracecatValidationError(
+                    "Unknown case tag filter: 'missing-tag'"
+                )
+            ),
         ),
     ):
         response = client.get(
@@ -1528,7 +1533,7 @@ async def test_case_search_empty_tags_remain_unfiltered(
     with (
         patch.object(cases_router, "CasesService") as service_cls,
         patch.object(
-            CaseTagsService, "get_tag_by_ref_or_id", new=AsyncMock()
+            case_filters, "resolve_case_tag_filters", new=AsyncMock()
         ) as resolve,
     ):
         service = AsyncMock()
