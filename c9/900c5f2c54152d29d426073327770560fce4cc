@@ -1,0 +1,50 @@
+frontend/src/hooks/use-resource-categories.ts
+  s_7f6729d1c18d55::t_8b516f0e02626b 1-21
+frontend/src/components/builder/events/events-sidebar-toolbar.tsx
+  s_7f6729d1c18d55::t_470e3995fde117 71
+  s_7f6729d1c18d55::t_ac592d7b3cd529 24-27
+  s_7f6729d1c18d55::t_9a1f8535aa4496 13
+  s_7f6729d1c18d55::t_de38ae6d0909a3 15
+  s_7f6729d1c18d55::t_df08a007da5381 22-23
+frontend/src/lib/forms/access.test.ts
+  s_7f6729d1c18d55::t_a0f7e9432fc113 17-31
+  s_7f6729d1c18d55::t_bdafb33fc1d3be 6
+frontend/src/lib/forms/access.ts
+  s_7f6729d1c18d55::t_552e9c5106a218 40-52
+frontend/src/components/workflow-runs/workflow-runs-layout.tsx
+  s_7f6729d1c18d55::t_4007d1fa126cfe 1011,1014-1017
+  s_7f6729d1c18d55::t_9f6ca896d9bae8 1010,1012-1013,1018
+  s_7f6729d1c18d55::t_04b77c8f8c574a 75
+  s_7f6729d1c18d55::t_62cb29b6b234ed 1497
+  s_7f6729d1c18d55::t_7eb93909a7ae7f 66
+frontend/src/hooks/use-resource-categories.test.tsx
+  s_7f6729d1c18d55::t_c6f4fbe9624c8a 1-34
+frontend/src/components/rbac/role-form-dialog.tsx
+  s_7f6729d1c18d55::t_0a54df4f0282b0 20-21
+  s_7f6729d1c18d55::t_0c2d12e1a72227 109,111,113
+  s_7f6729d1c18d55::t_4ac3d510337b0a 49
+frontend/src/components/builder/events/events-sidebar-toolbar.test.tsx
+  s_7f6729d1c18d55::t_439b1d9fd72da7 1-46
+frontend/src/components/organization/service-accounts-manager.tsx
+  s_7f6729d1c18d55::t_cd95acdfcd3fca 77,81
+  s_7f6729d1c18d55::t_d49109fa1ed7bb 626
+  s_7f6729d1c18d55::t_e4a0a26f1d60a6 681,691
+frontend/tests/service-accounts-manager.test.tsx
+  s_7f6729d1c18d55::t_7ba97da04f52bb 34-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c9900c5f2c54152d29d426073327770560fce4cc",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
