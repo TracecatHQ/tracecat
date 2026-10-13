@@ -30,6 +30,10 @@ async def resolve_case_tag_filters(
     tag_ids: set[UUID] = set()
     tag_refs: set[str] = set()
     for identifier in dict.fromkeys(identifiers):
+        if "\x00" in identifier:
+            raise TracecatValidationError(
+                "Case tag filters cannot contain null characters"
+            )
         try:
             tag_id = UUID(identifier)
         except ValueError:

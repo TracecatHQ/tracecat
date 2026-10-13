@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from asyncpg.exceptions import UndefinedTableError
+from psycopg.errors import UndefinedTable as PsycopgUndefinedTable
 from sqlalchemy import exc as sa_exc
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +18,19 @@ from tracecat.cases.rows.schemas import CaseTableRowRead
 from tracecat.db.models import CaseTableRow, Table
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.service import TablesService
+
+
+def _is_missing_table(error: sa_exc.DBAPIError) -> bool:
+    """Recognize PostgreSQL undefined-table errors through driver wrappers."""
+    current: BaseException | None = error.orig
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        # Both drivers map SQLSTATE 42P01 to an explicit exception type.
+        if isinstance(current, UndefinedTableError | PsycopgUndefinedTable):
+            return True
+        seen.add(id(current))
+        current = current.__cause__
+    return False
 
 
 class CaseRowHydrator(BaseWorkspaceService):
@@ -69,11 +83,14 @@ class CaseRowHydrator(BaseWorkspaceService):
 
             for table_id, row_ids in row_ids_by_table_id.items():
                 try:
-                    rows_by_table_id[table_id] = await self.tables.get_rows(
-                        tables_by_id[table_id], list(row_ids)
-                    )
+                    # A physical table can disappear while its case links remain.
+                    # Roll back that read before hydrating later tables or fields.
+                    async with self.session.begin_nested():
+                        rows_by_table_id[table_id] = await self.tables.get_rows(
+                            tables_by_id[table_id], list(row_ids)
+                        )
                 except sa_exc.DBAPIError as exc:
-                    if not isinstance(exc.orig, UndefinedTableError):
+                    if not _is_missing_table(exc):
                         raise
 
         hydrated: list[CaseTableRowRead] = []

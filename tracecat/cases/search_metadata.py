@@ -69,6 +69,10 @@ async def validate_case_filter_metadata(
     )
     if dropdown_refs and not case_addons_enabled:
         raise EntitlementRequired(Entitlement.CASE_ADDONS.value)
+    if any("\x00" in ref for ref in dropdown_refs):
+        raise TracecatValidationError(
+            "Case dropdown refs cannot contain null characters"
+        )
 
     resolver = CaseFieldResolver(workspace_id, {}, tuple(sorted(dropdown_refs)))
     tag_refs: set[str] = set()

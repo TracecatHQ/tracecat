@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import event
+from sqlalchemy import event, select
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -255,3 +255,34 @@ async def test_unknown_identifiers_report_first_input_after_known_aliases(
             tags=["first-missing", "second-missing", "first-missing"],
         )
     assert str(error.value) == "Unknown case tag filter: 'first-missing'"
+
+
+@pytest.mark.parametrize("tags", [["\x00"], ["synthetic\x00tag"], ["known", "bad\x00"]])
+async def test_null_tag_identifiers_fail_before_any_lookup(
+    tag_search_service: CasesService, tags: list[str]
+) -> None:
+    service = tag_search_service
+    for entry in ("batch", "canonical", "legacy"):
+        expected_error = HTTPException if entry == "legacy" else TracecatValidationError
+        with (
+            capture_tag_queries(service.session) as queries,
+            pytest.raises(expected_error) as error,
+        ):
+            if entry == "batch":
+                await resolve_case_tag_filters(
+                    session=service.session,
+                    workspace_id=service.workspace_id,
+                    tags=tags,
+                )
+            elif entry == "canonical":
+                await service._search_service().compatibility_filters(
+                    CaseQuery(tags=tags)
+                )
+            else:
+                await resolve_tag_ids(
+                    tags=tags, session=service.session, role=service.role
+                )
+        assert queries == []
+        if isinstance(error.value, HTTPException):
+            assert error.value.status_code == 400
+        assert await service.session.scalar(select(1)) == 1
