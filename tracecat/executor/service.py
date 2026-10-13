@@ -373,6 +373,10 @@ async def _prepare_step_context(
         executor_token=executor_token,  # Mint new token for step
         logical_time=parent_resolved.logical_time,
         secret_projection=parent_resolved.secret_projection,
+        tunnel_name=parent_resolved.tunnel_name,
+        tunnel_proxy_url=parent_resolved.tunnel_proxy_url,
+        tunnel_gateway_ip=parent_resolved.tunnel_gateway_ip,
+        tunnel_gateway_port=parent_resolved.tunnel_gateway_port,
     )
 
 

@@ -14,7 +14,6 @@ upstream_dns="${PANGOLIN_UPSTREAM_DNS:-$(awk '/^nameserver/ {print $2; exit}' /e
 
 pangolin up client \
   --attach \
-  --silent \
   --endpoint "$PANGOLIN_ENDPOINT" \
   --id "$PANGOLIN_CLIENT_ID" \
   --secret "$PANGOLIN_CLIENT_SECRET" \
