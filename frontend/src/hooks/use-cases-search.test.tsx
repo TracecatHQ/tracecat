@@ -176,6 +176,36 @@ describe("case search applied identity and cancellation", () => {
     })
   })
 
+  it("preserves loaded pages and requests when an empty search is cleared again", async () => {
+    jest.mocked(casesSearchCases).mockImplementation((request) =>
+      resolved<CasesSearchCasesResponse>({
+        items: [
+          {
+            ...CASE,
+            id: request.cursor
+              ? "00000000-0000-4000-8000-000000000043"
+              : CASE.id,
+          },
+        ],
+        has_more: !request.cursor,
+        next_cursor: request.cursor ? null : "synthetic-cursor",
+      })
+    )
+    const { result } = setup()
+    await advance()
+    act(() => result.current.fetchNextPage())
+    await advance()
+    expect(result.current.cases).toHaveLength(2)
+    const rowRequests = jest.mocked(casesSearchCases).mock.calls.length
+    const countRequests = jest.mocked(casesSearchCaseAggregates).mock.calls
+      .length
+    act(() => result.current.setSearchQuery(""))
+    await advance(300)
+    expect(result.current.cases).toHaveLength(2)
+    expect(casesSearchCases).toHaveBeenCalledTimes(rowRequests)
+    expect(casesSearchCaseAggregates).toHaveBeenCalledTimes(countRequests)
+  })
+
   it("clears immediately, cancels pending application, and starts at page one", async () => {
     jest.mocked(casesSearchCases).mockImplementation((request) =>
       resolved<CasesSearchCasesResponse>({

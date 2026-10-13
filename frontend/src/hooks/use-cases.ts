@@ -632,7 +632,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     (query: string) => {
       setSearchQueryState(query)
       if (!query.trim()) {
-        applySearch("", true)
+        applySearch("")
       }
     },
     [applySearch]
