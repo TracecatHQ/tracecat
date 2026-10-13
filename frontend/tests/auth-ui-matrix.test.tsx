@@ -72,6 +72,17 @@ jest.mock("@/hooks/use-auth", () => ({
   }),
 }))
 
+// The landing choice reads scopes through React Query and has its own tests.
+jest.mock("@/hooks/use-landing-workspace", () => ({
+  useLandingWorkspace: ({
+    workspaces,
+    lastViewedWorkspaceId,
+  }: {
+    workspaces?: { id: string }[]
+    lastViewedWorkspaceId?: string
+  }) => ({ workspaceId: lastViewedWorkspaceId ?? workspaces?.[0]?.id }),
+}))
+
 jest.mock("@/lib/hooks", () => ({
   useAppInfo: () => ({
     appInfo: mockAppInfo,
