@@ -480,26 +480,69 @@ class BaseTablesService(BaseWorkspaceService):
         return table
 
     async def get_index(self, table: Table) -> list[str]:
-        """Get columns that have unique constraints."""
-        schema_name = self._get_schema_name()
+        """Get columns with supported, immediate unique lookup indexes."""
+        indexes = await self._get_unique_indexes(table)
+        return [column for _, column, immediate in indexes if immediate]
+
+    async def _get_unique_indexes(
+        self, table: Table
+    ) -> Sequence[tuple[str, str, bool]]:
+        """Find plain single-key unique indexes and their enforcement mode.
+
+        Deferrable constraints are retained only to detect conflicting upsert
+        arbiters. PostgreSQL column inference can select them alongside an
+        immediate index, even though ON CONFLICT cannot use them.
+        """
         conn = await self.session.connection()
+        result = await conn.execute(
+            sa.text(
+                """
+                SELECT index_relation.relname, attribute.attname, index.indimmediate
+                FROM pg_catalog.pg_index AS index
+                JOIN pg_catalog.pg_class AS table_relation
+                    ON table_relation.oid = index.indrelid
+                JOIN pg_catalog.pg_namespace AS namespace
+                    ON namespace.oid = table_relation.relnamespace
+                JOIN pg_catalog.pg_class AS index_relation
+                    ON index_relation.oid = index.indexrelid
+                JOIN pg_catalog.pg_attribute AS attribute
+                    ON attribute.attrelid = index.indrelid
+                    AND attribute.attnum = index.indkey[0]
+                WHERE namespace.nspname = :schema_name
+                    AND table_relation.relname = :table_name
+                    AND index.indisunique
+                    AND (NOT index.indisprimary OR NOT index.indimmediate)
+                    AND NOT index.indisexclusion
+                    AND index.indisvalid
+                    AND index.indisready
+                    AND index.indislive
+                    AND index.indnkeyatts = 1
+                    AND (index.indnatts = 1 OR NOT index.indimmediate)
+                    AND index.indexprs IS NULL
+                    AND index.indpred IS NULL
+                ORDER BY index_relation.relname
+                """
+            ),
+            {"schema_name": self._get_schema_name(), "table_name": table.name},
+        )
+        return result.tuples().all()
 
-        def inspect_indexes(
-            sync_conn: sa.Connection,
-        ) -> Sequence[sa.engine.interfaces.ReflectedIndex]:
-            inspector = sa.inspect(sync_conn)
-            indexes = inspector.get_indexes(table.name, schema=schema_name)
-            return indexes
-
-        indexes = await conn.run_sync(inspect_indexes)
-        # Assume only single column indexes
-        index_names = [
-            index["column_names"][0]
-            for index in indexes
-            if len(index["column_names"]) == 1
-            and isinstance(index["column_names"][0], str)
-        ]
-        self.logger.info("Found unique index column", columns=index_names)
+    async def _get_upsert_index(self, table: Table) -> list[str]:
+        """Resolve the supported unique column used by both upsert paths."""
+        indexes = await self._get_unique_indexes(table)
+        index_names = [column for _, column, immediate in indexes if immediate]
+        if not index_names:
+            raise ValueError("Table must have at least one unique index for upsert")
+        if len(index_names) > 1:
+            raise ValueError(
+                "Table cannot have multiple unique indexes. This is an unexpected error. Please contact support."
+            )
+        if any(
+            not immediate and column in index_names for _, column, immediate in indexes
+        ):
+            raise ValueError(
+                "Cannot upsert on a column with a deferrable unique constraint"
+            )
         return index_names
 
     async def get_table_by_name(self, table_name: str) -> Table:
@@ -964,27 +1007,23 @@ class BaseTablesService(BaseWorkspaceService):
         resolved_column_name = self._resolve_external_column_name(table, column_name)
         sanitized_column = self._sanitize_identifier(resolved_column_name)
 
-        conn = await self.session.connection()
-
-        def find_index_name(sync_conn: sa.Connection) -> str | None:
-            inspector = sa.inspect(sync_conn)
-            for idx in inspector.get_indexes(table.name, schema=schema_name):
-                cols = idx["column_names"]
-                if (
-                    idx.get("unique") is True
-                    and len(cols) == 1
-                    and isinstance(cols[0], str)
-                    and cols[0] == sanitized_column
-                ):
-                    return idx.get("name")
-            return None
-
-        index_name = await conn.run_sync(find_index_name)
+        indexes = await self._get_unique_indexes(table)
+        index_name = next(
+            (
+                name
+                for name, column, immediate in indexes
+                if immediate and column == sanitized_column
+            ),
+            None,
+        )
         if index_name is None:
             raise ValueError(f"No unique index exists on column '{column_name}'")
 
-        qualified_index = f'"{schema_name}"."{index_name}"'
+        qualified_index = (
+            f"{quote_identifier(schema_name)}.{quote_identifier(index_name)}"
+        )
 
+        conn = await self.session.connection()
         await conn.execute(sa.DDL("DROP INDEX %s", (qualified_index,)))
 
         await self.session.flush()
@@ -1114,16 +1153,7 @@ class BaseTablesService(BaseWorkspaceService):
             pg_stmt = pg_stmt.values(**value_clauses)
 
             # Get columns with unique constraints for conflict resolution
-            index = await self.get_index(table)
-
-            # Check if we have any unique columns to use for conflict resolution
-            if not index:
-                raise ValueError("Table must have at least one unique index for upsert")
-
-            if len(index) > 1:
-                raise ValueError(
-                    "Table cannot have multiple unique indexes. This is an unexpected error. Please contact support."
-                )
+            index = await self._get_upsert_index(table)
 
             # Ensure all conflict keys are actually in the data
             if not all(key in value_clauses for key in index):
@@ -1826,14 +1856,7 @@ class BaseTablesService(BaseWorkspaceService):
         # If we need upsert behaviour, fetch the unique index once.
         index: list[str] | None = None
         if upsert:
-            index = await self.get_index(table)
-
-            if not index:
-                raise ValueError("Table must have at least one unique index for upsert")
-            if len(index) > 1:
-                raise ValueError(
-                    "Table cannot have multiple unique indexes. This is an unexpected error. Please contact support."
-                )
+            index = await self._get_upsert_index(table)
 
         # Iterate over groups and execute separate INSERT/UPSERT statements.
         for col_set, group_rows in rows_by_columns.items():
