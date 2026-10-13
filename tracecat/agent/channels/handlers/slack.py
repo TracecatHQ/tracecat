@@ -14,6 +14,7 @@ from slack_sdk.web.async_client import AsyncWebClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.backends.selection import select_session_backend
 from tracecat.agent.channels.handlers.slack_helpers import (
     SlackAlreadyAcknowledgedError,
     ack_event,
@@ -300,12 +301,16 @@ class SlackChannelHandler:
         ):
             return session_id
 
+        backend_id = await select_session_backend(
+            self.session, self.role, agent_preset_id=token.agent_preset_id
+        )
         created = await session_service.create_session(
             AgentSessionCreate(
                 title="Slack thread",
                 entity_type=AgentSessionEntity.EXTERNAL_CHANNEL,
                 entity_id=token.agent_preset_id,
                 agent_preset_id=token.agent_preset_id,
+                backend_id=backend_id,
             ),
             channel_context=dict(context.to_channel_context()),
         )

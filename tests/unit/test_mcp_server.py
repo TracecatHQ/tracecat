@@ -6,11 +6,11 @@ import json
 import re
 import sys
 import uuid
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Iterator
 from datetime import UTC, datetime, timedelta
 from types import ModuleType, SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 import yaml
@@ -26,6 +26,8 @@ from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 import tracecat.mcp.auth as mcp_auth
 from tracecat.agent import authoring_context
+from tracecat.agent.backends import registry
+from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.common.stream_types import (
     StreamEventType,
     ToolCallContent,
@@ -9309,6 +9311,10 @@ async def test_run_agent_preset_uses_session_stream_cursor(
             return version
 
     class _SessionService:
+        def __init__(self) -> None:
+            self.session = AsyncMock()
+            self.role = role
+
         async def create_session(self, create: Any) -> SimpleNamespace:
             created_session_request["value"] = create
             return session
@@ -9368,6 +9374,137 @@ async def test_run_agent_preset_uses_session_stream_cursor(
     # Producer (run_turn) and consumer (_collect) must share the minted id.
     assert captured["stream_id"] is not None
     assert captured["stream_id"] == captured["active_stream_id"]
+
+
+@pytest.fixture
+def disabled_backend() -> Iterator[str]:
+    """Install a backend named ``external`` that is present but disabled."""
+    provider = DefaultBackend()
+    registry.get_agent_backends.cache_clear()
+    with (
+        patch.object(provider, "is_enabled", return_value=False),
+        patch.object(
+            registry,
+            "entry_points",
+            return_value=[
+                SimpleNamespace(
+                    name="external", load=Mock(return_value=lambda: provider)
+                )
+            ],
+        ),
+    ):
+        yield "external"
+    registry.get_agent_backends.cache_clear()
+
+
+def _patch_preset_lookup(
+    monkeypatch: pytest.MonkeyPatch, role: Any, preset: Any, version: Any
+) -> None:
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, Any]:
+        return role.workspace_id, role
+
+    class _PresetService(_PresetReadBuilder):
+        async def get_preset_by_slug(self, _preset_slug: str) -> Any:
+            return preset
+
+        async def resolve_agent_preset_version(self, *, slug: str) -> Any:
+            assert slug == "triage"
+            return version
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+
+@pytest.mark.anyio
+async def test_mcp_preset_run_uses_selected_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An MCP preset run creates its session on the selected backend."""
+    role = SimpleNamespace(workspace_id=uuid.uuid4())
+    preset = SimpleNamespace(id=uuid.uuid4())
+    _patch_preset_lookup(monkeypatch, role, preset, SimpleNamespace(id=uuid.uuid4()))
+    created: dict[str, Any] = {}
+
+    class _SessionService:
+        def __init__(self) -> None:
+            self.session = AsyncMock()
+            self.role = role
+
+        async def create_session(self, create: Any) -> SimpleNamespace:
+            created["request"] = create
+            return SimpleNamespace(id=uuid.uuid4())
+
+        async def run_turn(self, *_args: Any, **_kwargs: Any) -> None:
+            return None
+
+    service = _SessionService()
+    select_backend = AsyncMock(return_value="selected")
+    monkeypatch.setattr(
+        mcp_server.AgentSessionService,
+        "with_session",
+        lambda role: _AsyncContext(service),
+    )
+    monkeypatch.setattr(mcp_server, "select_session_backend", select_backend)
+    monkeypatch.setattr(
+        mcp_server, "_collect_agent_response", AsyncMock(return_value="done")
+    )
+
+    result = await _tool(mcp_server.run_agent_preset)(
+        workspace_id=str(role.workspace_id),
+        preset_slug="triage",
+        prompt="check alerts",
+    )
+
+    assert result == "done"
+    assert created["request"].backend_id == "selected"
+    select_backend.assert_awaited_once_with(
+        service.session, role, agent_preset_id=preset.id
+    )
+
+
+@pytest.mark.anyio
+async def test_mcp_disabled_selection_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, disabled_backend: str
+) -> None:
+    """A selected but disabled backend fails the run instead of rerouting it."""
+    role = Role(
+        type="service",
+        service_id="tracecat-mcp",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    _patch_preset_lookup(
+        monkeypatch,
+        role,
+        SimpleNamespace(id=uuid.uuid4()),
+        SimpleNamespace(id=uuid.uuid4()),
+    )
+    db = AsyncMock()
+    collect = AsyncMock(return_value="unreachable")
+    monkeypatch.setattr(
+        mcp_server.AgentSessionService,
+        "with_session",
+        lambda role: _AsyncContext(mcp_server.AgentSessionService(db, role)),
+    )
+    monkeypatch.setattr(
+        mcp_server, "select_session_backend", AsyncMock(return_value=disabled_backend)
+    )
+    monkeypatch.setattr(mcp_server, "_collect_agent_response", collect)
+
+    with pytest.raises(ToolError, match="unavailable"):
+        await _tool(mcp_server.run_agent_preset)(
+            workspace_id=str(role.workspace_id),
+            preset_slug="triage",
+            prompt="check alerts",
+        )
+
+    db.add.assert_not_called()
+    db.commit.assert_not_awaited()
+    collect.assert_not_awaited()
 
 
 @pytest.mark.anyio

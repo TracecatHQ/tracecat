@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from slack_sdk.errors import SlackApiError
 
 from tracecat import config
+from tracecat.agent.backends import registry
+from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.channels.handlers.slack import (
     SLACK_EVENT_DEDUP_TTL_SECONDS,
     SlackChannelHandler,
@@ -294,6 +297,189 @@ async def test_resolve_or_create_session_reuses_existing_thread_context_session(
     assert session_id == existing_session_id
     persist_mock.assert_awaited_once()
     create_session_mock.assert_not_awaited()
+
+
+def _slack_session_fixture() -> tuple[
+    SlackChannelHandler, ValidatedChannelToken, Any, Role
+]:
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:update"}),
+    )
+    handler = SlackChannelHandler(session=AsyncMock(), role=role)
+    token = ValidatedChannelToken(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        agent_preset_id=uuid.uuid4(),
+        channel_type=ChannelType.SLACK,
+        config=SlackChannelTokenConfig(
+            slack_bot_token="xoxb-test",
+            slack_signing_secret="signing-secret",
+        ),
+        public_token="public-token",
+    )
+    context = SlackChannelHandler._parse_app_mention_context(
+        {
+            "team_id": "T1",
+            "event_id": "Ev1",
+            "event": {
+                "type": "app_mention",
+                "ts": "1700000000.123",
+                "thread_ts": "1700000000.100",
+                "channel": "C1",
+                "user": "U1",
+            },
+        }
+    )
+    return handler, token, context, role
+
+
+@pytest.fixture
+def disabled_backend() -> Iterator[str]:
+    """Install a backend named ``external`` that is present but disabled."""
+    provider = DefaultBackend()
+    registry.get_agent_backends.cache_clear()
+    with (
+        patch.object(provider, "is_enabled", return_value=False),
+        patch.object(
+            registry,
+            "entry_points",
+            return_value=[
+                SimpleNamespace(
+                    name="external", load=Mock(return_value=lambda: provider)
+                )
+            ],
+        ),
+    ):
+        yield "external"
+    registry.get_agent_backends.cache_clear()
+
+
+@pytest.mark.anyio
+async def test_slack_new_thread_uses_selected_backend() -> None:
+    """A new Slack thread's session is created on the selected backend."""
+    handler, token, context, role = _slack_session_fixture()
+    created = SimpleNamespace(id=uuid.uuid4())
+
+    with (
+        patch.object(
+            handler,
+            "_resolve_session_id_from_thread_metadata",
+            AsyncMock(return_value=None),
+        ),
+        patch.object(
+            handler,
+            "_resolve_session_id_from_channel_context",
+            AsyncMock(return_value=None),
+        ),
+        patch(
+            "tracecat.agent.channels.handlers.slack.select_session_backend",
+            AsyncMock(return_value="selected"),
+        ) as select_mock,
+        patch(
+            "tracecat.agent.channels.handlers.slack.AgentSessionService.create_session",
+            new_callable=AsyncMock,
+            return_value=created,
+        ) as create_session_mock,
+    ):
+        session_id = await handler._resolve_or_create_session(
+            token=token,
+            context=context,
+            slack_client=AsyncMock(),
+        )
+
+    assert session_id == created.id
+    select_mock.assert_awaited_once_with(
+        handler.session, role, agent_preset_id=token.agent_preset_id
+    )
+    create_args = create_session_mock.await_args
+    assert create_args is not None
+    assert create_args.args[0].backend_id == "selected"
+    assert create_args.args[0].agent_preset_id == token.agent_preset_id
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("found_by", ["thread_metadata", "channel_context"])
+async def test_slack_existing_thread_keeps_its_backend(found_by: str) -> None:
+    """A thread that already has a session never consults the backend selection."""
+    handler, token, context, _ = _slack_session_fixture()
+    existing_session_id = uuid.uuid4()
+
+    with (
+        patch.object(
+            handler,
+            "_resolve_session_id_from_thread_metadata",
+            AsyncMock(
+                return_value=existing_session_id
+                if found_by == "thread_metadata"
+                else None
+            ),
+        ),
+        patch.object(
+            handler,
+            "_resolve_session_id_from_channel_context",
+            AsyncMock(return_value=existing_session_id),
+        ),
+        patch.object(
+            handler,
+            "_persist_session_channel_context",
+            AsyncMock(return_value=True),
+        ),
+        patch(
+            "tracecat.agent.channels.handlers.slack.select_session_backend",
+            new_callable=AsyncMock,
+        ) as select_mock,
+        patch(
+            "tracecat.agent.channels.handlers.slack.AgentSessionService.create_session",
+            new_callable=AsyncMock,
+        ) as create_session_mock,
+    ):
+        session_id = await handler._resolve_or_create_session(
+            token=token,
+            context=context,
+            slack_client=AsyncMock(),
+        )
+
+    assert session_id == existing_session_id
+    select_mock.assert_not_awaited()
+    create_session_mock.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_slack_disabled_selection_fails_closed(disabled_backend: str) -> None:
+    """A selected but disabled backend rejects the thread instead of rerouting it."""
+    handler, token, context, _ = _slack_session_fixture()
+    db = cast(AsyncMock, handler.session)
+
+    with (
+        patch.object(
+            handler,
+            "_resolve_session_id_from_thread_metadata",
+            AsyncMock(return_value=None),
+        ),
+        patch.object(
+            handler,
+            "_resolve_session_id_from_channel_context",
+            AsyncMock(return_value=None),
+        ),
+        patch(
+            "tracecat.agent.channels.handlers.slack.select_session_backend",
+            AsyncMock(return_value=disabled_backend),
+        ),
+        pytest.raises(TracecatValidationError, match="unavailable"),
+    ):
+        await handler._resolve_or_create_session(
+            token=token,
+            context=context,
+            slack_client=AsyncMock(),
+        )
+
+    db.add.assert_not_called()
+    db.commit.assert_not_awaited()
 
 
 @pytest.mark.anyio

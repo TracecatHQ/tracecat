@@ -19,6 +19,7 @@ from tracecat_ee.agent.workflows.durable import (
     _executor_activity_classification,
 )
 
+from tracecat.agent.channels.sinks.session import SessionEventSink
 from tracecat.agent.common.exceptions import (
     AgentPreparationError,
     AgentSandboxProcessExitError,
@@ -50,7 +51,6 @@ from tracecat.agent.error_policy import (
 )
 from tracecat.agent.executor.activity import AgentExecutorResult, SandboxedAgentExecutor
 from tracecat.agent.executor.loopback import (
-    LoopbackEventSink,
     LoopbackHandler,
     LoopbackInput,
     LoopbackResult,
@@ -306,7 +306,7 @@ async def test_untyped_runtime_error_is_platform_classified() -> None:
         )
     )
     sink = _StreamSink()
-    handler._stream_sink = cast(LoopbackEventSink, sink)
+    handler._stream_sink = cast(SessionEventSink, sink)
 
     await handler.send_error("raw provider response")
     result = handler.build_result()
@@ -410,7 +410,7 @@ async def test_loopback_send_error_keeps_trusted_runtime_classification() -> Non
         )
     )
     sink = _StreamSink()
-    handler._stream_sink = cast(LoopbackEventSink, sink)
+    handler._stream_sink = cast(SessionEventSink, sink)
     classification = agent_sandbox_resource_limit_exceeded()
 
     await handler.send_error(classification.message, classification=classification)

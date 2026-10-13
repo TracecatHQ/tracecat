@@ -66,6 +66,7 @@ from tracecat.agent.authoring_context import (
 from tracecat.agent.authoring_context import (
     WorkflowAuthoringContextResponse as SharedWorkflowAuthoringContextResponse,
 )
+from tracecat.agent.backends.selection import select_session_backend
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.folders.service import AgentFolderService
 from tracecat.agent.preset.schemas import (
@@ -10254,6 +10255,9 @@ async def run_agent_preset(
 
         # Create ephemeral session and run turn
         async with AgentSessionService.with_session(role=role) as svc:
+            backend_id = await select_session_backend(
+                svc.session, svc.role, agent_preset_id=preset.id
+            )
             session = await svc.create_session(
                 AgentSessionCreate(
                     title=f"MCP: {prompt[:50]}",
@@ -10261,6 +10265,7 @@ async def run_agent_preset(
                     entity_id=preset.id,
                     agent_preset_id=preset.id,
                     agent_preset_version_id=version.id,
+                    backend_id=backend_id,
                 )
             )
             # Mint the stream id in the caller so the producer (run_turn pins
