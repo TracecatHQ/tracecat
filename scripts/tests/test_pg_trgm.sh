@@ -74,9 +74,18 @@ INSERT INTO synthetic_rows VALUES ('synthetic fragment match'), ('unrelated text
 CREATE INDEX synthetic_rows_trgm_idx ON synthetic_rows USING gin (body public.gin_trgm_ops);
 SET enable_seqscan = off;
 DO $$
+DECLARE
+    query_plan jsonb;
 BEGIN
     IF (SELECT count(*) FROM synthetic_rows WHERE body ILIKE '%fragment%') <> 1 THEN
         RAISE EXCEPTION 'GIN fragment matching returned the wrong rows';
+    END IF;
+    EXECUTE 'EXPLAIN (FORMAT JSON) SELECT count(*) FROM synthetic_rows WHERE body ILIKE ''%fragment%'''
+        INTO query_plan;
+    IF NOT jsonb_path_exists(
+        query_plan, '$.** ? (@."Index Name" == "synthetic_rows_trgm_idx")'
+    ) THEN
+        RAISE EXCEPTION 'GIN fragment matching did not use synthetic_rows_trgm_idx';
     END IF;
 END
 $$;
