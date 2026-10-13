@@ -47,6 +47,7 @@ from tracecat.agent.skill.schemas import (
 )
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.auth.types import Role
+from tracecat.cases.search_schemas import CaseSearchRequest
 from tracecat.db.models import Schedule, Workflow
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.schemas import ROOT_STREAM, ActionStatement, StreamID
@@ -64,6 +65,7 @@ from tracecat.integrations.enums import (
     OAuthGrantType,
 )
 from tracecat.integrations.schemas import ProviderKey
+from tracecat.pagination import CursorPaginatedResponse
 from tracecat.storage.object import ExternalObject, ObjectRef
 from tracecat.tables.service import TablesService
 from tracecat.validation.schemas import (
@@ -5870,7 +5872,13 @@ async def test_list_cases(monkeypatch, order_by):
 @pytest.mark.parametrize("order_by", [None, "assignee", "tags"])
 async def test_search_cases(monkeypatch, order_by):
     async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace()
+        return uuid.uuid4(), Role(
+            type="service",
+            service_id="tracecat-mcp",
+            organization_id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+            scopes=frozenset({"case:read"}),
+        )
 
     case_id = uuid.uuid4()
     now = datetime.now(UTC)
@@ -5902,11 +5910,11 @@ async def test_search_cases(monkeypatch, order_by):
     )
     captured: dict[str, Any] = {}
 
-    async def _search_cases(params, **kwargs):
-        captured.update(kwargs)
+    async def _search_cases(request):
+        captured.update(request.model_dump())
         return search_result
 
-    cases_service = SimpleNamespace(search_cases=_search_cases)
+    cases_service = SimpleNamespace(query_cases=_search_cases)
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(
@@ -5930,6 +5938,130 @@ async def test_search_cases(monkeypatch, order_by):
     # Verify enum parsing for comma-separated values
     assert len(captured["status"]) == 2
     assert len(captured["priority"]) == 1
+
+
+@pytest.mark.anyio
+async def test_search_cases_forwards_canonical_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="service",
+        service_id="tracecat-mcp",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"case:read"}),
+    )
+    case_id, parent_id = uuid.uuid4(), uuid.uuid4()
+    filters = {"not": {"field": "fields.region", "op": "is_null"}}
+    result = CursorPaginatedResponse(items=[], total_estimate=None)
+    query = AsyncMock(return_value=result)
+
+    async def resolve(_workspace_id):
+        return workspace_id, role
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(
+            with_session=lambda role: _AsyncContext(SimpleNamespace(query_cases=query))
+        ),
+    )
+    response = await _tool(mcp_server.search_cases)(
+        workspace_id=workspace_id,
+        short_id="CASE-0042",
+        case_id=case_id,
+        parent_id=parent_id,
+        filters=filters,
+        tags=["synthetic-tag"],
+        dropdown=["verdict:selected"],
+        assignee_id=["unassigned"],
+        include_rows=True,
+        field_ids=["region"],
+        include_payload=True,
+        include_durations=True,
+        include_count=False,
+        order_by="short_id",
+        sort="asc",
+    )
+    assert response is result
+    assert query.await_args is not None
+    request = query.await_args.args[0]
+    assert isinstance(request, CaseSearchRequest)
+    assert request.case_id == case_id and request.parent_id == parent_id
+    assert request.model_dump(mode="json", exclude_none=True)["filters"] == filters
+    assert (
+        request.include_rows and request.include_payload and request.include_durations
+    )
+    assert request.include_count is False and request.field_ids == ["region"]
+    assert request.tags == ["synthetic-tag"] and request.dropdown == [
+        "verdict:selected"
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "error",
+    [
+        EntitlementRequired("case_addons"),
+        TracecatValidationError("Unknown case tag refs"),
+    ],
+)
+async def test_search_cases_transports_typed_errors(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-mcp",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"case:read"}),
+    )
+
+    async def resolve(_workspace_id):
+        return role.workspace_id, role
+
+    query = AsyncMock(side_effect=error)
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(
+            with_session=lambda role: _AsyncContext(SimpleNamespace(query_cases=query))
+        ),
+    )
+    with pytest.raises(ToolError, match=str(error)):
+        await _tool(mcp_server.search_cases)(workspace_id=role.workspace_id)
+
+
+@pytest.mark.anyio
+async def test_search_cases_requires_scope_and_validates_canonical_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-mcp",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset(),
+    )
+
+    async def resolve(_workspace_id):
+        return role.workspace_id, role
+
+    gateway = MagicMock()
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", resolve)
+    monkeypatch.setattr(mcp_server, "CasesService", gateway)
+    with pytest.raises(ToolError, match="Missing required scope: case:read"):
+        await _tool(mcp_server.search_cases)(workspace_id=role.workspace_id)
+    gateway.with_session.assert_not_called()
+    role = role.model_copy(update={"scopes": frozenset({"case:read"})})
+    with pytest.raises(ToolError, match="order_by"):
+        await _tool(mcp_server.search_cases)(
+            workspace_id=role.workspace_id, order_by="unsupported"
+        )
+    gateway.with_session.assert_not_called()
 
 
 @pytest.mark.anyio

@@ -135,10 +135,31 @@ class CaseRead(TypedDict):
     updated_at: datetime
 
 
+class CaseParentRead(TypedDict):
+    """Summary of a case's parent."""
+
+    id: UUID
+    short_id: str
+    summary: str
+
+
+class CaseDurationRead(TypedDict):
+    """Optional materialized case duration."""
+
+    id: UUID
+    case_id: UUID
+    definition_id: UUID
+    start_event_id: UUID | None
+    end_event_id: UUID | None
+    started_at: datetime | None
+    ended_at: datetime | None
+    duration: str | None
+
+
 class CaseReadMinimal(TypedDict):
     """Minimal case information returned by search operations.
 
-    Contains core case fields without description, payload, or custom fields.
+    Contains core case fields plus independently requested detail projections.
     """
 
     id: UUID
@@ -155,6 +176,11 @@ class CaseReadMinimal(TypedDict):
     updated_at: datetime
     num_tasks_completed: int
     num_tasks_total: int
+    parent: NotRequired[CaseParentRead | None]
+    num_sub_cases: NotRequired[int]
+    durations: NotRequired[list[CaseDurationRead] | None]
+    field_values: NotRequired[dict[str, Any] | None]
+    payload: NotRequired[dict[str, Any] | None]
 
 
 class CaseListResponse(TypedDict):

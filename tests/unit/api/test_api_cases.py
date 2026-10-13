@@ -258,30 +258,15 @@ async def test_list_cases_with_filters(
 
 
 @pytest.mark.anyio
-async def test_list_cases_validates_field_ids_even_when_page_is_empty(
+async def test_list_cases_forwards_field_validation_errors(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    """Invalid field hydration requests should not depend on the page containing rows."""
-    with (
-        patch.object(cases_router, "CasesService") as MockService,
-        patch.object(cases_router, "CaseFieldsService") as MockFieldsService,
-    ):
-        mock_svc = AsyncMock()
-        mock_svc.list_cases.return_value = CursorPaginatedResponse[CaseReadMinimal](
-            items=[],
-            next_cursor=None,
-            prev_cursor=None,
-            has_more=False,
-            has_previous=False,
-        )
-        mock_fields_svc = AsyncMock()
-        mock_fields_svc.batch_get_fields.side_effect = ValueError(
-            "Field case_id is a reserved field"
-        )
-        MockService.return_value = mock_svc
-        MockFieldsService.return_value = mock_fields_svc
-
+    """Forward requested fields and translate service-owned validation failures."""
+    with patch.object(cases_router, "CasesService") as service_cls:
+        service = AsyncMock()
+        service.list_cases.side_effect = ValueError("Field case_id is a reserved field")
+        service_cls.return_value = service
         response = client.get(
             "/cases",
             params=[
@@ -289,13 +274,9 @@ async def test_list_cases_validates_field_ids_even_when_page_is_empty(
                 ("field_ids", "case_id"),
             ],
         )
-
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json()["detail"] == "Field case_id is a reserved field"
-    mock_fields_svc.batch_get_fields.assert_awaited_once_with(
-        case_ids=[],
-        field_ids=["case_id"],
-    )
+    assert service.list_cases.call_args.kwargs["field_ids"] == ["case_id"]
 
 
 @pytest.mark.anyio
@@ -1673,10 +1654,8 @@ async def test_search_cases_hydrates_requested_fields_and_durations(
     """Test GET /cases/search forwards duration flag and selected field IDs."""
     with (
         patch.object(cases_router, "CasesService") as MockService,
-        patch.object(cases_router, "CaseFieldsService") as MockFieldsService,
     ):
         mock_svc = AsyncMock()
-        mock_fields_svc = AsyncMock()
 
         mock_case_read = CaseReadMinimal(
             id=mock_case.id,
@@ -1693,6 +1672,7 @@ async def test_search_cases_hydrates_requested_fields_and_durations(
             num_tasks_completed=0,
             num_tasks_total=0,
             num_sub_cases=0,
+            field_values={"priority_reason": "Synthetic impact"},
         )
         mock_svc.search_cases.return_value = CursorPaginatedResponse(
             items=[mock_case_read],
@@ -1701,11 +1681,7 @@ async def test_search_cases_hydrates_requested_fields_and_durations(
             has_more=False,
             has_previous=False,
         )
-        mock_fields_svc.batch_get_fields.return_value = {
-            mock_case.id: {"priority_reason": "Customer impact"}
-        }
         MockService.return_value = mock_svc
-        MockFieldsService.return_value = mock_fields_svc
 
         response = client.get(
             "/cases/search",
@@ -1718,13 +1694,12 @@ async def test_search_cases_hydrates_requested_fields_and_durations(
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["items"][0]["field_values"] == {
-            "priority_reason": "Customer impact"
+            "priority_reason": "Synthetic impact"
         }
         assert mock_svc.search_cases.call_args.kwargs["include_durations"] is True
-        mock_fields_svc.batch_get_fields.assert_awaited_once_with(
-            case_ids=[mock_case.id],
-            field_ids=["priority_reason"],
-        )
+        assert mock_svc.search_cases.call_args.kwargs["field_ids"] == [
+            "priority_reason"
+        ]
 
 
 @pytest.mark.anyio
@@ -1812,30 +1787,17 @@ async def test_case_pages_forward_count_control_with_legacy_default(
 
 
 @pytest.mark.anyio
-async def test_search_cases_validates_field_ids_even_when_page_is_empty(
+async def test_search_cases_forwards_field_validation_errors(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    """Search field validation should remain request-driven when no cases match."""
-    with (
-        patch.object(cases_router, "CasesService") as MockService,
-        patch.object(cases_router, "CaseFieldsService") as MockFieldsService,
-    ):
-        mock_svc = AsyncMock()
-        mock_svc.search_cases.return_value = CursorPaginatedResponse[CaseReadMinimal](
-            items=[],
-            next_cursor=None,
-            prev_cursor=None,
-            has_more=False,
-            has_previous=False,
-        )
-        mock_fields_svc = AsyncMock()
-        mock_fields_svc.batch_get_fields.side_effect = ValueError(
+    """Forward requested fields and translate service-owned validation failures."""
+    with patch.object(cases_router, "CasesService") as service_cls:
+        service = AsyncMock()
+        service.search_cases.side_effect = ValueError(
             "Field case_id is a reserved field"
         )
-        MockService.return_value = mock_svc
-        MockFieldsService.return_value = mock_fields_svc
-
+        service_cls.return_value = service
         response = client.get(
             "/cases/search",
             params=[
@@ -1843,13 +1805,9 @@ async def test_search_cases_validates_field_ids_even_when_page_is_empty(
                 ("field_ids", "case_id"),
             ],
         )
-
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json()["detail"] == "Field case_id is a reserved field"
-    mock_fields_svc.batch_get_fields.assert_awaited_once_with(
-        case_ids=[],
-        field_ids=["case_id"],
-    )
+    assert service.search_cases.call_args.kwargs["field_ids"] == ["case_id"]
 
 
 @pytest.mark.anyio

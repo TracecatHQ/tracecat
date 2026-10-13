@@ -733,6 +733,8 @@ async def search_cases(
             "tasks",
             "assignee",
             "tags",
+            "id",
+            "short_id",
         ]
         | None,
         Doc(
@@ -743,6 +745,29 @@ async def search_cases(
         Literal["asc", "desc"] | None,
         Doc("The direction to order the cases by."),
     ] = None,
+    short_id: Annotated[
+        str | None, Doc("Exact short ID, such as CASE-0042 or 42.")
+    ] = None,
+    case_id: Annotated[str | None, Doc("Exact case UUID.")] = None,
+    filters: Annotated[
+        dict[str, Any] | None,
+        Doc(
+            "Shared AND/OR/NOT JSON filter tree. Tags use in/contains/is_null; scalar exclusions omit unset values unless ORed with is_null."
+        ),
+    ] = None,
+    hierarchy: Annotated[
+        Literal["all", "top_level"], Doc("Case hierarchy scope.")
+    ] = "all",
+    parent_id: Annotated[
+        str | None, Doc("Return sub-cases of this parent UUID.")
+    ] = None,
+    include_rows: Annotated[bool, Doc("Include linked table rows.")] = False,
+    field_ids: Annotated[
+        list[str] | None, Doc("Include requested custom field values.")
+    ] = None,
+    include_durations: Annotated[bool, Doc("Include duration values.")] = False,
+    include_payload: Annotated[bool, Doc("Include case payload.")] = False,
+    include_count: Annotated[bool, Doc("Include exact total_estimate.")] = True,
     paginate: Annotated[
         bool,
         Doc("If true, return cursor pagination metadata along with items."),
@@ -785,6 +810,25 @@ async def search_cases(
         params["order_by"] = order_by
     if sort is not None:
         params["sort"] = sort
+    if hierarchy != "all":
+        params["hierarchy"] = hierarchy
+    if include_rows:
+        params["include_rows"] = True
+    if include_durations:
+        params["include_durations"] = True
+    if include_payload:
+        params["include_payload"] = True
+    if not include_count:
+        params["include_count"] = False
+    for name, value in (
+        ("short_id", short_id),
+        ("case_id", case_id),
+        ("filters", filters),
+        ("parent_id", parent_id),
+        ("field_ids", field_ids),
+    ):
+        if value is not None:
+            params[name] = value
     response = await ctx.cases.aio.search_cases(**params)
     if paginate:
         return response

@@ -9,13 +9,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import delete, event
+from sqlalchemy import delete, event, select
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import ORMExecuteState
 
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.schemas import CaseFieldCreate
+from tracecat.cases.search_schemas import CaseSearchRequest
 from tracecat.cases.service import CasesService
 from tracecat.db.models import (
     Case,
@@ -24,10 +26,13 @@ from tracecat.db.models import (
     CaseDropdownValue,
     CaseDuration,
     CaseDurationDefinition,
+    CaseTableRow,
     CaseTag,
     User,
 )
 from tracecat.pagination import CursorPaginationParams
+from tracecat.tables.enums import SqlType
+from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
 from tracecat.tiers import defaults as tier_defaults
 
 pytestmark = [pytest.mark.anyio, pytest.mark.integration, pytest.mark.usefixtures("db")]
@@ -354,3 +359,88 @@ async def test_list_count_opt_out_and_empty_page_are_compatible(
     assert len(queries) == 1
     counted = await service.list_cases(limit=2)
     assert counted.total_estimate == 0
+
+
+async def test_canonical_result_flags_and_selected_page_hydration(
+    session: AsyncSession, svc_role: Role, synthetic_search_cases: SyntheticSearchCases
+) -> None:
+    """Rows/fields/payload/durations and count do not affect matching or cursors."""
+    service = CasesService(session, svc_role)
+    await service.fields.create_field(
+        CaseFieldCreate(name="risk_score", type=SqlType.INTEGER)
+    )
+    table = await service.tables.create_table(
+        TableCreate(
+            name="synthetic_search_rows",
+            columns=[TableColumnCreate(name="value", type=SqlType.TEXT)],
+        )
+    )
+    for case_id in synthetic_search_cases.ids:
+        case = await session.scalar(select(Case).where(Case.id == case_id))
+        assert case is not None
+        await service.fields.upsert_field_values(case, {"risk_score": 80})
+        row = await service.tables.insert_row(
+            table, TableRowInsert(data={"value": "synthetic"})
+        )
+        assert isinstance(row["id"], uuid.UUID)
+        session.add(
+            CaseTableRow(
+                workspace_id=service.workspace_id,
+                case_id=case_id,
+                table_id=table.id,
+                row_id=row["id"],
+            )
+        )
+    await session.flush()
+    session.expunge_all()
+    baseline = await service.query_cases(CaseSearchRequest(limit=2, sort="asc"))
+    for include_rows, field_ids in (
+        (False, None),
+        (True, None),
+        (False, ["risk_score"]),
+        (True, ["risk_score"]),
+    ):
+        with capture_search_queries(session) as queries:
+            response = await service.query_cases(
+                CaseSearchRequest(
+                    limit=2,
+                    sort="asc",
+                    include_rows=include_rows,
+                    field_ids=field_ids,
+                    include_payload=True,
+                    include_durations=True,
+                    include_count=False,
+                )
+            )
+        assert [item.id for item in response.items] == [
+            item.id for item in baseline.items
+        ]
+        assert response.next_cursor == baseline.next_cursor
+        assert response.total_estimate is None
+        assert not population_counts(queries)
+        for item in response.items:
+            assert bool(item.rows) is include_rows
+            assert item.field_values == ({"risk_score": 80} if field_ids else None)
+            assert item.payload is not None and item.durations
+            # Pydantic's default timedelta JSON contract is an ISO 8601 string.
+            assert isinstance(
+                item.model_dump(mode="json")["durations"][0]["duration"], str
+            )
+        row_queries = [
+            query for query in queries if "case_table_row.case_id IN" in query.statement
+        ]
+        assert bool(row_queries) is include_rows
+        if row_queries:
+            assert set(row_queries[0].parameters) == {
+                service.workspace_id,
+                *synthetic_search_cases.ids[:2],
+            }
+        field_queries = [
+            query
+            for query in queries
+            if "risk_score" in query.statement and "case_id IN" in query.statement
+        ]
+        if field_ids:
+            assert field_queries and set(field_queries[-1].parameters) == set(
+                synthetic_search_cases.ids[:2]
+            )
