@@ -141,15 +141,9 @@ class FormSubmissionsService(BaseWorkspaceService):
                 "This form changed since you opened it. Reload and try again.",
             )
 
-        values = dict(params.values)
-        # A service account has no user to autofill from, so it may send the
-        # autofilled inputs itself. From a user they are unknown keys.
-        supplied: dict[str, Any] = {}
-        if self.role.type == "service_account":
-            supplied = {
-                name: values.pop(name) for name in resolved.autofill if name in values
-            }
-        checked = check_values(resolved.blocks, values)
+        # Autofilled inputs are never taken from the caller, so a requester
+        # value is a verified Tracecat user or null. Sent, they are unknown keys.
+        checked = check_values(resolved.blocks, params.values)
         answers = checked.values
         files = FormFilesService(self.session, self.role)
         await files.purge_expired(form_id)
@@ -169,7 +163,7 @@ class FormSubmissionsService(BaseWorkspaceService):
             )
 
         submission_id = uuid.uuid4()
-        answers |= await self._autofill(resolved.autofill, supplied, submission_id)
+        answers |= await self._autofill(resolved.autofill, submission_id)
         try:
             # The same normalized inputs become the stored answers and the
             # run's trigger inputs. Hidden inputs take their defaults here.
@@ -330,13 +324,12 @@ class FormSubmissionsService(BaseWorkspaceService):
     async def _autofill(
         self,
         autofill: Mapping[str, FormAutofillSource],
-        supplied: Mapping[str, Any],
         submission_id: uuid.UUID,
     ) -> dict[str, Any]:
         """Work out the values of autofilled inputs.
 
-        A user's values come from their user row. A service account has none,
-        so it gets the value it supplied, or null.
+        A user's values come from their user row. A service account has no
+        user, so its requester values are null.
         """
         if not autofill:
             return {}
@@ -355,7 +348,7 @@ class FormSubmissionsService(BaseWorkspaceService):
             elif requester is not None:
                 values[name] = _requester_value(source, requester)
             else:
-                values[name] = supplied.get(name)
+                values[name] = None
         return values
 
     # ----- Read and delete -----

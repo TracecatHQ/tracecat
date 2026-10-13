@@ -579,38 +579,56 @@ async def api_key_role(session: AsyncSession, svc_workspace: Workspace) -> Role:
     )
 
 
-async def test_api_key_submission_autofills_from_the_callers_values_or_null(
+async def test_api_key_submission_autofills_requester_as_null(
     session: AsyncSession, api_key_role: Role, temporal: FakeTemporal, form: Form
 ) -> None:
     service = FormSubmissionsService(session, api_key_role)
-    on_behalf_of = {"email": "maya.okafor@example.com"}
 
-    await _submit(service, form, VALID_VALUES | {"requester": on_behalf_of})
-    await _submit(service, form, VALID_VALUES | {"reference": "caller-chosen"})
+    await _submit(service, form, VALID_VALUES)
 
-    submissions = {
-        submission.answers["requester"] is None: submission
-        for submission in await _stored(session, FormSubmission)
-    }
-    with_value, without_value = submissions[False], submissions[True]
-    assert with_value.answers["requester"] == on_behalf_of
-    assert with_value.submitted_by_user_id is None
-    assert with_value.submitted_by_service_account_id == api_key_role.service_account_id
+    [submission] = await _stored(session, FormSubmission)
+    assert submission.answers["requester"] is None
+    assert submission.submitted_by_user_id is None
+    assert submission.submitted_by_service_account_id == api_key_role.service_account_id
     # The submission ID always comes from the server.
-    assert without_value.answers["reference"] == str(without_value.id)
+    assert submission.answers["reference"] == str(submission.id)
 
-    events = await _stored(session, FormEvent)
-    assert {event.service_account_id for event in events} == {
-        api_key_role.service_account_id
-    }
+    [event] = await _stored(session, FormEvent)
+    assert event.service_account_id == api_key_role.service_account_id
     # No requester to attribute the run to.
-    assert temporal.connect.await_args is not None
-    run_role = temporal.connect.await_args.kwargs["role"]
+    run_role = temporal.run_role
     assert run_role.type == "service"
     assert run_role.user_id is None
 
 
-async def test_api_key_submission_fails_on_a_required_autofill_it_did_not_send(
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"requester": {"email": "maya.okafor@example.com"}},
+        {"reference": "caller-chosen"},
+    ],
+    ids=["requester", "submission_id"],
+)
+async def test_api_keys_cannot_supply_autofilled_inputs(
+    session: AsyncSession,
+    api_key_role: Role,
+    temporal: FakeTemporal,
+    form: Form,
+    extra: dict[str, Any],
+) -> None:
+    """A key holder cannot name the requester: it would be unverified."""
+    service = FormSubmissionsService(session, api_key_role)
+
+    error = await _submit_error(service, form, VALID_VALUES | extra)
+
+    assert _field_errors(error) == dict.fromkeys(
+        extra, FormFieldErrorCode.UNKNOWN_FIELD
+    )
+    assert await _stored(session, FormSubmission) == []
+    temporal.connect.assert_not_awaited()
+
+
+async def test_api_key_submission_fails_on_a_required_requester_autofill(
     session: AsyncSession,
     api_key_role: Role,
     temporal: FakeTemporal,
@@ -626,10 +644,7 @@ async def test_api_key_submission_fails_on_a_required_autofill_it_did_not_send(
     error = await _submit_error(service, form, {})
 
     assert _field_errors(error) == {"email": FormFieldErrorCode.INVALID_VALUE}
-
-    await _submit(service, form, {"email": "maya.okafor@example.com"})
-    [submission] = await _stored(session, FormSubmission)
-    assert submission.answers == {"email": "maya.okafor@example.com"}
+    temporal.connect.assert_not_awaited()
 
 
 # ----- Form state -----
