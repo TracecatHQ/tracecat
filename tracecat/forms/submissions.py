@@ -9,13 +9,21 @@ from typing import Any, cast
 
 from pydantic import ValidationError
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql.selectable import Select
+from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.db.models import Form, FormEvent, FormSubmission, ServiceAccount
+from tracecat.db.models import (
+    Form,
+    FormEvent,
+    FormFile,
+    FormSubmission,
+    ServiceAccount,
+)
 from tracecat.dsl.validation import normalize_trigger_inputs
 from tracecat.forms.enums import (
     FormAutofillSource,
@@ -59,6 +67,22 @@ from tracecat.workflow.executions.enums import (
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 
 _RUN_SERVICE_ID: InternalServiceID = "tracecat-runner"
+
+_UNKNOWN_OUTCOME_RPC_STATUSES = frozenset(
+    {
+        RPCStatusCode.DEADLINE_EXCEEDED,
+        RPCStatusCode.CANCELLED,
+        RPCStatusCode.UNAVAILABLE,
+        RPCStatusCode.UNKNOWN,
+    }
+)
+
+
+def _run_may_have_started(error: Exception) -> bool:
+    """Whether a failed start request may still have reached Temporal."""
+    if isinstance(error, TimeoutError):
+        return True
+    return isinstance(error, RPCError) and error.status in _UNKNOWN_OUTCOME_RPC_STATUSES
 
 
 def _pydantic_field_errors(error: ValidationError) -> list[FormFieldError]:
@@ -112,8 +136,10 @@ class FormSubmissionsService(BaseWorkspaceService):
     ) -> FormSubmissionReceipt:
         """Validate a submission, store it and start the workflow.
 
-        The submission row and the run start succeed or fail together: the row
-        is flushed, the run is started, and only then is the row committed.
+        The submission is committed before the run starts, so the run's first
+        action can already read it. If the start definitely failed, the
+        submission is deleted again. If the outcome is not known, such as a
+        timeout, it is kept: the run may exist.
 
         Raises:
             FormError: ``form_offline``, ``form_unavailable``, ``form_changed``,
@@ -190,23 +216,27 @@ class FormSubmissionsService(BaseWorkspaceService):
         )
         self.session.add(submission)
         await self.session.flush()
-        # Claim the files. A start failure rolls this back with the row.
         for file in claimed_files:
             file.submission_id = submission_id
-        self.session.add(
-            FormEvent(
-                workspace_id=self.workspace_id,
-                form_id=form_id,
-                type=FormEventType.FORM_SUBMITTED.value,
-                user_id=self._user_id,
-                service_account_id=self.role.service_account_id,
-                submission_id=submission_id,
-            )
+        event = FormEvent(
+            workspace_id=self.workspace_id,
+            form_id=form_id,
+            type=FormEventType.FORM_SUBMITTED.value,
+            user_id=self._user_id,
+            service_account_id=self.role.service_account_id,
+            submission_id=submission_id,
         )
-        await self.session.flush()
+        self.session.add(event)
+        await self.session.commit()
+        await self.session.refresh(submission)
+        submitted_at = submission.created_at
 
         try:
             executions = await WorkflowExecutionsService.connect(role=self.run_role())
+        except Exception as e:
+            await self._discard(submission, event, claimed_files)
+            raise self._start_failed(form_id, wf_exec_id, e, kept=False) from e
+        try:
             await executions.create_workflow_execution_wait_for_start(
                 dsl=dsl,
                 wf_id=workflow_id,
@@ -224,27 +254,60 @@ class FormSubmissionsService(BaseWorkspaceService):
                 },
             )
         except Exception as e:
-            await self.session.rollback()
-            # Never log the answers.
-            self.logger.error(
-                "Failed to start the workflow of a form submission",
-                form_id=form_id,
-                wf_exec_id=wf_exec_id,
-                error_type=type(e).__name__,
-            )
-            raise FormError(
-                FormErrorCode.WORKFLOW_START_FAILED,
-                "The request could not be started. Try again.",
-            ) from e
+            kept = _run_may_have_started(e)
+            if not kept:
+                await self._discard(submission, event, claimed_files)
+            raise self._start_failed(form_id, wf_exec_id, e, kept=kept) from e
 
-        await self.session.commit()
-        await self.session.refresh(submission)
         return FormSubmissionReceipt(
             id=submission_id,
             reference=submission_reference(submission_id),
-            submitted_at=submission.created_at,
+            submitted_at=submitted_at,
             success_message=config.success_message,
         )
+
+    def _start_failed(
+        self, form_id: uuid.UUID, wf_exec_id: str, error: Exception, *, kept: bool
+    ) -> FormError:
+        # Never log the answers.
+        self.logger.error(
+            "Failed to start the workflow of a form submission",
+            form_id=form_id,
+            wf_exec_id=wf_exec_id,
+            error_type=type(error).__name__,
+            submission_kept=kept,
+        )
+        return FormError(
+            FormErrorCode.WORKFLOW_START_FAILED,
+            "The request could not be started. Try again.",
+        )
+
+    async def _discard(
+        self,
+        submission: FormSubmission,
+        event: FormEvent,
+        claimed_files: Sequence[FormFile],
+    ) -> None:
+        """Undo a committed submission whose run never started. Best effort.
+
+        The files go back to pending so the requester can submit again.
+        Deleting the submission first would delete them with it.
+        """
+        submission_id = submission.id
+        try:
+            for file in claimed_files:
+                file.submission_id = None
+            await self.session.flush()
+            await self.session.delete(event)
+            await self.session.delete(submission)
+            await self.session.commit()
+        except SQLAlchemyError as e:
+            await self.session.rollback()
+            self.logger.error(
+                "Failed to remove a form submission whose run did not start",
+                submission_id=submission_id,
+                error_type=type(e).__name__,
+            )
 
     @property
     def _user_id(self) -> uuid.UUID | None:

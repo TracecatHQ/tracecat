@@ -904,6 +904,25 @@ async def test_start_failure_leaves_the_file_unclaimed(
     assert (await _rows(session))[uploaded.id].submission_id == receipt.id
 
 
+async def test_ambiguous_start_failure_keeps_the_file_claimed(
+    session: AsyncSession,
+    files: FormFilesService,
+    submissions: FormSubmissionsService,
+    store: FakeBlobStore,
+    temporal: AsyncMock,
+    form: Form,
+) -> None:
+    uploaded = await _upload(files, form)
+    start = temporal.create_workflow_execution_wait_for_start
+    start.side_effect = TimeoutError("Timed out while dispatching workflow")
+
+    with pytest.raises(FormError):
+        await submissions.submit(form, _values({"quote": str(uploaded.id)}))
+
+    # The run may exist and download the file.
+    assert (await _rows(session))[uploaded.id].submission_id is not None
+
+
 async def test_file_fields_are_optional_when_their_input_has_a_default(
     session: AsyncSession,
     files: FormFilesService,

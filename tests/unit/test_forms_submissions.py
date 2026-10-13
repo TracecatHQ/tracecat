@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import Client, WorkflowExecutionStatus
+from temporalio.service import RPCError, RPCStatusCode
 
 from tests._forms_utils import (
     create_form,
@@ -707,24 +708,94 @@ async def test_submit_with_a_stale_definition_version_is_refused(
     assert submission.definition_version == 2
 
 
-async def test_start_failure_rolls_back_the_submission(
+async def test_submission_is_committed_before_the_run_starts(
+    session: AsyncSession,
+    service: FormSubmissionsService,
+    temporal: FakeTemporal,
+    monkeypatch: pytest.MonkeyPatch,
+    form: Form,
+) -> None:
+    """The run's first action may read the submission, so it must exist."""
+    calls: list[str] = []
+    commit = session.commit
+
+    async def recording_commit() -> None:
+        calls.append("commit")
+        await commit()
+
+    async def recording_start(**kwargs: Any) -> None:
+        calls.append("start")
+        # Nothing is left waiting to be written when the run starts.
+        assert not session.new
+        assert not session.dirty
+
+    monkeypatch.setattr(session, "commit", recording_commit)
+    start = temporal.service.create_workflow_execution_wait_for_start
+    start.side_effect = recording_start
+
+    receipt = await _submit(service, form, VALID_VALUES)
+
+    assert "start" in calls
+    assert "commit" in calls[: calls.index("start")]
+    [submission] = await _stored(session, FormSubmission)
+    assert submission.id == receipt.id
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        RuntimeError("Temporal rejected the request"),
+        RPCError("invalid", RPCStatusCode.INVALID_ARGUMENT, b""),
+    ],
+    ids=["error", "rpc_invalid_argument"],
+)
+async def test_definite_start_failure_deletes_the_submission(
     session: AsyncSession,
     service: FormSubmissionsService,
     temporal: FakeTemporal,
     form: Form,
+    error: Exception,
 ) -> None:
     start = temporal.service.create_workflow_execution_wait_for_start
-    start.side_effect = TimeoutError("Timed out while dispatching workflow")
+    start.side_effect = error
 
-    error = await _submit_error(service, form, VALID_VALUES)
+    failure = await _submit_error(service, form, VALID_VALUES)
 
-    assert error.code is FormErrorCode.WORKFLOW_START_FAILED
+    assert failure.code is FormErrorCode.WORKFLOW_START_FAILED
     start.assert_awaited_once()
     assert await _stored(session, FormSubmission) == []
     assert await _stored(session, FormEvent) == []
 
 
-async def test_connect_failure_rolls_back_the_submission(
+@pytest.mark.parametrize(
+    "error",
+    [
+        TimeoutError("Timed out while dispatching workflow"),
+        RPCError("deadline", RPCStatusCode.DEADLINE_EXCEEDED, b""),
+    ],
+    ids=["timeout", "rpc_deadline_exceeded"],
+)
+async def test_ambiguous_start_failure_keeps_the_submission(
+    session: AsyncSession,
+    service: FormSubmissionsService,
+    temporal: FakeTemporal,
+    form: Form,
+    error: Exception,
+) -> None:
+    """The run may exist, and it reads its submission by ID."""
+    start = temporal.service.create_workflow_execution_wait_for_start
+    start.side_effect = error
+
+    failure = await _submit_error(service, form, VALID_VALUES)
+
+    assert failure.code is FormErrorCode.WORKFLOW_START_FAILED
+    [submission] = await _stored(session, FormSubmission)
+    assert submission.wf_exec_id == start.await_args.kwargs["wf_exec_id"]
+    [event] = await _stored(session, FormEvent)
+    assert event.submission_id == submission.id
+
+
+async def test_connect_failure_deletes_the_submission(
     session: AsyncSession,
     service: FormSubmissionsService,
     temporal: FakeTemporal,
@@ -736,6 +807,7 @@ async def test_connect_failure_rolls_back_the_submission(
 
     assert error.code is FormErrorCode.WORKFLOW_START_FAILED
     assert await _stored(session, FormSubmission) == []
+    assert await _stored(session, FormEvent) == []
 
 
 # ----- Run identity -----
