@@ -1,0 +1,21 @@
+frontend/biome.json
+  s_7f6729d1c18d55::t_62716e90ae44af 9
+  s_7f6729d1c18d55::t_ea67bb51eee73f 106-110
+  s_7f6729d1c18d55::t_30c4f60ce70e4a 105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1c7eff2f44fb05c214ad4cd4e87287792c2fe2f4",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
