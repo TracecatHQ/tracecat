@@ -628,6 +628,12 @@ export function useVercelChat({
     return url.toString()
   }, [chatId, workspaceId])
 
+  // The AI SDK builds its transport once per chat id and ignores later ones, so
+  // a closure over `pageContext` would keep the page the chat first rendered
+  // on. Read it through a ref when the request is built instead.
+  const pageContextRef = useRef(pageContext)
+  pageContextRef.current = pageContext
+
   // Use Vercel's useChat hook for streaming. On reconnect the server replays the
   // whole active turn from the start (it hides the active run's DB rows mid-turn,
   // so Redis is the sole source for the live assistant); we therefore do not send
@@ -672,7 +678,8 @@ export function useVercelChat({
         }
         const baseUrl = (modelInfo as { baseUrl?: string | null })?.baseUrl
         if (baseUrl != null) body.base_url = baseUrl
-        if (pageContext) body.page_context = pageContext
+        const currentPageContext = pageContextRef.current
+        if (currentPageContext) body.page_context = currentPageContext
         return { body }
       },
     }),
