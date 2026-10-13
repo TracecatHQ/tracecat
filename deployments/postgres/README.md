@@ -1,10 +1,12 @@
-# Application database vector support
+# Application database search extensions
 
 Semantic search uses PostgreSQL's `vector` extension (pgvector). The application
 schema migration requires pgvector >= 0.8.0 in `public`, even while search is
-disabled. The Temporal database does not need this extension.
+disabled. Indexed text search additionally requires `pg_trgm` in `public`; see
+the [trigram prerequisite](#trigram-search-prerequisite) below. The Temporal
+database does not need either extension.
 
-## Docker Compose POCs: automatic setup
+## Docker Compose POCs: automatic pgvector setup
 
 Run `docker compose up` as usual. All three Compose files default to the versioned
 `ghcr.io/tracecathq/tracecat-postgres` image. No extra Compose file, local build,
@@ -122,7 +124,84 @@ and check `rds.allowed_extensions`. See the
 and [extension version matrix](https://docs.aws.amazon.com/AmazonRDS/latest/PostgreSQLReleaseNotes/postgresql-extensions.html).
 Every separate application database needs its own extension registration.
 
-## Compatibility and rollback
+## Trigram search prerequisite
+
+PostgreSQL provides full-text search directly. Literal fragment matching uses
+the [supplied `pg_trgm` extension](https://www.postgresql.org/docs/16/pgtrgm.html)
+and its `public.gin_trgm_ops` operator class for `text`. This prerequisite is
+shared by case and table search. Provision it once per application database,
+before running search-dependent migrations, for both fresh and existing
+installations. Keep the pgvector setup and version requirement above.
+
+| Deployment | Application database and provisioning |
+| --- | --- |
+| Docker Compose | Use the bundled `postgres_db` service, whose PostgreSQL 16.14 image includes `pg_trgm`. The pgvector startup hook does not provision `pg_trgm`; run the explicit command below after PostgreSQL is ready. |
+| Fargate / RDS | Use the `core_database` RDS endpoint. The checked-in PostgreSQL 16.10 default supports `pg_trgm`; review the actual engine inventory and `rds.allowed_extensions` before installing. |
+| Helm / Kubernetes | Use the external application PostgreSQL connection configured for Tracecat. Provision with an authorized database role before running the Helm migration job; the reviewed EKS PostgreSQL 16.13 default supports `pg_trgm`. |
+
+The [RDS extension version matrix](https://docs.aws.amazon.com/AmazonRDS/latest/PostgreSQLReleaseNotes/postgresql-extensions.html)
+lists `pg_trgm` for these PostgreSQL 16 versions. No custom image, server restart,
+or application extension-installation privilege is required. On another
+self-hosted distribution, install its PostgreSQL contrib package if `pg_trgm`
+is absent. For overridden engine versions, check the installed server rather
+than assuming its extension availability matches the defaults.
+
+From the repository root, a Compose administrator can provision the bundled
+application database (adjust the username if `POSTGRES_USER` is customized):
+
+```bash
+docker compose exec -T postgres_db psql -X -U postgres -d postgres -v install=true < scripts/postgres/pg-trgm.sql
+```
+
+For an external application database, use normal libpq connection settings
+(`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` and authentication). Confirm the host
+and database are the **application** connection, not the separate Temporal
+connection, before installation:
+
+```sql
+SELECT current_database(), inet_server_addr(), version();
+SELECT name, default_version, installed_version
+FROM pg_available_extensions WHERE name IN ('vector', 'pg_trgm');
+```
+
+An authorized provisioning role then installs and validates `pg_trgm`:
+
+```bash
+psql -X -v install=true -f scripts/postgres/pg-trgm.sql
+```
+
+Switch the connection settings to the normal application/migration role and
+check readiness:
+
+```bash
+psql -X -f scripts/postgres/pg-trgm.sql
+```
+
+The default check opens a read-only transaction. It verifies the extension
+schema, extension ownership of the GIN operator class and similarity function,
+schema `USAGE`, function `EXECUTE`, and function usability. Success reports the
+database, server version, extension version, and an identical-text similarity
+of `1`. Missing server support, extension registration, schema placement, or
+permissions fails with a PostgreSQL SQLSTATE and an administrator action hint.
+Use `-v VERBOSITY=verbose` to include SQLSTATE in psql error output.
+
+`pg_trgm` is a trusted extension on PostgreSQL 16: an authorized provisioning
+role can install it with `CREATE` on the database and target schema. On RDS,
+also check `SHOW rds.allowed_extensions`; an authorized administrator must allow
+`pg_trgm` when an allowlist is configured. See
+[RDS trusted extensions and restrictions](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/PostgreSQL.Concepts.General.FeatureSupport.Extensions.html).
+The application, Fargate init container, and Helm migration job must not assume
+superuser or extension-installation privileges.
+
+Installation is transactional and idempotent. It does not upgrade, relocate,
+or drop an existing extension, and it does not change pgvector or source data.
+An extension already installed outside `public` requires administrator review.
+Retain `pg_trgm` when rolling back application code while indexes depend on it.
+Case and table index migrations consume this shared prerequisite; they must not
+add another extension bootstrap. Helm manifest changes belong in the separate
+Kubernetes repository.
+
+## Pgvector compatibility and rollback
 
 Provisioning is idempotent. It does not upgrade or relocate an already installed
 extension; those changes need administrator review. Read-only mode checks the
@@ -161,12 +240,21 @@ a plain PostgreSQL image. Database rollback is a separate operation.
 ## Validation
 
 ```bash
+PGTRGM_TEST_CONTAINER=synthetic-postgres bash scripts/tests/test_pg_trgm.sh
 bash scripts/tests/test_pgvector_compose.sh
 bash scripts/tests/test_pgvector_startup.sh trixie existing
 bash scripts/tests/test_pgvector_startup.sh bookworm fresh synthetic_admin
 bash scripts/tests/test_pgvector.sh
 bash scripts/tests/test_pgvector.sh postgres:16.14-bookworm
 ```
+
+The trigram test uses an explicitly selected disposable PostgreSQL container
+with pgvector available and local psql administrator access. It creates and
+removes only its uniquely named synthetic databases and role; it never starts
+services or removes volumes. Its three scenarios cover fresh provisioning and
+GIN use, existing data/pgvector preservation and read-only role permissions,
+and incorrect schema or unrelated same-named objects. Do not point it at a
+production server or a database used by another test suite.
 
 The configuration test checks all three Compose defaults and dependency ordering.
 The startup test builds the candidate and uses the production database wiring
