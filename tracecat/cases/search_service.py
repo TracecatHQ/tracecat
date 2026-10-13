@@ -82,11 +82,6 @@ def case_identity_predicates(query: CaseQuery) -> list[ColumnElement[bool]]:
     if query.case_id is not None:
         filters.append(Case.id == query.case_id)
     if query.search_term:
-        if len(query.search_term) > 1000:
-            raise ValueError("Search term cannot exceed 1000 characters")
-        if "\x00" in query.search_term:
-            raise ValueError("Search term cannot contain null bytes")
-
         case_number_text = cast(Case.case_number, sa.String)
         short_id_expr = func.concat(
             "CASE-",
@@ -112,11 +107,6 @@ def case_identity_predicates(query: CaseQuery) -> list[ColumnElement[bool]]:
 
     if query.short_id:
         normalized_short_id = query.short_id.strip().upper()
-        if len(normalized_short_id) > 1000:
-            raise ValueError("Short ID cannot exceed 1000 characters")
-        if "\x00" in normalized_short_id:
-            raise ValueError("Short ID cannot contain null bytes")
-
         match = SHORT_ID_PATTERN.match(normalized_short_id)
         if not match:
             raise ValueError("Short ID must match CASE-<number> or <number>")
@@ -302,7 +292,7 @@ class CaseSearchService(BaseWorkspaceService):
         # relationships, including table_rows and unrelated nested collections.
         stmt = (
             select(Case)
-            .where(Case.workspace_id == self.workspace_id)
+            .where(*filters)
             .options(
                 load_only(
                     Case.id,
@@ -321,9 +311,6 @@ class CaseSearchService(BaseWorkspaceService):
                 raiseload("*"),
             )
         )
-
-        for clause in filters:
-            stmt = stmt.where(clause)
 
         total_estimate: int | None = None
         if request.include_count:

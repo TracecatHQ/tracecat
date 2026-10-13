@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.cases.filters import resolve_tag_ids
-from tracecat.cases.service import CasesService
+from tracecat.cases.search_schemas import CaseQuery
+from tracecat.cases.search_service import case_identity_predicates
 from tracecat.cases.types import ResolvedCaseTag
 from tracecat.db.models import Case
 from tracecat.exceptions import TracecatValidationError
@@ -32,8 +33,10 @@ def search_role() -> Role:
 def test_search_predicates_escape_literal_metacharacters(
     search_role: Role, term: str, escaped_term: str
 ) -> None:
-    service = CasesService(AsyncMock(spec=AsyncSession), search_role)
-    statement = select(Case.id).where(*service._build_search_filters(search_term=term))
+    statement = select(Case.id).where(
+        Case.workspace_id == search_role.workspace_id,
+        *case_identity_predicates(CaseQuery(search_term=term)),
+    )
     compiled = statement.compile(dialect=postgresql.dialect())
 
     assert str(compiled).count("ILIKE") == 3
