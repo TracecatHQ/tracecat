@@ -12839,3 +12839,94 @@ async def test_get_execution_action_result_dereferences_external_result(
     assert loaded == [external]
     assert payload["truncated"] is False
     assert json.loads(payload["result"]) == stored_payload
+
+
+def _patch_workspace_role(monkeypatch, role: Role) -> None:
+    async def _resolve(workspace_id):
+        return uuid.UUID(str(workspace_id)), role
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+
+
+@pytest.mark.anyio
+async def test_update_workspace_attachment_types_round_trip(
+    monkeypatch, svc_role: Role
+):
+    _patch_workspace_role(monkeypatch, svc_role)
+    workspace_id = str(svc_role.workspace_id)
+    tool = _tool(mcp_server.update_workspace_attachment_types)
+
+    initial = _payload(await tool(workspace_id=workspace_id))
+    assert initial["allowed_extensions"] is None
+    assert initial["allowed_mime_types"] is None
+    assert initial["effective_allowed_extensions"] == sorted(
+        mcp_server.config.TRACECAT__ALLOWED_ATTACHMENT_EXTENSIONS
+    )
+
+    updated = _payload(
+        await tool(
+            workspace_id=workspace_id,
+            allowed_extensions=[" PDF ", ".zip", "pdf"],
+            allowed_mime_types=["Application/PDF", "application/zip"],
+        )
+    )
+    assert updated["allowed_extensions"] == [".pdf", ".zip"]
+    assert updated["allowed_mime_types"] == ["application/pdf", "application/zip"]
+    assert updated["effective_allowed_extensions"] == [".pdf", ".zip"]
+
+    # Omitted lists are unchanged; an empty list restores system defaults.
+    reset = _payload(await tool(workspace_id=workspace_id, allowed_extensions=[]))
+    assert reset["allowed_extensions"] is None
+    assert reset["effective_allowed_extensions"] == sorted(
+        mcp_server.config.TRACECAT__ALLOWED_ATTACHMENT_EXTENSIONS
+    )
+    assert reset["allowed_mime_types"] == ["application/pdf", "application/zip"]
+
+    async with mcp_server.get_async_session_context_manager() as session:
+        service = mcp_server.WorkspaceService(session, role=svc_role)
+        workspace = await service.get_workspace(uuid.UUID(workspace_id))
+        assert workspace is not None
+        assert workspace.settings.get("allowed_attachment_extensions") is None
+        assert workspace.settings.get("allowed_attachment_mime_types") == [
+            "application/pdf",
+            "application/zip",
+        ]
+
+
+@pytest.mark.anyio
+async def test_update_workspace_attachment_types_requires_update_scope(
+    monkeypatch, svc_role: Role
+):
+    role = svc_role.model_copy(update={"scopes": frozenset({"workspace:read"})})
+    _patch_workspace_role(monkeypatch, role)
+    tool = _tool(mcp_server.update_workspace_attachment_types)
+
+    read = _payload(await tool(workspace_id=str(role.workspace_id)))
+    assert read["allowed_extensions"] is None
+
+    with pytest.raises(ToolError, match="Missing required scope: workspace:update"):
+        await tool(workspace_id=str(role.workspace_id), allowed_extensions=[".zip"])
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"allowed_extensions": ["."]}, "Invalid file extension"),
+        ({"allowed_extensions": ["../pdf"]}, "Invalid file extension"),
+        ({"allowed_extensions": [""]}, "Invalid file extension"),
+        ({"allowed_mime_types": ["image/*"]}, "Invalid MIME type"),
+        ({"allowed_mime_types": ["text/plain; charset=utf-8"]}, "Invalid MIME type"),
+        ({"allowed_mime_types": ["pdf"]}, "Invalid MIME type"),
+    ],
+)
+async def test_update_workspace_attachment_types_rejects_invalid_values(
+    monkeypatch, kwargs: dict[str, list[str]], match: str
+):
+    role = SimpleNamespace(scopes=frozenset({"workspace:update"}))
+    _patch_workspace_role(monkeypatch, cast(Role, role))
+
+    with pytest.raises(ToolError, match=match):
+        await _tool(mcp_server.update_workspace_attachment_types)(
+            workspace_id=str(uuid.uuid4()), **kwargs
+        )
