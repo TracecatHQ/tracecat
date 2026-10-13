@@ -29,6 +29,7 @@ frontend/src/components/organization/service-accounts-manager.tsx
   s_7f6729d1c18d55::t_cd95acdfcd3fca 77,81
   s_7f6729d1c18d55::t_d49109fa1ed7bb 626
   s_7f6729d1c18d55::t_e4a0a26f1d60a6 681,691
+  s_7f6729d1c18d55::t_97f8b2580f411d 1257
 frontend/tests/service-accounts-manager.test.tsx
   s_7f6729d1c18d55::t_7ba97da04f52bb 34-37
 ---
