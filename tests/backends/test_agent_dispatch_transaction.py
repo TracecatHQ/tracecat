@@ -6,6 +6,7 @@ uv run pytest --noconftest tests/backends/test_agent_dispatch_transaction.py
 
 import asyncio
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import timedelta
 from types import SimpleNamespace
@@ -50,6 +51,7 @@ from tracecat.agent.backends.types import (
     SessionTurnContext,
     SessionWorkflowContext,
 )
+from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentSession, AgentSessionHistory
@@ -187,14 +189,25 @@ async def lose_first_start(
     await assert_reserved_by(connection, context.session.id, context.run_id)
 
 
-async def age_reservation(db: AsyncSession, session_id: UUID, by: timedelta) -> None:
-    """Move the reservation's commit stamp back, as if time had passed."""
-    await db.execute(
-        update(AgentSession)
-        .where(AgentSession.id == session_id)
-        .values(updated_at=AgentSession.updated_at - by)
-        .execution_options(synchronize_session=False)
-    )
+async def age_reservation(
+    db: AsyncSession,
+    session_id: UUID,
+    by: timedelta,
+    *,
+    reserved_at: bool = True,
+    updated_at: bool = True,
+) -> None:
+    """Move the reservation's stamps back, as if time had passed.
+
+    A stamp that is not aged here is left as is, except ``updated_at``, which
+    the ORM sets to the transaction's now() on every update.
+    """
+    statement = update(AgentSession).where(AgentSession.id == session_id)
+    if reserved_at:
+        statement = statement.values(reserved_at=AgentSession.reserved_at - by)
+    if updated_at:
+        statement = statement.values(updated_at=AgentSession.updated_at - by)
+    await db.execute(statement.execution_options(synchronize_session=False))
     await db.commit()
 
 
@@ -677,6 +690,7 @@ async def test_lost_start_is_released_without_replay_once_a_tombstone_claims_it(
         assert dispatched == []
         saved = await assert_reserved_by(connection, session_id, None)
         assert saved.last_error == "Agent turn could not be started"
+        assert saved.reserved_at is None
     else:
         assert [start.workflow_id for start in dispatched] == [
             f"agent/{next_turn.run_id}"
@@ -832,7 +846,99 @@ async def test_reservation_is_stamped_at_commit_not_transaction_start(
             await PreparationBackend().start_turn(context)
 
     saved = await assert_reserved_by(connection, session_id, context.run_id)
-    assert saved.updated_at - began >= timedelta(seconds=0.2)
+    assert saved.reserved_at is not None
+    assert saved.reserved_at - began >= timedelta(seconds=0.2)
+
+
+@pytest.mark.parametrize("fresh", ["reserved_at", "updated_at"])
+async def test_reservation_fresh_by_either_stamp_is_never_tombstoned(
+    connection: AsyncConnection, fresh: str
+) -> None:
+    """A missing turn is tombstoned only once reserved_at and updated_at are both old.
+
+    An old updated_at, such as a concurrent title update's transaction-start
+    now(), cannot age a fresh reservation. A fresh updated_at covers writers that
+    reserve without stamping reserved_at, like the agent runtime's handoff.
+    """
+    backend = PreparationBackend()
+    temporal = ScriptedTemporal(
+        start_workflow_execution=[unavailable()],
+        describe_workflow_execution=[not_found()],
+        terminate_workflow_execution=[],
+    )
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        with patch(
+            "tracecat.agent.backends.base.get_temporal_client",
+            return_value=temporal_client(AsyncMock(side_effect=temporal.rpc)),
+        ):
+            await lose_first_start(backend, connection, context)
+            await age_reservation(
+                db,
+                session_id,
+                timedelta(minutes=1),
+                reserved_at=fresh != "reserved_at",
+                updated_at=fresh != "updated_at",
+            )
+            with pytest.raises(TracecatConflictError):
+                await backend.start_turn(
+                    replace(context, run_id=uuid4(), stream_id=uuid4())
+                )
+
+    assert len(temporal.starts) == 1
+    await assert_reserved_by(connection, session_id, context.run_id)
+
+
+async def test_caller_owned_reservation_stays_fresh_after_slow_preparation(
+    connection: AsyncConnection,
+) -> None:
+    """prepare_new_turn stamps reserved_at at commit, so a direct send conflicts."""
+    temporal = ScriptedTemporal(
+        start_workflow_execution=[],
+        describe_workflow_execution=[not_found()],
+        terminate_workflow_execution=[],
+    )
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        service = AgentSessionService(db, context.role)
+
+        @asynccontextmanager
+        async def agent_config(_session: AgentSession) -> AsyncIterator[AgentConfig]:
+            yield context.config
+
+        with (
+            patch.object(
+                service,
+                "validate_turn_request",
+                AsyncMock(return_value=context.session),
+            ),
+            patch.object(service, "_build_agent_config", agent_config),
+        ):
+            began = await db.scalar(select(func.now()))
+            assert began is not None
+            await asyncio.sleep(0.2)
+            prepared = await service.prepare_new_turn(session_id, "Investigate")
+        saved = await assert_reserved_by(connection, session_id, prepared.run_id)
+        assert saved.reserved_at is not None
+        assert saved.reserved_at - began >= timedelta(seconds=0.2)
+        # Model preparation that took over the start deadline: its transaction,
+        # and so updated_at, began long before the reservation committed.
+        await age_reservation(db, session_id, timedelta(minutes=1), reserved_at=False)
+        with (
+            patch(
+                "tracecat.agent.backends.base.get_temporal_client",
+                return_value=temporal_client(AsyncMock(side_effect=temporal.rpc)),
+            ),
+            pytest.raises(TracecatConflictError),
+        ):
+            await PreparationBackend().start_turn(
+                replace(context, run_id=uuid4(), stream_id=uuid4())
+            )
+
+    assert temporal.starts == []
+    await assert_reserved_by(connection, session_id, prepared.run_id)
 
 
 async def reserve_lost_turn(db: AsyncSession) -> tuple[SessionTurnContext, UUID]:

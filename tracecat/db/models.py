@@ -3370,6 +3370,13 @@ class AgentSession(WorkspaceModel):
         index=True,
         doc="Per-turn stream id - Redis key suffix for the active turn's stream",
     )
+    # Database-clock commit time of the curr_run_id reservation. Null for
+    # reservations made before this column existed.
+    reserved_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When curr_run_id was reserved - recovery waits out its start deadline",
+    )
     # Terminal error summary for the most recent run
     last_error: Mapped[str | None] = mapped_column(
         Text,
