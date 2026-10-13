@@ -12,8 +12,9 @@ from tracecat.db.models import Webhook, Workflow, WorkflowTag, WorkflowTagLink
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.forms.enums import FormIssueSeverity
 from tracecat.forms.resolver import resolve_form
-from tracecat.forms.schemas import FormConfig
+from tracecat.forms.schemas import FormConfig, FormIssue
 from tracecat.forms.service import FormsService
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
@@ -198,9 +199,6 @@ class WorkflowImportService(BaseWorkspaceService):
             wf_id = WorkflowUUID.new(remote_workflow.id)
             await self.wf_mgmt.get_workflow(wf_id, normalize=normalize_existing)
 
-            if form_diagnostic := _form_diagnostic(remote_workflow, workflow_path):
-                diagnostics.append(form_diagnostic)
-
         except ValidationError as e:
             diagnostics.append(
                 PullDiagnostic(
@@ -328,6 +326,18 @@ class WorkflowImportService(BaseWorkspaceService):
         )
 
         wf_id = WorkflowUUID.new(remote_workflow.id)
+        if issues := _form_error_issues(remote_workflow):
+            # Not a reason to fail the pull: a push never checks the form, so
+            # one renamed input would block every later pull. The block is
+            # stored as written; render and submit resolve it again and refuse
+            # a form with errors. Codes and paths only, never the config text.
+            self.logger.warning(
+                "Pulled a form config that does not match its workflow's inputs",
+                workflow_id=wf_id,
+                issues=[
+                    {"code": issue.code.value, "loc": issue.loc} for issue in issues
+                ],
+            )
         if existing_workflow := await self.wf_mgmt.get_workflow(wf_id):
             await self._update_existing_workflow(
                 existing_workflow,
@@ -619,13 +629,14 @@ class WorkflowImportService(BaseWorkspaceService):
     ) -> None:
         """Apply the ``form:`` block of a workflow file.
 
-        A file with no block takes the form offline and keeps its config and
-        submissions. The block is stored whether or not the organization has
-        the forms entitlement; the form stays inert behind the gate.
+        A file with no block takes the form offline and clears its config, as
+        for a case trigger. The form row and its submissions are kept. The
+        block is stored whether or not the organization has the forms
+        entitlement; the form stays inert behind the gate.
         """
         service = FormsService(session=self.session, role=self.role)
         if remote_form is None:
-            await service.take_offline(workflow.id)
+            await service.clear_form(workflow.id)
             return
         await service.sync_form(
             workflow.id,
@@ -763,26 +774,16 @@ def _form_config(remote_form: RemoteForm) -> FormConfig:
     return FormConfig.model_validate(remote_form.model_dump(exclude={"status"}))
 
 
-def _form_diagnostic(
-    remote_workflow: RemoteWorkflowDefinition, workflow_path: str
-) -> PullDiagnostic | None:
+def _form_error_issues(remote_workflow: RemoteWorkflowDefinition) -> list[FormIssue]:
     """Resolve a workflow's ``form:`` block against the inputs in the same file.
 
-    Returns a diagnostic if the form has errors, such as a layout entry for an
-    input the workflow does not declare. Warnings do not block a pull.
+    Returns the errors, such as a layout entry for an input the workflow does
+    not declare.
     """
     if remote_workflow.form is None:
-        return None
+        return []
     expects = remote_workflow.definition.entrypoint.expects or {}
     result = resolve_form(_form_config(remote_workflow.form), expects)
-    if not result.has_errors:
-        return None
-    return PullDiagnostic(
-        workflow_path=workflow_path,
-        workflow_title=remote_workflow.definition.title,
-        error_type="validation",
-        message="Form config does not match the workflow's inputs",
-        details={
-            "form_issues": [issue.model_dump(mode="json") for issue in result.issues]
-        },
-    )
+    return [
+        issue for issue in result.issues if issue.severity is FormIssueSeverity.ERROR
+    ]

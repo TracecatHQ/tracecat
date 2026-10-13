@@ -556,15 +556,17 @@ class FormsService(BaseWorkspaceService):
             await self.session.flush()
         return form
 
-    async def take_offline(self, workflow_id: uuid.UUID) -> None:
-        """Set a workflow's form offline in the caller's transaction.
+    async def clear_form(self, workflow_id: uuid.UUID) -> None:
+        """Set a workflow's form offline and clear its config, in the caller's
+        transaction and without an audit event.
 
-        Its config and submissions are kept. A workflow with no form is left
+        The row and its submissions are kept. A workflow with no form is left
         alone.
         """
         if (form := await self.get_form_by_workflow_id(workflow_id)) is None:
             return
         form.status = FormStatus.OFFLINE.value
+        _set_form_config(form, FormConfig())
         await self.session.flush()
 
     async def validate_config(

@@ -68,7 +68,9 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.forms.dependencies import check_forms_enabled
-from tracecat.forms.enums import FormStatus
+from tracecat.forms.enums import FormErrorCode, FormIssueCode, FormStatus
+from tracecat.forms.exceptions import FormError
+from tracecat.forms.service import FormsService
 from tracecat.git.types import GitUrl
 from tracecat.integrations.enums import MCPAuthType
 from tracecat.registry.lock.types import RegistryLock
@@ -9863,9 +9865,14 @@ _PNG_DATA_URI = (
     + base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16).decode()
 )
 
+# JSONB orders object keys by length and then bytewise (a, mm, zeta, model,
+# ...), so the author's order below only survives if it is stored separately.
 _FORM_EXPECTS: dict[str, Any] = {
+    "zeta": {"type": "str", "default": ""},
     "model": {"type": 'enum["mba", "mbp"]'},
+    "mm": {"type": "str", "default": ""},
     "justification": {"type": "str"},
+    "a": {"type": "bool", "default": False},
     "for_someone_else": {"type": "bool", "default": False},
 }
 
@@ -9974,7 +9981,10 @@ async def test_workflow_form_block_round_trips(
     )
     assert exported["form"] == _FORM_BLOCK
     # The author's input order survives the trip with the form.
-    assert list(exported["definition"]["entrypoint"]["expects"]) == list(_FORM_EXPECTS)
+    author_order = ["zeta", "model", "mm", "justification", "a", "for_someone_else"]
+    assert list(_FORM_EXPECTS) == author_order
+    assert author_order != sorted(author_order, key=lambda name: (len(name), name))
+    assert list(exported["definition"]["entrypoint"]["expects"]) == author_order
 
 
 @pytest.mark.anyio
@@ -10022,26 +10032,62 @@ async def test_workflow_form_block_with_invalid_image_fails_the_pull(
 
 
 @pytest.mark.anyio
-async def test_workflow_form_block_is_resolved_against_the_file_inputs(
+async def test_oversized_form_image_is_not_echoed_in_the_diagnostic(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    form = {"status": "online", "layout": [{"field": "not_an_input"}]}
+    oversized = "data:image/png;base64," + "A" * 400_000
+    form = deepcopy(_FORM_BLOCK)
+    form["layout"][1]["options"][0]["image"] = oversized
 
     _, results = await _pull_form_trees(session, svc_role, form)
 
     assert results[0].success is False
     [diagnostic] = results[0].diagnostics
     assert diagnostic.error_type == "validation"
-    assert diagnostic.workflow_title == "Laptop request workflow"
-    [issue] = diagnostic.details["form_issues"]
-    assert issue["code"] == "unknown_field"
-    assert issue["loc"] == ["layout", 0, "field"]
-    assert await _only_form(session, svc_role) is None
+    [error] = diagnostic.details["validation_errors"]
+    assert error["loc"][0] == "form"
+    assert error["input"].startswith("data:image/png;base64,")
+    assert len(error["input"]) < 300
+    assert len(repr(diagnostic)) < 5_000
 
 
 @pytest.mark.anyio
-async def test_pull_without_form_block_takes_the_form_offline_and_keeps_it(
+async def test_workflow_form_block_that_does_not_resolve_is_stored_as_written(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A push never checks the form, so a pull must not fail on it.
+
+    Otherwise renaming an input and pushing would block every later pull.
+    """
+    form = {"status": "online", "layout": [{"field": "not_an_input"}]}
+
+    service, results = await _pull_form_trees(session, svc_role, form)
+
+    assert results[0].success is True
+    assert results[0].diagnostics == []
+    stored = await _only_form(session, svc_role)
+    assert stored is not None
+    assert stored.status == FormStatus.ONLINE
+    assert stored.layout == [{"field": "not_an_input"}]
+    # The builder sees the problem on the form, and nobody can fill it in.
+    forms = FormsService(session, svc_role)
+    read = await forms.read_form(stored)
+    assert [issue.code for issue in read.issues] == [FormIssueCode.UNKNOWN_FIELD]
+    with pytest.raises(FormError) as exc_info:
+        await forms.render_form(stored)
+    assert exc_info.value.code is FormErrorCode.FORM_UNAVAILABLE
+    # The block goes back out as it came in.
+    projection = await service.project_workspace(create_missing_mappings=False)
+    exported = yaml.safe_load(
+        projection.files[f"{WORKFLOW_ROOT}/laptop-request/definition.yml"]
+    )
+    assert exported["form"] == form
+
+
+@pytest.mark.anyio
+async def test_pull_without_form_block_clears_the_form_and_keeps_its_submissions(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -10070,20 +10116,23 @@ async def test_pull_without_form_block_takes_the_form_offline_and_keeps_it(
     assert form is not None
     assert form.id == form_id
     assert form.status == FormStatus.OFFLINE
-    assert form.title == "Laptop request"
-    assert form.layout is not None and len(form.layout) == 5
+    assert form.title is None
+    assert form.description is None
+    assert form.success_message is None
+    assert form.layout is None
     submissions = (
         await session.scalars(
             select(FormSubmission).where(FormSubmission.form_id == form_id)
         )
     ).all()
     assert len(submissions) == 1
-    # The kept config is still the workspace's desired state for the next push.
+    # Deleting the block in git removes it: the next push does not write it
+    # back, so the workflow no longer shows as modified.
     projection = await service.project_workspace(create_missing_mappings=False)
     exported = yaml.safe_load(
         projection.files[f"{WORKFLOW_ROOT}/laptop-request/definition.yml"]
     )
-    assert exported["form"] == {**_FORM_BLOCK, "status": "offline"}
+    assert "form" not in exported
 
 
 @pytest.mark.anyio

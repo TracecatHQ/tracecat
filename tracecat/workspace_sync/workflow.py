@@ -15,11 +15,12 @@ The actual adapter class lives in ``tracecat.workspace_sync.adapters.workflow``.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
 import yaml
 from pydantic import ValidationError
+from pydantic_core import ErrorDetails
 from slugify import slugify
 
 from tracecat.cases.enums import CaseEventType
@@ -373,6 +374,37 @@ def serialize_workflow_spec(spec: WorkflowResourceSpec) -> str:
     return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
 
 
+_MAX_FORM_DIAGNOSTIC_INPUT_LENGTH = 200
+
+
+def _truncate(value: Any) -> Any:
+    """Shorten the long strings inside a diagnostic value."""
+    if isinstance(value, str):
+        if len(value) <= _MAX_FORM_DIAGNOSTIC_INPUT_LENGTH:
+            return value
+        return value[:_MAX_FORM_DIAGNOSTIC_INPUT_LENGTH] + "... (truncated)"
+    if isinstance(value, dict):
+        return {key: _truncate(inner) for key, inner in value.items()}
+    if isinstance(value, list | tuple):
+        return [_truncate(inner) for inner in value]
+    return value
+
+
+def _truncate_form_inputs(errors: Sequence[ErrorDetails]) -> list[dict[str, Any]]:
+    """Shorten the echoed input of errors inside the ``form:`` block.
+
+    A validation error repeats the value it rejected, and a form holds inline
+    images: an oversized one would come back whole in the diagnostic.
+    """
+    truncated: list[dict[str, Any]] = []
+    for error in errors:
+        detail: dict[str, Any] = dict(error)
+        if error["loc"] and error["loc"][0] == "form":
+            detail["input"] = _truncate(error["input"])
+        truncated.append(detail)
+    return truncated
+
+
 def parse_workflow_spec(
     path: str, content: str, *, workflow_root: str = WORKFLOW_ROOT
 ) -> tuple[WorkflowResourceSpec | None, PullDiagnostic | None]:
@@ -432,7 +464,11 @@ def parse_workflow_spec(
             workflow_title=workflow_title,
             error_type="validation",
             message=f"Validation error: {str(e)}",
-            details={"validation_errors": serializable_validation_errors(e.errors())},
+            details={
+                "validation_errors": serializable_validation_errors(
+                    _truncate_form_inputs(e.errors())
+                )
+            },
         )
     except Exception as e:
         return None, PullDiagnostic(
