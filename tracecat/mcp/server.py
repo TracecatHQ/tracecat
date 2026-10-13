@@ -352,6 +352,12 @@ type MCPWorkflowUUID = Annotated[
 ]
 
 
+_PRESET_USE_IN_CHAT_DESCRIPTION = (
+    "Make this preset selectable in workspace chat. Only set this when the user "
+    "explicitly asks to enable or disable the preset in chat; otherwise omit it."
+)
+
+
 def _coerce_uuid_arg(value: uuid.UUID | str, field_name: str) -> uuid.UUID:
     """Coerce a UUID argument for direct Python callers and tests."""
     if isinstance(value, uuid.UUID):
@@ -9023,6 +9029,9 @@ async def create_agent_preset(
     name: str,
     slug: str | None = None,
     description: str | None = None,
+    use_in_chat: Annotated[
+        bool | None, Field(description=_PRESET_USE_IN_CHAT_DESCRIPTION)
+    ] = None,
     instructions: str | None = None,
     model_name: str | None = None,
     model_provider: str | None = None,
@@ -9054,6 +9063,9 @@ async def create_agent_preset(
     user explicitly asks to pin a specific version. A child preset cannot have
     its own subagents, and its tools can require manual approval only when an
     enabled agent backend supports subagent approvals.
+
+    Presets are not available in chat by default. Set `use_in_chat=true` only
+    when the user explicitly asks to enable the preset in chat.
     """
 
     try:
@@ -9076,6 +9088,7 @@ async def create_agent_preset(
         optional_fields = {
             "slug": slug,
             "description": description,
+            "use_in_chat": use_in_chat,
             "instructions": instructions,
             "base_url": base_url,
             "output_type": output_type,
@@ -9123,6 +9136,9 @@ async def update_agent_preset(
     name: str | None = None,
     slug: str | None = None,
     description: str | None = None,
+    use_in_chat: Annotated[
+        bool | None, Field(description=_PRESET_USE_IN_CHAT_DESCRIPTION)
+    ] = None,
     instructions: str | None = None,
     model_name: str | None = None,
     model_provider: str | None = None,
@@ -9164,6 +9180,9 @@ async def update_agent_preset(
 
     Set `clear_output_type=true` to remove an existing `output_type` (agent
     returns plain text). Omitting `output_type` leaves it unchanged.
+
+    Set `use_in_chat` only when the user explicitly asks to enable or disable
+    the preset in chat. Omit it to leave chat availability unchanged.
     """
 
     try:
@@ -9173,6 +9192,7 @@ async def update_agent_preset(
             "name": name,
             "slug": slug,
             "description": description,
+            "use_in_chat": use_in_chat,
             "instructions": instructions,
             "base_url": base_url,
             "output_type": output_type,

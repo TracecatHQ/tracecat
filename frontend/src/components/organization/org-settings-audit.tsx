@@ -20,6 +20,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -478,7 +479,7 @@ export function AuditSettingsForm({
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
-        <DialogContent className="flex max-h-[85vh] flex-col overflow-hidden sm:max-w-xl">
+        <DialogContent size="xl" className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>
               {isConnected ? "Update audit webhook" : "Connect audit webhook"}
@@ -488,198 +489,202 @@ export function AuditSettingsForm({
               request options.
             </DialogDescription>
           </DialogHeader>
-          <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
-            <Form {...form}>
-              <form
-                onSubmit={form.handleSubmit(onSubmit)}
-                className="space-y-6"
-              >
-                <FormField
-                  control={form.control}
-                  name="audit_webhook_url"
-                  render={({ field }) => (
-                    <FormItem className="space-y-2">
-                      <FormLabel>Audit webhook URL</FormLabel>
-                      <FormDescription className="text-xs">
-                        Provide an HTTPS endpoint to receive audit events.
-                      </FormDescription>
-                      <FormControl>
-                        <Input
-                          type="url"
-                          placeholder="https://example.com/webhooks/audit"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+          <DialogBody>
+            <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
+              <Form {...form}>
+                <form
+                  onSubmit={form.handleSubmit(onSubmit)}
+                  className="space-y-6"
+                >
+                  <FormField
+                    control={form.control}
+                    name="audit_webhook_url"
+                    render={({ field }) => (
+                      <FormItem className="space-y-2">
+                        <FormLabel>Audit webhook URL</FormLabel>
+                        <FormDescription className="text-xs">
+                          Provide an HTTPS endpoint to receive audit events.
+                        </FormDescription>
+                        <FormControl>
+                          <Input
+                            type="url"
+                            placeholder="https://example.com/webhooks/audit"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-                <div className="space-y-3">
-                  <div className="space-y-1.5">
-                    <p className="text-sm font-medium">Custom headers</p>
-                    <p className="text-xs text-muted-foreground">
-                      POST request headers.
-                    </p>
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <p className="text-sm font-medium">Custom headers</p>
+                      <p className="text-xs text-muted-foreground">
+                        POST request headers.
+                      </p>
+                    </div>
+
+                    {headerFields.length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        No custom headers configured.
+                      </p>
+                    )}
+
+                    {headerFields.map((field, index) => (
+                      <div
+                        key={field.id}
+                        className="grid grid-cols-[1fr_1fr_auto] gap-2"
+                      >
+                        <FormField
+                          control={form.control}
+                          name={`headers.${index}.key` as const}
+                          render={({ field: headerField }) => (
+                            <FormItem>
+                              <FormControl>
+                                <Input
+                                  {...headerField}
+                                  placeholder="X-Custom-Header"
+                                  autoComplete="off"
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name={`headers.${index}.value` as const}
+                          render={({ field: valueField }) => (
+                            <FormItem>
+                              <FormControl>
+                                <Input
+                                  {...valueField}
+                                  type="password"
+                                  placeholder="Header value"
+                                  autoComplete="off"
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeHeader(index)}
+                          className="mt-0.5"
+                        >
+                          <Trash2Icon className="size-4" />
+                          <span className="sr-only">Remove header</span>
+                        </Button>
+                      </div>
+                    ))}
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => appendHeader({ key: "", value: "" })}
+                      className="gap-2"
+                    >
+                      <PlusIcon className="size-4" />
+                      Add header
+                    </Button>
                   </div>
 
-                  {headerFields.length === 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      No custom headers configured.
-                    </p>
-                  )}
+                  <FormField
+                    control={form.control}
+                    name="custom_payload_json"
+                    render={({ field }) => (
+                      <FormItem className="space-y-2">
+                        <FormLabel>Custom payload (optional)</FormLabel>
+                        <FormDescription>
+                          JSON object merged into the default audit event
+                          payload.
+                        </FormDescription>
+                        <FormControl>
+                          <CodeEditor
+                            value={field.value}
+                            onChange={field.onChange}
+                            language="json"
+                            className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[120px]"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-                  {headerFields.map((field, index) => (
-                    <div
-                      key={field.id}
-                      className="grid grid-cols-[1fr_1fr_auto] gap-2"
+                  <FormField
+                    control={form.control}
+                    name="audit_webhook_payload_attribute"
+                    render={({ field }) => (
+                      <FormItem className="space-y-2">
+                        <FormLabel>Payload attribute (optional)</FormLabel>
+                        <FormDescription className="text-xs">
+                          Wrap payload under this key (e.g. <code>event</code>).
+                        </FormDescription>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="event"
+                            autoComplete="off"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="audit_webhook_verify_ssl"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                        <FormLabel>Verify SSL certificate</FormLabel>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={form.handleSubmit(onTestForm)}
+                      disabled={
+                        testAuditWebhookIsPending ||
+                        updateAuditSettingsIsPending ||
+                        formUrlIsEmpty
+                      }
+                      className="gap-2"
                     >
-                      <FormField
-                        control={form.control}
-                        name={`headers.${index}.key` as const}
-                        render={({ field: headerField }) => (
-                          <FormItem>
-                            <FormControl>
-                              <Input
-                                {...headerField}
-                                placeholder="X-Custom-Header"
-                                autoComplete="off"
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name={`headers.${index}.value` as const}
-                        render={({ field: valueField }) => (
-                          <FormItem>
-                            <FormControl>
-                              <Input
-                                {...valueField}
-                                type="password"
-                                placeholder="Header value"
-                                autoComplete="off"
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeHeader(index)}
-                        className="mt-0.5"
-                      >
-                        <Trash2Icon className="size-4" />
-                        <span className="sr-only">Remove header</span>
-                      </Button>
-                    </div>
-                  ))}
-
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => appendHeader({ key: "", value: "" })}
-                    className="gap-2"
-                  >
-                    <PlusIcon className="size-4" />
-                    Add header
-                  </Button>
-                </div>
-
-                <FormField
-                  control={form.control}
-                  name="custom_payload_json"
-                  render={({ field }) => (
-                    <FormItem className="space-y-2">
-                      <FormLabel>Custom payload (optional)</FormLabel>
-                      <FormDescription>
-                        JSON object merged into the default audit event payload.
-                      </FormDescription>
-                      <FormControl>
-                        <CodeEditor
-                          value={field.value}
-                          onChange={field.onChange}
-                          language="json"
-                          className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[120px]"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="audit_webhook_payload_attribute"
-                  render={({ field }) => (
-                    <FormItem className="space-y-2">
-                      <FormLabel>Payload attribute (optional)</FormLabel>
-                      <FormDescription className="text-xs">
-                        Wrap payload under this key (e.g. <code>event</code>).
-                      </FormDescription>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="event"
-                          autoComplete="off"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="audit_webhook_verify_ssl"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                      <FormLabel>Verify SSL certificate</FormLabel>
-                      <FormControl>
-                        <Switch
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={form.handleSubmit(onTestForm)}
-                    disabled={
-                      testAuditWebhookIsPending ||
-                      updateAuditSettingsIsPending ||
-                      formUrlIsEmpty
-                    }
-                    className="gap-2"
-                  >
-                    <SendIcon className="size-3.5" />
-                    {testAuditWebhookIsPending ? "Testing..." : "Test"}
-                  </Button>
-                  <Button
-                    type="submit"
-                    disabled={
-                      updateAuditSettingsIsPending || testAuditWebhookIsPending
-                    }
-                  >
-                    {updateAuditSettingsIsPending
-                      ? "Saving..."
-                      : "Save changes"}
-                  </Button>
-                </div>
-              </form>
-            </Form>
-          </div>
+                      <SendIcon className="size-3.5" />
+                      {testAuditWebhookIsPending ? "Testing..." : "Test"}
+                    </Button>
+                    <Button
+                      type="submit"
+                      disabled={
+                        updateAuditSettingsIsPending ||
+                        testAuditWebhookIsPending
+                      }
+                    >
+                      {updateAuditSettingsIsPending
+                        ? "Saving..."
+                        : "Save changes"}
+                    </Button>
+                  </div>
+                </form>
+              </Form>
+            </div>
+          </DialogBody>
         </DialogContent>
       </Dialog>
     </>

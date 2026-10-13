@@ -1386,6 +1386,19 @@ ENTERPRISE_EDITION = env_bool("ENTERPRISE_EDITION", default=False)
 TRACECAT__EE_MULTI_TENANT = env_bool("TRACECAT__EE_MULTI_TENANT", default=False)
 """Whether multi-tenant features are enabled for Enterprise Edition."""
 
+# === Managed tunnels (Pangolin) === #
+TRACECAT__PANGOLIN_ENDPOINT = os.environ.get("TRACECAT__PANGOLIN_ENDPOINT")
+"""Pangolin server URL that sites and machine clients connect to, e.g. Pangolin Cloud."""
+
+TRACECAT__PANGOLIN_API_URL = os.environ.get("TRACECAT__PANGOLIN_API_URL")
+"""Pangolin Integration API base URL (ending in /v1) used to provision managed tunnels."""
+
+TRACECAT__PANGOLIN_ORG_ID = os.environ.get("TRACECAT__PANGOLIN_ORG_ID")
+"""Pangolin organization that holds every managed tunnel's site, client, and resources."""
+
+TRACECAT__PANGOLIN_API_KEY = os.environ.get("TRACECAT__PANGOLIN_API_KEY")
+"""Pangolin organization API key. Managed tunnels are disabled when unset."""
+
 # === Feature Flags === #
 TRACECAT__FEATURE_FLAGS: set[FeatureFlag] = set()
 for _flag in os.environ.get("TRACECAT__FEATURE_FLAGS", "").split(","):

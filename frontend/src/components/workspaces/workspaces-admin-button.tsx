@@ -9,8 +9,10 @@ import { workflowsCreateWorkflow } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -104,7 +106,7 @@ export function WorkspaceManagementButton() {
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent size="sm" className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>Import workflow from file</DialogTitle>
           <DialogDescription>
@@ -113,31 +115,40 @@ export function WorkspaceManagementButton() {
         </DialogHeader>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-            <FormField
-              control={form.control}
-              name="file"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>File</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="file"
-                      className="min-h-9 py-2"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        if (file) {
-                          field.onChange(file)
-                        }
-                      }}
-                    />
-                  </FormControl>
-                  <FormDescription>Upload a file (max 5MB)</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <Button type="submit">Upload</Button>
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DialogBody>
+              <FormField
+                control={form.control}
+                name="file"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>File</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="file"
+                        className="min-h-9 py-2"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) {
+                            field.onChange(file)
+                          }
+                        }}
+                      />
+                    </FormControl>
+                    <FormDescription>Upload a file (max 5MB)</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </DialogBody>
+            <DialogFooter>
+              <Button size="sm" type="submit">
+                Upload
+              </Button>
+            </DialogFooter>
           </form>
         </Form>
       </DialogContent>

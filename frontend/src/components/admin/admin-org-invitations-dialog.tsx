@@ -25,9 +25,9 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -207,237 +207,235 @@ export function AdminOrgInvitationsDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent size="lg" className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>Organization invitations</DialogTitle>
             <DialogDescription>
               Create and manage platform-created invitations.
             </DialogDescription>
           </DialogHeader>
+          <DialogBody>
+            <div className="flex flex-col gap-6">
+              <div className="flex flex-col gap-3 rounded-md border p-4">
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_auto]">
+                  <Input
+                    id="admin-org-invitation-email"
+                    name="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="user@example.com"
+                    type="email"
+                    autoComplete="email"
+                  />
+                  <Select
+                    value={roleSlug}
+                    onValueChange={(value) =>
+                      setRoleSlug(value as PlatformRoleSlug)
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {ROLE_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    onClick={handleCreateInvitation}
+                    disabled={!email || createPending}
+                  >
+                    {createPending ? (
+                      <ReloadIcon data-icon="inline-start" />
+                    ) : (
+                      <PlusIcon data-icon="inline-start" />
+                    )}
+                    Create
+                  </Button>
+                </div>
 
-          <div className="flex flex-col gap-6">
-            <div className="flex flex-col gap-3 rounded-md border p-4">
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_auto]">
-                <Input
-                  id="admin-org-invitation-email"
-                  name="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="user@example.com"
-                  type="email"
-                  autoComplete="email"
-                />
-                <Select
-                  value={roleSlug}
-                  onValueChange={(value) =>
-                    setRoleSlug(value as PlatformRoleSlug)
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {ROLE_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                <Button
-                  onClick={handleCreateInvitation}
-                  disabled={!email || createPending}
-                >
-                  {createPending ? (
-                    <ReloadIcon data-icon="inline-start" />
-                  ) : (
-                    <PlusIcon data-icon="inline-start" />
-                  )}
-                  Create
-                </Button>
+                {createdLink && createdToken && (
+                  <div className="flex flex-col gap-2 rounded-md border bg-muted/40 p-3">
+                    <Input
+                      id="admin-org-invitation-link"
+                      name="invitation_link"
+                      readOnly
+                      value={createdLink}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          copyToClipboard(
+                            invitationUrl(createdToken),
+                            "Invitation link copied."
+                          )
+                        }
+                      >
+                        <CopyIcon data-icon="inline-start" />
+                        Copy link
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          copyToClipboard(
+                            createdToken,
+                            "Invitation token copied."
+                          )
+                        }
+                      >
+                        <CopyIcon data-icon="inline-start" />
+                        Copy token
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {createdLink && createdToken && (
-                <div className="flex flex-col gap-2 rounded-md border bg-muted/40 p-3">
-                  <Input
-                    id="admin-org-invitation-link"
-                    name="invitation_link"
-                    readOnly
-                    value={createdLink}
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        copyToClipboard(
-                          invitationUrl(createdToken),
-                          "Invitation link copied."
-                        )
-                      }
-                    >
-                      <CopyIcon data-icon="inline-start" />
-                      Copy link
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        copyToClipboard(
-                          createdToken,
-                          "Invitation token copied."
-                        )
-                      }
-                    >
-                      <CopyIcon data-icon="inline-start" />
-                      Copy token
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Expires</TableHead>
-                    <TableHead className="w-[220px] text-right">
-                      Actions
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {isLoading ? (
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
                     <TableRow>
-                      <TableCell
-                        colSpan={5}
-                        className="h-20 text-center text-muted-foreground"
-                      >
-                        Loading invitations...
-                      </TableCell>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Role</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Expires</TableHead>
+                      <TableHead className="w-[220px] text-right">
+                        Actions
+                      </TableHead>
                     </TableRow>
-                  ) : invitations.length === 0 ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={5}
-                        className="h-20 text-center text-muted-foreground"
-                      >
-                        No platform-created invitations
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    invitations.map((invitation) => (
-                      <TableRow key={invitation.id}>
-                        <TableCell className="font-medium">
-                          {invitation.email}
-                        </TableCell>
-                        <TableCell>{invitation.role_name}</TableCell>
-                        <TableCell>
-                          <Badge variant={statusVariant(invitation.status)}>
-                            {formatStatus(invitation.status)}
-                          </Badge>
-                          {invitation.last_emailed_at && (
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              {`Emailed ${new Date(
-                                invitation.last_emailed_at
-                              ).toLocaleString()}`}
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {new Date(invitation.expires_at).toLocaleDateString()}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => copyInvitationLink(invitation.id)}
-                            >
-                              <CopyIcon data-icon="inline-start" />
-                              Copy link
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              disabled={
-                                invitation.status !== "pending" ||
-                                new Date(invitation.expires_at) <= new Date() ||
-                                resendPending
-                              }
-                              onClick={() => handleResendInvitation(invitation)}
-                            >
-                              <EnvelopeClosedIcon data-icon="inline-start" />
-                              Resend
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              disabled={invitation.status !== "pending"}
-                              onClick={() => setRevokeTarget(invitation)}
-                            >
-                              <TrashIcon data-icon="inline-start" />
-                              Revoke
-                            </Button>
-                          </div>
+                  </TableHeader>
+                  <TableBody>
+                    {isLoading ? (
+                      <TableRow>
+                        <TableCell
+                          colSpan={5}
+                          className="h-20 text-center text-muted-foreground"
+                        >
+                          Loading invitations...
                         </TableCell>
                       </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-              {showPagination && (
-                <div className="flex items-center justify-between border-t px-3 py-2">
-                  <span className="text-sm text-muted-foreground">
-                    Page {currentPage + 1}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={!hasPreviousPage || isLoading}
-                      onClick={goToPreviousPage}
-                    >
-                      <ChevronLeftIcon className="size-4" />
-                      Previous
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={!hasNextPage || isLoading}
-                      onClick={goToNextPage}
-                    >
-                      Next
-                      <ChevronRightIcon className="size-4" />
-                    </Button>
+                    ) : invitations.length === 0 ? (
+                      <TableRow>
+                        <TableCell
+                          colSpan={5}
+                          className="h-20 text-center text-muted-foreground"
+                        >
+                          No platform-created invitations
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      invitations.map((invitation) => (
+                        <TableRow key={invitation.id}>
+                          <TableCell className="font-medium">
+                            {invitation.email}
+                          </TableCell>
+                          <TableCell>{invitation.role_name}</TableCell>
+                          <TableCell>
+                            <Badge variant={statusVariant(invitation.status)}>
+                              {formatStatus(invitation.status)}
+                            </Badge>
+                            {invitation.last_emailed_at && (
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {`Emailed ${new Date(
+                                  invitation.last_emailed_at
+                                ).toLocaleString()}`}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {new Date(
+                              invitation.expires_at
+                            ).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  copyInvitationLink(invitation.id)
+                                }
+                              >
+                                <CopyIcon data-icon="inline-start" />
+                                Copy link
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={
+                                  invitation.status !== "pending" ||
+                                  new Date(invitation.expires_at) <=
+                                    new Date() ||
+                                  resendPending
+                                }
+                                onClick={() =>
+                                  handleResendInvitation(invitation)
+                                }
+                              >
+                                <EnvelopeClosedIcon data-icon="inline-start" />
+                                Resend
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                disabled={invitation.status !== "pending"}
+                                onClick={() => setRevokeTarget(invitation)}
+                              >
+                                <TrashIcon data-icon="inline-start" />
+                                Revoke
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+                {showPagination && (
+                  <div className="flex items-center justify-between border-t px-3 py-2">
+                    <span className="text-sm text-muted-foreground">
+                      Page {currentPage + 1}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={!hasPreviousPage || isLoading}
+                        onClick={goToPreviousPage}
+                      >
+                        <ChevronLeftIcon className="size-4" />
+                        Previous
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={!hasNextPage || isLoading}
+                        onClick={goToNextPage}
+                      >
+                        Next
+                        <ChevronRightIcon className="size-4" />
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
-          </div>
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-            >
-              Close
-            </Button>
-          </DialogFooter>
+          </DialogBody>
         </DialogContent>
       </Dialog>
 

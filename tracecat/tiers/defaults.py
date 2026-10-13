@@ -74,6 +74,7 @@ def resolve_oss_default_entitlements(
             agent_channels=False,
             semantic_search=False,
             forms=False,
+            tunnels=False,
         )
 
     # Existing install path: map legacy feature flags to entitlement groups.
@@ -115,6 +116,7 @@ def resolve_oss_default_entitlements(
         agent_channels=agent_channels_enabled,
         semantic_search=False,
         forms=forms_enabled,
+        tunnels=False,
     )
 
 

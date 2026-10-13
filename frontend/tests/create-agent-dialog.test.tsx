@@ -38,6 +38,7 @@ jest.mock("@/components/settings/settings-modal-context", () => ({
 jest.mock("@/components/ui/dialog", () => ({
   Dialog: ({ open, children }: { open: boolean; children: ReactNode }) =>
     open ? <div>{children}</div> : null,
+  DialogBody: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   DialogContent: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),

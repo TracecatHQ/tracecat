@@ -59,6 +59,7 @@ AuditResourceType = Literal[
     "webhook",
     "webhook_api_key",
     "workspace_variable",
+    "workspace_tunnel",
     "tag",
     "table",
     "table_column",

@@ -98,6 +98,7 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "form_submission",
     "form_event",
     "form_file",
+    "workspace_tunnel",
 )
 
 POST_RLS_ORG_SCOPED_TABLES = (

@@ -8,6 +8,7 @@ import {
   ExternalLink,
   ListIcon,
   ListTreeIcon,
+  PanelRight,
   ShieldAlertIcon,
   SignalHighIcon,
   SignalIcon,
@@ -138,6 +139,8 @@ interface CaseItemProps {
   onCheckChange?: (checked: boolean) => void
   onClick: () => void
   onDeleteRequest?: (caseData: CaseReadMinimal) => void
+  /** Adds an "Open in side panel" context menu item when set. */
+  onOpenInSidePanel?: (caseData: CaseReadMinimal) => void
   tags?: CaseTagRead[]
   members?: WorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
@@ -158,6 +161,7 @@ export function CaseItem({
   onCheckChange,
   onClick,
   onDeleteRequest,
+  onOpenInSidePanel,
   tags,
   members,
   dropdownDefinitions,
@@ -668,6 +672,16 @@ export function CaseItem({
             Open in new tab
           </Link>
         </ContextMenuItem>
+
+        {onOpenInSidePanel && (
+          <ContextMenuItem
+            className="text-xs"
+            onClick={() => onOpenInSidePanel(caseData)}
+          >
+            <PanelRight className="mr-2 size-3.5" />
+            Open in side panel
+          </ContextMenuItem>
+        )}
 
         <ContextMenuItem className="text-xs" onClick={handleCopyId}>
           <Copy className="mr-2 size-3.5" />

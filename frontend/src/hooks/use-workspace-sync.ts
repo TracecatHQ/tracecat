@@ -209,6 +209,7 @@ export function useWorkspaceSyncExportPreview(
       enabled &&
       (isFullWorkspacePreview || normalizedResources.length > 0),
     staleTime: 30 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return {

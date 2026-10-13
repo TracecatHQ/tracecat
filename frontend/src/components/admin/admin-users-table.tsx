@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -204,7 +205,7 @@ export function AdminUsersTable() {
               Create user
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent size="md">
             <DialogHeader>
               <DialogTitle>Create user</DialogTitle>
               <DialogDescription>
@@ -214,54 +215,21 @@ export function AdminUsersTable() {
             <Form {...createUserForm}>
               <form
                 onSubmit={createUserForm.handleSubmit(handleCreateUser)}
-                className="space-y-4"
+                className="flex min-h-0 flex-1 flex-col"
               >
-                <FormField
-                  control={createUserForm.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="user@example.com"
-                          type="email"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={createUserForm.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Password</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="password"
-                          placeholder="••••••••••••••••"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Minimum 12 characters. This is the initial password.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <div className="grid gap-4 sm:grid-cols-2">
+                <DialogBody>
                   <FormField
                     control={createUserForm.control}
-                    name="firstName"
+                    name="email"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>First name</FormLabel>
+                        <FormLabel>Email</FormLabel>
                         <FormControl>
-                          <Input placeholder="Jane" {...field} />
+                          <Input
+                            placeholder="user@example.com"
+                            type="email"
+                            {...field}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -269,47 +237,75 @@ export function AdminUsersTable() {
                   />
                   <FormField
                     control={createUserForm.control}
-                    name="lastName"
+                    name="password"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Last name</FormLabel>
+                        <FormLabel>Password</FormLabel>
                         <FormControl>
-                          <Input placeholder="Doe" {...field} />
+                          <Input
+                            type="password"
+                            placeholder="••••••••••••••••"
+                            {...field}
+                          />
                         </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-                <FormField
-                  control={createUserForm.control}
-                  name="isSuperuser"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                      <FormControl>
-                        <Checkbox
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                      <div className="space-y-1 leading-none">
-                        <FormLabel>Grant superuser access</FormLabel>
                         <FormDescription>
-                          Superusers can access all platform admin functions.
+                          Minimum 12 characters. This is the initial password.
                         </FormDescription>
-                      </div>
-                    </FormItem>
-                  )}
-                />
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <FormField
+                      control={createUserForm.control}
+                      name="firstName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>First name</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Jane" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={createUserForm.control}
+                      name="lastName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Last name</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Doe" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  <FormField
+                    control={createUserForm.control}
+                    name="isSuperuser"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                        <FormControl>
+                          <Checkbox
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                        <div className="space-y-1 leading-none">
+                          <FormLabel>Grant superuser access</FormLabel>
+                          <FormDescription>
+                            Superusers can access all platform admin functions.
+                          </FormDescription>
+                        </div>
+                      </FormItem>
+                    )}
+                  />
+                </DialogBody>
                 <DialogFooter>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setIsCreateDialogOpen(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button type="submit" disabled={createPending}>
+                  <Button size="sm" type="submit" disabled={createPending}>
                     {createPending ? "Creating..." : "Create"}
                   </Button>
                 </DialogFooter>

@@ -19,3 +19,4 @@ class Entitlement(StrEnum):
     AGENT_CHANNELS = "agent_channels"
     SEMANTIC_SEARCH = "semantic_search"
     FORMS = "forms"
+    TUNNELS = "tunnels"

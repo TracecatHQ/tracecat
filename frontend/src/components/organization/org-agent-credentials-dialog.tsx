@@ -15,6 +15,7 @@ import { ServiceAccountJsonUploader } from "@/components/service-account-json-up
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -261,7 +262,7 @@ export function AgentCredentialsDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[425px]">
+      <DialogContent size="md" className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle className="flex items-center space-x-2">
             <KeyIcon className="size-5" />
@@ -286,86 +287,86 @@ export function AgentCredentialsDialog({
                   : `Credentials configuration for ${provider} is not available.`}
               </p>
             </div>
-            <DialogFooter>
-              <Button onClick={onClose}>Close</Button>
-            </DialogFooter>
           </>
         ) : (
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              {fieldRows.map((section, sectionIndex) => (
-                <div
-                  className="space-y-4"
-                  key={section.title ?? `section-${sectionIndex}`}
-                >
-                  {section.title ? (
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium">{section.title}</p>
-                      {section.description ? (
-                        <p className="text-xs text-muted-foreground">
-                          {section.description}
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  {section.rows.map((row, rowIndex) => {
-                    const rowFields = row
-                      .map((fieldKey) => fieldsByKey.get(fieldKey))
-                      .filter((field) => field !== undefined)
-
-                    if (!rowFields.length) {
-                      return null
-                    }
-
-                    return (
-                      <div
-                        className={cn(
-                          "grid gap-4",
-                          rowFields.length > 1 && "sm:grid-cols-2"
-                        )}
-                        key={`${sectionIndex}-${rowIndex}`}
-                      >
-                        {rowFields.map((field) => (
-                          <FormField
-                            key={field.key}
-                            control={form.control}
-                            name={field.key}
-                            render={({ field: formField }) => (
-                              <FormItem>
-                                <FormLabel>
-                                  {field.label}
-                                  {field.required !== false && (
-                                    <span className="ml-1 text-red-500">*</span>
-                                  )}
-                                </FormLabel>
-                                <FormControl>
-                                  {renderCredentialInput(field, formField)}
-                                </FormControl>
-                                <FormDescription>
-                                  {field.description}
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        ))}
+            <form
+              onSubmit={form.handleSubmit(onSubmit)}
+              className="flex min-h-0 flex-1 flex-col"
+            >
+              <DialogBody>
+                {fieldRows.map((section, sectionIndex) => (
+                  <div
+                    className="space-y-4"
+                    key={section.title ?? `section-${sectionIndex}`}
+                  >
+                    {section.title ? (
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">{section.title}</p>
+                        {section.description ? (
+                          <p className="text-xs text-muted-foreground">
+                            {section.description}
+                          </p>
+                        ) : null}
                       </div>
-                    )
-                  })}
-                </div>
-              ))}
+                    ) : null}
+                    {section.rows.map((row, rowIndex) => {
+                      const rowFields = row
+                        .map((fieldKey) => fieldsByKey.get(fieldKey))
+                        .filter((field) => field !== undefined)
 
-              {error && (
-                <div className="rounded-md bg-red-50 p-3">
-                  <p className="text-sm text-red-700">{error}</p>
-                </div>
-              )}
+                      if (!rowFields.length) {
+                        return null
+                      }
 
+                      return (
+                        <div
+                          className={cn(
+                            "grid gap-4",
+                            rowFields.length > 1 && "sm:grid-cols-2"
+                          )}
+                          key={`${sectionIndex}-${rowIndex}`}
+                        >
+                          {rowFields.map((field) => (
+                            <FormField
+                              key={field.key}
+                              control={form.control}
+                              name={field.key}
+                              render={({ field: formField }) => (
+                                <FormItem>
+                                  <FormLabel>
+                                    {field.label}
+                                    {field.required !== false && (
+                                      <span className="ml-1 text-red-500">
+                                        *
+                                      </span>
+                                    )}
+                                  </FormLabel>
+                                  <FormControl>
+                                    {renderCredentialInput(field, formField)}
+                                  </FormControl>
+                                  <FormDescription>
+                                    {field.description}
+                                  </FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          ))}
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
+
+                {error && (
+                  <div className="rounded-md bg-red-50 p-3">
+                    <p className="text-sm text-red-700">{error}</p>
+                  </div>
+                )}
+              </DialogBody>
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={onClose}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={loading}>
+                <Button size="sm" type="submit" disabled={loading}>
                   {loading ? "Saving..." : "Save credentials"}
                 </Button>
               </DialogFooter>

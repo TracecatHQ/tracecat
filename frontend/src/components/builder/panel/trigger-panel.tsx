@@ -63,6 +63,7 @@ import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -94,7 +95,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
@@ -1078,36 +1078,35 @@ export function WebhookControls({
       </div>
 
       <Dialog open={apiKeyDialogOpen} onOpenChange={handleDialogChange}>
-        <DialogContent>
+        <DialogContent size="sm">
           <DialogHeader>
             <DialogTitle>Webhook API key</DialogTitle>
             <DialogDescription>
               Copy the key now. It will not be shown again.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 text-xs">
-            <div className="flex justify-between text-muted-foreground">
-              <span>Generated</span>
-              <span>{formatTimestamp(generatedAt)}</span>
+          <DialogBody>
+            <div className="space-y-3 text-xs">
+              <div className="flex justify-between text-muted-foreground">
+                <span>Generated</span>
+                <span>{formatTimestamp(generatedAt)}</span>
+              </div>
+              <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-2">
+                <code className="break-all text-xs">
+                  {generatedApiKey ?? "—"}
+                </code>
+                {generatedApiKey ? (
+                  <CopyButton
+                    value={generatedApiKey}
+                    toastMessage="Copied API key to clipboard"
+                  />
+                ) : null}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Rotate the API key if it is ever exposed.
+              </p>
             </div>
-            <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-2">
-              <code className="break-all text-xs">
-                {generatedApiKey ?? "—"}
-              </code>
-              {generatedApiKey ? (
-                <CopyButton
-                  value={generatedApiKey}
-                  toastMessage="Copied API key to clipboard"
-                />
-              ) : null}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Rotate the API key if it is ever exposed.
-            </p>
-          </div>
-          <DialogFooter>
-            <Button onClick={() => handleDialogChange(false)}>Done</Button>
-          </DialogFooter>
+          </DialogBody>
         </DialogContent>
       </Dialog>
 
@@ -1824,8 +1823,8 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
-      <DialogContent className="max-h-[calc(100vh-4rem)] grid-rows-[auto,1fr] overflow-hidden p-0 sm:max-w-xl">
-        <DialogHeader className="border-b px-6 py-4 text-left">
+      <DialogContent size="lg" className="sm:max-w-xl">
+        <DialogHeader>
           <DialogTitle>Create a new schedule</DialogTitle>
           <DialogDescription>
             Configure the schedule for the workflow. The workflow will not run
@@ -1840,7 +1839,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
         </DialogHeader>
         <Form {...form}>
           <form
-            className="flex h-full flex-col overflow-hidden"
+            className="flex min-h-0 flex-1 flex-col"
             onSubmit={form.handleSubmit(onSubmit, () => {
               console.error("Form validation failed")
               toast({
@@ -1849,8 +1848,8 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
               })
             })}
           >
-            <ScrollArea className="flex-1 px-6 pr-10">
-              <div className="space-y-4 py-4">
+            <DialogBody>
+              <div className="space-y-4">
                 <FormField
                   control={form.control}
                   name="mode"
@@ -2222,9 +2221,9 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
                   }}
                 />
               </div>
-            </ScrollArea>
-            <DialogFooter className="border-t px-6 py-4">
-              <Button type="submit" variant="default">
+            </DialogBody>
+            <DialogFooter>
+              <Button size="sm" type="submit" variant="default">
                 <PlusCircleIcon className="mr-2 size-4" />
                 <span>Create</span>
               </Button>

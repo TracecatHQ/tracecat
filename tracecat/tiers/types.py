@@ -92,3 +92,11 @@ class EntitlementsDict(TypedDict, total=False):
             description="Whether workflow forms are enabled",
         ),
     ]
+    tunnels: Annotated[
+        bool,
+        Field(
+            title="Tunnels",
+            description="Whether workspaces may route actions through private"
+            " network tunnels such as Pangolin",
+        ),
+    ]

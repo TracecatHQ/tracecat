@@ -10,6 +10,7 @@ import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -100,35 +101,40 @@ export function FolderRenameDialog({
         onOpenChange(isOpen)
       }}
     >
-      <DialogContent>
-        <DialogHeader className="space-y-4">
+      <DialogContent size="sm">
+        <DialogHeader>
           <DialogTitle>Rename Folder</DialogTitle>
           <DialogDescription>
             Enter a new name for the folder.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="flex items-center gap-2 text-xs">
-                    Name
-                  </FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormDescription>
-                    The new name for the folder.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DialogBody>
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="flex items-center gap-2 text-xs">
+                      Name
+                    </FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormDescription>
+                      The new name for the folder.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </DialogBody>
             <DialogFooter>
-              <Button type="submit" disabled={updateFolderIsPending}>
+              <Button size="sm" type="submit" disabled={updateFolderIsPending}>
                 {updateFolderIsPending ? (
                   <Spinner />
                 ) : (

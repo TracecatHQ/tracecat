@@ -9,6 +9,7 @@ import { JsonViewWithControls } from "@/components/json-viewer"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -16,7 +17,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
@@ -240,221 +240,214 @@ export function AgentApprovalsDialog({
         onOpenChange(nextOpen)
       }}
     >
-      <DialogContent className="max-w-2xl">
+      <DialogContent size="lg" className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Pending approvals</DialogTitle>
           <DialogDescription>
             Review the tool calls issued by this agent and submit your decision.
           </DialogDescription>
         </DialogHeader>
-
-        {!session ? (
-          <div className="flex items-center gap-2 rounded-md border border-dashed border-muted-foreground/40 p-4 text-sm text-muted-foreground">
-            <AlertTriangleIcon className="size-4" />
-            <span>No agent session selected.</span>
-          </div>
-        ) : pendingApprovals.length === 0 ? (
-          <div className="flex items-center gap-2 rounded-md border border-dashed border-muted-foreground/40 p-4 text-sm text-muted-foreground">
-            <AlertTriangleIcon className="size-4" />
-            <span>This session has no pending approvals.</span>
-          </div>
-        ) : (
-          <ScrollArea className="pr-2 [&>[data-radix-scroll-area-viewport]]:max-h-[420px]">
-            <div className="space-y-4">
-              {pendingApprovals.map((approval) => {
-                const state = formState[approval.tool_call_id] ?? {
-                  decision: "approve" as DecisionType,
-                  overrideArgs: "",
-                  message: "",
-                }
-                const actionTypeKey = approval.tool_name
-                  ? reconstructActionType(approval.tool_name)
-                  : "unknown"
-                const defaultActionLabel = approval.tool_name
-                  ? actionTypeKey
-                  : "Unknown action"
-                const actionDisplayName =
-                  session?.action_title ?? defaultActionLabel
-                let rootWorkflowLabel = session?.root_workflow ?? null
-                if (
-                  rootWorkflowLabel &&
-                  session?.parent_workflow &&
-                  rootWorkflowLabel.id === session.parent_workflow.id
-                ) {
-                  rootWorkflowLabel = null
-                }
-
-                // Parse args if it's a JSON string
-                const argsData = approval.tool_call_args
-                let parsedArgs = argsData
-                if (typeof argsData === "string") {
-                  try {
-                    parsedArgs = JSON.parse(argsData)
-                  } catch {
-                    parsedArgs = argsData
+        <DialogBody>
+          {!session ? (
+            <div className="flex items-center gap-2 rounded-md border border-dashed border-muted-foreground/40 p-4 text-sm text-muted-foreground">
+              <AlertTriangleIcon className="size-4" />
+              <span>No agent session selected.</span>
+            </div>
+          ) : pendingApprovals.length === 0 ? (
+            <div className="flex items-center gap-2 rounded-md border border-dashed border-muted-foreground/40 p-4 text-sm text-muted-foreground">
+              <AlertTriangleIcon className="size-4" />
+              <span>This session has no pending approvals.</span>
+            </div>
+          ) : (
+            <div>
+              <div className="space-y-4">
+                {pendingApprovals.map((approval) => {
+                  const state = formState[approval.tool_call_id] ?? {
+                    decision: "approve" as DecisionType,
+                    overrideArgs: "",
+                    message: "",
                   }
-                }
+                  const actionTypeKey = approval.tool_name
+                    ? reconstructActionType(approval.tool_name)
+                    : "unknown"
+                  const defaultActionLabel = approval.tool_name
+                    ? actionTypeKey
+                    : "Unknown action"
+                  const actionDisplayName =
+                    session?.action_title ?? defaultActionLabel
+                  let rootWorkflowLabel = session?.root_workflow ?? null
+                  if (
+                    rootWorkflowLabel &&
+                    session?.parent_workflow &&
+                    rootWorkflowLabel.id === session.parent_workflow.id
+                  ) {
+                    rootWorkflowLabel = null
+                  }
 
-                return (
-                  <div
-                    key={approval.id}
-                    className="rounded-xl border border-border/70 bg-card p-4 shadow-sm"
-                  >
-                    <div className="mb-3 flex flex-wrap items-center gap-2">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="flex items-center gap-2">
-                            {getIcon(actionTypeKey, {
-                              className: "size-4 shrink-0",
-                              flairsize: "sm",
-                            })}
-                            <span className="text-sm font-semibold">
-                              {actionDisplayName}
+                  // Parse args if it's a JSON string
+                  const argsData = approval.tool_call_args
+                  let parsedArgs = argsData
+                  if (typeof argsData === "string") {
+                    try {
+                      parsedArgs = JSON.parse(argsData)
+                    } catch {
+                      parsedArgs = argsData
+                    }
+                  }
+
+                  return (
+                    <div
+                      key={approval.id}
+                      className="rounded-xl border border-border/70 bg-card p-4 shadow-sm"
+                    >
+                      <div className="mb-3 flex flex-wrap items-center gap-2">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex items-center gap-2">
+                              {getIcon(actionTypeKey, {
+                                className: "size-4 shrink-0",
+                                flairsize: "sm",
+                              })}
+                              <span className="text-sm font-semibold">
+                                {actionDisplayName}
+                              </span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <span className="font-mono text-[11px]">
+                              {approval.tool_call_id}
                             </span>
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <span className="font-mono text-[11px]">
-                            {approval.tool_call_id}
-                          </span>
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-
-                    <div className="mb-4 space-y-1 text-xs text-muted-foreground">
-                      <div>
-                        <span className="font-medium text-foreground">
-                          Parent:
-                        </span>{" "}
-                        {formatWorkflowLabel(session?.parent_workflow)}
+                          </TooltipContent>
+                        </Tooltip>
                       </div>
-                      {rootWorkflowLabel ? (
+
+                      <div className="mb-4 space-y-1 text-xs text-muted-foreground">
                         <div>
                           <span className="font-medium text-foreground">
-                            Root:
+                            Parent:
                           </span>{" "}
-                          {formatWorkflowLabel(rootWorkflowLabel)}
+                          {formatWorkflowLabel(session?.parent_workflow)}
                         </div>
-                      ) : null}
-                      <div>
-                        <span className="font-medium text-foreground">
-                          Action:
-                        </span>{" "}
-                        {actionDisplayName}
-                        {session?.action_ref ? (
-                          <span className="ml-1 text-muted-foreground/80">
-                            ({session.action_ref})
-                          </span>
+                        {rootWorkflowLabel ? (
+                          <div>
+                            <span className="font-medium text-foreground">
+                              Root:
+                            </span>{" "}
+                            {formatWorkflowLabel(rootWorkflowLabel)}
+                          </div>
                         ) : null}
-                      </div>
-                    </div>
-
-                    <div className="mb-4 text-xs text-muted-foreground">
-                      <div className="mb-1 font-medium uppercase tracking-wide">
-                        Arguments
-                      </div>
-                      <JsonViewWithControls
-                        src={parsedArgs}
-                        defaultExpanded
-                        showControls={false}
-                        className="text-xs"
-                      />
-                    </div>
-
-                    <div className="space-y-3">
-                      <div className="flex flex-col gap-1.5">
-                        <Label className="text-xs text-muted-foreground">
-                          Decision
-                        </Label>
-                        <Select
-                          value={state.decision}
-                          onValueChange={(value) =>
-                            handleDecisionChange(
-                              approval.tool_call_id,
-                              value as DecisionType
-                            )
-                          }
-                        >
-                          <SelectTrigger className="h-8 w-fit min-w-[180px] text-xs">
-                            <SelectValue placeholder="Select an action" />
-                          </SelectTrigger>
-                          <SelectContent className="min-w-[180px]">
-                            <SelectItem value="approve">Approve</SelectItem>
-                            <SelectItem value="override">
-                              Approve with overrides
-                            </SelectItem>
-                            <SelectItem value="deny">Deny</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <div>
+                          <span className="font-medium text-foreground">
+                            Action:
+                          </span>{" "}
+                          {actionDisplayName}
+                          {session?.action_ref ? (
+                            <span className="ml-1 text-muted-foreground/80">
+                              ({session.action_ref})
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
 
-                      {state.decision === "override" && (
+                      <div className="mb-4 text-xs text-muted-foreground">
+                        <div className="mb-1 font-medium uppercase tracking-wide">
+                          Arguments
+                        </div>
+                        <JsonViewWithControls
+                          src={parsedArgs}
+                          defaultExpanded
+                          showControls={false}
+                          className="text-xs"
+                        />
+                      </div>
+
+                      <div className="space-y-3">
                         <div className="flex flex-col gap-1.5">
                           <Label className="text-xs text-muted-foreground">
-                            Override arguments (JSON)
+                            Decision
                           </Label>
-                          <Textarea
-                            value={state.overrideArgs}
-                            className="min-h-[96px] text-xs font-mono"
-                            placeholder='e.g. { "channel": "general" }'
-                            onChange={(event) =>
-                              setFormState((prev) => ({
-                                ...prev,
-                                [approval.tool_call_id]: {
-                                  ...state,
-                                  overrideArgs: event.target.value,
-                                },
-                              }))
+                          <Select
+                            value={state.decision}
+                            onValueChange={(value) =>
+                              handleDecisionChange(
+                                approval.tool_call_id,
+                                value as DecisionType
+                              )
                             }
-                          />
+                          >
+                            <SelectTrigger className="h-8 w-fit min-w-[180px] text-xs">
+                              <SelectValue placeholder="Select an action" />
+                            </SelectTrigger>
+                            <SelectContent className="min-w-[180px]">
+                              <SelectItem value="approve">Approve</SelectItem>
+                              <SelectItem value="override">
+                                Approve with overrides
+                              </SelectItem>
+                              <SelectItem value="deny">Deny</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </div>
-                      )}
 
-                      {state.decision === "deny" && (
-                        <div className="flex flex-col gap-1.5">
-                          <Label className="text-xs text-muted-foreground">
-                            Optional reason
-                          </Label>
-                          <Textarea
-                            value={state.message}
-                            className="min-h-[72px] text-xs"
-                            placeholder="Let the agent know why this call is denied."
-                            onChange={(event) =>
-                              setFormState((prev) => ({
-                                ...prev,
-                                [approval.tool_call_id]: {
-                                  ...state,
-                                  message: event.target.value,
-                                },
-                              }))
-                            }
-                          />
-                        </div>
-                      )}
+                        {state.decision === "override" && (
+                          <div className="flex flex-col gap-1.5">
+                            <Label className="text-xs text-muted-foreground">
+                              Override arguments (JSON)
+                            </Label>
+                            <Textarea
+                              value={state.overrideArgs}
+                              className="min-h-[96px] text-xs font-mono"
+                              placeholder='e.g. { "channel": "general" }'
+                              onChange={(event) =>
+                                setFormState((prev) => ({
+                                  ...prev,
+                                  [approval.tool_call_id]: {
+                                    ...state,
+                                    overrideArgs: event.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                          </div>
+                        )}
+
+                        {state.decision === "deny" && (
+                          <div className="flex flex-col gap-1.5">
+                            <Label className="text-xs text-muted-foreground">
+                              Optional reason
+                            </Label>
+                            <Textarea
+                              value={state.message}
+                              className="min-h-[72px] text-xs"
+                              placeholder="Let the agent know why this call is denied."
+                              onChange={(event) =>
+                                setFormState((prev) => ({
+                                  ...prev,
+                                  [approval.tool_call_id]: {
+                                    ...state,
+                                    message: event.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
             </div>
-          </ScrollArea>
-        )}
+          )}
 
-        {formError && (
-          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            {formError}
-          </div>
-        )}
-
-        <DialogFooter className="flex w-full justify-between">
+          {formError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {formError}
+            </div>
+          )}
+        </DialogBody>
+        <DialogFooter>
           <Button
-            type="button"
-            variant="ghost"
-            onClick={() => onOpenChange(false)}
-            disabled={isSubmitting}
-          >
-            Cancel
-          </Button>
-          <Button
+            size="sm"
             type="button"
             onClick={handleSubmit}
             disabled={

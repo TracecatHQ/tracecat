@@ -6,6 +6,7 @@ import {
   BoxIcon,
   ChevronDown,
   ClipboardListIcon,
+  GitBranchIcon,
   KeyRound,
   LayersIcon,
   ListChecksIcon,
@@ -116,13 +117,19 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   // and the page explains why Forms is unavailable.
   const formsAccess = useFormsAccess()
   const formsVisible = formsAccess === "enabled" || formsAccess === "locked"
+  // Sync users push/pull; workspace admins manage the repository connection.
+  const canOpenGitSync = useScopeCheck(undefined, [
+    "workspace_sync:sync",
+    "workspace:update",
+  ])
   const canAccessMissionControl =
     canExecuteAgents === true && canViewAgents === true
   const shouldLoadEntitlements =
     canViewAgents === true ||
     canExecuteAgents === true ||
     canViewServiceAccounts === true ||
-    canViewInbox === true
+    canViewInbox === true ||
+    canOpenGitSync === true
   const {
     hasEntitlement,
     hasEntitlementData,
@@ -133,6 +140,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const entitlementsKnown = !entitlementsIsLoading && hasEntitlementData
   const workspaceChatEnabled = hasEntitlement("workspace_chat")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
+  const gitSyncEnabled = hasEntitlement("git_sync")
   const { data: pendingApprovalsCount = 0 } = usePendingApprovalsCount(
     workspaceId,
     {
@@ -233,6 +241,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         isActive: pathname?.startsWith(`${basePath}/actions`),
         visible: canViewActions === true,
       },
+      {
+        title: "Git sync",
+        url: `${basePath}/git-sync`,
+        icon: GitBranchIcon,
+        isActive: pathname?.startsWith(`${basePath}/git-sync`),
+        visible: canOpenGitSync === true,
+        // Stays visible without the entitlement so the page can offer the upgrade.
+        locked: entitlementsKnown && !gitSyncEnabled,
+      },
     ],
     [
       basePath,
@@ -250,6 +267,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       workspaceChatEnabled,
       canViewAgents,
       canViewActions,
+      canOpenGitSync,
+      gitSyncEnabled,
     ]
   )
 

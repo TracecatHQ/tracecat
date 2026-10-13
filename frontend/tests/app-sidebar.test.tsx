@@ -6,7 +6,10 @@ import { render, screen } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
 
-const mockUseScopeCheck = jest.fn<boolean | undefined, [string]>()
+const mockUseScopeCheck = jest.fn<
+  boolean | undefined,
+  [string | undefined, string[] | undefined]
+>()
 let mockPathname = "/workspaces/workspace-1/workflows"
 let mockScopes: Record<string, boolean | undefined> = {}
 let mockEntitlements: Record<string, boolean> = {}
@@ -19,11 +22,8 @@ jest.mock("next/navigation", () => ({
 }))
 
 jest.mock("@/components/auth/scope-guard", () => ({
-  // With a list of scopes, holding any one of them passes.
-  useScopeCheck: (scope?: string, scopes: string[] = []) =>
-    scope
-      ? mockUseScopeCheck(scope)
-      : scopes.some((item) => mockUseScopeCheck(item) === true),
+  useScopeCheck: (scope: string | undefined, anyOf?: string[]) =>
+    mockUseScopeCheck(scope, anyOf),
 }))
 
 let mockFormsAccess = "hidden"
@@ -163,7 +163,11 @@ describe("AppSidebar", () => {
     }
     mockEntitlementsIsLoading = false
     mockHasEntitlementData = true
-    mockUseScopeCheck.mockImplementation((scope) => mockScopes[scope] ?? false)
+    mockUseScopeCheck.mockImplementation((scope, anyOf) =>
+      scope
+        ? (mockScopes[scope] ?? false)
+        : (anyOf ?? []).some((candidate) => mockScopes[candidate])
+    )
     mockFormsAccess = "hidden"
   })
 
@@ -277,6 +281,39 @@ describe("AppSidebar", () => {
 
     expect(screen.getByText("Chat")).toBeInTheDocument()
     expect(screen.getAllByText("Locked")).toHaveLength(1)
+  })
+
+  it("keeps Git sync visible with a lock when the plan lacks it", () => {
+    mockScopes = { "workspace:update": true }
+
+    render(<AppSidebar />)
+
+    expect(screen.getByRole("link", { name: "Git sync" })).toHaveAttribute(
+      "href",
+      "/workspaces/workspace-1/git-sync"
+    )
+    expect(screen.getByText("Requires upgrade")).toBeInTheDocument()
+  })
+
+  it("shows Git sync without a lock when the plan includes it", () => {
+    mockScopes = { "workspace_sync:sync": true }
+    mockEntitlements = { git_sync: true }
+
+    render(<AppSidebar />)
+
+    expect(screen.getByRole("link", { name: "Git sync" })).toBeInTheDocument()
+    expect(screen.queryByText("Requires upgrade")).not.toBeInTheDocument()
+  })
+
+  it("hides Git sync without sync or connection access", () => {
+    mockScopes = { "workspace:read": true }
+
+    render(<AppSidebar />)
+
+    expect(
+      screen.queryByRole("link", { name: "Git sync" })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText("Requires upgrade")).not.toBeInTheDocument()
   })
 
   it("only highlights MCP servers on the MCP servers page", () => {

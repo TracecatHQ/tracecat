@@ -15421,6 +15421,13 @@ export const $EffectiveEntitlements = {
       description: "Whether workflow forms are enabled",
       default: false,
     },
+    tunnels: {
+      type: "boolean",
+      title: "Tunnels",
+      description:
+        "Whether workspaces may route actions through private network tunnels such as Pangolin",
+      default: false,
+    },
   },
   type: "object",
   title: "EffectiveEntitlements",
@@ -15655,6 +15662,12 @@ export const $EntitlementsDict = {
       type: "boolean",
       title: "Forms",
       description: "Whether workflow forms are enabled",
+    },
+    tunnels: {
+      type: "boolean",
+      title: "Tunnels",
+      description:
+        "Whether workspaces may route actions through private network tunnels such as Pangolin",
     },
   },
   type: "object",
@@ -22775,6 +22788,80 @@ export const $MCPVerificationStatusRead = {
   description: "Response model for saved MCP verification status.",
 } as const
 
+export const $ManagedTunnelCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 63,
+      minLength: 1,
+      pattern: "^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    allowed_targets: {
+      items: {
+        $ref: "#/components/schemas/TunnelTarget",
+      },
+      type: "array",
+      maxItems: 100,
+      minItems: 1,
+      title: "Allowed Targets",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["name", "allowed_targets"],
+  title: "ManagedTunnelCreate",
+  description:
+    "Create a tunnel whose Pangolin site, machine client, and resources Tracecat manages.",
+} as const
+
+export const $ManagedTunnelCreated = {
+  properties: {
+    tunnel: {
+      $ref: "#/components/schemas/TunnelRead",
+    },
+    site_id: {
+      type: "string",
+      title: "Site Id",
+    },
+    site_secret: {
+      type: "string",
+      title: "Site Secret",
+    },
+    site_endpoint: {
+      type: "string",
+      title: "Site Endpoint",
+    },
+    site_install_command: {
+      type: "string",
+      title: "Site Install Command",
+    },
+  },
+  type: "object",
+  required: [
+    "tunnel",
+    "site_id",
+    "site_secret",
+    "site_endpoint",
+    "site_install_command",
+  ],
+  title: "ManagedTunnelCreated",
+  description:
+    "A new managed tunnel. The site credentials are only returned once.",
+} as const
+
 export const $McpIntegrationMappingAffectedPreset = {
   properties: {
     preset_slug: {
@@ -24567,6 +24654,45 @@ export const $Page_SecretStoreRead_ = {
   type: "object",
   required: ["items"],
   title: "Page[SecretStoreRead]",
+} as const
+
+export const $Page_TunnelRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/TunnelRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[TunnelRead]",
 } as const
 
 export const $Page_WorkspaceSecretStoreRead_ = {
@@ -35894,6 +36020,356 @@ export const $TriggerType = {
   enum: ["manual", "scheduled", "webhook", "case", "form"],
   title: "TriggerType",
   description: "Trigger type for a workflow execution.",
+} as const
+
+export const $TunnelCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 63,
+      minLength: 1,
+      pattern: "^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    provider: {
+      $ref: "#/components/schemas/TunnelProvider",
+      default: "pangolin",
+    },
+    endpoint: {
+      type: "string",
+      minLength: 1,
+      format: "uri",
+      title: "Endpoint",
+      description:
+        "Base URL of the Pangolin server, either Pangolin Cloud or self-hosted.",
+    },
+    client_id: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Client Id",
+    },
+    client_secret: {
+      type: "string",
+      maxLength: 1024,
+      minLength: 1,
+      format: "password",
+      title: "Client Secret",
+      writeOnly: true,
+    },
+    allowed_targets: {
+      items: {
+        $ref: "#/components/schemas/TunnelTarget",
+      },
+      type: "array",
+      maxItems: 100,
+      minItems: 1,
+      title: "Allowed Targets",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      default: true,
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: [
+    "name",
+    "endpoint",
+    "client_id",
+    "client_secret",
+    "allowed_targets",
+  ],
+  title: "TunnelCreate",
+} as const
+
+export const $TunnelGatewayKeyRead = {
+  properties: {
+    tunnel_id: {
+      type: "string",
+      format: "uuid",
+      title: "Tunnel Id",
+    },
+    gateway_key: {
+      type: "string",
+      title: "Gateway Key",
+      description:
+        "Configure this on the tunnel gateway. Issuing a new key revokes the old one.",
+    },
+  },
+  type: "object",
+  required: ["tunnel_id", "gateway_key"],
+  title: "TunnelGatewayKeyRead",
+  description:
+    "A newly issued gateway key. It is only returned once, at issue time.",
+} as const
+
+export const $TunnelProvider = {
+  type: "string",
+  enum: ["pangolin"],
+  title: "TunnelProvider",
+} as const
+
+export const $TunnelRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    provider: {
+      $ref: "#/components/schemas/TunnelProvider",
+    },
+    endpoint: {
+      type: "string",
+      title: "Endpoint",
+    },
+    client_id: {
+      type: "string",
+      title: "Client Id",
+    },
+    allowed_targets: {
+      items: {
+        $ref: "#/components/schemas/TunnelTarget",
+      },
+      type: "array",
+      title: "Allowed Targets",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+    },
+    has_gateway_key: {
+      type: "boolean",
+      title: "Has Gateway Key",
+    },
+    managed: {
+      type: "boolean",
+      title: "Managed",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "name",
+    "description",
+    "provider",
+    "endpoint",
+    "client_id",
+    "allowed_targets",
+    "enabled",
+    "has_gateway_key",
+    "managed",
+    "created_at",
+    "updated_at",
+  ],
+  title: "TunnelRead",
+  description:
+    "Tunnel metadata. The client secret is write-only and never returned.",
+} as const
+
+export const $TunnelStatusRead = {
+  properties: {
+    tunnel_id: {
+      type: "string",
+      format: "uuid",
+      title: "Tunnel Id",
+    },
+    managed: {
+      type: "boolean",
+      title: "Managed",
+    },
+    site_online: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Site Online",
+    },
+  },
+  type: "object",
+  required: ["tunnel_id", "managed", "site_online"],
+  title: "TunnelStatusRead",
+} as const
+
+export const $TunnelTarget = {
+  properties: {
+    host: {
+      type: "string",
+      maxLength: 253,
+      minLength: 1,
+      title: "Host",
+      description:
+        "Exact hostname or IP address. Wildcards and CIDR ranges are not allowed.",
+    },
+    ports: {
+      items: {
+        type: "integer",
+        maximum: 65535,
+        minimum: 1,
+      },
+      type: "array",
+      maxItems: 64,
+      minItems: 1,
+      title: "Ports",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["host", "ports"],
+  title: "TunnelTarget",
+  description:
+    "A single private host and the TCP ports actions may reach through the tunnel.",
+} as const
+
+export const $TunnelUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 63,
+          minLength: 1,
+          pattern: "^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    endpoint: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+          format: "uri",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Endpoint",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+    },
+    client_secret: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1024,
+          minLength: 1,
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Secret",
+    },
+    allowed_targets: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/TunnelTarget",
+          },
+          type: "array",
+          maxItems: 100,
+          minItems: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Allowed Targets",
+    },
+    enabled: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Enabled",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "TunnelUpdate",
 } as const
 
 export const $UIMessage = {

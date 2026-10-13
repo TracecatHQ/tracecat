@@ -134,6 +134,7 @@ import { Button } from "@/components/ui/button"
 import { ButtonGroup, ButtonGroupText } from "@/components/ui/button-group"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -1696,31 +1697,25 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
           if (!open) setCommentText("")
         }}
       >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader className="text-left">
+        <DialogContent size="sm" className="max-w-2xl">
+          <DialogHeader>
             <DialogTitle>Add comment</DialogTitle>
             <DialogDescription>
               Add a comment to {selectedCount} selected
               {selectedCount === 1 ? " case" : " cases"}.
             </DialogDescription>
           </DialogHeader>
-          <SimpleEditor
-            value={commentText}
-            onChange={setCommentText}
-            placeholder="Enter comment..."
-            className="min-h-[150px]"
-          />
-          <DialogFooter className="flex-row justify-end space-x-2">
+          <DialogBody>
+            <SimpleEditor
+              value={commentText}
+              onChange={setCommentText}
+              placeholder="Enter comment..."
+              className="min-h-[150px]"
+            />
+          </DialogBody>
+          <DialogFooter>
             <Button
-              variant="outline"
-              onClick={() => {
-                setCommentDialogOpen(false)
-                setCommentText("")
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
+              size="sm"
               disabled={!commentText.trim() || isAddingComments}
               onClick={handleBulkAddComment}
             >
@@ -1743,31 +1738,25 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
           if (!open) setAppendText("")
         }}
       >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader className="text-left">
+        <DialogContent size="sm" className="max-w-2xl">
+          <DialogHeader>
             <DialogTitle>Append to description</DialogTitle>
             <DialogDescription>
               Append text to the description of {selectedCount} selected
               {selectedCount === 1 ? " case" : " cases"}.
             </DialogDescription>
           </DialogHeader>
-          <SimpleEditor
-            value={appendText}
-            onChange={setAppendText}
-            placeholder="Enter text to append..."
-            className="min-h-[150px]"
-          />
-          <DialogFooter className="flex-row justify-end space-x-2">
+          <DialogBody>
+            <SimpleEditor
+              value={appendText}
+              onChange={setAppendText}
+              placeholder="Enter text to append..."
+              className="min-h-[150px]"
+            />
+          </DialogBody>
+          <DialogFooter>
             <Button
-              variant="outline"
-              onClick={() => {
-                setAppendDialogOpen(false)
-                setAppendText("")
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
+              size="sm"
               disabled={!appendText.trim() || isAppending}
               onClick={handleBulkAppendDescription}
             >

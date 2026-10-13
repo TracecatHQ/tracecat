@@ -30,6 +30,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -222,72 +223,68 @@ function CreateTokenDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <DialogHeader>
-            <DialogTitle>Create MCP token</DialogTitle>
-            <DialogDescription>
-              Create a workspace-scoped bearer secret for MCP clients that
-              cannot use OIDC.
-            </DialogDescription>
-          </DialogHeader>
+      <DialogContent size="md">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <DialogBody>
+            <DialogHeader>
+              <DialogTitle>Create MCP token</DialogTitle>
+              <DialogDescription>
+                Create a workspace-scoped bearer secret for MCP clients that
+                cannot use OIDC.
+              </DialogDescription>
+            </DialogHeader>
 
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="mcp-token-name">Name</Label>
-              <Input
-                id="mcp-token-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Claude Code"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Expiration</Label>
-              <Select
-                value={expirationPreset}
-                onValueChange={(value) =>
-                  setExpirationPreset(value as ExpirationPreset)
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {EXPIRATION_PRESETS.map((preset) => (
-                    <SelectItem key={preset.value} value={preset.value}>
-                      {preset.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {expirationPreset === "custom" ? (
+            <div className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="mcp-token-custom-expiration">
-                  Custom expiration
-                </Label>
+                <Label htmlFor="mcp-token-name">Name</Label>
                 <Input
-                  id="mcp-token-custom-expiration"
-                  type="datetime-local"
-                  value={customExpiration}
-                  onChange={(event) => setCustomExpiration(event.target.value)}
+                  id="mcp-token-name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="Claude Code"
                 />
               </div>
-            ) : null}
-          </div>
 
+              <div className="space-y-2">
+                <Label>Expiration</Label>
+                <Select
+                  value={expirationPreset}
+                  onValueChange={(value) =>
+                    setExpirationPreset(value as ExpirationPreset)
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EXPIRATION_PRESETS.map((preset) => (
+                      <SelectItem key={preset.value} value={preset.value}>
+                        {preset.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {expirationPreset === "custom" ? (
+                <div className="space-y-2">
+                  <Label htmlFor="mcp-token-custom-expiration">
+                    Custom expiration
+                  </Label>
+                  <Input
+                    id="mcp-token-custom-expiration"
+                    type="datetime-local"
+                    value={customExpiration}
+                    onChange={(event) =>
+                      setCustomExpiration(event.target.value)
+                    }
+                  />
+                </div>
+              ) : null}
+            </div>
+          </DialogBody>
           <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={pending}>
+            <Button size="sm" type="submit" disabled={pending}>
               {pending ? "Creating..." : "Create token"}
             </Button>
           </DialogFooter>
@@ -311,7 +308,7 @@ function IssuedTokenDialog({
       open={issuedCredential !== null}
       onOpenChange={(open) => !open && onClose()}
     >
-      <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl overflow-hidden">
+      <DialogContent size="sm" className="w-[calc(100vw-2rem)] max-w-2xl">
         <DialogHeader>
           <DialogTitle>MCP personal access token</DialogTitle>
           <DialogDescription>
@@ -327,22 +324,22 @@ function IssuedTokenDialog({
             on connecting your client.
           </DialogDescription>
         </DialogHeader>
-
-        <div className="flex min-w-0 max-w-full items-center gap-3 rounded-lg bg-muted/60 px-4 py-3.5">
-          <code className="min-w-0 flex-1 truncate font-mono text-sm text-foreground/90 select-all">
-            {rawToken}
-          </code>
-          <CopyButton
-            value={rawToken}
-            toastMessage="MCP token copied."
-            tooltipMessage="Copy token"
-            className="size-6 shrink-0"
-            iconClassName="size-4 text-foreground/70"
-          />
-        </div>
-
+        <DialogBody>
+          <div className="flex min-w-0 max-w-full items-center gap-3 rounded-lg bg-muted/60 px-4 py-3.5">
+            <code className="min-w-0 flex-1 truncate font-mono text-sm text-foreground/90 select-all">
+              {rawToken}
+            </code>
+            <CopyButton
+              value={rawToken}
+              toastMessage="MCP token copied."
+              tooltipMessage="Copy token"
+              className="size-6 shrink-0"
+              iconClassName="size-4 text-foreground/70"
+            />
+          </div>
+        </DialogBody>
         <DialogFooter>
-          <Button type="button" onClick={onClose}>
+          <Button size="sm" type="button" onClick={onClose}>
             Done
           </Button>
         </DialogFooter>

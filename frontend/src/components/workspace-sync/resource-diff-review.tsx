@@ -170,7 +170,7 @@ function getPreviewButtonLabel({
 /**
  * File-level details within a sync preview.
  */
-export function ResourceDiffSection({
+function ResourceDiffSection({
   diffs,
   emptyRef,
 }: {
@@ -221,7 +221,7 @@ const CHANGE_TYPE_META: Record<
 /**
  * Review list for per-resource sync diffs.
  */
-export function ResourceDiffReviewList({ diffs }: ResourceDiffReviewListProps) {
+function ResourceDiffReviewList({ diffs }: ResourceDiffReviewListProps) {
   const [viewed, setViewed] = useState<Set<string>>(() => new Set())
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
 

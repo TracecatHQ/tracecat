@@ -117,7 +117,7 @@ async function renderDialog(onCloseAutoFocus?: (event: Event) => void) {
   })
   const view = render(
     <QueryClientProvider client={client}>
-      <Dialog open>
+      <Dialog open onOpenChange={onOpenChange}>
         <ManageUserRolesDialog
           member={member}
           onCloseAutoFocus={onCloseAutoFocus}
@@ -234,7 +234,7 @@ beforeAll(() => {
   HTMLElement.prototype.releasePointerCapture = jest.fn()
 })
 
-it("shows the baseline role and stages edits until Done; Cancel writes nothing", async () => {
+it("shows the baseline role and stages edits until Done; closing writes nothing", async () => {
   const { user } = await renderDialog()
   expect(screen.getByText("Organization Member")).toBeInTheDocument()
   await user.click(screen.getByRole("combobox", { name: "Role" }))
@@ -244,7 +244,7 @@ it("shows the baseline role and stages edits until Done; Cancel writes nothing",
   await user.click(screen.getByRole("option", { name: "Organization Admin" }))
   await user.click(screen.getByRole("button", { name: "Add role" }))
   expect(screen.getByText("Organization Admin")).toBeInTheDocument()
-  await user.click(screen.getByRole("button", { name: "Cancel" }))
+  await user.click(screen.getByRole("button", { name: "Close" }))
   expect(onOpenChange).toHaveBeenCalledWith(false)
   expect(operationOrder).toEqual([])
 })

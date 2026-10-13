@@ -102,6 +102,12 @@ class EffectiveEntitlements(Schema):
         title="Forms",
         description="Whether workflow forms are enabled",
     )
+    tunnels: bool = Field(
+        default=False,
+        title="Tunnels",
+        description="Whether workspaces may route actions through private"
+        " network tunnels such as Pangolin",
+    )
 
 
 class TierRead(Schema):

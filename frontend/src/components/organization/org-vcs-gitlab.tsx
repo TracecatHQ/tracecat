@@ -19,6 +19,7 @@ import {
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -100,7 +101,7 @@ export function GitLabTokenSetup() {
               {isCorrupted
                 ? "Stored credentials are unreadable. Re-enter the GitLab token to reconnect."
                 : isConfigured
-                  ? `Base URL: ${credentialsStatus?.base_url ?? "unknown"}`
+                  ? (credentialsStatus?.base_url ?? "Unknown server")
                   : "Not connected"}
             </p>
           </div>
@@ -222,66 +223,69 @@ function GitLabConnectionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent size="sm" className="max-w-lg">
         <DialogHeader>
           <DialogTitle>GitLab workspace sync credential</DialogTitle>
         </DialogHeader>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="base_url"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Base URL</FormLabel>
-                  <FormControl>
-                    <Input placeholder="https://gitlab.com" {...field} />
-                  </FormControl>
-                  <FormDescription>
-                    Use your self-managed GitLab URL when not using GitLab.com.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="token"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Credential token</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="password"
-                      autoComplete="off"
-                      placeholder="glpat-..."
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    Use a GitLab project or group access token with the api
-                    scope. Tracecat stores this token as the GitLab credential
-                    for workspace sync; prefer it over a personal access token
-                    for long-lived sync.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <div className="flex justify-end gap-2 pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={saveCredentials.isPending}>
-                {saveCredentials.isPending ? "Saving..." : "Save"}
-              </Button>
-            </div>
-          </form>
-        </Form>
+        <DialogBody>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <FormField
+                control={form.control}
+                name="base_url"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Base URL</FormLabel>
+                    <FormControl>
+                      <Input placeholder="https://gitlab.com" {...field} />
+                    </FormControl>
+                    <FormDescription>
+                      Use your self-managed GitLab URL when not using
+                      GitLab.com.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="token"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Credential token</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="password"
+                        autoComplete="off"
+                        placeholder="glpat-..."
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Use a GitLab project or group access token with the api
+                      scope. Tracecat stores this token as the GitLab credential
+                      for workspace sync; prefer it over a personal access token
+                      for long-lived sync.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => onOpenChange(false)}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={saveCredentials.isPending}>
+                  {saveCredentials.isPending ? "Saving..." : "Save"}
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </DialogBody>
       </DialogContent>
     </Dialog>
   )
