@@ -716,10 +716,13 @@ describe("FormDetail", () => {
       renderDetail()
 
       await waitFor(() => expect(editor()).toHaveValue("title: Half done\n"))
-      expect(screen.getByText(/Unsaved draft restored/)).toBeInTheDocument()
       expect(
         screen.getByText(/This form changed elsewhere/)
       ).toBeInTheDocument()
+      // One banner at a time: the one the builder has to act on.
+      expect(
+        screen.queryByText(/Unsaved draft restored/)
+      ).not.toBeInTheDocument()
       expect(saveButton()).toBeDisabled()
     })
 

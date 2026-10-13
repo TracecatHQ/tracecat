@@ -202,7 +202,8 @@ export function FormConfigTab({
         )}
       </div>
 
-      {draft.isRestored && !isSaving && (
+      {/* One banner at a time. A remote change needs a decision, so it wins. */}
+      {draft.isRestored && !draft.hasRemoteChange && !isSaving && (
         <div
           role="status"
           className="flex flex-none items-center gap-2 border-b bg-muted/50 px-3 py-1.5 text-xs"
