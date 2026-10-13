@@ -43,12 +43,13 @@ IPV4_REGEX = r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b"
 # 5. IPv6 with embedded IPv4 (::ffff:192.168.1.1)
 # 6. IPv6 with ports like [2001:db8::1]:8080
 IPV6_REGEX = (
+    # IPv6 with embedded IPv4. These come first so the compressed pattern
+    # below cannot stop at the first octet (64:ff9b::192.0.2.33 -> 64:ff9b::192).
+    r"(?:\b(?:[0-9A-Fa-f]{1,4}:){6}(?:\d{1,3}\.){3}\d{1,3}\b)"
+    r"|(?:(?:\b(?:[0-9A-Fa-f]{1,4}:){1,5}|(?<![\w:]):):(?:[0-9A-Fa-f]{1,4}:){0,4}(?:\d{1,3}\.){3}\d{1,3}\b)"
     # Standard IPv6 formats (full and compressed)
-    r"(?:\b(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}\b)"
+    r"|(?:\b(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}\b)"
     r"|(?:\b(?:[0-9A-Fa-f]{1,4}:){0,6}(?:[0-9A-Fa-f]{1,4})?::(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{1,4}?\b)"
-    # IPv6 with embedded IPv4
-    r"|(?:\b(?:[0-9A-Fa-f]{1,4}:){6}(?:\d{1,3}\.){3}\d{1,3}\b)"
-    r"|(?:\b(?:[0-9A-Fa-f]{1,4}:){0,5}:(?:\d{1,3}\.){3}\d{1,3}\b)"
     # IPv6 in brackets (potentially with port)
     r"|(?<=\[)(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}(?=\](?::\d+)?)"
     r"|(?<=\[)(?:[0-9A-Fa-f]{1,4}:){0,6}(?:[0-9A-Fa-f]{1,4})?::(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{1,4}?(?=\](?::\d+)?)"
