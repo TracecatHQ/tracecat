@@ -733,3 +733,98 @@ describe("ChatSessionPane response actions", () => {
     }
   )
 })
+
+/** A live assistant message that streamed the given compaction phases. */
+function liveCompaction(
+  ...phases: Array<{ phase: string; pre_tokens?: number }>
+): UIMessage {
+  return {
+    id: "compacting-1",
+    role: "assistant",
+    parts: phases.map((data) => ({ type: "data-compaction", data })),
+  }
+}
+
+describe("ChatSessionPane compaction badge", () => {
+  const COMPACT_PROMPT: UIMessage = {
+    id: "compact-prompt",
+    role: "user",
+    parts: [{ type: "text", text: "/compact" }],
+  }
+
+  beforeEach(() => {
+    mockUseVercelChatResult.messages = []
+    mockUseVercelChatResult.status = "ready"
+  })
+
+  it("shows a reloaded compaction with the tokens it compacted", () => {
+    // The persisted boundary renders as a badge with its token count.
+    mockUseVercelChatResult.messages = [
+      COMPACT_PROMPT,
+      {
+        id: "compaction-1",
+        role: "system",
+        parts: [
+          {
+            type: "data-compaction",
+            data: { phase: "completed", pre_tokens: 1234 },
+          },
+        ],
+      },
+    ]
+    renderChatSessionPane()
+
+    expect(screen.getByText("Conversation compacted.")).toBeInTheDocument()
+    expect(screen.getByText("1,234 tokens")).toBeInTheDocument()
+  })
+
+  it("shows a live compaction in progress until it completes", () => {
+    // A lone started part shows the in-progress badge and the loader.
+    mockUseVercelChatResult.status = "streaming"
+    mockUseVercelChatResult.messages = [
+      COMPACT_PROMPT,
+      liveCompaction({ phase: "started" }),
+    ]
+    const { rerenderChatSessionPane } = renderChatSessionPane()
+
+    expect(screen.getByText("Compacting conversation...")).toBeInTheDocument()
+    expect(screen.getByTestId("dots-loader")).toBeInTheDocument()
+    expect(
+      screen.queryByText("Conversation compacted.")
+    ).not.toBeInTheDocument()
+
+    mockUseVercelChatResult.status = "ready"
+    mockUseVercelChatResult.messages = [
+      COMPACT_PROMPT,
+      liveCompaction(
+        { phase: "started" },
+        { phase: "completed", pre_tokens: 190934 }
+      ),
+    ]
+    rerenderChatSessionPane()
+
+    // The result replaces the in-progress badge.
+    expect(
+      screen.queryByText("Compacting conversation...")
+    ).not.toBeInTheDocument()
+    expect(screen.getByText("Conversation compacted.")).toBeInTheDocument()
+    expect(screen.getByText("190,934 tokens")).toBeInTheDocument()
+  })
+
+  it("shows a failed compaction in place of the in-progress badge", () => {
+    // The runtime reports a compaction that never finished as failed.
+    mockUseVercelChatResult.messages = [
+      COMPACT_PROMPT,
+      liveCompaction({ phase: "started" }, { phase: "failed" }),
+    ]
+    renderChatSessionPane()
+
+    expect(screen.getByText("Compaction failed.")).toBeInTheDocument()
+    expect(
+      screen.queryByText("Compacting conversation...")
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText("Conversation compacted.")
+    ).not.toBeInTheDocument()
+  })
+})
