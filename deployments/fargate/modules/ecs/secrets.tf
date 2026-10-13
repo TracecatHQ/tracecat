@@ -167,6 +167,29 @@ data "aws_secretsmanager_secret_version" "temporal_db_password" {
   secret_id = data.aws_secretsmanager_secret.temporal_db_password[0].id
 }
 
+# Sentry DSN is stored in a Terraform-managed secret and injected via ECS
+# `secrets`, never as a plain environment variable: var.sentry_dsn is
+# sensitive, so putting it in the env lists marks every affected
+# container_definitions as (sensitive value) in plans. Every gate on the DSN
+# goes through this non-sensitive flag; a plain `var.sentry_dsn != null`
+# conditional would re-poison the secrets list.
+locals {
+  sentry_dsn_enabled = nonsensitive(var.sentry_dsn != null)
+}
+
+# Store the Sentry DSN in Secrets Manager so ECS tasks can inject it.
+resource "aws_secretsmanager_secret" "sentry_dsn" {
+  count       = local.sentry_dsn_enabled ? 1 : 0
+  name_prefix = "${var.name_prefix}-sentry-dsn-"
+  description = "Tracecat Sentry DSN"
+}
+
+resource "aws_secretsmanager_secret_version" "sentry_dsn" {
+  count         = local.sentry_dsn_enabled ? 1 : 0
+  secret_id     = aws_secretsmanager_secret.sentry_dsn[0].id
+  secret_string = var.sentry_dsn
+}
+
 locals {
   required_tracecat_base_secrets = [
     {
@@ -191,6 +214,13 @@ locals {
     {
       name      = "TEMPORAL__API_KEY"
       valueFrom = data.aws_secretsmanager_secret_version.temporal_api_key[0].arn
+    }
+  ] : []
+
+  sentry_dsn_secret = local.sentry_dsn_enabled ? [
+    {
+      name      = "SENTRY_DSN"
+      valueFrom = aws_secretsmanager_secret_version.sentry_dsn[0].arn
     }
   ] : []
 
@@ -272,6 +302,7 @@ locals {
 
   tracecat_api_secrets = concat(
     local.tracecat_temporal_secrets,
+    local.sentry_dsn_secret,
     local.oauth_client_id_secret,
     local.oauth_client_secret_secret,
     local.oidc_client_id_secret,
@@ -300,9 +331,9 @@ locals {
     local.temporal_auth_client_secret_secret,
   )
 
-  worker_secrets       = local.tracecat_temporal_secrets
-  agent_worker_secrets = local.tracecat_temporal_secrets
-  executor_secrets     = local.tracecat_temporal_secrets
+  worker_secrets       = concat(local.tracecat_temporal_secrets, local.sentry_dsn_secret)
+  agent_worker_secrets = concat(local.tracecat_temporal_secrets, local.sentry_dsn_secret)
+  executor_secrets     = concat(local.tracecat_temporal_secrets, local.sentry_dsn_secret)
 
   litellm_secrets = local.tracecat_base_secrets
 
