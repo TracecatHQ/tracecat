@@ -531,10 +531,62 @@ def test_resolver_error_codes(
 
 
 def test_every_issue_code_is_covered() -> None:
-    # The warning is covered by the default-widget test.
-    covered = {case[0] for case in ISSUE_CASES} | {Code.UNRENDERED_OPTIONAL_INPUT}
+    # The warning is covered by the default-widget test, and an option default
+    # by the two tests below.
+    covered = {case[0] for case in ISSUE_CASES} | {
+        Code.UNRENDERED_OPTIONAL_INPUT,
+        Code.DEFAULT_NOT_AN_OPTION,
+    }
 
     assert covered == set(Code)
+
+
+SIZES = [{"value": "s"}, {"value": "m"}]
+
+
+@pytest.mark.parametrize(
+    ("widget", "default", "valid"),
+    [
+        ("select", "m", True),
+        ("cards", "m", True),
+        ("select", None, True),
+        ("select", "xl", False),
+        ("cards", "xl", False),
+    ],
+)
+def test_a_select_default_must_be_one_of_its_options(
+    widget: str, default: str | None, valid: bool
+) -> None:
+    # The page would open with an answer the server rejects as invalid_option.
+    result = _resolve(
+        [{"field": "size", "widget": widget, "options": SIZES}],
+        size={"type": "str | None", "default": default},
+    )
+
+    expected = [] if valid else [(Code.DEFAULT_NOT_AN_OPTION, ["layout", 0])]
+    assert [(issue.code, issue.loc) for issue in result.issues] == expected
+
+
+@pytest.mark.parametrize(
+    ("widget", "default", "valid"),
+    [
+        ("multi_select", ["s", "m"], True),
+        ("multi_select", [], True),
+        ("cards", ["m"], True),
+        ("multi_select", ["s", "xl"], False),
+        ("cards", ["xl"], False),
+    ],
+)
+def test_each_item_of_a_multi_select_default_must_be_one_of_its_options(
+    widget: str, default: list[str], valid: bool
+) -> None:
+    result = _resolve(
+        [{"field": "sizes", "widget": widget, "options": SIZES}],
+        sizes={"type": "list[str]", "default": default},
+    )
+
+    expected = [] if valid else [(Code.DEFAULT_NOT_AN_OPTION, ["layout", 0])]
+    assert [(issue.code, issue.loc) for issue in result.issues] == expected
 
 
 @pytest.mark.parametrize(

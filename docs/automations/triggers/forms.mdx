@@ -124,6 +124,8 @@ Integers in a form stay between -9,007,199,254,740,991 and 9,007,199,254,740,991
 - For an `enum[...]` or `list[enum[...]]` input, options decorate the enum's values. Each `value` must be an enum value, and Tracecat appends the values you leave out.
 - For a `str` or `list[str]` input, options define the allowed values. `select`, `multi_select`, and `cards` require them.
 
+The input's default, or each item of a list default, must be one of the options.
+
 The `cards` widget shows each choice as a card with its `image`, `label`, and `description`. An `image` is an inline data URI: `data:image/png;base64,...`, `data:image/jpeg;base64,...`, or `data:image/webp;base64,...`. Each image is at most 100 KB decoded, and the images in one form total at most 1 MB.
 
 `Insert image` on the `Config` tab takes a PNG, JPEG, or WebP file, resizes it to 320 px on its long edge, and inserts the data URI at the cursor.

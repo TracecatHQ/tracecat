@@ -320,6 +320,9 @@ def _resolve_field_entry(
             f"Widget '{widget}' has no placeholder",
             [*loc, "placeholder"],
         )
+    options = _resolve_options(state, entry, widget, loc)
+    if options is not None and expected.has_default():
+        _check_default_is_an_option(state, name, expected.default, options, loc)
     block = FormFieldBlock(
         type="field",
         name=name,
@@ -330,7 +333,7 @@ def _resolve_field_entry(
         required=not expected.has_default(),
         multiple=multiple,
         default=expected.default if expected.has_default() else None,
-        options=_resolve_options(state, entry, widget, loc),
+        options=options,
         visible_if=_resolve_visible_if(state, entry, loc),
         config=_resolve_file_config(state, entry, widget, multiple, loc),
     )
@@ -388,6 +391,31 @@ def _resolve_options(
             )
     listed = {option.value for option in options}
     return options + [option for option in enum_options if option.value not in listed]
+
+
+def _check_default_is_an_option(
+    state: _Resolution,
+    name: str,
+    default: Any,
+    options: list[FormFieldOption],
+    loc: IssueLoc,
+) -> None:
+    """Report a default, or an item of a list default, that is not an option.
+
+    The page would open with an answer the server rejects. A ``None`` default
+    is no answer, so it passes.
+    """
+    if default is None:
+        return
+    allowed = {option.value for option in options}
+    for item in default if isinstance(default, list) else [default]:
+        if not isinstance(item, str) or item not in allowed:
+            state.issue(
+                FormIssueCode.DEFAULT_NOT_AN_OPTION,
+                f"'{item}' in the default of '{name}' is not one of its options",
+                loc,
+            )
+            return
 
 
 def _resolve_file_config(
