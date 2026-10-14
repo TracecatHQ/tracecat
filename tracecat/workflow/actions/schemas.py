@@ -64,6 +64,12 @@ class ActionControlFlow(Schema):
         default=None,
         description="Override environment for this action's execution",
     )
+    tunnel: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=63,
+        description="Workspace tunnel to route this action's HTTP(S) traffic through",
+    )
     mask_output: bool = Field(
         default=False,
         description=(

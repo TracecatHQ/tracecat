@@ -28,6 +28,11 @@ from typing import TYPE_CHECKING, Any
 
 import orjson
 from pydantic_core import to_json
+from tracecat_ee.tunnels.routing import (
+    TunnelRouteError,
+    effective_tunnel,
+    tunnel_proxy_env,
+)
 
 from tracecat import config
 from tracecat.contexts import ctx_secret_masks
@@ -45,6 +50,7 @@ from tracecat.executor.secret_preprocessors import (
     project_secret_env,
 )
 from tracecat.logger import logger
+from tracecat.outbound import TUNNEL_PROXY_ENV
 from tracecat.sandbox.cgroup import sandbox_cgroup
 from tracecat.sandbox.exceptions import (
     raise_for_sandbox_error_code,
@@ -55,7 +61,13 @@ from tracecat.sandbox.executor import (
     NsjailExecutor,
     workload_stderr_tail,
 )
-from tracecat.sandbox.types import ResourceLimits, SandboxErrorCode
+from tracecat.sandbox.networking import gateway_only_network_policy
+from tracecat.sandbox.types import (
+    ResourceLimits,
+    SandboxErrorCode,
+    SandboxNetworkPurpose,
+    SandboxNetworkRequest,
+)
 from tracecat.sandbox.utils import (
     communicate_process_group,
     terminate_supervised_process,
@@ -307,6 +319,8 @@ class ActionRunner:
             sandbox_env: dict[str, str] = {}
             if env_vars:
                 sandbox_env.update(env_vars)
+            # Only the executor may route an action through a tunnel.
+            sandbox_env.pop(TUNNEL_PROXY_ENV, None)
 
             # SDK context for any registry SDK operations
             sandbox_env["TRACECAT__API_URL"] = config.TRACECAT__API_URL
@@ -325,6 +339,15 @@ class ActionRunner:
             # Preserve the signed execution provenance from the service boundary.
             sandbox_env["TRACECAT__EXECUTOR_TOKEN"] = resolved_context.executor_token
 
+            network = SandboxNetworkRequest(SandboxNetworkPurpose.ACTION)
+            if route := _tunnel_route(input, resolved_context):
+                proxy_url, gateway_ip, gateway_port = route
+                sandbox_env.update(tunnel_proxy_env(proxy_url))
+                network = SandboxNetworkRequest(
+                    SandboxNetworkPurpose.ACTION,
+                    policy=gateway_only_network_policy(gateway_ip, gateway_port),
+                )
+
             logger.debug(
                 "Using untrusted mode - no DB credentials passed to sandbox",
                 action=input.task.action,
@@ -336,6 +359,7 @@ class ActionRunner:
                 tracecat_app_dir=_get_tracecat_app_dir(),
                 site_packages_dir=_get_site_packages_dir(),
                 env_vars=sandbox_env,
+                network=network,
                 action_gateway_socket=action_gateway_socket,
                 action_gateway_socket_mount_path=ACTION_GATEWAY_SANDBOX_SOCKET,
                 resources=ResourceLimits(
@@ -439,6 +463,7 @@ class ActionRunner:
         env.pop("SENTRY_DSN", None)
         if env_vars:
             env.update(env_vars)
+        env.pop(TUNNEL_PROXY_ENV, None)
 
         # Ensure SDK context is available for registry actions executed by minimal_runner.
         if resolved_context is not None:
@@ -450,6 +475,10 @@ class ActionRunner:
             env["TRACECAT__ENVIRONMENT"] = input.run_context.environment
             env["TRACECAT__EXECUTOR_TOKEN"] = resolved_context.executor_token
             env["TRACECAT__ACTION_GATEWAY_SOCKET"] = str(action_gateway_socket_path())
+            if route := _tunnel_route(input, resolved_context):
+                env.update(tunnel_proxy_env(route[0]))
+        elif effective_tunnel(input):
+            raise TunnelRouteError("Tunneled actions require a resolved tunnel route")
 
         # Build PYTHONPATH with multiple registry paths (deterministic order)
         pythonpath_parts = [str(p) for p in registry_paths if p.exists()]
@@ -582,3 +611,22 @@ def get_action_runner() -> ActionRunner:
     if _action_runner is None:
         _action_runner = ActionRunner()
     return _action_runner
+
+
+def _tunnel_route(
+    input: RunActionInput, resolved_context: ResolvedContext
+) -> tuple[str, str, int] | None:
+    """Return the action's gateway route; fail closed if it was not resolved."""
+    if not effective_tunnel(input):
+        return None
+    if (
+        resolved_context.tunnel_proxy_url is None
+        or resolved_context.tunnel_gateway_ip is None
+        or resolved_context.tunnel_gateway_port is None
+    ):
+        raise TunnelRouteError("Tunneled actions require a resolved tunnel route")
+    return (
+        resolved_context.tunnel_proxy_url,
+        resolved_context.tunnel_gateway_ip,
+        resolved_context.tunnel_gateway_port,
+    )

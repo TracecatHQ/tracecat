@@ -30,6 +30,10 @@ export type ActionControlFlow = {
    */
   environment?: string | null
   /**
+   * Workspace tunnel to route this action's HTTP(S) traffic through
+   */
+  tunnel?: string | null
+  /**
    * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
    */
   mask_output?: boolean
@@ -181,6 +185,10 @@ export type ActionStatement_Input = {
    */
   environment?: string | null
   /**
+   * Name of a workspace tunnel to route this action's HTTP(S) traffic through. Overrides the workflow's default tunnel.
+   */
+  tunnel?: string | null
+  /**
    * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
    */
   mask_output?: boolean
@@ -238,6 +246,10 @@ export type ActionStatement_Output = {
    * Override environment for this action's execution. Can be a template expression.
    */
   environment?: string | null
+  /**
+   * Name of a workspace tunnel to route this action's HTTP(S) traffic through. Overrides the workflow's default tunnel.
+   */
+  tunnel?: string | null
   /**
    * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
    */
@@ -4109,6 +4121,10 @@ export type DSLConfig_Input = {
    * Workflow timeout in seconds. If set to 0, the workflow has no timeout.
    */
   timeout?: number
+  /**
+   * Default workspace tunnel for actions that do not set their own.
+   */
+  tunnel?: string | null
 }
 
 /**
@@ -4130,6 +4146,10 @@ export type DSLConfig_Output = {
    * Workflow timeout in seconds. If set to 0, the workflow has no timeout.
    */
   timeout?: number
+  /**
+   * Default workspace tunnel for actions that do not set their own.
+   */
+  tunnel?: string | null
 }
 
 export type DSLEntrypoint_Input = {
@@ -7839,6 +7859,7 @@ export type RunContext = {
   wf_run_id: string
   environment: string
   logical_time: string
+  tunnel?: string | null
 }
 
 /**
@@ -10279,6 +10300,7 @@ export type TunnelStatusRead = {
   tunnel_id: string
   managed: boolean
   site_online: boolean | null
+  gateway_ready?: boolean | null
 }
 
 /**

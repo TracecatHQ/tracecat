@@ -229,6 +229,10 @@ async def test_prepare_step_context_uses_manifest_for_template_steps(
         env={"AWS_ACCESS_KEY_ID": "ASIA_TEMP_KEY"},
         mask_values={"ASIA_TEMP_KEY"},
     )
+    parent_resolved.tunnel_name = "onprem-splunk"
+    parent_resolved.tunnel_proxy_url = "http://tunnel:token@10.0.0.5:8080"
+    parent_resolved.tunnel_gateway_ip = "10.0.0.5"
+    parent_resolved.tunnel_gateway_port = 8080
     step_ctx = await _prepare_step_context(
         step_action=step_action,
         evaluated_args={},
@@ -240,6 +244,10 @@ async def test_prepare_step_context_uses_manifest_for_template_steps(
     assert step_ctx.action_impl.module == "manifest.module"
     assert step_ctx.action_impl.name == "manifest_fn"
     assert step_ctx.secret_projection is parent_resolved.secret_projection
+    assert step_ctx.tunnel_name == "onprem-splunk"
+    assert step_ctx.tunnel_proxy_url == "http://tunnel:token@10.0.0.5:8080"
+    assert step_ctx.tunnel_gateway_ip == "10.0.0.5"
+    assert step_ctx.tunnel_gateway_port == 8080
 
 
 @pytest.mark.anyio
