@@ -17,7 +17,7 @@ import GenerateSecrets from "/snippets/generate-secrets.mdx";
 - Helm 3.12+ (with OCI support)
 - `kubectl` configured for your target cluster
 - Access to the Tracecat OCI Helm chart (see above)
-- External PostgreSQL 15 or newer instance (e.g., Amazon RDS, Cloud SQL)
+- External PostgreSQL 15 or newer instance (e.g., Amazon RDS, Cloud SQL, or [CloudNativePG](#cloudnativepg))
 - External Redis instance (e.g., Amazon ElastiCache, Memorystore)
 - S3-compatible object storage (e.g., Amazon S3, MinIO)
 - `openssl` (for generating secrets)
@@ -144,6 +144,62 @@ externalPostgres:
 ```
 
 For Amazon RDS, download the global CA bundle from the [AWS trust store](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem).
+
+#### CloudNativePG
+
+To run PostgreSQL inside Kubernetes, we recommend the [CloudNativePG](https://cloudnative-pg.io) operator. Load pgvector as an [image volume extension](https://cloudnative-pg.io/docs/1.30/imagevolume_extensions/#directly-in-the-cluster), then let a `Database` resource enable it in the application database.
+
+Image volume extensions require PostgreSQL 18, Kubernetes 1.35 or newer (or 1.33+ with the `ImageVolume` feature gate), and containerd 2.1+ or CRI-O 1.31+.
+
+```yaml
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: tracecat-postgres
+  namespace: tracecat
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:18-minimal-trixie
+  storage:
+    size: 50Gi
+  bootstrap:
+    initdb:
+      database: tracecat
+      owner: tracecat
+  postgresql:
+    extensions:
+      - name: pgvector
+        image:
+          reference: ghcr.io/cloudnative-pg/pgvector:0.8.7-18-trixie
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: tracecat-postgres-tracecat
+  namespace: tracecat
+spec:
+  name: tracecat
+  owner: tracecat
+  cluster:
+    name: tracecat-postgres
+  extensions:
+    - name: vector
+      schema: public
+```
+
+The pgvector image tag must match the cluster's PostgreSQL major version and OS (`18-trixie` above). The `Database` resource runs `CREATE EXTENSION` with operator privileges, so the `tracecat` role does not need superuser access.
+
+Point the chart at the read-write service and the `-app` secret that CloudNativePG generates:
+
+```yaml
+externalPostgres:
+  host: "tracecat-postgres-rw.tracecat.svc"
+  port: 5432
+  database: tracecat
+  sslMode: "require"
+  auth:
+    existingSecret: "tracecat-postgres-app"  # keys: username, password
+```
 
 ### Redis
 

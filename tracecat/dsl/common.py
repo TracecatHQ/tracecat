@@ -1382,6 +1382,7 @@ def build_action_statements_from_actions(
             wait_until=control_flow.wait_until,
             join_strategy=control_flow.join_strategy,
             environment=control_flow.environment,
+            tunnel=control_flow.tunnel,
             mask_output=control_flow.mask_output,
             unsafe_disable_secret_error_withholding=control_flow.unsafe_disable_secret_error_withholding,
         )

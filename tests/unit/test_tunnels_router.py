@@ -323,9 +323,9 @@ def fake_pangolin(monkeypatch: pytest.MonkeyPatch) -> type:
 
     monkeypatch.setattr(service_module, "PangolinAPI", FakeAPI)
     monkeypatch.setattr(
-        PangolinSettings,
-        "from_config",
-        classmethod(lambda cls: settings),
+        service_module,
+        "resolve_pangolin_settings",
+        AsyncMock(return_value=settings),
     )
     return FakeAPI
 

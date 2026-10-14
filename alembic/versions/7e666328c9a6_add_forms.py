@@ -1,7 +1,7 @@
 """Add forms: workflow.expects_order and the form tables.
 
 Revision ID: 7e666328c9a6
-Revises: 8b51e0c47d2a
+Revises: 3e54217aadda
 Create Date: 2026-10-13 12:00:00.000000
 """
 
@@ -18,7 +18,7 @@ from tracecat.db.tenant_rls import (
 )
 
 revision: str = "7e666328c9a6"
-down_revision: str | None = "8b51e0c47d2a"
+down_revision: str | None = "3e54217aadda"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

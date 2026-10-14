@@ -1612,6 +1612,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 wait_until=act_stmt.wait_until,
                 join_strategy=act_stmt.join_strategy,
                 environment=act_stmt.environment,
+                tunnel=act_stmt.tunnel,
                 mask_output=act_stmt.mask_output,
                 unsafe_disable_secret_error_withholding=act_stmt.unsafe_disable_secret_error_withholding,
             )

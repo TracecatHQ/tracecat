@@ -5,6 +5,7 @@ from enum import StrEnum
 from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import Literal, cast
 
+from tracecat import __version__
 from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
 from tracecat.auth.enums import AuthType
 from tracecat.executor.enums import ExecutorBackendType
@@ -1398,6 +1399,62 @@ TRACECAT__PANGOLIN_ORG_ID = os.environ.get("TRACECAT__PANGOLIN_ORG_ID")
 
 TRACECAT__PANGOLIN_API_KEY = os.environ.get("TRACECAT__PANGOLIN_API_KEY")
 """Pangolin organization API key. Managed tunnels are disabled when unset."""
+
+TRACECAT__PANGOLIN_API_KEY__ARN = os.environ.get("TRACECAT__PANGOLIN_API_KEY__ARN")
+"""AWS Secrets Manager ARN holding the Pangolin API key. Takes precedence over
+``TRACECAT__PANGOLIN_API_KEY``. Only the API service reads it."""
+
+# === Tunnel gateways === #
+TRACECAT__TUNNEL_GATEWAY_BACKEND = (
+    os.environ.get("TRACECAT__TUNNEL_GATEWAY_BACKEND", "none").strip().lower()
+)
+"""Who runs tunnel gateways: ``kubernetes`` (the API creates one per tunnel) or
+``none`` (gateways are run by hand, e.g. Docker Compose and most self-hosted installs)."""
+
+TRACECAT__TUNNEL_GATEWAY_NAMESPACE = os.environ.get(
+    "TRACECAT__TUNNEL_GATEWAY_NAMESPACE", "tracecat-tunnels"
+)
+"""Kubernetes namespace that holds tunnel gateway objects."""
+
+TRACECAT__TUNNEL_GATEWAY_IMAGE = os.environ.get(
+    "TRACECAT__TUNNEL_GATEWAY_IMAGE",
+    f"ghcr.io/tracecathq/tracecat-tunnel-gateway:{__version__}",
+)
+"""Container image for tunnel gateways created by the ``kubernetes`` backend.
+
+Defaults to this release's version tag. Pin a digest for an immutable image.
+"""
+
+TRACECAT__TUNNEL_GATEWAY_BLOCKED_CIDRS = env_networks(
+    "TRACECAT__TUNNEL_GATEWAY_BLOCKED_CIDRS"
+)
+"""Extra CIDRs, such as cluster pod and service ranges, that gateways never dial."""
+
+TRACECAT__TUNNEL_GATEWAY_API_URL = os.environ.get(
+    "TRACECAT__TUNNEL_GATEWAY_API_URL", TRACECAT__API_URL
+)
+"""Tracecat API URL that gateways poll for their policy."""
+
+TRACECAT__TUNNEL_GATEWAY_TUN_RESOURCE = os.environ.get(
+    "TRACECAT__TUNNEL_GATEWAY_TUN_RESOURCE", "squat.ai/tun"
+)
+"""Extended resource that grants a gateway pod ``/dev/net/tun``. Empty disables the request."""
+
+TRACECAT__TUNNEL_GATEWAY_RECONCILE_INTERVAL = float(
+    os.environ.get("TRACECAT__TUNNEL_GATEWAY_RECONCILE_INTERVAL") or 60
+)
+"""Seconds between reconciles of gateway objects against tunnels."""
+
+TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE = (
+    os.environ.get("TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE")
+    or f"tunnel-{{tunnel_id}}.{TRACECAT__TUNNEL_GATEWAY_NAMESPACE}.svc.cluster.local"
+)
+"""Host executors use to reach a tunnel's gateway. ``{tunnel_id}`` is replaced."""
+
+TRACECAT__TUNNEL_GATEWAY_PORT = int(
+    os.environ.get("TRACECAT__TUNNEL_GATEWAY_PORT") or 8080
+)
+"""Port tunnel gateways listen on."""
 
 # === Feature Flags === #
 TRACECAT__FEATURE_FLAGS: set[FeatureFlag] = set()

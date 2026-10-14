@@ -14,6 +14,7 @@ import {
   LockIcon,
   type LucideIcon,
   MousePointerClickIcon,
+  NetworkIcon,
   Pyramid,
   Sparkles,
   Table2Icon,
@@ -117,6 +118,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   // and the page explains why Forms is unavailable.
   const formsAccess = useFormsAccess()
   const formsVisible = formsAccess === "enabled" || formsAccess === "locked"
+  const canViewTunnels = useScopeCheck("tunnel:read")
   // Sync users push/pull; workspace admins manage the repository connection.
   const canOpenGitSync = useScopeCheck(undefined, [
     "workspace_sync:sync",
@@ -459,6 +461,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   isActive: pathname?.startsWith(
                     `${basePath}/service-accounts`
                   ),
+                }
+              : null,
+            canViewTunnels === true
+              ? {
+                  title: "Tunnels",
+                  href: `${basePath}/tunnels`,
+                  icon: NetworkIcon,
+                  isActive: pathname?.startsWith(`${basePath}/tunnels`),
                 }
               : null,
             canViewMcpAccess === true

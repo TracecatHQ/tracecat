@@ -32,7 +32,9 @@ import base64
 import binascii
 import contextlib
 import functools
+import ipaddress
 import os
+import socket
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
@@ -69,6 +71,35 @@ _HOP_BY_HOP_HEADERS = frozenset(
 )
 
 
+IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
+IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
+
+DEFAULT_BLOCKED_NETWORKS: tuple[IPNetwork, ...] = tuple(
+    ipaddress.ip_network(cidr)
+    for cidr in (
+        "0.0.0.0/8",
+        "127.0.0.0/8",
+        "169.254.0.0/16",  # Link-local, incl. cloud metadata.
+        "224.0.0.0/4",
+        "240.0.0.0/4",
+        "::/128",
+        "::1/128",
+        "fe80::/10",
+        "ff00::/8",
+        "fd00:ec2::254/128",  # AWS metadata over IPv6.
+    )
+)
+"""Destinations a gateway never dials, whatever the tunnel's allowed targets."""
+
+
+def _parse_networks(raw: str) -> tuple[IPNetwork, ...]:
+    return tuple(
+        ipaddress.ip_network(value.strip(), strict=False)
+        for value in raw.split(",")
+        if value.strip()
+    )
+
+
 @dataclass(frozen=True)
 class GatewayConfig:
     tunnel_id: uuid.UUID
@@ -81,6 +112,7 @@ class GatewayConfig:
     idle_timeout: float = 300.0
     refresh_interval: float = 15.0
     max_policy_age: float = 60.0
+    blocked_networks: tuple[IPNetwork, ...] = DEFAULT_BLOCKED_NETWORKS
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] = os.environ) -> GatewayConfig:
@@ -92,6 +124,8 @@ class GatewayConfig:
                 api_url=env["TRACECAT_TUNNEL_API_URL"],
                 host=env.get("TRACECAT_TUNNEL_GATEWAY_HOST", "0.0.0.0"),
                 port=int(env.get("TRACECAT_TUNNEL_GATEWAY_PORT", "8080")),
+                blocked_networks=DEFAULT_BLOCKED_NETWORKS
+                + _parse_networks(env.get("TRACECAT_TUNNEL_GATEWAY_BLOCKED_CIDRS", "")),
             )
         except KeyError as exc:
             raise ValueError(f"Missing gateway setting {exc.args[0]}") from exc
@@ -141,6 +175,24 @@ def parse_allowed_targets(targets: list[TunnelTarget]) -> frozenset[tuple[str, i
     if not targets:
         raise ValueError("At least one allowed target is required")
     return frozenset((t.host, port) for t in targets for port in t.ports)
+
+
+async def _resolve(host: str, port: int) -> list[IPAddress]:
+    infos = await asyncio.get_running_loop().getaddrinfo(
+        host, port, type=socket.SOCK_STREAM
+    )
+    addresses: list[IPAddress] = []
+    for info in infos:
+        address = ipaddress.ip_address(info[4][0])
+        if address not in addresses:
+            addresses.append(address)
+    return addresses
+
+
+def _normalize(address: IPAddress) -> IPAddress:
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+        return address.ipv4_mapped
+    return address
 
 
 class _ProxyError(Exception):
@@ -309,6 +361,7 @@ class TunnelGateway:
         self._policy: GatewayPolicy | None = None
         self._policy_fetched_at: float | None = None
         self._connections: set[_OpenConnection] = set()
+        self._api_addresses: frozenset[IPAddress] = frozenset()
 
     def current_policy(self) -> GatewayPolicy:
         """Return the live policy, failing closed if it is revoked or stale."""
@@ -333,7 +386,48 @@ class TunnelGateway:
                 log.warning("Tunnel gateway revoked")
             self._policy = policy
             self._policy_fetched_at = time.monotonic()
+        await self._refresh_api_addresses()
         self._close_disallowed_connections()
+
+    async def _refresh_api_addresses(self) -> None:
+        """Track the Tracecat API's addresses so targets can't reach it."""
+        parts = urlsplit(self.config.api_url)
+        if not parts.hostname:
+            return
+        try:
+            addresses = await _resolve(parts.hostname, parts.port or 80)
+        except OSError:
+            return
+        self._api_addresses = frozenset(_normalize(a) for a in addresses)
+
+    def _is_blocked(self, address: IPAddress) -> bool:
+        address = _normalize(address)
+        if address in self._api_addresses:
+            return True
+        return any(
+            address.version == network.version and address in network
+            for network in self.config.blocked_networks
+        )
+
+    async def _dial(
+        self, host: str, port: int
+    ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+        """Resolve once, refuse blocked addresses, and dial the vetted address."""
+        try:
+            addresses = await _resolve(host, port)
+        except OSError as exc:
+            raise _ProxyError(HTTPStatus.BAD_GATEWAY, "upstream_unreachable") from exc
+        if not addresses or any(self._is_blocked(a) for a in addresses):
+            raise _ProxyError(HTTPStatus.FORBIDDEN, "target_blocked")
+        last_error: OSError | None = None
+        for address in addresses:
+            try:
+                return await asyncio.open_connection(str(address), port)
+            except OSError as exc:
+                last_error = exc
+        raise _ProxyError(
+            HTTPStatus.BAD_GATEWAY, "upstream_unreachable"
+        ) from last_error
 
     async def run_refresh_loop(self) -> None:
         while True:
@@ -412,16 +506,12 @@ class TunnelGateway:
                 dial_host = managed_alias(cfg.tunnel_id, host) or host
             try:
                 upstream_reader, upstream_writer = await asyncio.wait_for(
-                    asyncio.open_connection(dial_host, port),
+                    self._dial(dial_host, port),
                     cfg.connect_timeout,
                 )
             except TimeoutError as exc:
                 raise _ProxyError(
                     HTTPStatus.GATEWAY_TIMEOUT, "upstream_timeout"
-                ) from exc
-            except OSError as exc:
-                raise _ProxyError(
-                    HTTPStatus.BAD_GATEWAY, "upstream_unreachable"
                 ) from exc
 
             conn = _OpenConnection(

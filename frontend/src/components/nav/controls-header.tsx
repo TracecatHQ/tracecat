@@ -98,6 +98,7 @@ import { TableInsertButton } from "@/components/tables/table-insert-button"
 import { TableSearchBadge } from "@/components/tables/table-search-badge"
 import { TableSearchProvider } from "@/components/tables/table-search-context"
 import { CreateTagDialog } from "@/components/tags/create-tag-dialog"
+import { CreateTunnelButton } from "@/components/tunnels/workspace-tunnels"
 import { useQueryClient } from "@/lib/query"
 import { groupLibraryProviders } from "@/lib/skill-library"
 
@@ -2592,6 +2593,13 @@ function getPageConfig(
     return {
       title: "MCP access",
       actions: <McpAccessActions />,
+    }
+  }
+
+  if (pagePath === "/tunnels") {
+    return {
+      title: "Tunnels",
+      actions: <CreateTunnelButton />,
     }
   }
 

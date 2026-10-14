@@ -1,6 +1,11 @@
 import pytest
 from pydantic import ValidationError
-from tracecat_ee.tunnels.schemas import TunnelCreate, TunnelTarget, TunnelUpdate
+from tracecat_ee.tunnels.schemas import (
+    ManagedTunnelCreate,
+    TunnelCreate,
+    TunnelTarget,
+    TunnelUpdate,
+)
 
 
 def _create(**overrides: object) -> TunnelCreate:
@@ -97,3 +102,29 @@ def test_update_rejects_explicit_null(field: str) -> None:
 def test_update_allows_clearing_description() -> None:
     params = TunnelUpdate.model_validate({"description": None})
     assert params.model_fields_set == {"description"}
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "127.0.0.1",
+        "::1",
+        "::ffff:127.0.0.1",
+        "169.254.169.254",
+        "0.0.0.0",
+        "localhost",
+        "api.localhost",
+    ],
+)
+def test_create_rejects_loopback_and_metadata_targets(host: str) -> None:
+    with pytest.raises(ValidationError, match="loopback, link-local, or metadata"):
+        ManagedTunnelCreate(
+            name="onprem", allowed_targets=[TunnelTarget(host=host, ports=[443])]
+        )
+
+
+def test_create_allows_private_targets() -> None:
+    created = ManagedTunnelCreate(
+        name="onprem", allowed_targets=[TunnelTarget(host="10.20.0.15", ports=[8089])]
+    )
+    assert created.allowed_targets[0].host == "10.20.0.15"

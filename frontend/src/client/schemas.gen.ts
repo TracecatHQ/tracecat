@@ -105,6 +105,21 @@ export const $ActionControlFlow = {
       title: "Environment",
       description: "Override environment for this action's execution",
     },
+    tunnel: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 63,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel",
+      description:
+        "Workspace tunnel to route this action's HTTP(S) traffic through",
+    },
     mask_output: {
       type: "boolean",
       title: "Mask Output",
@@ -527,6 +542,21 @@ export const $ActionStatement_Input = {
       description:
         "Override environment for this action's execution. Can be a template expression.",
     },
+    tunnel: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 63,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel",
+      description:
+        "Name of a workspace tunnel to route this action's HTTP(S) traffic through. Overrides the workflow's default tunnel.",
+    },
     mask_output: {
       type: "boolean",
       title: "Mask Output",
@@ -653,6 +683,21 @@ export const $ActionStatement_Output = {
       title: "Environment",
       description:
         "Override environment for this action's execution. Can be a template expression.",
+    },
+    tunnel: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 63,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel",
+      description:
+        "Name of a workspace tunnel to route this action's HTTP(S) traffic through. Overrides the workflow's default tunnel.",
     },
     mask_output: {
       type: "boolean",
@@ -14384,6 +14429,21 @@ export const $DSLConfig_Input = {
         "Workflow timeout in seconds. If set to 0, the workflow has no timeout.",
       default: 0,
     },
+    tunnel: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 63,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel",
+      description:
+        "Default workspace tunnel for actions that do not set their own.",
+    },
   },
   type: "object",
   title: "DSLConfig",
@@ -14407,6 +14467,21 @@ export const $DSLConfig_Output = {
       description:
         "Workflow timeout in seconds. If set to 0, the workflow has no timeout.",
       default: 0,
+    },
+    tunnel: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 63,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel",
+      description:
+        "Default workspace tunnel for actions that do not set their own.",
     },
   },
   type: "object",
@@ -27892,6 +27967,17 @@ export const $RunContext = {
       format: "date-time",
       title: "Logical Time",
     },
+    tunnel: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel",
+    },
   },
   type: "object",
   required: ["wf_id", "wf_exec_id", "wf_run_id", "environment", "logical_time"],
@@ -36002,6 +36088,17 @@ export const $TunnelStatusRead = {
         },
       ],
       title: "Site Online",
+    },
+    gateway_ready: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Gateway Ready",
     },
   },
   type: "object",

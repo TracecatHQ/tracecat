@@ -18,11 +18,18 @@ from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
+from tracecat_ee.tunnels.gateways import (
+    delete_gateway,
+    gateway_ready,
+    kubernetes_enabled,
+    sync_gateway,
+)
 from tracecat_ee.tunnels.pangolin import (
     PangolinAPI,
     PangolinError,
     PangolinSettings,
     managed_alias,
+    resolve_pangolin_settings,
 )
 from tracecat_ee.tunnels.schemas import (
     ManagedTunnelCreate,
@@ -146,9 +153,13 @@ class TunnelsService(BaseWorkspaceService):
             allowed_targets=serialize_targets(params.allowed_targets),
             enabled=params.enabled,
         )
+        if kubernetes_enabled():
+            # Tracecat runs the gateway, so it needs a key from the start.
+            tunnel.encrypted_gateway_key = self._encrypt_secret(generate_gateway_key())
         self.session.add(tunnel)
         await self.session.commit()
         await self.session.refresh(tunnel)
+        await sync_gateway(tunnel)
         return tunnel
 
     @require_scope("tunnel:update")
@@ -183,6 +194,7 @@ class TunnelsService(BaseWorkspaceService):
         self.session.add(tunnel)
         await self.session.commit()
         await self.session.refresh(tunnel)
+        await sync_gateway(tunnel)
         return tunnel
 
     @require_scope("tunnel:delete")
@@ -192,8 +204,10 @@ class TunnelsService(BaseWorkspaceService):
         self._ensure_owned(tunnel)
         if tunnel.managed:
             await self._delete_managed_resources(tunnel)
+        tunnel_id = tunnel.id
         await self.session.delete(tunnel)
         await self.session.commit()
+        await delete_gateway(tunnel_id)
 
     @require_scope("tunnel:update")
     @audit_log(resource_type="workspace_tunnel", action="update")
@@ -206,6 +220,7 @@ class TunnelsService(BaseWorkspaceService):
         self.session.add(tunnel)
         await self.session.commit()
         await self.session.refresh(tunnel)
+        await sync_gateway(tunnel)
         return gateway_key
 
     @require_scope("tunnel:read")
@@ -233,7 +248,7 @@ class TunnelsService(BaseWorkspaceService):
         a later step fails.
         """
         await self.require_entitlement(Entitlement.TUNNELS)
-        settings = self._pangolin_settings()
+        settings = await self._pangolin_settings()
         tunnel_id = uuid.uuid4()
         label = f"tracecat-{self.workspace_id}-{params.name}"
         created_resources: list[int] = []
@@ -271,6 +286,7 @@ class TunnelsService(BaseWorkspaceService):
                     allowed_targets=serialize_targets(params.allowed_targets),
                     enabled=True,
                     managed=True,
+                    encrypted_gateway_key=self._encrypt_secret(generate_gateway_key()),
                     pangolin_site_id=site.site_id,
                     pangolin_client_id=client.client_id,
                     pangolin_resource_ids=resource_ids,
@@ -282,6 +298,7 @@ class TunnelsService(BaseWorkspaceService):
                 await self._cleanup_pangolin(api, created_resources, client_id, site_id)
                 raise
         await self.session.refresh(tunnel)
+        await sync_gateway(tunnel)
         command = (
             f"newt --id {site.credentials.id} --secret {site.credentials.secret}"
             f" --endpoint {settings.endpoint}"
@@ -300,29 +317,17 @@ class TunnelsService(BaseWorkspaceService):
         self._ensure_owned(tunnel)
         site_online: bool | None = None
         if tunnel.managed and tunnel.pangolin_site_id is not None:
-            async with PangolinAPI(self._pangolin_settings()) as api:
+            async with PangolinAPI(await self._pangolin_settings()) as api:
                 site_online = await api.site_online(tunnel.pangolin_site_id)
         return TunnelStatusRead(
-            tunnel_id=tunnel.id, managed=tunnel.managed, site_online=site_online
+            tunnel_id=tunnel.id,
+            managed=tunnel.managed,
+            site_online=site_online,
+            gateway_ready=await gateway_ready(tunnel.id),
         )
 
-    @require_scope("tunnel:read")
-    async def find_isolation_violations(self, tunnel: WorkspaceTunnel) -> list[str]:
-        """Return resources of a managed tunnel granted to any client but its own."""
-        await self.require_entitlement(Entitlement.TUNNELS)
-        self._ensure_owned(tunnel)
-        if not tunnel.managed or not tunnel.pangolin_resource_ids:
-            return []
-        violations: list[str] = []
-        async with PangolinAPI(self._pangolin_settings()) as api:
-            for host, resource_id in tunnel.pangolin_resource_ids.items():
-                granted = await api.resource_client_ids(resource_id)
-                if granted != {tunnel.pangolin_client_id}:
-                    violations.append(host)
-        return violations
-
-    def _pangolin_settings(self) -> PangolinSettings:
-        settings = PangolinSettings.from_config()
+    async def _pangolin_settings(self) -> PangolinSettings:
+        settings = await resolve_pangolin_settings()
         if settings is None:
             raise TracecatValidationError(
                 "Managed tunnels are not configured for this deployment"
@@ -330,7 +335,7 @@ class TunnelsService(BaseWorkspaceService):
         return settings
 
     async def _delete_managed_resources(self, tunnel: WorkspaceTunnel) -> None:
-        async with PangolinAPI(self._pangolin_settings()) as api:
+        async with PangolinAPI(await self._pangolin_settings()) as api:
             await self._cleanup_pangolin(
                 api,
                 list((tunnel.pangolin_resource_ids or {}).values()),

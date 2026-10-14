@@ -115,6 +115,7 @@ import { isAgentToolSelectable } from "@/lib/agent-tools"
 import {
   type ApprovalCard,
   CANCELLED_DATA_PART_TYPE,
+  type CompactionData,
   ENTITY_TO_INVALIDATION,
   getCancelledPartToolCallIds,
   getSessionLastError,
@@ -528,7 +529,11 @@ export function ChatSessionPane({
       const isStreamingVisual =
         (lastPart.type === "text" && lastPart.text.length > 0) ||
         (lastPart.type === "reasoning" && lastPart.text.length > 0) ||
-        (isToolUIPart(lastPart) && lastPart.state === "input-streaming")
+        (isToolUIPart(lastPart) && lastPart.state === "input-streaming") ||
+        // The in-progress compaction badge shows its own spinner. A finished
+        // compaction doesn't, so the loader returns while the turn continues.
+        (lastPart.type === "data-compaction" &&
+          getCompactionData(lastPart).phase === "started")
 
       if (lastPart.type === "data-approval-request") return false
 
@@ -1698,9 +1703,10 @@ function PromptModelIndicator({ modelInfo }: { modelInfo: ModelInfo }) {
 const EMPTY_INTERRUPTED_TOOL_CALL_IDS: ReadonlySet<string> = new Set()
 
 /**
- * Whether the conversation shows anything for a part. Data parts other than
- * the cancelled marker and approval cards, such as an approval submission,
- * render nothing.
+ * Whether a part counts as response content when placing response actions.
+ * The cancelled marker and approval cards count. Other data parts don't: a
+ * compaction badge is a status line rather than a response, and the rest,
+ * such as an approval submission, render nothing.
  */
 function isShownPart(part: UIMessage["parts"][number]): boolean {
   if (part.type === "step-start") {
@@ -1756,6 +1762,26 @@ export function MessagePart({
         approvals={approvals}
         onSubmit={onSubmitApprovals}
       />
+    )
+  }
+
+  if (part.type === "data-compaction") {
+    const compaction = getCompactionData(part)
+    const { label, icon } = getCompactionStatus(compaction.phase)
+    return (
+      <Message key={`${id}-${partIdx}`} from={role}>
+        <MessageContent variant="flat">
+          <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs text-muted-foreground">
+            {icon}
+            <span>{label}</span>
+            {typeof compaction.pre_tokens === "number" && (
+              <span className="text-[11px] text-muted-foreground/80">
+                {compaction.pre_tokens.toLocaleString()} tokens
+              </span>
+            )}
+          </div>
+        </MessageContent>
+      </Message>
     )
   }
 
@@ -1863,6 +1889,35 @@ export function MessagePart({
   }
 
   return null
+}
+
+/** The payload of a `data-compaction` part, or an empty one if malformed. */
+function getCompactionData(part: UIMessage["parts"][number]): CompactionData {
+  const payload = (part as { data?: unknown }).data
+  return payload && typeof payload === "object"
+    ? (payload as CompactionData)
+    : {}
+}
+
+/** Label and icon for a compaction badge. A missing phase means completed. */
+function getCompactionStatus(phase: CompactionData["phase"]): {
+  label: string
+  icon: ReactNode
+} {
+  switch (phase) {
+    case "started":
+      return {
+        label: "Compacting conversation...",
+        icon: <Loader2 className="size-3 animate-spin" />,
+      }
+    case "failed":
+      return { label: "Compaction failed.", icon: <XIcon className="size-3" /> }
+    default:
+      return {
+        label: "Conversation compacted.",
+        icon: <CheckIcon className="size-3" />,
+      }
+  }
 }
 
 function getNonEmptyString(value: unknown): string | null {
