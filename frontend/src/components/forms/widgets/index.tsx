@@ -79,33 +79,16 @@ export function TextWidget(props: FormWidgetProps) {
     className: formControlClass(invalid),
   }
   if (field.widget === "number") {
-    let shown = ""
-    if (
-      typeof value === "string" ||
-      (typeof value === "number" && !Number.isNaN(value))
-    ) {
-      shown = String(value)
-    }
+    const number = typeof value === "number" && !Number.isNaN(value)
     return (
       <Input
         {...shared}
         type="number"
         inputMode="decimal"
-        value={shown}
-        onChange={({ target }) => {
-          if (target.value === "") {
-            onChange(null)
-            return
-          }
-          // Past 2^53 a whole number loses digits. Its text is sent instead,
-          // and the server reads it exactly.
-          const number = Number(target.value)
-          onChange(
-            Number.isInteger(number) && !Number.isSafeInteger(number)
-              ? target.value
-              : number
-          )
-        }}
+        value={number ? value : ""}
+        onChange={({ target }) =>
+          onChange(target.value === "" ? null : Number(target.value))
+        }
       />
     )
   }

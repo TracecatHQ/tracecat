@@ -262,33 +262,39 @@ async def test_submit_reports_every_invalid_field(
     temporal.connect.assert_not_awaited()
 
 
-async def test_an_answer_left_out_takes_the_workflows_exact_default(
+async def test_a_missing_requester_name_leaves_its_input_unanswered(
     session: AsyncSession,
     intake_role: Role,
+    requester: User,
     temporal: FakeTemporal,
     svc_workspace: Workspace,
 ) -> None:
-    # The requester page leaves out answers still at their default, so the
-    # server's default must be exact, even past what a browser number holds.
-    workflow = await create_workflow(session, svc_workspace.id, title="Account")
+    workflow = await create_workflow(session, svc_workspace.id, title="Greeting")
     expects = {
-        "account": {"type": "int", "default": 9007199254740993},
-        "remote": {"type": "bool", "default": True},
-        "note": {"type": "str | None", "default": None},
+        "greet_as": {"type": "str", "default": "there"},
+        "surname": {"type": "str"},
     }
     await publish_workflow(session, intake_role, workflow, expects)
-    form = await create_form(session, workflow)
+    layout = [
+        {"field": "greet_as", "autofill": "requester.first_name"},
+        {"field": "surname", "autofill": "requester.last_name"},
+    ]
+    form = await create_form(session, workflow, layout=layout)
     service = FormSubmissionsService(session, intake_role)
+    requester.first_name = requester.last_name = None
+    await session.commit()
 
+    # Without a default to fall back on, the input is required.
+    errors = await _field_errors(_submit(service, form, {}))
+    assert errors == {"surname": FormFieldErrorCode.REQUIRED}
+
+    requester.last_name = "Okafor"
+    await session.commit()
     await _submit(service, form, {})
 
+    # With one, the default applies.
     [submission] = await _stored(session)
-    assert submission.answers == {
-        "account": 9007199254740993,
-        "remote": True,
-        "note": None,
-    }
-    assert temporal.start_kwargs["payload"] == submission.answers
+    assert submission.answers == {"greet_as": "there", "surname": "Okafor"}
 
 
 async def test_submit_maps_input_schema_errors_to_fields(
@@ -357,7 +363,8 @@ async def test_api_key_submission_has_no_requester(
     assert submission.answers["reference"] == str(submission.id)
     assert temporal.run_role.user_id is None
 
-    # A required requester value cannot be filled in for an API key.
+    # A required requester value cannot be filled in for an API key: the
+    # input is reported as required, not sent as null.
     workflow = await create_workflow(session, svc_workspace.id, title="Strict")
     await publish_workflow(session, api_key_role, workflow, {"email": {"type": "str"}})
     strict = await create_form(
@@ -365,7 +372,7 @@ async def test_api_key_submission_has_no_requester(
     )
     service = FormSubmissionsService(session, api_key_role)
     errors = await _field_errors(_submit(service, strict, {}))
-    assert errors == {"email": FormFieldErrorCode.INVALID_VALUE}
+    assert errors == {"email": FormFieldErrorCode.REQUIRED}
 
 
 # ----- Form state and the run start -----

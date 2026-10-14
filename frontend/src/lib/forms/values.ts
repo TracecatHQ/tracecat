@@ -86,9 +86,24 @@ export function getVisibleFields(
   })
 }
 
+const MAX_SAFE = Number.MAX_SAFE_INTEGER.toLocaleString("en-US")
+
 /**
- * Check form state before it is submitted: required answers, and files that
- * are still uploading or failed. Only visible fields are checked.
+ * Forms take whole numbers a browser holds exactly, as the server does. A
+ * larger one has already lost digits by the time it is in form state.
+ */
+function isUnsafeInteger(value: unknown): boolean {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    !Number.isSafeInteger(value)
+  )
+}
+
+/**
+ * Check form state before it is submitted: required answers, whole numbers
+ * a browser holds exactly, and files that are still uploading or failed.
+ * Only visible fields are checked.
  *
  * The server checks everything again, including options and formats, and its
  * errors are shown on the same fields.
@@ -110,6 +125,9 @@ export function validateFormValues(
       errors[field.name] = "Remove the files that failed to upload"
     } else if (field.required && isEmptyFormValue(value)) {
       errors[field.name] = "This field is required"
+    } else if (field.widget === "number" && isUnsafeInteger(value)) {
+      errors[field.name] =
+        `Enter a whole number between -${MAX_SAFE} and ${MAX_SAFE}`
     }
   }
   return errors
@@ -133,11 +151,8 @@ function toSubmittedValue(field: FormFieldBlock, value: unknown): unknown {
 /**
  * Build the `values` of a submission from form state.
  *
- * Hidden fields, empty answers and answers still at the field's default are
- * left out; the server applies the workflow's own default, exactly. A default
- * parsed from JSON can differ from it, such as an integer past 2^53. `user`
- * fields send user IDs and `file` fields send uploaded file IDs; the server
- * expands both.
+ * Hidden fields and empty answers are left out. `user` fields send user IDs
+ * and `file` fields send uploaded file IDs; the server expands both.
  */
 export function toSubmissionValues(
   blocks: FormBlock[],
@@ -145,9 +160,6 @@ export function toSubmissionValues(
 ): FormValues {
   const submitted: FormValues = {}
   for (const field of getVisibleFields(blocks, values)) {
-    if (values[field.name] === field.default) {
-      continue
-    }
     const value = toSubmittedValue(field, values[field.name])
     if (!isEmptyFormValue(value)) {
       submitted[field.name] = value

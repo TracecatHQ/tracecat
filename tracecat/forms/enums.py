@@ -86,6 +86,7 @@ class FormIssueCode(StrEnum):
     AUTOFILL_TYPE_MISMATCH = "autofill_type_mismatch"
     HIDDEN_WITH_AUTOFILL = "hidden_with_autofill"
     UNRENDERED_OPTIONAL_INPUT = "unrendered_optional_input"
+    INTEGER_OUT_OF_RANGE = "integer_out_of_range"
 
 
 class FormErrorCode(StrEnum):

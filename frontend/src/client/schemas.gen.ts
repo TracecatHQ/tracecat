@@ -17543,6 +17543,7 @@ export const $FormIssueCode = {
     "autofill_type_mismatch",
     "hidden_with_autofill",
     "unrendered_optional_input",
+    "integer_out_of_range",
   ],
   title: "FormIssueCode",
   description: "Problems the resolver finds in a form config.",

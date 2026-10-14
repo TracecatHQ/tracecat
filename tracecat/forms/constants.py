@@ -22,6 +22,10 @@ MAX_ACCEPT_ENTRIES = 20
 
 MAX_FILES_PER_FIELD = 10
 
+MAX_SAFE_INTEGER = 2**53 - 1
+"""Largest whole number a browser holds exactly. Forms take integers within
+plus or minus this, in defaults, ``visible_if`` values and answers."""
+
 MAX_PENDING_FILES_PER_UPLOADER = 20
 """Uploaded files one caller may hold on one form before submitting them."""
 

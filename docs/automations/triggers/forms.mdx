@@ -115,6 +115,8 @@ A field without `widget` uses the default widget for its input type. `T | None` 
 
 Input types outside the `Default for` column, such as `dict`, `duration`, `any`, or `str | int`, have no default widget. Set `widget: user` or `widget: file` on a `dict` or `list[dict]` input, or fill the input with `autofill` or its default. An input with a default and no widget stays off the form and takes its default. The `user` widget searches active members of the organization.
 
+A `number` field takes whole numbers between -9,007,199,254,740,991 and 9,007,199,254,740,991, the range a browser holds exactly. A larger input default or `visible_if` value is a config error, and a larger answer fails with `invalid_value`.
+
 ## Options and images
 
 `options` is a list of choices. Each choice has a unique `value` and optional `label`, `description`, and `image`.
@@ -148,7 +150,7 @@ The server re-evaluates every rule on submit and drops values for fields the req
 
 Tracecat rejects an autofill input sent in `values` with `unknown_field`, so a `requester` value is always a verified Tracecat user.
 
-A service account that submits through the API has no user profile, so every `requester` source is `null` for its submissions. Type those inputs to take `null`, such as `str | None`; otherwise the submission fails with `invalid_value`. To record your own end user, add an ordinary input such as `end_user_email` and send it in `values`.
+A service account that submits through the API has no user profile, so it has no `requester` values, and a user may have no first or last name. An input whose value is missing takes its default. Without a default it holds `null` if its type takes `null`, such as `str | None`, and otherwise the submission fails with `required`. To record your own end user, add an ordinary input such as `end_user_email` and send it in `values`.
 
 ## Hidden fields
 

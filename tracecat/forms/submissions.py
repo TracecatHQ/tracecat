@@ -84,6 +84,18 @@ def _run_may_have_started(error: Exception) -> bool:
     return isinstance(error, RPCError) and error.status in _UNKNOWN_OUTCOME_RPC_STATUSES
 
 
+def _null_is_the_answer(name: str, expected: ExpectedField) -> bool:
+    """Whether a missing autofill value is sent as null: the input takes null
+    and has no default to fall back on."""
+    if expected.has_default():
+        return False
+    try:
+        normalize_trigger_inputs({name: expected}, {name: None})
+    except ValidationError:
+        return False
+    return True
+
+
 def _pydantic_field_errors(error: ValidationError) -> list[FormFieldError]:
     """Map input-schema validation errors to the fields they belong to."""
     errors: list[FormFieldError] = []
@@ -226,7 +238,9 @@ class FormSubmissionsService(BaseWorkspaceService):
             )
 
         submission_id = uuid.uuid4()
-        answers |= await self._autofill(resolved.autofill, submission_id)
+        answers |= await self._autofill(
+            resolved.autofill, inputs.expects, submission_id
+        )
         try:
             # The same normalized inputs become the stored answers and the
             # run's trigger inputs. Hidden inputs take their defaults here.
@@ -416,12 +430,16 @@ class FormSubmissionsService(BaseWorkspaceService):
     async def _autofill(
         self,
         autofill: Mapping[str, FormAutofillSource],
+        expects: Mapping[str, ExpectedField],
         submission_id: uuid.UUID,
     ) -> dict[str, Any]:
         """Work out the values of autofilled inputs.
 
         A user's values come from their user row. A service account has no
-        user, so its requester values are null.
+        user, so its requester values are missing, as is a user's unset first
+        or last name. A missing value is null only for an input that takes null
+        and has no default. Otherwise it is left out: the default applies, or
+        the input is reported as required.
         """
         if not autofill:
             return {}
@@ -432,12 +450,13 @@ class FormSubmissionsService(BaseWorkspaceService):
                 requester = FormUserRead.model_validate(row)
         values: dict[str, Any] = {}
         for name, source in autofill.items():
+            value: Any = None
             if source is FormAutofillSource.SUBMISSION_ID:
-                values[name] = str(submission_id)
+                value = str(submission_id)
             elif requester is not None:
-                values[name] = _requester_value(source, requester)
-            else:
-                values[name] = None
+                value = _requester_value(source, requester)
+            if value is not None or _null_is_the_answer(name, expects[name]):
+                values[name] = value
         return values
 
     # ----- Read and delete -----

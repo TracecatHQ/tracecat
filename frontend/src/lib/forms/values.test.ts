@@ -23,24 +23,16 @@ describe("getInitialFormValues", () => {
     ).toEqual({ reason: "New hire", urgent: false, manager: null, quote: [] })
   })
 
-  it("sends nothing for an answer still at its default", () => {
-    // The server applies the workflow's own default, exactly: a null toggle
-    // default, or an int past 2^53 that parsing the form's JSON rounded.
-    const { account } = JSON.parse('{"account": 9007199254740993}')
+  it("sends nothing for an untouched toggle whose default is null", () => {
+    // A `bool | None` input with a null default: the run must get null.
     const blocks: FormBlock[] = [
       fieldBlock({ name: "escalate", widget: "toggle", default: null }),
       fieldBlock({ name: "remote", widget: "toggle", default: false }),
-      fieldBlock({ name: "account", widget: "number", default: account }),
     ]
     const values = getInitialFormValues(blocks)
 
-    expect(values).toEqual({ escalate: null, remote: false, account })
-    expect(toSubmissionValues(blocks, values)).toEqual({})
-    const changed = { ...values, remote: true, account: 7 }
-    expect(toSubmissionValues(blocks, changed)).toEqual({
-      remote: true,
-      account: 7,
-    })
+    expect(values).toEqual({ escalate: null, remote: false })
+    expect(toSubmissionValues(blocks, values)).toEqual({ remote: false })
   })
 })
 
@@ -95,6 +87,29 @@ describe("validateFormValues", () => {
     ).toEqual({
       extras: "This field is required",
       quote: "Wait for the uploads to finish",
+    })
+  })
+})
+
+describe("validateFormValues whole numbers", () => {
+  it("refuses one a browser cannot hold exactly", () => {
+    const blocks: FormBlock[] = [
+      fieldBlock({ name: "account", widget: "number" }),
+      fieldBlock({ name: "largest", widget: "number" }),
+      fieldBlock({ name: "ratio", widget: "number" }),
+    ]
+    // Typed as 9007199254740993, the value is already rounded in state.
+    const typed = Number("9007199254740993")
+
+    expect(
+      validateFormValues(blocks, {
+        account: typed,
+        largest: Number.MAX_SAFE_INTEGER,
+        ratio: 0.5,
+      })
+    ).toEqual({
+      account:
+        "Enter a whole number between -9,007,199,254,740,991 and 9,007,199,254,740,991",
     })
   })
 })

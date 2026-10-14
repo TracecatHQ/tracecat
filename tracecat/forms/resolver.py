@@ -15,7 +15,7 @@ from lark.exceptions import LarkError
 from tracecat import config as app_config
 from tracecat.expressions.expectations import parse_type
 from tracecat.expressions.schemas import ExpectedField
-from tracecat.forms.constants import MAX_FILES_PER_FIELD
+from tracecat.forms.constants import MAX_FILES_PER_FIELD, MAX_SAFE_INTEGER
 from tracecat.forms.enums import (
     FormAutofillSource,
     FormInputKind,
@@ -43,6 +43,7 @@ from tracecat.forms.schemas import (
     FormVisibleIf,
 )
 from tracecat.forms.types import FormInputType, ResolveResult, WidgetSpec
+from tracecat.forms.values import is_unsafe_integer
 from tracecat.registry.fields import type_drop_null
 
 # ----- Widget registry -----
@@ -300,6 +301,13 @@ def _resolve_field_entry(
         return
 
     multiple = kind in _LIST_KINDS
+    if expected.has_default() and is_unsafe_integer(expected.default):
+        state.issue(
+            FormIssueCode.INTEGER_OUT_OF_RANGE,
+            f"The default of '{name}' is outside ±{MAX_SAFE_INTEGER:,}, the "
+            "largest whole number a form holds exactly",
+            loc,
+        )
     if entry.placeholder is not None and not spec.placeholder:
         state.issue(
             FormIssueCode.UNSUPPORTED_WIDGET_OPTION,
@@ -442,6 +450,14 @@ def _resolve_visible_if(
         )
         return rule
 
+    if is_unsafe_integer(rule.equals):
+        state.issue(
+            FormIssueCode.INTEGER_OUT_OF_RANGE,
+            f"{rule.equals} is outside ±{MAX_SAFE_INTEGER:,}, the largest whole "
+            "number a form holds exactly",
+            [*rule_loc, "equals"],
+        )
+        return rule
     if not _is_controller_value(rule.equals, kind, controller):
         state.issue(
             FormIssueCode.VISIBLE_IF_INVALID_VALUE,

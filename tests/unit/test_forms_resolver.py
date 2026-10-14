@@ -492,6 +492,19 @@ ISSUE_CASES: list[tuple[Code, list[dict[str, Any]], dict[str, Any], list]] = [
         {"a": OPTIONAL_STR},
         [0, "autofill"],
     ),
+    (
+        # A browser would round it, so the page would show and send another.
+        Code.INTEGER_OUT_OF_RANGE,
+        [{"field": "a"}],
+        {"a": {"type": "int", "default": 2**53}},
+        [0],
+    ),
+    (
+        Code.INTEGER_OUT_OF_RANGE,
+        [{"field": "b"}, {"field": "a", **_when("b", -(2**53))}],
+        {"b": {"type": "int", "default": 0}, "a": OPTIONAL_STR},
+        [1, "visible_if", "equals"],
+    ),
 ]
 
 
@@ -599,6 +612,20 @@ def test_check_values_errors(values: dict[str, Any], expected: dict[str, str]) -
     checked = check_values(_resolve(LAYOUT, **EXPECTS).blocks, values)
 
     assert {error.field: error.code.value for error in checked.errors} == expected
+
+
+def test_check_values_refuses_whole_numbers_a_browser_cannot_hold() -> None:
+    blocks = _resolve(None, count={"type": "int"}, ratio={"type": "float"}).blocks
+    fine = {"count": 2**53 - 1, "ratio": 1e20}
+    assert check_values(blocks, fine).errors == []
+
+    for bad in (2**53, -(2**53), str(2**53)):
+        [error] = check_values(blocks, fine | {"count": bad}).errors
+        assert (error.field, error.code) == ("count", FormFieldErrorCode.INVALID_VALUE)
+        assert error.message == (
+            "Enter a whole number between -9,007,199,254,740,991 and "
+            "9,007,199,254,740,991"
+        )
 
 
 def test_check_values_keeps_valid_answers_of_visible_fields() -> None:

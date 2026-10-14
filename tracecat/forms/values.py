@@ -8,6 +8,7 @@ from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from typing import Any
 
+from tracecat.forms.constants import MAX_SAFE_INTEGER
 from tracecat.forms.enums import FormFieldErrorCode, FormWidget
 from tracecat.forms.schemas import FormBlock, FormFieldBlock, FormFieldError
 from tracecat.forms.types import CheckedValues
@@ -21,6 +22,30 @@ def _equals(value: Any, expected: Any) -> bool:
     if isinstance(value, bool) or isinstance(expected, bool):
         return value is expected
     return value == expected
+
+
+UNSAFE_INTEGER_MESSAGE = (
+    f"Enter a whole number between -{MAX_SAFE_INTEGER:,} and {MAX_SAFE_INTEGER:,}"
+)
+
+
+def is_unsafe_integer(value: Any) -> bool:
+    """Whether a value is a whole number a browser cannot hold exactly."""
+    return (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and abs(value) > MAX_SAFE_INTEGER
+    )
+
+
+def _is_unsafe_number(value: Any) -> bool:
+    # An API caller may send a number as text, which the run reads exactly.
+    if isinstance(value, str):
+        try:
+            value = int(value)
+        except ValueError:
+            return False
+    return is_unsafe_integer(value)
 
 
 def _is_empty(value: Any) -> bool:
@@ -84,6 +109,8 @@ def _check_value(
         allowed = {option.value for option in field.options}
         if any(not isinstance(item, str) or item not in allowed for item in items):
             return FormFieldErrorCode.INVALID_OPTION, "Choose one of the options"
+    if field.widget is FormWidget.NUMBER and any(map(_is_unsafe_number, items)):
+        return FormFieldErrorCode.INVALID_VALUE, UNSAFE_INTEGER_MESSAGE
     if field.widget is FormWidget.DATE and not all(map(_is_iso_date, items)):
         return FormFieldErrorCode.INVALID_DATE, "Enter a date as YYYY-MM-DD"
     if field.widget is FormWidget.DATETIME and not all(map(_is_iso_datetime, items)):

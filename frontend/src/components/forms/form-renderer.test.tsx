@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ReactNode } from "react"
 import { type FormUserRead, formsSearchFormUsers } from "@/client"
@@ -146,6 +146,20 @@ describe("FormRenderer", () => {
     expect(screen.getAllByText("This field is required")).toHaveLength(1)
   })
 
+  it("refuses a whole number past 2^53 rather than rounding it", async () => {
+    const { user, onSubmit } = renderForm({
+      form: formOf(fieldBlock({ name: "account", widget: "number" })),
+    })
+
+    await user.type(screen.getByLabelText("account"), "9007199254740993")
+    await user.click(submitButton())
+
+    expect(
+      await screen.findByText(/Enter a whole number between/)
+    ).toBeVisible()
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
   it("shows a conditional field live and sends visible answers only", async () => {
     const { user, onSubmit, toggleRecipient } = renderForm()
     expect(recipient()).not.toBeInTheDocument()
@@ -159,8 +173,10 @@ describe("FormRenderer", () => {
     await user.click(submitButton())
 
     expect(await submitted()).toBeVisible()
-    // "For someone else" is still at its default, which the server applies.
-    expect(onSubmit).toHaveBeenCalledWith({ why: "Screen cracked" })
+    expect(onSubmit).toHaveBeenCalledWith({
+      why: "Screen cracked",
+      for_someone_else: false,
+    })
     expect(screen.getByText("IT will follow up by email.")).toBeVisible()
     expect(screen.getByText("FRM-8F3K2A1C")).toBeVisible()
     expect(
@@ -171,33 +187,6 @@ describe("FormRenderer", () => {
 
     await user.click(screen.getByRole("button", { name: "Submit another" }))
     expect(why()).toHaveValue("")
-  })
-
-  it("sends a whole number past 2^53 as typed, not rounded", async () => {
-    const { user, onSubmit } = renderForm({
-      form: formOf(fieldBlock({ name: "account", widget: "number" })),
-    })
-    const account = screen.getByLabelText("account") as HTMLInputElement
-
-    // jsdom rounds a typed number input's value; browsers keep the text.
-    fireEvent.change(account, { target: { value: "9007199254740993" } })
-    expect(account.value).toBe("9007199254740993")
-    await user.click(submitButton())
-
-    await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith({ account: "9007199254740993" })
-    )
-  })
-
-  it("sends an ordinary number as a number", async () => {
-    const { user, onSubmit } = renderForm({
-      form: formOf(fieldBlock({ name: "account", widget: "number" })),
-    })
-
-    await user.type(screen.getByLabelText("account"), "42")
-    await user.click(submitButton())
-
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ account: 42 }))
   })
 
   it("puts the server's errors on their fields and the rest above the button", async () => {
@@ -590,8 +579,8 @@ describe("FormRenderer", () => {
       expect(screen.getByText("b.pdf")).toBeVisible()
       await user.click(submitButton())
       await waitFor(() =>
-        // "Attach photos" is back at its default, which the server applies.
         expect(onSubmit).toHaveBeenCalledWith({
+          attach: true,
           photos: ["file-a", "file-b"],
         })
       )
