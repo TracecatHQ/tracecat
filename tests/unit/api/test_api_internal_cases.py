@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import NoResultFound
 
 from tracecat.auth.types import Role
 from tracecat.cases import dependencies as case_dependencies
@@ -17,6 +18,7 @@ from tracecat.cases.schemas import (
     CaseCommentThreadRead,
     CaseReadMinimal,
 )
+from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.models import Case, CaseTag, Workspace
 from tracecat.exceptions import (
     EntitlementRequired,
@@ -299,6 +301,60 @@ async def test_internal_list_cases_validates_field_ids_even_when_page_is_empty(
         case_ids=[],
         field_ids=["case_id"],
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("include_known", [False, True])
+async def test_internal_search_rejects_unresolved_tags(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+    include_known: bool,
+) -> None:
+    known_tag = CaseTag(id=uuid.uuid4(), workspace_id=test_admin_role.workspace_id)
+    tags = ["known-tag", "missing-tag"] if include_known else ["missing-tag"]
+    results = [known_tag, NoResultFound()] if include_known else [NoResultFound()]
+    with (
+        patch.object(internal_cases_router, "CasesService") as service_cls,
+        patch.object(
+            CaseTagsService, "get_tag_by_ref_or_id", new=AsyncMock(side_effect=results)
+        ),
+    ):
+        response = action_gateway_client.get(
+            "/internal/cases/search",
+            params=[("workspace_id", str(test_admin_role.workspace_id))]
+            + [("tags", tag) for tag in tags],
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Unknown case tag filter: 'missing-tag'"
+    service_cls.return_value.search_cases.assert_not_called()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("tags", [[], [""]])
+async def test_internal_search_empty_tags_remain_unfiltered(
+    action_gateway_client: TestClient, test_admin_role: Role, tags: list[str]
+) -> None:
+    with (
+        patch.object(internal_cases_router, "CasesService") as service_cls,
+        patch.object(
+            CaseTagsService, "get_tag_by_ref_or_id", new=AsyncMock()
+        ) as resolve,
+    ):
+        service = AsyncMock()
+        service.search_cases.return_value = CursorPaginatedResponse[CaseReadMinimal](
+            items=[], has_more=False, has_previous=False
+        )
+        service_cls.return_value = service
+        response = action_gateway_client.get(
+            "/internal/cases/search",
+            params=[("workspace_id", str(test_admin_role.workspace_id))]
+            + [("tags", tag) for tag in tags],
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    resolve.assert_not_awaited()
+    assert service.search_cases.call_args.kwargs["tag_ids"] is None
 
 
 @pytest.mark.anyio

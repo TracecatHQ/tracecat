@@ -419,7 +419,6 @@ class CasesService(BaseWorkspaceService):
             if "\x00" in search_term:
                 raise ValueError("Search term cannot contain null bytes")
 
-            search_pattern = func.concat("%", search_term, "%")
             case_number_text = cast(Case.case_number, sa.String)
             short_id_expr = func.concat(
                 "CASE-",
@@ -430,9 +429,9 @@ class CasesService(BaseWorkspaceService):
                 ),
             )
             search_conditions: list[Any] = [
-                Case.summary.ilike(search_pattern),
-                Case.description.ilike(search_pattern),
-                short_id_expr.ilike(search_pattern),
+                Case.summary.icontains(search_term, autoescape=True, escape="\\"),
+                Case.description.icontains(search_term, autoescape=True, escape="\\"),
+                short_id_expr.icontains(search_term, autoescape=True, escape="\\"),
             ]
             case_number = parse_case_short_id(search_term)
             if case_number is not None and case_number <= MAX_CASE_NUMBER:
