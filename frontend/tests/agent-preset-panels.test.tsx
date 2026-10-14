@@ -8,6 +8,7 @@ import {
   type AgentPresetToolPolicyRead,
   agentPresetsPreviewToolPolicy,
   CancelablePromise,
+  type MCPIntegrationRead,
   type SkillReadMinimal,
 } from "@/client"
 import {
@@ -24,7 +25,7 @@ import { Form } from "@/components/ui/form"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useSkills } from "@/hooks/use-skills"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
-import { registryTool } from "./fixtures/agent-preset-tools"
+import { mcpIntegration, registryTool } from "./fixtures/agent-preset-tools"
 
 jest.mock("@/client", () => ({
   ...jest.requireActual("@/client"),
@@ -659,11 +660,13 @@ function ConfigurationTestForm({
   skillIds = savedSkillIds ?? [],
   savedNamespaces = ["tools.test"],
   namespaces = savedNamespaces,
+  mcpIntegrations = [],
 }: {
   savedSkillIds?: string[]
   skillIds?: string[]
   savedNamespaces?: string[]
   namespaces?: string[]
+  mcpIntegrations?: MCPIntegrationRead[]
 }) {
   const form = useForm<AgentPresetFormValues>({
     defaultValues: {
@@ -693,7 +696,7 @@ function ConfigurationTestForm({
           registryLoading={false}
           mcpLoading={false}
           toolsLoadError={false}
-          mcpIntegrations={[]}
+          mcpIntegrations={mcpIntegrations}
           onOpenGroup={() => {}}
         />
         <button
@@ -745,6 +748,25 @@ it("uses saved skill policy when ids and namespace filters are unchanged, ignori
   expect(
     within(group).queryByText("tools.test.authored")
   ).not.toBeInTheDocument()
+})
+
+it("counts approval-gated tools on a selected MCP server", () => {
+  renderConfiguration({
+    savedSkillIds: [],
+    mcpIntegrations: [
+      mcpIntegration({
+        id: "mcp-example",
+        tools: [
+          { name: "gated", requires_approval: true },
+          { name: "disabled", requires_approval: true, enabled: false },
+          { name: "missing", requires_approval: true, status: "missing" },
+          { name: "open", requires_approval: false },
+        ],
+      }),
+    ],
+  })
+  expect(screen.getByText("1 needs approval")).toBeInTheDocument()
+  expect(screen.getByTitle("1 needs approval")).toBeInTheDocument()
 })
 
 it("toggles approval for a tool that only a skill provides", async () => {

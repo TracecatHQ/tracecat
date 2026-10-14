@@ -1184,7 +1184,7 @@ function AgentPresetForm({
   const [railView, setRailView] = useState<AgentPresetRailView>(() =>
     tabToRailView(initialTab)
   )
-  const { hasEntitlement } = useEntitlements()
+  const { hasEntitlement, hasEntitlementData } = useEntitlements()
   const channelsEnabled = hasEntitlement("agent_channels")
   const form = useForm<AgentPresetFormValues>({
     resolver: zodResolver(agentPresetSchema),
@@ -1326,11 +1326,16 @@ function AgentPresetForm({
     }
   }, [enabledModelsLoaded, form, preset, selectedModel])
 
+  // Wait for entitlements so a deep link to Channels survives the first render.
   useEffect(() => {
-    if (!channelsEnabled && railView.kind === "channels") {
+    if (
+      hasEntitlementData &&
+      !channelsEnabled &&
+      railView.kind === "channels"
+    ) {
       setRailView({ kind: "root" })
     }
-  }, [channelsEnabled, railView.kind])
+  }, [channelsEnabled, hasEntitlementData, railView.kind])
 
   const handleSubmit = form.handleSubmit(
     async (values) => {
@@ -1510,6 +1515,16 @@ function AgentPresetForm({
     />
   )
 
+  // Channels lives in the URL so the Slack OAuth redirect returns to it.
+  function handleRailViewChange(next: AgentPresetRailView) {
+    setRailView(next)
+    if (next.kind === "channels") {
+      onTabChange?.("channels")
+    } else if (railView.kind === "channels") {
+      onTabChange?.(leftMode === "playground" ? "live-chat" : "configuration")
+    }
+  }
+
   const modeSwitch = (
     <SegmentedControl
       ariaLabel="Left pane"
@@ -1573,7 +1588,7 @@ function AgentPresetForm({
   const rail = (
     <AgentPresetRail
       view={railView}
-      onViewChange={setRailView}
+      onViewChange={handleRailViewChange}
       channelsEnabled={channelsEnabled}
       preset={preset}
       workspaceId={workspaceId}
@@ -1901,6 +1916,18 @@ function AgentPresetRail({
   onRemoveSubagent: (index: number) => void
 }) {
   const subagents = useWatch({ control: form.control, name: "subagents" })
+  const savedSkillIds = preset
+    ? (preset.skills ?? []).map((skill) => skill.skill_id)
+    : undefined
+  // The root list and the group drill-in share one live policy.
+  const toolPolicy = useLiveToolPolicy({
+    workspaceId,
+    form,
+    savedSkillIds,
+    savedNamespaces: preset?.namespaces,
+    savedSkillActions: preset?.tool_policy?.skill_actions,
+    maxTools: preset?.tool_policy?.max_tools,
+  })
   const back = () => onViewChange({ kind: "root" })
   let drillTitle = ""
   if (view.kind === "output") drillTitle = "Output"
@@ -2014,12 +2041,14 @@ function AgentPresetRail({
                   mcpLoading={mcpLoading}
                   toolsLoadError={toolsLoadError}
                   isSaving={isSaving}
-                  maxTools={preset?.tool_policy?.max_tools}
-                  skillActions={preset?.tool_policy?.skill_actions}
+                  maxTools={toolPolicy.maxTools}
+                  skillActions={toolPolicy.skillActions}
                   onEmptied={back}
                 />
               ) : null}
-              {view.kind === "channels" ? (
+              {/* Mount once entitlements resolve; the panel's early return
+                  while loading changes its hook order. */}
+              {view.kind === "channels" && channelsEnabled ? (
                 <div className="-mx-4">
                   <SlackChannelPanel
                     workspaceId={workspaceId}
@@ -2423,36 +2452,25 @@ function AgentPresetChannelsSummary({
   )
 }
 
-/** Configure tools, previewing skill-granted tools from the current form. */
-export function AgentPresetConfigurationPanel({
+/**
+ * Tool limit and skill-provided tools for the current draft: saved values while
+ * skills and namespace filters are unchanged, a server preview otherwise.
+ */
+function useLiveToolPolicy({
   workspaceId,
+  form,
   savedSkillIds,
   savedNamespaces,
-  form,
-  isSaving,
-  registryActions,
-  registryLoading,
-  mcpLoading,
-  toolsLoadError,
-  mcpIntegrations,
-  maxTools,
   savedSkillActions,
-  onOpenGroup,
+  maxTools,
 }: {
   workspaceId: string
+  form: UseFormReturn<AgentPresetFormValues>
   savedSkillIds?: string[]
   savedNamespaces?: string[] | null
-  form: UseFormReturn<AgentPresetFormValues>
-  isSaving: boolean
-  registryActions?: RegistryActionReadMinimal[]
-  registryLoading: boolean
-  mcpLoading: boolean
-  toolsLoadError: boolean
-  mcpIntegrations: MCPIntegrationRead[]
-  maxTools?: number | null
   savedSkillActions?: string[] | null
-  onOpenGroup: (groupKey: string, title: string) => void
-}) {
+  maxTools?: number | null
+}): { skillActions?: string[] | null; maxTools?: number | null } {
   const skills = useWatch({ control: form.control, name: "skills" })
   const namespaces = useWatch({ control: form.control, name: "namespaces" })
   const selectedMcpIntegrations = useWatch({
@@ -2494,6 +2512,52 @@ export function AgentPresetConfigurationPanel({
     skillActions =
       previewEnabled && !previewFailed ? preview?.skill_actions : undefined
   }
+  return {
+    skillActions,
+    maxTools:
+      maxTools ??
+      (savedSkillIds === undefined ? preview?.max_tools : undefined),
+  }
+}
+
+/** Configure tools, previewing skill-granted tools from the current form. */
+export function AgentPresetConfigurationPanel({
+  workspaceId,
+  savedSkillIds,
+  savedNamespaces,
+  form,
+  isSaving,
+  registryActions,
+  registryLoading,
+  mcpLoading,
+  toolsLoadError,
+  mcpIntegrations,
+  maxTools,
+  savedSkillActions,
+  onOpenGroup,
+}: {
+  workspaceId: string
+  savedSkillIds?: string[]
+  savedNamespaces?: string[] | null
+  form: UseFormReturn<AgentPresetFormValues>
+  isSaving: boolean
+  registryActions?: RegistryActionReadMinimal[]
+  registryLoading: boolean
+  mcpLoading: boolean
+  toolsLoadError: boolean
+  mcpIntegrations: MCPIntegrationRead[]
+  maxTools?: number | null
+  savedSkillActions?: string[] | null
+  onOpenGroup: (groupKey: string, title: string) => void
+}) {
+  const policy = useLiveToolPolicy({
+    workspaceId,
+    form,
+    savedSkillIds,
+    savedNamespaces,
+    savedSkillActions,
+    maxTools,
+  })
   return (
     <AgentPresetRailTools
       registryActions={registryActions}
@@ -2502,11 +2566,8 @@ export function AgentPresetConfigurationPanel({
       toolsLoadError={toolsLoadError}
       mcpIntegrations={mcpIntegrations}
       isSaving={isSaving}
-      maxTools={
-        maxTools ??
-        (savedSkillIds === undefined ? preview?.max_tools : undefined)
-      }
-      skillActions={skillActions}
+      maxTools={policy.maxTools}
+      skillActions={policy.skillActions}
       onOpenGroup={onOpenGroup}
     />
   )

@@ -124,13 +124,7 @@ export function AgentPresetDetailActions({
             aria-disabled={!active}
             aria-label={save.label}
           >
-            {isSaving ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : isDirty ? (
-              <Save className="size-3.5" />
-            ) : (
-              <Check className="size-3.5" />
-            )}
+            <SaveStatusIcon isSaving={isSaving} isDirty={isDirty} />
             {save.label}
           </Button>
         </TooltipTrigger>
@@ -236,4 +230,16 @@ export function AgentPresetDetailHeaderActions({
       syncActions={syncActions}
     />
   )
+}
+
+function SaveStatusIcon({
+  isSaving,
+  isDirty,
+}: {
+  isSaving: boolean
+  isDirty: boolean
+}) {
+  if (isSaving) return <Loader2 className="size-3.5 animate-spin" />
+  if (isDirty) return <Save className="size-3.5" />
+  return <Check className="size-3.5" />
 }

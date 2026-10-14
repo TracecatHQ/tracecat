@@ -203,11 +203,14 @@ function ModelLabel({
   name,
   detail,
   inline = false,
+  status,
 }: {
   iconId: string
   name: string
   detail: string
   inline?: boolean
+  /** Inline only: a muted note such as "Legacy" after the name. */
+  status?: string
 }) {
   if (inline) {
     return (
@@ -222,6 +225,9 @@ function ModelLabel({
         <span className="truncate" title={name}>
           {name}
         </span>
+        {status ? (
+          <span className="shrink-0 text-muted-foreground">{status}</span>
+        ) : null}
       </span>
     )
   }
@@ -281,8 +287,14 @@ export const AgentModelCombobox = forwardRef<
       label = (
         <ModelLabel
           iconId={getModelProviderIconId(value.modelProvider)}
-          name={`${value.modelProvider} / ${value.modelName}`}
+          name={
+            inline
+              ? value.modelName
+              : `${value.modelProvider} / ${value.modelName}`
+          }
           detail={detail}
+          inline={inline}
+          status={detail}
         />
       )
     }

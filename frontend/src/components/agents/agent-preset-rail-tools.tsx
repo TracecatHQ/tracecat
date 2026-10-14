@@ -44,7 +44,7 @@ type RailToolGroup = {
 type RailToolsData = {
   index: ToolIndex
   groups: RailToolGroup[]
-  integrations: Array<{ id: string; entry?: ToolEntry }>
+  integrations: Array<{ id: string; entry?: ToolEntry; approvals: number }>
   unknown: string[]
   selectedCount: number
   approvalCount: number
@@ -99,10 +99,21 @@ function useRailToolsData(
       groups.push(group)
     }
     groups.sort((a, b) => a.title.localeCompare(b.title))
-    const integrations = value.mcpIntegrations.map((id) => ({
-      id,
-      entry: index.byKey.get(`mcp:${id}`),
-    }))
+    const integrations = value.mcpIntegrations.map((id) => {
+      const entry = index.byKey.get(`mcp:${id}`)
+      const integration = entry?.integration
+      const approvals =
+        integration && integration.server_type !== "stdio"
+          ? (integration.tools?.filter(
+              (tool) =>
+                tool.enabled !== false &&
+                tool.status !== "missing" &&
+                tool.requires_approval
+            ).length ?? 0)
+          : 0
+      approvalCount += approvals
+      return { id, entry, approvals }
+    })
     const unknown = ready
       ? value.actions.filter((key) => !index.byKey.has(key))
       : []
@@ -300,7 +311,7 @@ export function AgentPresetRailTools({
           ))
         : null}
       {ready
-        ? integrations.map(({ id, entry }) => (
+        ? integrations.map(({ id, entry, approvals }) => (
             <div key={id} className={cn(RAIL_LIST_ROW, "h-[34px] py-0")}>
               {entry ? <ToolLogo entry={entry} /> : <LogoTile>?</LogoTile>}
               <span className="shrink-0 whitespace-nowrap text-[13.5px]">
@@ -321,6 +332,12 @@ export function AgentPresetRailTools({
               >
                 <X className="size-3" />
               </Button>
+              {approvals > 0 ? (
+                <span
+                  className={APPROVAL_DOT}
+                  title={`${approvals} ${approvals === 1 ? "needs" : "need"} approval`}
+                />
+              ) : null}
               <span className="min-w-12 whitespace-nowrap text-right text-xs text-muted-foreground">
                 MCP · all
               </span>
@@ -494,6 +511,13 @@ export function AgentPresetRailToolGroup({
   const allAsk = rows.length > 0 && rows.every((row) => row.ask)
   const allAuto = rows.length > 0 && rows.every((row) => !row.ask)
 
+  if (toolsLoadError) {
+    return (
+      <RailEmpty>
+        <span className="text-destructive">Unable to load tools.</span>
+      </RailEmpty>
+    )
+  }
   if (!ready) {
     return <RailEmpty>Loading tools...</RailEmpty>
   }
