@@ -133,6 +133,7 @@ async def create_attachment(
                 "message": str(e),
                 "content_type": e.mime_type,
                 "allowed_types": e.allowed_types,
+                "detected_types": e.detected_types,
             },
         ) from e
     except FileSizeError as e:
