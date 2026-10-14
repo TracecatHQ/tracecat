@@ -3370,6 +3370,19 @@ class AgentSession(WorkspaceModel):
         index=True,
         doc="Per-turn stream id - Redis key suffix for the active turn's stream",
     )
+    # Set together by direct dispatch only: the run it reserved and the
+    # database-clock commit time of that reservation. Recovery may tombstone
+    # curr_run_id only while it still equals reserved_run_id.
+    reserved_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        nullable=True,
+        doc="Run reserved by direct dispatch - the only kind recovery may tombstone",
+    )
+    reserved_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When reserved_run_id was reserved - recovery waits out its start deadline",
+    )
     # Terminal error summary for the most recent run
     last_error: Mapped[str | None] = mapped_column(
         Text,
