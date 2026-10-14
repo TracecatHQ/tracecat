@@ -5,7 +5,11 @@ import { useVercelChat } from "@/hooks/use-chat"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@ai-sdk/react", () => ({
-  useChat: jest.fn(() => ({ status: "ready", messages: [] })),
+  useChat: jest.fn(() => ({
+    status: "ready",
+    messages: [],
+    resumeStream: () => Promise.resolve(),
+  })),
 }))
 
 jest.mock("@/lib/api", () => ({ getBaseUrl: () => "https://example.invalid" }))
