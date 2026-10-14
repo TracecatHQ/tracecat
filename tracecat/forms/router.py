@@ -111,7 +111,7 @@ async def list_forms(
 async def create_form(
     *, role: WorkspaceActorRouteRole, session: AsyncDBSession, params: FormCreate
 ) -> FormRead:
-    """Create the form of a workflow. A workflow has at most one form."""
+    """Create the form of a workflow."""
     service = FormsService(session, role)
     return await service.read_form(await service.create_form(params))
 

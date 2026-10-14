@@ -11323,7 +11323,7 @@ export const formsListForms = (
 
 /**
  * Create Form
- * Create the form of a workflow. A workflow has at most one form.
+ * Create the form of a workflow.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody

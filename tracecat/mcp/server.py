@@ -6018,8 +6018,8 @@ async def list_forms(
     """List the forms of a workspace, newest first.
 
     A form turns a workflow's input schema into a page people fill in.
-    Submitting it runs the workflow. A workflow has at most one form. Callers
-    who cannot edit forms only see online forms.
+    Submitting it runs the workflow. Callers who cannot edit forms only see
+    online forms.
 
     Args:
         workspace_id: The workspace ID.
