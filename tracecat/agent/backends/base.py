@@ -9,7 +9,7 @@ from datetime import timedelta
 from typing import ClassVar
 from uuid import UUID
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import func, select, update
 from temporalio.client import (
     Client,
     WorkflowExecutionStatus,
@@ -228,6 +228,7 @@ class AgentBackend[InputT, OutputT](ABC):
             .values(
                 curr_run_id=None,
                 active_stream_id=None,
+                reserved_run_id=None,
                 reserved_at=None,
                 last_error=session.last_error or last_error,
             )
@@ -238,24 +239,19 @@ class AgentBackend[InputT, OutputT](ABC):
 
     @staticmethod
     async def _outlived_start_deadline(context: SessionTurnContext) -> bool:
-        """Whether the locked reservation is older than its start RPC's deadline.
+        """Whether direct dispatch made the locked reservation, past its deadline.
 
-        Every Tracecat path that sets ``curr_run_id`` stamps ``reserved_at`` from
-        the database clock; NULL predates that column and counts as old. A recent
-        ``updated_at`` also vetoes, because writers outside this repository, such
-        as the agent runtime's queued-successor handoff, reserve without stamping
-        ``reserved_at``. Each signal can only delay recovery, never hasten it.
+        Only that start is bounded by ``_START_RPC_TIMEOUT``. Other writers, such
+        as caller-owned child workflows or the agent runtime's queued successor,
+        may start long after reserving, so their reservations are never
+        tombstoned and conflict until their workflow is terminal.
         """
-        now = func.clock_timestamp()
         outlived = await context.db.scalar(
             select(AgentSession.id).where(
                 AgentSession.id == context.session.id,
                 AgentSession.workspace_id == context.role.workspace_id,
-                or_(
-                    AgentSession.reserved_at.is_(None),
-                    AgentSession.reserved_at + _TOMBSTONE_MIN_AGE <= now,
-                ),
-                AgentSession.updated_at + _TOMBSTONE_MIN_AGE <= now,
+                AgentSession.reserved_run_id == AgentSession.curr_run_id,
+                AgentSession.reserved_at + _TOMBSTONE_MIN_AGE <= func.clock_timestamp(),
             )
         )
         return outlived is not None
@@ -326,8 +322,10 @@ class AgentBackend[InputT, OutputT](ABC):
             session.curr_run_id = context.run_id
             session.active_stream_id = context.stream_id
             session.last_error = None
+            # Marks this reservation as one whose start is bounded by a deadline.
             # Flushed by the commit just before the start RPC, so this is when
-            # the start's deadline begins. Recovery waits it out from here.
+            # that deadline begins. Recovery waits it out from here.
+            session.reserved_run_id = context.run_id
             session.reserved_at = func.clock_timestamp()
             context.db.add(session)
             # Clone the public client configuration to retain codecs and tracing
@@ -380,7 +378,12 @@ class AgentBackend[InputT, OutputT](ABC):
                         AgentSession.curr_run_id == context.run_id,
                         AgentSession.active_stream_id == context.stream_id,
                     )
-                    .values(curr_run_id=None, active_stream_id=None, reserved_at=None)
+                    .values(
+                        curr_run_id=None,
+                        active_stream_id=None,
+                        reserved_run_id=None,
+                        reserved_at=None,
+                    )
                     .returning(AgentSession.id)
                 )
                 await context.db.commit()
@@ -417,7 +420,12 @@ class AgentBackend[InputT, OutputT](ABC):
                         AgentSession.curr_run_id == context.run_id,
                         AgentSession.active_stream_id == context.stream_id,
                     )
-                    .values(curr_run_id=None, active_stream_id=None, reserved_at=None)
+                    .values(
+                        curr_run_id=None,
+                        active_stream_id=None,
+                        reserved_run_id=None,
+                        reserved_at=None,
+                    )
                     .returning(AgentSession.id)
                 )
                 await db.commit()

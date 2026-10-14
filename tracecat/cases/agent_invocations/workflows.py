@@ -72,8 +72,8 @@ class CaseCommentAgentInvocationWorkflow:
                 id=AgentWorkflowID(run_id),
                 task_queue=config.TRACECAT__AGENT_QUEUE,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                # The session is reserved before this start. Recovery may
-                # tombstone the ID meanwhile; the turn must then never run.
+                # prepare_new_turn reuses a persisted run ID, which may be a
+                # direct dispatch's that recovery tombstoned. Never run it then.
                 id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
             )
             stage = "completion"

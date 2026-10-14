@@ -1099,7 +1099,12 @@ class AgentSessionService(BaseWorkspaceService):
                 AgentSession.workspace_id == self.workspace_id,
                 AgentSession.curr_run_id == run_id,
             )
-            .values(curr_run_id=None, active_stream_id=None, reserved_at=None)
+            .values(
+                curr_run_id=None,
+                active_stream_id=None,
+                reserved_run_id=None,
+                reserved_at=None,
+            )
         )
         await self.session.execute(stmt)
         await self.session.commit()
@@ -1207,7 +1212,12 @@ class AgentSessionService(BaseWorkspaceService):
                 AgentSession.workspace_id == self.workspace_id,
                 AgentSession.active_stream_id == expected_stream_id,
             )
-            .values(curr_run_id=None, active_stream_id=None, reserved_at=None)
+            .values(
+                curr_run_id=None,
+                active_stream_id=None,
+                reserved_run_id=None,
+                reserved_at=None,
+            )
         )
         await self.session.execute(stmt)
         await self.session.commit()
@@ -2008,7 +2018,6 @@ class AgentSessionService(BaseWorkspaceService):
 
             agent_session.curr_run_id = run_id
             agent_session.active_stream_id = stream_id
-            agent_session.reserved_at = func.clock_timestamp()
             agent_session.last_error = None
             self.session.add(agent_session)
             await self.session.commit()

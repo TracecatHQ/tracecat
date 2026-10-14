@@ -11,7 +11,6 @@ import uuid
 from typing import Any
 
 from pydantic import BaseModel, Field
-from sqlalchemy import func
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -228,7 +227,6 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
             # previous run's error irrelevant once a new turn starts.
             if input.curr_run_id is not None:
                 agent_session.curr_run_id = input.curr_run_id
-                agent_session.reserved_at = func.clock_timestamp()
                 agent_session.last_error = None
                 service.session.add(agent_session)
                 await service.session.commit()

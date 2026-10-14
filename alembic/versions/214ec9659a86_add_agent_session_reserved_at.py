@@ -1,4 +1,4 @@
-"""Add agent_session.reserved_at.
+"""Add agent_session.reserved_run_id and reserved_at.
 
 Revision ID: 214ec9659a86
 Revises: 8b51e0c47d2a
@@ -18,8 +18,12 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # Additive and nullable: the previous app version ignores it, and existing
-    # reservations stay NULL, which turn recovery treats as old.
+    # Additive and nullable: the previous app version ignores them, and existing
+    # reservations stay NULL, which turn recovery never tombstones.
+    op.add_column(
+        "agent_session",
+        sa.Column("reserved_run_id", sa.UUID(), nullable=True),
+    )
     op.add_column(
         "agent_session",
         sa.Column("reserved_at", sa.TIMESTAMP(timezone=True), nullable=True),
@@ -28,3 +32,4 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_column("agent_session", "reserved_at")
+    op.drop_column("agent_session", "reserved_run_id")
