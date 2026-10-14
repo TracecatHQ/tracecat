@@ -11,7 +11,7 @@ import {
   ConversationContent,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation"
-import { MessagePart } from "@/components/chat/chat-session-pane"
+import { MessagePart } from "@/components/chat/message-part"
 import { Spinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"
 import { parseChatError } from "@/hooks/use-chat"

@@ -30,7 +30,7 @@ jest.mock("@/components/ai-elements/conversation", () => ({
   ConversationScrollButton: () => null,
 }))
 
-jest.mock("@/components/chat/chat-session-pane", () => ({
+jest.mock("@/components/chat/message-part", () => ({
   MessagePart: () => null,
 }))
 

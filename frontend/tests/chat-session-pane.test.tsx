@@ -14,10 +14,8 @@ import type {
   MCPIntegrationRead,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import {
-  ChatSessionPane,
-  MessagePart,
-} from "@/components/chat/chat-session-pane"
+import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+import { MessagePart } from "@/components/chat/message-part"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { useUpdateChat, useVercelChat } from "@/hooks/use-chat"

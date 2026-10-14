@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type { UIMessage, UIMessagePart } from "ai"
 import type { ReactNode } from "react"
-import { MessagePart } from "@/components/chat/chat-session-pane"
+import { MessagePart } from "@/components/chat/message-part"
 import { SubagentStreamContext } from "@/hooks/use-subagent-stream"
 import { SubagentStreamStore } from "@/lib/subagent-stream"
 import { WorkspaceIdProvider } from "@/providers/workspace-id"
