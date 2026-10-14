@@ -11,7 +11,10 @@ from scripts.benchmark.table_search.run import (
     Settings,
     WriterControl,
     concurrent_writer,
+    connect,
+    ensure_trigram_extension,
     percentiles,
+    run_scenario,
     validate_database,
 )
 from scripts.benchmark.table_search.safety import plan_uses_index
@@ -44,6 +47,47 @@ def test_database_guard_accepts_empty_isolated_database() -> None:
         (0,),
     ]
     validate_database(conn)
+
+
+def test_setup_connection_disables_inherited_statement_timeout() -> None:
+    conn = Mock()
+    with patch("scripts.benchmark.table_search.run.psycopg.connect") as open_connection:
+        open_connection.return_value = conn
+        assert connect("synthetic", "synthetic", 0) is conn
+    open_connection.assert_called_once_with(
+        "synthetic", autocommit=True, connect_timeout=10
+    )
+    conn.execute.assert_any_call(
+        "SELECT set_config('statement_timeout', %s, false)", ("0",)
+    )
+
+
+@pytest.mark.parametrize("namespace", ["public", "other_extension_schema"])
+def test_trigram_extension_requires_public_namespace(namespace: str) -> None:
+    conn = Mock()
+    conn.execute.return_value.fetchone.return_value = (namespace,)
+    if namespace == "public":
+        ensure_trigram_extension(conn)
+    else:
+        with pytest.raises(ValueError, match="pg_trgm must be installed in public"):
+            ensure_trigram_extension(conn)
+    assert conn.execute.call_count == 2
+
+
+def test_next_scenario_clears_search_timeout_before_setup() -> None:
+    conn = Mock()
+    settings = Settings((100,), 4, 4, 2022, 2, 1, 2, 10, 5000, 2097152, "synthetic")
+
+    def check_setup_timeout(*_args) -> None:
+        conn.execute.assert_called_once_with("SET statement_timeout = 0")
+        raise RuntimeError("stop before workload setup")
+
+    with patch(
+        "scripts.benchmark.table_search.run.create_source",
+        side_effect=check_setup_timeout,
+    ):
+        with pytest.raises(RuntimeError, match="stop before workload setup"):
+            run_scenario(conn, "synthetic", "synthetic", settings, 100)
 
 
 @pytest.mark.parametrize("projection", [False, True])

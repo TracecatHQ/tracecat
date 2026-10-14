@@ -2,7 +2,7 @@
 
 Create an empty PostgreSQL 16 database named tracecat_search_bench_* and set
 TABLE_SEARCH_BENCH_DSN to its connection URI. The role needs CONNECT and CREATE;
-pg_trgm must be available. Setup refuses existing user relations. Cleanup removes
+pg_trgm must be available in public. Setup refuses existing user relations. Cleanup removes
 only this invocation's random schema, preserving the database and extension.
 
 Run from the repository root with synced dependencies::
@@ -108,6 +108,17 @@ def validate_database(conn: Connection) -> None:
     """).fetchone()[0]
     if count:
         raise ValueError("Benchmark database must contain no user relations")
+
+
+def ensure_trigram_extension(conn: Connection) -> None:
+    """Require the namespace used by every prototype's trigram operator class."""
+    conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public")
+    namespace = conn.execute("""
+        SELECT n.nspname FROM pg_extension e
+        JOIN pg_namespace n ON n.oid=e.extnamespace WHERE e.extname='pg_trgm'
+    """).fetchone()[0]
+    if namespace != "public":
+        raise ValueError("pg_trgm must be installed in public for this benchmark")
 
 
 def environment(conn: Connection, settings: Settings) -> dict[str, JsonValue]:
@@ -381,6 +392,8 @@ def load_source(
 def run_scenario(
     conn: Connection, dsn: str, schema: str, settings: Settings, size: int
 ) -> dict[str, JsonValue]:
+    # The preceding scenario leaves the measured-query budget on this session.
+    conn.execute("SET statement_timeout = 0")
     cols = columns(settings.width)
     create_source(conn, cols)
     contract = check_contract(conn)
@@ -538,13 +551,15 @@ def main() -> None:
         "scenarios": [],
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    with psycopg.connect(dsn, autocommit=True) as conn:
+    # Setup and safety probes run outside the measured-query timeout, including
+    # when the database or role supplies an inherited statement_timeout.
+    with connect(dsn, schema, 0) as conn:
         validate_database(conn)
         # Prevent two runners from passing the empty-database check together.
         if not conn.execute("SELECT pg_try_advisory_lock(2022, 2022)").fetchone()[0]:
             raise ValueError("Another benchmark owns this database")
         validate_database(conn)
-        conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public")
+        ensure_trigram_extension(conn)
         conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
         try:
             conn.execute(
