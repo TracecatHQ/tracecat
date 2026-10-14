@@ -3,7 +3,7 @@
 import copy
 from typing import ClassVar
 
-from temporalio.common import Priority, WorkflowIDReusePolicy
+from temporalio.common import Priority
 from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
 from tracecat import config
@@ -27,7 +27,6 @@ class DefaultBackend(AgentBackend[AgentWorkflowArgs, AgentOutput]):
     task_queue = config.TRACECAT__AGENT_QUEUE
     priority: ClassVar[Priority] = Priority(priority_key=1)
     retry_policy = RETRY_POLICIES["workflow:fail_fast"]
-    id_reuse_policy = WorkflowIDReusePolicy.ALLOW_DUPLICATE
     name = "Open source"
     default_harness = "claude_code"
     supported_harnesses = frozenset({"claude_code"})

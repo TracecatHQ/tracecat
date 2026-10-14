@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 from collections.abc import Iterator
 from dataclasses import replace
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 from uuid import UUID, uuid4
@@ -402,6 +403,8 @@ async def test_builtin_dispatch_preserves_workflow_contract():
     assert request.workflow_id == f"agent/{ctx.run_id}"
     assert request.workflow_type.name == "DurableAgentWorkflow"
     assert rpc.await_args.kwargs["retry"] is False
+    # Recovery waits out this deadline before tombstoning a missing turn.
+    assert rpc.await_args.kwargs["timeout"] == timedelta(seconds=30)
     ctx.db.rollback.assert_not_awaited()
 
 
@@ -489,7 +492,7 @@ async def test_dispatch_rejects_missing_or_owned_session_before_preparation(miss
         WorkflowExecutionStatus.RUNNING,
         WorkflowExecutionStatus.CONTINUED_AS_NEW,
         None,
-        RPCError("not found", RPCStatusCode.NOT_FOUND, b""),
+        # NOT_FOUND recovery is covered in tests/backends.
         RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""),
         TimeoutError("lookup timed out"),
     ],
