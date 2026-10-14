@@ -322,7 +322,9 @@ def _resolve_field_entry(
         )
     options = _resolve_options(state, entry, widget, loc)
     if options is not None and expected.has_default():
-        _check_default_is_an_option(state, name, expected.default, options, loc)
+        _check_default_is_an_option(
+            state, name, expected.default, options, multiple, loc
+        )
     block = FormFieldBlock(
         type="field",
         name=name,
@@ -398,9 +400,11 @@ def _check_default_is_an_option(
     name: str,
     default: Any,
     options: list[FormFieldOption],
+    multiple: bool,
     loc: IssueLoc,
 ) -> None:
-    """Report a default, or an item of a list default, that is not an option.
+    """Report a default that is not one option, or a list of them for a
+    ``multiple`` field.
 
     The page would open with an answer the server rejects. A ``None`` default
     is no answer, so it passes.
@@ -408,14 +412,20 @@ def _check_default_is_an_option(
     if default is None:
         return
     allowed = {option.value for option in options}
-    for item in default if isinstance(default, list) else [default]:
-        if not isinstance(item, str) or item not in allowed:
-            state.issue(
-                FormIssueCode.DEFAULT_NOT_AN_OPTION,
-                f"'{item}' in the default of '{name}' is not one of its options",
-                loc,
-            )
-            return
+    if multiple:
+        valid = isinstance(default, list) and all(
+            isinstance(item, str) and item in allowed for item in default
+        )
+        expected = "a list of its options"
+    else:
+        valid = isinstance(default, str) and default in allowed
+        expected = "one of its options"
+    if not valid:
+        state.issue(
+            FormIssueCode.DEFAULT_NOT_AN_OPTION,
+            f"The default of '{name}', {default!r}, is not {expected}",
+            loc,
+        )
 
 
 def _resolve_file_config(

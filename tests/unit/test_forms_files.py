@@ -621,6 +621,37 @@ async def test_submit_checks_files_against_the_fields_current_accept(
     assert errors == {"extras": FormFieldErrorCode.INVALID_FILE}
 
 
+@pytest.mark.parametrize(
+    ("settings", "max_size"),
+    [
+        ({"allowed_attachment_extensions": [".pdf"]}, None),
+        ({"allowed_attachment_mime_types": ["application/pdf"]}, None),
+        ({}, len(TEXT) - 1),
+    ],
+    ids=["extension", "content_type", "size"],
+)
+async def test_submit_checks_files_against_the_workspaces_current_policy(
+    session: AsyncSession,
+    files: FormFilesService,
+    submissions: FormSubmissionsService,
+    temporal: FakeTemporal,
+    form: Form,
+    svc_workspace: Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+    settings: dict[str, Any],
+    max_size: int | None,
+) -> None:
+    notes = await _upload(files, form, "extras", **TEXT_FILE)
+    # An admin narrows the workspace's attachment settings after the upload.
+    await _set_workspace_settings(session, svc_workspace, settings)
+    if max_size is not None:
+        monkeypatch.setattr(config, "TRACECAT__MAX_ATTACHMENT_SIZE_BYTES", max_size)
+
+    errors = await _claim_errors(submissions, form, extras=[str(notes.id)])
+
+    assert errors == {"extras": FormFieldErrorCode.INVALID_FILE}
+
+
 async def test_submit_reads_the_extension_as_the_upload_check_does(
     files: FormFilesService,
     submissions: FormSubmissionsService,

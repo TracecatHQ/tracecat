@@ -84,6 +84,19 @@ def _extension(filename: str) -> str:
     return os.path.splitext(filename.strip())[1].lower().strip()
 
 
+def _workspace_allows(validator: FileSecurityValidator, file: FormFile) -> bool:
+    """Whether a stored file still passes the workspace's attachment policy.
+
+    Runs the upload checks that need no bytes, on the stored metadata.
+    """
+    try:
+        validator._validate_extension(file.name)
+        validator._validate_mime_type(file.content_type)
+    except FileValidationError:
+        return False
+    return file.size <= validator.max_file_size
+
+
 def _invalid_file(field: str) -> FormFieldError:
     # One message for every reason, so a caller cannot probe for file IDs.
     return FormFieldError(
@@ -245,28 +258,33 @@ class FormFilesService(BaseWorkspaceService):
             )
         return file_read
 
-    async def _validate(
-        self, field: FormFieldBlock, *, filename: str, content_type: str, content: bytes
-    ) -> FileValidationResult:
-        """Check a file against the workspace's attachment settings and the
-        field's ``accept``. A file must pass both.
+    async def _workspace_validator(self) -> FileSecurityValidator:
+        """The workspace's attachment settings as a validator.
 
         The bytes are always checked against the declared type, whatever the
         workspace's magic-number setting for case attachments says.
         """
-        if not content:
-            raise FormError(FormErrorCode.FILE_INVALID, "The file is empty")
         settings = await self.session.scalar(
             select(Workspace.settings).where(Workspace.id == self.workspace_id)
         )
         settings = settings or {}
         # An empty allowlist falls back to the deployment default, as it does
         # for case attachments.
-        validator = FileSecurityValidator(
+        return FileSecurityValidator(
             allowed_extensions=settings.get("allowed_attachment_extensions") or None,
             allowed_mime_types=settings.get("allowed_attachment_mime_types") or None,
             validate_magic_number=True,
         )
+
+    async def _validate(
+        self, field: FormFieldBlock, *, filename: str, content_type: str, content: bytes
+    ) -> FileValidationResult:
+        """Check a file against the workspace's attachment settings and the
+        field's ``accept``. A file must pass both.
+        """
+        if not content:
+            raise FormError(FormErrorCode.FILE_INVALID, "The file is empty")
+        validator = await self._workspace_validator()
         try:
             validated = validator.validate_file(
                 content=content, filename=filename, declared_mime_type=content_type
@@ -299,9 +317,10 @@ class FormFilesService(BaseWorkspaceService):
         """Replace the file IDs of ``file`` fields with file objects, in place.
 
         A file ID is accepted only if the file belongs to this form, was
-        uploaded by this caller to the field it is submitted under, is of a
-        type the field still accepts, has not expired and is not claimed. The
-        rows are locked, so a file is claimed once.
+        uploaded by this caller to the field it is submitted under, still
+        passes the workspace's attachment settings and the field's ``accept``,
+        has not expired and is not claimed. The rows are locked, so a file is
+        claimed once.
 
         Returns:
             The field errors, and the files to attach to the submission once
@@ -356,14 +375,17 @@ class FormFilesService(BaseWorkspaceService):
             field.name: field.config.accept if field.config is not None else None
             for field in fields
         }
+        validator = await self._workspace_validator()
         claimed: list[FormFile] = []
         for name, file_ids in file_ids_by_field.items():
-            # The field's accept may have narrowed since the file was uploaded.
+            # The workspace's settings and the field's accept may have
+            # narrowed since the file was uploaded.
             found = [
                 files[file_id]
                 for file_id in file_ids
                 if file_id in files
                 and files[file_id].field == name
+                and _workspace_allows(validator, files[file_id])
                 and matches_accept(
                     accept[name],
                     extension=_extension(files[file_id].name),

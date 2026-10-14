@@ -552,10 +552,12 @@ SIZES = [{"value": "s"}, {"value": "m"}]
         ("select", None, True),
         ("select", "xl", False),
         ("cards", "xl", False),
+        # A list is not one option, even when its items are options.
+        ("select", ["m"], False),
     ],
 )
 def test_a_select_default_must_be_one_of_its_options(
-    widget: str, default: str | None, valid: bool
+    widget: str, default: str | list[str] | None, valid: bool
 ) -> None:
     # The page would open with an answer the server rejects as invalid_option.
     result = _resolve(
@@ -575,10 +577,11 @@ def test_a_select_default_must_be_one_of_its_options(
         ("cards", ["m"], True),
         ("multi_select", ["s", "xl"], False),
         ("cards", ["xl"], False),
+        ("multi_select", "m", False),
     ],
 )
 def test_each_item_of_a_multi_select_default_must_be_one_of_its_options(
-    widget: str, default: list[str], valid: bool
+    widget: str, default: str | list[str], valid: bool
 ) -> None:
     result = _resolve(
         [{"field": "sizes", "widget": widget, "options": SIZES}],
