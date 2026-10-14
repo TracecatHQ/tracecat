@@ -21,6 +21,8 @@ let mockScopes: Record<string, boolean | undefined> = {}
 let mockEntitlements: Record<string, boolean> = {}
 let mockEntitlementsKnown = true
 let mockEntitlementsLoading = false
+let mockFormsAccess = "enabled"
+const mockSetLastWorkspaceId = jest.fn()
 
 jest.mock("next/image", () => ({
   __esModule: true,
@@ -60,7 +62,7 @@ jest.mock("@/components/settings/settings-modal", () => ({
 }))
 
 jest.mock("@/components/sidebar/app-sidebar", () => ({
-  AppSidebar: () => null,
+  AppSidebar: () => <nav aria-label="Workspace" />,
 }))
 
 jest.mock("@/components/ui/button", () => ({
@@ -104,15 +106,14 @@ jest.mock("@/hooks/use-entitlements", () => ({
   }),
 }))
 
+jest.mock("@/hooks/use-forms-access", () => ({
+  useFormsAccess: () => mockFormsAccess,
+}))
+
 // The landing choice reads scopes through React Query and has its own tests.
 jest.mock("@/hooks/use-landing-workspace", () => ({
-  useLandingWorkspace: ({
-    workspaces,
-    lastViewedWorkspaceId,
-  }: {
-    workspaces?: { id: string }[]
-    lastViewedWorkspaceId?: string
-  }) => ({ workspaceId: lastViewedWorkspaceId ?? workspaces?.[0]?.id }),
+  useLandingWorkspace: ({ workspaces }: { workspaces?: { id: string }[] }) =>
+    workspaces?.[0]?.id,
 }))
 
 jest.mock("@/lib/hooks", () => ({
@@ -120,7 +121,7 @@ jest.mock("@/lib/hooks", () => ({
     workspaces: mockWorkspaces,
     workspacesLoading: mockWorkspacesLoading,
     workspacesError: mockWorkspacesError,
-    setLastWorkspaceId: jest.fn(),
+    setLastWorkspaceId: mockSetLastWorkspaceId,
     getLastWorkspaceId: jest.fn(),
     createWorkspace: mockCreateWorkspace,
   }),
@@ -267,4 +268,72 @@ describe("WorkspaceLayout empty workspace access", () => {
       expect(screen.queryByText(/upgrade/i)).not.toBeInTheDocument()
     }
   )
+})
+
+describe("WorkspaceLayout forms intake", () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockWorkspaces = [{ id: "workspace-1", name: "Security" }]
+    mockParams = { workspaceId: "workspace-1" }
+    mockPathname = "/workspaces/workspace-1/workflows"
+    mockScopes = { "workspace:read": false, "form:read": true }
+    mockFormsAccess = "enabled"
+    mockUseScopeCheck.mockImplementation((scope) => mockScopes[scope])
+  })
+
+  const renderLayout = () =>
+    render(
+      <WorkspaceLayout>
+        <div>Workspace content</div>
+      </WorkspaceLayout>
+    )
+
+  it.each([
+    ["/workspaces/workspace-1/workflows", "enabled", "/forms"],
+    ["/workspaces/workspace-1/forms/form-1", "locked", "/forms/form-1"],
+  ])(
+    "sends an intake-only user on %s (%s) to %s",
+    (pathname, access, target) => {
+      mockPathname = pathname
+      mockFormsAccess = access
+
+      renderLayout()
+
+      expect(mockRouterReplace).toHaveBeenCalledWith(target)
+      expect(screen.queryByText("Access denied")).not.toBeInTheDocument()
+      // Remembering this workspace would bounce the user here on every visit.
+      expect(mockSetLastWorkspaceId).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each([
+    ["hidden", true, "Access denied"],
+    ["enabled", false, "Access denied"],
+    ["loading", true, "Loading"],
+  ])(
+    "does not redirect when Forms is %s and form:read is %p",
+    (access, canReadForms, shown) => {
+      mockFormsAccess = access
+      mockScopes["form:read"] = canReadForms
+
+      renderLayout()
+
+      expect(mockRouterReplace).not.toHaveBeenCalled()
+      expect(screen.getByText(shown)).toBeInTheDocument()
+    }
+  )
+
+  it.each([
+    ["/workspaces/workspace-1/workflows", true],
+    ["/workspaces/workspace-1/forms/form-1", false],
+  ])("gives a reader on %s the shell: %p", (pathname, withShell) => {
+    mockPathname = pathname
+    mockScopes = { "workspace:read": true, "form:read": true }
+
+    renderLayout()
+
+    expect(screen.getByText("Workspace content")).toBeInTheDocument()
+    expect(Boolean(screen.queryByRole("navigation"))).toBe(withShell)
+    expect(mockSetLastWorkspaceId).toHaveBeenCalledWith("workspace-1")
+  })
 })

@@ -468,8 +468,6 @@ import type {
   FormsGetFormResponse,
   FormsGetFormSubmissionData,
   FormsGetFormSubmissionResponse,
-  FormsListFormActivityData,
-  FormsListFormActivityResponse,
   FormsListFormSubmissionsData,
   FormsListFormSubmissionsResponse,
   FormsListFormsData,
@@ -480,8 +478,6 @@ import type {
   FormsListIntakeSubmissionsResponse,
   FormsLocateIntakeFormData,
   FormsLocateIntakeFormResponse,
-  FormsPreviewFormData,
-  FormsPreviewFormResponse,
   FormsRenderFormData,
   FormsRenderFormResponse,
   FormsSearchFormUsersData,
@@ -11346,34 +11342,9 @@ export const formsCreateForm = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      404: "Not Found",
       409: "Conflict",
       422: "Unprocessable Entity",
-    },
-  })
-}
-
-/**
- * Validate Form
- * Resolve an unsaved config against a workflow's inputs.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.requestBody
- * @returns FormValidateResponse Successful Response
- * @throws ApiError
- */
-export const formsValidateForm = (
-  data: FormsValidateFormData
-): CancelablePromise<FormsValidateFormResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/workspaces/{workspace_id}/forms/validate",
-    path: {
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
     },
   })
 }
@@ -11437,7 +11408,7 @@ export const formsUpdateForm = (
 
 /**
  * Delete Form
- * Delete a form with its submissions and activity.
+ * Delete a form with its submissions, views and files.
  * @param data The data for the request.
  * @param data.formId
  * @param data.workspaceId
@@ -11461,28 +11432,30 @@ export const formsDeleteForm = (
 }
 
 /**
- * Preview Form
- * Get a form's saved config as the blocks a client renders.
+ * Validate Form
+ * Resolve a config, saved or not, against the inputs of a form's workflow.
  *
- * For builders who cannot run ``/validate``. Works for an offline form and
- * records no view. Needs form:update or form:submission:read on top of
- * form:read; other callers get 404.
+ * Needs form:update or form:submission:read on top of form:read; other
+ * callers get 404.
  * @param data The data for the request.
  * @param data.formId
  * @param data.workspaceId
- * @returns FormPreview Successful Response
+ * @param data.requestBody
+ * @returns FormValidateResponse Successful Response
  * @throws ApiError
  */
-export const formsPreviewForm = (
-  data: FormsPreviewFormData
-): CancelablePromise<FormsPreviewFormResponse> => {
+export const formsValidateForm = (
+  data: FormsValidateFormData
+): CancelablePromise<FormsValidateFormResponse> => {
   return __request(OpenAPI, {
-    method: "GET",
-    url: "/workspaces/{workspace_id}/forms/{form_id}/preview",
+    method: "POST",
+    url: "/workspaces/{workspace_id}/forms/{form_id}/validate",
     path: {
       form_id: data.formId,
       workspace_id: data.workspaceId,
     },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },
@@ -11495,7 +11468,7 @@ export const formsPreviewForm = (
  * @param data The data for the request.
  * @param data.formId
  * @param data.workspaceId
- * @returns FormResolved Successful Response
+ * @returns FormPreview Successful Response
  * @throws ApiError
  */
 export const formsRenderForm = (
@@ -11510,37 +11483,6 @@ export const formsRenderForm = (
     },
     errors: {
       409: "Conflict",
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * List Form Activity
- * List a form's views and submissions, newest first.
- * @param data The data for the request.
- * @param data.formId
- * @param data.workspaceId
- * @param data.limit
- * @param data.cursor
- * @returns CursorPaginatedResponse_FormEventRead_ Successful Response
- * @throws ApiError
- */
-export const formsListFormActivity = (
-  data: FormsListFormActivityData
-): CancelablePromise<FormsListFormActivityResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/workspaces/{workspace_id}/forms/{form_id}/activity",
-    path: {
-      form_id: data.formId,
-      workspace_id: data.workspaceId,
-    },
-    query: {
-      limit: data.limit,
-      cursor: data.cursor,
-    },
-    errors: {
       422: "Validation Error",
     },
   })
@@ -11574,6 +11516,8 @@ export const formsSearchFormUsers = (
       cursor: data.cursor,
     },
     errors: {
+      404: "Not Found",
+      409: "Conflict",
       422: "Validation Error",
     },
   })

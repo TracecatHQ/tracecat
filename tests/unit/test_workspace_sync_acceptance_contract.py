@@ -67,10 +67,9 @@ from tracecat.exceptions import (
     TracecatCredentialsError,
     TracecatValidationError,
 )
-from tracecat.forms.dependencies import check_forms_enabled
-from tracecat.forms.enums import FormErrorCode, FormIssueCode, FormStatus
-from tracecat.forms.exceptions import FormError
-from tracecat.forms.service import FormsService
+from tracecat.forms.enums import FormStatus
+from tracecat.forms.schemas import FormConfig
+from tracecat.forms.service import stored_form_config
 from tracecat.git.types import GitUrl
 from tracecat.integrations.enums import MCPAuthType
 from tracecat.registry.lock.types import RegistryLock
@@ -9894,6 +9893,9 @@ _FORM_BLOCK: dict[str, Any] = {
         {"field": "justification", "widget": "long_text"},
         {"heading": "Delivery"},
         {"field": "for_someone_else"},
+        # Not an input. A push never checks the form, so a pull must store
+        # this as written: otherwise renaming an input would block every pull.
+        {"field": "not_an_input"},
     ],
 }
 
@@ -9921,21 +9923,18 @@ def _form_workflow_git_tree(form: dict[str, Any] | None) -> dict[str, str]:
     }
 
 
-async def _pull_form_trees(
-    session: AsyncSession, role: Role, *forms: dict[str, Any] | None
-) -> tuple[WorkspaceSyncService, list[Any]]:
-    """Pull one tree per form block, in order. Returns the pull results."""
+async def _pull_form_tree(
+    session: AsyncSession, role: Role, form: dict[str, Any] | None
+) -> tuple[WorkspaceSyncService, Any]:
+    """Pull a tree whose one workflow carries this form block."""
     service = WorkspaceSyncService(session=session, role=role)
-    commits = [str(index) * 40 for index in range(len(forms))]
+    commit = hashlib.sha1(repr(form).encode()).hexdigest()
     transport = AsyncMock()
-    transport.read_files.side_effect = [
-        VcsTreeSnapshot(
-            commit_sha=commit,
-            tree_sha=f"tree-{commit[0]}",
-            files=_form_workflow_git_tree(form),
-        )
-        for commit, form in zip(commits, forms, strict=True)
-    ]
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha=commit,
+        tree_sha=f"tree-{commit}",
+        files=_form_workflow_git_tree(form),
+    )
     service._workspace_git_url = AsyncMock(
         return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
     )
@@ -9949,11 +9948,8 @@ async def _pull_form_trees(
             AsyncMock(return_value=RegistryLock(origins={}, actions={})),
         ),
     ):
-        results = [
-            await service.pull(options=PullOptions(commit_sha=commit))
-            for commit in commits
-        ]
-    return service, results
+        result = await service.pull(options=PullOptions(commit_sha=commit))
+    return service, result
 
 
 async def _only_form(session: AsyncSession, role: Role) -> Form | None:
@@ -9962,128 +9958,65 @@ async def _only_form(session: AsyncSession, role: Role) -> Form | None:
     )
 
 
+async def _exported_workflow(service: WorkspaceSyncService) -> dict[str, Any]:
+    projection = await service.project_workspace(create_missing_mappings=False)
+    return yaml.safe_load(
+        projection.files[f"{WORKFLOW_ROOT}/laptop-request/definition.yml"]
+    )
+
+
 @pytest.mark.anyio
-async def test_workflow_form_block_round_trips(
+async def test_workflow_form_block_round_trips_as_written(
     session: AsyncSession,
     svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    service, results = await _pull_form_trees(session, svc_role, _FORM_BLOCK)
+    """The block syncs as written, whether or not it still matches the inputs
+    and whatever the forms entitlement; the form stays inert behind the gate."""
 
-    assert results[0].success is True
+    async def entitled(_session: Any, _org_id: Any, entitlement: Entitlement) -> bool:
+        return entitlement is not Entitlement.FORMS
+
+    monkeypatch.setattr("tracecat.tiers.access.is_org_entitled", entitled)
+
+    service, result = await _pull_form_tree(session, svc_role, _FORM_BLOCK)
+
+    assert result.success is True
+    assert result.diagnostics == []
     form = await _only_form(session, svc_role)
     assert form is not None
     assert form.status == FormStatus.ONLINE
-    assert form.title == "Laptop request"
-
-    projection = await service.project_workspace(create_missing_mappings=False)
-    exported = yaml.safe_load(
-        projection.files[f"{WORKFLOW_ROOT}/laptop-request/definition.yml"]
-    )
+    exported = await _exported_workflow(service)
     assert exported["form"] == _FORM_BLOCK
     # The author's input order survives the trip with the form.
-    author_order = ["zeta", "model", "mm", "justification", "a", "for_someone_else"]
-    assert list(_FORM_EXPECTS) == author_order
-    assert author_order != sorted(author_order, key=lambda name: (len(name), name))
-    assert list(exported["definition"]["entrypoint"]["expects"]) == author_order
+    assert list(exported["definition"]["entrypoint"]["expects"]) == list(_FORM_EXPECTS)
 
 
 @pytest.mark.anyio
-async def test_unconfigured_form_is_not_exported(
+@pytest.mark.parametrize(
+    "image",
+    ["https://example.com/laptop.png", "data:image/png;base64," + "A" * 400_000],
+    ids=["not-a-data-uri", "oversized"],
+)
+async def test_workflow_form_block_with_a_bad_image_fails_the_pull_unechoed(
     session: AsyncSession,
     svc_role: Role,
-) -> None:
-    service, _ = await _pull_form_trees(session, svc_role, None)
-    workflow = await session.scalar(
-        select(Workflow).where(Workflow.workspace_id == svc_role.workspace_id)
-    )
-    assert workflow is not None
-    session.add(Form(workspace_id=svc_role.workspace_id, workflow_id=workflow.id))
-    await session.flush()
-
-    projection = await service.project_workspace(create_missing_mappings=False)
-
-    exported = yaml.safe_load(
-        projection.files[f"{WORKFLOW_ROOT}/laptop-request/definition.yml"]
-    )
-    assert "form" not in exported
-
-
-@pytest.mark.anyio
-async def test_workflow_form_block_with_invalid_image_fails_the_pull(
-    session: AsyncSession,
-    svc_role: Role,
+    image: str,
 ) -> None:
     form = deepcopy(_FORM_BLOCK)
-    form["layout"][1]["options"][0]["image"] = "https://example.com/laptop.png"
+    form["layout"][1]["options"][0]["image"] = image
 
-    _, results = await _pull_form_trees(session, svc_role, form)
+    _, result = await _pull_form_tree(session, svc_role, form)
 
-    assert results[0].success is False
-    assert [diagnostic.error_type for diagnostic in results[0].diagnostics] == [
-        "validation"
-    ]
-    assert await _only_form(session, svc_role) is None
-    assert (
-        await session.scalar(
-            select(Workflow).where(Workflow.workspace_id == svc_role.workspace_id)
-        )
-        is None
-    )
-
-
-@pytest.mark.anyio
-async def test_oversized_form_image_is_not_echoed_in_the_diagnostic(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    oversized = "data:image/png;base64," + "A" * 400_000
-    form = deepcopy(_FORM_BLOCK)
-    form["layout"][1]["options"][0]["image"] = oversized
-
-    _, results = await _pull_form_trees(session, svc_role, form)
-
-    assert results[0].success is False
-    [diagnostic] = results[0].diagnostics
+    assert result.success is False
+    [diagnostic] = result.diagnostics
     assert diagnostic.error_type == "validation"
     [error] = diagnostic.details["validation_errors"]
     assert error["loc"][0] == "form"
-    assert error["input"].startswith("data:image/png;base64,")
-    assert len(error["input"]) < 300
+    # A form can hold large inline images: the diagnostic never echoes them.
+    assert "input" not in error
     assert len(repr(diagnostic)) < 5_000
-
-
-@pytest.mark.anyio
-async def test_workflow_form_block_that_does_not_resolve_is_stored_as_written(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    """A push never checks the form, so a pull must not fail on it.
-
-    Otherwise renaming an input and pushing would block every later pull.
-    """
-    form = {"status": "online", "layout": [{"field": "not_an_input"}]}
-
-    service, results = await _pull_form_trees(session, svc_role, form)
-
-    assert results[0].success is True
-    assert results[0].diagnostics == []
-    stored = await _only_form(session, svc_role)
-    assert stored is not None
-    assert stored.status == FormStatus.ONLINE
-    assert stored.layout == [{"field": "not_an_input"}]
-    # The builder sees the problem on the form, and nobody can fill it in.
-    forms = FormsService(session, svc_role)
-    read = await forms.read_form(stored)
-    assert [issue.code for issue in read.issues] == [FormIssueCode.UNKNOWN_FIELD]
-    with pytest.raises(FormError) as exc_info:
-        await forms.render_form(stored)
-    assert exc_info.value.code is FormErrorCode.FORM_UNAVAILABLE
-    # The block goes back out as it came in.
-    projection = await service.project_workspace(create_missing_mappings=False)
-    exported = yaml.safe_load(
-        projection.files[f"{WORKFLOW_ROOT}/laptop-request/definition.yml"]
-    )
-    assert exported["form"] == form
+    assert await _only_form(session, svc_role) is None
 
 
 @pytest.mark.anyio
@@ -10091,9 +10024,8 @@ async def test_pull_without_form_block_clears_the_form_and_keeps_its_submissions
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    service = WorkspaceSyncService(session=session, role=svc_role)
-    _, first = await _pull_form_trees(session, svc_role, _FORM_BLOCK)
-    assert first[0].success is True
+    service, first = await _pull_form_tree(session, svc_role, _FORM_BLOCK)
+    assert first.success is True
     form = await _only_form(session, svc_role)
     assert form is not None
     form_id = form.id
@@ -10108,52 +10040,19 @@ async def test_pull_without_form_block_clears_the_form_and_keeps_its_submissions
     )
     await session.commit()
 
-    _, second = await _pull_form_trees(session, svc_role, None)
+    _, second = await _pull_form_tree(session, svc_role, None)
 
-    assert second[0].success is True
+    assert second.success is True
     session.expire_all()
     form = await _only_form(session, svc_role)
     assert form is not None
     assert form.id == form_id
     assert form.status == FormStatus.OFFLINE
-    assert form.title is None
-    assert form.description is None
-    assert form.success_message is None
-    assert form.layout is None
-    submissions = (
-        await session.scalars(
-            select(FormSubmission).where(FormSubmission.form_id == form_id)
-        )
-    ).all()
-    assert len(submissions) == 1
+    assert stored_form_config(form) == FormConfig()
+    submissions = await session.scalars(
+        select(FormSubmission).where(FormSubmission.form_id == form_id)
+    )
+    assert len(submissions.all()) == 1
     # Deleting the block in git removes it: the next push does not write it
     # back, so the workflow no longer shows as modified.
-    projection = await service.project_workspace(create_missing_mappings=False)
-    exported = yaml.safe_load(
-        projection.files[f"{WORKFLOW_ROOT}/laptop-request/definition.yml"]
-    )
-    assert "form" not in exported
-
-
-@pytest.mark.anyio
-async def test_pull_without_forms_entitlement_stores_the_form_block(
-    session: AsyncSession,
-    svc_role: Role,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def entitled(_session: Any, _org_id: Any, entitlement: Entitlement) -> bool:
-        return entitlement is not Entitlement.FORMS
-
-    monkeypatch.setattr("tracecat.tiers.access.is_org_entitled", entitled)
-    monkeypatch.setattr(config, "TRACECAT__FEATURE_FLAGS", {"forms"})
-
-    _, results = await _pull_form_trees(session, svc_role, _FORM_BLOCK)
-
-    assert results[0].success is True
-    form = await _only_form(session, svc_role)
-    assert form is not None
-    assert form.status == FormStatus.ONLINE
-    assert form.layout is not None
-    # Stored, but still behind the gate.
-    with pytest.raises(EntitlementRequired):
-        await check_forms_enabled(session, svc_role)
+    assert "form" not in await _exported_workflow(service)

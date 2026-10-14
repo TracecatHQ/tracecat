@@ -7,14 +7,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from claude_agent_sdk.types import Message as ClaudeSDKMessage
-from pydantic import (
-    UUID4,
-    BaseModel,
-    ConfigDict,
-    Discriminator,
-    Field,
-    ValidationError,
-)
+from pydantic import UUID4, BaseModel, ConfigDict, Discriminator, Field, ValidationError
 
 from tracecat.agent.adapter import vercel
 from tracecat.agent.approvals.enums import ApprovalStatus
@@ -92,10 +85,7 @@ class VercelChatRequest(BaseModel):
     )
     page_context: ChatPageContext | None = Field(
         default=None,
-        description=(
-            "The page the chat is docked on. Only Workspace chat uses it, and "
-            "only for an object the caller can read."
-        ),
+        description="The page the chat is docked on. Only Workspace chat uses it.",
     )
 
 

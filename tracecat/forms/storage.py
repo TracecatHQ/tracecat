@@ -14,12 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.db.models import Form, FormFile
-from tracecat.forms.constants import EXPIRED_FILE_PURGE_BATCH, PENDING_FILE_TTL
+from tracecat.forms.constants import (
+    EXPIRED_FILE_PURGE_BATCH,
+    MAX_BLOB_DELETES_PER_REQUEST,
+    PENDING_FILE_TTL,
+)
 from tracecat.logger import logger
 from tracecat.storage import blob
-
-MAX_BLOB_DELETES_PER_REQUEST = 500
-"""Blobs one request deletes. The rest stay in storage and are logged."""
 
 
 def file_blob_key(
@@ -29,40 +30,20 @@ def file_blob_key(
     return f"forms/{workspace_id}/{form_id}/{file_id}"
 
 
-async def _file_blob_keys(
+async def file_blob_keys(
     session: AsyncSession, workspace_id: uuid.UUID, condition: ColumnElement[bool]
 ) -> list[str]:
-    statement = select(FormFile.form_id, FormFile.id).where(
-        FormFile.workspace_id == workspace_id, condition
+    """Keys of the files matching ``condition``, which may name ``Form`` columns.
+
+    Read them before deleting the rows' owner.
+    """
+    statement = (
+        select(FormFile.form_id, FormFile.id)
+        .join(Form, Form.id == FormFile.form_id)
+        .where(FormFile.workspace_id == workspace_id, condition)
     )
     rows = (await session.execute(statement)).tuples().all()
     return [file_blob_key(workspace_id, form_id, file_id) for form_id, file_id in rows]
-
-
-async def submission_file_blob_keys(
-    session: AsyncSession, workspace_id: uuid.UUID, submission_id: uuid.UUID
-) -> list[str]:
-    """Keys of the files a submission claimed. Read them before deleting it."""
-    return await _file_blob_keys(
-        session, workspace_id, FormFile.submission_id == submission_id
-    )
-
-
-async def form_file_blob_keys(
-    session: AsyncSession, workspace_id: uuid.UUID, form_id: uuid.UUID
-) -> list[str]:
-    """Keys of every file of a form, claimed or not. Read them before deleting it."""
-    return await _file_blob_keys(session, workspace_id, FormFile.form_id == form_id)
-
-
-async def workflow_file_blob_keys(
-    session: AsyncSession, workspace_id: uuid.UUID, workflow_id: uuid.UUID
-) -> list[str]:
-    """Keys of every file of a workflow's form. Read them before deleting it."""
-    form_ids = select(Form.id).where(
-        Form.workspace_id == workspace_id, Form.workflow_id == workflow_id
-    )
-    return await _file_blob_keys(session, workspace_id, FormFile.form_id.in_(form_ids))
 
 
 async def purge_expired_files(session: AsyncSession, workspace_id: uuid.UUID) -> None:
@@ -84,8 +65,7 @@ async def purge_expired_files(session: AsyncSession, workspace_id: uuid.UUID) ->
         .limit(EXPIRED_FILE_PURGE_BATCH)
         .with_for_update(skip_locked=True)
     )
-    file_ids = (await session.execute(expired)).scalars().all()
-    if not file_ids:
+    if not (file_ids := (await session.execute(expired)).scalars().all()):
         return
     statement = (
         delete(FormFile)
@@ -93,8 +73,6 @@ async def purge_expired_files(session: AsyncSession, workspace_id: uuid.UUID) ->
         .returning(FormFile.form_id, FormFile.id)
     )
     rows = (await session.execute(statement)).tuples().all()
-    if not rows:
-        return
     await session.commit()
     await delete_file_blobs(
         [file_blob_key(workspace_id, form_id, file_id) for form_id, file_id in rows]

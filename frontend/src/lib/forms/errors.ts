@@ -1,31 +1,22 @@
-import type { FormErrorCode, FormErrorDetail, FormFieldError } from "@/client"
+import type { FormErrorCode, FormErrorDetail } from "@/client"
 import type { FormConfigIssue } from "@/lib/forms/yaml-diagnostics"
 
-interface ApiErrorLike {
-  status?: unknown
-  body?: { detail?: unknown } | null
-}
-
-function asApiError(error: unknown): ApiErrorLike | null {
-  return typeof error === "object" && error !== null
-    ? (error as ApiErrorLike)
-    : null
+/** The status and body `detail` of a failed generated-client request. */
+function readApiError(error: unknown): { status?: unknown; detail?: unknown } {
+  if (typeof error !== "object" || error === null) return {}
+  const { status, body } = error as {
+    status?: unknown
+    body?: { detail?: unknown } | null
+  }
+  return { status, detail: body?.detail }
 }
 
 /** Read the typed `detail` of a failed forms request, if it carries one. */
 export function getFormErrorDetail(error: unknown): FormErrorDetail | null {
-  const detail = asApiError(error)?.body?.detail
-  if (
-    typeof detail === "object" &&
-    detail !== null &&
-    "code" in detail &&
-    typeof detail.code === "string" &&
-    "message" in detail &&
-    typeof detail.message === "string"
-  ) {
-    return detail as FormErrorDetail
-  }
-  return null
+  const detail = readApiError(error).detail as Partial<FormErrorDetail> | null
+  return typeof detail?.code === "string" && typeof detail.message === "string"
+    ? (detail as FormErrorDetail)
+    : null
 }
 
 /** Read the machine-readable code of a failed forms request. */
@@ -56,58 +47,21 @@ export type FormLoadFailure = "not_found" | "offline" | "error"
  * with 422 and is also "not found".
  */
 export function getFormLoadFailure(error: unknown): FormLoadFailure {
-  if (isFormOfflineError(error)) {
-    return "offline"
-  }
-  const status = asApiError(error)?.status
-  if (status === 403 || status === 404 || status === 422) {
-    return "not_found"
-  }
-  return "error"
-}
-
-/** Server errors of a rejected submission, split by where they are shown. */
-export interface MappedFormErrors {
-  /** One message per field on screen, keyed by field name. */
-  fieldErrors: Record<string, string>
-  /** Messages for errors that belong to no field on screen. */
-  formErrors: string[]
-}
-
-/**
- * Split a rejected submission's errors into per-field and form-level ones.
- *
- * The server can report several errors for one field (a required `file`
- * field can report both `required` and `invalid_file`). Later errors
- * come from later, more specific checks, so the last one wins.
- */
-export function mapFormFieldErrors(
-  errors: FormFieldError[] | null | undefined,
-  visibleFieldNames: Iterable<string>
-): MappedFormErrors {
-  const visible = new Set(visibleFieldNames)
-  const mapped: MappedFormErrors = { fieldErrors: {}, formErrors: [] }
-  for (const error of errors ?? []) {
-    if (visible.has(error.field)) {
-      mapped.fieldErrors[error.field] = error.message
-    } else {
-      mapped.formErrors.push(`${error.field}: ${error.message}`)
-    }
-  }
-  return mapped
-}
-
-function isLoc(value: unknown): value is Array<string | number> {
-  return (
-    Array.isArray(value) &&
-    value.every((part) => typeof part === "string" || typeof part === "number")
-  )
+  if (isFormOfflineError(error)) return "offline"
+  const { status } = readApiError(error)
+  return status === 403 || status === 404 || status === 422
+    ? "not_found"
+    : "error"
 }
 
 // Request validation paths start at the body: `["body", "config", ...]`.
-function toConfigLoc(loc: Array<string | number>): Array<string | number> {
-  const path = loc[0] === "body" ? loc.slice(1) : loc
-  return path[0] === "config" ? path.slice(1) : []
+function toConfigLoc(loc: unknown): Array<string | number> {
+  const parts: unknown[] = Array.isArray(loc) ? loc : []
+  if (!parts.every((p) => typeof p === "string" || typeof p === "number")) {
+    return []
+  }
+  const path = parts[0] === "body" ? parts.slice(1) : parts
+  return path[0] === "config" ? (path.slice(1) as Array<string | number>) : []
 }
 
 /**
@@ -124,23 +78,13 @@ export function getFormConfigIssues(error: unknown): FormConfigIssue[] | null {
   if (typed) {
     return typed.code === "form_config_invalid" ? (typed.issues ?? []) : null
   }
-  const detail = asApiError(error)?.body?.detail
-  if (!Array.isArray(detail)) {
-    return null
-  }
-  const issues: FormConfigIssue[] = []
-  for (const item of detail as unknown[]) {
-    if (typeof item !== "object" || item === null) {
-      continue
-    }
-    const { msg, loc } = item as { msg?: unknown; loc?: unknown }
-    if (typeof msg === "string") {
-      issues.push({
-        severity: "error",
-        message: msg,
-        loc: isLoc(loc) ? toConfigLoc(loc) : [],
-      })
-    }
-  }
+  const { detail } = readApiError(error)
+  if (!Array.isArray(detail)) return null
+  const issues = detail.flatMap(
+    (item: { msg?: unknown; loc?: unknown } | null): FormConfigIssue[] =>
+      typeof item?.msg === "string"
+        ? [{ severity: "error", message: item.msg, loc: toConfigLoc(item.loc) }]
+        : []
+  )
   return issues.length > 0 ? issues : null
 }

@@ -666,56 +666,35 @@ async def test_mcp_create_scope_guards(endpoint: AsyncEndpoint) -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("endpoint", "required_scope"),
+    ("endpoint", "required_scopes"),
     [
-        (forms_router.list_forms, "form:read"),
-        (forms_router.create_form, "form:create"),
-        (forms_router.validate_form, "form:update"),
-        (forms_router.get_form, "form:read"),
-        (forms_router.update_form, "form:update"),
-        (forms_router.delete_form, "form:delete"),
-        (forms_router.preview_form, "form:read"),
-        (forms_router.render_form, "form:read"),
-        (forms_router.list_form_activity, "form:submission:read"),
-        (forms_router.search_form_users, "form:read"),
-        (forms_router.list_form_submissions, "form:submission:read"),
-        (forms_router.get_form_submission, "form:read"),
-        (forms_router.delete_form_submission, "form:submission:delete"),
+        (forms_router.list_forms, ("form:read",)),
+        (forms_router.create_form, ("form:create",)),
+        (forms_router.get_form, ("form:read",)),
+        (forms_router.update_form, ("form:update",)),
+        (forms_router.delete_form, ("form:delete",)),
+        (forms_router.validate_form, ("form:read",)),
+        (forms_router.render_form, ("form:read",)),
+        (forms_router.search_form_users, ("form:read",)),
+        (forms_router.submit_form, ("form:read", "form:submit")),
+        (forms_router.upload_form_file, ("form:read", "form:submit")),
+        (forms_router.download_form_file, ("form:read",)),
+        (forms_router.list_form_submissions, ("form:submission:read",)),
+        (forms_router.get_form_submission, ("form:read",)),
+        (forms_router.delete_form_submission, ("form:submission:delete",)),
+        (internal_forms_router.list_forms, ("form:read",)),
+        (internal_forms_router.get_form, ("form:read",)),
+        (internal_forms_router.upsert_form, ("form:create", "form:update")),
+        (internal_forms_router.list_submissions, ("form:submission:read",)),
+        (internal_forms_router.get_submission, ("form:submission:read",)),
+        (internal_forms_router.delete_submission, ("form:submission:delete",)),
+        (internal_forms_router.download_file, ("form:submission:read",)),
     ],
 )
-async def test_form_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:
-    await _assert_endpoint_requires_scope(endpoint, required_scope)
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("endpoint", "required_scope"),
-    [
-        (internal_forms_router.list_forms, "form:read"),
-        (internal_forms_router.get_form, "form:read"),
-        (internal_forms_router.list_submissions, "form:submission:read"),
-        (internal_forms_router.get_submission, "form:submission:read"),
-        (internal_forms_router.delete_submission, "form:submission:delete"),
-    ],
-)
-async def test_internal_form_scope_guards(
-    endpoint: AsyncEndpoint, required_scope: str
+async def test_form_scope_guards(
+    endpoint: AsyncEndpoint, required_scopes: tuple[str, ...]
 ) -> None:
-    await _assert_endpoint_requires_scope(endpoint, required_scope)
-
-
-@pytest.mark.anyio
-async def test_internal_form_upsert_requires_form_create_and_form_update() -> None:
-    await _assert_endpoint_requires_all_scopes(
-        internal_forms_router.upsert_form, ("form:create", "form:update")
-    )
-
-
-@pytest.mark.anyio
-async def test_submit_form_requires_form_read_and_form_submit() -> None:
-    await _assert_endpoint_requires_all_scopes(
-        forms_router.submit_form, ("form:read", "form:submit")
-    )
+    await _assert_endpoint_requires_all_scopes(endpoint, required_scopes)
 
 
 @pytest.mark.anyio

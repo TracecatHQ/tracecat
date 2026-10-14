@@ -15,21 +15,12 @@ Every organization has six preset roles. Tracecat rejects scope changes to a pre
 
 | Role | Level | What it can do | Scopes |
 | --- | --- | --- | --- |
-| `workspace-intake` | Workspace | Open and submit forms. Shown as `Intake only`. | 2 |
+| `workspace-intake` | Workspace | Open and submit [forms](/automations/triggers/forms#permissions). Shown as `Intake only`. | 2 |
 | `workspace-viewer` | Workspace | Read workflows, integrations, cases, tables, schedules, agents, secrets, tags, variables, the inbox, the workspace, and its member list. Open and submit forms and read form submissions. | 16 |
 | `workspace-editor` | Workspace | Everything `workspace-viewer` can, plus create and update those resources, run workflows, agents, and any action, terminate workflow runs, and run workflow sync and workspace sync. | 42 |
 | `workspace-admin` | Workspace | Everything `workspace-editor` can, plus delete those resources and form submissions, update or delete the workspace, remove members, and manage workspace service accounts. | 64 |
 | `organization-admin` | Organization | Everything `workspace-admin` can in every workspace, plus create workspaces, manage organization settings, members and invitations, roles, groups, and assignments, SCIM, organization service accounts, the custom registry, and organization secrets, and read billing. | 93 |
 | `organization-owner` | Organization | Everything `organization-admin` can, plus `org:delete`, `org:billing:update`, and `org:owner:assign`. | 96 |
-
-| Role | Form scopes |
-| --- | --- |
-| `workspace-intake` | `form:read`, `form:submit` |
-| `workspace-viewer` | `form:read`, `form:submit`, `form:submission:read` |
-| `workspace-editor` | Adds `form:create`, `form:update` |
-| `workspace-admin`, `organization-admin`, `organization-owner` | Adds `form:delete`, `form:submission:delete` |
-
-Assign `workspace-intake` to members who only fill in [forms](/automations/triggers/forms). It grants no other workspace access.
 
 The Scopes column counts the current definition. Startup seeding adds scopes a preset role is missing and removes none, so an organization created before a scope was renamed also keeps the old name.
 

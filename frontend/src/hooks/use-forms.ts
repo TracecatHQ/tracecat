@@ -1,32 +1,26 @@
 import {
   type ApiError,
   type FormCreate,
+  type FormIntakeLocation,
   type FormPreview,
   type FormRead,
   type FormReadMinimal,
-  type FormResolved,
   type FormSubmissionCreate,
-  type FormSubmissionRead,
   type FormSubmissionReceipt,
-  type FormsListFormSubmissionsResponse,
-  type FormsSearchFormUsersResponse,
   type FormUpdate,
-  type FormUserRead,
-  type FormValidateRequest,
-  type FormValidateResponse,
   formsCreateForm,
   formsDeleteForm,
   formsGetForm,
   formsListFormSubmissions,
   formsListForms,
-  formsPreviewForm,
+  formsListIntakeForms,
+  formsListIntakeSubmissions,
+  formsLocateIntakeForm,
   formsRenderForm,
   formsSearchFormUsers,
   formsSubmitForm,
   formsUpdateForm,
-  formsValidateForm,
 } from "@/client"
-import { requesterFormKeys } from "@/hooks/use-requester-forms"
 import {
   useInfiniteQuery,
   useMutation,
@@ -34,32 +28,20 @@ import {
   useQueryClient,
 } from "@/lib/query"
 
-const USER_SEARCH_PAGE_SIZE = 20
+const PAGE_SIZE = 50
 const FORMS_PAGE_SIZE = 200
-const SUBMISSIONS_PAGE_SIZE = 50
-const EMPTY_USERS: readonly FormUserRead[] = []
-const EMPTY_FORMS: readonly FormReadMinimal[] = []
-const EMPTY_SUBMISSIONS: readonly FormSubmissionRead[] = []
+const USER_SEARCH_PAGE_SIZE = 20
+const NO_ITEMS: never[] = []
+const NO_FORMS: FormReadMinimal[] = []
 
-/**
- * Query keys of the workspace-scoped form queries.
- *
- * `detail` is a prefix of `rendered`, `preview` and `users`. Pass `exact: true` when
- * invalidating it, or an open requester page re-renders its form and records
- * another view.
- */
+/** Query keys shared by more than one forms query or mutation. */
 export const formKeys = {
   list: (workspaceId: string) => ["forms", workspaceId] as const,
   detail: (workspaceId: string, formId: string) =>
     ["form", workspaceId, formId] as const,
-  rendered: (workspaceId: string, formId: string) =>
-    ["form", workspaceId, formId, "render"] as const,
-  preview: (workspaceId: string, formId: string, updatedAt: string) =>
-    ["form", workspaceId, formId, "preview", updatedAt] as const,
-  users: (workspaceId: string, formId: string, search: string) =>
-    ["form", workspaceId, formId, "users", search] as const,
   submissions: (workspaceId: string, formId: string) =>
     ["form-submissions", workspaceId, formId] as const,
+  mySubmissions: ["requester-submissions"] as const,
 }
 
 /** Identifies one form in one workspace. */
@@ -68,83 +50,45 @@ export interface FormScope {
   formId: string
 }
 
-/**
- * Fetch an online form as the blocks a client renders.
- *
- * The server records a view on every call, so this query never refetches on
- * its own: not on window focus, not on reconnect and not on remount. Call
- * `refetch` to reload it on purpose, for example after `form_changed`.
- *
- * Fails with 409 `form_offline` or `form_unavailable` and with 404.
- */
-export function useRenderedForm(
-  { workspaceId, formId }: Partial<FormScope>,
-  options: { enabled?: boolean } = {}
+interface CursorPage<T> {
+  items: T[]
+  next_cursor?: string | null
+  has_more?: boolean
+}
+
+/** A cursor-paginated list loaded a page at a time, for "Load more". */
+function useCursorList<T>(
+  queryKey: readonly unknown[],
+  fetchPage: (cursor: string | null) => Promise<CursorPage<T>>,
+  { enabled = true, retry }: { enabled?: boolean; retry?: false } = {}
 ) {
-  const query = useQuery<FormResolved, ApiError>({
-    queryKey: formKeys.rendered(workspaceId ?? "", formId ?? ""),
-    queryFn: () =>
-      formsRenderForm({
-        workspaceId: workspaceId as string,
-        formId: formId as string,
-      }),
-    enabled: (options.enabled ?? true) && Boolean(workspaceId && formId),
-    staleTime: Number.POSITIVE_INFINITY,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    refetchOnMount: false,
-    retry: false,
+  const query = useInfiniteQuery({
+    queryKey,
+    queryFn: ({ pageParam }) => fetchPage(pageParam),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) =>
+      page.has_more ? (page.next_cursor ?? undefined) : undefined,
+    enabled,
+    retry,
     meta: { suppressErrorToast: true },
   })
   return {
-    form: query.data,
-    formIsLoading: query.isLoading,
-    formIsFetching: query.isFetching,
-    formError: query.error,
+    items: query.data?.pages.flatMap((page) => page.items) ?? (NO_ITEMS as T[]),
+    isLoading: query.isLoading,
+    error: query.error,
+    hasNextPage: query.hasNextPage,
+    isFetchingNextPage: query.isFetchingNextPage,
+    fetchNextPage: query.fetchNextPage,
     refetch: query.refetch,
   }
 }
 
-/**
- * Submit a form. Resolves to the requester's receipt.
- *
- * Always pass the `definition_version` of the form that was rendered, so a
- * form that changed underneath the requester is rejected with `form_changed`
- * instead of being read against the wrong inputs.
- *
- * The caller renders failures inline: read them with `getFormErrorDetail`.
- */
-export function useSubmitForm({ workspaceId, formId }: FormScope) {
-  const queryClient = useQueryClient()
-  const mutation = useMutation<
-    FormSubmissionReceipt,
-    ApiError,
-    FormSubmissionCreate
-  >({
-    mutationFn: (requestBody) =>
-      formsSubmitForm({ workspaceId, formId, requestBody }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: requesterFormKeys.submissions })
-      queryClient.invalidateQueries({
-        queryKey: formKeys.submissions(workspaceId, formId),
-      })
-      queryClient.invalidateQueries({ queryKey: formKeys.list(workspaceId) })
-    },
-    meta: { suppressErrorToast: true },
-  })
-  return {
-    submitForm: mutation.mutateAsync,
-    submitFormIsPending: mutation.isPending,
-  }
-}
+/** What {@link useCursorList} returns, for components that render one. */
+export type CursorList<T> = ReturnType<typeof useCursorList<T>>
 
 /**
- * Every form in a workspace, newest first.
- *
- * Callers without `form:update` only get online forms. All pages are loaded
- * so the list can be searched and the new-form dialog can tell which
- * workflows already have a form; a workspace has at most one form per
- * workflow.
+ * Every form in a workspace, newest first, with all pages loaded so the list
+ * can be searched and matched to workflows.
  */
 export function useForms(
   workspaceId: string,
@@ -169,23 +113,18 @@ export function useForms(
     enabled: (options.enabled ?? true) && Boolean(workspaceId),
   })
   return {
-    forms: query.data ?? EMPTY_FORMS,
+    forms: query.data ?? NO_FORMS,
     formsIsLoading: query.isLoading,
     formsError: query.error,
   }
 }
 
-/**
- * A form's config, issues, workflow and counts, for the builder.
- *
- * Fails with 404 for an unknown form and for a caller who holds neither
- * `form:update` nor `form:submission:read`.
- */
+/** A form's config, issues, workflow and counts, for the builder. */
 export function useFormDetail(
   { workspaceId, formId }: Partial<FormScope>,
   options: { enabled?: boolean } = {}
 ) {
-  const query = useQuery<FormRead, ApiError>({
+  return useQuery<FormRead, ApiError>({
     queryKey: formKeys.detail(workspaceId ?? "", formId ?? ""),
     queryFn: () =>
       formsGetForm({
@@ -196,44 +135,52 @@ export function useFormDetail(
     retry: false,
     meta: { suppressErrorToast: true },
   })
-  return {
-    form: query.data,
-    formIsLoading: query.isLoading,
-    formError: query.error,
-  }
 }
 
 /**
- * The saved config of a form as the blocks a client renders, for a builder
- * who cannot edit it and so cannot run the check behind the live preview.
- *
- * Works for an offline form and records no view. `updatedAt` is the form's
- * `updated_at`: the preview is fetched again when the form changes.
+ * An online form as the blocks a requester fills in. The server records a
+ * view on every call, so this never refetches on its own; call `refetch` to
+ * reload on purpose, as after `form_changed`.
  */
-export function useSavedFormPreview(
-  { workspaceId, formId, updatedAt }: FormScope & { updatedAt: string },
-  options: { enabled?: boolean } = {}
-) {
-  const query = useQuery<FormPreview, ApiError>({
-    queryKey: formKeys.preview(workspaceId, formId, updatedAt),
-    queryFn: () => formsPreviewForm({ workspaceId, formId }),
-    enabled: (options.enabled ?? true) && Boolean(workspaceId && formId),
+export function useRenderedForm({ workspaceId, formId }: Partial<FormScope>) {
+  return useQuery<FormPreview, ApiError>({
+    queryKey: ["form-render", workspaceId, formId],
+    queryFn: () =>
+      formsRenderForm({
+        workspaceId: workspaceId as string,
+        formId: formId as string,
+      }),
+    enabled: Boolean(workspaceId && formId),
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
     retry: false,
     meta: { suppressErrorToast: true },
   })
-  return {
-    preview: query.data ?? null,
-    previewFailed: query.isError,
-  }
 }
 
-/**
- * Create the form of a workflow. Fails with 409 when the workflow already
- * has one. The caller shows failures.
- */
+/** Submit a form. The caller renders failures. */
+export function useSubmitForm({ workspaceId, formId }: FormScope) {
+  const queryClient = useQueryClient()
+  return useMutation<FormSubmissionReceipt, ApiError, FormSubmissionCreate>({
+    mutationFn: (requestBody) =>
+      formsSubmitForm({ workspaceId, formId, requestBody }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: formKeys.mySubmissions })
+      queryClient.invalidateQueries({
+        queryKey: formKeys.submissions(workspaceId, formId),
+      })
+      queryClient.invalidateQueries({ queryKey: formKeys.list(workspaceId) })
+    },
+    meta: { suppressErrorToast: true },
+  })
+}
+
+/** Create the form of a workflow. */
 export function useCreateForm(workspaceId: string) {
   const queryClient = useQueryClient()
-  const mutation = useMutation<FormRead, ApiError, FormCreate>({
+  return useMutation<FormRead, ApiError, FormCreate>({
     mutationFn: (requestBody) => formsCreateForm({ workspaceId, requestBody }),
     onSuccess: (form) => {
       queryClient.setQueryData(formKeys.detail(workspaceId, form.id), form)
@@ -241,21 +188,12 @@ export function useCreateForm(workspaceId: string) {
     },
     meta: { suppressErrorToast: true },
   })
-  return {
-    createForm: mutation.mutateAsync,
-    createFormIsPending: mutation.isPending,
-  }
 }
 
-/**
- * Update a form's status, config or both. The config is replaced whole.
- *
- * The caller shows failures: read a rejected config with
- * `getFormConfigIssues` and anything else with `getFormErrorDetail`.
- */
+/** Update a form's status, config or both. The config is replaced whole. */
 export function useUpdateForm({ workspaceId, formId }: FormScope) {
   const queryClient = useQueryClient()
-  const mutation = useMutation<FormRead, ApiError, FormUpdate>({
+  return useMutation<FormRead, ApiError, FormUpdate>({
     mutationFn: (requestBody) =>
       formsUpdateForm({ workspaceId, formId, requestBody }),
     onSuccess: (form) => {
@@ -264,16 +202,12 @@ export function useUpdateForm({ workspaceId, formId }: FormScope) {
     },
     meta: { suppressErrorToast: true },
   })
-  return {
-    updateForm: mutation.mutateAsync,
-    updateFormIsPending: mutation.isPending,
-  }
 }
 
-/** Delete a form with its submissions and activity. */
+/** Delete a form with its submissions. */
 export function useDeleteForm(workspaceId: string) {
   const queryClient = useQueryClient()
-  const mutation = useMutation<void, ApiError, string>({
+  return useMutation<void, ApiError, string>({
     mutationFn: (formId) => formsDeleteForm({ workspaceId, formId }),
     onSuccess: (_result, formId) => {
       queryClient.removeQueries({
@@ -285,113 +219,69 @@ export function useDeleteForm(workspaceId: string) {
       queryClient.invalidateQueries({ queryKey: formKeys.list(workspaceId) })
     },
   })
-  return {
-    deleteForm: mutation.mutateAsync,
-    deleteFormIsPending: mutation.isPending,
-  }
 }
 
-/**
- * Resolve an unsaved config against a workflow's inputs.
- *
- * A mutation, not a query: a config can hold a megabyte of inline images
- * and must never become part of a query key.
- */
-export function useValidateFormConfig(workspaceId: string) {
-  const mutation = useMutation<
-    FormValidateResponse,
-    ApiError,
-    FormValidateRequest
-  >({
-    mutationFn: (requestBody) =>
-      formsValidateForm({ workspaceId, requestBody }),
-    meta: { suppressErrorToast: true },
-  })
-  return { validateFormConfig: mutation.mutateAsync }
-}
-
-/**
- * A form's submissions with answers, submitter and run status, newest
- * first, a page at a time. Needs `form:submission:read`.
- */
+/** A form's submissions with answers, submitter and run status. */
 export function useFormSubmissions(
   { workspaceId, formId }: FormScope,
   options: { enabled?: boolean } = {}
 ) {
-  const query = useInfiniteQuery<
-    FormsListFormSubmissionsResponse,
-    ApiError,
-    { pages: FormsListFormSubmissionsResponse[] },
-    readonly unknown[],
-    string | null
-  >({
-    queryKey: formKeys.submissions(workspaceId, formId),
-    queryFn: ({ pageParam }) =>
+  return useCursorList(
+    formKeys.submissions(workspaceId, formId),
+    (cursor) =>
       formsListFormSubmissions({
         workspaceId,
         formId,
-        limit: SUBMISSIONS_PAGE_SIZE,
-        cursor: pageParam,
+        limit: PAGE_SIZE,
+        cursor,
       }),
-    initialPageParam: null,
-    getNextPageParam: (lastPage) =>
-      lastPage.has_more ? (lastPage.next_cursor ?? undefined) : undefined,
-    enabled: (options.enabled ?? true) && Boolean(workspaceId && formId),
-    meta: { suppressErrorToast: true },
-  })
-  return {
-    submissions:
-      query.data?.pages.flatMap((page) => page.items) ?? EMPTY_SUBMISSIONS,
-    submissionsIsLoading: query.isLoading,
-    submissionsError: query.error,
-    hasNextPage: query.hasNextPage,
-    isFetchingNextPage: query.isFetchingNextPage,
-    fetchNextPage: query.fetchNextPage,
-    refetch: query.refetch,
-  }
+    options
+  )
 }
 
-/**
- * Search organization members for a form's `user` field, a page at a time.
- *
- * The server returns 404 when the saved form has no `user` field and the
- * caller cannot edit the form. That reads as no results.
- */
+/** Search organization members for a form's `user` field. */
 export function useFormUserSearch(
   { workspaceId, formId }: FormScope,
   search: string,
-  options: { enabled?: boolean } = {}
+  { enabled = true }: { enabled?: boolean } = {}
 ) {
   const term = search.trim()
-  const query = useInfiniteQuery<
-    FormsSearchFormUsersResponse,
-    ApiError,
-    { pages: FormsSearchFormUsersResponse[] },
-    readonly unknown[],
-    string | null
-  >({
-    queryKey: formKeys.users(workspaceId, formId, term),
-    queryFn: ({ pageParam }) =>
+  const { items, isLoading, ...rest } = useCursorList(
+    ["form-users", workspaceId, formId, term],
+    (cursor) =>
       formsSearchFormUsers({
         workspaceId,
         formId,
         search: term || undefined,
         limit: USER_SEARCH_PAGE_SIZE,
-        cursor: pageParam,
+        cursor,
       }),
-    initialPageParam: null,
-    getNextPageParam: (lastPage) =>
-      lastPage.has_more ? (lastPage.next_cursor ?? undefined) : undefined,
-    enabled: (options.enabled ?? true) && Boolean(workspaceId && formId),
+    { enabled: enabled && Boolean(workspaceId && formId), retry: false }
+  )
+  return { users: items, usersIsLoading: isLoading, ...rest }
+}
+
+/** Online forms across every workspace the requester can read forms in. */
+export function useRequesterForms() {
+  return useCursorList(["requester-forms"], (cursor) =>
+    formsListIntakeForms({ limit: PAGE_SIZE, cursor })
+  )
+}
+
+/** The requester's own submissions across workspaces, without run fields. */
+export function useRequesterSubmissions() {
+  return useCursorList(formKeys.mySubmissions, (cursor) =>
+    formsListIntakeSubmissions({ limit: PAGE_SIZE, cursor })
+  )
+}
+
+/** Find the workspace a form lives in, for a requester with only its ID. */
+export function useFormLocation(formId: string) {
+  return useQuery<FormIntakeLocation, ApiError>({
+    queryKey: ["requester-form", formId],
+    queryFn: () => formsLocateIntakeForm({ formId }),
+    enabled: Boolean(formId),
     retry: false,
     meta: { suppressErrorToast: true },
   })
-  return {
-    users: query.data?.pages.flatMap((page) => page.items) ?? EMPTY_USERS,
-    usersIsLoading: query.isLoading,
-    usersError: query.error,
-    hasNextPage: query.hasNextPage,
-    isFetchingNextPage: query.isFetchingNextPage,
-    fetchNextPage: query.fetchNextPage,
-  }
 }

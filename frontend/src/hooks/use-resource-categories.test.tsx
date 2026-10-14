@@ -1,34 +1,25 @@
 import { renderHook } from "@testing-library/react"
+import type { FormsAccess } from "@/hooks/use-forms-access"
 import { useResourceCategories } from "@/hooks/use-resource-categories"
-import type { FormsAccess } from "@/lib/forms/access"
 import { RESOURCE_CATEGORIES } from "@/lib/rbac"
 
-let mockFormsAccess: FormsAccess = "enabled"
+let access: FormsAccess = "enabled"
 
 jest.mock("@/hooks/use-forms-access", () => ({
-  useFormsAccess: () => mockFormsAccess,
+  useFormsAccess: () => access,
 }))
 
-describe("useResourceCategories", () => {
-  it("leaves out Forms with the feature flag off and nothing else", () => {
-    mockFormsAccess = "hidden"
+it.each<[FormsAccess, boolean]>([
+  ["hidden", false],
+  ["loading", true],
+  ["locked", true],
+  ["enabled", true],
+])("offers the Forms role category when Forms is %s: %p", (value, offered) => {
+  access = value
 
-    const { result } = renderHook(() => useResourceCategories())
+  const { result } = renderHook(() => useResourceCategories())
 
-    expect(Object.keys(result.current)).toEqual(
-      Object.keys(RESOURCE_CATEGORIES).filter((key) => key !== "forms")
-    )
-  })
-
-  it.each<FormsAccess>(["loading", "locked", "enabled"])(
-    "returns every category when Forms is %s",
-    (access) => {
-      mockFormsAccess = access
-
-      const { result } = renderHook(() => useResourceCategories())
-
-      expect(result.current).toBe(RESOURCE_CATEGORIES)
-      expect(result.current.forms.label).toBe("Forms")
-    }
+  expect(Object.keys(result.current)).toEqual(
+    Object.keys(RESOURCE_CATEGORIES).filter((key) => offered || key !== "forms")
   )
 })

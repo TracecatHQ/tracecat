@@ -72,7 +72,6 @@ import {
 } from "@/hooks/use-workflow-runs"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import { getDisplayName } from "@/lib/auth"
-import { isTriggerTypeVisible } from "@/lib/forms/access"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -1008,13 +1007,13 @@ export function WorkflowRunsLayout() {
   const [statusMode, setStatusMode] = useState<FilterMode>("include")
   const [triggerFilter, setTriggerFilter] = useState<TriggerType[]>([])
   // With the `forms` flag off no run can come from a form.
-  const formsAccess = useFormsAccess()
+  const formsHidden = useFormsAccess() === "hidden"
   const triggerFilterOptions = useMemo(
     () =>
-      TRIGGER_FILTER_OPTIONS.filter((option) =>
-        isTriggerTypeVisible(option.value, formsAccess)
+      TRIGGER_FILTER_OPTIONS.filter(
+        (option) => !formsHidden || option.value !== "form"
       ),
-    [formsAccess]
+    [formsHidden]
   )
   const [userFilter, setUserFilter] = useState<string[]>([])
   const [startTimeFilter, setStartTimeFilter] = useState<TimeFilterState>(() =>

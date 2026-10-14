@@ -1,4 +1,4 @@
-"""Form scopes per role, service-account allowlist and executor scopes."""
+"""Form scopes per role, the Intake only preset, and who else holds them."""
 
 import pytest
 
@@ -21,7 +21,7 @@ from tracecat.service_accounts.constants import (
     WORKSPACE_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES,
 )
 
-ALL_FORM_SCOPES = frozenset(
+ALL = frozenset(
     {
         "form:read",
         "form:create",
@@ -32,9 +32,11 @@ ALL_FORM_SCOPES = frozenset(
         "form:submission:delete",
     }
 )
-INTAKE_FORM_SCOPES = frozenset({"form:read", "form:submit"})
-VIEWER_FORM_SCOPES = INTAKE_FORM_SCOPES | {"form:submission:read"}
-EDITOR_FORM_SCOPES = VIEWER_FORM_SCOPES | {"form:create", "form:update"}
+INTAKE = frozenset({"form:read", "form:submit"})
+VIEWER = INTAKE | {"form:submission:read"}
+# Workflows read and edit forms and manage submissions. They never submit or
+# remove a form.
+OPERATIONAL = ALL - {"form:submit", "form:delete"}
 
 
 def _form_scopes(scopes: frozenset[str]) -> frozenset[str]:
@@ -44,52 +46,46 @@ def _form_scopes(scopes: frozenset[str]) -> frozenset[str]:
 @pytest.mark.parametrize(
     ("scopes", "expected"),
     [
-        pytest.param(INTAKE_SCOPES, INTAKE_FORM_SCOPES, id="intake"),
-        pytest.param(VIEWER_SCOPES, VIEWER_FORM_SCOPES, id="viewer"),
-        pytest.param(EDITOR_SCOPES, EDITOR_FORM_SCOPES, id="editor"),
-        pytest.param(ADMIN_SCOPES, ALL_FORM_SCOPES, id="admin"),
-        pytest.param(ORG_ADMIN_SCOPES, ALL_FORM_SCOPES, id="org-admin"),
-        pytest.param(ORG_OWNER_SCOPES, ALL_FORM_SCOPES, id="org-owner"),
+        pytest.param(INTAKE_SCOPES, INTAKE, id="intake"),
+        pytest.param(VIEWER_SCOPES, VIEWER, id="viewer"),
+        pytest.param(
+            EDITOR_SCOPES, VIEWER | {"form:create", "form:update"}, id="editor"
+        ),
+        pytest.param(ADMIN_SCOPES, ALL, id="admin"),
+        pytest.param(ORG_ADMIN_SCOPES, ALL, id="org-admin"),
+        pytest.param(ORG_OWNER_SCOPES, ALL, id="org-owner"),
         pytest.param(ORG_MEMBER_SCOPES, frozenset(), id="org-member"),
+        pytest.param(WORKSPACE_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES, ALL, id="ws-sa"),
+        pytest.param(ORG_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES, ALL, id="org-sa"),
+        pytest.param(WORKSPACE_OPERATIONAL_SCOPES, OPERATIONAL, id="operational"),
+        pytest.param(
+            SERVICE_PRINCIPAL_SCOPES["tracecat-executor"], OPERATIONAL, id="executor"
+        ),
+        pytest.param(
+            SERVICE_PRINCIPAL_SCOPES["tracecat-runner"], OPERATIONAL, id="runner"
+        ),
     ],
 )
-def test_form_scopes_per_role(scopes: frozenset[str], expected: frozenset[str]) -> None:
+def test_form_scopes_per_holder(
+    scopes: frozenset[str], expected: frozenset[str]
+) -> None:
     assert _form_scopes(scopes) == expected
 
 
-def test_intake_role_holds_only_form_scopes() -> None:
-    assert INTAKE_SCOPES == INTAKE_FORM_SCOPES
-    assert PRESET_ROLE_SCOPES["workspace-intake"] == INTAKE_SCOPES
-    assert not is_org_level_role(INTAKE_SCOPES)
-
-
-def test_intake_role_is_seeded_as_a_preset() -> None:
+def test_intake_only_is_a_seeded_workspace_preset_with_form_scopes_only() -> None:
     role = PRESET_ROLE_DEFINITIONS["workspace-intake"]
 
+    assert INTAKE_SCOPES == INTAKE
     assert role.name == "Intake only"
-    assert role.scopes == INTAKE_SCOPES
+    assert role.scopes == PRESET_ROLE_SCOPES["workspace-intake"] == INTAKE_SCOPES
+    assert not is_org_level_role(INTAKE_SCOPES)
 
 
 def test_every_form_scope_is_a_system_scope() -> None:
     definitions = {
-        definition.name: definition
-        for definition in SYSTEM_SCOPE_DEFINITIONS
-        if definition.name.startswith("form:")
+        d.name: d for d in SYSTEM_SCOPE_DEFINITIONS if d.name.startswith("form:")
     }
 
-    assert set(definitions) == ALL_FORM_SCOPES
+    assert set(definitions) == ALL
     for name, definition in definitions.items():
         assert f"{definition.resource}:{definition.action}" == name
-
-
-def test_service_accounts_can_be_assigned_every_form_scope() -> None:
-    assert _form_scopes(WORKSPACE_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES) == ALL_FORM_SCOPES
-    assert _form_scopes(ORG_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES) == ALL_FORM_SCOPES
-
-
-def test_executor_cannot_submit_or_delete_forms() -> None:
-    expected = ALL_FORM_SCOPES - {"form:submit", "form:delete"}
-
-    assert _form_scopes(WORKSPACE_OPERATIONAL_SCOPES) == expected
-    for service_id in ("tracecat-executor", "tracecat-runner"):
-        assert _form_scopes(SERVICE_PRINCIPAL_SCOPES[service_id]) == expected

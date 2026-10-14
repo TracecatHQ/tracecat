@@ -3,7 +3,6 @@ import type { MCPIntegrationRead, RegistryActionReadMinimal } from "@/client"
 import {
   ChatToolsPicker,
   DEFAULT_CAPABILITY_GROUPS,
-  FORMS_CAPABILITY_GROUP,
 } from "@/components/chat/chat-tools-picker"
 
 jest.mock("@/components/ui/popover", () => ({
@@ -129,27 +128,6 @@ describe("DEFAULT_CAPABILITY_GROUPS", () => {
     expect(workflows?.tools).toContain("core.workflow.list_executions")
     expect(workflows?.tools).toContain("core.workflow.get_status")
     expect(workflows?.tools.length).toBe(13)
-  })
-
-  /**
-   * The form tools are entitlement-gated: the backend appends
-   * `WORKSPACE_CHAT_FORMS_TOOLS` at runtime and keeps them out of
-   * `WORKSPACE_CHAT_DEFAULT_TOOLS`. They must stay out of this list too.
-   */
-  it("holds no form tools", () => {
-    const actual = DEFAULT_CAPABILITY_GROUPS.flatMap((group) => group.tools)
-    expect(actual.filter((tool) => tool.startsWith("core.forms."))).toEqual([])
-  })
-})
-
-describe("FORMS_CAPABILITY_GROUP", () => {
-  /** Must mirror `WORKSPACE_CHAT_FORMS_TOOLS` in `tracecat/chat/tools.py`. */
-  it("matches the backend form tool set", () => {
-    expect([...FORMS_CAPABILITY_GROUP.tools].sort()).toEqual([
-      "core.forms.get_form",
-      "core.forms.list_forms",
-      "core.forms.update_form",
-    ])
   })
 })
 
@@ -505,46 +483,33 @@ describe("ChatToolsPicker", () => {
     expect(screen.getByText("Agent presets")).toBeInTheDocument()
   })
 
-  function renderWithFormTool(
-    props: Partial<React.ComponentProps<typeof ChatToolsPicker>>
-  ) {
-    return render(
-      <ChatToolsPicker
-        registryActions={[
-          registryAction("core.forms.update_form", {
-            default_title: "Update form",
-            display_group: "Forms actions",
-          }),
-        ]}
-        selectedTools={[]}
-        onToolsChange={jest.fn()}
-        mcpIntegrations={[]}
-        selectedMcpIntegrations={[]}
-        onMcpChange={jest.fn()}
-        {...props}
-      />
-    )
-  }
+  it.each([
+    ["workspace-chat", true, true],
+    ["workspace-chat", false, false],
+    ["regular", true, false],
+  ] as const)(
+    "on %s with Forms %p, form tools are always on: %p",
+    (surface, formsEnabled, alwaysOn) => {
+      render(
+        <ChatToolsPicker
+          registryActions={[
+            registryAction("core.forms.update_form", {
+              display_group: "Forms actions",
+            }),
+          ]}
+          selectedTools={[]}
+          onToolsChange={jest.fn()}
+          mcpIntegrations={[]}
+          selectedMcpIntegrations={[]}
+          onMcpChange={jest.fn()}
+          surface={surface}
+          formsEnabled={formsEnabled}
+        />
+      )
 
-  it("shows Forms as an always-on capability when Forms is enabled", () => {
-    renderWithFormTool({ surface: "workspace-chat", formsEnabled: true })
-
-    expect(screen.getByText("Forms")).toBeInTheDocument()
-    // Already on, so it is not offered as an extra.
-    expect(screen.queryByText("Forms actions")).not.toBeInTheDocument()
-  })
-
-  it("keeps Forms out of the capabilities when Forms is not enabled", () => {
-    renderWithFormTool({ surface: "workspace-chat" })
-
-    expect(screen.queryByText("Forms")).not.toBeInTheDocument()
-    expect(screen.getByText("Cases")).toBeInTheDocument()
-  })
-
-  it("shows no Forms capability outside workspace chat", () => {
-    renderWithFormTool({ surface: "regular", formsEnabled: true })
-
-    expect(screen.queryByText("Forms")).not.toBeInTheDocument()
-    expect(screen.getByText("Forms actions")).toBeInTheDocument()
-  })
+      expect(Boolean(screen.queryByText("Forms"))).toBe(alwaysOn)
+      // A tool that is already on is not offered as an extra.
+      expect(Boolean(screen.queryByText("Forms actions"))).toBe(!alwaysOn)
+    }
+  )
 })

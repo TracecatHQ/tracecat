@@ -13191,69 +13191,6 @@ export const $CursorPaginatedResponse_CaseVersionReadMinimal_ = {
   title: "CursorPaginatedResponse[CaseVersionReadMinimal]",
 } as const
 
-export const $CursorPaginatedResponse_FormEventRead_ = {
-  properties: {
-    items: {
-      items: {
-        $ref: "#/components/schemas/FormEventRead",
-      },
-      type: "array",
-      title: "Items",
-    },
-    next_cursor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Next Cursor",
-      description: "Cursor for next page",
-    },
-    prev_cursor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Prev Cursor",
-      description: "Cursor for previous page",
-    },
-    has_more: {
-      type: "boolean",
-      title: "Has More",
-      description: "Whether more items exist",
-      default: false,
-    },
-    has_previous: {
-      type: "boolean",
-      title: "Has Previous",
-      description: "Whether previous items exist",
-      default: false,
-    },
-    total_estimate: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Total Estimate",
-      description: "Estimated total count from table statistics",
-    },
-  },
-  type: "object",
-  required: ["items"],
-  title: "CursorPaginatedResponse[FormEventRead]",
-} as const
-
 export const $CursorPaginatedResponse_FormIntakeRead_ = {
   properties: {
     items: {
@@ -16550,7 +16487,7 @@ export const $FormActorRead = {
   type: "object",
   required: ["type", "id"],
   title: "FormActorRead",
-  description: "Who viewed or submitted a form.",
+  description: "Who submitted a form.",
 } as const
 
 export const $FormArtifact = {
@@ -16579,10 +16516,6 @@ export const $FormArtifact = {
       title: "Type",
       default: "form",
     },
-    workflowId: {
-      type: "string",
-      title: "Workflowid",
-    },
     status: {
       anyOf: [
         {
@@ -16598,7 +16531,7 @@ export const $FormArtifact = {
   },
   additionalProperties: false,
   type: "object",
-  required: ["id", "title", "workflowId"],
+  required: ["id", "title"],
   title: "FormArtifact",
   description:
     "Workflow form artifact. Lets a surface refresh a form the chat edited.",
@@ -16861,6 +16794,8 @@ export const $FormDividerEntry = {
 export const $FormErrorCode = {
   type: "string",
   enum: [
+    "not_found",
+    "already_exists",
     "form_config_invalid",
     "form_workflow_unpublished",
     "form_offline",
@@ -16933,69 +16868,6 @@ export const $FormErrorResponse = {
   type: "object",
   required: ["detail"],
   title: "FormErrorResponse",
-} as const
-
-export const $FormEventRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    type: {
-      $ref: "#/components/schemas/FormEventType",
-    },
-    actor: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/FormActorRead",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-    submission_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Submission Id",
-    },
-    reference: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Reference",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-  },
-  type: "object",
-  required: ["id", "type", "created_at"],
-  title: "FormEventRead",
-} as const
-
-export const $FormEventType = {
-  type: "string",
-  enum: ["form_viewed", "form_submitted"],
-  title: "FormEventType",
-  description: `Activity recorded against a form.
-
-Stored as a plain string column, so a new value needs no migration.`,
 } as const
 
 export const $FormFieldBlock = {
@@ -17498,10 +17370,6 @@ export const $FormIntakeSubmissionRead = {
       format: "uuid",
       title: "Id",
     },
-    reference: {
-      type: "string",
-      title: "Reference",
-    },
     form_id: {
       type: "string",
       format: "uuid",
@@ -17525,16 +17393,22 @@ export const $FormIntakeSubmissionRead = {
       format: "date-time",
       title: "Submitted At",
     },
+    reference: {
+      type: "string",
+      title: "Reference",
+      description: "Short code a requester can quote for a submission.",
+      readOnly: true,
+    },
   },
   type: "object",
   required: [
     "id",
-    "reference",
     "form_id",
     "form_title",
     "workspace_id",
     "workspace_name",
     "submitted_at",
+    "reference",
   ],
   title: "FormIntakeSubmissionRead",
   description: "A requester's own submission. Carries no run fields.",
@@ -17792,6 +17666,7 @@ export const $FormRead = {
     },
     workflow_id: {
       type: "string",
+      pattern: "wf_[0-9a-zA-Z]+",
       title: "Workflow Id",
     },
     workflow_title: {
@@ -17876,6 +17751,7 @@ export const $FormReadMinimal = {
       anyOf: [
         {
           type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
         },
         {
           type: "null",
@@ -17954,104 +17830,6 @@ export const $FormReadMinimal = {
   title: "FormReadMinimal",
 } as const
 
-export const $FormResolved = {
-  properties: {
-    title: {
-      type: "string",
-      title: "Title",
-    },
-    description: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Description",
-    },
-    success_message: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Success Message",
-    },
-    definition_version: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Definition Version",
-      description: "Published workflow version the blocks come from.",
-    },
-    blocks: {
-      items: {
-        oneOf: [
-          {
-            $ref: "#/components/schemas/FormHeadingBlock",
-          },
-          {
-            $ref: "#/components/schemas/FormTextBlock",
-          },
-          {
-            $ref: "#/components/schemas/FormNoticeBlock",
-          },
-          {
-            $ref: "#/components/schemas/FormDividerBlock",
-          },
-          {
-            $ref: "#/components/schemas/FormFieldBlock",
-          },
-        ],
-        discriminator: {
-          propertyName: "type",
-          mapping: {
-            divider: "#/components/schemas/FormDividerBlock",
-            field: "#/components/schemas/FormFieldBlock",
-            heading: "#/components/schemas/FormHeadingBlock",
-            notice: "#/components/schemas/FormNoticeBlock",
-            text: "#/components/schemas/FormTextBlock",
-          },
-        },
-      },
-      type: "array",
-      title: "Blocks",
-    },
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    workspace_id: {
-      type: "string",
-      format: "uuid",
-      title: "Workspace Id",
-    },
-    workflow_id: {
-      type: "string",
-      title: "Workflow Id",
-    },
-    status: {
-      $ref: "#/components/schemas/FormStatus",
-    },
-  },
-  type: "object",
-  required: ["title", "blocks", "id", "workspace_id", "workflow_id", "status"],
-  title: "FormResolved",
-  description:
-    "A saved form resolved against its workflow's published input schema.",
-} as const
-
 export const $FormStatus = {
   type: "string",
   enum: ["online", "offline"],
@@ -18096,10 +17874,6 @@ export const $FormSubmissionRead = {
       type: "string",
       format: "uuid",
       title: "Form Id",
-    },
-    reference: {
-      type: "string",
-      title: "Reference",
     },
     answers: {
       additionalProperties: true,
@@ -18166,9 +17940,15 @@ export const $FormSubmissionRead = {
       format: "date-time",
       title: "Submitted At",
     },
+    reference: {
+      type: "string",
+      title: "Reference",
+      description: "Short code a requester can quote for a submission.",
+      readOnly: true,
+    },
   },
   type: "object",
-  required: ["id", "form_id", "reference", "answers", "submitted_at"],
+  required: ["id", "form_id", "answers", "submitted_at", "reference"],
   title: "FormSubmissionRead",
 } as const
 
@@ -18178,10 +17958,6 @@ export const $FormSubmissionReceipt = {
       type: "string",
       format: "uuid",
       title: "Id",
-    },
-    reference: {
-      type: "string",
-      title: "Reference",
     },
     submitted_at: {
       type: "string",
@@ -18199,9 +17975,15 @@ export const $FormSubmissionReceipt = {
       ],
       title: "Success Message",
     },
+    reference: {
+      type: "string",
+      title: "Reference",
+      description: "Short code a requester can quote for a submission.",
+      readOnly: true,
+    },
   },
   type: "object",
-  required: ["id", "reference", "submitted_at"],
+  required: ["id", "submitted_at", "reference"],
   title: "FormSubmissionReceipt",
   description: "What a requester gets back. Carries no run fields.",
 } as const
@@ -18310,25 +18092,12 @@ export const $FormUserRead = {
 
 export const $FormValidateRequest = {
   properties: {
-    workflow_id: {
-      anyOf: [
-        {
-          type: "string",
-          pattern: "wf_[0-9a-zA-Z]+",
-        },
-        {
-          type: "string",
-          pattern: "wf-[0-9a-f]{32}",
-        },
-      ],
-      title: "Workflow Id",
-    },
     config: {
       $ref: "#/components/schemas/FormConfig-Input",
     },
   },
   type: "object",
-  required: ["workflow_id", "config"],
+  required: ["config"],
   title: "FormValidateRequest",
 } as const
 
@@ -37650,7 +37419,7 @@ export const $VercelChatRequest = {
         },
       ],
       description:
-        "The page the chat is docked on. Only Workspace chat uses it, and only for an object the caller can read.",
+        "The page the chat is docked on. Only Workspace chat uses it.",
     },
   },
   type: "object",

@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 from pydantic import ValidationError
-from sqlalchemy import and_, func, or_, select, true
+from sqlalchemy import ColumnElement, and_, func, null, or_, select, true
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.selectable import Select
 
 from tracecat import config
@@ -19,58 +21,45 @@ from tracecat.authz.controls import has_scope
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     Form,
-    FormEvent,
+    FormFile,
     FormSubmission,
+    FormView,
     OrganizationMembership,
-    ServiceAccount,
     User,
     Workflow,
     WorkflowDefinition,
     Workspace,
 )
 from tracecat.dsl.common import DSLInput, apply_expects_order
-from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 from tracecat.expressions.schemas import ExpectedField
-from tracecat.forms.access import can_read_form_config
-from tracecat.forms.constants import (
-    FORM_VIEW_EVENT_DEDUP_WINDOW,
-    SUBMISSION_REFERENCE_PREFIX,
+from tracecat.forms.access import (
+    can_edit_forms,
+    can_read_form_config,
+    can_read_submissions,
 )
-from tracecat.forms.enums import (
-    FormErrorCode,
-    FormEventType,
-    FormStatus,
-    FormWidget,
-)
+from tracecat.forms.constants import FORM_VIEW_DEDUP_WINDOW
+from tracecat.forms.enums import FormErrorCode, FormStatus, FormWidget
 from tracecat.forms.exceptions import FormError
 from tracecat.forms.resolver import resolve_form
 from tracecat.forms.schemas import (
-    FormActorRead,
     FormConfig,
     FormCounts,
     FormCreate,
-    FormEventRead,
-    FormFieldBlock,
     FormIntakeLocation,
     FormIntakeRead,
     FormIntakeSubmissionRead,
     FormPreview,
     FormRead,
     FormReadMinimal,
-    FormResolved,
     FormUpdate,
     FormUserRead,
     FormValidateResponse,
 )
-from tracecat.forms.storage import (
-    delete_file_blobs,
-    form_file_blob_keys,
-    purge_expired_files,
-)
+from tracecat.forms.storage import delete_file_blobs, file_blob_keys
 from tracecat.forms.types import ResolveResult
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.pagination import CursorPaginatedResponse, Page, PageParams, paginate
+from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
 from tracecat.service import BaseOrgService, BaseWorkspaceService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workspaces.service import WorkspaceService
@@ -78,6 +67,11 @@ from tracecat.workspaces.service import WorkspaceService
 # The fastapi-users base types these columns as plain values, so queries go
 # through the table.
 USERS = User.__table__
+
+_FORM_TITLE = func.coalesce(Form.title, Workflow.title)
+_FORM_DESCRIPTION = func.coalesce(
+    Form.description, func.nullif(Workflow.description, "")
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,11 +89,6 @@ class FormInputs:
     @property
     def definition_version(self) -> int | None:
         return self.definition.version if self.definition is not None else None
-
-
-def submission_reference(submission_id: uuid.UUID) -> str:
-    """Short code a requester can quote for a submission."""
-    return f"{SUBMISSION_REFERENCE_PREFIX}{submission_id.hex[:8].upper()}"
 
 
 def stored_form_config(form: Form) -> FormConfig:
@@ -127,7 +116,7 @@ def _set_form_config(form: Form, form_config: FormConfig) -> None:
 
 
 def _preview(
-    form_config: FormConfig, inputs: FormInputs, result: ResolveResult
+    inputs: FormInputs, form_config: FormConfig, result: ResolveResult
 ) -> FormPreview:
     return FormPreview(
         title=form_config.title or inputs.workflow_title,
@@ -138,44 +127,40 @@ def _preview(
     )
 
 
-def page_response[T](page: Page[T]) -> CursorPaginatedResponse[T]:
+async def paginate_rows[T](
+    session: AsyncSession,
+    statement: Select[Any],
+    build: Callable[[dict[str, Any]], T],
+    page: PageParams,
+    *order_by: ColumnElement[Any],
+) -> CursorPaginatedResponse[T]:
+    """Page through ``statement``, building each item from its labeled columns."""
+    names = [str(column.key) for column in statement.selected_columns]
+    result = await paginate(
+        session,
+        statement,
+        page=page,
+        order_by=order_by,
+        row_factory=lambda values: build(dict(zip(names, values, strict=True))),
+    )
     return CursorPaginatedResponse(
-        items=page.items,
-        next_cursor=page.next_cursor,
-        prev_cursor=page.prev_cursor,
-        has_more=page.has_more,
-        has_previous=page.has_previous,
+        items=result.items,
+        next_cursor=result.next_cursor,
+        prev_cursor=result.prev_cursor,
+        has_more=result.has_more,
+        has_previous=result.has_previous,
     )
 
 
-def actor_read(
-    user_id: uuid.UUID | None,
-    email: str | None,
-    first_name: str | None,
-    last_name: str | None,
-    service_account_id: uuid.UUID | None,
-    service_account_name: str | None,
-) -> FormActorRead | None:
-    if user_id is not None:
-        return FormActorRead(
-            type="user",
-            id=user_id,
-            email=email,
-            first_name=first_name,
-            last_name=last_name,
-        )
-    if service_account_id is not None:
-        return FormActorRead(
-            type="service_account", id=service_account_id, name=service_account_name
-        )
-    return None
-
-
 def org_users(organization_id: OrganizationID) -> Select[Any]:
-    """Select the active members of an organization, as the ``user`` widget
-    sees them: ID, email, first name and last name."""
+    """Select the active members of an organization as ``FormUserRead`` columns."""
     return (
-        select(USERS.c.id, USERS.c.email, USERS.c.first_name, USERS.c.last_name)
+        select(
+            USERS.c.id.label("user_id"),
+            USERS.c.email,
+            USERS.c.first_name,
+            USERS.c.last_name,
+        )
         .join(
             OrganizationMembership,
             and_(
@@ -187,27 +172,10 @@ def org_users(organization_id: OrganizationID) -> Select[Any]:
     )
 
 
-def user_read(values: tuple[object, ...]) -> FormUserRead:
-    """Build a user from a row of ``org_users``."""
-    return FormUserRead(
-        user_id=cast(uuid.UUID, values[0]),
-        email=cast(str, values[1]),
-        first_name=cast(str | None, values[2]),
-        last_name=cast(str | None, values[3]),
-    )
-
-
-def _escape_like(value: str) -> str:
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-
 class FormsService(BaseWorkspaceService):
     """Manage the forms of a workspace."""
 
     service_name = "forms"
-
-    def _has_scope(self, scope: str) -> bool:
-        return has_scope(self.role.scopes or frozenset(), scope)
 
     # ----- Inputs -----
 
@@ -217,13 +185,10 @@ class FormsService(BaseWorkspaceService):
         Inputs come from the published definition, read through ``DSLInput``
         so they are in the author's order. An unpublished workflow falls back
         to its draft inputs so a form can be prepared before the first publish.
-
-        Returns:
-            The inputs, or None if the workflow does not exist.
+        Returns None if the workflow does not exist.
 
         Raises:
-            FormError: ``form_unavailable`` if the published definition cannot
-                be read.
+            FormError: ``form_unavailable`` if the definition cannot be read.
         """
         statement = select(
             Workflow.title,
@@ -266,7 +231,7 @@ class FormsService(BaseWorkspaceService):
 
     async def _require_inputs(self, workflow_id: uuid.UUID) -> FormInputs:
         if (inputs := await self.load_inputs(workflow_id)) is None:
-            raise TracecatNotFoundError("Workflow not found")
+            raise FormError(FormErrorCode.NOT_FOUND, "Workflow not found")
         return inputs
 
     def _check_saveable(
@@ -290,8 +255,9 @@ class FormsService(BaseWorkspaceService):
     ) -> tuple[FormInputs, FormConfig, ResolveResult]:
         """Resolve an online form against its published inputs.
 
-        Runs on every render and submit, because the published schema can
-        change after the form is saved.
+        Runs on every render, upload and submit, because the published schema
+        can change after the form is saved. A requester is never told what is
+        wrong with the config.
 
         Raises:
             FormError: ``form_offline``, or ``form_unavailable`` if the
@@ -299,17 +265,15 @@ class FormsService(BaseWorkspaceService):
         """
         if form.status != FormStatus.ONLINE:
             raise FormError(FormErrorCode.FORM_OFFLINE, "This form is offline")
-        unavailable = FormError(
+        inputs = await self.load_inputs(form.workflow_id)
+        if inputs is not None and inputs.definition is not None:
+            current_config = stored_form_config(form)
+            result = resolve_form(current_config, inputs.expects)
+            if not result.has_errors:
+                return inputs, current_config, result
+        raise FormError(
             FormErrorCode.FORM_UNAVAILABLE, "This form is not available right now"
         )
-        inputs = await self.load_inputs(form.workflow_id)
-        if inputs is None or inputs.definition is None:
-            raise unavailable
-        current_config = stored_form_config(form)
-        result = resolve_form(current_config, inputs.expects)
-        if result.has_errors:
-            raise unavailable
-        return inputs, current_config, result
 
     # ----- Config -----
 
@@ -336,8 +300,8 @@ class FormsService(BaseWorkspaceService):
         """
         submissions = (
             select(
-                func.count().label("submission_count"),
-                func.max(FormSubmission.created_at).label("last_submitted_at"),
+                func.count().label("count"),
+                func.max(FormSubmission.created_at).label("last"),
             )
             .where(
                 FormSubmission.workspace_id == Form.workspace_id,
@@ -346,16 +310,23 @@ class FormsService(BaseWorkspaceService):
             .correlate(Form)
             .lateral()
         )
+        # A requester never handles the workflow behind a form.
+        show_workflow = can_read_form_config(self.role)
+        show_counts = can_read_submissions(self.role)
         statement = (
             select(
                 Form.id,
-                Form.workflow_id,
-                Workflow.title,
+                (Form.workflow_id if show_workflow else null()).label("workflow_id"),
+                (Workflow.title if show_workflow else null()).label("workflow_title"),
                 Form.status,
-                func.coalesce(Form.title, Workflow.title),
-                func.coalesce(Form.description, func.nullif(Workflow.description, "")),
-                submissions.c.submission_count,
-                submissions.c.last_submitted_at,
+                _FORM_TITLE.label("title"),
+                _FORM_DESCRIPTION.label("description"),
+                (submissions.c.count if show_counts else null()).label(
+                    "submission_count"
+                ),
+                (submissions.c.last if show_counts else null()).label(
+                    "last_submitted_at"
+                ),
                 Form.created_at,
                 Form.updated_at,
             )
@@ -363,96 +334,61 @@ class FormsService(BaseWorkspaceService):
             .join(submissions, true())
             .where(Form.workspace_id == self.workspace_id)
         )
-        if not self._has_scope("form:update"):
+        if not can_edit_forms(self.role):
             statement = statement.where(Form.status == FormStatus.ONLINE)
-        show_counts = self._has_scope("form:submission:read")
-        # A requester never handles the workflow behind a form.
-        show_workflow = can_read_form_config(self.role)
-
-        def to_read(values: tuple[object, ...]) -> FormReadMinimal:
-            return FormReadMinimal(
-                id=cast(uuid.UUID, values[0]),
-                workflow_id=WorkflowUUID.new(values[1]) if show_workflow else None,
-                workflow_title=cast(str, values[2]) if show_workflow else None,
-                status=FormStatus(cast(str, values[3])),
-                title=cast(str, values[4]),
-                description=cast(str | None, values[5]),
-                submission_count=cast(int, values[6]) if show_counts else None,
-                last_submitted_at=(
-                    cast(datetime | None, values[7]) if show_counts else None
-                ),
-                created_at=cast(datetime, values[8]),
-                updated_at=cast(datetime, values[9]),
-            )
-
-        result = await paginate(
+        return await paginate_rows(
             self.session,
             statement,
-            page=page,
-            order_by=(Form.created_at.desc(), Form.surrogate_id.desc()),
-            row_factory=to_read,
+            FormReadMinimal.model_validate,
+            page,
+            Form.created_at.desc(),
+            Form.surrogate_id.desc(),
         )
-        return page_response(result)
 
     async def read_form(self, form: Form) -> FormRead:
         """Build the builder view of a form: config, issues, URL and counts."""
         inputs = await self._require_inputs(form.workflow_id)
         current_config = stored_form_config(form)
-        result = resolve_form(current_config, inputs.expects)
         counts = None
-        if self._has_scope("form:submission:read"):
-            counts = await self._count_activity(form)
+        if can_read_submissions(self.role):
+            views = select(func.count()).where(
+                FormView.workspace_id == self.workspace_id, FormView.form_id == form.id
+            )
+            submissions = select(func.count()).where(
+                FormSubmission.workspace_id == self.workspace_id,
+                FormSubmission.form_id == form.id,
+            )
+            row = await self.session.execute(
+                select(views.scalar_subquery(), submissions.scalar_subquery())
+            )
+            view_count, submission_count = row.tuples().one()
+            counts = FormCounts(views=view_count, submissions=submission_count)
         return FormRead(
             id=form.id,
             workspace_id=form.workspace_id,
-            workflow_id=WorkflowUUID.new(form.workflow_id),
+            workflow_id=WorkflowUUID.new(form.workflow_id).short(),
             workflow_title=inputs.workflow_title,
             workflow_version=inputs.definition_version,
             status=FormStatus(form.status),
             config=current_config,
-            issues=result.issues,
+            issues=resolve_form(current_config, inputs.expects).issues,
             url=f"{config.TRACECAT__PUBLIC_APP_URL}/forms/{form.id}",
             counts=counts,
             created_at=form.created_at,
             updated_at=form.updated_at,
         )
 
-    async def _count_activity(self, form: Form) -> FormCounts:
-        views = (
-            select(func.count())
-            .where(
-                FormEvent.workspace_id == self.workspace_id,
-                FormEvent.form_id == form.id,
-                FormEvent.type == FormEventType.FORM_VIEWED,
-            )
-            .scalar_subquery()
-        )
-        submissions = (
-            select(func.count())
-            .where(
-                FormSubmission.workspace_id == self.workspace_id,
-                FormSubmission.form_id == form.id,
-            )
-            .scalar_subquery()
-        )
-        row = (await self.session.execute(select(views, submissions))).tuples().one()
-        return FormCounts(views=row[0], submissions=row[1])
-
     @audit_log(resource_type="form", action="create")
     async def create_form(self, params: FormCreate) -> Form:
-        """Create the form of a workflow.
-
-        Raises:
-            TracecatNotFoundError: If the workflow does not exist.
-            TracecatConflictError: If the workflow already has a form.
-            FormError: If the config has errors, or the form is created online
-                on an unpublished workflow.
-        """
+        """Create the form of a workflow. A workflow has at most one form."""
         workflow_id = WorkflowUUID.new(params.workflow_id)
         inputs = await self._require_inputs(workflow_id)
+        already_exists = FormError(
+            FormErrorCode.ALREADY_EXISTS, "This workflow already has a form"
+        )
         if await self.get_form_by_workflow_id(workflow_id) is not None:
-            raise TracecatConflictError("This workflow already has a form")
-        new_config = params.config if params.config is not None else FormConfig()
+            raise already_exists
+        new_config = params.config or FormConfig()
         self._check_saveable(new_config, inputs, params.status)
 
         form = Form(
@@ -466,7 +402,7 @@ class FormsService(BaseWorkspaceService):
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
-            raise TracecatConflictError("This workflow already has a form") from e
+            raise already_exists from e
         await self.session.refresh(form)
         return form
 
@@ -474,38 +410,25 @@ class FormsService(BaseWorkspaceService):
     async def update_form(self, form: Form, params: FormUpdate) -> Form:
         """Update a form's status, config or both. ``config`` replaces whole.
 
-        Raises:
-            FormError: If the new config has errors, or the form goes online
-                with errors or on an unpublished workflow.
+        A config with errors is not saved, and an unpublished workflow's form
+        cannot go online. Going offline is always allowed.
         """
         status = params.status or FormStatus(form.status)
-        new_config = (
-            params.config if params.config is not None else stored_form_config(form)
-        )
         if params.config is not None or params.status is FormStatus.ONLINE:
             inputs = await self._require_inputs(form.workflow_id)
+            new_config = params.config or stored_form_config(form)
             self._check_saveable(new_config, inputs, status)
-
-        goes_offline = form.status == FormStatus.ONLINE and status is FormStatus.OFFLINE
         form.status = status.value
         if params.config is not None:
             _set_form_config(form, params.config)
         await self.session.commit()
         await self.session.refresh(form)
-        if goes_offline:
-            # Nothing uploads to or submits an offline form, so nothing else
-            # would remove what its requesters left behind.
-            await purge_expired_files(self.session, self.workspace_id)
         return form
 
     async def upsert_form(self, workflow_id: uuid.UUID, params: FormUpdate) -> Form:
         """Update a workflow's form, creating it first if there is none.
 
         Audited as the update or the create it turns into.
-
-        Raises:
-            TracecatNotFoundError: If the workflow does not exist.
-            FormError: As for ``update_form`` and ``create_form``.
         """
         if (form := await self.get_form_by_workflow_id(workflow_id)) is not None:
             return await self.update_form(form, params)
@@ -519,107 +442,56 @@ class FormsService(BaseWorkspaceService):
 
     @audit_log(resource_type="form", action="delete")
     async def delete_form(self, form: Form) -> None:
-        """Delete a form. Its submissions, events and files go with it.
+        """Delete a form with its submissions, views and files.
 
-        The file blobs are deleted after the commit, best effort. Expired
-        pending files of the workspace's other forms are purged too.
+        The file blobs are deleted after the commit, best effort.
         """
-        keys = await form_file_blob_keys(self.session, self.workspace_id, form.id)
+        keys = await file_blob_keys(
+            self.session, self.workspace_id, FormFile.form_id == form.id
+        )
         await self.session.delete(form)
         await self.session.commit()
         await delete_file_blobs(keys)
-        await purge_expired_files(self.session, self.workspace_id)
 
     async def sync_form(
-        self,
-        workflow_id: uuid.UUID,
-        form_config: FormConfig,
-        status: FormStatus,
-        *,
-        commit: bool = True,
-    ) -> Form:
-        """Create or replace a workflow's form without an audit event.
+        self, workflow_id: uuid.UUID, form_config: FormConfig | None, status: FormStatus
+    ) -> None:
+        """Write a workflow's form from a git pull, in the caller's transaction.
 
-        For callers that own the transaction and have already resolved the
-        config, such as a sync pull. Nothing is checked here.
+        Flushes without committing, checks nothing and writes no audit event:
+        a pulled config that no longer resolves is stored and shows its issues.
+        With no config, an existing form goes offline with an empty config and
+        keeps its submissions; a workflow without a form is left alone.
         """
         form = await self.get_form_by_workflow_id(workflow_id)
+        if form_config is None:
+            if form is None:
+                return
+            form_config, status = FormConfig(), FormStatus.OFFLINE
         if form is None:
             form = Form(workspace_id=self.workspace_id, workflow_id=workflow_id)
             self.session.add(form)
         form.status = status.value
         _set_form_config(form, form_config)
-        if commit:
-            await self.session.commit()
-            await self.session.refresh(form)
-        else:
-            await self.session.flush()
-        return form
-
-    async def clear_form(self, workflow_id: uuid.UUID) -> None:
-        """Set a workflow's form offline and clear its config, in the caller's
-        transaction and without an audit event.
-
-        The row and its submissions are kept. A workflow with no form is left
-        alone.
-        """
-        if (form := await self.get_form_by_workflow_id(workflow_id)) is None:
-            return
-        form.status = FormStatus.OFFLINE.value
-        _set_form_config(form, FormConfig())
         await self.session.flush()
 
     async def validate_config(
-        self, workflow_id: uuid.UUID, form_config: FormConfig
+        self, form: Form, form_config: FormConfig
     ) -> FormValidateResponse:
-        """Resolve an unsaved config against a workflow's inputs.
-
-        Raises:
-            TracecatNotFoundError: If the workflow does not exist.
-        """
-        inputs = await self._require_inputs(workflow_id)
+        """Resolve an unsaved config against the inputs of a form's workflow."""
+        inputs = await self._require_inputs(form.workflow_id)
         result = resolve_form(form_config, inputs.expects)
         return FormValidateResponse(
             valid=not result.has_errors,
             issues=result.issues,
-            preview=_preview(form_config, inputs, result),
+            preview=_preview(inputs, form_config, result),
         )
-
-    async def preview_form(self, form: Form) -> FormPreview:
-        """Resolve a form's saved config for a builder who cannot edit it.
-
-        Unlike ``render_form`` this works for an offline form and for a
-        workflow that is not published yet, and the caller records no view.
-
-        Raises:
-            TracecatNotFoundError: If the workflow does not exist.
-        """
-        inputs = await self._require_inputs(form.workflow_id)
-        current_config = stored_form_config(form)
-        result = resolve_form(current_config, inputs.expects)
-        return _preview(current_config, inputs, result)
 
     # ----- Render -----
 
-    async def render_form(self, form: Form) -> FormResolved:
-        """Resolve an online form for a requester.
-
-        Raises:
-            FormError: ``form_offline`` or ``form_unavailable``.
-        """
-        inputs, current_config, result = await self.resolve_published(form)
-        preview = _preview(current_config, inputs, result)
-        return FormResolved(
-            id=form.id,
-            workspace_id=form.workspace_id,
-            workflow_id=WorkflowUUID.new(form.workflow_id),
-            status=FormStatus(form.status),
-            title=preview.title,
-            description=preview.description,
-            success_message=preview.success_message,
-            definition_version=preview.definition_version,
-            blocks=preview.blocks,
-        )
+    async def render_form(self, form: Form) -> FormPreview:
+        """Resolve an online form for a requester."""
+        return _preview(*await self.resolve_published(form))
 
     async def record_view(self, form: Form) -> None:
         """Record that the calling user viewed a form. Best effort.
@@ -631,30 +503,22 @@ class FormsService(BaseWorkspaceService):
             return
         # Read before the try: a rollback expires the row.
         form_id = form.id
-        recent_view = (
-            select(FormEvent.id)
-            .where(
-                FormEvent.workspace_id == self.workspace_id,
-                FormEvent.form_id == form_id,
-                FormEvent.type == FormEventType.FORM_VIEWED,
-                FormEvent.user_id == self.role.user_id,
-                FormEvent.created_at
-                >= datetime.now(UTC) - FORM_VIEW_EVENT_DEDUP_WINDOW,
-            )
-            .limit(1)
+        recent_view = select(FormView.id).where(
+            FormView.workspace_id == self.workspace_id,
+            FormView.form_id == form_id,
+            FormView.user_id == self.role.user_id,
+            FormView.created_at >= datetime.now(UTC) - FORM_VIEW_DEDUP_WINDOW,
         )
         try:
-            if (await self.session.execute(recent_view)).first() is not None:
-                return
-            self.session.add(
-                FormEvent(
-                    workspace_id=self.workspace_id,
-                    form_id=form_id,
-                    type=FormEventType.FORM_VIEWED.value,
-                    user_id=self.role.user_id,
+            if (await self.session.execute(recent_view.limit(1))).first() is None:
+                self.session.add(
+                    FormView(
+                        workspace_id=self.workspace_id,
+                        form_id=form_id,
+                        user_id=self.role.user_id,
+                    )
                 )
-            )
-            await self.session.commit()
+                await self.session.commit()
         except SQLAlchemyError as e:
             await self.session.rollback()
             self.logger.warning(
@@ -663,66 +527,6 @@ class FormsService(BaseWorkspaceService):
                 error_type=type(e).__name__,
             )
 
-    # ----- Activity -----
-
-    async def list_events(
-        self, form: Form, page: PageParams
-    ) -> CursorPaginatedResponse[FormEventRead]:
-        """List a form's views and submissions newest first."""
-        statement = (
-            select(
-                FormEvent.id,
-                FormEvent.type,
-                FormEvent.submission_id,
-                FormEvent.created_at,
-                FormEvent.user_id,
-                USERS.c.email,
-                USERS.c.first_name,
-                USERS.c.last_name,
-                FormEvent.service_account_id,
-                ServiceAccount.name,
-            )
-            .outerjoin(USERS, USERS.c.id == FormEvent.user_id)
-            .outerjoin(
-                ServiceAccount, ServiceAccount.id == FormEvent.service_account_id
-            )
-            .where(
-                FormEvent.workspace_id == self.workspace_id,
-                FormEvent.form_id == form.id,
-            )
-        )
-
-        def to_read(values: tuple[object, ...]) -> FormEventRead:
-            submission_id = cast(uuid.UUID | None, values[2])
-            return FormEventRead(
-                id=cast(uuid.UUID, values[0]),
-                type=FormEventType(cast(str, values[1])),
-                submission_id=submission_id,
-                reference=(
-                    submission_reference(submission_id)
-                    if submission_id is not None
-                    else None
-                ),
-                created_at=cast(datetime, values[3]),
-                actor=actor_read(
-                    cast(uuid.UUID | None, values[4]),
-                    cast(str | None, values[5]),
-                    cast(str | None, values[6]),
-                    cast(str | None, values[7]),
-                    cast(uuid.UUID | None, values[8]),
-                    cast(str | None, values[9]),
-                ),
-            )
-
-        result = await paginate(
-            self.session,
-            statement,
-            page=page,
-            order_by=(FormEvent.created_at.desc(), FormEvent.surrogate_id.desc()),
-            row_factory=to_read,
-        )
-        return page_response(result)
-
     # ----- User widget -----
 
     async def search_users(
@@ -730,45 +534,37 @@ class FormsService(BaseWorkspaceService):
     ) -> CursorPaginatedResponse[FormUserRead]:
         """Search organization members for a form's ``user`` widget.
 
-        A caller with ``form:update`` can search whatever the saved config
-        holds and whatever the form's status, so the preview of an unsaved
-        config that adds a ``user`` field works. Anyone else needs a form
-        they could fill in: online, with a ``user`` field.
+        An editor searches whatever the form's config and status, so the
+        preview of an unsaved config that adds a ``user`` field works. Anyone
+        else needs a form they could fill in: online, with a ``user`` field.
 
         Raises:
-            FormError: ``form_offline`` or ``form_unavailable`` if the caller
-                cannot edit the form and it cannot be filled in.
-            TracecatNotFoundError: If the form has no ``user`` widget and the
-                caller cannot edit the form.
+            FormError: For a non-editor, ``form_offline`` or
+                ``form_unavailable``, or ``not_found`` if the form has no
+                ``user`` field.
         """
-        if not self._has_scope("form:update"):
+        if not can_edit_forms(self.role):
             _, _, result = await self.resolve_published(form)
-            if not any(
-                isinstance(block, FormFieldBlock) and block.widget is FormWidget.USER
-                for block in result.blocks
-            ):
-                raise TracecatNotFoundError("This form has no user field")
+            if all(field.widget is not FormWidget.USER for field in result.fields):
+                raise FormError(FormErrorCode.NOT_FOUND, "This form has no user field")
 
         statement = org_users(self.organization_id)
         if search:
-            pattern = f"%{_escape_like(search)}%"
             statement = statement.where(
                 or_(
-                    USERS.c.email.ilike(pattern, escape="\\"),
-                    USERS.c.first_name.ilike(pattern, escape="\\"),
-                    USERS.c.last_name.ilike(pattern, escape="\\"),
+                    USERS.c.email.icontains(search, autoescape=True),
+                    USERS.c.first_name.icontains(search, autoescape=True),
+                    USERS.c.last_name.icontains(search, autoescape=True),
                 )
             )
-
         # Email is unique, so it is a total ordering on its own.
-        users = await paginate(
+        return await paginate_rows(
             self.session,
             statement,
-            page=page,
-            order_by=(USERS.c.email.asc(),),
-            row_factory=user_read,
+            FormUserRead.model_validate,
+            page,
+            USERS.c.email.asc(),
         )
-        return page_response(users)
 
 
 class FormsIntakeService(BaseOrgService):
@@ -790,8 +586,7 @@ class FormsIntakeService(BaseOrgService):
         if self.role.type != "user":
             return False
         workspace_role = self.role.model_copy(update={"workspace_id": workspace_id})
-        scopes = await compute_effective_scopes(workspace_role)
-        return has_scope(scopes, "form:read")
+        return has_scope(await compute_effective_scopes(workspace_role), "form:read")
 
     async def _readable_workspace_ids(self) -> list[WorkspaceID]:
         workspaces = WorkspaceService(self.session, role=self.role)
@@ -804,10 +599,9 @@ class FormsIntakeService(BaseOrgService):
     async def locate_form(self, form_id: uuid.UUID) -> FormIntakeLocation | None:
         """Find the workspace of a form the caller may read.
 
-        Returns:
-            The location, or None for an unknown form, a form in another
-            organization, or a workspace where the caller lacks ``form:read``.
-            Callers must not tell these cases apart.
+        Returns None for an unknown form, a form in another organization, or
+        a workspace where the caller lacks ``form:read``. Callers must not
+        tell these cases apart.
         """
         statement = (
             select(Form.workspace_id, Workspace.name, Workspace.organization_id)
@@ -831,16 +625,15 @@ class FormsIntakeService(BaseOrgService):
         self, page: PageParams
     ) -> CursorPaginatedResponse[FormIntakeRead]:
         """List online forms across the workspaces the caller may read forms in."""
-        workspace_ids = await self._readable_workspace_ids()
-        if not workspace_ids:
+        if not (workspace_ids := await self._readable_workspace_ids()):
             return CursorPaginatedResponse(items=[])
         statement = (
             select(
                 Form.id,
                 Form.workspace_id,
-                Workspace.name,
-                func.coalesce(Form.title, Workflow.title),
-                func.coalesce(Form.description, func.nullif(Workflow.description, "")),
+                Workspace.name.label("workspace_name"),
+                _FORM_TITLE.label("title"),
+                _FORM_DESCRIPTION.label("description"),
             )
             .join(Workspace, Workspace.id == Form.workspace_id)
             .join(Workflow, Workflow.id == Form.workflow_id)
@@ -850,25 +643,15 @@ class FormsIntakeService(BaseOrgService):
                 Form.status == FormStatus.ONLINE,
             )
         )
-
-        def to_read(values: tuple[object, ...]) -> FormIntakeRead:
-            return FormIntakeRead(
-                id=cast(uuid.UUID, values[0]),
-                workspace_id=cast(WorkspaceID, values[1]),
-                workspace_name=cast(str, values[2]),
-                title=cast(str, values[3]),
-                description=cast(str | None, values[4]),
-            )
-
         async with get_async_session_bypass_rls_context_manager() as session:
-            forms = await paginate(
+            return await paginate_rows(
                 session,
                 statement,
-                page=page,
-                order_by=(Form.created_at.desc(), Form.surrogate_id.desc()),
-                row_factory=to_read,
+                FormIntakeRead.model_validate,
+                page,
+                Form.created_at.desc(),
+                Form.surrogate_id.desc(),
             )
-        return page_response(forms)
 
     async def list_submissions(
         self, page: PageParams
@@ -881,10 +664,10 @@ class FormsIntakeService(BaseOrgService):
             select(
                 FormSubmission.id,
                 FormSubmission.form_id,
-                func.coalesce(Form.title, Workflow.title),
+                _FORM_TITLE.label("form_title"),
                 FormSubmission.workspace_id,
-                Workspace.name,
-                FormSubmission.created_at,
+                Workspace.name.label("workspace_name"),
+                FormSubmission.created_at.label("submitted_at"),
             )
             .join(Form, Form.id == FormSubmission.form_id)
             .join(Workflow, Workflow.id == Form.workflow_id)
@@ -895,28 +678,12 @@ class FormsIntakeService(BaseOrgService):
                 FormSubmission.submitted_by_user_id == self.role.user_id,
             )
         )
-
-        def to_read(values: tuple[object, ...]) -> FormIntakeSubmissionRead:
-            submission_id = cast(uuid.UUID, values[0])
-            return FormIntakeSubmissionRead(
-                id=submission_id,
-                reference=submission_reference(submission_id),
-                form_id=cast(uuid.UUID, values[1]),
-                form_title=cast(str, values[2]),
-                workspace_id=cast(WorkspaceID, values[3]),
-                workspace_name=cast(str, values[4]),
-                submitted_at=cast(datetime, values[5]),
-            )
-
         async with get_async_session_bypass_rls_context_manager() as session:
-            submissions = await paginate(
+            return await paginate_rows(
                 session,
                 statement,
-                page=page,
-                order_by=(
-                    FormSubmission.created_at.desc(),
-                    FormSubmission.surrogate_id.desc(),
-                ),
-                row_factory=to_read,
+                FormIntakeSubmissionRead.model_validate,
+                page,
+                FormSubmission.created_at.desc(),
+                FormSubmission.surrogate_id.desc(),
             )
-        return page_response(submissions)

@@ -5,27 +5,12 @@ import { hasGrantedScope } from "@/lib/scopes"
 
 const STALE_TIME_MS = 5 * 60 * 1000
 
-/** Result of {@link useLandingWorkspace}. */
-export interface LandingWorkspace {
-  /** The workspace to land in. `undefined` while it is being worked out. */
-  workspaceId: string | undefined
-}
-
 /**
- * Pick the workspace a user lands in when the URL names none they can open.
- *
- * The last-viewed workspace wins, then the first workspace where the user
- * holds `workspace:read`. A member can be intake-only in the first-listed
- * workspace and a builder in another; landing them in the first would send
- * them to `/forms` on every visit.
- *
- * Asks for scopes only when the answer is needed (`enabled`, no last-viewed
- * workspace, more than one workspace), one workspace at a time in list order,
- * and stops at the first one the user can read. The query key matches
- * `useUserScopes`, and the workspace shell loads the landing workspace's
- * scopes anyway, so a user who can read the first workspace costs no extra
- * request. A failed request counts as "cannot read" and the search moves on.
- * With no readable workspace the first one is returned, as before.
+ * Pick the workspace a user lands in when the URL names none they can open:
+ * the last-viewed one, else the first where they hold `workspace:read` (an
+ * intake-only first workspace would bounce a builder to `/forms`), else the
+ * first. `undefined` while that is worked out. Scopes are asked for only when
+ * needed, one workspace at a time; a failed request counts as unreadable.
  */
 export function useLandingWorkspace({
   workspaces,
@@ -35,7 +20,7 @@ export function useLandingWorkspace({
   workspaces: WorkspaceReadMinimal[] | undefined
   lastViewedWorkspaceId: string | undefined
   enabled: boolean
-}): LandingWorkspace {
+}): string | undefined {
   const [index, setIndex] = useState(0)
   const count = workspaces?.length ?? 0
   const needsSearch = enabled && !lastViewedWorkspaceId && count > 1
@@ -63,10 +48,10 @@ export function useLandingWorkspace({
   }, [isUnreadable, index])
 
   if (lastViewedWorkspaceId) {
-    return { workspaceId: lastViewedWorkspaceId }
+    return lastViewedWorkspaceId
   }
   if (!needsSearch || index >= count) {
-    return { workspaceId: workspaces?.[0]?.id }
+    return workspaces?.[0]?.id
   }
-  return { workspaceId: canRead === true ? candidateId : undefined }
+  return canRead === true ? candidateId : undefined
 }

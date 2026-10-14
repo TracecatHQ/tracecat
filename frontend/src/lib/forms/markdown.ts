@@ -22,20 +22,12 @@ const DROPPED_NODE_TYPES = new Set([
   "definition",
 ])
 
-/**
- * Filter the children of an mdast node down to what a form may show.
- *
- * Raw HTML and images are removed. A link that is not `http(s)` or `mailto`,
- * and any reference-style link, is replaced by its own text.
- */
-export function filterFormMarkdownNodes(
-  nodes: FormMarkdownNode[]
-): FormMarkdownNode[] {
+function filterNodes(nodes: FormMarkdownNode[]): FormMarkdownNode[] {
   return nodes.flatMap((node) => {
     if (DROPPED_NODE_TYPES.has(node.type)) {
       return []
     }
-    const children = node.children && filterFormMarkdownNodes(node.children)
+    const children = node.children && filterNodes(node.children)
     if (
       node.type === "linkReference" ||
       (node.type === "link" && !isSafeFormLink(node.url))
@@ -47,16 +39,16 @@ export function filterFormMarkdownNodes(
 }
 
 /**
- * Remark plugin that applies {@link filterFormMarkdownNodes} to a document.
+ * Remark plugin that reduces a document to what a form may show.
  *
- * It runs on the markdown tree, before any HTML exists, so a dropped `html`
- * node never reaches a raw-HTML parser further down the pipeline.
+ * Raw HTML and images are removed. A link that is not `http(s)` or `mailto`,
+ * and any reference-style link, is replaced by its own text. It runs on the
+ * markdown tree, before any HTML exists, so a dropped `html` node never
+ * reaches the raw-HTML parser further down the pipeline.
  */
 export function remarkFormMarkdown() {
   return (tree: FormMarkdownNode): void => {
-    if (tree.children) {
-      tree.children = filterFormMarkdownNodes(tree.children)
-    }
+    tree.children = filterNodes(tree.children ?? [])
   }
 }
 

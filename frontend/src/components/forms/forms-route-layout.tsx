@@ -6,15 +6,12 @@ import { EntitlementRequiredEmptyState } from "@/components/entitlement-required
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { WorkspaceCollectionRouteLayout } from "@/components/workspaces/workspace-collection-route-layout"
 import { useFormsAccess } from "@/hooks/use-forms-access"
-import { ChatPageContextProvider } from "@/providers/chat-page-context"
+import { PageContext } from "@/providers/chat-page-context"
 
 /**
- * Shell and gate for the builder's Forms pages, list and detail alike.
- *
- * Both pages get the workspace sidebar, the header, the chat toggle and the
- * docked chat from `WorkspaceCollectionRouteLayout`. With the feature flag
- * off the routes do not exist. With the flag on and no entitlement, the
- * shell renders and the page is replaced by a locked state.
+ * Shell and gate for the builder's Forms pages: the workspace collection
+ * layout (sidebar, header, docked chat). Flag off: no route. No
+ * entitlement: the shell with a locked state.
  */
 export function FormsRouteLayout({ children }: { children: ReactNode }) {
   const access = useFormsAccess()
@@ -28,7 +25,9 @@ export function FormsRouteLayout({ children }: { children: ReactNode }) {
   // On the detail page the docked chat is told which form is open. The list
   // page has no `formId`, so its chat sends no page context.
   return (
-    <ChatPageContextProvider kind="form" id={params?.formId}>
+    <PageContext.Provider
+      value={params?.formId ? { kind: "form", id: params.formId } : null}
+    >
       <WorkspaceCollectionRouteLayout>
         {access === "locked" ? (
           <div className="flex h-full items-center justify-center p-8">
@@ -41,6 +40,6 @@ export function FormsRouteLayout({ children }: { children: ReactNode }) {
           children
         )}
       </WorkspaceCollectionRouteLayout>
-    </ChatPageContextProvider>
+    </PageContext.Provider>
   )
 }

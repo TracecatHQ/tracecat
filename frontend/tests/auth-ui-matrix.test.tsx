@@ -80,7 +80,7 @@ jest.mock("@/hooks/use-landing-workspace", () => ({
   }: {
     workspaces?: { id: string }[]
     lastViewedWorkspaceId?: string
-  }) => ({ workspaceId: lastViewedWorkspaceId ?? workspaces?.[0]?.id }),
+  }) => lastViewedWorkspaceId ?? workspaces?.[0]?.id,
 }))
 
 jest.mock("@/lib/hooks", () => ({

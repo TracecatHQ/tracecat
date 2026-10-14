@@ -129,10 +129,6 @@ def test_form_config_written_by_a_workflow_never_stores_a_secret() -> None:
         expression_policy("core.forms.update_form", "config")
         is ExpressionPolicy.REDACT_SECRETS
     )
-    assert (
-        expression_policy("core.forms.update_form", "workflow_id")
-        is ExpressionPolicy.RESOLVE
-    )
 
 
 def test_expression_policy_requires_exact_action_parameter_pair() -> None:

@@ -1583,20 +1583,12 @@ class Form(WorkspaceModel):
     """
 
     __tablename__ = "form"
-    __table_args__ = (Index("ix_form_workspace_status", "workspace_id", "status"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        default=uuid.uuid4,
-        nullable=False,
-        unique=True,
-        index=True,
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
     )
     workflow_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("workflow.id", ondelete="CASCADE"),
-        nullable=False,
-        unique=True,
+        UUID, ForeignKey("workflow.id", ondelete="CASCADE"), nullable=False, unique=True
     )
     status: Mapped[str] = mapped_column(
         String(16), default=FormStatus.OFFLINE.value, nullable=False
@@ -1632,26 +1624,16 @@ class FormSubmission(WorkspaceModel):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        default=uuid.uuid4,
-        nullable=False,
-        unique=True,
-        index=True,
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
     )
     form_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("form.id", ondelete="CASCADE"),
-        nullable=False,
+        UUID, ForeignKey("form.id", ondelete="CASCADE"), nullable=False
     )
     submitted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID,
-        ForeignKey("user.id", ondelete="SET NULL"),
-        nullable=True,
+        UUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
     )
     submitted_by_service_account_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID,
-        ForeignKey("service_account.id", ondelete="SET NULL"),
-        nullable=True,
+        UUID, ForeignKey("service_account.id", ondelete="SET NULL"), nullable=True
     )
     answers: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
@@ -1667,58 +1649,28 @@ class FormSubmission(WorkspaceModel):
     wf_exec_id: Mapped[str] = mapped_column(String, nullable=False)
 
 
-class FormEvent(WorkspaceModel):
-    """Activity record for a form (views and submissions)."""
+class FormView(WorkspaceModel):
+    """A user's view of a form. Repeat views within a few minutes count once."""
 
-    __tablename__ = "form_event"
+    __tablename__ = "form_view"
     __table_args__ = (
         Index(
-            "ix_form_event_form_created",
+            "ix_form_view_form_user_created",
             "workspace_id",
             "form_id",
-            "created_at",
-            "surrogate_id",
-        ),
-        # View dedupe lookup.
-        Index(
-            "ix_form_event_view_dedupe",
-            "workspace_id",
-            "form_id",
-            "type",
             "user_id",
             "created_at",
         ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        default=uuid.uuid4,
-        nullable=False,
-        unique=True,
-        index=True,
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
     )
     form_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("form.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    type: Mapped[str] = mapped_column(
-        String(32), nullable=False, doc="A FormEventType value"
+        UUID, ForeignKey("form.id", ondelete="CASCADE"), nullable=False
     )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID,
-        ForeignKey("user.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    service_account_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID,
-        ForeignKey("service_account.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    submission_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID,
-        ForeignKey("form_submission.id", ondelete="SET NULL"),
-        nullable=True,
+        UUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
     )
 
 
@@ -1745,34 +1697,22 @@ class FormFile(WorkspaceModel):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        default=uuid.uuid4,
-        nullable=False,
-        unique=True,
-        index=True,
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
     )
     form_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("form.id", ondelete="CASCADE"),
-        nullable=False,
+        UUID, ForeignKey("form.id", ondelete="CASCADE"), nullable=False
     )
     submission_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID,
-        ForeignKey("form_submission.id", ondelete="CASCADE"),
-        nullable=True,
+        UUID, ForeignKey("form_submission.id", ondelete="CASCADE"), nullable=True
     )
     field: Mapped[str] = mapped_column(
         String, nullable=False, doc="Name of the form field the file was uploaded to"
     )
     uploaded_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID,
-        ForeignKey("user.id", ondelete="SET NULL"),
-        nullable=True,
+        UUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
     )
     uploaded_by_service_account_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID,
-        ForeignKey("service_account.id", ondelete="SET NULL"),
-        nullable=True,
+        UUID, ForeignKey("service_account.id", ondelete="SET NULL"), nullable=True
     )
     name: Mapped[str] = mapped_column(
         String(config.TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH),

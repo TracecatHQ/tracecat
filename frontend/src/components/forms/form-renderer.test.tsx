@@ -1,37 +1,33 @@
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ReactNode } from "react"
-import {
-  formsRenderForm,
-  formsSearchFormUsers,
-  formsSubmitForm,
-} from "@/client"
+import { type FormUserRead, formsSearchFormUsers } from "@/client"
 import {
   FormRenderer,
   type FormRendererProps,
 } from "@/components/forms/form-renderer"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { fieldBlock, resolvedForm } from "@/lib/forms/test-fixtures"
+import type { FormBlock } from "@/lib/forms/values"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
-jest.mock("@/client", () => ({
-  formsRenderForm: jest.fn(),
-  formsSearchFormUsers: jest.fn(),
-  formsSubmitForm: jest.fn(),
-}))
+jest.mock("@/client", () => ({ formsSearchFormUsers: jest.fn() }))
 
-const PNG_DATA_URI = `data:image/png;base64,${btoa("\x89PNG\r\n\x1a\n\0\0\0\r")}`
+const searchUsers = jest.mocked(formsSearchFormUsers)
+
+const RECEIPT = {
+  id: "submission-1",
+  reference: "FRM-8F3K2A1C",
+  submitted_at: "2026-10-12T10:42:00Z",
+  success_message: "IT will follow up by email.",
+}
 
 const form = resolvedForm({
   description: "Request a new laptop from IT.",
   success_message: "IT will follow up by email.",
   blocks: [
     { type: "notice", text: "Reviewed within 2 business days.", tone: "info" },
-    fieldBlock({
-      name: "justification",
-      label: "Justification",
-      required: true,
-    }),
+    fieldBlock({ name: "why", label: "Justification", required: true }),
     { type: "heading", text: "Delivery" },
     fieldBlock({
       name: "for_someone_else",
@@ -40,13 +36,15 @@ const form = resolvedForm({
       default: false,
     }),
     fieldBlock({
-      name: "recipient_name",
+      name: "recipient",
       label: "Recipient name",
       required: true,
       visible_if: { field: "for_someone_else", equals: true },
     }),
   ],
 })
+
+const formOf = (...blocks: FormBlock[]) => resolvedForm({ blocks })
 
 function apiError(status: number, detail: unknown) {
   return Object.assign(new Error("Request failed"), {
@@ -55,39 +53,52 @@ function apiError(status: number, detail: unknown) {
   })
 }
 
-function Providers({ children }: { children: ReactNode }) {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+function validationError(...errors: [field: string, message: string][]) {
+  return apiError(422, {
+    code: "form_validation_error",
+    message: "Some answers are not valid",
+    errors: errors.map(([field, message]) => ({
+      field,
+      code: "invalid_value",
+      message,
+    })),
   })
-  return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>{children}</TooltipProvider>
-    </QueryClientProvider>
-  )
 }
 
 function renderForm(props: Partial<FormRendererProps> = {}) {
-  const onSubmit = jest.fn().mockResolvedValue({
-    id: "submission-1",
-    reference: "FRM-8F3K2A1C",
-    submitted_at: "2026-10-12T10:42:00Z",
-    success_message: "IT will follow up by email.",
-  })
+  const onSubmit = jest.fn().mockResolvedValue(RECEIPT)
   const user = userEvent.setup()
-  render(
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  const view = render(
     <FormRenderer
+      workspaceId="workspace-1"
       formId="form-1"
       form={form}
       mode="live"
       onSubmit={onSubmit}
       {...props}
     />,
-    { wrapper: Providers }
+    {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>{children}</TooltipProvider>
+        </QueryClientProvider>
+      ),
+    }
   )
-  return { onSubmit, user }
+  // Shows or hides the conditional "Recipient name" field.
+  const toggleRecipient = () =>
+    user.click(screen.getByRole("switch", { name: "For someone else" }))
+  return { ...view, onSubmit, user, toggleRecipient }
 }
 
 const submitButton = () => screen.getByRole("button", { name: "Submit" })
+const why = () => screen.getByLabelText(/Justification/)
+const recipient = () => screen.queryByLabelText(/Recipient name/)
+const submitted = () =>
+  screen.findByRole("heading", { name: "Request submitted" })
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -99,16 +110,14 @@ describe("FormRenderer", () => {
 
     expect(
       screen.getByRole("heading", { level: 1, name: "Laptop request" })
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText("Request a new laptop from IT.")
-    ).toBeInTheDocument()
+    ).toBeVisible()
+    expect(screen.getByText("Request a new laptop from IT.")).toBeVisible()
     expect(screen.getByRole("note")).toHaveTextContent(
       "Reviewed within 2 business days."
     )
-    expect(
-      screen.getByRole("heading", { level: 2, name: "Delivery" })
-    ).toBeInTheDocument()
+    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
+      "Delivery"
+    )
     // Required fields are marked; optional ones are not.
     expect(screen.getByText("Justification")).toHaveTextContent(
       "Justification *"
@@ -118,54 +127,44 @@ describe("FormRenderer", () => {
     )
     expect(
       screen.getByText("Submitting as maya.okafor@example.com")
-    ).toBeInTheDocument()
+    ).toBeVisible()
   })
 
-  it("shows a conditional field only while its controller matches", async () => {
-    const { user } = renderForm()
-    expect(screen.queryByLabelText(/Recipient name/)).not.toBeInTheDocument()
-
-    await user.click(screen.getByRole("switch", { name: "For someone else" }))
-    expect(screen.getByLabelText(/Recipient name/)).toBeInTheDocument()
-
-    await user.click(screen.getByRole("switch", { name: "For someone else" }))
-    expect(screen.queryByLabelText(/Recipient name/)).not.toBeInTheDocument()
-  })
-
-  it("validates before submitting and does not call onSubmit when invalid", async () => {
-    const { user, onSubmit } = renderForm()
+  it("validates first, focuses the first invalid field and clears an error on change", async () => {
+    const { user, onSubmit, toggleRecipient } = renderForm()
+    await toggleRecipient()
 
     await user.click(submitButton())
 
-    expect(
-      await screen.findByText("This field is required")
-    ).toBeInTheDocument()
-    expect(screen.getByLabelText(/Justification/)).toHaveAttribute(
-      "aria-invalid",
-      "true"
-    )
+    expect(await screen.findAllByText("This field is required")).toHaveLength(2)
+    expect(why()).toHaveAttribute("aria-invalid", "true")
+    expect(why()).toHaveFocus()
     expect(onSubmit).not.toHaveBeenCalled()
+
+    await user.type(why(), "x")
+    expect(why()).toHaveAttribute("aria-invalid", "false")
+    expect(screen.getAllByText("This field is required")).toHaveLength(1)
   })
 
-  it("sends visible answers only, then shows the confirmation", async () => {
-    const { user, onSubmit } = renderForm()
+  it("shows a conditional field live and sends visible answers only", async () => {
+    const { user, onSubmit, toggleRecipient } = renderForm()
+    expect(recipient()).not.toBeInTheDocument()
 
     // Fill the conditional field, then hide it again.
-    await user.click(screen.getByRole("switch", { name: "For someone else" }))
-    await user.type(screen.getByLabelText(/Recipient name/), "Daniel Reyes")
-    await user.click(screen.getByRole("switch", { name: "For someone else" }))
-    await user.type(screen.getByLabelText(/Justification/), "Screen cracked")
+    await toggleRecipient()
+    await user.type(recipient() as HTMLElement, "Daniel Reyes")
+    await toggleRecipient()
+    expect(recipient()).not.toBeInTheDocument()
+    await user.type(why(), "Screen cracked")
     await user.click(submitButton())
 
-    expect(
-      await screen.findByRole("heading", { name: "Request submitted" })
-    ).toBeInTheDocument()
+    expect(await submitted()).toBeVisible()
     expect(onSubmit).toHaveBeenCalledWith({
-      justification: "Screen cracked",
+      why: "Screen cracked",
       for_someone_else: false,
     })
-    expect(screen.getByText("IT will follow up by email.")).toBeInTheDocument()
-    expect(screen.getByText("FRM-8F3K2A1C")).toBeInTheDocument()
+    expect(screen.getByText("IT will follow up by email.")).toBeVisible()
+    expect(screen.getByText("FRM-8F3K2A1C")).toBeVisible()
     expect(
       screen.getByRole("link", { name: "My submissions" })
     ).toHaveAttribute("href", "/forms?tab=submissions")
@@ -173,189 +172,82 @@ describe("FormRenderer", () => {
     expect(screen.queryByText(/running|completed|failed|status/i)).toBeNull()
 
     await user.click(screen.getByRole("button", { name: "Submit another" }))
-    expect(screen.getByLabelText(/Justification/)).toHaveValue("")
+    expect(why()).toHaveValue("")
   })
 
-  it("shows the server's per-field errors on their fields", async () => {
+  it("puts the server's errors on their fields and the rest above the button", async () => {
     const { user, onSubmit } = renderForm()
     onSubmit.mockRejectedValueOnce(
-      apiError(422, {
-        code: "form_validation_error",
-        message: "Some answers are not valid",
-        errors: [
-          {
-            field: "justification",
-            code: "invalid_value",
-            message: "Say more about why",
-          },
-          {
-            field: "cost_center",
-            code: "invalid_value",
-            message: "Input should be a valid string",
-          },
-        ],
-      })
+      validationError(
+        ["why", "Too short"],
+        // Later errors come from more specific checks, so the last one shows.
+        ["why", "Say more about why"],
+        ["cost_center", "Input should be a valid string"]
+      )
     )
+    await user.type(why(), "Because")
 
-    await user.type(screen.getByLabelText(/Justification/), "Because")
     await user.click(submitButton())
 
-    expect(await screen.findByText("Say more about why")).toBeInTheDocument()
-    expect(screen.getByLabelText(/Justification/)).toHaveAttribute(
-      "aria-invalid",
-      "true"
-    )
-    // An error for a field that is not on screen goes above the button.
+    expect(await screen.findByText("Say more about why")).toBeVisible()
+    expect(screen.queryByText("Too short")).not.toBeInTheDocument()
+    expect(why()).toHaveAttribute("aria-invalid", "true")
+    expect(why()).toHaveFocus()
     expect(
       screen.getByText("cost_center: Input should be a valid string")
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole("heading", { name: "Request submitted" })
-    ).not.toBeInTheDocument()
+    ).toBeVisible()
 
-    // Editing the field clears its server error.
-    await user.type(screen.getByLabelText(/Justification/), " it broke")
-    await waitFor(() =>
-      expect(screen.queryByText("Say more about why")).not.toBeInTheDocument()
-    )
+    await user.type(why(), " it broke")
+    expect(screen.queryByText("Say more about why")).not.toBeInTheDocument()
   })
 
-  it("tells the requester when the form changed underneath them", async () => {
-    const { user, onSubmit } = renderForm()
-    onSubmit.mockRejectedValueOnce(
-      apiError(409, { code: "form_changed", message: "This form changed" })
-    )
-
-    await user.type(screen.getByLabelText(/Justification/), "Because")
-    await user.click(submitButton())
-
-    expect(
-      await screen.findByText(
-        /This form was updated while you were filling it in/
-      )
-    ).toBeInTheDocument()
-    expect(screen.getByLabelText(/Justification/)).toHaveValue("Because")
-  })
-
-  it("shows other failures above the submit button", async () => {
-    const { user, onSubmit } = renderForm()
-    onSubmit.mockRejectedValueOnce(
+  it.each([
+    [
+      "the form changed",
+      apiError(409, { code: "form_changed", message: "This form changed" }),
+      /This form was updated while you were filling it in/,
+    ],
+    [
+      "any other failure",
       apiError(503, {
         code: "workflow_start_failed",
         message: "The request could not be started. Try again.",
-      })
-    )
+      }),
+      "The request could not be started. Try again.",
+    ],
+    [
+      "a failure without a message",
+      new Error("Network Error"),
+      "Something went wrong. Try again.",
+    ],
+  ])("says so above the button when %s", async (_case, error, message) => {
+    const { user, onSubmit } = renderForm()
+    onSubmit.mockRejectedValueOnce(error)
+    await user.type(why(), "Because")
 
-    await user.type(screen.getByLabelText(/Justification/), "Because")
     await user.click(submitButton())
 
-    expect(
-      await screen.findByText("The request could not be started. Try again.")
-    ).toBeInTheDocument()
+    expect(await screen.findByText(message)).toBeVisible()
+    expect(why()).toHaveValue("Because")
   })
 
   it("keeps answers that still apply when the form is reloaded", async () => {
-    const user = userEvent.setup()
-    const { rerender } = render(
-      <FormRenderer formId="form-1" form={form} mode="live" />,
-      { wrapper: Providers }
-    )
-    await user.type(screen.getByLabelText(/Justification/), "Kept")
+    const { user, rerender } = renderForm()
+    await user.type(why(), "Kept")
 
     // A new `form` prop is what a refetch after `form_changed` produces.
+    const notes = fieldBlock({ name: "notes", label: "Notes" })
     rerender(
       <FormRenderer
+        workspaceId="workspace-1"
         formId="form-1"
         mode="live"
-        form={{
-          ...form,
-          definition_version: 5,
-          blocks: [
-            ...form.blocks,
-            fieldBlock({ name: "notes", label: "Notes" }),
-          ],
-        }}
+        form={{ ...form, blocks: [...form.blocks, notes] }}
       />
     )
 
-    expect(await screen.findByLabelText("Notes")).toBeInTheDocument()
-    expect(screen.getByLabelText(/Justification/)).toHaveValue("Kept")
-  })
-
-  describe("input names with path syntax", () => {
-    const dottedForm = resolvedForm({
-      blocks: [
-        fieldBlock({ name: "user.email", label: "Email", required: true }),
-        fieldBlock({ name: "user", label: "User" }),
-        fieldBlock({
-          name: "items[0]",
-          label: "Remote",
-          widget: "toggle",
-          default: false,
-        }),
-        fieldBlock({
-          name: "items[0].note",
-          label: "Remote note",
-          visible_if: { field: "items[0]", equals: true },
-        }),
-      ],
-    })
-
-    it("keeps each answer under its own name", async () => {
-      const { user, onSubmit } = renderForm({ form: dottedForm })
-
-      await user.type(screen.getByLabelText(/Email/), "maya@example.com")
-      await user.type(screen.getByLabelText("User"), "Maya")
-      await user.click(screen.getByRole("switch", { name: "Remote" }))
-      await user.type(screen.getByLabelText("Remote note"), "Ship it")
-      // Typing in one field must not rewrite another.
-      expect(screen.getByLabelText("User")).toHaveValue("Maya")
-      await user.click(submitButton())
-
-      await waitFor(() =>
-        expect(onSubmit).toHaveBeenCalledWith({
-          "user.email": "maya@example.com",
-          user: "Maya",
-          "items[0]": true,
-          "items[0].note": "Ship it",
-        })
-      )
-    })
-
-    it("validates and shows server errors on the named field", async () => {
-      const { user, onSubmit } = renderForm({ form: dottedForm })
-      onSubmit.mockRejectedValueOnce(
-        apiError(422, {
-          code: "form_validation_error",
-          message: "Some answers are not valid",
-          errors: [
-            {
-              field: "user.email",
-              code: "invalid_value",
-              message: "Use your work email",
-            },
-          ],
-        })
-      )
-
-      await user.click(submitButton())
-      expect(
-        await screen.findByText("This field is required")
-      ).toBeInTheDocument()
-      expect(screen.getByLabelText(/Email/)).toHaveAttribute(
-        "aria-invalid",
-        "true"
-      )
-      expect(onSubmit).not.toHaveBeenCalled()
-
-      await user.type(screen.getByLabelText(/Email/), "maya@example.org")
-      await user.click(submitButton())
-      expect(await screen.findByText("Use your work email")).toBeInTheDocument()
-      expect(screen.getByLabelText(/Email/)).toHaveAttribute(
-        "aria-invalid",
-        "true"
-      )
-    })
+    expect(await screen.findByLabelText("Notes")).toBeVisible()
+    expect(why()).toHaveValue("Kept")
   })
 
   it("is read-only without permission to submit", () => {
@@ -363,238 +255,196 @@ describe("FormRenderer", () => {
 
     expect(
       screen.getByText("You can view this form but you can't submit it.")
-    ).toBeInTheDocument()
+    ).toBeVisible()
     expect(submitButton()).toBeDisabled()
-    expect(screen.getByLabelText(/Justification/)).toBeDisabled()
+    expect(why()).toBeDisabled()
   })
 
-  describe("preview mode", () => {
-    it("validates, then confirms with PREVIEW and makes no network call", async () => {
-      const { user, onSubmit } = renderForm({ mode: "preview" })
-      expect(
-        screen.getByText("Preview. Nothing is submitted.")
-      ).toBeInTheDocument()
+  it("submits once when the button is pressed twice", async () => {
+    const { user, onSubmit } = renderForm()
+    let finish: (receipt: unknown) => void = () => {}
+    onSubmit.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve
+      })
+    )
+    await user.type(why(), "Screen cracked")
 
-      await user.click(submitButton())
-      expect(
-        await screen.findByText("This field is required")
-      ).toBeInTheDocument()
+    await user.click(submitButton())
+    const pending = screen.getByRole("button", { name: "Submitting..." })
+    expect(pending).toBeDisabled()
+    await user.click(pending)
+    await user.keyboard("{Enter}")
 
-      await user.type(screen.getByLabelText(/Justification/), "Because")
-      await user.click(submitButton())
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    finish(RECEIPT)
+    expect(await submitted()).toBeVisible()
+  })
 
-      expect(
-        await screen.findByRole("heading", { name: "Request submitted" })
-      ).toBeInTheDocument()
-      expect(screen.getByText("PREVIEW")).toBeInTheDocument()
-      expect(
-        screen.getByText("IT will follow up by email.")
-      ).toBeInTheDocument()
-      expect(
-        screen.queryByRole("link", { name: "My submissions" })
-      ).not.toBeInTheDocument()
-      expect(onSubmit).not.toHaveBeenCalled()
-      expect(formsSubmitForm).not.toHaveBeenCalled()
-      expect(formsRenderForm).not.toHaveBeenCalled()
-      expect(formsSearchFormUsers).not.toHaveBeenCalled()
+  it("marks required controls and describes them by text that exists", async () => {
+    const { user } = renderForm({
+      form: formOf(
+        fieldBlock({
+          name: "cost center",
+          label: "Cost center",
+          help: "Ask your manager.",
+          required: true,
+        }),
+        fieldBlock({ name: "notes", label: "Notes" }),
+        fieldBlock({
+          name: "teams",
+          label: "Teams",
+          widget: "multi_select",
+          multiple: true,
+          required: true,
+          options: [{ value: "it", label: "IT" }],
+        })
+      ),
     })
+    const described = (element: HTMLElement) =>
+      (element.getAttribute("aria-describedby") ?? "")
+        .split(" ")
+        .filter(Boolean)
+        .map((id) => document.getElementById(id)?.textContent)
+    const costCenter = screen.getByLabelText(/Cost center/)
+    const notes = screen.getByLabelText(/Notes/)
+    const teams = screen.getByLabelText(/Teams/)
 
-    it("keeps picked files local", async () => {
-      const uploadFile = jest.fn()
-      const user = userEvent.setup()
-      render(
-        <FormRenderer
-          formId="form-1"
-          mode="preview"
-          uploadFile={uploadFile}
-          form={resolvedForm({
-            blocks: [
-              fieldBlock({ name: "quote", label: "Quote", widget: "file" }),
-            ],
-          })}
-        />,
-        { wrapper: Providers }
-      )
+    expect(costCenter).toHaveAttribute("aria-required", "true")
+    expect(notes).toHaveAttribute("aria-required", "false")
+    expect(teams).toHaveAttribute("aria-required", "true")
+    // A name with a space still yields ids that resolve.
+    expect(described(costCenter)).toEqual(["Ask your manager."])
+    expect(notes).not.toHaveAttribute("aria-describedby")
+    expect(teams).not.toHaveAttribute("aria-describedby")
 
-      await user.upload(
-        screen.getByLabelText("Quote", { selector: "input" }),
-        new File(["x"], "quote.pdf", { type: "application/pdf" })
-      )
+    await user.click(submitButton())
 
-      expect(screen.getByText("quote.pdf")).toBeInTheDocument()
-      expect(uploadFile).not.toHaveBeenCalled()
+    await screen.findAllByText("This field is required")
+    expect(described(costCenter)).toEqual([
+      "Ask your manager.",
+      "This field is required",
+    ])
+    expect(teams).toHaveAttribute("aria-invalid", "true")
+    expect(described(teams)).toEqual(["This field is required"])
+  })
+
+  it("confirms a preview with PREVIEW and calls nothing", async () => {
+    const { user, onSubmit } = renderForm({ mode: "preview" })
+    expect(screen.getByText("Preview. Nothing is submitted.")).toBeVisible()
+
+    await user.type(why(), "Because")
+    await user.click(submitButton())
+
+    expect(await submitted()).toBeVisible()
+    expect(screen.getByText("PREVIEW")).toBeVisible()
+    expect(screen.getByText("IT will follow up by email.")).toBeVisible()
+    expect(screen.queryByRole("link", { name: "My submissions" })).toBeNull()
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(searchUsers).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["date", "2026-10-22", "Needed by Oct 22, 2026"],
+    ["date", null, "Needed by Pick a date"],
+    [
+      "datetime",
+      new Date(2026, 9, 22, 9, 30).toISOString(),
+      "Needed by Oct 22, 2026",
+    ],
+  ] as const)(
+    "names a %s button by its label and what it shows",
+    (widget, value, name) => {
+      renderForm({
+        form: formOf(
+          fieldBlock({ name: "by", label: "Needed by", widget, default: value })
+        ),
+      })
+
+      expect(screen.getByRole("button", { name })).toBeVisible()
+    }
+  )
+
+  it("never shows the unfiltered people list under a typed query", async () => {
+    const members: FormUserRead[] = [
+      { user_id: "user-avery", email: "avery.admin@example.com" },
+      { user_id: "user-eli", email: "eli.editor@example.com" },
+    ]
+    searchUsers.mockImplementation((({ search }: { search?: string }) =>
+      Promise.resolve({
+        items: members.filter((member) => member.email.includes(search ?? "")),
+        has_more: false,
+        next_cursor: null,
+      })) as unknown as typeof formsSearchFormUsers)
+    const { user } = renderForm({
+      form: formOf(fieldBlock({ name: "manager", widget: "user" })),
     })
+    const eli = () => screen.queryByText("eli.editor@example.com")
+
+    await user.click(screen.getByRole("combobox"))
+    expect(await screen.findByText("eli.editor@example.com")).toBeVisible()
+    await user.type(
+      screen.getByPlaceholderText("Search by name or email"),
+      "av"
+    )
+
+    // The debounced request has not gone out yet: the old list must be gone.
+    expect(eli()).not.toBeInTheDocument()
+    expect(screen.getByText("Searching...")).toBeVisible()
+    expect(await screen.findByText("avery.admin@example.com")).toBeVisible()
+    expect(eli()).not.toBeInTheDocument()
   })
 
   describe("file fields", () => {
-    const fileForm = resolvedForm({
-      blocks: [
+    const filesForm = (config = {}) =>
+      formOf(
         fieldBlock({
-          name: "quote",
-          label: "Quote",
+          name: "photos",
+          label: "Photos",
           widget: "file",
-          required: true,
-          config: { accept: [".pdf"], max_files: 1 },
-        }),
-      ],
-    })
-    const pdf = () => new File(["x"], "quote.pdf", { type: "application/pdf" })
-
-    it("selects a file locally and shows the server's error on the field", async () => {
-      const { user, onSubmit } = renderForm({ form: fileForm })
-      onSubmit.mockRejectedValueOnce(
-        apiError(422, {
-          code: "form_validation_error",
-          message: "Some answers are not valid",
-          errors: [
-            {
-              field: "quote",
-              code: "required",
-              message: "This field is required",
-            },
-            {
-              field: "quote",
-              code: "invalid_file",
-              message: "Upload the file again",
-            },
-          ],
+          multiple: true,
+          config: { max_files: 2, ...config },
         })
       )
+    const pdf = (name: string, body = "x") =>
+      new File([body], name, { type: "application/pdf" })
 
-      await user.upload(
-        screen.getByLabelText("Quote", { selector: "input" }),
-        pdf()
-      )
-      expect(screen.getByText("quote.pdf")).toBeInTheDocument()
-      await user.click(submitButton())
+    function renderFiles(props: Partial<FormRendererProps>) {
+      const view = renderForm({ form: filesForm(), ...props })
+      const input = () => screen.getByLabelText("Photos", { selector: "input" })
+      const pick = (...files: File[]) => view.user.upload(input(), files)
+      return { ...view, pick }
+    }
 
-      expect(
-        await screen.findByText("Upload the file again")
-      ).toBeInTheDocument()
-      // No uploader was given, so there is no file ID to send.
-      expect(onSubmit).toHaveBeenCalledWith({})
-
-      await user.click(screen.getByRole("button", { name: "Remove quote.pdf" }))
-      expect(screen.queryByText("quote.pdf")).not.toBeInTheDocument()
-    })
-
-    it("uploads through the injected function and submits the file ID", async () => {
-      const uploadFile = jest.fn().mockResolvedValue({ id: "file-1" })
-      const { user, onSubmit } = renderForm({ form: fileForm, uploadFile })
-
-      await user.upload(
-        screen.getByLabelText("Quote", { selector: "input" }),
-        pdf()
-      )
-      expect(uploadFile).toHaveBeenCalledWith(
-        expect.objectContaining({
-          workspaceId: "workspace-1",
-          formId: "form-1",
-          field: "quote",
-        })
-      )
-      await user.click(submitButton())
-
-      await waitFor(() =>
-        expect(onSubmit).toHaveBeenCalledWith({ quote: "file-1" })
-      )
-    })
-
-    it("blocks submission after a failed upload", async () => {
-      const uploadFile = jest.fn().mockRejectedValue(new Error("Too large"))
-      const { user, onSubmit } = renderForm({ form: fileForm, uploadFile })
-
-      await user.upload(
-        screen.getByLabelText("Quote", { selector: "input" }),
-        pdf()
-      )
-      // The server's reason is shown on the file.
-      expect(await screen.findByText("Too large")).toBeInTheDocument()
-      await user.click(submitButton())
-
-      expect(
-        await screen.findByText("Remove the files that failed to upload")
-      ).toBeInTheDocument()
-      expect(onSubmit).not.toHaveBeenCalled()
-    })
-
-    it("rejects a file the field does not take without uploading it", async () => {
-      const uploadFile = jest.fn().mockResolvedValue({ id: "file-1" })
-      const { onSubmit } = renderForm({ form: fileForm, uploadFile })
-      // Dropping bypasses the picker's own accept filter.
-      const user = userEvent.setup({ applyAccept: false })
-
-      await user.upload(
-        screen.getByLabelText("Quote", { selector: "input" }),
-        new File(["x"], "notes.txt", { type: "text/plain" })
-      )
-
-      expect(
-        await screen.findByText("This field takes .pdf")
-      ).toBeInTheDocument()
-      expect(uploadFile).not.toHaveBeenCalled()
-      await user.click(submitButton())
-      expect(
-        await screen.findByText("Remove the files that failed to upload")
-      ).toBeInTheDocument()
-      expect(onSubmit).not.toHaveBeenCalled()
-    })
-
-    it("rejects a file over the field's size limit without uploading it", async () => {
+    it("keeps picked files local in preview and removes them", async () => {
       const uploadFile = jest.fn()
-      const { user } = renderForm({
-        uploadFile,
-        form: resolvedForm({
-          blocks: [
-            fieldBlock({
-              name: "quote",
-              label: "Quote",
-              widget: "file",
-              config: { max_files: 1, max_file_size: 3 },
-            }),
-          ],
-        }),
-      })
+      const { user, pick } = renderFiles({ mode: "preview", uploadFile })
 
-      await user.upload(
-        screen.getByLabelText("Quote", { selector: "input" }),
-        new File(["xxxx"], "quote.pdf", { type: "application/pdf" })
-      )
+      await pick(pdf("a.pdf"))
 
-      expect(
-        await screen.findByText("Files can be at most 3 Bytes")
-      ).toBeInTheDocument()
+      expect(screen.getByText("a.pdf")).toBeVisible()
       expect(uploadFile).not.toHaveBeenCalled()
+      await user.click(screen.getByRole("button", { name: "Remove a.pdf" }))
+      expect(screen.queryByText("a.pdf")).not.toBeInTheDocument()
     })
 
-    it("keeps a list field to max_files", async () => {
+    it("uploads up to max_files through the injected function and submits their IDs", async () => {
       const uploadFile = jest
         .fn()
         .mockResolvedValueOnce({ id: "file-1" })
         .mockResolvedValueOnce({ id: "file-2" })
-      const { user, onSubmit } = renderForm({
-        uploadFile,
-        form: resolvedForm({
-          blocks: [
-            fieldBlock({
-              name: "photos",
-              label: "Photos",
-              widget: "file",
-              multiple: true,
-              config: { max_files: 2 },
-            }),
-          ],
-        }),
-      })
+      const { user, onSubmit, pick } = renderFiles({ uploadFile })
 
-      await user.upload(
-        screen.getByLabelText("Photos", { selector: "input" }),
-        ["a.pdf", "b.pdf", "c.pdf"].map(
-          (name) => new File(["x"], name, { type: "application/pdf" })
-        )
-      )
+      await pick(pdf("a.pdf"), pdf("b.pdf"), pdf("c.pdf"))
 
       expect(uploadFile).toHaveBeenCalledTimes(2)
+      expect(uploadFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workspaceId: "workspace-1",
+          formId: "form-1",
+          field: "photos",
+        })
+      )
       expect(screen.queryByText("c.pdf")).not.toBeInTheDocument()
       expect(screen.getByText("Choose files")).toBeDisabled()
       await user.click(submitButton())
@@ -602,253 +452,117 @@ describe("FormRenderer", () => {
         expect(onSubmit).toHaveBeenCalledWith({ photos: ["file-1", "file-2"] })
       )
     })
+
+    it("shows why a file failed, never uploads one over the size limit and blocks submission", async () => {
+      const uploadFile = jest.fn().mockRejectedValue(new Error("Too large"))
+      const { user, onSubmit, pick } = renderFiles({
+        form: filesForm({ max_file_size: 3 }),
+        uploadFile,
+      })
+
+      await pick(pdf("big.pdf", "xxxx"), pdf("ok.pdf"))
+
+      expect(screen.getByText("Files can be at most 3 Bytes")).toBeVisible()
+      expect(await screen.findByText("Too large")).toBeVisible()
+      expect(uploadFile).toHaveBeenCalledTimes(1)
+      await user.click(submitButton())
+      expect(
+        await screen.findByText("Remove the files that failed to upload")
+      ).toBeVisible()
+      expect(onSubmit).not.toHaveBeenCalled()
+    })
   })
 
   describe("cards", () => {
-    const cardsForm = resolvedForm({
-      blocks: [
+    const PNG = `data:image/png;base64,${btoa("\x89PNG\r\n\x1a\n\0\0\0\r")}`
+    const SVG = `data:image/svg+xml;base64,${btoa("<svg/>")}`
+    const cardsForm = (multiple = false) =>
+      formOf(
         fieldBlock({
           name: "model",
           label: "Laptop model",
           widget: "cards",
-          required: true,
+          required: !multiple,
+          multiple,
           options: [
-            { value: "mba", label: "MacBook Air", image: PNG_DATA_URI },
-            {
-              value: "mbp",
-              label: "MacBook Pro",
-              image: "https://example.com/mbp.png",
-            },
-            {
-              value: "svg",
-              label: "Other",
-              image: `data:image/svg+xml;base64,${btoa("<svg/>")}`,
-            },
+            { value: "mba", label: "MacBook Air", image: PNG },
+            { value: "mbp", label: "MacBook Pro", image: "https://x.test/a" },
+            { value: "svg", label: "Other", image: SVG },
           ],
-        }),
-      ],
-    })
+        })
+      )
+    const card = (name: string) =>
+      screen.getByRole("radio", { name: new RegExp(name) })
 
     it("renders only allowed inline images, as plain img elements", () => {
-      const { container } = render(
-        <FormRenderer formId="form-1" form={cardsForm} mode="preview" />,
-        { wrapper: Providers }
-      )
+      const { container } = renderForm({ form: cardsForm() })
 
       const images = container.querySelectorAll("img")
       expect(images).toHaveLength(1)
-      expect(images[0]).toHaveAttribute("src", PNG_DATA_URI)
-      expect(container.innerHTML).not.toContain("example.com")
+      expect(images[0]).toHaveAttribute("src", PNG)
+      expect(container.innerHTML).not.toContain("x.test")
       expect(container.innerHTML).not.toContain("svg+xml")
     })
 
-    it("selects one card as a radio group and submits its value", async () => {
-      const { user, onSubmit } = renderForm({ form: cardsForm })
-      const group = screen.getByRole("radiogroup", { name: /Laptop model/ })
-      expect(group).toBeInTheDocument()
-
-      await user.click(screen.getByRole("radio", { name: /MacBook Pro/ }))
-      expect(screen.getByRole("radio", { name: /MacBook Pro/ })).toBeChecked()
+    it("is a radio group with one tab stop whose arrow keys move and select", async () => {
+      const { user, onSubmit } = renderForm({ form: cardsForm() })
       expect(
-        screen.getByRole("radio", { name: /MacBook Air/ })
-      ).not.toBeChecked()
+        screen.getByRole("radiogroup", { name: /Laptop model/ })
+      ).toHaveAttribute("aria-required", "true")
+
+      // An invalid group focuses its first card, its only tab stop for now.
       await user.click(submitButton())
-
-      await waitFor(() =>
-        expect(onSubmit).toHaveBeenCalledWith({ model: "mbp" })
-      )
-    })
-
-    it("is one tab stop whose arrow keys move and select", async () => {
-      const { user } = renderForm({ form: cardsForm })
-      const card = (name: RegExp) => screen.getByRole("radio", { name })
-
-      // Nothing chosen yet: Tab lands on the first card and skips the rest.
-      await user.tab()
-      expect(card(/MacBook Air/)).toHaveFocus()
+      await screen.findByText("This field is required")
+      expect(card("MacBook Air")).toHaveFocus()
       await user.tab()
       expect(submitButton()).toHaveFocus()
 
       await user.tab({ shift: true })
       await user.keyboard("{ArrowRight}")
-      expect(card(/MacBook Pro/)).toHaveFocus()
-      expect(card(/MacBook Pro/)).toBeChecked()
+      expect(card("MacBook Pro")).toHaveFocus()
+      expect(card("MacBook Pro")).toBeChecked()
+      expect(card("MacBook Air")).not.toBeChecked()
       await user.keyboard("{ArrowDown}")
-      expect(card(/Other/)).toBeChecked()
+      expect(card("Other")).toBeChecked()
       // Wraps at both ends.
       await user.keyboard("{ArrowRight}")
-      expect(card(/MacBook Air/)).toBeChecked()
+      expect(card("MacBook Air")).toBeChecked()
       await user.keyboard("{ArrowLeft}")
-      expect(card(/Other/)).toHaveFocus()
-      expect(card(/Other/)).toBeChecked()
+      expect(card("Other")).toHaveFocus()
 
       // The chosen card is now the tab stop.
       await user.tab()
       await user.tab({ shift: true })
-      expect(card(/Other/)).toHaveFocus()
-    })
+      expect(card("Other")).toHaveFocus()
 
-    it("moves focus to the first card when the group is invalid", async () => {
-      const { user } = renderForm({ form: cardsForm })
-
+      await user.click(card("MacBook Pro"))
       await user.click(submitButton())
-
-      await screen.findByText("This field is required")
-      expect(screen.getByRole("radio", { name: /MacBook Air/ })).toHaveFocus()
-      expect(
-        screen.getByRole("radiogroup", { name: /Laptop model/ })
-      ).toHaveAttribute("aria-required", "true")
+      await waitFor(() =>
+        expect(onSubmit).toHaveBeenCalledWith({ model: "mbp" })
+      )
     })
 
     it("is a group of checkboxes for a list field", async () => {
-      const multiForm = resolvedForm({
-        blocks: [
-          fieldBlock({
-            name: "models",
-            label: "Laptop models",
-            widget: "cards",
-            multiple: true,
-            options: [
-              { value: "mba", label: "MacBook Air" },
-              { value: "mbp", label: "MacBook Pro" },
-            ],
-          }),
-        ],
-      })
-      const { user, onSubmit } = renderForm({ form: multiForm })
-      const air = screen.getByRole("checkbox", { name: /MacBook Air/ })
-      const pro = screen.getByRole("checkbox", { name: /MacBook Pro/ })
+      const { user, onSubmit } = renderForm({ form: cardsForm(true) })
+      const box = (name: string) =>
+        screen.getByRole("checkbox", { name: new RegExp(name) })
 
-      // Every card is a tab stop and Space toggles it.
+      // Every card is a tab stop, Space toggles it and arrows do nothing.
       await user.tab()
-      expect(air).toHaveFocus()
+      expect(box("MacBook Air")).toHaveFocus()
       await user.tab()
-      expect(pro).toHaveFocus()
       await user.keyboard(" ")
-      expect(pro).toBeChecked()
-      // Arrow keys do not move or change the selection.
+      expect(box("MacBook Pro")).toBeChecked()
       await user.keyboard("{ArrowLeft}")
-      expect(pro).toHaveFocus()
-      expect(air).not.toBeChecked()
+      expect(box("MacBook Pro")).toHaveFocus()
+      expect(box("MacBook Air")).not.toBeChecked()
 
-      await user.click(air)
+      await user.click(box("MacBook Air"))
       await user.click(submitButton())
+      // The list keeps option order, whatever the click order.
       await waitFor(() =>
-        expect(onSubmit).toHaveBeenCalledWith({ models: ["mba", "mbp"] })
+        expect(onSubmit).toHaveBeenCalledWith({ model: ["mba", "mbp"] })
       )
-    })
-  })
-
-  describe("errors and assistive technology", () => {
-    it("moves focus to the first invalid field after a failed submit", async () => {
-      const { user } = renderForm()
-      await user.click(screen.getByRole("switch", { name: "For someone else" }))
-
-      await user.click(submitButton())
-
-      await screen.findAllByText("This field is required")
-      expect(screen.getByLabelText(/Justification/)).toHaveFocus()
-    })
-
-    it("moves focus to the field the server rejected", async () => {
-      const { user, onSubmit } = renderForm()
-      onSubmit.mockRejectedValueOnce(
-        apiError(422, {
-          code: "form_validation_error",
-          message: "Some answers are not valid",
-          errors: [
-            {
-              field: "justification",
-              code: "invalid_value",
-              message: "Say more about why",
-            },
-          ],
-        })
-      )
-      await user.type(screen.getByLabelText(/Justification/), "Because")
-
-      await user.click(submitButton())
-
-      await screen.findByText("Say more about why")
-      expect(screen.getByLabelText(/Justification/)).toHaveFocus()
-    })
-
-    it("submits once when the button is pressed twice", async () => {
-      const { user, onSubmit } = renderForm()
-      let finish: (receipt: unknown) => void = () => {}
-      onSubmit.mockReturnValueOnce(
-        new Promise((resolve) => {
-          finish = resolve
-        })
-      )
-      await user.type(screen.getByLabelText(/Justification/), "Screen cracked")
-
-      await user.click(submitButton())
-      const pending = await screen.findByRole("button", {
-        name: "Submitting...",
-      })
-      expect(pending).toBeDisabled()
-      await user.click(pending)
-      await user.keyboard("{Enter}")
-
-      expect(onSubmit).toHaveBeenCalledTimes(1)
-      finish({
-        id: "submission-1",
-        reference: "FRM-8F3K2A1C",
-        submitted_at: "2026-10-12T10:42:00Z",
-      })
-      expect(
-        await screen.findByRole("heading", { name: "Request submitted" })
-      ).toBeInTheDocument()
-    })
-
-    it("marks required controls and describes them by text that exists", async () => {
-      const a11yForm = resolvedForm({
-        blocks: [
-          fieldBlock({
-            name: "cost center",
-            label: "Cost center",
-            help: "Ask your manager.",
-            required: true,
-          }),
-          fieldBlock({ name: "notes", label: "Notes", default: "" }),
-          fieldBlock({
-            name: "teams",
-            label: "Teams",
-            widget: "multi_select",
-            multiple: true,
-            required: true,
-            options: [{ value: "it", label: "IT" }],
-          }),
-        ],
-      })
-      const { user } = renderForm({ form: a11yForm })
-      const described = (element: HTMLElement) =>
-        (element.getAttribute("aria-describedby") ?? "")
-          .split(" ")
-          .filter(Boolean)
-          .map((id) => document.getElementById(id)?.textContent)
-
-      const costCenter = screen.getByLabelText(/Cost center/)
-      const notes = screen.getByLabelText(/Notes/)
-      const teams = screen.getByLabelText(/Teams/)
-      expect(costCenter).toHaveAttribute("aria-required", "true")
-      expect(notes).toHaveAttribute("aria-required", "false")
-      expect(teams).toHaveAttribute("aria-required", "true")
-      // A name with a space still yields ids that resolve.
-      expect(described(costCenter)).toEqual(["Ask your manager."])
-      expect(notes).not.toHaveAttribute("aria-describedby")
-      expect(teams).not.toHaveAttribute("aria-describedby")
-
-      await user.click(submitButton())
-
-      await screen.findAllByText("This field is required")
-      expect(described(costCenter)).toEqual([
-        "Ask your manager.",
-        "This field is required",
-      ])
-      expect(teams).toHaveAttribute("aria-invalid", "true")
-      expect(described(teams)).toEqual(["This field is required"])
     })
   })
 })

@@ -3,17 +3,8 @@
 from dataclasses import dataclass
 from typing import Any
 
-from tracecat.forms.enums import (
-    FormAutofillSource,
-    FormInputKind,
-    FormIssueSeverity,
-)
-from tracecat.forms.schemas import (
-    FormBlock,
-    FormFieldBlock,
-    FormFieldError,
-    FormIssue,
-)
+from tracecat.forms.enums import FormAutofillSource, FormInputKind, FormIssueSeverity
+from tracecat.forms.schemas import FormBlock, FormFieldBlock, FormFieldError, FormIssue
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +39,10 @@ class ResolveResult:
     @property
     def has_errors(self) -> bool:
         return any(issue.severity is FormIssueSeverity.ERROR for issue in self.issues)
+
+    @property
+    def fields(self) -> list[FormFieldBlock]:
+        return [block for block in self.blocks if isinstance(block, FormFieldBlock)]
 
 
 @dataclass(frozen=True, slots=True)

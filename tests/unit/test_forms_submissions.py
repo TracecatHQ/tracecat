@@ -1,57 +1,37 @@
-"""Tests for submitting a form and for reading and deleting submissions."""
+"""Submitting a form, the run it starts, and reading and deleting submissions."""
 
 import uuid
-from dataclasses import dataclass
+from collections.abc import Awaitable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
 from tests._forms_utils import (
+    FakeTemporal,
     create_form,
     create_org_user,
     create_organization_with_workspace,
     create_workflow,
-    dsl_with_inputs,
     publish_workflow,
 )
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_action_scope
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
-from tracecat.db.models import (
-    Form,
-    FormEvent,
-    FormSubmission,
-    ServiceAccount,
-    User,
-    Workflow,
-    Workspace,
-)
+from tracecat.db.models import Form, FormSubmission, User, Workflow, Workspace
 from tracecat.exceptions import ScopeDeniedError
-from tracecat.forms import router as forms_router
-from tracecat.forms.enums import (
-    FormErrorCode,
-    FormEventType,
-    FormFieldErrorCode,
-    FormStatus,
-)
+from tracecat.forms import internal_router
+from tracecat.forms.enums import FormErrorCode, FormFieldErrorCode, FormStatus
 from tracecat.forms.exceptions import FormError
-from tracecat.forms.resolver import resolve_form
-from tracecat.forms.schemas import (
-    FormConfig,
-    FormFieldError,
-    FormSubmissionCreate,
-    FormSubmissionReceipt,
-)
-from tracecat.forms.service import submission_reference
+from tracecat.forms.schemas import FormSubmissionCreate, FormSubmissionReceipt
 from tracecat.forms.submissions import FormSubmissionsService
-from tracecat.forms.values import check_values, visible_fields
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.pagination import PageParams
 from tracecat.workflow.executions.enums import TemporalSearchAttr, TriggerType
@@ -59,26 +39,20 @@ from tracecat.workflow.executions.service import WorkflowExecutionsService
 
 pytestmark = [pytest.mark.usefixtures("db"), pytest.mark.anyio]
 
-INTAKE_SCOPES = frozenset({"form:read", "form:submit"})
-READER_SCOPES = INTAKE_SCOPES | {"form:submission:read"}
-
 EXPECTS: dict[str, dict[str, Any]] = {
     "model": {"type": 'enum["mba", "mbp"]'},
     "justification": {"type": "str"},
     "quantity": {"type": "int", "default": 1},
     "for_someone_else": {"type": "bool", "default": False},
     "recipient": {"type": "dict | None", "default": None},
+    "approvers": {"type": "list[dict]", "default": []},
     "needed_by": {"type": "str | None", "default": None},
     "priority": {"type": "str", "default": "normal"},
     "requester": {"type": "dict | None"},
     "reference": {"type": "str"},
 }
 LAYOUT: list[dict[str, Any]] = [
-    {
-        "field": "model",
-        "widget": "cards",
-        "options": [{"value": "mbp", "label": "MacBook Pro 14"}],
-    },
+    {"field": "model", "widget": "cards"},
     {"field": "justification", "widget": "long_text"},
     {"field": "for_someone_else"},
     {
@@ -86,66 +60,20 @@ LAYOUT: list[dict[str, Any]] = [
         "widget": "user",
         "visible_if": {"field": "for_someone_else", "equals": True},
     },
+    {"field": "approvers", "widget": "user"},
     {"field": "needed_by", "widget": "date"},
     {"field": "priority", "hidden": True},
     {"field": "requester", "autofill": "requester"},
     {"field": "reference", "autofill": "submission.id"},
 ]
-VALID_VALUES: dict[str, Any] = {"model": "mbp", "justification": "Mine broke"}
-
-
-@dataclass
-class FakeTemporal:
-    """Stands in for ``WorkflowExecutionsService.connect``."""
-
-    connect: AsyncMock
-    service: AsyncMock
-
-    @property
-    def run_role(self) -> Role:
-        self.connect.assert_awaited_once()
-        assert self.connect.await_args is not None
-        return self.connect.await_args.kwargs["role"]
-
-    @property
-    def start_kwargs(self) -> dict[str, Any]:
-        start = self.service.create_workflow_execution_wait_for_start
-        start.assert_awaited_once()
-        assert start.await_args is not None
-        return start.await_args.kwargs
-
-
-@pytest.fixture
-def temporal(monkeypatch: pytest.MonkeyPatch) -> FakeTemporal:
-    service = AsyncMock(spec=WorkflowExecutionsService)
-    service.query_executions.return_value = []
-    connect = AsyncMock(return_value=service)
-    monkeypatch.setattr(WorkflowExecutionsService, "connect", connect)
-    return FakeTemporal(connect=connect, service=service)
-
-
-@pytest.fixture
-async def requester(session: AsyncSession, svc_workspace: Workspace) -> User:
-    return await create_org_user(
-        session,
-        svc_workspace.organization_id,
-        email="maya.okafor@example.com",
-        first_name="Maya",
-        last_name="Okafor",
-    )
-
-
-@pytest.fixture
-def intake_role(svc_workspace: Workspace, requester: User) -> Role:
-    """A requester holding nothing but the Intake only preset's scopes."""
-    return Role(
-        type="user",
-        workspace_id=svc_workspace.id,
-        organization_id=svc_workspace.organization_id,
-        user_id=requester.id,
-        service_id="tracecat-api",
-        scopes=INTAKE_SCOPES,
-    )
+VALID: dict[str, Any] = {"model": "mbp", "justification": "Mine broke"}
+SHOWN_DEFAULTS: dict[str, Any] = {
+    "quantity": 1,
+    "for_someone_else": False,
+    "recipient": None,
+    "approvers": [],
+    "needed_by": None,
+}
 
 
 @pytest.fixture
@@ -171,152 +99,25 @@ def service(session: AsyncSession, intake_role: Role) -> FormSubmissionsService:
 
 
 async def _submit(
-    service: FormSubmissionsService, form: Form, values: dict[str, Any]
+    service: FormSubmissionsService, form: Form, values: dict[str, Any], **kwargs: Any
 ) -> FormSubmissionReceipt:
-    return await service.submit(form, FormSubmissionCreate(values=values))
+    return await service.submit(form, FormSubmissionCreate(values=values, **kwargs))
 
 
-async def _submit_error(
-    service: FormSubmissionsService, form: Form, values: dict[str, Any]
-) -> FormError:
+async def _error(call: Awaitable[Any]) -> FormError:
     with pytest.raises(FormError) as exc_info:
-        await _submit(service, form, values)
+        await call
     return exc_info.value
 
 
-def _field_errors(error: FormError) -> dict[str, FormFieldErrorCode]:
+async def _field_errors(call: Awaitable[Any]) -> dict[str, FormFieldErrorCode]:
+    error = await _error(call)
     assert error.code is FormErrorCode.FORM_VALIDATION_ERROR
     return {item.field: item.code for item in error.errors or []}
 
 
-async def _stored(session: AsyncSession, model: type[Any]) -> list[Any]:
-    return list((await session.execute(select(model))).scalars().all())
-
-
-# ----- Value checks without a database -----
-
-
-def _blocks(
-    layout: list[dict[str, Any]] | None = None,
-    expects: dict[str, Any] | None = None,
-) -> list[Any]:
-    result = resolve_form(
-        FormConfig.model_validate({"layout": layout or LAYOUT}),
-        dsl_with_inputs(expects or EXPECTS).entrypoint.expects or {},
-    )
-    assert not result.has_errors
-    return result.blocks
-
-
-def test_conditional_field_follows_its_controller() -> None:
-    blocks = _blocks()
-
-    def names(values: dict[str, Any]) -> list[str]:
-        return [field.name for field in visible_fields(blocks, values)]
-
-    assert "recipient" not in names({})
-    assert "recipient" not in names({"for_someone_else": False})
-    assert "recipient" in names({"for_someone_else": True})
-    # A truthy value of another type does not satisfy the rule.
-    assert "recipient" not in names({"for_someone_else": 1})
-    assert "recipient" not in names({"for_someone_else": "true"})
-
-
-def test_missing_controller_counts_as_its_default() -> None:
-    blocks = _blocks(
-        layout=[
-            {"field": "express"},
-            {"field": "reason", "visible_if": {"field": "express", "equals": True}},
-        ],
-        expects={
-            "express": {"type": "bool", "default": True},
-            "reason": {"type": "str", "default": ""},
-        },
-    )
-
-    assert [f.name for f in visible_fields(blocks, {})] == ["express", "reason"]
-    assert [f.name for f in visible_fields(blocks, {"express": False})] == ["express"]
-
-
-def test_check_values_drops_values_of_hidden_conditional_fields() -> None:
-    checked = check_values(_blocks(), VALID_VALUES | {"recipient": str(uuid.uuid4())})
-
-    assert checked.errors == []
-    assert checked.values == VALID_VALUES
-
-
-@pytest.mark.parametrize(
-    ("values", "expected"),
-    [
-        ({}, {"model": "required", "justification": "required"}),
-        (
-            {"model": "", "justification": None},
-            {
-                "model": "required",
-                "justification": "required",
-            },
-        ),
-        (VALID_VALUES | {"model": "dell"}, {"model": "invalid_option"}),
-        (VALID_VALUES | {"model": ["mbp"]}, {"model": "invalid_value"}),
-        (VALID_VALUES | {"model": 3}, {"model": "invalid_option"}),
-        (VALID_VALUES | {"needed_by": "next week"}, {"needed_by": "invalid_date"}),
-        (VALID_VALUES | {"needed_by": "2026-02-30"}, {"needed_by": "invalid_date"}),
-        (
-            VALID_VALUES | {"needed_by": "2026-02-03T10:00:00"},
-            {"needed_by": "invalid_date"},
-        ),
-        (VALID_VALUES | {"nope": 1}, {"nope": "unknown_field"}),
-        # Hidden and autofilled inputs are not fields of the form.
-        (VALID_VALUES | {"priority": "urgent"}, {"priority": "unknown_field"}),
-        (VALID_VALUES | {"requester": {}}, {"requester": "unknown_field"}),
-    ],
-)
-def test_check_values_errors(values: dict[str, Any], expected: dict[str, str]) -> None:
-    checked = check_values(_blocks(), values)
-
-    assert {error.field: error.code.value for error in checked.errors} == expected
-
-
-def test_check_values_accepts_dates_toggles_and_lists() -> None:
-    blocks = _blocks(
-        layout=[
-            {"field": "day", "widget": "date"},
-            {"field": "tags", "widget": "multi_select", "options": [{"value": "a"}]},
-        ],
-        expects={
-            "day": {"type": "str"},
-            "at": {"type": "datetime"},
-            "agree": {"type": "bool"},
-            "tags": {"type": "list[str]"},
-            "notes": {"type": "str", "default": ""},
-        },
-    )
-    values = {
-        "day": "2026-02-03",
-        "at": "2026-02-03T10:00:00Z",
-        "agree": False,
-        "tags": ["a"],
-        "notes": "",
-    }
-
-    checked = check_values(blocks, values)
-
-    assert checked.errors == []
-    # False is an answer. An empty optional value is left to its default.
-    assert checked.values == {k: v for k, v in values.items() if k != "notes"}
-    assert check_values(blocks, values | {"tags": ["a", "b"]}).errors == [
-        FormFieldError(
-            field="tags",
-            code=FormFieldErrorCode.INVALID_OPTION,
-            message="Choose one of the options",
-        )
-    ]
-    assert [e.code for e in check_values(blocks, values | {"tags": "a"}).errors] == [
-        FormFieldErrorCode.INVALID_VALUE
-    ]
-    assert [e.field for e in check_values(blocks, values | {"at": "soon"}).errors] == [
-        "at"
-    ]
+async def _stored(session: AsyncSession) -> list[FormSubmission]:
+    return list((await session.execute(select(FormSubmission))).scalars().all())
 
 
 # ----- Submit -----
@@ -327,85 +128,6 @@ async def test_submit_stores_the_answers_and_starts_the_run(
     service: FormSubmissionsService,
     temporal: FakeTemporal,
     requester: User,
-    form: Form,
-) -> None:
-    receipt = await _submit(service, form, VALID_VALUES)
-
-    [submission] = await _stored(session, FormSubmission)
-    assert receipt.id == submission.id
-    assert receipt.reference == submission_reference(submission.id)
-    assert receipt.reference.startswith("FRM-")
-    assert receipt.submitted_at == submission.created_at
-    assert receipt.success_message == "IT will follow up by email."
-    # Requesters never receive run fields.
-    assert set(receipt.model_dump()) == {
-        "id",
-        "reference",
-        "submitted_at",
-        "success_message",
-    }
-
-    expected_answers = {
-        "model": "mbp",
-        "justification": "Mine broke",
-        "quantity": 1,
-        "for_someone_else": False,
-        "recipient": None,
-        "needed_by": None,
-        "priority": "normal",
-        "requester": {
-            "user_id": str(requester.id),
-            "email": "maya.okafor@example.com",
-            "first_name": "Maya",
-            "last_name": "Okafor",
-        },
-        "reference": str(submission.id),
-    }
-    assert submission.answers == expected_answers
-    assert submission.form_id == form.id
-    assert submission.submitted_by_user_id == requester.id
-    assert submission.submitted_by_service_account_id is None
-    assert submission.definition_version == 1
-
-    [event] = await _stored(session, FormEvent)
-    assert event.type == FormEventType.FORM_SUBMITTED
-    assert event.submission_id == submission.id
-    assert event.user_id == requester.id
-
-    start = temporal.start_kwargs
-    assert start["trigger_type"] is TriggerType.FORM
-    assert start["wf_id"] == WorkflowUUID.new(form.workflow_id)
-    assert start["wf_exec_id"] == submission.wf_exec_id
-    assert start["wf_exec_id"].startswith(WorkflowUUID.new(form.workflow_id).short())
-    # The run gets exactly what was stored.
-    assert start["payload"] == expected_answers
-    assert start["registry_lock"] is None
-    assert start["memo"] == {
-        "form_id": str(form.id),
-        "form_submission_id": str(submission.id),
-    }
-    # Inputs reach the run in the author's order, read from the definition.
-    assert list(start["dsl"].entrypoint.expects) == list(EXPECTS)
-
-
-async def test_submit_drops_values_of_fields_the_requester_cannot_see(
-    session: AsyncSession,
-    service: FormSubmissionsService,
-    temporal: FakeTemporal,
-    requester: User,
-    form: Form,
-) -> None:
-    await _submit(service, form, VALID_VALUES | {"recipient": str(requester.id)})
-
-    [submission] = await _stored(session, FormSubmission)
-    assert submission.answers["for_someone_else"] is False
-    assert submission.answers["recipient"] is None
-
-
-async def test_submit_expands_user_ids(
-    session: AsyncSession,
-    service: FormSubmissionsService,
-    temporal: FakeTemporal,
     svc_workspace: Workspace,
     form: Form,
 ) -> None:
@@ -416,48 +138,62 @@ async def test_submit_expands_user_ids(
         first_name="Arjun",
         last_name="Rao",
     )
-
-    await _submit(
-        service,
-        form,
-        VALID_VALUES | {"for_someone_else": True, "recipient": str(arjun.id)},
-    )
-
-    [submission] = await _stored(session, FormSubmission)
-    assert submission.answers["recipient"] == {
-        "user_id": str(arjun.id),
-        "email": "arjun.rao@example.com",
-        "first_name": "Arjun",
-        "last_name": "Rao",
+    # recipient is not visible, so its value is dropped.
+    values = VALID | {
+        "recipient": str(arjun.id),
+        "approvers": [str(arjun.id), str(requester.id)],
     }
 
+    receipt = await _submit(service, form, values)
 
-async def test_submit_expands_a_list_of_users(
-    session: AsyncSession,
-    intake_role: Role,
-    temporal: FakeTemporal,
-    requester: User,
-    svc_workspace: Workspace,
-) -> None:
-    workflow = await create_workflow(session, svc_workspace.id, title="Grant access")
-    await publish_workflow(
-        session, intake_role, workflow, {"approvers": {"type": "list[dict]"}}
+    [submission] = await _stored(session)
+    # Requesters never receive run fields.
+    assert receipt.model_dump() == {
+        "id": submission.id,
+        "reference": f"FRM-{submission.id.hex[:8].upper()}",
+        "submitted_at": submission.created_at,
+        "success_message": "IT will follow up by email.",
+    }
+    user = {"first_name": "Maya", "last_name": "Okafor"}
+    maya = {"user_id": str(requester.id), "email": requester.email} | user
+    expected = (
+        VALID
+        | SHOWN_DEFAULTS
+        | {
+            "approvers": [
+                {
+                    "user_id": str(arjun.id),
+                    "email": "arjun.rao@example.com",
+                    "first_name": "Arjun",
+                    "last_name": "Rao",
+                },
+                maya,
+            ],
+            "priority": "normal",
+            "requester": maya,
+            "reference": str(submission.id),
+        }
     )
-    form = await create_form(
-        session, workflow, layout=[{"field": "approvers", "widget": "user"}]
-    )
-    arjun = await create_org_user(
-        session, svc_workspace.organization_id, email="arjun.rao@example.com"
-    )
-    service = FormSubmissionsService(session, intake_role)
+    assert submission.answers == expected
+    assert (submission.form_id, submission.definition_version) == (form.id, 1)
+    assert submission.submitted_by_user_id == requester.id
+    assert submission.submitted_by_service_account_id is None
 
-    await _submit(service, form, {"approvers": [str(arjun.id), str(requester.id)]})
-
-    [submission] = await _stored(session, FormSubmission)
-    assert [user["email"] for user in submission.answers["approvers"]] == [
-        "arjun.rao@example.com",
-        "maya.okafor@example.com",
-    ]
+    start = temporal.start_kwargs
+    workflow_id = WorkflowUUID.new(form.workflow_id)
+    assert start["trigger_type"] is TriggerType.FORM
+    assert start["wf_id"] == workflow_id
+    assert start["wf_exec_id"] == submission.wf_exec_id
+    assert start["wf_exec_id"].startswith(workflow_id.short())
+    # The run gets exactly what was stored.
+    assert start["payload"] == expected
+    assert start["registry_lock"] is None
+    assert start["memo"] == {
+        "form_id": str(form.id),
+        "form_submission_id": str(submission.id),
+    }
+    # Inputs reach the run in the author's order, read from the definition.
+    assert list(start["dsl"].entrypoint.expects) == list(EXPECTS)
 
 
 @pytest.mark.parametrize("kind", ["unknown", "inactive", "other_org", "not_an_id"])
@@ -469,32 +205,29 @@ async def test_submit_rejects_users_outside_the_organization(
     form: Form,
     kind: str,
 ) -> None:
-    match kind:
-        case "inactive":
-            user = await create_org_user(
-                session,
-                svc_workspace.organization_id,
-                email="left.company@example.com",
-                is_active=False,
-            )
-            recipient: Any = str(user.id)
-        case "other_org":
-            other = await create_organization_with_workspace(session, name="other")
-            user = await create_org_user(
-                session, other.organization_id, email="outsider@example.com"
-            )
-            recipient = str(user.id)
-        case "not_an_id":
-            recipient = {"email": "arjun.rao@example.com"}
-        case _:
-            recipient = str(uuid.uuid4())
+    recipient: Any = str(uuid.uuid4())
+    if kind == "inactive":
+        user = await create_org_user(
+            session,
+            svc_workspace.organization_id,
+            email="gone@example.com",
+            is_active=False,
+        )
+        recipient = str(user.id)
+    elif kind == "other_org":
+        other = await create_organization_with_workspace(session, name="other")
+        user = await create_org_user(
+            session, other.organization_id, email="outsider@example.com"
+        )
+        recipient = str(user.id)
+    elif kind == "not_an_id":
+        recipient = {"email": "arjun.rao@example.com"}
 
-    error = await _submit_error(
-        service, form, VALID_VALUES | {"for_someone_else": True, "recipient": recipient}
-    )
+    values = VALID | {"for_someone_else": True, "recipient": recipient}
+    errors = await _field_errors(_submit(service, form, values))
 
-    assert _field_errors(error) == {"recipient": FormFieldErrorCode.INVALID_USER}
-    assert await _stored(session, FormSubmission) == []
+    assert errors == {"recipient": FormFieldErrorCode.INVALID_USER}
+    assert await _stored(session) == []
     temporal.connect.assert_not_awaited()
 
 
@@ -504,20 +237,17 @@ async def test_submit_reports_every_invalid_field(
     temporal: FakeTemporal,
     form: Form,
 ) -> None:
-    error = await _submit_error(
-        service,
-        form,
-        {"model": "dell", "needed_by": "tomorrow", "surprise": True},
-    )
+    values = {"model": "dell", "needed_by": "tomorrow", "surprise": True}
 
-    assert _field_errors(error) == {
+    errors = await _field_errors(_submit(service, form, values))
+
+    assert errors == {
         "surprise": FormFieldErrorCode.UNKNOWN_FIELD,
         "model": FormFieldErrorCode.INVALID_OPTION,
         "justification": FormFieldErrorCode.REQUIRED,
         "needed_by": FormFieldErrorCode.INVALID_DATE,
     }
-    assert await _stored(session, FormSubmission) == []
-    assert await _stored(session, FormEvent) == []
+    assert await _stored(session) == []
     temporal.connect.assert_not_awaited()
 
 
@@ -528,163 +258,80 @@ async def test_submit_maps_input_schema_errors_to_fields(
     svc_workspace: Workspace,
 ) -> None:
     workflow = await create_workflow(session, svc_workspace.id, title="Order")
-    await publish_workflow(
-        session,
-        intake_role,
-        workflow,
-        {"quantity": {"type": "int"}, "note": {"type": "str"}},
-    )
+    expects = {"quantity": {"type": "int"}, "note": {"type": "str"}}
+    await publish_workflow(session, intake_role, workflow, expects)
     form = await create_form(session, workflow)
     service = FormSubmissionsService(session, intake_role)
 
-    error = await _submit_error(service, form, {"quantity": "many", "note": "ok"})
+    error = await _error(_submit(service, form, {"quantity": "many", "note": "ok"}))
 
-    assert _field_errors(error) == {"quantity": FormFieldErrorCode.INVALID_VALUE}
     [field_error] = error.errors or []
+    assert (field_error.field, field_error.code) == (
+        "quantity",
+        FormFieldErrorCode.INVALID_VALUE,
+    )
     # The message describes the problem without repeating the answer.
     assert "many" not in field_error.message
     temporal.connect.assert_not_awaited()
 
 
-async def test_users_cannot_supply_autofilled_inputs(
-    service: FormSubmissionsService, temporal: FakeTemporal, form: Form
+@pytest.mark.parametrize("caller", ["user", "api_key"])
+@pytest.mark.parametrize(
+    "extra",
+    [{"requester": {"email": "someone.else@example.com"}}, {"reference": "chosen"}],
+    ids=["requester", "submission_id"],
+)
+async def test_callers_cannot_supply_autofilled_inputs(
+    session: AsyncSession,
+    intake_role: Role,
+    api_key_role: Role,
+    temporal: FakeTemporal,
+    form: Form,
+    caller: str,
+    extra: dict[str, Any],
 ) -> None:
-    error = await _submit_error(
-        service,
-        form,
-        VALID_VALUES | {"requester": {"email": "someone.else@example.com"}},
-    )
+    """A key holder cannot name the requester either: it would be unverified."""
+    role = intake_role if caller == "user" else api_key_role
+    service = FormSubmissionsService(session, role)
 
-    assert _field_errors(error) == {"requester": FormFieldErrorCode.UNKNOWN_FIELD}
+    errors = await _field_errors(_submit(service, form, VALID | extra))
 
-
-# ----- API keys -----
+    assert errors == dict.fromkeys(extra, FormFieldErrorCode.UNKNOWN_FIELD)
+    assert await _stored(session) == []
 
 
-@pytest.fixture
-async def api_key_role(session: AsyncSession, svc_workspace: Workspace) -> Role:
-    account = ServiceAccount(
-        organization_id=svc_workspace.organization_id,
-        workspace_id=svc_workspace.id,
-        name="Intake bot",
-    )
-    session.add(account)
-    await session.commit()
-    return Role(
-        type="service_account",
-        workspace_id=svc_workspace.id,
-        organization_id=svc_workspace.organization_id,
-        service_account_id=account.id,
-        service_id="tracecat-api",
-        scopes=INTAKE_SCOPES,
-    )
-
-
-async def test_api_key_submission_autofills_requester_as_null(
-    session: AsyncSession, api_key_role: Role, temporal: FakeTemporal, form: Form
+async def test_api_key_submission_has_no_requester(
+    session: AsyncSession,
+    api_key_role: Role,
+    temporal: FakeTemporal,
+    svc_workspace: Workspace,
+    form: Form,
 ) -> None:
-    service = FormSubmissionsService(session, api_key_role)
+    await _submit(FormSubmissionsService(session, api_key_role), form, VALID)
 
-    await _submit(service, form, VALID_VALUES)
-
-    [submission] = await _stored(session, FormSubmission)
+    [submission] = await _stored(session)
     assert submission.answers["requester"] is None
     assert submission.submitted_by_user_id is None
     assert submission.submitted_by_service_account_id == api_key_role.service_account_id
     # The submission ID always comes from the server.
     assert submission.answers["reference"] == str(submission.id)
+    assert temporal.run_role.user_id is None
 
-    [event] = await _stored(session, FormEvent)
-    assert event.service_account_id == api_key_role.service_account_id
-    # No requester to attribute the run to.
-    run_role = temporal.run_role
-    assert run_role.type == "service"
-    assert run_role.user_id is None
-
-
-@pytest.mark.parametrize(
-    "extra",
-    [
-        {"requester": {"email": "maya.okafor@example.com"}},
-        {"reference": "caller-chosen"},
-    ],
-    ids=["requester", "submission_id"],
-)
-async def test_api_keys_cannot_supply_autofilled_inputs(
-    session: AsyncSession,
-    api_key_role: Role,
-    temporal: FakeTemporal,
-    form: Form,
-    extra: dict[str, Any],
-) -> None:
-    """A key holder cannot name the requester: it would be unverified."""
-    service = FormSubmissionsService(session, api_key_role)
-
-    error = await _submit_error(service, form, VALID_VALUES | extra)
-
-    assert _field_errors(error) == dict.fromkeys(
-        extra, FormFieldErrorCode.UNKNOWN_FIELD
-    )
-    assert await _stored(session, FormSubmission) == []
-    temporal.connect.assert_not_awaited()
-
-
-async def test_api_key_submission_fails_on_a_required_requester_autofill(
-    session: AsyncSession,
-    api_key_role: Role,
-    temporal: FakeTemporal,
-    svc_workspace: Workspace,
-) -> None:
+    # A required requester value cannot be filled in for an API key.
     workflow = await create_workflow(session, svc_workspace.id, title="Strict")
     await publish_workflow(session, api_key_role, workflow, {"email": {"type": "str"}})
-    form = await create_form(
+    strict = await create_form(
         session, workflow, layout=[{"field": "email", "autofill": "requester.email"}]
     )
     service = FormSubmissionsService(session, api_key_role)
-
-    error = await _submit_error(service, form, {})
-
-    assert _field_errors(error) == {"email": FormFieldErrorCode.INVALID_VALUE}
-    temporal.connect.assert_not_awaited()
+    errors = await _field_errors(_submit(service, strict, {}))
+    assert errors == {"email": FormFieldErrorCode.INVALID_VALUE}
 
 
-# ----- Form state -----
+# ----- Form state and the run start -----
 
 
-async def test_submit_to_an_offline_form_is_refused(
-    session: AsyncSession,
-    service: FormSubmissionsService,
-    temporal: FakeTemporal,
-    form: Form,
-) -> None:
-    form.status = FormStatus.OFFLINE.value
-    await session.commit()
-
-    error = await _submit_error(service, form, VALID_VALUES)
-
-    assert error.code is FormErrorCode.FORM_OFFLINE
-    temporal.connect.assert_not_awaited()
-
-
-async def test_submit_to_a_form_whose_config_stopped_resolving_is_refused(
-    session: AsyncSession,
-    service: FormSubmissionsService,
-    intake_role: Role,
-    temporal: FakeTemporal,
-    workflow: Workflow,
-    form: Form,
-) -> None:
-    # A later publish drops inputs the layout names.
-    await publish_workflow(session, intake_role, workflow, {"model": {"type": "str"}})
-
-    error = await _submit_error(service, form, {"model": "mbp"})
-
-    assert error.code is FormErrorCode.FORM_UNAVAILABLE
-    assert error.issues is None
-    temporal.connect.assert_not_awaited()
-
-
-async def test_submit_with_a_stale_definition_version_is_refused(
+async def test_submit_refuses_offline_changed_and_unavailable_forms(
     session: AsyncSession,
     service: FormSubmissionsService,
     intake_role: Role,
@@ -693,19 +340,22 @@ async def test_submit_with_a_stale_definition_version_is_refused(
     form: Form,
 ) -> None:
     await publish_workflow(session, intake_role, workflow, EXPECTS)
-
-    with pytest.raises(FormError) as exc_info:
-        await service.submit(
-            form, FormSubmissionCreate(values=VALID_VALUES, definition_version=1)
-        )
-    assert exc_info.value.code is FormErrorCode.FORM_CHANGED
-    temporal.connect.assert_not_awaited()
-
-    await service.submit(
-        form, FormSubmissionCreate(values=VALID_VALUES, definition_version=2)
-    )
-    [submission] = await _stored(session, FormSubmission)
+    error = await _error(_submit(service, form, VALID, definition_version=1))
+    assert error.code is FormErrorCode.FORM_CHANGED
+    await _submit(service, form, VALID, definition_version=2)
+    [submission] = await _stored(session)
     assert submission.definition_version == 2
+
+    # A later publish drops inputs the layout names.
+    await publish_workflow(session, intake_role, workflow, {"model": {"type": "str"}})
+    error = await _error(_submit(service, form, {"model": "mbp"}))
+    assert (error.code, error.issues) == (FormErrorCode.FORM_UNAVAILABLE, None)
+
+    form.status = FormStatus.OFFLINE.value
+    await session.commit()
+    error = await _error(_submit(service, form, VALID))
+    assert error.code is FormErrorCode.FORM_OFFLINE
+    assert len(await _stored(session)) == 1
 
 
 async def test_submission_is_committed_before_the_run_starts(
@@ -730,136 +380,79 @@ async def test_submission_is_committed_before_the_run_starts(
         assert not session.dirty
 
     monkeypatch.setattr(session, "commit", recording_commit)
-    start = temporal.service.create_workflow_execution_wait_for_start
-    start.side_effect = recording_start
+    temporal.start.side_effect = recording_start
 
-    receipt = await _submit(service, form, VALID_VALUES)
+    receipt = await _submit(service, form, VALID)
 
-    assert "start" in calls
     assert "commit" in calls[: calls.index("start")]
-    [submission] = await _stored(session, FormSubmission)
+    [submission] = await _stored(session)
     assert submission.id == receipt.id
 
 
 @pytest.mark.parametrize(
-    "error",
+    ("connect_error", "start_error", "kept"),
     [
-        RuntimeError("Temporal rejected the request"),
-        RPCError("invalid", RPCStatusCode.INVALID_ARGUMENT, b""),
+        (RuntimeError("Temporal is unreachable"), None, False),
+        (TimeoutError("connect timed out"), None, False),
+        (None, RuntimeError("Temporal rejected the request"), False),
+        (None, RPCError("invalid", RPCStatusCode.INVALID_ARGUMENT, b""), False),
+        # The run may exist, and it reads its submission by ID.
+        (None, TimeoutError("Timed out while dispatching workflow"), True),
+        (None, RPCError("deadline", RPCStatusCode.DEADLINE_EXCEEDED, b""), True),
     ],
-    ids=["error", "rpc_invalid_argument"],
 )
-async def test_definite_start_failure_deletes_the_submission(
+async def test_start_failure_keeps_the_submission_only_if_the_run_may_exist(
     session: AsyncSession,
     service: FormSubmissionsService,
     temporal: FakeTemporal,
     form: Form,
-    error: Exception,
+    connect_error: Exception | None,
+    start_error: Exception | None,
+    kept: bool,
 ) -> None:
-    start = temporal.service.create_workflow_execution_wait_for_start
-    start.side_effect = error
+    temporal.connect.side_effect = connect_error
+    temporal.start.side_effect = start_error
 
-    failure = await _submit_error(service, form, VALID_VALUES)
-
-    assert failure.code is FormErrorCode.WORKFLOW_START_FAILED
-    start.assert_awaited_once()
-    assert await _stored(session, FormSubmission) == []
-    assert await _stored(session, FormEvent) == []
-
-
-@pytest.mark.parametrize(
-    "error",
-    [
-        TimeoutError("Timed out while dispatching workflow"),
-        RPCError("deadline", RPCStatusCode.DEADLINE_EXCEEDED, b""),
-    ],
-    ids=["timeout", "rpc_deadline_exceeded"],
-)
-async def test_ambiguous_start_failure_keeps_the_submission(
-    session: AsyncSession,
-    service: FormSubmissionsService,
-    temporal: FakeTemporal,
-    form: Form,
-    error: Exception,
-) -> None:
-    """The run may exist, and it reads its submission by ID."""
-    start = temporal.service.create_workflow_execution_wait_for_start
-    start.side_effect = error
-
-    failure = await _submit_error(service, form, VALID_VALUES)
-
-    assert failure.code is FormErrorCode.WORKFLOW_START_FAILED
-    [submission] = await _stored(session, FormSubmission)
-    assert submission.wf_exec_id == start.await_args.kwargs["wf_exec_id"]
-    [event] = await _stored(session, FormEvent)
-    assert event.submission_id == submission.id
-
-
-async def test_connect_failure_deletes_the_submission(
-    session: AsyncSession,
-    service: FormSubmissionsService,
-    temporal: FakeTemporal,
-    form: Form,
-) -> None:
-    temporal.connect.side_effect = RuntimeError("Temporal is unreachable")
-
-    error = await _submit_error(service, form, VALID_VALUES)
+    error = await _error(_submit(service, form, VALID))
 
     assert error.code is FormErrorCode.WORKFLOW_START_FAILED
-    assert await _stored(session, FormSubmission) == []
-    assert await _stored(session, FormEvent) == []
+    assert len(await _stored(session)) == int(kept)
 
 
-# ----- Run identity -----
-
-
-async def test_intake_only_requester_starts_a_run_that_can_execute_actions(
+async def test_the_run_executes_as_the_runner_on_behalf_of_the_requester(
     service: FormSubmissionsService,
     temporal: FakeTemporal,
     intake_role: Role,
     requester: User,
     form: Form,
 ) -> None:
-    await _submit(service, form, VALID_VALUES)
+    await _submit(service, form, VALID)
     run_role = temporal.run_role
-
-    assert run_role.type == "service"
-    assert run_role.service_id == "tracecat-runner"
-    assert run_role.user_id == requester.id
-    assert run_role.workspace_id == intake_role.workspace_id
-    assert run_role.organization_id == intake_role.organization_id
-    assert run_role.scopes == SERVICE_PRINCIPAL_SCOPES["tracecat-runner"]
-
-    # The executor checks action scopes against the run role. The requester's
-    # own role fails that check for every action; the run role passes it.
-    token = ctx_role.set(intake_role)
-    try:
-        with pytest.raises(ScopeDeniedError):
-            require_action_scope("core.http_request")
-    finally:
-        ctx_role.reset(token)
-    token = ctx_role.set(run_role)
-    try:
-        require_action_scope("core.http_request")
-        require_action_scope("tools.example.list_users")
-    finally:
-        ctx_role.reset(token)
-
-
-async def test_run_role_records_the_requester_as_triggered_by(
-    service: FormSubmissionsService,
-    temporal: FakeTemporal,
-    requester: User,
-    form: Form,
-) -> None:
-    await _submit(service, form, VALID_VALUES)
     start = temporal.start_kwargs
 
-    # Start a run with the real executions service and the role the submit
-    # flow built, and read what it sends to Temporal.
+    assert (run_role.type, run_role.service_id) == ("service", "tracecat-runner")
+    assert (run_role.workspace_id, run_role.organization_id) == (
+        intake_role.workspace_id,
+        intake_role.organization_id,
+    )
+    assert run_role.scopes == SERVICE_PRINCIPAL_SCOPES["tracecat-runner"]
+    # The executor checks action scopes against the run role. The requester's
+    # own role fails that check for every action; the run role passes it.
+    for role, allowed in ((intake_role, False), (run_role, True)):
+        token = ctx_role.set(role)
+        try:
+            if allowed:
+                require_action_scope("core.http_request")
+            else:
+                with pytest.raises(ScopeDeniedError):
+                    require_action_scope("core.http_request")
+        finally:
+            ctx_role.reset(token)
+
+    # The real executions service records the requester as triggered-by.
     client = Mock(spec=Client)
     client.start_workflow = AsyncMock(return_value=Mock())
-    executions = WorkflowExecutionsService(client=client, role=temporal.run_role)
+    executions = WorkflowExecutionsService(client=client, role=run_role)
     with patch.object(
         executions, "_resolve_execution_timeout", AsyncMock(return_value=None)
     ):
@@ -871,8 +464,6 @@ async def test_run_role_records_the_requester_as_triggered_by(
             wf_exec_id=start["wf_exec_id"],
             memo=start["memo"],
         )
-
-    client.start_workflow.assert_awaited_once()
     assert client.start_workflow.await_args is not None
     kwargs = client.start_workflow.await_args.kwargs
     attributes = {
@@ -883,127 +474,57 @@ async def test_run_role_records_the_requester_as_triggered_by(
         requester.id
     )
     assert attributes[TemporalSearchAttr.TRIGGER_TYPE.value] == "form"
-    assert kwargs["id"] == start["wf_exec_id"]
-    assert kwargs["memo"] == start["memo"]
-    run_args = client.start_workflow.await_args.args[1]
-    assert run_args.role.user_id == requester.id
-    assert run_args.role.service_id == "tracecat-runner"
+    assert (kwargs["id"], kwargs["memo"]) == (start["wf_exec_id"], start["memo"])
+    assert client.start_workflow.await_args.args[1].role.user_id == requester.id
 
 
-# ----- Reading and deleting submissions -----
+# ----- Reading and deleting -----
 
 
-@pytest.fixture
-def reader_role(intake_role: Role) -> Role:
-    return intake_role.model_copy(update={"scopes": READER_SCOPES})
-
-
-@pytest.fixture
-async def colleague_role(
-    session: AsyncSession, svc_workspace: Workspace, intake_role: Role
-) -> Role:
-    colleague = await create_org_user(
-        session, svc_workspace.organization_id, email="arjun.rao@example.com"
-    )
-    return intake_role.model_copy(update={"user_id": colleague.id})
-
-
-async def test_requester_reads_their_own_submission_without_run_fields(
-    session: AsyncSession,
-    service: FormSubmissionsService,
-    temporal: FakeTemporal,
-    colleague_role: Role,
-    form: Form,
-) -> None:
-    receipt = await _submit(service, form, VALID_VALUES)
-    temporal.connect.reset_mock()
-
-    own = await service.read_submission(form, receipt.id)
-    someone_elses = await FormSubmissionsService(
-        session, colleague_role
-    ).read_submission(form, receipt.id)
-
-    assert own is not None
-    assert own.id == receipt.id
-    assert own.reference == receipt.reference
-    # Only what the form showed them: no hidden default, no autofilled value.
-    assert own.answers == {
-        "model": "mbp",
-        "justification": "Mine broke",
-        "quantity": 1,
-        "for_someone_else": False,
-        "recipient": None,
-        "needed_by": None,
-    }
-    assert own.submitted_by is not None
-    assert own.submitted_by.email == "maya.okafor@example.com"
-    assert own.definition_version is None
-    assert own.wf_exec_id is None
-    assert own.run_status is None
-    # No status lookup is made for a requester.
-    temporal.connect.assert_not_awaited()
-    assert someone_elses is None
-    assert await service.read_submission(form, uuid.uuid4()) is None
-
-
-async def test_submission_readers_see_any_submission_with_run_fields(
-    session: AsyncSession,
-    service: FormSubmissionsService,
-    temporal: FakeTemporal,
-    colleague_role: Role,
-    form: Form,
-) -> None:
-    receipt = await _submit(service, form, VALID_VALUES)
-    [stored] = await _stored(session, FormSubmission)
-    temporal.service.query_executions.return_value = [
-        Mock(id=stored.wf_exec_id, status=WorkflowExecutionStatus.COMPLETED)
-    ]
-    reader = FormSubmissionsService(
-        session, colleague_role.model_copy(update={"scopes": READER_SCOPES})
-    )
-
-    submission = await reader.read_submission(form, receipt.id)
-
-    assert submission is not None
-    assert submission.wf_exec_id == stored.wf_exec_id
-    assert submission.run_status == "COMPLETED"
-    assert submission.definition_version == 1
-    assert submission.answers == stored.answers
-    assert submission.answers["priority"] == "normal"
-
-
-async def test_requester_reads_no_answers_once_the_form_stops_resolving(
+async def test_requesters_read_only_their_own_submission_without_run_fields(
     session: AsyncSession,
     service: FormSubmissionsService,
     intake_role: Role,
+    colleague_role: Role,
     temporal: FakeTemporal,
     workflow: Workflow,
     form: Form,
 ) -> None:
-    receipt = await _submit(service, form, VALID_VALUES)
-    # A later publish drops inputs the layout names.
-    await publish_workflow(session, intake_role, workflow, {"model": {"type": "str"}})
+    receipt = await _submit(service, form, VALID)
+    temporal.connect.reset_mock()
+    colleague = FormSubmissionsService(session, colleague_role)
 
     own = await service.read_submission(form, receipt.id)
 
     assert own is not None
-    assert own.answers == {}
+    assert (own.id, own.reference) == (receipt.id, receipt.reference)
+    # Only what the form showed them: no hidden default, no autofilled value.
+    assert own.answers == VALID | SHOWN_DEFAULTS
+    assert own.submitted_by is not None
+    assert own.submitted_by.email == "maya.okafor@example.com"
+    assert (own.definition_version, own.wf_exec_id, own.run_status) == (None,) * 3
+    # No status lookup is made for a requester.
+    temporal.connect.assert_not_awaited()
+    assert await colleague.read_submission(form, receipt.id) is None
+    assert await service.read_submission(form, uuid.uuid4()) is None
+
+    # Once the form stops resolving, a requester sees none of the answers.
+    await publish_workflow(session, intake_role, workflow, {"model": {"type": "str"}})
+    own = await service.read_submission(form, receipt.id)
+    assert own is not None and own.answers == {}
 
 
-async def test_list_submissions_filters_by_date_and_attaches_run_status(
+async def test_readers_list_any_submission_with_run_fields(
     session: AsyncSession,
     service: FormSubmissionsService,
-    temporal: FakeTemporal,
-    reader_role: Role,
     api_key_role: Role,
+    reader_role: Role,
+    temporal: FakeTemporal,
     form: Form,
 ) -> None:
-    old = await _submit(service, form, VALID_VALUES | {"justification": "Old"})
-    recent = await _submit(
-        FormSubmissionsService(session, api_key_role),
-        form,
-        VALID_VALUES | {"justification": "Recent"},
-    )
+    old = await _submit(service, form, VALID | {"justification": "Old"})
+    by_key = FormSubmissionsService(session, api_key_role)
+    recent = await _submit(by_key, form, VALID | {"justification": "Recent"})
     now = datetime.now(UTC)
     await session.execute(
         update(FormSubmission)
@@ -1011,149 +532,108 @@ async def test_list_submissions_filters_by_date_and_attaches_run_status(
         .values(created_at=now - timedelta(days=10))
     )
     await session.commit()
-    stored = {s.id: s for s in await _stored(session, FormSubmission)}
-    temporal.service.query_executions.reset_mock()
-    temporal.service.query_executions.return_value = [
-        Mock(id=stored[old.id].wf_exec_id, status=WorkflowExecutionStatus.FAILED),
-        Mock(id=stored[recent.id].wf_exec_id, status=WorkflowExecutionStatus.RUNNING),
+    exec_ids = {s.id: s.wf_exec_id for s in await _stored(session)}
+    query = temporal.service.query_executions
+    query.reset_mock()
+    query.return_value = [
+        Mock(id=exec_ids[old.id], status=WorkflowExecutionStatus.FAILED),
+        Mock(id=exec_ids[recent.id], status=WorkflowExecutionStatus.RUNNING),
     ]
     reader = FormSubmissionsService(session, reader_role)
 
     everything = await reader.list_submissions(form, PageParams())
+    week_ago = now - timedelta(days=7)
     last_week = await reader.list_submissions(
-        form, PageParams(), submitted_after=now - timedelta(days=7)
+        form, PageParams(), submitted_after=week_ago
     )
-    before_last_week = await reader.list_submissions(
-        form, PageParams(), submitted_before=now - timedelta(days=7)
+    before = await reader.list_submissions(
+        form, PageParams(), submitted_before=week_ago
     )
+    one = await reader.read_submission(form, old.id)
 
-    assert [s.id for s in everything.items] == [recent.id, old.id]
-    assert [s.run_status for s in everything.items] == ["RUNNING", "FAILED"]
-    assert [s.wf_exec_id for s in everything.items] == [
-        stored[recent.id].wf_exec_id,
-        stored[old.id].wf_exec_id,
+    key_row, user_row = everything.items
+    assert [key_row.id, user_row.id] == [recent.id, old.id]
+    assert [key_row.run_status, user_row.run_status] == ["RUNNING", "FAILED"]
+    assert [key_row.wf_exec_id, user_row.wf_exec_id] == [
+        exec_ids[recent.id],
+        exec_ids[old.id],
     ]
-    by_key, by_user = everything.items
-    assert by_key.submitted_by is not None
-    assert (by_key.submitted_by.type, by_key.submitted_by.name) == (
+    assert key_row.submitted_by is not None
+    assert (key_row.submitted_by.type, key_row.submitted_by.name) == (
         "service_account",
         "Intake bot",
     )
-    assert by_user.submitted_by is not None
-    assert by_user.submitted_by.email == "maya.okafor@example.com"
-    assert by_user.answers["justification"] == "Old"
+    assert user_row.submitted_by is not None
+    assert user_row.submitted_by.email == "maya.okafor@example.com"
+    assert user_row.answers["priority"] == "normal"
     assert [s.id for s in last_week.items] == [recent.id]
-    assert [s.id for s in before_last_week.items] == [old.id]
+    assert [s.id for s in before.items] == [old.id]
+    assert one is not None and one.definition_version == 1
     # One visibility query per page, scoped to that page's runs.
-    assert temporal.service.query_executions.await_count == 3
-    first_query = temporal.service.query_executions.await_args_list[0].kwargs["query"]
-    assert first_query == (
-        f"WorkflowId IN ('{stored[recent.id].wf_exec_id}', "
-        f"'{stored[old.id].wf_exec_id}')"
+    assert query.await_args_list[0].kwargs["query"] == (
+        f"WorkflowId IN ('{exec_ids[recent.id]}', '{exec_ids[old.id]}')"
     )
 
+    query.side_effect = RuntimeError("Temporal is down")
+    [survivor] = (await reader.list_submissions(form, PageParams(limit=1))).items
+    assert (survivor.run_status, survivor.wf_exec_id) == (None, exec_ids[recent.id])
 
-async def test_list_submissions_survives_a_failed_status_lookup(
+
+async def test_submissions_are_scoped_to_their_form_and_deleted_alone(
     session: AsyncSession,
     service: FormSubmissionsService,
-    temporal: FakeTemporal,
-    reader_role: Role,
-    form: Form,
-) -> None:
-    receipt = await _submit(service, form, VALID_VALUES)
-    temporal.service.query_executions.side_effect = RuntimeError("Temporal is down")
-
-    page = await FormSubmissionsService(session, reader_role).list_submissions(
-        form, PageParams()
-    )
-
-    [submission] = page.items
-    assert submission.id == receipt.id
-    assert submission.run_status is None
-    assert submission.wf_exec_id is not None
-
-
-async def test_delete_submission_keeps_the_activity_event(
-    session: AsyncSession,
-    service: FormSubmissionsService,
-    temporal: FakeTemporal,
-    form: Form,
-) -> None:
-    receipt = await _submit(service, form, VALID_VALUES)
-    submission = await service.get_submission(form, receipt.id)
-    assert submission is not None
-
-    await service.delete_submission(submission)
-
-    assert await _stored(session, FormSubmission) == []
-    assert await service.get_submission(form, receipt.id) is None
-    [event] = await _stored(session, FormEvent)
-    assert event.type == FormEventType.FORM_SUBMITTED
-    assert event.submission_id is None
-
-
-async def test_submissions_are_scoped_to_their_form(
-    session: AsyncSession,
-    service: FormSubmissionsService,
-    temporal: FakeTemporal,
     intake_role: Role,
+    temporal: FakeTemporal,
     svc_workspace: Workspace,
     form: Form,
 ) -> None:
-    receipt = await _submit(service, form, VALID_VALUES)
+    receipt = await _submit(service, form, VALID)
     other_workflow = await create_workflow(session, svc_workspace.id, title="Other")
     await publish_workflow(session, intake_role, other_workflow, {})
     other_form = await create_form(session, other_workflow)
 
     assert await service.read_submission(other_form, receipt.id) is None
     assert await service.get_submission(other_form, receipt.id) is None
+    submission = await service.get_submission(form, receipt.id)
+    assert submission is not None
+    await service.delete_submission(submission)
+    assert await _stored(session) == []
 
 
-# ----- HTTP error mapping -----
-
-
-@pytest.mark.parametrize(
-    ("code", "status_code"),
-    [
-        (FormErrorCode.FORM_CONFIG_INVALID, 422),
-        (FormErrorCode.FORM_WORKFLOW_UNPUBLISHED, 409),
-        (FormErrorCode.FORM_OFFLINE, 409),
-        (FormErrorCode.FORM_UNAVAILABLE, 409),
-        (FormErrorCode.FORM_CHANGED, 409),
-        (FormErrorCode.FORM_VALIDATION_ERROR, 422),
-        (FormErrorCode.WORKFLOW_START_FAILED, 503),
-        (FormErrorCode.FILE_FIELD_INVALID, 422),
-        (FormErrorCode.FILE_INVALID, 400),
-        (FormErrorCode.FILE_TYPE_NOT_ALLOWED, 415),
-        (FormErrorCode.FILE_TOO_LARGE, 413),
-        (FormErrorCode.FILE_LIMIT_REACHED, 409),
-        (FormErrorCode.FILE_UPLOAD_FAILED, 503),
-    ],
-)
-def test_form_errors_map_to_http_statuses(
-    code: FormErrorCode, status_code: int
+async def test_a_run_reads_and_deletes_its_submission_by_id_alone(
+    session: AsyncSession,
+    service: FormSubmissionsService,
+    temporal: FakeTemporal,
+    svc_workspace: Workspace,
+    form: Form,
 ) -> None:
-    field_error = FormFieldError(
-        field="model",
-        code=FormFieldErrorCode.REQUIRED,
-        message="This field is required",
+    """The internal routes for core.forms take a submission ID and no form."""
+    receipt = await _submit(service, form, VALID)
+    executor = Role(
+        type="service",
+        service_id="tracecat-executor",
+        workspace_id=svc_workspace.id,
+        organization_id=svc_workspace.organization_id,
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-executor"],
     )
-
-    response = forms_router.form_http_error(
-        FormError(code, "Something is wrong", errors=[field_error])
+    other_workspace = Workspace(
+        name="other-workspace", organization_id=svc_workspace.organization_id
     )
+    session.add(other_workspace)
+    await session.commit()
+    outsider = executor.model_copy(update={"workspace_id": other_workspace.id})
 
-    assert response.status_code == status_code
-    assert response.detail == {
-        "code": code.value,
-        "message": "Something is wrong",
-        "errors": [
-            {"field": "model", "code": "required", "message": "This field is required"}
-        ],
-        "issues": None,
-    }
+    for route in (internal_router.get_submission, internal_router.delete_submission):
+        with pytest.raises(HTTPException) as exc_info:
+            await route(role=outsider, session=session, submission_id=receipt.id)
+        assert exc_info.value.status_code == 404
+    read = await internal_router.get_submission(
+        role=executor, session=session, submission_id=receipt.id
+    )
+    assert (read.form_id, read.answers["model"]) == (form.id, "mbp")
+    assert read.wf_exec_id is not None
 
-
-def test_every_form_error_code_has_an_http_status() -> None:
-    for code in FormErrorCode:
-        assert forms_router.form_http_error(FormError(code, "x")).status_code >= 400
+    await internal_router.delete_submission(
+        role=executor, session=session, submission_id=receipt.id
+    )
+    assert await _stored(session) == []

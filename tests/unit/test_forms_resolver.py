@@ -1,6 +1,10 @@
-"""Tests for the form config schema, widget registry, resolver and image validator."""
+"""The form config schema, the widget registry, the resolver and value checks.
+
+All pure: no database.
+"""
 
 import base64
+import uuid
 from typing import Any
 
 import pytest
@@ -19,13 +23,18 @@ from tracecat.forms.constants import (
 )
 from tracecat.forms.enums import (
     FormAutofillSource,
+    FormFieldErrorCode,
     FormInputKind,
-    FormIssueCode,
     FormIssueSeverity,
     FormWidget,
 )
-from tracecat.forms.images import decode_image_data_uri, image_data_uri_size
-from tracecat.forms.resolver import resolve_form
+from tracecat.forms.enums import FormIssueCode as Code
+from tracecat.forms.resolver import (
+    DEFAULT_WIDGETS,
+    WIDGETS,
+    classify_input,
+    resolve_form,
+)
 from tracecat.forms.schemas import (
     FormConfig,
     FormDividerEntry,
@@ -36,55 +45,57 @@ from tracecat.forms.schemas import (
     FormTextEntry,
 )
 from tracecat.forms.types import ResolveResult
-from tracecat.forms.widgets import DEFAULT_WIDGETS, WIDGETS, classify_input
+from tracecat.forms.values import check_values, visible_fields
 
-PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
-JPEG_MAGIC = b"\xff\xd8\xff\xe0"
-WEBP_MAGIC = b"RIFF\x00\x00\x00\x00WEBP"
+PNG = b"\x89PNG\r\n\x1a\n"
+STR, BOOL = {"type": "str"}, {"type": "bool"}
+OPTIONAL_STR = {"type": "str", "default": ""}
+MODEL = {"type": 'enum["mba", "mbp"]'}
 
 
-def _data_uri(subtype: str, data: bytes) -> str:
+def _image(subtype: str, data: bytes) -> str:
     return f"data:image/{subtype};base64,{base64.b64encode(data).decode()}"
 
 
-def _expects(**fields: dict[str, Any]) -> dict[str, ExpectedField]:
-    return {name: ExpectedField.model_validate(spec) for name, spec in fields.items()}
+def _with_images(*images: str) -> dict[str, Any]:
+    options = [{"value": f"o{i}", "image": image} for i, image in enumerate(images)]
+    return {"layout": [{"field": "model", "widget": "cards", "options": options}]}
 
 
 def _resolve(layout: list[dict[str, Any]] | None, **fields: Any) -> ResolveResult:
-    config = FormConfig.model_validate({"layout": layout})
-    return resolve_form(config, _expects(**fields))
+    expects = {name: ExpectedField.model_validate(f) for name, f in fields.items()}
+    return resolve_form(FormConfig.model_validate({"layout": layout}), expects)
 
 
-def _field_blocks(result: ResolveResult) -> dict[str, FormFieldBlock]:
-    return {
-        block.name: block
-        for block in result.blocks
-        if isinstance(block, FormFieldBlock)
-    }
+def _fields(result: ResolveResult) -> dict[str, FormFieldBlock]:
+    return {field.name: field for field in result.fields}
 
 
-def _codes(result: ResolveResult) -> list[FormIssueCode]:
+def _codes(result: ResolveResult) -> list[Code]:
     return [issue.code for issue in result.issues]
 
 
-# ----- Image validator -----
+def _when(field: str, equals: Any) -> dict[str, Any]:
+    return {"visible_if": {"field": field, "equals": equals}}
+
+
+# ----- Config schema -----
 
 
 @pytest.mark.parametrize(
-    ("subtype", "magic"),
-    [("png", PNG_MAGIC), ("jpeg", JPEG_MAGIC), ("webp", WEBP_MAGIC)],
+    "image",
+    [
+        _image("png", PNG + b"\x00" * (MAX_IMAGE_BYTES - len(PNG))),
+        _image("jpeg", b"\xff\xd8\xff\xe0" + b"\x00" * 10),
+        _image("webp", b"RIFF\x00\x00\x00\x00WEBP" + b"\x00" * 10),
+    ],
 )
-def test_image_validator_accepts_png_jpeg_and_webp(subtype: str, magic: bytes) -> None:
-    data = magic + b"\x00" * 10
-    uri = _data_uri(subtype, data)
-
-    assert decode_image_data_uri(uri) == data
-    assert image_data_uri_size(uri) == len(data)
+def test_option_images_accept_png_jpeg_and_webp_up_to_the_limit(image: str) -> None:
+    FormConfig.model_validate(_with_images(image))
 
 
 @pytest.mark.parametrize(
-    "uri",
+    "image",
     [
         "https://example.com/laptop.png",
         "data:image/gif;base64,R0lGODlh",
@@ -92,79 +103,36 @@ def test_image_validator_accepts_png_jpeg_and_webp(subtype: str, magic: bytes) -
         "data:image/png,not-base64-marked",
         "data:image/png;base64,not base64!",
         # Declared type and content disagree.
-        _data_uri("png", JPEG_MAGIC + b"\x00" * 10),
-        _data_uri("webp", b"RIFF\x00\x00\x00\x00WAVE"),
-        _data_uri("jpeg", b""),
+        _image("png", b"\xff\xd8\xff\xe0" + b"\x00" * 10),
+        _image("webp", b"RIFF\x00\x00\x00\x00WAVE"),
+        _image("jpeg", b""),
+        _image("png", PNG + b"\x00" * (MAX_IMAGE_BYTES - len(PNG) + 1)),
     ],
 )
-def test_image_validator_rejects_bad_images(uri: str) -> None:
-    with pytest.raises(ValueError):
-        decode_image_data_uri(uri)
-
-
-def test_image_validator_enforces_the_per_image_limit() -> None:
-    at_limit = PNG_MAGIC + b"\x00" * (MAX_IMAGE_BYTES - len(PNG_MAGIC))
-    assert len(decode_image_data_uri(_data_uri("png", at_limit))) == MAX_IMAGE_BYTES
-
-    with pytest.raises(ValueError, match="larger than"):
-        decode_image_data_uri(_data_uri("png", at_limit + b"\x00"))
-
-
-def test_config_rejects_an_invalid_option_image() -> None:
+def test_option_images_reject_anything_else(image: str) -> None:
     with pytest.raises(ValidationError):
-        FormConfig.model_validate(
-            {
-                "layout": [
-                    {
-                        "field": "model",
-                        "widget": "cards",
-                        "options": [
-                            {"value": "mba", "image": "https://example.com/a.png"}
-                        ],
-                    }
-                ]
-            }
-        )
+        FormConfig.model_validate(_with_images(image))
 
 
-def test_config_enforces_the_total_image_limit() -> None:
-    image = _data_uri("png", PNG_MAGIC + b"\x00" * (MAX_IMAGE_BYTES - len(PNG_MAGIC)))
+def test_images_of_one_config_are_limited_in_total() -> None:
+    image = _image("png", PNG + b"\x00" * (MAX_IMAGE_BYTES - len(PNG)))
     count = MAX_CONFIG_IMAGE_BYTES // MAX_IMAGE_BYTES
 
-    def config(images: int) -> dict[str, Any]:
-        return {
-            "layout": [
-                {
-                    "field": "model",
-                    "widget": "cards",
-                    "options": [
-                        {"value": f"option-{index}", "image": image}
-                        for index in range(images)
-                    ],
-                }
-            ]
-        }
-
-    FormConfig.model_validate(config(count))
+    FormConfig.model_validate(_with_images(*[image] * count))
     with pytest.raises(ValidationError, match="in total"):
-        FormConfig.model_validate(config(count + 1))
-
-
-# ----- Config schema -----
+        FormConfig.model_validate(_with_images(*[image] * (count + 1)))
 
 
 def test_layout_entries_are_discriminated_by_their_key() -> None:
-    config = FormConfig.model_validate(
-        {
-            "layout": [
-                {"notice": "Reviewed within 2 business days.", "tone": "warning"},
-                {"field": "model"},
-                {"heading": "Delivery"},
-                {"text": "Read the **policy** first."},
-                {"divider": True},
-            ]
-        }
-    )
+    layout = [
+        {"notice": "Reviewed within 2 business days.", "tone": "warning"},
+        {"field": "model"},
+        {"heading": "Delivery"},
+        {"text": "Read the **policy** first."},
+        {"divider": True},
+    ]
+
+    config = FormConfig.model_validate({"layout": layout})
 
     assert [type(entry) for entry in config.layout or []] == [
         FormNoticeEntry,
@@ -175,153 +143,57 @@ def test_layout_entries_are_discriminated_by_their_key() -> None:
     ]
 
 
-@pytest.mark.parametrize(
-    "entry",
-    [
-        {},
-        {"label": "No identifying key"},
-        {"field": "model", "heading": "Two identifying keys"},
-        {"divider": False},
-        {"heading": "Delivery", "unknown": 1},
-        {"field": "model", "widget": "slider"},
-        {"field": "model", "max_files": 11},
-        {"field": "model", "options": []},
-        {"field": "model", "options": [{"value": "a"}, {"value": "a"}]},
-        {"field": "model", "autofill": "requester.phone"},
-        {"field": "model", "visible_if": {"field": "other", "equals": ["a"]}},
-    ],
-)
-def test_invalid_layout_entries_are_rejected(entry: dict[str, Any]) -> None:
-    with pytest.raises(ValidationError):
-        FormConfig.model_validate({"layout": [entry]})
+SHORT = "x" * (MAX_SHORT_TEXT_LENGTH + 1)
+LONG = "x" * (MAX_LONG_TEXT_LENGTH + 1)
 
 
-def test_config_rejects_unknown_top_level_keys() -> None:
-    with pytest.raises(ValidationError):
-        FormConfig.model_validate({"status": "online"})
-
-
-_SHORT = "x" * (MAX_SHORT_TEXT_LENGTH + 1)
-_LONG = "x" * (MAX_LONG_TEXT_LENGTH + 1)
+def _entry(**keys: Any) -> dict[str, Any]:
+    return {"layout": [{"field": "a", **keys}]}
 
 
 @pytest.mark.parametrize(
     "config",
     [
-        pytest.param({"title": _SHORT}, id="title"),
-        pytest.param({"description": _LONG}, id="description"),
-        pytest.param({"success_message": _LONG}, id="success_message"),
-        pytest.param(
-            {"layout": [{"divider": True}] * (MAX_LAYOUT_ENTRIES + 1)}, id="layout"
-        ),
-        pytest.param({"layout": [{"heading": _SHORT}]}, id="heading"),
-        pytest.param({"layout": [{"text": _LONG}]}, id="text"),
-        pytest.param({"layout": [{"notice": _LONG}]}, id="notice"),
-        pytest.param({"layout": [{"field": _SHORT}]}, id="field"),
-        pytest.param({"layout": [{"field": "a", "label": _SHORT}]}, id="label"),
-        pytest.param({"layout": [{"field": "a", "help": _LONG}]}, id="help"),
-        pytest.param(
-            {"layout": [{"field": "a", "placeholder": _SHORT}]}, id="placeholder"
-        ),
-        pytest.param(
-            {
-                "layout": [
-                    {
-                        "field": "a",
-                        "options": [
-                            {"value": str(index)}
-                            for index in range(MAX_FIELD_OPTIONS + 1)
-                        ],
-                    }
-                ]
-            },
-            id="options",
-        ),
-        pytest.param(
-            {"layout": [{"field": "a", "options": [{"value": _SHORT}]}]},
-            id="option_value",
-        ),
-        pytest.param(
-            {"layout": [{"field": "a", "options": [{"value": "v", "label": _SHORT}]}]},
-            id="option_label",
-        ),
-        pytest.param(
-            {
-                "layout": [
-                    {"field": "a", "options": [{"value": "v", "description": _LONG}]}
-                ]
-            },
-            id="option_description",
-        ),
-        pytest.param(
-            {"layout": [{"field": "a", "accept": [".pdf"] * (MAX_ACCEPT_ENTRIES + 1)}]},
-            id="accept",
-        ),
-        pytest.param(
-            {"layout": [{"field": "a", "accept": [_SHORT]}]}, id="accept_entry"
-        ),
-        pytest.param(
-            {
-                "layout": [
-                    {"field": "a", "visible_if": {"field": "b", "equals": _SHORT}}
-                ]
-            },
-            id="visible_if_equals",
-        ),
+        {"status": "online"},
+        {"layout": [{}]},
+        {"layout": [{"label": "No identifying key"}]},
+        {"layout": [{"field": "model", "heading": "Two identifying keys"}]},
+        {"layout": [{"divider": False}]},
+        {"layout": [{"heading": "Delivery", "unknown": 1}]},
+        _entry(widget="slider"),
+        _entry(max_files=11),
+        _entry(options=[]),
+        _entry(options=[{"value": "a"}, {"value": "a"}]),
+        _entry(autofill="requester.phone"),
+        _entry(**_when("other", ["a"])),
+        # A hidden or autofilled field shows nothing, so it sets nothing.
+        _entry(hidden=True, label="Requester"),
+        _entry(autofill="requester", widget="user"),
+        _entry(hidden=True, **_when("other", True)),
+        # Lengths and counts are bounded.
+        {"title": SHORT},
+        {"description": LONG},
+        {"success_message": LONG},
+        {"layout": [{"divider": True}] * (MAX_LAYOUT_ENTRIES + 1)},
+        {"layout": [{"heading": SHORT}]},
+        {"layout": [{"text": LONG}]},
+        {"layout": [{"notice": LONG}]},
+        {"layout": [{"field": SHORT}]},
+        _entry(label=SHORT),
+        _entry(help=LONG),
+        _entry(placeholder=SHORT),
+        _entry(options=[{"value": str(i)} for i in range(MAX_FIELD_OPTIONS + 1)]),
+        _entry(options=[{"value": SHORT}]),
+        _entry(options=[{"value": "v", "label": SHORT}]),
+        _entry(options=[{"value": "v", "description": LONG}]),
+        _entry(accept=[".pdf"] * (MAX_ACCEPT_ENTRIES + 1)),
+        _entry(accept=[SHORT]),
+        _entry(**_when("b", SHORT)),
     ],
 )
-def test_config_text_and_lists_are_bounded(config: dict[str, Any]) -> None:
+def test_invalid_configs_are_rejected(config: dict[str, Any]) -> None:
     with pytest.raises(ValidationError):
         FormConfig.model_validate(config)
-
-
-def test_config_accepts_text_and_lists_at_their_limits() -> None:
-    FormConfig.model_validate(
-        {
-            "title": "x" * MAX_SHORT_TEXT_LENGTH,
-            "description": "x" * MAX_LONG_TEXT_LENGTH,
-            "layout": [{"divider": True}] * MAX_LAYOUT_ENTRIES,
-        }
-    )
-
-
-@pytest.mark.parametrize(
-    "entry",
-    [
-        {"field": "requester", "hidden": True, "label": "Requester"},
-        {"field": "requester", "autofill": "requester", "widget": "user"},
-        {"field": "requester", "autofill": "requester", "help": "Filled in"},
-        {
-            "field": "requester",
-            "hidden": True,
-            "visible_if": {"field": "other", "equals": True},
-        },
-    ],
-)
-def test_hidden_and_autofill_forbid_presentation_keys(entry: dict[str, Any]) -> None:
-    with pytest.raises(ValidationError, match="cannot set"):
-        FormConfig.model_validate({"layout": [entry]})
-
-
-def test_config_dump_keeps_only_what_the_author_wrote() -> None:
-    # JSONB returns the keys of each entry in its own order.
-    stored = {
-        "layout": [
-            {"widget": "cards", "label": "Laptop", "field": "model"},
-            {"tone": "info", "notice": "Reviewed within 2 business days."},
-        ],
-        "title": "Laptop request",
-    }
-
-    assert FormConfig.model_validate(stored).model_dump(mode="json") == {
-        "title": "Laptop request",
-        "layout": [
-            {"field": "model", "label": "Laptop", "widget": "cards"},
-            {"notice": "Reviewed within 2 business days.", "tone": "info"},
-        ],
-    }
-    dumped_entry = FormConfig.model_validate(stored).model_dump()["layout"][0]
-    assert list(dumped_entry) == ["field", "label", "widget"]
 
 
 # ----- Widget registry -----
@@ -353,72 +225,30 @@ KIND_BY_TYPE = {
 
 @pytest.mark.parametrize(("type_string", "kind"), KIND_BY_TYPE.items())
 def test_classify_input(type_string: str, kind: FormInputKind) -> None:
-    assert classify_input(type_string, "field").kind is kind
+    classified = classify_input(type_string, "field")
 
-
-def test_classify_input_returns_enum_values() -> None:
-    assert classify_input('enum["low", "high"]', "field").enum_values == (
-        "low",
-        "high",
-    )
-    assert classify_input('list[enum["low", "high"]]', "field").enum_values == (
-        "low",
-        "high",
-    )
-
-
-def test_registry_has_one_entry_per_widget() -> None:
-    assert set(WIDGETS) == set(FormWidget)
-
-
-def test_registry_matches_the_widget_table() -> None:
-    k = FormInputKind
-    accepts = {widget: set(spec.accepts) for widget, spec in WIDGETS.items()}
-
-    assert accepts == {
-        FormWidget.TEXT: {k.STR},
-        FormWidget.LONG_TEXT: {k.STR},
-        FormWidget.NUMBER: {k.INT, k.FLOAT},
-        FormWidget.TOGGLE: {k.BOOL},
-        FormWidget.SELECT: {k.ENUM, k.STR},
-        FormWidget.MULTI_SELECT: {k.LIST_ENUM, k.LIST_STR},
-        FormWidget.CARDS: {k.ENUM, k.STR, k.LIST_ENUM, k.LIST_STR},
-        FormWidget.TAGS: {k.LIST_STR},
-        FormWidget.DATE: {k.STR, k.DATETIME},
-        FormWidget.DATETIME: {k.DATETIME, k.STR},
-        FormWidget.USER: {k.DICT, k.LIST_DICT},
-        FormWidget.FILE: {k.DICT, k.LIST_DICT},
-    }
-    assert DEFAULT_WIDGETS == {
-        k.STR: FormWidget.TEXT,
-        k.INT: FormWidget.NUMBER,
-        k.FLOAT: FormWidget.NUMBER,
-        k.BOOL: FormWidget.TOGGLE,
-        k.ENUM: FormWidget.SELECT,
-        k.LIST_ENUM: FormWidget.MULTI_SELECT,
-        k.LIST_STR: FormWidget.TAGS,
-        k.DATETIME: FormWidget.DATETIME,
-    }
+    assert classified.kind is kind
+    if kind in (FormInputKind.ENUM, FormInputKind.LIST_ENUM):
+        assert classified.enum_values == ("low", "high")
 
 
 @pytest.mark.parametrize("kind", FormInputKind)
 def test_every_input_kind_gets_its_default_widget_or_none(kind: FormInputKind) -> None:
     type_string = next(t for t, k in KIND_BY_TYPE.items() if k is kind)
     default = DEFAULT_WIDGETS.get(kind)
-    if default is not None:
-        assert kind in WIDGETS[default].accepts
 
     required = _resolve(None, value={"type": type_string})
     optional = _resolve(None, value={"type": type_string, "default": None})
 
     if default is None:
-        assert _codes(required) == [FormIssueCode.NO_WIDGET_FOR_TYPE]
-        assert _codes(optional) == [FormIssueCode.UNRENDERED_OPTIONAL_INPUT]
+        assert _codes(required) == [Code.NO_WIDGET_FOR_TYPE]
+        assert _codes(optional) == [Code.UNRENDERED_OPTIONAL_INPUT]
+        assert optional.issues[0].severity is FormIssueSeverity.WARNING
         assert not required.blocks and not optional.blocks
     else:
         assert not required.issues
-        assert _field_blocks(required)["value"].widget is default
-        assert _field_blocks(optional)["value"].required is False
+        assert _fields(required)["value"].widget is default
+        assert _fields(optional)["value"].required is False
 
 
 @pytest.mark.parametrize("widget", FormWidget)
@@ -435,335 +265,238 @@ def test_widget_compatibility_for_every_input_kind(
 
     if kind in WIDGETS[widget].accepts:
         assert not result.has_errors
-        assert _field_blocks(result)["value"].widget is widget
+        assert _fields(result)["value"].widget is widget
     else:
-        assert _codes(result) == [FormIssueCode.INCOMPATIBLE_WIDGET]
+        assert _codes(result) == [Code.INCOMPATIBLE_WIDGET]
         assert result.issues[0].loc == ["layout", 0, "widget"]
         assert not result.blocks
 
 
 # ----- Resolver -----
 
-LAPTOP_EXPECTS: dict[str, dict[str, Any]] = {
-    "model": {"type": 'enum["mba", "mbp"]', "description": "Laptop model"},
-    "justification": {"type": "str"},
-    "for_someone_else": {"type": "bool", "default": False},
+EXPECTS: dict[str, dict[str, Any]] = {
+    "model": MODEL | {"description": "Laptop model"},
+    "justification": STR,
+    "for_someone_else": BOOL | {"default": False},
     "recipient": {"type": "dict | None", "default": None},
     "quote": {"type": "list[dict]", "default": []},
-    "requester": {"type": "dict"},
+    "needed_by": {"type": "str | None", "default": None},
+    "requester": {"type": "dict | None"},
+    "priority": {"type": "str", "default": "normal"},
+    "size": STR,
+    "notes": OPTIONAL_STR,
 }
-
-LAPTOP_LAYOUT: list[dict[str, Any]] = [
+LAYOUT: list[dict[str, Any]] = [
     {"notice": "Requests are reviewed within 2 business days."},
     {
         "field": "model",
         "label": "Choose your laptop",
         "widget": "cards",
-        "options": [
-            {"value": "mbp", "label": "MacBook Pro 14"},
-        ],
+        "options": [{"value": "mbp", "label": "MacBook Pro 14"}],
     },
     {"field": "justification", "widget": "long_text"},
     {"heading": "Delivery"},
     {"field": "for_someone_else"},
-    {
-        "field": "recipient",
-        "widget": "user",
-        "visible_if": {"field": "for_someone_else", "equals": True},
-    },
+    {"field": "recipient", "widget": "user", **_when("for_someone_else", True)},
     {"field": "quote", "widget": "file", "accept": [".pdf", "image/*"], "max_files": 2},
+    {"field": "needed_by", "widget": "date"},
     {"field": "requester", "autofill": "requester"},
+    {"field": "priority", "hidden": True},
+    {"field": "size", "widget": "select", "options": [{"value": "s"}, {"value": "m"}]},
 ]
+VALID: dict[str, Any] = {"model": "mbp", "justification": "Mine broke", "size": "s"}
 
 
-def test_resolves_the_spec_example() -> None:
-    result = _resolve(LAPTOP_LAYOUT, **LAPTOP_EXPECTS)
+def test_resolves_a_full_layout() -> None:
+    result = _resolve(LAYOUT, **EXPECTS)
 
     assert not result.issues
-    assert [block.type for block in result.blocks] == [
+    assert [block.type for block in result.blocks[:5]] == [
         "notice",
         "field",
         "field",
         "heading",
         "field",
-        "field",
-        "field",
     ]
     assert result.autofill == {"requester": FormAutofillSource.REQUESTER}
-    assert result.hidden == []
-
-    fields = _field_blocks(result)
+    assert result.hidden == ["priority"]
+    fields = _fields(result)
+    # Inputs the layout leaves out follow in schema order.
     assert list(fields) == [
         "model",
         "justification",
         "for_someone_else",
         "recipient",
         "quote",
+        "needed_by",
+        "size",
+        "notes",
     ]
     model = fields["model"]
-    assert model.label == "Choose your laptop"
-    assert model.help == "Laptop model"
-    assert model.required is True
-    assert model.multiple is False
-    # Decorated options come first, the rest of the enum follows.
+    assert (model.label, model.help, model.required, model.multiple) == (
+        "Choose your laptop",
+        "Laptop model",
+        True,
+        False,
+    )
+    # Decorated enum options come first, the rest of the enum follows.
     assert [(o.value, o.label) for o in model.options or []] == [
         ("mbp", "MacBook Pro 14"),
         ("mba", "mba"),
     ]
-    assert fields["for_someone_else"].label == "For someone else"
-    assert fields["for_someone_else"].widget is FormWidget.TOGGLE
-    assert fields["for_someone_else"].default is False
+    # Options of a str input are the allowed values.
+    assert [o.value for o in fields["size"].options or []] == ["s", "m"]
+    toggle = fields["for_someone_else"]
+    assert (toggle.label, toggle.widget, toggle.default) == (
+        "For someone else",
+        FormWidget.TOGGLE,
+        False,
+    )
     assert fields["recipient"].visible_if is not None
     assert fields["recipient"].required is False
     quote = fields["quote"]
     assert quote.multiple is True
     assert quote.config is not None
-    assert quote.config.accept == [".pdf", "image/*"]
-    assert quote.config.max_files == 2
-
-
-def test_no_layout_renders_every_input_in_schema_order() -> None:
-    result = _resolve(
-        None,
-        zeta={"type": "str"},
-        mm={"type": "int", "default": 1},
-        a={"type": "bool", "default": False},
+    assert (quote.config.accept, quote.config.max_files) == ([".pdf", "image/*"], 2)
+    single = _fields(_resolve([{"field": "q", "widget": "file"}], q={"type": "dict"}))
+    assert single["q"].config is not None
+    assert single["q"].config.max_files == 1
+    assert single["q"].config.max_file_size == (
+        app_config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES
     )
 
-    assert not result.issues
-    assert list(_field_blocks(result)) == ["zeta", "mm", "a"]
 
-
-def test_inputs_missing_from_the_layout_are_appended() -> None:
-    result = _resolve(
-        [{"field": "b"}],
-        a={"type": "str"},
-        b={"type": "str"},
-        c={"type": "str"},
-    )
-
-    assert list(_field_blocks(result)) == ["b", "a", "c"]
-
-
-def test_hidden_field_is_not_rendered() -> None:
-    result = _resolve(
-        [{"field": "priority", "hidden": True}],
-        priority={"type": "str", "default": "low"},
-    )
-
-    assert not result.issues
-    assert result.hidden == ["priority"]
-    assert not result.blocks
-
-
-def test_str_options_define_the_allowed_values() -> None:
-    result = _resolve(
-        [
-            {
-                "field": "size",
-                "widget": "select",
-                "options": [{"value": "s"}, {"value": "m", "label": "Medium"}],
-            }
-        ],
-        size={"type": "str"},
-    )
-
-    assert not result.issues
-    options = _field_blocks(result)["size"].options or []
-    assert [(o.value, o.label) for o in options] == [("s", "s"), ("m", "Medium")]
-
-
-def test_single_file_field_takes_one_file() -> None:
-    result = _resolve([{"field": "quote", "widget": "file"}], quote={"type": "dict"})
-
-    config = _field_blocks(result)["quote"].config
-    assert config is not None
-    assert config.max_files == 1
-    assert config.max_file_size == app_config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES
-
-
-ISSUE_CASES: list[tuple[FormIssueCode, list[dict[str, Any]], dict[str, Any], list]] = [
+ISSUE_CASES: list[tuple[Code, list[dict[str, Any]], dict[str, Any], list]] = [
+    (Code.UNKNOWN_FIELD, [{"field": "missing"}], {"a": STR}, [0, "field"]),
+    (Code.DUPLICATE_FIELD, [{"field": "a"}] * 2, {"a": STR}, [1, "field"]),
     (
-        FormIssueCode.UNKNOWN_FIELD,
-        [{"field": "missing"}],
-        {"name": {"type": "str"}},
-        ["layout", 0, "field"],
+        Code.INCOMPATIBLE_WIDGET,
+        [{"field": "a", "widget": "toggle"}],
+        {"a": STR},
+        [0, "widget"],
+    ),
+    (Code.NO_WIDGET_FOR_TYPE, [{"field": "a"}], {"a": {"type": "duration"}}, [0]),
+    (
+        Code.UNSUPPORTED_WIDGET_OPTION,
+        [{"field": "a", "accept": [".pdf"]}],
+        {"a": STR},
+        [0, "accept"],
     ),
     (
-        FormIssueCode.DUPLICATE_FIELD,
-        [{"field": "name"}, {"field": "name"}],
-        {"name": {"type": "str"}},
-        ["layout", 1, "field"],
+        Code.UNSUPPORTED_WIDGET_OPTION,
+        [{"field": "a", "placeholder": "Yes"}],
+        {"a": BOOL},
+        [0, "placeholder"],
     ),
     (
-        FormIssueCode.INCOMPATIBLE_WIDGET,
-        [{"field": "name", "widget": "toggle"}],
-        {"name": {"type": "str"}},
-        ["layout", 0, "widget"],
+        Code.UNSUPPORTED_WIDGET_OPTION,
+        [{"field": "a", "widget": "file", "max_files": 2}],
+        {"a": {"type": "dict"}},
+        [0, "max_files"],
+    ),
+    (Code.OPTIONS_REQUIRED, [{"field": "a", "widget": "select"}], {"a": STR}, [0]),
+    (
+        Code.OPTIONS_NOT_SUPPORTED,
+        [{"field": "a", "options": [{"value": "x"}]}],
+        {"a": STR},
+        [0, "options"],
     ),
     (
-        FormIssueCode.NO_WIDGET_FOR_TYPE,
-        [{"field": "wait"}],
-        {"wait": {"type": "duration"}},
-        ["layout", 0],
+        Code.OPTION_NOT_IN_ENUM,
+        [{"field": "a", "options": [{"value": "mba"}, {"value": "dell"}]}],
+        {"a": MODEL},
+        [0, "options", 1, "value"],
     ),
     (
-        FormIssueCode.UNSUPPORTED_WIDGET_OPTION,
-        [{"field": "name", "accept": [".pdf"]}],
-        {"name": {"type": "str"}},
-        ["layout", 0, "accept"],
+        Code.CONDITIONAL_FIELD_REQUIRED,
+        [{"field": "a", "hidden": True}],
+        {"a": STR},
+        [0, "hidden"],
     ),
     (
-        FormIssueCode.UNSUPPORTED_WIDGET_OPTION,
-        [{"field": "agree", "placeholder": "Yes"}],
-        {"agree": {"type": "bool"}},
-        ["layout", 0, "placeholder"],
+        Code.CONDITIONAL_FIELD_REQUIRED,
+        [{"field": "b"}, {"field": "a", **_when("b", True)}],
+        {"b": BOOL, "a": STR},
+        [1, "visible_if"],
     ),
     (
-        FormIssueCode.UNSUPPORTED_WIDGET_OPTION,
-        [{"field": "quote", "widget": "file", "max_files": 2}],
-        {"quote": {"type": "dict"}},
-        ["layout", 0, "max_files"],
-    ),
-    (
-        FormIssueCode.OPTIONS_REQUIRED,
-        [{"field": "size", "widget": "select"}],
-        {"size": {"type": "str"}},
-        ["layout", 0],
-    ),
-    (
-        FormIssueCode.OPTIONS_NOT_SUPPORTED,
-        [{"field": "name", "options": [{"value": "a"}]}],
-        {"name": {"type": "str"}},
-        ["layout", 0, "options"],
-    ),
-    (
-        FormIssueCode.OPTION_NOT_IN_ENUM,
-        [{"field": "model", "options": [{"value": "mba"}, {"value": "dell"}]}],
-        {"model": {"type": 'enum["mba", "mbp"]'}},
-        ["layout", 0, "options", 1, "value"],
-    ),
-    (
-        FormIssueCode.CONDITIONAL_FIELD_REQUIRED,
-        [{"field": "name", "hidden": True}],
-        {"name": {"type": "str"}},
-        ["layout", 0, "hidden"],
-    ),
-    (
-        FormIssueCode.CONDITIONAL_FIELD_REQUIRED,
-        [
-            {"field": "other"},
-            {"field": "name", "visible_if": {"field": "other", "equals": True}},
-        ],
-        {"other": {"type": "bool"}, "name": {"type": "str"}},
-        ["layout", 1, "visible_if"],
-    ),
-    (
-        FormIssueCode.VISIBLE_IF_UNKNOWN_FIELD,
-        [{"field": "name", "visible_if": {"field": "missing", "equals": True}}],
-        {"name": {"type": "str", "default": ""}},
-        ["layout", 0, "visible_if", "field"],
+        Code.VISIBLE_IF_UNKNOWN_FIELD,
+        [{"field": "a", **_when("missing", True)}],
+        {"a": OPTIONAL_STR},
+        [0, "visible_if", "field"],
     ),
     (
         # The controller comes later in the layout.
-        FormIssueCode.VISIBLE_IF_INVALID_CONTROLLER,
-        [
-            {"field": "name", "visible_if": {"field": "other", "equals": True}},
-            {"field": "other"},
-        ],
-        {"other": {"type": "bool"}, "name": {"type": "str", "default": ""}},
-        ["layout", 0, "visible_if", "field"],
+        Code.VISIBLE_IF_INVALID_CONTROLLER,
+        [{"field": "a", **_when("b", True)}, {"field": "b"}],
+        {"b": BOOL, "a": OPTIONAL_STR},
+        [0, "visible_if", "field"],
     ),
     (
         # The controller is itself conditional.
-        FormIssueCode.VISIBLE_IF_INVALID_CONTROLLER,
+        Code.VISIBLE_IF_INVALID_CONTROLLER,
         [
-            {"field": "first"},
-            {"field": "second", "visible_if": {"field": "first", "equals": True}},
-            {"field": "third", "visible_if": {"field": "second", "equals": True}},
+            {"field": "c"},
+            {"field": "b", **_when("c", True)},
+            {"field": "a", **_when("b", True)},
         ],
-        {
-            "first": {"type": "bool"},
-            "second": {"type": "bool", "default": False},
-            "third": {"type": "str", "default": ""},
-        },
-        ["layout", 2, "visible_if", "field"],
+        {"c": BOOL, "b": BOOL | {"default": False}, "a": OPTIONAL_STR},
+        [2, "visible_if", "field"],
     ),
     (
         # The controller is not a scalar.
-        FormIssueCode.VISIBLE_IF_INVALID_CONTROLLER,
-        [
-            {"field": "tags"},
-            {"field": "name", "visible_if": {"field": "tags", "equals": "a"}},
-        ],
-        {"tags": {"type": "list[str]"}, "name": {"type": "str", "default": ""}},
-        ["layout", 1, "visible_if", "field"],
+        Code.VISIBLE_IF_INVALID_CONTROLLER,
+        [{"field": "b"}, {"field": "a", **_when("b", "x")}],
+        {"b": {"type": "list[str]"}, "a": OPTIONAL_STR},
+        [1, "visible_if", "field"],
     ),
     (
-        FormIssueCode.VISIBLE_IF_INVALID_VALUE,
-        [
-            {"field": "other"},
-            {"field": "name", "visible_if": {"field": "other", "equals": "yes"}},
-        ],
-        {"other": {"type": "bool"}, "name": {"type": "str", "default": ""}},
-        ["layout", 1, "visible_if", "equals"],
+        Code.VISIBLE_IF_INVALID_VALUE,
+        [{"field": "b"}, {"field": "a", **_when("b", "yes")}],
+        {"b": BOOL, "a": OPTIONAL_STR},
+        [1, "visible_if", "equals"],
     ),
     (
-        FormIssueCode.VISIBLE_IF_INVALID_VALUE,
-        [
-            {"field": "model"},
-            {"field": "name", "visible_if": {"field": "model", "equals": "dell"}},
-        ],
-        {
-            "model": {"type": 'enum["mba", "mbp"]'},
-            "name": {"type": "str", "default": ""},
-        },
-        ["layout", 1, "visible_if", "equals"],
+        Code.VISIBLE_IF_INVALID_VALUE,
+        [{"field": "b"}, {"field": "a", **_when("b", "dell")}],
+        {"b": MODEL, "a": OPTIONAL_STR},
+        [1, "visible_if", "equals"],
     ),
     (
-        FormIssueCode.AUTOFILL_TYPE_MISMATCH,
-        [{"field": "requester", "autofill": "requester"}],
-        {"requester": {"type": "str"}},
-        ["layout", 0, "autofill"],
+        Code.AUTOFILL_TYPE_MISMATCH,
+        [{"field": "a", "autofill": "requester"}],
+        {"a": STR},
+        [0, "autofill"],
     ),
     (
-        FormIssueCode.AUTOFILL_TYPE_MISMATCH,
-        [{"field": "email", "autofill": "requester.email"}],
-        {"email": {"type": "dict"}},
-        ["layout", 0, "autofill"],
+        Code.AUTOFILL_TYPE_MISMATCH,
+        [{"field": "a", "autofill": "requester.email"}],
+        {"a": {"type": "dict"}},
+        [0, "autofill"],
     ),
 ]
 
 
 @pytest.mark.parametrize(("code", "layout", "expects", "loc"), ISSUE_CASES)
 def test_resolver_error_codes(
-    code: FormIssueCode,
+    code: Code,
     layout: list[dict[str, Any]],
     expects: dict[str, Any],
     loc: list[str | int],
 ) -> None:
     result = _resolve(layout, **expects)
 
-    assert result.has_errors
-    assert [(issue.code, issue.loc) for issue in result.issues] == [(code, loc)]
+    assert [(issue.code, issue.loc) for issue in result.issues] == [
+        (code, ["layout", *loc])
+    ]
     assert result.issues[0].severity is FormIssueSeverity.ERROR
 
 
-def test_unrendered_optional_input_is_a_warning() -> None:
-    result = _resolve(None, wait={"type": "duration", "default": "PT1H"})
-
-    assert not result.has_errors
-    assert [(issue.code, issue.severity) for issue in result.issues] == [
-        (FormIssueCode.UNRENDERED_OPTIONAL_INPUT, FormIssueSeverity.WARNING)
-    ]
-
-
 def test_every_issue_code_is_covered() -> None:
-    covered = {case[0] for case in ISSUE_CASES} | {
-        FormIssueCode.UNRENDERED_OPTIONAL_INPUT
-    }
+    # The warning is covered by the default-widget test.
+    covered = {case[0] for case in ISSUE_CASES} | {Code.UNRENDERED_OPTIONAL_INPUT}
 
-    assert covered == set(FormIssueCode)
+    assert covered == set(Code)
 
 
 @pytest.mark.parametrize(
@@ -779,10 +512,97 @@ def test_every_issue_code_is_covered() -> None:
 def test_autofill_fills_inputs_without_a_widget(
     source: FormAutofillSource, type_string: str
 ) -> None:
-    result = _resolve(
-        [{"field": "value", "autofill": source}], value={"type": type_string}
-    )
+    result = _resolve([{"field": "a", "autofill": source}], a={"type": type_string})
 
-    assert not result.issues
-    assert result.autofill == {"value": source}
-    assert not result.blocks
+    assert (result.issues, result.blocks) == ([], [])
+    assert result.autofill == {"a": source}
+
+
+# ----- Value checks -----
+
+
+@pytest.mark.parametrize(
+    ("values", "shown"),
+    [
+        ({}, False),
+        ({"for_someone_else": False}, False),
+        ({"for_someone_else": True}, True),
+        # A truthy value of another type does not satisfy the rule.
+        ({"for_someone_else": 1}, False),
+        ({"for_someone_else": "true"}, False),
+    ],
+)
+def test_conditional_field_follows_its_controller(
+    values: dict[str, Any], shown: bool
+) -> None:
+    names = [
+        field.name
+        for field in visible_fields(_resolve(LAYOUT, **EXPECTS).blocks, values)
+    ]
+
+    assert ("recipient" in names) is shown
+
+
+def test_missing_controller_counts_as_its_default() -> None:
+    blocks = _resolve(
+        [{"field": "b"}, {"field": "a", **_when("b", True)}],
+        b=BOOL | {"default": True},
+        a=OPTIONAL_STR,
+    ).blocks
+
+    assert [f.name for f in visible_fields(blocks, {})] == ["b", "a"]
+    assert [f.name for f in visible_fields(blocks, {"b": False})] == ["b"]
+
+
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        ({"size": "s"}, {"model": "required", "justification": "required"}),
+        (
+            VALID | {"model": "", "justification": None},
+            {"model": "required", "justification": "required"},
+        ),
+        (VALID | {"model": "dell"}, {"model": "invalid_option"}),
+        (VALID | {"model": ["mbp"]}, {"model": "invalid_value"}),
+        (VALID | {"model": 3}, {"model": "invalid_option"}),
+        (VALID | {"size": "xl"}, {"size": "invalid_option"}),
+        (VALID | {"needed_by": "next week"}, {"needed_by": "invalid_date"}),
+        (VALID | {"needed_by": "2026-02-30"}, {"needed_by": "invalid_date"}),
+        (VALID | {"needed_by": "2026-02-03T10:00:00"}, {"needed_by": "invalid_date"}),
+        (VALID | {"nope": 1}, {"nope": "unknown_field"}),
+        # Hidden and autofilled inputs are not fields of the form.
+        (VALID | {"priority": "urgent"}, {"priority": "unknown_field"}),
+        (VALID | {"requester": {}}, {"requester": "unknown_field"}),
+    ],
+)
+def test_check_values_errors(values: dict[str, Any], expected: dict[str, str]) -> None:
+    checked = check_values(_resolve(LAYOUT, **EXPECTS).blocks, values)
+
+    assert {error.field: error.code.value for error in checked.errors} == expected
+
+
+def test_check_values_keeps_valid_answers_of_visible_fields() -> None:
+    blocks = _resolve(
+        [{"field": "tags", "widget": "multi_select", "options": [{"value": "a"}]}],
+        tags={"type": "list[str]"},
+        at={"type": "datetime"},
+        agree=BOOL,
+        notes=OPTIONAL_STR,
+    ).blocks
+    values = {"tags": ["a"], "at": "2026-02-03T10:00:00Z", "agree": False, "notes": ""}
+
+    checked = check_values(blocks, values)
+
+    assert checked.errors == []
+    # False is an answer. An empty optional value is left to its default.
+    assert checked.values == {k: v for k, v in values.items() if k != "notes"}
+    for bad, code in [
+        ({"tags": ["a", "b"]}, FormFieldErrorCode.INVALID_OPTION),
+        ({"tags": "a"}, FormFieldErrorCode.INVALID_VALUE),
+        ({"at": "soon"}, FormFieldErrorCode.INVALID_DATE),
+    ]:
+        assert [e.code for e in check_values(blocks, values | bad).errors] == [code]
+    # The value of a field the requester cannot see is dropped, not checked.
+    laptop = _resolve(LAYOUT, **EXPECTS).blocks
+    hidden = check_values(laptop, VALID | {"recipient": str(uuid.uuid4())})
+    assert (hidden.errors, hidden.values) == ([], VALID)

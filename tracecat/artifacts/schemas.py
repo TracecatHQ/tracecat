@@ -90,7 +90,6 @@ class FormArtifact(BaseArtifact):
     """Workflow form artifact. Lets a surface refresh a form the chat edited."""
 
     type: Literal["form"] = "form"
-    workflow_id: str = Field(alias="workflowId")
     status: Literal["online", "offline"] | None = None
 
 

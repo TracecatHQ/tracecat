@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useFormsAccess } from "@/hooks/use-forms-access"
 import { useLocalStorage } from "@/hooks/use-local-storage"
-import { isTriggerTypeVisible } from "@/lib/forms/access"
 
 const AVAILABLE_TRIGGER_TYPES: readonly TriggerType[] = $TriggerType.enum
 export function EventsSidebarToolbar() {
@@ -21,9 +20,9 @@ export function EventsSidebarToolbar() {
   >("selected-trigger-types-v2", [...AVAILABLE_TRIGGER_TYPES])
   // With the `forms` flag off nothing can start a run from a form, so the
   // entry is not offered. The stored selection is left alone.
-  const formsAccess = useFormsAccess()
-  const triggerTypes = AVAILABLE_TRIGGER_TYPES.filter((type) =>
-    isTriggerTypeVisible(type, formsAccess)
+  const formsHidden = useFormsAccess() === "hidden"
+  const triggerTypes = AVAILABLE_TRIGGER_TYPES.filter(
+    (type) => !formsHidden || type !== "form"
   )
 
   const handleTriggerTypeToggle = (triggerType: TriggerType) => {

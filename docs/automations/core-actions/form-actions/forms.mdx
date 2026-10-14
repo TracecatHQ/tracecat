@@ -9,7 +9,7 @@ submissions from a workflow.
 
 ## `core.forms.list_forms`
 
-List forms as a cursor page of ``&#123;id, workflow_id, title, status, ...&#125;``.
+List the workspace's forms, newest first.
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
@@ -44,7 +44,7 @@ Default: `20`.
 
 ## `core.forms.get_form`
 
-Get a form's status, config, issues, URL and counts.
+Get a form: its status, its config, the issues the config has against the workflow's inputs, and its URL.
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
@@ -69,7 +69,7 @@ The form ID, as returned by `list_forms`.
 
 ## `core.forms.update_form`
 
-Update or create a workflow's form and return it.
+Update the form of a workflow, creating it if the workflow has none. A form turns the workflow's input schema into a page people fill in; submitting it runs the workflow. Returns the form, including any `issues` with the config.
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
@@ -116,7 +116,7 @@ Default: `null`.
 
 ## `core.forms.list_submissions`
 
-List submissions as a cursor page of ``&#123;id, reference, answers, ...&#125;``.
+List a form's submissions with their answers, newest first.
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
@@ -175,7 +175,7 @@ Default: `null`.
 
 ## `core.forms.get_submission`
 
-Get a submission's answers, submitter and run.
+Get one form submission with its answers and who submitted it.
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
@@ -200,7 +200,7 @@ The submission ID. A form-triggered workflow gets its own from an input with `au
 
 ## `core.forms.delete_submission`
 
-Delete a submission.
+Delete a form submission and its stored answers. The workflow run it started keeps its own copy of the inputs. Files uploaded with the submission are deleted too.
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
@@ -228,7 +228,7 @@ The submission ID.
 
 ## `core.forms.download_file`
 
-Download a file as ``&#123;id, name, content_type, size, sha256, content_base64&#125;``.
+Download a file uploaded with a form submission. File integrity is verified via SHA256.
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 

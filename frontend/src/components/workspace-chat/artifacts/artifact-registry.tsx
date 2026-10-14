@@ -132,16 +132,10 @@ export const ARTIFACT_REGISTRY = {
     href: (artifact, workspaceId) =>
       `/workspaces/${workspaceId}/forms/${artifact.id}`,
     invalidateQueries: (queryClient, workspaceId, artifact) => {
-      // `exact` matters: the detail key is a prefix of the rendered form's
-      // key, and refetching that on an open requester page records a view.
       queryClient.invalidateQueries({
         queryKey: formKeys.detail(workspaceId, artifact.id),
-        exact: true,
       })
       queryClient.invalidateQueries({ queryKey: formKeys.list(workspaceId) })
-      queryClient.invalidateQueries({
-        queryKey: formKeys.submissions(workspaceId, artifact.id),
-      })
     },
   },
   integration: {

@@ -62,14 +62,13 @@ class WorkspaceCopilotPrompts(BaseModel):
         )
 
 
-def form_page_context(form_id: uuid.UUID, workflow_id: str) -> str:
+def form_page_context(form_id: uuid.UUID) -> str:
     """Context line for a workspace chat docked on a form's page.
 
-    Carries server-side IDs only. A form's title and text are written by its
-    author and must not reach the system prompt.
+    Carries the form ID only: a form's own text is author-written and must not
+    reach the system prompt.
     """
     return (
-        f"<page-context>The user has this chat open beside form `{form_id}`, "
-        f'the form of workflow `{workflow_id}`. When they say "this form", '
-        "they mean that form.</page-context>"
+        f"<page-context>The user has this chat open beside form `{form_id}`. "
+        'When they say "this form", they mean that form.</page-context>'
     )

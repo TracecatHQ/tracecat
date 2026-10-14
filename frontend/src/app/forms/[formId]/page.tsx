@@ -1,7 +1,7 @@
 "use client"
 
 import { useParams } from "next/navigation"
-import { RequesterForm } from "@/components/forms/requester/requester-form"
+import { RequesterForm } from "@/components/forms/requester-pages"
 
 export default function FormPage() {
   const { formId } = useParams<{ formId: string }>()

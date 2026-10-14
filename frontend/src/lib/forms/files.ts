@@ -1,79 +1,21 @@
-import {
-  type FormFieldConfig,
-  formsDownloadFormFile,
-  formsUploadFormFile,
-} from "@/client"
-import type { FormFileUploader } from "@/components/forms/widgets/types"
+import { formsDownloadFormFile, formsUploadFormFile } from "@/client"
 import { getFormErrorDetail } from "@/lib/forms/errors"
-import { formatFileSize } from "@/lib/utils"
 
-function getExtension(name: string): string {
-  const dot = name.lastIndexOf(".")
-  return dot > 0 ? name.slice(dot).toLowerCase() : ""
-}
-
-function matchesAccept(
-  accept: string[],
-  file: Pick<File, "name" | "type">
-): boolean {
-  const type = file.type.toLowerCase()
-  return accept.some((entry) => {
-    const pattern = entry.trim().toLowerCase()
-    if (pattern.startsWith(".")) {
-      return getExtension(file.name) === pattern
-    }
-    if (pattern.endsWith("/*")) {
-      return type.startsWith(pattern.slice(0, -1))
-    }
-    return type === pattern
-  })
-}
+/** Uploads one file of a `file` field and resolves to its file ID. */
+export type FormFileUploader = (args: {
+  workspaceId: string
+  formId: string
+  field: string
+  file: File
+}) => Promise<{ id: string }>
 
 /**
- * Check a picked file against a `file` field's config before it is uploaded.
- *
- * Mirrors the server's `accept` and size rules so an obvious mistake fails
- * without a request. The server checks again, and also checks the bytes and
- * the workspace's allowed types.
- *
- * @returns Why the file cannot be used, or null if it can.
+ * Upload one file of a `file` field on a live form. Rejects with the server's
+ * message, which the widget shows on the file.
  */
-export function checkFormFile(
-  file: Pick<File, "name" | "size" | "type">,
-  config: FormFieldConfig | null | undefined
-): string | null {
-  const maxSize = config?.max_file_size
-  if (typeof maxSize === "number" && file.size > maxSize) {
-    return `Files can be at most ${formatFileSize(maxSize)}`
-  }
-  if (file.size === 0) {
-    return "The file is empty"
-  }
-  const accept = config?.accept ?? []
-  if (accept.length > 0 && !matchesAccept(accept, file)) {
-    return `This field takes ${accept.join(", ")}`
-  }
-  return null
-}
-
-/**
- * Upload one file of a `file` field on a live form.
- *
- * Rejects with the server's message, which the widget shows on the file.
- */
-export const uploadFormFile: FormFileUploader = async ({
-  workspaceId,
-  formId,
-  field,
-  file,
-}) => {
+export const uploadFormFile: FormFileUploader = async ({ file, ...scope }) => {
   try {
-    const uploaded = await formsUploadFormFile({
-      workspaceId,
-      formId,
-      field,
-      formData: { file },
-    })
+    const uploaded = await formsUploadFormFile({ ...scope, formData: { file } })
     return { id: uploaded.id }
   } catch (error) {
     throw new Error(getFormErrorDetail(error)?.message ?? "Upload failed")
@@ -88,15 +30,12 @@ export interface FormFileAnswer {
 }
 
 function isFileAnswer(value: unknown): value is FormFileAnswer {
-  if (typeof value !== "object" || value === null) {
-    return false
-  }
-  const record = value as Record<string, unknown>
+  const file = value as Record<string, unknown> | null | undefined
   return (
-    typeof record.id === "string" &&
-    typeof record.name === "string" &&
-    typeof record.size === "number" &&
-    typeof record.sha256 === "string"
+    typeof file?.id === "string" &&
+    typeof file.name === "string" &&
+    typeof file.size === "number" &&
+    typeof file.sha256 === "string"
   )
 }
 

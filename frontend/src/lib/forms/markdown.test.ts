@@ -1,8 +1,6 @@
 import {
   type FormMarkdownNode,
-  filterFormMarkdownNodes,
   formMarkdownToPlainText,
-  isSafeFormLink,
   remarkFormMarkdown,
 } from "@/lib/forms/markdown"
 
@@ -17,126 +15,59 @@ const link = (url: string, label: string): FormMarkdownNode => ({
   children: [text(label)],
 })
 
-describe("isSafeFormLink", () => {
-  it.each([
-    "https://example.com/docs",
-    "http://example.com",
-    "HTTPS://EXAMPLE.COM",
-    "mailto:it@example.com",
-    "  https://example.com  ",
-  ])("allows %s", (href) => {
-    expect(isSafeFormLink(href)).toBe(true)
-  })
-
-  it.each([
-    "javascript:alert(1)",
-    "JaVaScRiPt:alert(1)",
-    " javascript:alert(1)",
-    "data:text/html,<script>alert(1)</script>",
-    "vbscript:msgbox(1)",
-    "file:///etc/passwd",
-    "tel:+15555550100",
-    "//example.com",
-    "/workspaces",
-    "#anchor",
-    "",
-    undefined,
-    null,
-  ])("blocks %p", (href) => {
-    expect(isSafeFormLink(href)).toBe(false)
-  })
-})
-
-describe("filterFormMarkdownNodes", () => {
-  it("drops raw HTML, block and inline", () => {
-    expect(
-      filterFormMarkdownNodes([
+describe("remarkFormMarkdown", () => {
+  it("drops raw HTML and images and turns unsafe links into text", () => {
+    const safe = [
+      link("https://example.com/docs", "docs"),
+      link("  HTTP://EXAMPLE.COM", "upper"),
+      link("mailto:it@example.com", "mail"),
+    ]
+    const unsafe = [
+      "javascript:alert(1)",
+      " JaVaScRiPt:alert(1)",
+      "data:text/html,x",
+      "vbscript:msgbox(1)",
+      "file:///etc/passwd",
+      "//example.com",
+      "/workspaces",
+      "#anchor",
+    ]
+    const tree: FormMarkdownNode = {
+      type: "root",
+      children: [
         { type: "html", value: "<div onclick='x()'>block</div>" },
+        { type: "definition", identifier: "ref", url: "https://example.com" },
         paragraph(
           text("Hello "),
           { type: "html", value: "<script>" },
-          text("alert(1)"),
-          { type: "html", value: "</script>" }
-        ),
-      ])
-    ).toEqual([paragraph(text("Hello "), text("alert(1)"))])
-  })
-
-  it("drops images, image references and definitions", () => {
-    expect(
-      filterFormMarkdownNodes([
-        paragraph(
           { type: "image", url: "https://example.com/x.png", alt: "x" },
-          { type: "imageReference", identifier: "ref" }
-        ),
-        { type: "definition", identifier: "ref", url: "https://example.com" },
-      ])
-    ).toEqual([paragraph()])
-  })
-
-  it("replaces an unsafe link with its text and keeps a safe one", () => {
-    const safe = link("https://example.com/docs", "docs")
-    expect(
-      filterFormMarkdownNodes([
-        paragraph(link("javascript:alert(1)", "click"), safe),
-      ])
-    ).toEqual([paragraph(text("click"), safe)])
-  })
-
-  it("replaces reference links with their text", () => {
-    expect(
-      filterFormMarkdownNodes([
-        paragraph({
-          type: "linkReference",
-          identifier: "ref",
-          children: [text("label")],
-        }),
-      ])
-    ).toEqual([paragraph(text("label"))])
-  })
-
-  it("filters inside nested nodes", () => {
-    const list: FormMarkdownNode = {
-      type: "list",
-      children: [
-        {
-          type: "listItem",
-          children: [
-            paragraph({
-              type: "strong",
-              children: [
-                { type: "html", value: "<img src=x onerror=alert(1)>" },
-                link("data:text/html,x", "nested"),
-              ],
-            }),
-          ],
-        },
-      ],
-    }
-    expect(filterFormMarkdownNodes([list])).toEqual([
-      {
-        type: "list",
-        children: [
+          { type: "imageReference", identifier: "ref" },
+          ...unsafe.map((url) => link(url, url)),
+          // Reference links resolve against definitions, which are dropped.
+          { type: "linkReference", identifier: "ref", children: [text("ref")] },
           {
-            type: "listItem",
+            type: "strong",
             children: [
-              paragraph({ type: "strong", children: [text("nested")] }),
+              { type: "html", value: "<img src=x onerror=alert(1)>" },
+              link("data:text/html,x", "nested"),
             ],
           },
-        ],
-      },
-    ])
-  })
-})
-
-describe("remarkFormMarkdown", () => {
-  it("filters the document in place", () => {
-    const tree: FormMarkdownNode = {
-      type: "root",
-      children: [{ type: "html", value: "<b>x</b>" }, paragraph(text("ok"))],
+          ...safe
+        ),
+      ],
     }
+
     remarkFormMarkdown()(tree)
-    expect(tree.children).toEqual([paragraph(text("ok"))])
+
+    expect(tree.children).toEqual([
+      paragraph(
+        text("Hello "),
+        ...unsafe.map(text),
+        text("ref"),
+        { type: "strong", children: [text("nested")] },
+        ...safe
+      ),
+    ])
   })
 })
 

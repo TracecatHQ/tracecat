@@ -9,15 +9,17 @@ if TYPE_CHECKING:
     from tracecat_registry.sdk.client import TracecatClient
 
 
-def _page_params(limit: int, cursor: str | None) -> dict[str, Any]:
-    params: dict[str, Any] = {"limit": limit}
-    if cursor is not None:
-        params["cursor"] = cursor
-    return params
+def _set(**values: Any) -> dict[str, Any]:
+    """Drop unset values. httpx would send a ``None`` query value as empty."""
+    return {key: value for key, value in values.items() if value is not None}
 
 
 class FormsClient:
-    """Client for Forms API operations."""
+    """Client for Forms API operations.
+
+    Form reads return ``workflow_id`` as a short ``wf_...`` ID. A missing form,
+    submission, file or workflow raises ``TracecatNotFoundError``.
+    """
 
     def __init__(self, client: TracecatClient) -> None:
         self._client = client
@@ -25,30 +27,11 @@ class FormsClient:
     async def list_forms(
         self, *, limit: int = 20, cursor: str | None = None
     ) -> dict[str, Any]:
-        """List the workspace's forms, newest first.
-
-        Args:
-            limit: Maximum number of forms to return.
-            cursor: Opaque ``next_cursor`` from a previous page.
-
-        Returns:
-            dict with ``items`` (each with ``id``, ``workflow_id``,
-            ``workflow_title``, ``status``, ``title``, ``description``,
-            ``submission_count``, ``last_submitted_at``), plus ``next_cursor``,
-            ``prev_cursor``, ``has_more`` and ``has_previous``.
-        """
-        return await self._client.get("/forms", params=_page_params(limit, cursor))
+        """List the workspace's forms, newest first, as a cursor page."""
+        return await self._client.get("/forms", params=_set(limit=limit, cursor=cursor))
 
     async def get_form(self, form_id: str) -> dict[str, Any]:
-        """Get a form's config, the issues it has against the workflow's
-        inputs, its URL and its counts.
-
-        Args:
-            form_id: The form ID.
-
-        Raises:
-            TracecatNotFoundError: If the form does not exist.
-        """
+        """Get a form's status, config, issues, URL and counts."""
         return await self._client.get(f"/forms/{form_id}")
 
     async def update_form(
@@ -60,26 +43,14 @@ class FormsClient:
     ) -> dict[str, Any]:
         """Update a workflow's form, creating it if the workflow has none.
 
-        Args:
-            workflow_id: Workflow UUID (short ``wf_...`` or full format).
-            status: ``online`` or ``offline``. Omit to leave unchanged.
-            config: The whole form config. Omit to leave unchanged.
-
-        Returns:
-            The form, in the same shape as :meth:`get_form`.
-
-        Raises:
-            TracecatNotFoundError: If the workflow does not exist.
-            TracecatValidationError: If the config has errors.
-            TracecatConflictError: If the form goes online on an unpublished
-                workflow.
+        ``workflow_id`` takes a short ``wf_...`` or full ID. Unset arguments
+        leave the stored value unchanged. Raises ``TracecatValidationError`` if
+        the config has errors, and ``TracecatConflictError`` if the form goes
+        online on an unpublished workflow.
         """
-        payload: dict[str, Any] = {}
-        if status is not None:
-            payload["status"] = status
-        if config is not None:
-            payload["config"] = config
-        return await self._client.put(f"/forms/workflows/{workflow_id}", json=payload)
+        return await self._client.put(
+            f"/forms/workflows/{workflow_id}", json=_set(status=status, config=config)
+        )
 
     async def list_submissions(
         self,
@@ -90,64 +61,23 @@ class FormsClient:
         submitted_after: datetime | None = None,
         submitted_before: datetime | None = None,
     ) -> dict[str, Any]:
-        """List a form's submissions, newest first.
-
-        Args:
-            form_id: The form ID.
-            limit: Maximum number of submissions to return.
-            cursor: Opaque ``next_cursor`` from a previous page.
-            submitted_after: Only submissions at or after this time.
-            submitted_before: Only submissions before this time.
-
-        Returns:
-            dict with ``items`` (each with ``id``, ``reference``, ``answers``,
-            ``submitted_by``, ``wf_exec_id``, ``run_status``,
-            ``submitted_at``), plus the cursor fields.
-
-        Raises:
-            TracecatNotFoundError: If the form does not exist.
-        """
-        params = _page_params(limit, cursor)
-        if submitted_after is not None:
-            params["submitted_after"] = submitted_after.isoformat()
-        if submitted_before is not None:
-            params["submitted_before"] = submitted_before.isoformat()
+        """List a form's submissions with their answers, newest first."""
+        params = _set(
+            limit=limit,
+            cursor=cursor,
+            submitted_after=submitted_after and submitted_after.isoformat(),
+            submitted_before=submitted_before and submitted_before.isoformat(),
+        )
         return await self._client.get(f"/forms/{form_id}/submissions", params=params)
 
     async def get_submission(self, submission_id: str) -> dict[str, Any]:
-        """Get one submission with its answers.
-
-        Args:
-            submission_id: The submission ID.
-
-        Raises:
-            TracecatNotFoundError: If the submission does not exist.
-        """
+        """Get one submission with its answers."""
         return await self._client.get(f"/forms/submissions/{submission_id}")
 
     async def delete_submission(self, submission_id: str) -> None:
-        """Delete a submission. The workflow run it started is not affected.
-
-        Args:
-            submission_id: The submission ID.
-
-        Raises:
-            TracecatNotFoundError: If the submission does not exist.
-        """
+        """Delete a submission. The workflow run it started is not affected."""
         await self._client.delete(f"/forms/submissions/{submission_id}")
 
     async def download_file(self, file_id: str) -> dict[str, Any]:
-        """Download a file a form submission carries.
-
-        Args:
-            file_id: The ``id`` of a file object in a submission's answers.
-
-        Returns:
-            dict with ``id``, ``name``, ``content_type``, ``size``, ``sha256``
-            and ``content_base64``.
-
-        Raises:
-            TracecatNotFoundError: If the file does not exist or no submission
-                has claimed it.
-        """
+        """Download a submitted file as its metadata plus ``content_base64``."""
         return await self._client.get(f"/forms/files/{file_id}/download")

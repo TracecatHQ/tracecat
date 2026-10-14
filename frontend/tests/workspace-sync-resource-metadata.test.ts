@@ -17,10 +17,4 @@ describe("getWorkspaceSyncResourceLabel", () => {
       "Table metadata and schema columns"
     )
   })
-
-  it("says a workflow's form travels with it", () => {
-    expect(WORKSPACE_SYNC_RESOURCE_TYPE_META.workflow.summary).toBe(
-      "Definition, tags, form, webhook and case triggers"
-    )
-  })
 })

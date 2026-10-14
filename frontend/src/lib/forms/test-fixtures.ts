@@ -1,4 +1,4 @@
-import type { FormFieldBlock, FormResolved } from "@/client"
+import type { FormFieldBlock, FormPreview } from "@/client"
 
 /** Build a field block for tests. Defaults to an optional text field. */
 export function fieldBlock(
@@ -14,15 +14,11 @@ export function fieldBlock(
   }
 }
 
-/** Build a resolved form for tests. */
+/** Build a rendered form for tests. */
 export function resolvedForm(
-  overrides: Partial<FormResolved> = {}
-): FormResolved {
+  overrides: Partial<FormPreview> = {}
+): FormPreview {
   return {
-    id: "form-1",
-    workspace_id: "workspace-1",
-    workflow_id: "wf-1",
-    status: "online",
     title: "Laptop request",
     definition_version: 4,
     blocks: [],

@@ -1,11 +1,17 @@
 """Form config, resolved form and API schemas."""
 
+import base64
+import binascii
+import re
 import uuid
+from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated, Any, Literal, Self
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Discriminator,
     Field,
@@ -15,6 +21,7 @@ from pydantic import (
     StrictInt,
     StrictStr,
     Tag,
+    computed_field,
     field_validator,
     model_serializer,
     model_validator,
@@ -26,6 +33,7 @@ from tracecat.forms.constants import (
     MAX_CONFIG_IMAGE_BYTES,
     MAX_FIELD_OPTIONS,
     MAX_FILES_PER_FIELD,
+    MAX_IMAGE_BYTES,
     MAX_LAYOUT_ENTRIES,
     MAX_LONG_TEXT_LENGTH,
     MAX_SHORT_TEXT_LENGTH,
@@ -33,7 +41,6 @@ from tracecat.forms.constants import (
 from tracecat.forms.enums import (
     FormAutofillSource,
     FormErrorCode,
-    FormEventType,
     FormFieldErrorCode,
     FormIssueCode,
     FormIssueSeverity,
@@ -41,10 +48,51 @@ from tracecat.forms.enums import (
     FormStatus,
     FormWidget,
 )
-from tracecat.forms.images import decode_image_data_uri, image_data_uri_size
 from tracecat.identifiers import WorkspaceID
-from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
+from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort, WorkflowUUID
 from tracecat.workflow.executions.enums import WorkflowExecutionStatusLiteral
+
+# ----- Inline images -----
+
+_IMAGE_DATA_URI = re.compile(r"data:image/(png|jpeg|webp);base64,(.*)", re.DOTALL)
+_IMAGE_MAGIC: dict[str, Callable[[bytes], bool]] = {
+    "png": lambda data: data.startswith(b"\x89PNG\r\n\x1a\n"),
+    "jpeg": lambda data: data.startswith(b"\xff\xd8\xff"),
+    "webp": lambda data: data[:4] == b"RIFF" and data[8:12] == b"WEBP",
+}
+
+
+def _check_image(value: str) -> str:
+    """Check an inline image: a PNG, JPEG or WebP ``data:`` URI within size.
+
+    The server never fetches a URL, so this is the only image form accepted.
+    """
+    if (match := _IMAGE_DATA_URI.fullmatch(value)) is None:
+        raise ValueError(
+            "Image must be a data URI starting with "
+            "data:image/png;base64, data:image/jpeg;base64, or data:image/webp;base64,"
+        )
+    subtype, encoded = match.groups()
+    too_large = f"Image is larger than {MAX_IMAGE_BYTES // 1024} KB"
+    # Base64 encodes 3 bytes as 4 characters. Checked before decoding.
+    if len(encoded) > (MAX_IMAGE_BYTES + 2) // 3 * 4:
+        raise ValueError(too_large)
+    try:
+        data = base64.b64decode(encoded, validate=True)
+    except binascii.Error as e:
+        raise ValueError("Image is not valid base64") from e
+    if len(data) > MAX_IMAGE_BYTES:
+        raise ValueError(too_large)
+    if not _IMAGE_MAGIC[subtype](data):
+        raise ValueError(f"Image content is not a valid {subtype} file")
+    return value
+
+
+def _image_size(value: str) -> int:
+    """Decoded size in bytes of a checked image data URI."""
+    encoded = value.partition(",")[2]
+    return len(encoded) * 3 // 4 - encoded.count("=", -2)
+
 
 # ----- Form config -----
 
@@ -76,16 +124,9 @@ class FormOption(FormConfigModel):
     value: ShortText
     label: ShortText | None = None
     description: LongText | None = None
-    image: str | None = Field(
+    image: Annotated[str, AfterValidator(_check_image)] | None = Field(
         default=None, description="Inline PNG, JPEG or WebP data URI."
     )
-
-    @field_validator("image")
-    @classmethod
-    def _validate_image(cls, value: str | None) -> str | None:
-        if value is not None:
-            decode_image_data_uri(value)
-        return value
 
 
 FormScalar = (
@@ -217,7 +258,7 @@ class FormConfig(FormConfigModel):
     @model_validator(mode="after")
     def _limit_total_image_size(self) -> Self:
         total = sum(
-            image_data_uri_size(option.image)
+            _image_size(option.image)
             for entry in self.layout or []
             if isinstance(entry, FormFieldEntry)
             for option in entry.options or []
@@ -319,16 +360,15 @@ class FormPreview(Schema):
     blocks: list[FormBlock]
 
 
-class FormResolved(FormPreview):
-    """A saved form resolved against its workflow's published input schema."""
-
-    id: uuid.UUID
-    workspace_id: WorkspaceID
-    workflow_id: WorkflowUUID
-    status: FormStatus
-
-
 # ----- Builder API -----
+
+
+def _short_workflow_id(value: AnyWorkflowID | uuid.UUID) -> WorkflowIDShort:
+    return WorkflowUUID.new(value).short()
+
+
+ShortWorkflowID = Annotated[WorkflowIDShort, BeforeValidator(_short_workflow_id)]
+"""A workflow ID read back as ``wf_…``, whatever form it was stored in."""
 
 
 class FormCreate(Schema):
@@ -345,7 +385,6 @@ class FormUpdate(Schema):
 
 
 class FormValidateRequest(Schema):
-    workflow_id: AnyWorkflowID
     config: FormConfig
 
 
@@ -362,7 +401,7 @@ class FormCounts(Schema):
 
 class FormReadMinimal(Schema):
     id: uuid.UUID
-    workflow_id: WorkflowUUID | None = Field(
+    workflow_id: ShortWorkflowID | None = Field(
         default=None,
         description="Null without form:update or form:submission:read.",
     )
@@ -384,7 +423,7 @@ class FormReadMinimal(Schema):
 class FormRead(Schema):
     id: uuid.UUID
     workspace_id: WorkspaceID
-    workflow_id: WorkflowUUID
+    workflow_id: ShortWorkflowID
     workflow_title: str
     workflow_version: int | None = Field(
         default=None,
@@ -402,7 +441,7 @@ class FormRead(Schema):
 
 
 class FormActorRead(Schema):
-    """Who viewed or submitted a form."""
+    """Who submitted a form."""
 
     type: Literal["user", "service_account"]
     id: uuid.UUID
@@ -410,15 +449,6 @@ class FormActorRead(Schema):
     first_name: str | None = None
     last_name: str | None = None
     name: str | None = Field(default=None, description="Service account name.")
-
-
-class FormEventRead(Schema):
-    id: uuid.UUID
-    type: FormEventType
-    actor: FormActorRead | None = None
-    submission_id: uuid.UUID | None = None
-    reference: str | None = None
-    created_at: datetime
 
 
 class FormUserRead(Schema):
@@ -446,19 +476,25 @@ class FormSubmissionCreate(Schema):
     )
 
 
-class FormSubmissionReceipt(Schema):
+class _Submission(Schema):
+    id: uuid.UUID
+
+    @computed_field
+    @property
+    def reference(self) -> str:
+        """Short code a requester can quote for a submission."""
+        return f"FRM-{self.id.hex[:8].upper()}"
+
+
+class FormSubmissionReceipt(_Submission):
     """What a requester gets back. Carries no run fields."""
 
-    id: uuid.UUID
-    reference: str
     submitted_at: datetime
     success_message: str | None = None
 
 
-class FormSubmissionRead(Schema):
-    id: uuid.UUID
+class FormSubmissionRead(_Submission):
     form_id: uuid.UUID
-    reference: str
     answers: dict[str, Any]
     submitted_by: FormActorRead | None = None
     definition_version: int | None = Field(
@@ -521,11 +557,9 @@ class FormIntakeRead(Schema):
     description: str | None = None
 
 
-class FormIntakeSubmissionRead(Schema):
+class FormIntakeSubmissionRead(_Submission):
     """A requester's own submission. Carries no run fields."""
 
-    id: uuid.UUID
-    reference: str
     form_id: uuid.UUID
     form_title: str
     workspace_id: WorkspaceID

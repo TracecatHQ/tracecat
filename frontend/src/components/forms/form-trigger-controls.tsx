@@ -18,18 +18,12 @@ import {
 } from "@/hooks/use-forms"
 import { getApiErrorDetail } from "@/lib/errors"
 import { getFormErrorDetail } from "@/lib/forms/errors"
-import { workflowShortIdToUuid } from "@/lib/forms/workflow-id"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 /**
  * The Form tab of the workflow builder's trigger panel: a switch that puts
- * the workflow's form online, the link requesters open, and a link to the
- * form's page.
- *
- * A workflow has at most one form. Turning the switch on for a workflow
- * without one creates it. A form can only be online for a published
- * workflow, so the switch is disabled until the first publish. The form's
- * layout is edited on the Forms page, not here.
+ * the workflow's form online (creating it if needed, and only once the
+ * workflow is published), the requester link, and a link to the form's page.
  */
 export function FormTriggerControls({
   workflow,
@@ -40,18 +34,19 @@ export function FormTriggerControls({
   const canCreate = useScopeCheck("form:create")
   const canUpdate = useScopeCheck("form:update")
   const { forms, formsIsLoading, formsError } = useForms(workspaceId)
-  const workflowUuid = workflowShortIdToUuid(workflow.id) ?? workflow.id
-  const listed = forms.find((form) => form.workflow_id === workflowUuid)
+  const listed = forms.find((form) => form.workflow_id === workflow.id)
   // The list has no URL. The detail carries the one requesters open.
-  const { form: detail } = useFormDetail(
+  const { data: detail } = useFormDetail(
     { workspaceId, formId: listed?.id },
     { enabled: Boolean(listed) }
   )
-  const { createForm, createFormIsPending } = useCreateForm(workspaceId)
-  const { updateForm, updateFormIsPending } = useUpdateForm({
-    workspaceId,
-    formId: listed?.id ?? "",
-  })
+  const { mutateAsync: createForm, isPending: createFormIsPending } =
+    useCreateForm(workspaceId)
+  const { mutateAsync: updateForm, isPending: updateFormIsPending } =
+    useUpdateForm({
+      workspaceId,
+      formId: listed?.id ?? "",
+    })
 
   if (formsIsLoading) {
     return <CenteredSpinner />

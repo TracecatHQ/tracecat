@@ -57,8 +57,6 @@ export type AgentArtifact = BaseArtifact & {
 
 export type FormArtifact = BaseArtifact & {
   type: "form"
-  /** UUID of the workflow the form starts. */
-  workflowId: string
   status?: "online" | "offline" | null
 }
 
@@ -211,10 +209,9 @@ function isArtifact(value: unknown): value is WorkspaceChatArtifact {
       return true
     case "form":
       return (
-        typeof value.workflowId === "string" &&
-        (value.status === undefined ||
-          value.status === null ||
-          isStringInSet(value.status, ["online", "offline"]))
+        value.status === undefined ||
+        value.status === null ||
+        isStringInSet(value.status, ["online", "offline"])
       )
     case "alert":
     case "integration":

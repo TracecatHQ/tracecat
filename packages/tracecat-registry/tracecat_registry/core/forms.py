@@ -41,7 +41,6 @@ async def list_forms(
     limit: Annotated[int, Doc("Maximum number of forms to return.")] = 20,
     cursor: Annotated[str | None, Doc("`next_cursor` from a previous page.")] = None,
 ) -> dict[str, Any]:
-    """List forms as a cursor page of ``{id, workflow_id, title, status, ...}``."""
     return await ctx.forms.aio.list_forms(limit=limit, cursor=cursor)
 
 
@@ -58,7 +57,6 @@ async def list_forms(
 async def get_form(
     form_id: Annotated[str, Doc("The form ID, as returned by `list_forms`.")],
 ) -> dict[str, Any]:
-    """Get a form's status, config, issues, URL and counts."""
     return await ctx.forms.aio.get_form(form_id)
 
 
@@ -88,7 +86,6 @@ async def update_form(
     ] = None,
     config: Annotated[dict[str, Any] | None, Doc(_CONFIG_DOC)] = None,
 ) -> dict[str, Any]:
-    """Update or create a workflow's form and return it."""
     return await ctx.forms.aio.update_form(
         workflow_id=workflow_id, status=status, config=config
     )
@@ -112,7 +109,6 @@ async def list_submissions(
         datetime | None, Doc("Only submissions before this time.")
     ] = None,
 ) -> dict[str, Any]:
-    """List submissions as a cursor page of ``{id, reference, answers, ...}``."""
     return await ctx.forms.aio.list_submissions(
         form_id,
         limit=limit,
@@ -138,7 +134,6 @@ async def get_submission(
         ),
     ],
 ) -> dict[str, Any]:
-    """Get a submission's answers, submitter and run."""
     return await ctx.forms.aio.get_submission(submission_id)
 
 
@@ -156,7 +151,6 @@ async def get_submission(
 async def delete_submission(
     submission_id: Annotated[str, Doc("The submission ID.")],
 ) -> None:
-    """Delete a submission."""
     await ctx.forms.aio.delete_submission(submission_id)
 
 
@@ -179,5 +173,4 @@ async def download_file(
         ),
     ],
 ) -> dict[str, Any]:
-    """Download a file as ``{id, name, content_type, size, sha256, content_base64}``."""
     return await ctx.forms.aio.download_file(file_id)

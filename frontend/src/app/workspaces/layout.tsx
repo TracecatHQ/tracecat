@@ -23,7 +23,6 @@ import { useAuth, useAuthActions } from "@/hooks/use-auth"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useFormsAccess } from "@/hooks/use-forms-access"
 import { useLandingWorkspace } from "@/hooks/use-landing-workspace"
-import { getIntakeRedirect } from "@/lib/forms/access"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
 import { AgentPresetDetailProvider } from "@/providers/agent-preset-detail"
@@ -34,6 +33,7 @@ import { WorkflowProvider } from "@/providers/workflow"
 import { WorkspaceIdProvider } from "@/providers/workspace-id"
 
 const NO_ORG_MEMBERSHIPS_DETAIL = "User has no organization memberships"
+const FORM_DEEP_LINK = /^\/workspaces\/[^/]+\/forms\/([^/?#]+)/
 
 function isNoOrgMembershipsError(error: unknown): boolean {
   if (!(error instanceof ApiError)) {
@@ -95,7 +95,7 @@ export default function WorkspaceLayout({
 
   // Only needed when the URL names no workspace the user belongs to.
   // `undefined` while the landing workspace is being worked out.
-  const { workspaceId: fallbackWorkspaceId } = useLandingWorkspace({
+  const fallbackWorkspaceId = useLandingWorkspace({
     workspaces,
     lastViewedWorkspaceId,
     enabled: !workspaceId || !requestedWorkspaceExists,
@@ -207,10 +207,8 @@ export default function WorkspaceLayout({
 }
 
 /**
- * Remember the workspace in the URL as the last one viewed, but only for a
- * user who holds `workspace:read` there. An intake-only user is sent on to
- * `/forms`; remembering that workspace would send them there on every visit,
- * even when they build in another one.
+ * Remember the workspace in the URL as the last one viewed, only for a user
+ * who can read it: an intake-only workspace would bounce them to `/forms`.
  */
 function LastWorkspaceWriter({
   workspaceId,
@@ -237,12 +235,18 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   const canReadForms = useScopeCheck("form:read")
   const formsAccess = useFormsAccess()
   const pathname = usePathname()
-  const intakePath = getIntakeRedirect({
-    canReadWorkspace,
-    canReadForms,
-    formsAccess,
-    pathname,
-  })
+  // Intake-only users (`form:read` without `workspace:read`) belong on the
+  // requester pages, and a form's builder link maps to its requester page.
+  // Nothing happens while a scope or the flag loads, or with the flag off.
+  let intakePath: string | null = null
+  if (
+    canReadWorkspace === false &&
+    canReadForms === true &&
+    (formsAccess === "enabled" || formsAccess === "locked")
+  ) {
+    const formId = pathname?.match(FORM_DEEP_LINK)?.[1]
+    intakePath = formId ? `/forms/${formId}` : "/forms"
+  }
 
   useEffect(() => {
     if (intakePath) {
@@ -254,7 +258,6 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   const isCasesPage = Boolean(pathname?.match(/\/cases(\/|$)/))
   const isInboxPage = pathname?.includes("/inbox")
   const isTablesPage = Boolean(pathname?.match(/\/tables(\/|$)/))
-  const isFormsPage = Boolean(pathname?.match(/\/forms(\/|$)/))
   const isSettingsPage = pathname?.includes("/settings")
   const isOrganizationPage = pathname?.includes("/organization")
 
@@ -296,13 +299,8 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
     return <>{children}</>
   }
 
-  // Tables pages have their own layout with side panels.
-  if (isTablesPage) {
-    return <>{children}</>
-  }
-
-  // Forms pages have their own layout with the docked chat sidebar.
-  if (isFormsPage) {
+  // Tables and Forms pages have their own layouts.
+  if (isTablesPage || pathname?.match(/\/forms(\/|$)/)) {
     return <>{children}</>
   }
 

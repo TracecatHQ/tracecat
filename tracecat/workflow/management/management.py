@@ -21,6 +21,7 @@ from tracecat.contexts import ctx_logical_time
 from tracecat.db.models import (
     Action,
     CaseTrigger,
+    Form,
     Schedule,
     Webhook,
     Workflow,
@@ -47,7 +48,7 @@ from tracecat.exceptions import (
     WorkflowAliasResolutionError,
 )
 from tracecat.expressions.eval import eval_templated_object
-from tracecat.forms.storage import delete_file_blobs, workflow_file_blob_keys
+from tracecat.forms.storage import delete_file_blobs, file_blob_keys
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import (
     LEGACY_WF_ID_PATTERN,
@@ -853,8 +854,8 @@ class WorkflowsManagementService(BaseWorkspaceService):
 
         # The cascade removes the form and its file rows. Their blobs are
         # deleted after the commit, best effort.
-        form_file_keys = await workflow_file_blob_keys(
-            self.session, self.workspace_id, workflow_uuid
+        form_file_keys = await file_blob_keys(
+            self.session, self.workspace_id, Form.workflow_id == workflow_uuid
         )
 
         # Now delete the workflow (cascade will handle database schedule cleanup)

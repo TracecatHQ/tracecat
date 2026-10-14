@@ -29,8 +29,10 @@ PENDING_FILE_TTL = timedelta(hours=24)
 """How long an uploaded file may wait for a submission to claim it."""
 
 EXPIRED_FILE_PURGE_BATCH = 100
-"""Expired files removed by one upload or submit."""
+"""Expired files removed by one upload."""
 
-FORM_VIEW_EVENT_DEDUP_WINDOW = timedelta(minutes=5)
+MAX_BLOB_DELETES_PER_REQUEST = 500
+"""Blobs one request deletes. The rest stay in storage and are logged."""
 
-SUBMISSION_REFERENCE_PREFIX = "FRM-"
+FORM_VIEW_DEDUP_WINDOW = timedelta(minutes=5)
+"""A user's repeat views of a form within this window count once."""

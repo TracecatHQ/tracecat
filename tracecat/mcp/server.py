@@ -175,7 +175,6 @@ from tracecat.exceptions import (
     RegistryActionValidationError,
     RegistryError,
     ScopeDeniedError,
-    TracecatConflictError,
     TracecatCredentialsNotFoundError,
     TracecatNotFoundError,
     TracecatValidationError,
@@ -241,7 +240,6 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
     PageParams,
-    PaginationError,
 )
 from tracecat.registry.actions.schemas import TemplateAction
 from tracecat.registry.actions.service import (
@@ -5973,32 +5971,41 @@ async def update_case_trigger(
         raise ToolError(f"Failed to update case trigger: {e}") from None
 
 
-def _form_error_message(exc: FormError) -> str:
-    """Render a form error with the issues that explain it."""
-    issues = "; ".join(
-        f"{'.'.join(str(part) for part in issue.loc) or 'config'}: {issue.message}"
-        for issue in exc.issues or []
-    )
-    return f"{exc}: {issues}" if issues else str(exc)
-
-
 @asynccontextmanager
 async def _forms_service(
-    workspace_id: uuid.UUID, *scopes: str
+    workspace_id: uuid.UUID, action: str, *scopes: str
 ) -> AsyncIterator[FormsService]:
-    """Open the forms service for a caller allowed to use forms.
+    """Open the forms service for one form tool call and map its errors.
 
     Checks, in order: the caller's workspace role, the ``forms`` feature flag,
-    the ``forms`` entitlement, and the scopes.
+    the ``forms`` entitlement, and the scopes. Any error raised inside the
+    block, the tool's own included, reaches the client as a ``ToolError``.
     """
-    _, role = await _resolve_workspace_role(workspace_id)
-    if not is_feature_enabled(FeatureFlag.FORMS):
-        raise ToolError("Forms are not enabled on this Tracecat instance")
-    async with FormsService.with_session(role=role) as svc:
-        if not await svc.has_entitlement(Entitlement.FORMS):
-            raise EntitlementRequired(Entitlement.FORMS.value)
-        check_scopes(role, *scopes)
-        yield svc
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        if not is_feature_enabled(FeatureFlag.FORMS):
+            raise ToolError("Forms are not enabled on this Tracecat instance")
+        async with FormsService.with_session(role=role) as svc:
+            if not await svc.has_entitlement(Entitlement.FORMS):
+                raise EntitlementRequired(Entitlement.FORMS.value)
+            check_scopes(role, *scopes)
+            yield svc
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except FormError as e:
+        issues = "; ".join(
+            f"{'.'.join(str(part) for part in issue.loc) or 'config'}: {issue.message}"
+            for issue in e.issues or []
+        )
+        raise ToolError(f"{e}: {issues}" if issues else str(e)) from e
+    except (EntitlementRequired, ValueError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error(f"Failed to {action}", error=str(e))
+        raise ToolError(f"Failed to {action}: {e}") from None
 
 
 @mcp.tool()
@@ -6023,37 +6030,20 @@ async def list_forms(
     `workflow_id` and `workflow_title` are null unless the caller holds
     `form:update` or `form:submission:read`.
     """
-
-    try:
-        page = PageParams(
-            limit=_normalize_limit(
-                limit,
-                default=config.TRACECAT__LIMIT_DEFAULT,
-                max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
-            ),
-            cursor=cursor,
+    async with _forms_service(workspace_id, "list forms", "form:read") as svc:
+        limit = _normalize_limit(
+            limit,
+            default=config.TRACECAT__LIMIT_DEFAULT,
+            max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
         )
-        async with _forms_service(workspace_id, "form:read") as svc:
-            forms = await svc.list_forms(page)
-        return MCPPaginatedResponse(
-            items=forms.items,
-            next_cursor=forms.next_cursor,
-            prev_cursor=forms.prev_cursor,
-            has_more=forms.has_more,
-            has_previous=forms.has_previous,
-        )
-    except ToolError:
-        raise
-    except ScopeDeniedError as e:
-        required = ", ".join(e.required_scopes)
-        raise ToolError(f"Missing required scope: {required}") from e
-    except EntitlementRequired as e:
-        raise ToolError(str(e)) from e
-    except (PaginationError, ValueError) as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to list forms", error=str(e))
-        raise ToolError(f"Failed to list forms: {e}") from None
+        forms = await svc.list_forms(PageParams(limit=limit, cursor=cursor))
+    return MCPPaginatedResponse(
+        items=forms.items,
+        next_cursor=forms.next_cursor,
+        prev_cursor=forms.prev_cursor,
+        has_more=forms.has_more,
+        has_previous=forms.has_previous,
+    )
 
 
 @mcp.tool()
@@ -6075,32 +6065,14 @@ async def get_form(
     Returns JSON with id, workflow_id, workflow_title, workflow_version,
     status, config, issues, url and counts.
     """
-
-    try:
+    async with _forms_service(workspace_id, "get form", "form:read") as svc:
         form_id = _coerce_uuid_arg(form_id, "form_id")
-        async with _forms_service(workspace_id, "form:read") as svc:
-            # The raw config is for people who build forms or read
-            # submissions. Anyone else gets the same answer as for no form.
-            form = (
-                await svc.get_form(form_id) if can_read_form_config(svc.role) else None
-            )
-            if form is None:
-                raise ToolError(f"Form {form_id} not found")
-            return await svc.read_form(form)
-    except ToolError:
-        raise
-    except ScopeDeniedError as e:
-        required = ", ".join(e.required_scopes)
-        raise ToolError(f"Missing required scope: {required}") from e
-    except EntitlementRequired as e:
-        raise ToolError(str(e)) from e
-    except FormError as e:
-        raise ToolError(_form_error_message(e)) from e
-    except (TracecatNotFoundError, ValueError) as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to get form", error=str(e))
-        raise ToolError(f"Failed to get form: {e}") from None
+        # The raw config is for people who build forms or read submissions.
+        # Anyone else gets the same answer as for no form.
+        form = await svc.get_form(form_id) if can_read_form_config(svc.role) else None
+        if form is None:
+            raise ToolError(f"Form {form_id} not found")
+        return await svc.read_form(form)
 
 
 @mcp.tool()
@@ -6117,8 +6089,7 @@ async def update_form(
     presentation. Inputs left out of `layout` are appended in schema order
     with a default widget, so an empty config is a working form. Read the
     "Form Trigger" section of `tracecat://platform/dsl-reference` for the
-    layout entries, widgets and rules. A `file` widget lets people upload
-    files; it takes `accept` and `max_files`.
+    layout entries, widgets and rules.
 
     Args:
         workspace_id: The workspace ID.
@@ -6132,31 +6103,16 @@ async def update_form(
     Returns the saved form as JSON, in the same shape as `get_form`. A config
     with errors is rejected with the list of issues and nothing is saved.
     """
-
-    try:
+    scopes = ("form:read", "form:update")
+    async with _forms_service(workspace_id, "update form", *scopes) as svc:
         workflow_id = WorkflowUUID.new(workflow_id)
+        if await svc.get_form_by_workflow_id(workflow_id) is None:
+            check_scopes(svc.role, "form:create")
         params = FormUpdate(
-            status=FormStatus(status) if status is not None else None, config=config
+            status=FormStatus(status) if status else None, config=config
         )
-        async with _forms_service(workspace_id, "form:read", "form:update") as svc:
-            if await svc.get_form_by_workflow_id(workflow_id) is None:
-                check_scopes(svc.role, "form:create")
-            form = await svc.upsert_form(workflow_id, params)
-            return await svc.read_form(form)
-    except ToolError:
-        raise
-    except ScopeDeniedError as e:
-        required = ", ".join(e.required_scopes)
-        raise ToolError(f"Missing required scope: {required}") from e
-    except EntitlementRequired as e:
-        raise ToolError(str(e)) from e
-    except FormError as e:
-        raise ToolError(_form_error_message(e)) from e
-    except (TracecatNotFoundError, TracecatConflictError, ValueError) as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to update form", error=str(e))
-        raise ToolError(f"Failed to update form: {e}") from None
+        form = await svc.upsert_form(workflow_id, params)
+        return await svc.read_form(form)
 
 
 @mcp.tool()

@@ -1,15 +1,21 @@
-"""Helpers for forms tests."""
+"""Helpers for forms tests. Fixtures built on them live in tests/unit/conftest.py."""
 
+import hashlib
 import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from dataclasses import dataclass, field
 from typing import Any
+from unittest.mock import AsyncMock
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import INTAKE_SCOPES
 from tracecat.db.models import (
     Form,
+    FormFile,
+    FormSubmission,
     Organization,
     OrganizationMembership,
     User,
@@ -19,7 +25,11 @@ from tracecat.db.models import (
 from tracecat.dsl.common import DSLInput
 from tracecat.forms.enums import FormStatus
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.storage import blob
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
+
+READER_SCOPES = INTAKE_SCOPES | {"form:submission:read"}
+PDF = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"
 
 
 def dsl_with_inputs(expects: dict[str, Any] | None) -> DSLInput:
@@ -64,7 +74,10 @@ async def publish_workflow(
 ) -> int:
     """Commit a workflow definition with these inputs. Returns its version."""
     service = WorkflowDefinitionsService(
-        session, role=role.model_copy(update={"scopes": frozenset({"*"})})
+        session,
+        role=role.model_copy(
+            update={"scopes": frozenset({"*"}), "workspace_id": workflow.workspace_id}
+        ),
     )
     definition = await service.create_workflow_definition(
         WorkflowUUID.new(workflow.id), dsl_with_inputs(expects)
@@ -90,6 +103,48 @@ async def create_form(
     session.add(form)
     await session.commit()
     return form
+
+
+async def create_submission(
+    session: AsyncSession,
+    form: Form,
+    *,
+    user_id: uuid.UUID | None = None,
+    answers: dict[str, Any] | None = None,
+) -> FormSubmission:
+    submission = FormSubmission(
+        workspace_id=form.workspace_id,
+        form_id=form.id,
+        submitted_by_user_id=user_id,
+        answers=answers or {},
+        definition_version=1,
+        wf_exec_id=f"{WorkflowUUID.new(form.workflow_id).short()}/exec_synthetic",
+    )
+    session.add(submission)
+    await session.commit()
+    return submission
+
+
+async def create_file(
+    session: AsyncSession,
+    form: Form,
+    submission: FormSubmission | None = None,
+    *,
+    content: bytes = PDF,
+) -> FormFile:
+    file = FormFile(
+        workspace_id=form.workspace_id,
+        form_id=form.id,
+        submission_id=submission.id if submission is not None else None,
+        field="quote",
+        name="quote.pdf",
+        content_type="application/pdf",
+        size=len(content),
+        sha256=hashlib.sha256(content).hexdigest(),
+    )
+    session.add(file)
+    await session.commit()
+    return file
 
 
 async def create_org_user(
@@ -142,3 +197,72 @@ def use_session(
         yield session
 
     return manager
+
+
+@dataclass
+class FakeTemporal:
+    """Stands in for ``WorkflowExecutionsService.connect``."""
+
+    connect: AsyncMock
+    service: AsyncMock
+
+    @property
+    def start(self) -> AsyncMock:
+        return self.service.create_workflow_execution_wait_for_start
+
+    @property
+    def run_role(self) -> Role:
+        self.connect.assert_awaited_once()
+        assert self.connect.await_args is not None
+        return self.connect.await_args.kwargs["role"]
+
+    @property
+    def start_kwargs(self) -> dict[str, Any]:
+        self.start.assert_awaited_once()
+        assert self.start.await_args is not None
+        return dict(self.start.await_args.kwargs)
+
+
+@dataclass
+class FakeBlobStore:
+    """In-memory stand-in for the functions of ``tracecat.storage.blob``."""
+
+    objects: dict[str, bytes] = field(default_factory=dict)
+    content_types: dict[str, str | None] = field(default_factory=dict)
+    presigned: list[dict[str, Any]] = field(default_factory=list)
+    deleted: list[str] = field(default_factory=list)
+    fail_uploads: bool = False
+
+    async def upload_file(
+        self,
+        content: bytes,
+        key: str,
+        bucket: str,
+        content_type: str | None = None,
+        *,
+        redact_log_identifiers: bool = False,
+    ) -> None:
+        if self.fail_uploads:
+            raise blob.StorageUploadError(error_code="SlowDown")
+        self.objects[key] = content
+        self.content_types[key] = content_type
+
+    async def download_file(
+        self, key: str, bucket: str, *, redact_log_identifiers: bool = False
+    ) -> bytes:
+        if key not in self.objects:
+            raise FileNotFoundError
+        return self.objects[key]
+
+    async def delete_file(
+        self, key: str, bucket: str, *, redact_log_identifiers: bool = False
+    ) -> None:
+        """A key holding ``fail`` raises, after it is recorded."""
+        self.deleted.append(key)
+        if "fail" in key:
+            raise blob.StorageDeleteError(error_code="SlowDown")
+        self.objects.pop(key, None)
+
+    async def generate_presigned_download_url(self, **kwargs: Any) -> str:
+        self.presigned.append(kwargs)
+        return f"https://storage.example.com/{kwargs['key']}?signature=synthetic"

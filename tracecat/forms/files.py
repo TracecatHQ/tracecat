@@ -13,12 +13,12 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, delete, false, func, or_, select
+from sqlalchemy import ColumnElement, delete, func, or_, select
 
 from tracecat import config
-from tracecat.authz.controls import has_scope
 from tracecat.db.models import Form, FormFile, Workspace
 from tracecat.exceptions import TracecatAuthorizationError, TracecatException
+from tracecat.forms.access import caller_user_id, can_read_submissions, is_caller
 from tracecat.forms.constants import (
     MAX_FILES_PER_FIELD,
     MAX_PENDING_FILES_PER_UPLOADER,
@@ -75,16 +75,6 @@ def matches_accept(
     return False
 
 
-def _file_read(file: FormFile) -> FormFileRead:
-    return FormFileRead(
-        id=file.id,
-        name=file.name,
-        content_type=file.content_type,
-        size=file.size,
-        sha256=file.sha256,
-    )
-
-
 def _invalid_file(field: str) -> FormFieldError:
     # One message for every reason, so a caller cannot probe for file IDs.
     return FormFieldError(
@@ -99,22 +89,12 @@ class FormFilesService(BaseWorkspaceService):
 
     service_name = "form_files"
 
-    @property
-    def _user_id(self) -> uuid.UUID | None:
-        """The calling user. None for a service account."""
-        return self.role.user_id if self.role.type == "user" else None
-
-    @property
-    def _service_account_id(self) -> uuid.UUID | None:
-        return self.role.service_account_id if self._user_id is None else None
-
     def _uploaded_by_caller(self) -> ColumnElement[bool]:
-        """Match the files the caller uploaded. No identity matches none."""
-        if (user_id := self._user_id) is not None:
-            return FormFile.uploaded_by_user_id == user_id
-        if (service_account_id := self._service_account_id) is not None:
-            return FormFile.uploaded_by_service_account_id == service_account_id
-        return false()
+        return is_caller(
+            self.role,
+            FormFile.uploaded_by_user_id,
+            FormFile.uploaded_by_service_account_id,
+        )
 
     def _pending(self, form_id: uuid.UUID) -> tuple[ColumnElement[bool], ...]:
         return (
@@ -136,25 +116,21 @@ class FormFilesService(BaseWorkspaceService):
     ) -> FormFileRead:
         """Store a file for one of an online form's ``file`` fields.
 
-        The file stays pending until the caller submits its ID.
-
-        Args:
-            form: The form.
-            field_name: Name of a ``file`` field of the resolved form.
-            filename: Name the client sent. Validated, stored as data.
-            content_type: Type the client declared. Checked against the bytes.
-            content: The file's bytes, already bounded by the size limit.
+        The file stays pending until the caller submits its ID. The filename
+        is validated and stored as data; the declared type is checked against
+        the bytes. Uploading also purges a batch of the workspace's expired
+        pending files.
 
         Raises:
-            FormError: ``form_offline``, ``form_unavailable``,
-                ``file_field_invalid``, ``file_invalid``,
-                ``file_type_not_allowed``, ``file_too_large``,
-                ``file_limit_reached`` or ``file_upload_failed``.
+            FormError: If the form cannot be filled in, the field is not a
+                file field, or the file is refused or cannot be stored.
             TracecatAuthorizationError: If the caller is neither a user nor a
                 service account.
         """
         form_id = form.id
-        if self._user_id is None and self._service_account_id is None:
+        user_id = caller_user_id(self.role)
+        account_id = self.role.service_account_id if user_id is None else None
+        if user_id is None and account_id is None:
             raise TracecatAuthorizationError(
                 "Uploading a file needs a user or a service account"
             )
@@ -163,11 +139,9 @@ class FormFilesService(BaseWorkspaceService):
         )
         field = next(
             (
-                block
-                for block in resolved.blocks
-                if isinstance(block, FormFieldBlock)
-                and block.widget is FormWidget.FILE
-                and block.name == field_name
+                field
+                for field in resolved.fields
+                if field.widget is FormWidget.FILE and field.name == field_name
             ),
             None,
         )
@@ -204,14 +178,14 @@ class FormFilesService(BaseWorkspaceService):
             workspace_id=self.workspace_id,
             form_id=form_id,
             field=field.name,
-            uploaded_by_user_id=self._user_id,
-            uploaded_by_service_account_id=self._service_account_id,
+            uploaded_by_user_id=user_id,
+            uploaded_by_service_account_id=account_id,
             name=validated.filename,
             content_type=validated.content_type,
             size=len(content),
             sha256=hashlib.sha256(content).hexdigest(),
         )
-        file_read = _file_read(file)
+        file_read = FormFileRead.model_validate(file)
         self.session.add(file)
         await self.session.commit()
         try:
@@ -333,9 +307,7 @@ class FormFilesService(BaseWorkspaceService):
         if not file_ids_by_field:
             return errors, []
 
-        wanted = {
-            file_id for file_ids in file_ids_by_field.values() for file_id in file_ids
-        }
+        wanted = {file_id for ids in file_ids_by_field.values() for file_id in ids}
         statement = (
             select(FormFile)
             .where(
@@ -361,7 +333,10 @@ class FormFilesService(BaseWorkspaceService):
                 errors.append(_invalid_file(name))
                 continue
             claimed.extend(found)
-            expanded = [_file_read(file).model_dump(mode="json") for file in found]
+            expanded = [
+                FormFileRead.model_validate(file).model_dump(mode="json")
+                for file in found
+            ]
             answers[name] = expanded if multiple[name] else expanded[0]
         return errors, claimed
 
@@ -376,31 +351,28 @@ class FormFilesService(BaseWorkspaceService):
         ``form:submission:read`` a caller also downloads any file a submission
         has claimed. Nobody else reads a pending file.
         """
+        readable = self._uploaded_by_caller()
+        if can_read_submissions(self.role):
+            readable = or_(readable, FormFile.submission_id.is_not(None))
         statement = select(FormFile).where(
-            FormFile.workspace_id == self.workspace_id, FormFile.id == file_id
+            FormFile.workspace_id == self.workspace_id,
+            FormFile.id == file_id,
+            readable,
         )
         if form_id is not None:
             statement = statement.where(FormFile.form_id == form_id)
-        readable = self._uploaded_by_caller()
-        if has_scope(self.role.scopes or frozenset(), "form:submission:read"):
-            readable = or_(readable, FormFile.submission_id.is_not(None))
-        statement = statement.where(readable)
         return (await self.session.execute(statement)).scalar_one_or_none()
 
     async def get_download(
         self, form_id: uuid.UUID, file_id: uuid.UUID
     ) -> FormFileDownload | None:
-        """Make a short-lived download URL for a file.
+        """Make a short-lived URL that forces a download with a neutral type,
+        so a browser never renders an uploaded file.
 
-        The URL forces a download with a neutral content type, so a browser
-        never renders an uploaded file.
-
-        Returns:
-            The download, or None if the file does not exist or is not the
-            caller's to read. Callers must not tell these cases apart.
+        Returns None if the file does not exist or is not the caller's to
+        read. Callers must not tell these cases apart.
         """
-        file = await self._get_readable_file(file_id, form_id=form_id)
-        if file is None:
+        if (file := await self._get_readable_file(file_id, form_id=form_id)) is None:
             return None
         download_url = await blob.generate_presigned_download_url(
             key=file_blob_key(self.workspace_id, file.form_id, file.id),
@@ -418,18 +390,12 @@ class FormFilesService(BaseWorkspaceService):
         )
 
     async def read_content(self, file_id: uuid.UUID) -> FormFileContent | None:
-        """Read a file's bytes, for a workflow run.
-
-        Returns:
-            The file with its content, or None if the file does not exist, is
-            not the caller's to read, or has no blob.
+        """Read a file's bytes for a workflow run, or None as for a download.
 
         Raises:
-            TracecatException: If the stored bytes do not match the file's
-                hash.
+            TracecatException: If the stored bytes do not match the file's hash.
         """
-        file = await self._get_readable_file(file_id)
-        if file is None:
+        if (file := await self._get_readable_file(file_id)) is None:
             return None
         try:
             content = await blob.download_file(
@@ -441,11 +407,9 @@ class FormFilesService(BaseWorkspaceService):
             return None
         if hashlib.sha256(content).hexdigest() != file.sha256:
             raise TracecatException("File integrity check failed")
-        return FormFileContent(
-            id=file.id,
-            name=file.name,
-            content_type=file.content_type,
-            size=file.size,
-            sha256=file.sha256,
-            content_base64=base64.b64encode(content).decode("ascii"),
+        return FormFileContent.model_validate(
+            {
+                **FormFileRead.model_validate(file).model_dump(),
+                "content_base64": base64.b64encode(content).decode("ascii"),
+            }
         )

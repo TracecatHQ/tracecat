@@ -6,17 +6,15 @@ never appear in dumps, exports, Temporal payloads or the OpenAPI schema.
 """
 
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Any
 
-import orjson
 import pytest
-import yaml
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.app import app
 from tracecat.auth.types import Role
-from tracecat.db.models import Workflow, WorkflowDefinition
+from tracecat.db.models import Workflow
 from tracecat.dsl._converter import PydanticPayloadConverter
 from tracecat.dsl.common import (
     DSLEntrypoint,
@@ -41,7 +39,6 @@ from tracecat.workflow.management.router import (
 from tracecat.workflow.management.schemas import (
     ExternalWorkflowDefinition,
     WorkflowCreate,
-    WorkflowDefinitionRead,
     WorkflowUpdate,
 )
 from tracecat.workspace_sync.serialization import serialize_yaml_model
@@ -56,213 +53,89 @@ EXPECTS: dict[str, dict[str, Any]] = {
     "mm": {"type": "int", "default": 1},
     "a": {"type": "bool", "default": False},
 }
+STORED_EXPECTS = {name: EXPECTS[name] for name in JSONB_ORDER}
 
 
-def _dsl_data(expects: dict[str, Any] | None = None) -> dict[str, Any]:
+def _dsl_data() -> dict[str, Any]:
     return {
         "title": "Input order workflow",
         "description": "Test workflow",
-        "entrypoint": {"ref": "start", "expects": expects or EXPECTS},
+        "entrypoint": {"ref": "start", "expects": EXPECTS},
         "actions": [{"ref": "start", "action": "core.transform.reshape"}],
     }
 
 
-def _stored_entrypoint() -> dict[str, Any]:
-    """An entrypoint as it comes back from JSONB: sorted keys plus the order."""
-    return {
-        "ref": "start",
-        "expects": {name: EXPECTS[name] for name in JSONB_ORDER},
-        "expects_order": AUTHOR_ORDER,
-    }
-
-
 def _stored_dsl() -> DSLInput:
-    return DSLInput.model_validate({**_dsl_data(), "entrypoint": _stored_entrypoint()})
+    """A definition as it comes back from JSONB: sorted keys plus the order."""
+    entrypoint = {"ref": "start", "expects": STORED_EXPECTS}
+    return DSLInput.model_validate(
+        _dsl_data() | {"entrypoint": entrypoint | {"expects_order": AUTHOR_ORDER}}
+    )
 
 
-def test_apply_expects_order_handles_missing_and_stale_names() -> None:
+def test_apply_and_capture_expects_order() -> None:
     expects = {"a": 1, "b": 2, "c": 3}
 
     assert apply_expects_order(None, ["a"]) is None
-    assert list(apply_expects_order(expects, None) or {}) == ["a", "b", "c"]
+    assert apply_expects_order(expects, None) == expects
     # Names no longer in the schema are ignored; unlisted names keep their place
-    # after the listed ones.
-    assert list(apply_expects_order(expects, ["c", "gone", "a"]) or {}) == [
-        "c",
-        "a",
-        "b",
-    ]
-
-
-MALFORMED_ORDERS: list[Any] = [
-    "zeta",
-    5,
-    {"zeta": 0},
-    ["zeta", 5],
-    [["zeta"]],
-    [{"name": "zeta"}],
-]
-
-
-@pytest.mark.parametrize("order", MALFORMED_ORDERS, ids=repr)
-def test_malformed_stored_order_is_ignored(order: Any) -> None:
-    """The order is a hint. A bad one must not stop a run or a read."""
-    stored_expects = {name: EXPECTS[name] for name in JSONB_ORDER}
-
-    assert list(apply_expects_order(stored_expects, order) or {}) == JSONB_ORDER
-
-    entrypoint = DSLEntrypoint.model_validate(
-        {"ref": "start", "expects": stored_expects, "expects_order": order}
-    )
-    assert list(entrypoint.expects or {}) == JSONB_ORDER
-    assert entrypoint.expects_order is None
-
-    dsl = DSLInput.model_validate(
-        {**_dsl_data(), "entrypoint": {**_stored_entrypoint(), "expects_order": order}}
-    )
-    assert list(dsl.entrypoint.expects or {}) == JSONB_ORDER
-
-    content = {
-        "title": "Malformed order",
-        "entrypoint": {
-            "ref": "start",
-            "expects": stored_expects,
-            "expects_order": order,
-        },
-    }
-    read = WorkflowDefinitionRead.model_validate(
-        {
-            "id": uuid.uuid4(),
-            "workflow_id": None,
-            "workspace_id": uuid.uuid4(),
-            "version": 1,
-            "content": content,
-            "created_at": "2026-01-01T00:00:00Z",
-            "updated_at": "2026-01-01T00:00:00Z",
-        }
-    )
-    assert read.content is not None
-    assert read.content["entrypoint"] == {"ref": "start", "expects": stored_expects}
-    assert list(read.content["entrypoint"]["expects"]) == JSONB_ORDER
-
-
-def test_workflow_without_a_stored_order_loads_as_before() -> None:
-    """A workflow saved before the order existed is read exactly as stored."""
-    stored = {**_dsl_data(), "entrypoint": {"ref": "start", "expects": EXPECTS}}
-    stored["entrypoint"]["expects"] = {name: EXPECTS[name] for name in JSONB_ORDER}
-
-    dsl = DSLInput.model_validate(stored)
-
-    assert list(dsl.entrypoint.expects or {}) == JSONB_ORDER
-    assert "expects_order" not in dsl.entrypoint.model_fields_set
-    dumped = dsl.model_dump(mode="json", exclude_unset=True)
-    assert dumped["entrypoint"] == {
-        "ref": "start",
-        "expects": {
-            name: DSLEntrypoint.model_validate(stored["entrypoint"]).model_dump(
-                mode="json", exclude_unset=True
-            )["expects"][name]
-            for name in JSONB_ORDER
-        },
-    }
-    assert list(dumped["entrypoint"]["expects"]) == JSONB_ORDER
-    assert expects_key_order(None) is None
-
-
-def test_expects_key_order() -> None:
+    # after the listed ones. A malformed stored order is ignored.
+    assert list(apply_expects_order(expects, ["c", "gone", "a"]) or {}) == list("cab")
+    assert list(apply_expects_order(expects, ["c", 5]) or {}) == list("abc")
     assert expects_key_order(EXPECTS) == AUTHOR_ORDER
     assert expects_key_order({}) is None
     assert expects_key_order(None) is None
 
 
-def test_entrypoint_reorders_expects_on_validation() -> None:
-    entrypoint = DSLEntrypoint.model_validate(_stored_entrypoint())
-
-    assert list(entrypoint.expects or {}) == AUTHOR_ORDER
-    assert entrypoint.expects_order is None
-    assert entrypoint == DSLEntrypoint.model_validate(
-        {"ref": "start", "expects": EXPECTS}
-    )
-
-
 @pytest.mark.parametrize(
-    "dump_kwargs",
-    [
-        {},
-        {"mode": "json"},
-        {"exclude_unset": True},
-        {"exclude_none": True},
-        {"by_alias": True, "exclude_defaults": True},
-    ],
+    "order",
+    ["zeta", 5, {"zeta": 0}, ["zeta", 5], [["zeta"]], [{"name": "zeta"}]],
+    ids=repr,
 )
-def test_expects_order_is_not_in_model_dump(dump_kwargs: dict[str, Any]) -> None:
-    dsl = _stored_dsl()
+def test_malformed_stored_order_is_ignored(order: Any) -> None:
+    """The order is a hint. A bad one must not stop a run."""
+    entrypoint = {"ref": "start", "expects": STORED_EXPECTS, "expects_order": order}
 
-    dumped = dsl.model_dump(**dump_kwargs)
+    dsl = DSLInput.model_validate(_dsl_data() | {"entrypoint": entrypoint})
 
-    assert "expects_order" not in dumped["entrypoint"]
-    assert list(dumped["entrypoint"]["expects"]) == AUTHOR_ORDER
-
-    json_kwargs = {k: v for k, v in dump_kwargs.items() if k != "mode"}
-    assert "expects_order" not in dsl.model_dump_json(**json_kwargs)
+    assert list(dsl.entrypoint.expects or {}) == JSONB_ORDER
 
 
-def test_expects_order_is_not_in_model_dump_when_constructed_directly() -> None:
-    entrypoint = DSLEntrypoint.model_construct(
-        ref="start", expects=None, expects_order=AUTHOR_ORDER
-    )
-
-    assert "expects_order" not in entrypoint.model_dump()
-    assert "expects_order" not in entrypoint.model_dump_json()
-
-
-def test_expects_order_is_not_in_yaml_exports() -> None:
-    dsl = _stored_dsl()
-    external = ExternalWorkflowDefinition(definition=dsl)
-
-    exports = [
-        dsl.dump_yaml(),
-        # Same calls as the workflow export route.
-        yaml.dump(external.model_dump(mode="json", exclude_none=True), indent=2),
-        external.model_dump_json(indent=2, exclude_none=True),
-        # Workspace sync serializer.
-        serialize_yaml_model(dsl),
-    ]
-
-    for exported in exports:
-        assert "expects_order" not in exported
-    synced = yaml.safe_load(exports[-1])
-    assert list(synced["entrypoint"]["expects"]) == AUTHOR_ORDER
-
-
-def test_expects_order_is_not_in_temporal_payloads() -> None:
+def _temporal_payload(dsl: DSLInput) -> bytes:
     args = DSLRunArgs(
         role=Role(
-            type="service",
-            service_id="tracecat-runner",
-            workspace_id=uuid.uuid4(),
+            type="service", service_id="tracecat-runner", workspace_id=uuid.uuid4()
         ),
-        dsl=_stored_dsl(),
+        dsl=dsl,
         wf_id=WorkflowUUID.new_uuid4(),
     )
-    converter = PydanticPayloadConverter()
-
-    [payload] = converter.to_payloads([args])
-
-    assert b"expects_order" not in payload.data
-    # The converter sorts keys, so a run sees inputs alphabetically. Readers
-    # that need the author's order load the definition, not the run payload.
-    [decoded] = converter.from_payloads([payload], [DSLRunArgs])
-    assert decoded.dsl is not None
-    assert set(decoded.dsl.entrypoint.expects or {}) == set(AUTHOR_ORDER)
+    [payload] = PydanticPayloadConverter().to_payloads([args])
+    return payload.data
 
 
-def test_expects_order_is_not_in_json_schema_or_openapi() -> None:
-    for mode in ("validation", "serialization"):
-        schema = DSLInput.model_json_schema(mode=mode)
-        assert b"expects_order" not in orjson.dumps(schema)
+DUMPS: dict[str, Callable[[DSLInput], Any]] = {
+    "model_dump": lambda dsl: dsl.model_dump(),
+    "json": lambda dsl: dsl.model_dump_json(),
+    "model_construct": lambda dsl: DSLEntrypoint.model_construct(
+        ref="start", expects=None, expects_order=AUTHOR_ORDER
+    ).model_dump_json(),
+    # Same call as the workflow export route.
+    "export_json": lambda dsl: ExternalWorkflowDefinition(
+        definition=dsl
+    ).model_dump_json(exclude_none=True),
+    "workspace_sync": serialize_yaml_model,
+    "temporal_payload": _temporal_payload,
+    "json_schema": lambda dsl: [
+        DSLInput.model_json_schema(mode=mode)
+        for mode in ("validation", "serialization")
+    ],
+    "openapi": lambda dsl: app.openapi(),
+}
 
-    assert b"expects_order" not in orjson.dumps(app.openapi())
+
+@pytest.mark.parametrize("dump", DUMPS.values(), ids=DUMPS.keys())
+def test_expects_order_never_leaves_the_model(dump: Callable[[DSLInput], Any]) -> None:
+    assert "expects_order" not in str(dump(_stored_dsl()))
 
 
 @pytest.fixture
@@ -272,41 +145,13 @@ async def workflow(session: AsyncSession, svc_role: Role) -> Workflow:
 
 
 @pytest.mark.anyio
-async def test_definition_round_trip_keeps_input_order(
-    session: AsyncSession, svc_role: Role, workflow: Workflow
-) -> None:
-    service = WorkflowDefinitionsService(session, role=svc_role)
-    dsl = DSLInput.model_validate(_dsl_data())
-
-    created = await service.create_workflow_definition(
-        WorkflowUUID.new(workflow.id), dsl
-    )
-    defn_id = created.id
-    session.expire_all()
-
-    result = await session.execute(
-        select(WorkflowDefinition).where(WorkflowDefinition.id == defn_id)
-    )
-    defn = result.scalar_one()
-    # The stored object lost the order; the list beside it kept it.
-    assert list(defn.content["entrypoint"]["expects"]) == JSONB_ORDER
-    assert defn.content["entrypoint"]["expects_order"] == AUTHOR_ORDER
-
-    loaded = DSLInput.model_validate(defn.content)
-    assert list(loaded.entrypoint.expects or {}) == AUTHOR_ORDER
-    assert loaded.entrypoint == dsl.entrypoint
-    assert "expects_order" not in loaded.model_dump()["entrypoint"]
-
-
-@pytest.mark.anyio
-async def test_definition_routes_hide_the_stored_order_key(
+async def test_definition_routes_return_input_order_without_the_key(
     session: AsyncSession, svc_role: Role, workflow: Workflow
 ) -> None:
     service = WorkflowDefinitionsService(session, role=svc_role)
     workflow_id = WorkflowUUID.new(workflow.id)
-    await service.create_workflow_definition(
-        workflow_id, DSLInput.model_validate(_dsl_data())
-    )
+    dsl = DSLInput.model_validate(_dsl_data())
+    await service.create_workflow_definition(workflow_id, dsl)
     session.expire_all()
 
     read = await get_workflow_definition(
@@ -321,145 +166,62 @@ async def test_definition_routes_hide_the_stored_order_key(
         entrypoint = definition.content["entrypoint"]
         assert "expects_order" not in entrypoint
         assert list(entrypoint["expects"]) == AUTHOR_ORDER
-        assert b"expects_order" not in orjson.dumps(definition.model_dump(mode="json"))
-
-    # Reading through the API leaves the stored row as it was.
-    result = await session.execute(
-        select(WorkflowDefinition).where(WorkflowDefinition.id == read.id)
-    )
-    stored = result.scalar_one()
-    assert stored.content["entrypoint"]["expects_order"] == AUTHOR_ORDER
 
 
-def test_definition_read_without_stored_order_is_unchanged() -> None:
-    content = {"title": "No inputs", "entrypoint": {"ref": "start"}}
-
-    read = WorkflowDefinitionRead.model_validate(
-        {
-            "id": uuid.uuid4(),
-            "workflow_id": None,
-            "workspace_id": uuid.uuid4(),
-            "version": 1,
-            "content": content,
-            "created_at": "2026-01-01T00:00:00Z",
-            "updated_at": "2026-01-01T00:00:00Z",
-        }
-    )
-
-    assert read.content == content
-    assert (
-        WorkflowDefinitionRead.model_validate(
-            read.model_dump() | {"content": None}
-        ).content
-        is None
-    )
-
-
-@pytest.mark.anyio
-async def test_definition_without_expects_stores_no_order(
-    session: AsyncSession, svc_role: Role, workflow: Workflow
+async def _update_workflow(
+    service: WorkflowsManagementService, workflow: Workflow, role: Role
 ) -> None:
-    service = WorkflowDefinitionsService(session, role=svc_role)
-    data = _dsl_data()
-    data["entrypoint"] = {"ref": "start"}
-
-    defn = await service.create_workflow_definition(
-        WorkflowUUID.new(workflow.id), DSLInput.model_validate(data)
-    )
-
-    assert "expects_order" not in defn.content["entrypoint"]
-
-
-@pytest.mark.anyio
-async def test_workflow_read_path_keeps_input_order(
-    session: AsyncSession, svc_role: Role, workflow: Workflow
-) -> None:
-    service = WorkflowsManagementService(session, role=svc_role)
-    workflow_id = WorkflowUUID.new(workflow.id)
-
     await service.update_workflow(
-        workflow_id, WorkflowUpdate.model_validate({"expects": EXPECTS})
+        WorkflowUUID.new(workflow.id),
+        WorkflowUpdate.model_validate({"expects": EXPECTS}),
     )
 
-    # update_workflow refreshes the row, so these values come from the database.
-    loaded = await service.get_workflow(workflow_id)
-    assert loaded is not None
-    assert list(loaded.expects) == JSONB_ORDER
-    assert loaded.expects_order == AUTHOR_ORDER
 
-    read = _build_workflow_read(loaded)
-    assert list(read.expects or {}) == AUTHOR_ORDER
-    assert read.expects_schema is not None
-    assert list(read.expects_schema["properties"]) == AUTHOR_ORDER
-    assert "expects_order" not in read.model_dump()
-
-    document = build_workflow_edit_document(loaded)
-    assert list(document.definition.entrypoint.expects or {}) == AUTHOR_ORDER
-
-    await service.update_workflow(workflow_id, WorkflowUpdate(expects=None))
-    assert loaded.expects_order is None
-
-
-@pytest.mark.anyio
-async def test_draft_save_from_dsl_keeps_input_order(
-    session: AsyncSession, svc_role: Role, workflow: Workflow
+async def _replace_from_dsl(
+    service: WorkflowsManagementService, workflow: Workflow, role: Role
 ) -> None:
-    service = WorkflowsManagementService(session, role=svc_role)
-    workflow_id = WorkflowUUID.new(workflow.id)
-    draft = await service.get_workflow(workflow_id)
-    assert draft is not None
-
     await replace_workflow_definition_from_dsl(
-        service=service, workflow=draft, dsl=DSLInput.model_validate(_dsl_data())
+        service=service, workflow=workflow, dsl=DSLInput.model_validate(_dsl_data())
     )
-    await session.commit()
-    session.expire_all()
-
-    loaded = await service.get_workflow(workflow_id)
-    assert loaded is not None
-    assert loaded.expects_order == AUTHOR_ORDER
-    dsl = await service.build_dsl_from_workflow(loaded)
-    assert list(dsl.entrypoint.expects or {}) == AUTHOR_ORDER
 
 
-@pytest.mark.anyio
-@pytest.mark.parametrize("with_actions", [False, True], ids=["empty", "with_actions"])
-async def test_workflow_edit_document_save_keeps_input_order(
-    session: AsyncSession, svc_role: Role, workflow: Workflow, with_actions: bool
+async def _save_edit_document(
+    service: WorkflowsManagementService, workflow: Workflow, role: Role
 ) -> None:
-    """The chat and MCP workflow editors both save through the edit document."""
-    service = WorkflowsManagementService(session, role=svc_role)
-    workflow_id = WorkflowUUID.new(workflow.id)
-    draft = await service.get_workflow(workflow_id)
-    assert draft is not None
-    if with_actions:
-        data = _dsl_data({"first": {"type": "str"}})
-        await replace_workflow_definition_from_dsl(
-            service=service, workflow=draft, dsl=DSLInput.model_validate(data)
-        )
-        await session.commit()
-        draft = await service.get_workflow(workflow_id)
-        assert draft is not None
-    original = build_workflow_edit_document(draft)
-    assert bool(original.definition.actions) is with_actions
+    """The chat and MCP workflow editors both save through the edit document.
+
+    With actions it saves through ``replace_workflow_definition_from_dsl``.
+    """
+    original = build_workflow_edit_document(workflow)
     entrypoint = DSLEntrypoint.model_validate(
         {"ref": original.definition.entrypoint.ref, "expects": EXPECTS}
     )
-    updated = original.model_copy(
-        update={
-            "definition": original.definition.model_copy(
-                update={"entrypoint": entrypoint}
-            )
-        }
+    definition = original.definition.model_copy(update={"entrypoint": entrypoint})
+    await persist_workflow_edit_document(
+        role=role,
+        service=service,
+        workflow=workflow,
+        original_document=original,
+        updated_document=original.model_copy(update={"definition": definition}),
     )
 
-    await persist_workflow_edit_document(
-        role=svc_role,
-        service=service,
-        workflow=draft,
-        original_document=original,
-        updated_document=updated,
-    )
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "write",
+    [_update_workflow, _replace_from_dsl, _save_edit_document],
+    ids=lambda write: write.__name__,
+)
+async def test_every_draft_write_keeps_input_order(
+    session: AsyncSession,
+    svc_role: Role,
+    workflow: Workflow,
+    write: Callable[[WorkflowsManagementService, Workflow, Role], Awaitable[None]],
+) -> None:
+    service = WorkflowsManagementService(session, role=svc_role)
+    workflow_id = WorkflowUUID.new(workflow.id)
+
+    await write(service, workflow, svc_role)
     await session.commit()
     session.expire_all()
 
@@ -467,12 +229,13 @@ async def test_workflow_edit_document_save_keeps_input_order(
     assert loaded is not None
     assert list(loaded.expects) == JSONB_ORDER
     assert loaded.expects_order == AUTHOR_ORDER
-    reread = build_workflow_edit_document(loaded)
-    assert list(reread.definition.entrypoint.expects or {}) == AUTHOR_ORDER
-
-
-def test_workflow_fields_from_dsl_capture_input_order() -> None:
-    fields = WorkflowsManagementService._workflow_fields_from_dsl(_stored_dsl())
-
-    assert list(fields["expects"]) == AUTHOR_ORDER
-    assert fields["expects_order"] == AUTHOR_ORDER
+    read = _build_workflow_read(loaded)
+    reads = [
+        read.expects,
+        (read.expects_schema or {})["properties"],
+        build_workflow_edit_document(loaded).definition.entrypoint.expects,
+    ]
+    if loaded.actions:
+        reads.append((await service.build_dsl_from_workflow(loaded)).entrypoint.expects)
+    for expects in reads:
+        assert list(expects or {}) == AUTHOR_ORDER

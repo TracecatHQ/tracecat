@@ -1,48 +1,57 @@
 "use client"
 
+import {
+  CheckIcon,
+  CircleAlertIcon,
+  CircleCheckIcon,
+  InfoIcon,
+  type LucideIcon,
+  TriangleAlertIcon,
+} from "lucide-react"
 import Link from "next/link"
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import {
-  Controller,
-  type FieldErrors,
-  type Resolver,
-  useForm,
-} from "react-hook-form"
+  type ComponentType,
+  type FormEvent,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react"
 import type {
-  FormFieldBlock,
-  FormResolved,
+  FormNoticeBlock,
+  FormNoticeTone,
+  FormPreview,
   FormSubmissionReceipt,
+  FormWidget,
 } from "@/client"
-import {
-  FormConfirmation,
-  FormHeader,
-  FormNotice,
-  FormStaticBlock,
-} from "@/components/forms/form-blocks"
+import { CopyButton } from "@/components/copy-button"
+import { FormMarkdown } from "@/components/forms/form-markdown"
 import { formStyles } from "@/components/forms/form-styles"
-import { FORM_WIDGETS } from "@/components/forms/widgets/registry"
-import type {
-  FormFileUploader,
-  FormWidgetProps,
-  FormWidgetRuntime,
-} from "@/components/forms/widgets/types"
+import {
+  DateWidget,
+  type FormWidgetProps,
+  SelectWidget,
+  TagsWidget,
+  TextWidget,
+  ToggleWidget,
+} from "@/components/forms/widgets"
+import { CardsWidget } from "@/components/forms/widgets/cards"
+import { FileWidget } from "@/components/forms/widgets/file"
+import { UserWidget } from "@/components/forms/widgets/user"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { getFormErrorDetail, mapFormFieldErrors } from "@/lib/forms/errors"
-import {
-  fromFieldKey,
-  fromFieldKeyValues,
-  toFieldKey,
-  toFieldKeyValues,
-} from "@/lib/forms/field-keys"
-import { getInitialFormValues, validateFormValues } from "@/lib/forms/validate"
+import { Separator } from "@/components/ui/separator"
+import { getFormErrorDetail } from "@/lib/forms/errors"
+import type { FormFileUploader } from "@/lib/forms/files"
 import {
   type FormBlock,
   type FormValues,
+  getInitialFormValues,
   getVisibleFields,
   isFieldBlock,
   toSubmissionValues,
-} from "@/lib/forms/visibility"
+  validateFormValues,
+} from "@/lib/forms/values"
 import { cn } from "@/lib/utils"
 
 /** Where a requester's own submissions are listed. */
@@ -55,10 +64,90 @@ const READ_ONLY_MESSAGE = "You can view this form but you can't submit it."
 const FOCUSABLE_SELECTOR =
   'input:not([disabled]):not([hidden]), textarea:not([disabled]), button:not([disabled]):not([tabindex="-1"])'
 
+/**
+ * The component for every widget the backend can resolve a field to. Keyed
+ * by the generated `FormWidget` union, so a widget added on the backend fails
+ * typecheck here until it has a component.
+ */
+const WIDGETS: Record<FormWidget, ComponentType<FormWidgetProps>> = {
+  text: TextWidget,
+  long_text: TextWidget,
+  number: TextWidget,
+  toggle: ToggleWidget,
+  select: SelectWidget,
+  multi_select: TagsWidget,
+  cards: CardsWidget,
+  tags: TagsWidget,
+  date: DateWidget,
+  datetime: DateWidget,
+  user: UserWidget,
+  file: FileWidget,
+}
+
+const NOTICE_TONES: Record<
+  FormNoticeTone,
+  { icon: LucideIcon; className: string; iconClassName: string }
+> = {
+  info: {
+    icon: InfoIcon,
+    className: "border-primary/35 bg-primary/5",
+    iconClassName: "text-primary",
+  },
+  success: {
+    icon: CircleCheckIcon,
+    className: "border-emerald-500/35 bg-emerald-500/5",
+    iconClassName: "text-emerald-600 dark:text-emerald-400",
+  },
+  warning: {
+    icon: TriangleAlertIcon,
+    className: "border-amber-500/40 bg-amber-500/5",
+    iconClassName: "text-amber-600 dark:text-amber-400",
+  },
+  danger: {
+    icon: CircleAlertIcon,
+    className: "border-destructive/40 bg-destructive/5",
+    iconClassName: "text-destructive",
+  },
+}
+
+/** A callout with an icon, coloured by tone. Its text is markdown. */
+function FormNotice({ text, tone }: Omit<FormNoticeBlock, "type">) {
+  const { icon: Icon, className, iconClassName } = NOTICE_TONES[tone]
+  return (
+    <div
+      role="note"
+      className={cn(
+        "flex items-start gap-2.5 rounded-md border px-3 py-2.5 text-sm leading-5",
+        className
+      )}
+    >
+      <Icon className={cn("mt-0.5 size-4 shrink-0", iconClassName)} />
+      <FormMarkdown className="min-w-0 flex-1">{text}</FormMarkdown>
+    </div>
+  )
+}
+
+/** A block that takes no input: a heading, markdown text, a notice or a divider. */
+function FormStaticBlock({ block }: { block: FormBlock }) {
+  switch (block.type) {
+    case "heading":
+      return <h2 className={formStyles.heading}>{block.text}</h2>
+    case "text":
+      return <FormMarkdown className="leading-5">{block.text}</FormMarkdown>
+    case "notice":
+      return <FormNotice text={block.text} tone={block.tone} />
+    case "divider":
+      return <Separator />
+    default:
+      return null
+  }
+}
+
 /** Props of {@link FormRenderer}. */
 export interface FormRendererProps {
+  workspaceId: string
   formId: string
-  form: FormResolved
+  form: FormPreview
   /**
    * `live` submits through `onSubmit`. `preview` never calls the network on
    * submit: it validates, then shows the confirmation with the reference
@@ -73,49 +162,39 @@ export interface FormRendererProps {
    * failure above the submit button.
    */
   onSubmit?: (values: FormValues) => Promise<FormSubmissionReceipt>
-  /** Uploads one file of a `file` field. Without it, files stay local. */
+  /** Uploads one file of a `file` field in live mode. Without it, files stay local. */
   uploadFile?: FormFileUploader
   /** Shown in the footer as "Submitting as ...". */
   submitterEmail?: string
   className?: string
 }
 
+/** Starting values for `next` that keep each answer whose widget is unchanged. */
 function carryOverValues(
   previous: FormBlock[],
   next: FormBlock[],
   current: FormValues
 ): FormValues {
-  const previousWidgets = new Map(
+  const widgets = new Map(
     previous.filter(isFieldBlock).map((field) => [field.name, field.widget])
   )
   const values = getInitialFormValues(next)
-  for (const field of next.filter(isFieldBlock)) {
-    if (
-      previousWidgets.get(field.name) === field.widget &&
-      current[field.name] !== undefined
-    ) {
-      values[field.name] = current[field.name]
-    }
+  for (const { name, widget } of next.filter(isFieldBlock)) {
+    const kept = widgets.get(name) === widget && current[name] !== undefined
+    if (kept) values[name] = current[name]
   }
   return values
 }
 
+/** A field's label, help and error around its widget. */
 function FormFieldRow({
-  id,
-  field,
   error,
-  widgetProps,
-}: {
-  id: string
-  field: FormFieldBlock
-  error?: string
-  widgetProps: Omit<FormWidgetProps, "id" | "field" | "invalid">
-}) {
-  const Widget = FORM_WIDGETS[field.widget]
+  ...props
+}: Omit<FormWidgetProps, "invalid"> & { error?: string }) {
+  const { id, field } = props
+  const Widget = WIDGETS[field.widget]
   // A newer backend can send a widget this build has no component for.
-  if (!Widget) {
-    return null
-  }
+  if (!Widget) return null
   const label = (
     <label id={`${id}-label`} htmlFor={id} className={formStyles.label}>
       {field.label}
@@ -131,18 +210,10 @@ function FormFieldRow({
       {field.help}
     </p>
   )
-  const message = error && (
-    <p id={`${id}-error`} role="alert" className={formStyles.error}>
-      {error}
-    </p>
-  )
-  const widget = (
-    <Widget id={id} field={field} invalid={Boolean(error)} {...widgetProps} />
-  )
-
-  if (field.widget === "toggle") {
-    return (
-      <div id={`${id}-row`} className={formStyles.field}>
+  const widget = <Widget {...props} invalid={Boolean(error)} />
+  return (
+    <div id={`${id}-row`} className={formStyles.field}>
+      {field.widget === "toggle" ? (
         <div className="flex items-center justify-between gap-3">
           <div>
             {label}
@@ -150,16 +221,18 @@ function FormFieldRow({
           </div>
           {widget}
         </div>
-        {message}
-      </div>
-    )
-  }
-  return (
-    <div id={`${id}-row`} className={formStyles.field}>
-      {label}
-      {widget}
-      {help}
-      {message}
+      ) : (
+        <>
+          {label}
+          {widget}
+          {help}
+        </>
+      )}
+      {error && (
+        <p id={`${id}-error`} role="alert" className={formStyles.error}>
+          {error}
+        </p>
+      )}
     </div>
   )
 }
@@ -170,9 +243,11 @@ function FormFieldRow({
  *
  * Shared by the requester page (`mode="live"`) and the builder preview
  * (`mode="preview"`). Conditional fields follow the answers as they change;
- * a hidden field is not rendered, not validated and not sent.
+ * a hidden field is not rendered, not validated and not sent. A change clears
+ * the field's error, and a failed submit focuses the first invalid field.
  */
 export function FormRenderer({
+  workspaceId,
   formId,
   form,
   mode,
@@ -183,99 +258,42 @@ export function FormRenderer({
   className,
 }: FormRendererProps) {
   const baseId = useId()
-  const blocks = form.blocks
-  const [receipt, setReceipt] = useState<FormSubmissionReceipt | null>(null)
+  const { blocks } = form
+  const [values, setValues] = useState(() => getInitialFormValues(blocks))
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const [formErrors, setFormErrors] = useState<string[]>([])
-
-  // Form state is keyed by `toFieldKey(name)`, never by the input name: a
-  // name such as `user.email` would be read as a path by react-hook-form.
-  const resolver = useCallback<Resolver<FormValues>>(
-    async (values) => {
-      const messages = Object.entries(
-        validateFormValues(blocks, fromFieldKeyValues(values))
-      )
-      if (messages.length === 0) {
-        return { values, errors: {} }
-      }
-      return {
-        values: {},
-        errors: Object.fromEntries(
-          messages.map(([name, message]) => [
-            toFieldKey(name),
-            { type: "validate", message },
-          ])
-        ) as FieldErrors<FormValues>,
-      }
-    },
-    [blocks]
-  )
-  const {
-    control,
-    handleSubmit,
-    watch,
-    reset,
-    getValues,
-    setError,
-    formState,
-  } = useForm<FormValues>({
-    defaultValues: toFieldKeyValues(getInitialFormValues(blocks)),
-    resolver,
-  })
+  const [submitting, setSubmitting] = useState(false)
+  const [receipt, setReceipt] = useState<FormSubmissionReceipt | null>(null)
 
   // The form can change under the requester: a reload after `form_changed`,
   // or every edit in the builder preview. Keep the answers that still apply.
-  const previousBlocks = useRef(blocks)
-  useEffect(() => {
-    if (previousBlocks.current === blocks) {
-      return
-    }
-    reset(
-      toFieldKeyValues(
-        carryOverValues(
-          previousBlocks.current,
-          blocks,
-          fromFieldKeyValues(getValues())
-        )
-      )
-    )
-    previousBlocks.current = blocks
-  }, [blocks, reset, getValues])
-
-  const values = fromFieldKeyValues(watch())
-  const visibleNames = new Set(
-    getVisibleFields(blocks, values).map((field) => field.name)
-  )
-  const runtime = useMemo<FormWidgetRuntime>(
-    () => ({ formId, workspaceId: form.workspace_id, mode, uploadFile }),
-    [formId, form.workspace_id, mode, uploadFile]
-  )
-
-  // An input name can hold spaces, which would split an id inside
-  // `aria-describedby`. The field key has letters, digits and `_` only.
-  const fieldId = (name: string) => `${baseId}-${toFieldKey(name)}`
+  const [shownBlocks, setShownBlocks] = useState(blocks)
+  if (shownBlocks !== blocks) {
+    setShownBlocks(blocks)
+    setValues(carryOverValues(shownBlocks, blocks, values))
+    setErrors({})
+  }
 
   // Controls are disabled while a submit is in flight and a disabled control
   // cannot take focus, so the names wait here until the submit has settled.
   const invalidNames = useRef<string[] | null>(null)
-  const isSubmitting = formState.isSubmitting
   useEffect(() => {
-    if (isSubmitting || !invalidNames.current) {
-      return
-    }
+    if (submitting || !invalidNames.current) return
     focusFirstError(invalidNames.current)
     invalidNames.current = null
-  }, [isSubmitting])
+  })
+
+  // DOM ids come from the block index: an input name can hold characters,
+  // such as spaces, that would split an id inside `aria-describedby`.
+  const fieldId = (index: number) => `${baseId}-${index}`
 
   /** Scroll to the first invalid field and move keyboard focus into it. */
   function focusFirstError(names: string[]) {
-    const invalid = new Set(names)
-    const first = blocks
-      .filter(isFieldBlock)
-      .find((field) => invalid.has(field.name))
-    if (!first) {
-      return
-    }
-    const id = fieldId(first.name)
+    const index = blocks.findIndex(
+      (block) => isFieldBlock(block) && names.includes(block.name)
+    )
+    if (index === -1) return
+    const id = fieldId(index)
     document
       .getElementById(`${id}-row`)
       ?.scrollIntoView({ behavior: "smooth", block: "center" })
@@ -288,8 +306,50 @@ export function FormRenderer({
     target?.focus({ preventScroll: true })
   }
 
-  async function submit(state: FormValues) {
-    const submitted = fromFieldKeyValues(state)
+  function setValue(name: string, value: unknown) {
+    setValues((current) => ({ ...current, [name]: value }))
+    setErrors(({ [name]: _cleared, ...rest }) => rest)
+  }
+
+  function showSubmitError(error: unknown) {
+    const detail = getFormErrorDetail(error)
+    if (detail?.code === "form_changed") {
+      setFormErrors([FORM_CHANGED_MESSAGE])
+      return
+    }
+    if (detail?.code !== "form_validation_error") {
+      setFormErrors([detail?.message ?? GENERIC_ERROR_MESSAGE])
+      return
+    }
+    // An error for a field on screen goes on that field, and the last one
+    // wins: later errors come from later, more specific checks. The rest go
+    // above the submit button.
+    const visible = new Set(
+      getVisibleFields(blocks, values).map((field) => field.name)
+    )
+    const fieldErrors: Record<string, string> = {}
+    const unplaced: string[] = []
+    for (const { field, message } of detail.errors ?? []) {
+      if (visible.has(field)) fieldErrors[field] = message
+      else unplaced.push(`${field}: ${message}`)
+    }
+    const names = Object.keys(fieldErrors)
+    setErrors(fieldErrors)
+    // A rejection that names no field still has to say something.
+    setFormErrors(
+      unplaced.length > 0 || names.length > 0 ? unplaced : [detail.message]
+    )
+    invalidNames.current = names
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const invalid = validateFormValues(blocks, values)
+    setErrors(invalid)
+    if (Object.keys(invalid).length > 0) {
+      invalidNames.current = Object.keys(invalid)
+      return
+    }
     setFormErrors([])
     if (mode === "preview") {
       setReceipt({
@@ -300,82 +360,91 @@ export function FormRenderer({
       })
       return
     }
-    if (!onSubmit || !canSubmit) {
-      return
-    }
+    if (!onSubmit || !canSubmit) return
+    setSubmitting(true)
     try {
-      setReceipt(await onSubmit(toSubmissionValues(blocks, submitted)))
+      setReceipt(await onSubmit(toSubmissionValues(blocks, values)))
     } catch (error) {
-      const detail = getFormErrorDetail(error)
-      if (detail?.code === "form_validation_error") {
-        const { fieldErrors, formErrors: unplaced } = mapFormFieldErrors(
-          detail.errors,
-          getVisibleFields(blocks, submitted).map((field) => field.name)
-        )
-        const names = Object.keys(fieldErrors)
-        for (const name of names) {
-          setError(toFieldKey(name), {
-            type: "server",
-            message: fieldErrors[name],
-          })
-        }
-        // A rejection that names no field still has to say something.
-        setFormErrors(
-          unplaced.length > 0 || names.length > 0 ? unplaced : [detail.message]
-        )
-        invalidNames.current = names
-      } else if (detail?.code === "form_changed") {
-        setFormErrors([FORM_CHANGED_MESSAGE])
-      } else {
-        setFormErrors([detail?.message ?? GENERIC_ERROR_MESSAGE])
-      }
+      showSubmitError(error)
+    } finally {
+      setSubmitting(false)
     }
   }
 
-  function submitAnother() {
-    reset(toFieldKeyValues(getInitialFormValues(blocks)))
-    setFormErrors([])
-    setReceipt(null)
-  }
-
+  // What a requester sees after submitting: a confirmation, the optional
+  // success message and a reference to quote. Never the workflow run.
   if (receipt) {
+    const successMessage = receipt.success_message ?? form.success_message
     return (
-      <FormConfirmation
-        receipt={receipt}
-        successMessage={receipt.success_message ?? form.success_message}
-        actions={
-          <>
-            <Button
-              type="button"
-              variant="outline"
-              className={formStyles.button}
-              onClick={submitAnother}
-            >
-              Submit another
+      <div className={cn(formStyles.card, "items-center gap-4 text-center")}>
+        <span className="flex size-12 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+          <CheckIcon className="size-6" />
+        </span>
+        <div>
+          <h1 className={formStyles.title}>Request submitted</h1>
+          {successMessage && (
+            <p className={formStyles.description}>{successMessage}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-3 self-stretch rounded-md border bg-muted/50 py-2 pl-3 pr-2 text-left">
+          <div className="min-w-0 flex-1">
+            <div className={formStyles.help}>Reference</div>
+            <div className="truncate font-mono text-sm font-medium">
+              {receipt.reference}
+            </div>
+          </div>
+          <CopyButton
+            value={receipt.reference}
+            toastMessage="Copied reference to clipboard"
+            tooltipMessage="Copy reference"
+            className="size-8"
+            iconClassName="size-4"
+          />
+        </div>
+        <div className="flex flex-wrap gap-2 self-stretch [&>*]:flex-1">
+          <Button
+            type="button"
+            variant="outline"
+            className={formStyles.button}
+            onClick={() => {
+              setValues(getInitialFormValues(blocks))
+              setErrors({})
+              setFormErrors([])
+              setReceipt(null)
+            }}
+          >
+            Submit another
+          </Button>
+          {mode === "live" && (
+            <Button asChild variant="outline" className={formStyles.button}>
+              <Link href={MY_SUBMISSIONS_HREF}>My submissions</Link>
             </Button>
-            {mode === "live" && (
-              <Button asChild variant="outline" className={formStyles.button}>
-                <Link href={MY_SUBMISSIONS_HREF}>My submissions</Link>
-              </Button>
-            )}
-          </>
-        }
-      />
+          )}
+        </div>
+      </div>
     )
   }
 
   const readOnly = mode === "live" && !canSubmit
-  const disabled = readOnly || formState.isSubmitting
+  const disabled = readOnly || submitting
+  const visibleNames = new Set(
+    getVisibleFields(blocks, values).map((field) => field.name)
+  )
 
   return (
     <form
       noValidate
-      onSubmit={handleSubmit(submit, (errors) => {
-        invalidNames.current = Object.keys(errors).map(fromFieldKey)
-      })}
+      onSubmit={handleSubmit}
       className={cn(formStyles.card, className)}
     >
-      <FormHeader title={form.title} description={form.description} />
+      <div>
+        <h1 className={formStyles.title}>{form.title}</h1>
+        {form.description && (
+          <FormMarkdown className={formStyles.description}>
+            {form.description}
+          </FormMarkdown>
+        )}
+      </div>
       {readOnly && <FormNotice tone="warning" text={READ_ONLY_MESSAGE} />}
       {blocks.map((block, index) => {
         if (!isFieldBlock(block)) {
@@ -383,28 +452,19 @@ export function FormRenderer({
           // without the whole list being replaced.
           return <FormStaticBlock key={`block-${index}`} block={block} />
         }
-        if (!visibleNames.has(block.name)) {
-          return null
-        }
+        if (!visibleNames.has(block.name)) return null
         return (
-          <Controller
+          <FormFieldRow
             key={block.name}
-            control={control}
-            name={toFieldKey(block.name)}
-            render={({ field, fieldState }) => (
-              <FormFieldRow
-                id={fieldId(block.name)}
-                field={block}
-                error={fieldState.error?.message}
-                widgetProps={{
-                  value: field.value,
-                  onChange: field.onChange,
-                  onBlur: field.onBlur,
-                  disabled,
-                  runtime,
-                }}
-              />
-            )}
+            id={fieldId(index)}
+            field={block}
+            value={values[block.name]}
+            onChange={(value) => setValue(block.name, value)}
+            error={errors[block.name]}
+            disabled={disabled}
+            formId={formId}
+            workspaceId={workspaceId}
+            uploadFile={mode === "live" ? uploadFile : undefined}
           />
         )
       })}
@@ -425,7 +485,7 @@ export function FormRenderer({
             `Submitting as ${submitterEmail}`}
         </span>
         <Button type="submit" disabled={disabled} className={formStyles.button}>
-          {formState.isSubmitting ? "Submitting..." : "Submit"}
+          {submitting ? "Submitting..." : "Submit"}
         </Button>
       </div>
     </form>

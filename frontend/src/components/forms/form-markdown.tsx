@@ -19,9 +19,7 @@ export function FormMarkdownLink({
   href?: string
   children?: ReactNode
 }) {
-  if (!isSafeFormLink(href)) {
-    return <span>{children}</span>
-  }
+  if (!isSafeFormLink(href)) return <span>{children}</span>
   return (
     <a
       href={href}
@@ -34,17 +32,13 @@ export function FormMarkdownLink({
   )
 }
 
-function FormMarkdownImage() {
-  return null
-}
-
 const REMARK_PLUGINS = [remarkFormMarkdown] as NonNullable<
   MarkdownProps["remarkPlugins"]
 >
 
 const COMPONENTS = {
   a: FormMarkdownLink,
-  img: FormMarkdownImage,
+  img: () => null,
 } as NonNullable<MarkdownProps["components"]>
 
 // The wildcard only hands every link to `FormMarkdownLink`, which decides.
@@ -72,7 +66,6 @@ export function FormMarkdown({
         "space-y-2 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         className
       )}
-      enableFrontmatter={false}
       parseIncompleteMarkdown={false}
       controls={false}
       remarkPlugins={REMARK_PLUGINS}

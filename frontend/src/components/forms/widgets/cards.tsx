@@ -3,15 +3,16 @@
 import { CheckIcon } from "lucide-react"
 import { type KeyboardEvent, useMemo, useRef } from "react"
 import { formStyles } from "@/components/forms/form-styles"
-import {
-  describedBy,
-  type FormWidgetProps,
-} from "@/components/forms/widgets/types"
+import { controlProps, type FormWidgetProps } from "@/components/forms/widgets"
 import { isAllowedImageDataUri } from "@/lib/forms/image-data-uri"
 import { cn } from "@/lib/utils"
 
-const NEXT_KEYS = ["ArrowRight", "ArrowDown"]
-const PREVIOUS_KEYS = ["ArrowLeft", "ArrowUp"]
+const ARROW_STEPS: Record<string, number> = {
+  ArrowRight: 1,
+  ArrowDown: 1,
+  ArrowLeft: -1,
+  ArrowUp: -1,
+}
 
 /**
  * Options as a grid of cards, each with an optional image.
@@ -20,15 +21,8 @@ const PREVIOUS_KEYS = ["ArrowLeft", "ArrowUp"]
  * select the neighbouring card, and it submits one option value. A list field
  * is a group of checkboxes, each its own tab stop, and submits a list.
  */
-export function CardsWidget({
-  id,
-  field,
-  value,
-  onChange,
-  onBlur,
-  disabled,
-  invalid,
-}: FormWidgetProps) {
+export function CardsWidget(props: FormWidgetProps) {
+  const { field, value, onChange, disabled, invalid } = props
   const options = field.options ?? []
   const selected = new Set<unknown>(Array.isArray(value) ? value : [value])
   const cardRefs = useRef<(HTMLButtonElement | null)[]>([])
@@ -43,18 +37,14 @@ export function CardsWidget({
   )
 
   function handleSelect(optionValue: string) {
-    if (!field.multiple) {
-      onChange(optionValue)
-      return
-    }
-    // Keep the submitted list in option order, whatever the click order.
+    if (!field.multiple) return onChange(optionValue)
+    // Toggle the clicked option. The list keeps option order, whatever the
+    // click order.
     onChange(
       options
         .map((option) => option.value)
-        .filter((candidate) =>
-          candidate === optionValue
-            ? !selected.has(candidate)
-            : selected.has(candidate)
+        .filter(
+          (candidate) => (candidate === optionValue) !== selected.has(candidate)
         )
     )
   }
@@ -64,18 +54,8 @@ export function CardsWidget({
   const tabStopIndex = checkedIndex === -1 ? 0 : checkedIndex
 
   function handleKeyDown(event: KeyboardEvent, index: number) {
-    if (field.multiple) {
-      return
-    }
-    let step = 0
-    if (NEXT_KEYS.includes(event.key)) {
-      step = 1
-    } else if (PREVIOUS_KEYS.includes(event.key)) {
-      step = -1
-    }
-    if (step === 0) {
-      return
-    }
+    const step = ARROW_STEPS[event.key]
+    if (field.multiple || !step) return
     event.preventDefault()
     const nextIndex = (index + step + options.length) % options.length
     cardRefs.current[nextIndex]?.focus()
@@ -87,12 +67,10 @@ export function CardsWidget({
     // cards stack in a narrow preview pane instead of squeezing their text.
     <div className="@container">
       <div
-        id={id}
+        {...controlProps(props)}
         role={field.multiple ? "group" : "radiogroup"}
-        aria-labelledby={`${id}-label`}
+        aria-labelledby={`${props.id}-label`}
         aria-required={field.multiple ? undefined : field.required}
-        aria-describedby={describedBy(id, field, invalid)}
-        aria-invalid={invalid}
         className="grid grid-cols-1 gap-3 @md:grid-cols-3"
       >
         {options.map((option, index) => {
@@ -111,7 +89,6 @@ export function CardsWidget({
               disabled={disabled}
               onClick={() => handleSelect(option.value)}
               onKeyDown={(event) => handleKeyDown(event, index)}
-              onBlur={onBlur}
               className={cn(
                 "relative flex flex-col overflow-hidden rounded-lg border bg-background text-left transition-colors",
                 "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",

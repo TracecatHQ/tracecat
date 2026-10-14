@@ -162,7 +162,7 @@ export const DEFAULT_CAPABILITY_GROUPS: CapabilityGroup[] = [
  * defaults only for an organization with the forms flag and entitlement. Kept
  * out of {@link DEFAULT_CAPABILITY_GROUPS} for the same reason.
  */
-export const FORMS_CAPABILITY_GROUP: CapabilityGroup = {
+const FORMS_CAPABILITY_GROUP: CapabilityGroup = {
   id: "forms",
   label: "Forms",
   tools: [
@@ -171,20 +171,6 @@ export const FORMS_CAPABILITY_GROUP: CapabilityGroup = {
     "core.forms.update_form",
   ],
 }
-
-const DEFAULT_TOOL_VALUES = new Set(
-  DEFAULT_CAPABILITY_GROUPS.flatMap((group) => group.tools)
-)
-const DEFAULT_TOOL_VALUES_WITH_FORMS = new Set([
-  ...DEFAULT_TOOL_VALUES,
-  ...FORMS_CAPABILITY_GROUP.tools,
-])
-const DEFAULT_CAPABILITY_GROUPS_WITH_FORMS = [
-  ...DEFAULT_CAPABILITY_GROUPS,
-  FORMS_CAPABILITY_GROUP,
-]
-const EMPTY_CAPABILITY_GROUPS: CapabilityGroup[] = []
-const EMPTY_DEFAULT_TOOL_VALUES = new Set<string>()
 
 /** Humanize an action id (e.g. `core.table.list_tables` -> `List tables`). */
 function humanizeAction(action: string): string {
@@ -220,15 +206,18 @@ export function ChatToolsPicker({
   const [query, setQuery] = useState("")
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const isWorkspaceChat = surface === "workspace-chat"
-  let defaultToolValues = EMPTY_DEFAULT_TOOL_VALUES
-  let visibleCapabilityGroups = EMPTY_CAPABILITY_GROUPS
-  if (isWorkspaceChat && formsEnabled) {
-    defaultToolValues = DEFAULT_TOOL_VALUES_WITH_FORMS
-    visibleCapabilityGroups = DEFAULT_CAPABILITY_GROUPS_WITH_FORMS
-  } else if (isWorkspaceChat) {
-    defaultToolValues = DEFAULT_TOOL_VALUES
-    visibleCapabilityGroups = DEFAULT_CAPABILITY_GROUPS
-  }
+  const visibleCapabilityGroups = useMemo(() => {
+    if (!isWorkspaceChat) {
+      return []
+    }
+    return formsEnabled
+      ? [...DEFAULT_CAPABILITY_GROUPS, FORMS_CAPABILITY_GROUP]
+      : DEFAULT_CAPABILITY_GROUPS
+  }, [isWorkspaceChat, formsEnabled])
+  const defaultToolValues = useMemo(
+    () => new Set(visibleCapabilityGroups.flatMap((group) => group.tools)),
+    [visibleCapabilityGroups]
+  )
 
   const addedCount =
     selectedTools.length + (mcpEnabled ? selectedMcpIntegrations.length : 0)

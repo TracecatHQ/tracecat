@@ -135,7 +135,6 @@ from tracecat.db.models import (
     Approval,
     Case,
     Chat,
-    Form,
     User,
     Workflow,
 )
@@ -146,9 +145,7 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.feature_flags import FeatureFlag, is_feature_enabled
-from tracecat.forms.access import can_read_form_config
 from tracecat.identifiers import UserID
-from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 from tracecat.service import BaseWorkspaceService
@@ -446,32 +443,16 @@ class AgentSessionService(BaseWorkspaceService):
     ) -> str | None:
         """Build the context line for the page a Workspace chat is docked on.
 
-        Returns None, and so adds nothing to the prompt, unless the page shows
-        an object in this workspace that the caller may read. A caller who
-        guesses an ID learns nothing.
+        The line only echoes the ID the caller sent; the form tools still check
+        access. Only ``form`` pages exist, so forms must be enabled.
         """
-        if page_context is None:
+        if (
+            page_context is None
+            or agent_session.entity_type != AgentSessionEntity.WORKSPACE_CHAT
+            or not await self._forms_enabled()
+        ):
             return None
-        if agent_session.entity_type != AgentSessionEntity.WORKSPACE_CHAT:
-            return None
-        match page_context.kind:
-            case "form":
-                if not can_read_form_config(self.role):
-                    return None
-                if not await self._forms_enabled():
-                    return None
-                # Query directly: the forms service imports modules that
-                # import this one. A projection also skips the layout, which
-                # can carry inline images.
-                statement = select(Form.id, Form.workflow_id).where(
-                    Form.workspace_id == self.workspace_id,
-                    Form.id == page_context.id,
-                )
-                row = (await self.session.execute(statement)).tuples().one_or_none()
-                if row is None:
-                    return None
-                form_id, workflow_id = row
-                return form_page_context(form_id, WorkflowUUID.new(workflow_id).short())
+        return form_page_context(page_context.id)
 
     async def _resolve_workspace_chat_actions(
         self,

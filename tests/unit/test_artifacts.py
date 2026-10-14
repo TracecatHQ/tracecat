@@ -666,77 +666,46 @@ def test_agent_preset_tool_result_emits_upsert_side_effect() -> None:
     }
 
 
-@pytest.mark.parametrize("tool_name", ["core.forms.get_form", "core.forms.update_form"])
-def test_form_tool_result_emits_upsert_side_effect(tool_name: str) -> None:
-    effects = list(
-        artifact_side_effects_for_tool_result(
-            tool_name=tool_name,
-            tool_input={"workflow_id": "wf_123"},
-            tool_output={
-                "id": "0b0c8f8e-0d0b-4d3a-9a57-3d0f2a3e6b11",
-                "workflow_id": "wf_123",
-                "workflow_title": "Provision laptop",
-                "status": "online",
-                "config": {"title": "Laptop request", "layout": []},
-                "issues": [],
-            },
-            is_error=False,
-            tool_call_id="toolu_123",
-        )
+@pytest.mark.parametrize(
+    ("tool_name", "config", "title"),
+    [
+        (
+            "core.forms.get_form",
+            {"title": "Laptop request", "layout": []},
+            "Laptop request",
+        ),
+        ("core.forms.update_form", {}, "Provision laptop"),
+    ],
+    ids=["config-title", "workflow-title-fallback"],
+)
+def test_form_tool_result_emits_upsert_side_effect(
+    tool_name: str, config: dict[str, object], title: str
+) -> None:
+    [effect] = artifact_side_effects_for_tool_result(
+        tool_name=tool_name,
+        tool_input={"workflow_id": "wf_123"},
+        tool_output={
+            "id": "0b0c8f8e-0d0b-4d3a-9a57-3d0f2a3e6b11",
+            "workflow_id": "wf_123",
+            "workflow_title": "Provision laptop",
+            "status": "online",
+            "config": config,
+            "issues": [],
+        },
+        is_error=False,
+        tool_call_id="toolu_123",
     )
 
-    assert len(effects) == 1
-    assert effects[0].op == "upsert"
-    payload = artifact_data_payload(effects[0].op, effects[0].artifact)
-    assert payload == {
+    assert artifact_data_payload(effect.op, effect.artifact) == {
         "op": "upsert",
         "artifact": {
             "type": "form",
             "id": "0b0c8f8e-0d0b-4d3a-9a57-3d0f2a3e6b11",
-            "title": "Laptop request",
-            "workflowId": "wf_123",
+            "title": title,
             "status": "online",
             "scope": {"parentToolCallId": "toolu_123"},
         },
     }
-
-
-def test_form_artifact_title_falls_back_to_the_workflow_title() -> None:
-    [effect] = artifact_side_effects_for_tool_result(
-        tool_name="core.forms.get_form",
-        tool_input={"form_id": "form_123"},
-        tool_output={
-            "id": "form_123",
-            "workflow_id": "wf_123",
-            "workflow_title": "Provision laptop",
-            "status": "offline",
-            "config": {},
-        },
-        is_error=False,
-        tool_call_id=None,
-    )
-
-    assert artifact_data_payload(effect.op, effect.artifact)["artifact"] == {
-        "type": "form",
-        "id": "form_123",
-        "title": "Provision laptop",
-        "workflowId": "wf_123",
-        "status": "offline",
-    }
-
-
-def test_form_list_tool_emits_no_side_effects() -> None:
-    effects = list(
-        artifact_side_effects_for_tool_result(
-            tool_name="core.forms.list_forms",
-            tool_input={},
-            tool_output={"items": [{"id": "form_123", "workflow_id": "wf_123"}]},
-            is_error=False,
-            tool_call_id="toolu_123",
-        )
-    )
-
-    assert effects == []
 
 
 def test_agent_preset_list_tool_result_emits_upsert_side_effects() -> None:

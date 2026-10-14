@@ -100,8 +100,6 @@ export interface MultiTagCommandInputProps {
     React.InputHTMLAttributes<HTMLInputElement>,
     "aria-invalid" | "aria-describedby" | "aria-required"
   >
-  /** Called when the text input loses focus. */
-  onBlur?: () => void
   maxTags?: number
   searchKeys: (keyof Suggestion)[]
   /**
@@ -124,7 +122,6 @@ export function MultiTagCommandInput({
   disabled = false,
   inputId,
   inputAria,
-  onBlur,
   maxTags,
   searchKeys,
   allowCustomTags = false,
@@ -294,7 +291,6 @@ export function MultiTagCommandInput({
 
   const handleBlur = () => {
     setOpen(false)
-    onBlur?.()
   }
 
   return (

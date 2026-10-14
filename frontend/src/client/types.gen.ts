@@ -3792,30 +3792,6 @@ export type CursorPaginatedResponse_CaseVersionReadMinimal_ = {
   total_estimate?: number | null
 }
 
-export type CursorPaginatedResponse_FormEventRead_ = {
-  items: Array<FormEventRead>
-  /**
-   * Cursor for next page
-   */
-  next_cursor?: string | null
-  /**
-   * Cursor for previous page
-   */
-  prev_cursor?: string | null
-  /**
-   * Whether more items exist
-   */
-  has_more?: boolean
-  /**
-   * Whether previous items exist
-   */
-  has_previous?: boolean
-  /**
-   * Estimated total count from table statistics
-   */
-  total_estimate?: number | null
-}
-
 export type CursorPaginatedResponse_FormIntakeRead_ = {
   items: Array<FormIntakeRead>
   /**
@@ -5012,7 +4988,7 @@ export type FolderDirectoryItem = {
 }
 
 /**
- * Who viewed or submitted a form.
+ * Who submitted a form.
  */
 export type FormActorRead = {
   type: "user" | "service_account"
@@ -5036,7 +5012,6 @@ export type FormArtifact = {
   title: string
   scope?: ArtifactScope | null
   type?: "form"
-  workflowId: string
   status?: "online" | "offline" | null
 }
 
@@ -5124,6 +5099,8 @@ export type FormDividerEntry = {
  * Machine-readable failures of a forms request.
  */
 export type FormErrorCode =
+  | "not_found"
+  | "already_exists"
   | "form_config_invalid"
   | "form_workflow_unpublished"
   | "form_offline"
@@ -5154,22 +5131,6 @@ export type FormErrorDetail = {
 export type FormErrorResponse = {
   detail: FormErrorDetail
 }
-
-export type FormEventRead = {
-  id: string
-  type: FormEventType
-  actor?: FormActorRead | null
-  submission_id?: string | null
-  reference?: string | null
-  created_at: string
-}
-
-/**
- * Activity recorded against a form.
- *
- * Stored as a plain string column, so a new value needs no migration.
- */
-export type FormEventType = "form_viewed" | "form_submitted"
 
 /**
  * An input the requester fills in.
@@ -5303,12 +5264,15 @@ export type FormIntakeRead = {
  */
 export type FormIntakeSubmissionRead = {
   id: string
-  reference: string
   form_id: string
   form_title: string
   workspace_id: string
   workspace_name: string
   submitted_at: string
+  /**
+   * Short code a requester can quote for a submission.
+   */
+  readonly reference: string
 }
 
 /**
@@ -5435,30 +5399,6 @@ export type FormReadMinimal = {
 }
 
 /**
- * A saved form resolved against its workflow's published input schema.
- */
-export type FormResolved = {
-  title: string
-  description?: string | null
-  success_message?: string | null
-  /**
-   * Published workflow version the blocks come from.
-   */
-  definition_version?: number | null
-  blocks: Array<
-    | FormHeadingBlock
-    | FormTextBlock
-    | FormNoticeBlock
-    | FormDividerBlock
-    | FormFieldBlock
-  >
-  id: string
-  workspace_id: string
-  workflow_id: string
-  status: FormStatus
-}
-
-/**
  * Whether a form accepts submissions.
  */
 export type FormStatus = "online" | "offline"
@@ -5479,7 +5419,6 @@ export type FormSubmissionCreate = {
 export type FormSubmissionRead = {
   id: string
   form_id: string
-  reference: string
   answers: {
     [key: string]: unknown
   }
@@ -5505,6 +5444,10 @@ export type FormSubmissionRead = {
     | "TIMED_OUT"
     | null
   submitted_at: string
+  /**
+   * Short code a requester can quote for a submission.
+   */
+  readonly reference: string
 }
 
 /**
@@ -5512,9 +5455,12 @@ export type FormSubmissionRead = {
  */
 export type FormSubmissionReceipt = {
   id: string
-  reference: string
   submitted_at: string
   success_message?: string | null
+  /**
+   * Short code a requester can quote for a submission.
+   */
+  readonly reference: string
 }
 
 export type FormTextBlock = {
@@ -5551,7 +5497,6 @@ export type FormUserRead = {
 }
 
 export type FormValidateRequest = {
-  workflow_id: string
   config: FormConfig_Input
 }
 
@@ -11387,7 +11332,7 @@ export type VercelChatRequest = {
    */
   base_url?: string | null
   /**
-   * The page the chat is docked on. Only Workspace chat uses it, and only for an object the caller can read.
+   * The page the chat is docked on. Only Workspace chat uses it.
    */
   page_context?: ChatPageContext | null
 }
@@ -15937,13 +15882,6 @@ export type FormsCreateFormData = {
 
 export type FormsCreateFormResponse = FormRead
 
-export type FormsValidateFormData = {
-  requestBody: FormValidateRequest
-  workspaceId: string
-}
-
-export type FormsValidateFormResponse = FormValidateResponse
-
 export type FormsGetFormData = {
   formId: string
   workspaceId: string
@@ -15966,29 +15904,20 @@ export type FormsDeleteFormData = {
 
 export type FormsDeleteFormResponse = void
 
-export type FormsPreviewFormData = {
+export type FormsValidateFormData = {
   formId: string
+  requestBody: FormValidateRequest
   workspaceId: string
 }
 
-export type FormsPreviewFormResponse = FormPreview
+export type FormsValidateFormResponse = FormValidateResponse
 
 export type FormsRenderFormData = {
   formId: string
   workspaceId: string
 }
 
-export type FormsRenderFormResponse = FormResolved
-
-export type FormsListFormActivityData = {
-  cursor?: string | null
-  formId: string
-  limit?: number
-  workspaceId: string
-}
-
-export type FormsListFormActivityResponse =
-  CursorPaginatedResponse_FormEventRead_
+export type FormsRenderFormResponse = FormPreview
 
 export type FormsSearchFormUsersData = {
   cursor?: string | null
@@ -23379,6 +23308,10 @@ export type $OpenApiTs = {
          */
         201: FormRead
         /**
+         * Not Found
+         */
+        404: FormErrorResponse
+        /**
          * Conflict
          */
         409: FormErrorResponse
@@ -23386,21 +23319,6 @@ export type $OpenApiTs = {
          * Unprocessable Entity
          */
         422: FormErrorResponse
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/forms/validate": {
-    post: {
-      req: FormsValidateFormData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: FormValidateResponse
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
       }
     }
   }
@@ -23449,14 +23367,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/workspaces/{workspace_id}/forms/{form_id}/preview": {
-    get: {
-      req: FormsPreviewFormData
+  "/workspaces/{workspace_id}/forms/{form_id}/validate": {
+    post: {
+      req: FormsValidateFormData
       res: {
         /**
          * Successful Response
          */
-        200: FormPreview
+        200: FormValidateResponse
         /**
          * Validation Error
          */
@@ -23471,26 +23389,11 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: FormResolved
+        200: FormPreview
         /**
          * Conflict
          */
         409: FormErrorResponse
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/forms/{form_id}/activity": {
-    get: {
-      req: FormsListFormActivityData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CursorPaginatedResponse_FormEventRead_
         /**
          * Validation Error
          */
@@ -23506,6 +23409,14 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: CursorPaginatedResponse_FormUserRead_
+        /**
+         * Not Found
+         */
+        404: FormErrorResponse
+        /**
+         * Conflict
+         */
+        409: FormErrorResponse
         /**
          * Validation Error
          */

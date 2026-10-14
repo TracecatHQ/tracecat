@@ -2,7 +2,7 @@ const IMAGE_DATA_URI_PATTERN =
   /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$/
 
 /** Largest decoded image the server stores, in bytes. */
-export const MAX_FORM_IMAGE_BYTES = 100 * 1024
+const MAX_FORM_IMAGE_BYTES = 100 * 1024
 
 // Base64 encodes 3 bytes as 4 characters.
 const MAX_ENCODED_LENGTH = Math.ceil(MAX_FORM_IMAGE_BYTES / 3) * 4
@@ -14,11 +14,9 @@ const MAGIC_CHECKS: Record<string, (head: string) => boolean> = {
 }
 
 /**
- * Whether a value is an inline image a form may render.
- *
- * Accepts only `data:image/(png|jpeg|webp);base64,` URIs within the server's
- * size limit whose first bytes match the declared type. Everything else,
- * including SVG and any remote URL, is refused, so a form never makes the
+ * Whether a value is an inline image a form may render: a PNG, JPEG or WebP
+ * base64 `data:` URI within the server's size limit whose first bytes match
+ * its type. SVG and remote URLs are refused, so a form never makes the
  * browser fetch an author-supplied address.
  */
 export function isAllowedImageDataUri(value: unknown): value is string {
@@ -42,76 +40,46 @@ export function isAllowedImageDataUri(value: unknown): value is string {
 }
 
 /** Image types a form config may hold. */
-export const FORM_IMAGE_TYPES: readonly string[] = [
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-]
+export const FORM_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"]
 
 /** Longest edge of an inserted image, in pixels. */
-export const FORM_IMAGE_MAX_EDGE = 320
-
+const FORM_IMAGE_MAX_EDGE = 320
 const ENCODE_QUALITY = 0.85
 
 /** Decoded size in bytes of a base64 `data:` URI. */
-export function getDataUriByteSize(dataUri: string): number {
+function getDataUriByteSize(dataUri: string): number {
   const encoded = dataUri.slice(dataUri.indexOf(",") + 1)
-  let padding = 0
-  if (encoded.endsWith("==")) {
-    padding = 2
-  } else if (encoded.endsWith("=")) {
-    padding = 1
-  }
+  const padding = encoded.match(/=*$/)?.[0].length ?? 0
   return Math.max(0, Math.floor((encoded.length * 3) / 4) - padding)
 }
 
-/** Where an inline image sits in a config text. */
-export interface ImageDataUriRange {
-  from: number
-  to: number
-  /** Decoded size in bytes. */
-  bytes: number
-}
-
 /**
- * Find every base64 image `data:` URI in a config text.
- *
- * The editor folds each one into a chip, so this matches any image type:
- * a type the server refuses still has to be folded to be readable.
+ * Find every base64 image `data:` URI in a config text, of any image type:
+ * the editor folds each one into a chip, and a type the server refuses still
+ * has to be folded to be readable.
  */
-export function findImageDataUris(text: string): ImageDataUriRange[] {
-  const ranges: ImageDataUriRange[] = []
-  for (const match of text.matchAll(
-    /data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/]*={0,2}/g
-  )) {
-    ranges.push({
-      from: match.index,
-      to: match.index + match[0].length,
-      bytes: getDataUriByteSize(match[0]),
-    })
-  }
-  return ranges
+export function findImageDataUris(
+  text: string
+): { from: number; to: number; bytes: number }[] {
+  return [
+    ...text.matchAll(/data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/]*={0,2}/g),
+  ].map((match) => ({
+    from: match.index,
+    to: match.index + match[0].length,
+    bytes: getDataUriByteSize(match[0]),
+  }))
 }
 
 /** An image the author picked cannot be inserted. `message` is shown as is. */
-export class FormImageError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = "FormImageError"
-  }
-}
-
-/** Turns a picked file into a resized `data:` URI. */
-export type FormImageEncoder = (file: File) => Promise<string>
+export class FormImageError extends Error {}
 
 /**
  * Draw an image onto a canvas no longer than {@link FORM_IMAGE_MAX_EDGE} on
- * its long edge and re-encode it. Small images are not scaled up.
- *
- * Encodes WebP. A browser without a WebP encoder answers with PNG; a photo
- * is then encoded as JPEG instead, because PNG would be far over the limit.
+ * its long edge, without scaling up, and re-encode it as WebP. A browser
+ * without a WebP encoder answers with PNG; a photo is then encoded as JPEG,
+ * because PNG would be far over the limit.
  */
-export async function resizeImageToDataUri(file: File): Promise<string> {
+async function resizeImageToDataUri(file: File): Promise<string> {
   const bitmap = await createImageBitmap(file)
   try {
     const scale = Math.min(
@@ -136,28 +104,19 @@ export async function resizeImageToDataUri(file: File): Promise<string> {
   }
 }
 
-function formatKilobytes(bytes: number): string {
-  return `${Math.ceil(bytes / 1024)} KB`
-}
-
 /**
- * Turn a picked file into an inline image a form config accepts.
- *
- * Takes PNG, JPEG and WebP only, resizes through `encode`, and refuses a
- * result the server would reject for its size.
+ * Turn a picked PNG, JPEG or WebP file into a resized inline image the
+ * server accepts.
  *
  * @throws FormImageError with a message for the author.
  */
-export async function prepareFormImage(
-  file: File,
-  encode: FormImageEncoder = resizeImageToDataUri
-): Promise<string> {
+export async function prepareFormImage(file: File): Promise<string> {
   if (!FORM_IMAGE_TYPES.includes(file.type)) {
     throw new FormImageError("Use a PNG, JPEG or WebP image.")
   }
   let dataUri: string
   try {
-    dataUri = await encode(file)
+    dataUri = await resizeImageToDataUri(file)
   } catch (error) {
     if (error instanceof FormImageError) {
       throw error
@@ -166,8 +125,9 @@ export async function prepareFormImage(
   }
   const bytes = getDataUriByteSize(dataUri)
   if (bytes > MAX_FORM_IMAGE_BYTES) {
+    const kb = (size: number) => `${Math.ceil(size / 1024)} KB`
     throw new FormImageError(
-      `This image is ${formatKilobytes(bytes)} after resizing. The limit is ${formatKilobytes(MAX_FORM_IMAGE_BYTES)}. Use a simpler image.`
+      `This image is ${kb(bytes)} after resizing. The limit is ${kb(MAX_FORM_IMAGE_BYTES)}. Use a simpler image.`
     )
   }
   if (!isAllowedImageDataUri(dataUri)) {

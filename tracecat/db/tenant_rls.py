@@ -96,7 +96,7 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "workspace_sync_resource_mapping",
     "form",
     "form_submission",
-    "form_event",
+    "form_view",
     "form_file",
     "workspace_tunnel",
 )

@@ -15,12 +15,11 @@ The actual adapter class lives in ``tracecat.workspace_sync.adapters.workflow``.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import Any, cast
 
 import yaml
 from pydantic import ValidationError
-from pydantic_core import ErrorDetails
 from slugify import slugify
 
 from tracecat.cases.enums import CaseEventType
@@ -94,20 +93,6 @@ def default_workflow_source_id(*, alias: str | None, title: str) -> str:
     return base[:96].strip("-") or "workflow"
 
 
-def remote_form_from_orm(form: Form | None) -> RemoteForm | None:
-    """Build the ``form:`` block of a workflow file, or ``None``.
-
-    Only a configured form is emitted: one that is online or has any config.
-    An untouched offline form adds nothing to the file.
-    """
-    if form is None:
-        return None
-    config = stored_form_config(form).model_dump()
-    if form.status != FormStatus.ONLINE and not config:
-        return None
-    return RemoteForm.model_validate({**config, "status": form.status})
-
-
 def workflow_spec_from_orm(
     workflow: Workflow,
     *,
@@ -140,6 +125,13 @@ def workflow_spec_from_orm(
             tag_filters=workflow.case_trigger.tag_filters,
         )
 
+    remote_form = None
+    if form is not None:
+        config = stored_form_config(form).model_dump()
+        # Only a configured form is emitted: one that is online or has config.
+        if form.status == FormStatus.ONLINE or config:
+            remote_form = RemoteForm.model_validate({**config, "status": form.status})
+
     schedules = None
     if include_schedules:
         schedules = [
@@ -169,7 +161,7 @@ def workflow_spec_from_orm(
         if webhook
         else None,
         case_trigger=case_trigger,
-        form=remote_form_from_orm(form),
+        form=remote_form,
         definition=dsl,
     )
 
@@ -374,37 +366,6 @@ def serialize_workflow_spec(spec: WorkflowResourceSpec) -> str:
     return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
 
 
-_MAX_FORM_DIAGNOSTIC_INPUT_LENGTH = 200
-
-
-def _truncate(value: Any) -> Any:
-    """Shorten the long strings inside a diagnostic value."""
-    if isinstance(value, str):
-        if len(value) <= _MAX_FORM_DIAGNOSTIC_INPUT_LENGTH:
-            return value
-        return value[:_MAX_FORM_DIAGNOSTIC_INPUT_LENGTH] + "... (truncated)"
-    if isinstance(value, dict):
-        return {key: _truncate(inner) for key, inner in value.items()}
-    if isinstance(value, list | tuple):
-        return [_truncate(inner) for inner in value]
-    return value
-
-
-def _truncate_form_inputs(errors: Sequence[ErrorDetails]) -> list[dict[str, Any]]:
-    """Shorten the echoed input of errors inside the ``form:`` block.
-
-    A validation error repeats the value it rejected, and a form holds inline
-    images: an oversized one would come back whole in the diagnostic.
-    """
-    truncated: list[dict[str, Any]] = []
-    for error in errors:
-        detail: dict[str, Any] = dict(error)
-        if error["loc"] and error["loc"][0] == "form":
-            detail["input"] = _truncate(error["input"])
-        truncated.append(detail)
-    return truncated
-
-
 def parse_workflow_spec(
     path: str, content: str, *, workflow_root: str = WORKFLOW_ROOT
 ) -> tuple[WorkflowResourceSpec | None, PullDiagnostic | None]:
@@ -466,7 +427,13 @@ def parse_workflow_spec(
             message=f"Validation error: {str(e)}",
             details={
                 "validation_errors": serializable_validation_errors(
-                    _truncate_form_inputs(e.errors())
+                    [
+                        # A form can hold large inline images: don't echo them.
+                        {k: v for k, v in error.items() if k != "input"}
+                        if error["loc"][:1] == ("form",)
+                        else error
+                        for error in e.errors()
+                    ]
                 )
             },
         )

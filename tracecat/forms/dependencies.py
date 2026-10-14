@@ -1,4 +1,4 @@
-"""FastAPI dependencies for the forms routers."""
+"""Gates for the forms routers: the feature flag, then the entitlement."""
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,16 +16,11 @@ from tracecat.tiers.enums import Entitlement
 
 
 async def check_forms_enabled(session: AsyncSession, role: Role) -> None:
-    """Require the forms feature flag and the forms entitlement.
-
-    Args:
-        session: Database session used to resolve the organization's tier.
-        role: The caller's role. Must carry an organization ID.
+    """Require the ``forms`` feature flag and the ``forms`` entitlement.
 
     Raises:
-        HTTPException: 404 if the ``forms`` feature flag is off.
-        EntitlementRequired: If the organization lacks the ``forms``
-            entitlement. The API maps it to 403.
+        HTTPException: 404 if the flag is off.
+        EntitlementRequired: If the organization lacks the entitlement (403).
     """
     if not is_feature_enabled(FeatureFlag.FORMS):
         raise HTTPException(
@@ -37,19 +32,16 @@ async def check_forms_enabled(session: AsyncSession, role: Role) -> None:
 async def require_forms_enabled(
     role: WorkspaceActorRouteRole, session: AsyncDBSession
 ) -> None:
-    """Gate a workspace forms route on the feature flag and the entitlement."""
     await check_forms_enabled(session, role)
 
 
 async def require_forms_enabled_for_org(
     role: OrgUserRole, session: AsyncDBSession
 ) -> None:
-    """Gate an organization-level forms route the same way."""
     await check_forms_enabled(session, role)
 
 
 async def require_forms_enabled_for_executor(
     role: ExecutorWorkspaceRole, session: AsyncDBSession
 ) -> None:
-    """Gate an internal forms route, called by registry actions, the same way."""
     await check_forms_enabled(session, role)

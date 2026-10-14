@@ -10,15 +10,40 @@ import {
   WorkflowIcon,
 } from "lucide-react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { useMemo, useState } from "react"
-import type { FormReadMinimal, FormStatus } from "@/client"
+import type { FormReadMinimal, WorkflowReadMinimal } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CatalogHeader } from "@/components/catalog/catalog-header"
-import { DeleteFormDialog } from "@/components/forms/delete-form-dialog"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,130 +63,158 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { useForms } from "@/hooks/use-forms"
-import { formWorkflowHref } from "@/lib/forms/workflow-id"
+import { useCreateForm, useDeleteForm, useForms } from "@/hooks/use-forms"
+import { getApiErrorDetail } from "@/lib/errors"
+import { getFormErrorDetail } from "@/lib/forms/errors"
+import { useWorkflowManager } from "@/lib/hooks"
 import { cn, shortTimeAgo } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const BADGE_CLASS = "h-5 px-2 text-[10px] font-normal"
 
-/** A form's status as a badge with a coloured dot. */
-export function FormStatusBadge({ status }: { status: FormStatus }) {
-  const online = status === "online"
-  return (
-    <Badge variant="secondary" className={cn(BADGE_CLASS, "gap-1.5")}>
-      <span
-        aria-hidden
-        className={cn(
-          "size-2 rounded-full",
-          online ? "bg-emerald-500" : "bg-muted-foreground/40"
-        )}
-      />
-      {online ? "Online" : "Offline"}
-    </Badge>
-  )
-}
-
-function FormRow({
-  form,
-  workspaceId,
-  canDelete,
-  onDelete,
+/**
+ * Pick the workflow a new form starts (one form per workflow; an unpublished
+ * workflow's form stays offline). The form is created offline with an empty
+ * config, and the builder lands on its detail page.
+ */
+export function CreateFormDialog({
+  open,
+  onOpenChange,
 }: {
-  form: FormReadMinimal
-  workspaceId: string
-  canDelete: boolean
-  onDelete: (form: FormReadMinimal) => void
+  open: boolean
+  onOpenChange: (open: boolean) => void
 }) {
-  const requesterPath = `/forms/${form.id}`
-  const lastSubmittedAt = form.last_submitted_at
-    ? new Date(form.last_submitted_at)
-    : null
+  const router = useRouter()
+  const workspaceId = useWorkspaceId()
+  const { workflows, workflowsLoading } = useWorkflowManager(undefined, {
+    listEnabled: open,
+  })
+  const { forms, formsIsLoading } = useForms(workspaceId, { enabled: open })
+  const { mutateAsync: createForm, isPending: createFormIsPending } =
+    useCreateForm(workspaceId)
+  const taken = new Set(forms.map((form) => form.workflow_id))
+  const isLoading = workflowsLoading || formsIsLoading
 
-  function copyLink() {
-    const url = `${window.location.origin}${requesterPath}`
-    void navigator.clipboard.writeText(url)
-    toast({ title: "Form link copied", description: url })
+  async function handleSelect(workflow: WorkflowReadMinimal) {
+    try {
+      const form = await createForm({ workflow_id: workflow.id })
+      onOpenChange(false)
+      router.push(`/workspaces/${workspaceId}/forms/${form.id}`)
+    } catch (error) {
+      toast({
+        title: "Couldn't create the form",
+        description:
+          getFormErrorDetail(error)?.message ??
+          getApiErrorDetail(error) ??
+          "Something went wrong.",
+        variant: "destructive",
+      })
+    }
   }
 
   return (
-    <li className="flex items-center gap-3 border-b border-border/50 px-3 py-1.5 transition-colors hover:bg-muted/50">
-      <span className="flex size-7 flex-none items-center justify-center">
-        <ClipboardListIcon className="size-4 text-muted-foreground" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <Link
-          href={`/workspaces/${workspaceId}/forms/${form.id}`}
-          className="block truncate text-xs font-medium hover:underline focus-visible:underline focus-visible:outline-none"
-        >
-          {form.title}
-        </Link>
-        {form.workflow_id && (
-          <Link
-            href={formWorkflowHref(workspaceId, form.workflow_id)}
-            className="flex w-fit max-w-full items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-          >
-            <WorkflowIcon className="size-3 flex-none" />
-            <span className="truncate">{form.workflow_title}</span>
-          </Link>
-        )}
-      </div>
-      <div className="flex flex-none items-center gap-2">
-        <FormStatusBadge status={form.status} />
-        {typeof form.submission_count === "number" && (
-          <Badge variant="secondary" className={BADGE_CLASS}>
-            {form.submission_count === 1
-              ? "1 submission"
-              : `${form.submission_count.toLocaleString()} submissions`}
-          </Badge>
-        )}
-        {lastSubmittedAt && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Badge
-                variant="secondary"
-                className={cn(BADGE_CLASS, "cursor-default")}
-              >
-                {shortTimeAgo(lastSubmittedAt)}
-              </Badge>
-            </TooltipTrigger>
-            <TooltipContent>
-              Last submitted {format(lastSubmittedAt, "PPpp")}
-            </TooltipContent>
-          </Tooltip>
-        )}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="size-7 p-0">
-              <span className="sr-only">Open menu for {form.title}</span>
-              <DotsHorizontalIcon className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem asChild className="text-xs">
-              <a href={requesterPath} target="_blank" rel="noopener noreferrer">
-                <ExternalLinkIcon className="mr-2 size-3" />
-                Open form
-              </a>
-            </DropdownMenuItem>
-            <DropdownMenuItem className="text-xs" onClick={copyLink}>
-              <CopyIcon className="mr-2 size-3" />
-              Copy link
-            </DropdownMenuItem>
-            {canDelete && (
-              <DropdownMenuItem
-                className="text-xs text-destructive focus:text-destructive"
-                onClick={() => onDelete(form)}
-              >
-                <Trash2Icon className="mr-2 size-3" />
-                Delete
-              </DropdownMenuItem>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="md">
+        <DialogHeader>
+          <DialogTitle>New form</DialogTitle>
+          <DialogDescription>
+            Pick the workflow this form starts. Its inputs become the form's
+            fields.
+          </DialogDescription>
+        </DialogHeader>
+        <Command className="min-h-0 flex-1 rounded-none">
+          <CommandInput placeholder="Search workflows..." />
+          <CommandList className="max-h-none flex-1">
+            <CommandEmpty>
+              {isLoading ? "Loading workflows..." : "No workflows found."}
+            </CommandEmpty>
+            {!isLoading && (workflows ?? []).length > 0 && (
+              <CommandGroup>
+                {(workflows ?? []).map((workflow) => {
+                  let hint: string | null = null
+                  if (taken.has(workflow.id)) {
+                    hint = "Already has a form"
+                  } else if (typeof workflow.version !== "number") {
+                    hint = "Offline until the workflow is published"
+                  }
+                  return (
+                    <CommandItem
+                      key={workflow.id}
+                      value={`${workflow.title} ${workflow.alias ?? ""} ${workflow.id}`}
+                      disabled={taken.has(workflow.id) || createFormIsPending}
+                      onSelect={() => handleSelect(workflow)}
+                      className="text-xs"
+                    >
+                      <WorkflowIcon className="text-muted-foreground" />
+                      <span className="min-w-0 flex-1 truncate">
+                        {workflow.title}
+                      </span>
+                      {hint && (
+                        <span className="flex-none text-muted-foreground">
+                          {hint}
+                        </span>
+                      )}
+                    </CommandItem>
+                  )
+                })}
+              </CommandGroup>
             )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </li>
+          </CommandList>
+        </Command>
+      </DialogContent>
+    </Dialog>
   )
+}
+
+/**
+ * Confirm deleting a form. Its submissions go with it; the workflow and the
+ * runs it already started stay. The dialog closes only once that succeeds.
+ */
+function DeleteFormDialog({
+  form,
+  onClose,
+}: {
+  form: FormReadMinimal
+  onClose: () => void
+}) {
+  const workspaceId = useWorkspaceId()
+  const { mutateAsync: deleteForm, isPending: deleteFormIsPending } =
+    useDeleteForm(workspaceId)
+
+  return (
+    <AlertDialog open onOpenChange={(open) => !open && onClose()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete form</AlertDialogTitle>
+          <AlertDialogDescription>
+            Delete {form.title}? Its submissions and activity are deleted with
+            it. The workflow and its past runs are not affected. This cannot be
+            undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            disabled={deleteFormIsPending}
+            onClick={(event) => {
+              event.preventDefault()
+              // A failure is already reported by the mutation; stay open.
+              deleteForm(form.id).then(onClose, () => {})
+            }}
+          >
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+function copyFormLink(formId: string) {
+  const url = `${window.location.origin}/forms/${formId}`
+  void navigator.clipboard.writeText(url)
+  toast({ title: "Form link copied", description: url })
 }
 
 /**
@@ -203,12 +256,7 @@ export function FormsDashboard() {
       {formToDelete && (
         <DeleteFormDialog
           form={formToDelete}
-          open
-          onOpenChange={(open) => {
-            if (!open) {
-              setFormToDelete(null)
-            }
-          }}
+          onClose={() => setFormToDelete(null)}
         />
       )}
       <CatalogHeader
@@ -239,15 +287,119 @@ export function FormsDashboard() {
           </div>
         ) : (
           <ul className="w-full pb-10">
-            {filteredForms.map((form) => (
-              <FormRow
-                key={form.id}
-                form={form}
-                workspaceId={workspaceId}
-                canDelete={canDelete}
-                onDelete={setFormToDelete}
-              />
-            ))}
+            {filteredForms.map((form) => {
+              const lastSubmittedAt = form.last_submitted_at
+                ? new Date(form.last_submitted_at)
+                : null
+              return (
+                <li
+                  key={form.id}
+                  className="flex items-center gap-3 border-b border-border/50 px-3 py-1.5 transition-colors hover:bg-muted/50"
+                >
+                  <span className="flex size-7 flex-none items-center justify-center">
+                    <ClipboardListIcon className="size-4 text-muted-foreground" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <Link
+                      href={`/workspaces/${workspaceId}/forms/${form.id}`}
+                      className="block truncate text-xs font-medium hover:underline focus-visible:underline focus-visible:outline-none"
+                    >
+                      {form.title}
+                    </Link>
+                    {form.workflow_id && (
+                      <Link
+                        href={`/workspaces/${workspaceId}/workflows/${form.workflow_id}`}
+                        className="flex w-fit max-w-full items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                      >
+                        <WorkflowIcon className="size-3 flex-none" />
+                        <span className="truncate">{form.workflow_title}</span>
+                      </Link>
+                    )}
+                  </div>
+                  <div className="flex flex-none items-center gap-2">
+                    <Badge
+                      variant="secondary"
+                      className={cn(BADGE_CLASS, "gap-1.5")}
+                    >
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "size-2 rounded-full",
+                          form.status === "online"
+                            ? "bg-emerald-500"
+                            : "bg-muted-foreground/40"
+                        )}
+                      />
+                      {form.status === "online" ? "Online" : "Offline"}
+                    </Badge>
+                    {typeof form.submission_count === "number" && (
+                      <Badge variant="secondary" className={BADGE_CLASS}>
+                        {form.submission_count === 1
+                          ? "1 submission"
+                          : `${form.submission_count.toLocaleString()} submissions`}
+                      </Badge>
+                    )}
+                    {lastSubmittedAt && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge
+                            variant="secondary"
+                            className={cn(BADGE_CLASS, "cursor-default")}
+                          >
+                            {shortTimeAgo(lastSubmittedAt)}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          Last submitted {format(lastSubmittedAt, "PPpp")}
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="size-7 p-0"
+                        >
+                          <span className="sr-only">
+                            Open menu for {form.title}
+                          </span>
+                          <DotsHorizontalIcon className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem asChild className="text-xs">
+                          <a
+                            href={`/forms/${form.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <ExternalLinkIcon className="mr-2 size-3" />
+                            Open form
+                          </a>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-xs"
+                          onClick={() => copyFormLink(form.id)}
+                        >
+                          <CopyIcon className="mr-2 size-3" />
+                          Copy link
+                        </DropdownMenuItem>
+                        {canDelete && (
+                          <DropdownMenuItem
+                            className="text-xs text-destructive focus:text-destructive"
+                            onClick={() => setFormToDelete(form)}
+                          >
+                            <Trash2Icon className="mr-2 size-3" />
+                            Delete
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </li>
+              )
+            })}
           </ul>
         )}
       </div>

@@ -27,6 +27,7 @@ import {
   memo,
   type ReactNode,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -130,7 +131,7 @@ import { findAgentMention, type MentionRange } from "@/lib/mentions"
 import { useQueryClient } from "@/lib/query"
 import { getSubagentSessionId, SUBAGENT_TOOL_NAME } from "@/lib/subagent-stream"
 import { cn } from "@/lib/utils"
-import { useChatPageContext } from "@/providers/chat-page-context"
+import { PageContext } from "@/providers/chat-page-context"
 import type { ChatSurface } from "@/types/chat-surface"
 import { ARTIFACT_DATA_PART_TYPE } from "@/types/workspace-chat-artifacts"
 
@@ -341,7 +342,7 @@ export function ChatSessionPane({
   resume = true,
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
-  const pageContext = useChatPageContext()
+  const pageContext = useContext(PageContext)
   const formsAccess = useFormsAccess()
   const promptInputContainerRef = useRef<HTMLDivElement>(null)
   const promptTextareaFocusedRef = useRef(false)

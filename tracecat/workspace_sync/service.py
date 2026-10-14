@@ -500,9 +500,16 @@ class WorkspaceSyncService(SyncMappingService):
         specs: dict[str, WorkflowResourceSpec] = {}
         source_workflow_ids: dict[WorkflowUUID, str] = {}
 
-        forms_by_workflow_id = await self._forms_by_workflow_id(
-            [workflow.id for workflow in workflows]
-        )
+        # ``Workflow`` has no form relationship: load the forms in one query.
+        forms_by_workflow_id = {
+            form.workflow_id: form
+            for form in await self.session.scalars(
+                select(Form).where(
+                    Form.workspace_id == self.workspace_id,
+                    Form.workflow_id.in_([workflow.id for workflow in workflows]),
+                )
+            )
+        }
 
         # Project each workflow to a spec keyed by its (stable) source id.
         for workflow in workflows:
@@ -580,19 +587,6 @@ class WorkspaceSyncService(SyncMappingService):
             spec=spec,
             files=self._files_from_spec(manifest=manifest, spec=spec),
         )
-
-    async def _forms_by_workflow_id(
-        self, workflow_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, Form]:
-        """Load the forms of these workflows in one query."""
-        if not workflow_ids:
-            return {}
-        stmt = select(Form).where(
-            Form.workspace_id == self.workspace_id,
-            Form.workflow_id.in_(workflow_ids),
-        )
-        forms = (await self.session.scalars(stmt)).all()
-        return {form.workflow_id: form for form in forms}
 
     async def _workflow_specs_with_case_tag_source_ids(
         self,

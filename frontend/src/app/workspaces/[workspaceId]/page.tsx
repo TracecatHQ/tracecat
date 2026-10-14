@@ -8,7 +8,6 @@ import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import { useEntitlements } from "@/hooks"
-import { useFormsAccess } from "@/hooks/use-forms-access"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 function NoAccessibleSections() {
@@ -46,26 +45,14 @@ export default function WorkspacePage() {
   const canViewMembers = useScopeCheck("workspace:member:read")
   const canViewInbox = useScopeCheck("inbox:read")
   const canReadWorkspace = useScopeCheck("workspace:read")
-  // Same rule as the sidebar's Forms item: the builder pages need one of
-  // these on top of `form:read`.
-  const canViewForms = useScopeCheck("form:read")
-  const canBuildForms = useScopeCheck(undefined, [
-    "form:update",
-    "form:submission:read",
-  ])
 
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
   const workspaceChatEnabled = hasEntitlement("workspace_chat")
-  const formsAccess = useFormsAccess()
-  const formsVisible = formsAccess === "enabled" || formsAccess === "locked"
 
   const isLoading =
     entitlementsLoading ||
-    formsAccess === "loading" ||
     [
-      canViewForms,
-      canBuildForms,
       canViewWorkflows,
       canViewCases,
       canViewAgents,
@@ -96,9 +83,6 @@ export default function WorkspacePage() {
     }
     if (canViewWorkflows === true) {
       return `${basePath}/workflows`
-    }
-    if (formsVisible && canViewForms === true && canBuildForms === true) {
-      return `${basePath}/forms`
     }
     if (canViewCases === true) {
       return `${basePath}/cases`
@@ -133,10 +117,7 @@ export default function WorkspacePage() {
     }
     return null
   }, [
-    canBuildForms,
     canExecuteAgents,
-    canViewForms,
-    formsVisible,
     workspaceChatEnabled,
     canViewAgents,
     canViewCases,

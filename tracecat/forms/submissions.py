@@ -15,20 +15,20 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
-from tracecat.authz.controls import has_scope
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
     Form,
-    FormEvent,
     FormFile,
     FormSubmission,
     ServiceAccount,
+    WorkflowDefinition,
 )
+from tracecat.dsl.common import DSLInput
 from tracecat.dsl.validation import normalize_trigger_inputs
+from tracecat.forms.access import caller_user_id, can_read_submissions, is_caller
 from tracecat.forms.enums import (
     FormAutofillSource,
     FormErrorCode,
-    FormEventType,
     FormFieldErrorCode,
     FormWidget,
 )
@@ -36,6 +36,7 @@ from tracecat.forms.exceptions import FormError
 from tracecat.forms.files import FormFilesService
 from tracecat.forms.resolver import resolve_form
 from tracecat.forms.schemas import (
+    FormActorRead,
     FormFieldBlock,
     FormFieldError,
     FormSubmissionCreate,
@@ -46,22 +47,15 @@ from tracecat.forms.schemas import (
 from tracecat.forms.service import (
     USERS,
     FormsService,
-    actor_read,
     org_users,
-    page_response,
+    paginate_rows,
     stored_form_config,
-    submission_reference,
-    user_read,
 )
-from tracecat.forms.storage import (
-    delete_file_blobs,
-    purge_expired_files,
-    submission_file_blob_keys,
-)
+from tracecat.forms.storage import delete_file_blobs, file_blob_keys
 from tracecat.forms.values import check_values
 from tracecat.identifiers import InternalServiceID
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
-from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
+from tracecat.pagination import CursorPaginatedResponse, PageParams
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.service import BaseWorkspaceService
 from tracecat.workflow.executions.enums import (
@@ -125,13 +119,28 @@ def _requester_value(source: FormAutofillSource, requester: FormUserRead) -> Any
             raise ValueError("submission.id is not a requester value")
 
 
+def _submission_read(row: Mapping[Any, Any]) -> FormSubmissionRead:
+    """Build a submission from a row of ``_submissions``."""
+    submitted_by = None
+    if (user_id := row["submitted_by_user_id"]) is not None:
+        submitted_by = FormActorRead(
+            type="user",
+            id=user_id,
+            email=row["email"],
+            first_name=row["first_name"],
+            last_name=row["last_name"],
+        )
+    elif (account_id := row["submitted_by_service_account_id"]) is not None:
+        submitted_by = FormActorRead(
+            type="service_account", id=account_id, name=row["name"]
+        )
+    return FormSubmissionRead.model_validate({**row, "submitted_by": submitted_by})
+
+
 class FormSubmissionsService(BaseWorkspaceService):
     """Submit forms and manage what was submitted."""
 
     service_name = "form_submissions"
-
-    def _has_scope(self, scope: str) -> bool:
-        return has_scope(self.role.scopes or frozenset(), scope)
 
     # ----- Submit -----
 
@@ -146,26 +155,18 @@ class FormSubmissionsService(BaseWorkspaceService):
         timeout, it is kept: the run may exist.
 
         Raises:
-            FormError: ``form_offline``, ``form_unavailable``, ``form_changed``,
-                ``form_validation_error`` with per-field errors, or
-                ``workflow_start_failed``.
+            FormError: If the form cannot be filled in or changed since it was
+                opened, an answer is not valid, or the run did not start.
         """
         # Read before any rollback: a rollback expires the row.
         form_id = form.id
         workflow_id = WorkflowUUID.new(form.workflow_id)
 
-        inputs, config, resolved = await FormsService(
-            self.session, self.role
-        ).resolve_published(form)
-        definition, dsl = inputs.definition, inputs.dsl
-        if definition is None or dsl is None:
-            raise FormError(
-                FormErrorCode.FORM_UNAVAILABLE, "This form is not available right now"
-            )
-        if (
-            params.definition_version is not None
-            and params.definition_version != definition.version
-        ):
+        forms = FormsService(self.session, self.role)
+        inputs, form_config, resolved = await forms.resolve_published(form)
+        # resolve_published only returns the inputs of a published definition.
+        definition = cast(WorkflowDefinition, inputs.definition)
+        if params.definition_version not in (None, definition.version):
             raise FormError(
                 FormErrorCode.FORM_CHANGED,
                 "This form changed since you opened it. Reload and try again.",
@@ -175,11 +176,9 @@ class FormSubmissionsService(BaseWorkspaceService):
         # value is a verified Tracecat user or null. Sent, they are unknown keys.
         checked = check_values(resolved.blocks, params.values)
         answers = checked.values
-        files = FormFilesService(self.session, self.role)
-        await purge_expired_files(self.session, self.workspace_id)
-        file_errors, claimed_files = await files.claim(
-            form_id, checked.visible, answers
-        )
+        file_errors, claimed_files = await FormFilesService(
+            self.session, self.role
+        ).claim(form_id, checked.visible, answers)
         errors = [
             *checked.errors,
             *await self._expand_users(checked.visible, answers),
@@ -212,7 +211,7 @@ class FormSubmissionsService(BaseWorkspaceService):
             id=submission_id,
             workspace_id=self.workspace_id,
             form_id=form_id,
-            submitted_by_user_id=self._user_id,
+            submitted_by_user_id=caller_user_id(self.role),
             submitted_by_service_account_id=self.role.service_account_id,
             answers=normalized,
             definition_version=definition.version,
@@ -222,27 +221,15 @@ class FormSubmissionsService(BaseWorkspaceService):
         await self.session.flush()
         for file in claimed_files:
             file.submission_id = submission_id
-        event = FormEvent(
-            workspace_id=self.workspace_id,
-            form_id=form_id,
-            type=FormEventType.FORM_SUBMITTED.value,
-            user_id=self._user_id,
-            service_account_id=self.role.service_account_id,
-            submission_id=submission_id,
-        )
-        self.session.add(event)
         await self.session.commit()
         await self.session.refresh(submission)
         submitted_at = submission.created_at
 
+        executions: WorkflowExecutionsService | None = None
         try:
             executions = await WorkflowExecutionsService.connect(role=self.run_role())
-        except Exception as e:
-            await self._discard(submission, event, claimed_files)
-            raise self._start_failed(form_id, wf_exec_id, e, kept=False) from e
-        try:
             await executions.create_workflow_execution_wait_for_start(
-                dsl=dsl,
+                dsl=cast(DSLInput, inputs.dsl),
                 wf_id=workflow_id,
                 payload=normalized,
                 trigger_type=TriggerType.FORM,
@@ -258,39 +245,31 @@ class FormSubmissionsService(BaseWorkspaceService):
                 },
             )
         except Exception as e:
-            kept = _run_may_have_started(e)
+            # A failed connect never reached Temporal.
+            kept = executions is not None and _run_may_have_started(e)
             if not kept:
-                await self._discard(submission, event, claimed_files)
-            raise self._start_failed(form_id, wf_exec_id, e, kept=kept) from e
+                await self._discard(submission, claimed_files)
+            # Never log the answers.
+            self.logger.error(
+                "Failed to start the workflow of a form submission",
+                form_id=form_id,
+                wf_exec_id=wf_exec_id,
+                error_type=type(e).__name__,
+                submission_kept=kept,
+            )
+            raise FormError(
+                FormErrorCode.WORKFLOW_START_FAILED,
+                "The request could not be started. Try again.",
+            ) from e
 
         return FormSubmissionReceipt(
             id=submission_id,
-            reference=submission_reference(submission_id),
             submitted_at=submitted_at,
-            success_message=config.success_message,
-        )
-
-    def _start_failed(
-        self, form_id: uuid.UUID, wf_exec_id: str, error: Exception, *, kept: bool
-    ) -> FormError:
-        # Never log the answers.
-        self.logger.error(
-            "Failed to start the workflow of a form submission",
-            form_id=form_id,
-            wf_exec_id=wf_exec_id,
-            error_type=type(error).__name__,
-            submission_kept=kept,
-        )
-        return FormError(
-            FormErrorCode.WORKFLOW_START_FAILED,
-            "The request could not be started. Try again.",
+            success_message=form_config.success_message,
         )
 
     async def _discard(
-        self,
-        submission: FormSubmission,
-        event: FormEvent,
-        claimed_files: Sequence[FormFile],
+        self, submission: FormSubmission, claimed_files: Sequence[FormFile]
     ) -> None:
         """Undo a committed submission whose run never started. Best effort.
 
@@ -302,7 +281,6 @@ class FormSubmissionsService(BaseWorkspaceService):
             for file in claimed_files:
                 file.submission_id = None
             await self.session.flush()
-            await self.session.delete(event)
             await self.session.delete(submission)
             await self.session.commit()
         except SQLAlchemyError as e:
@@ -312,11 +290,6 @@ class FormSubmissionsService(BaseWorkspaceService):
                 submission_id=submission_id,
                 error_type=type(e).__name__,
             )
-
-    @property
-    def _user_id(self) -> uuid.UUID | None:
-        """The submitting user. None for a service account."""
-        return self.role.user_id if self.role.type == "user" else None
 
     def run_role(self) -> Role:
         """The identity a form-triggered run executes as.
@@ -330,7 +303,7 @@ class FormSubmissionsService(BaseWorkspaceService):
         return Role(
             type="service",
             service_id=_RUN_SERVICE_ID,
-            user_id=self._user_id,
+            user_id=caller_user_id(self.role),
             workspace_id=self.workspace_id,
             organization_id=self.organization_id,
             scopes=SERVICE_PRINCIPAL_SCOPES[_RUN_SERVICE_ID],
@@ -365,13 +338,14 @@ class FormSubmissionsService(BaseWorkspaceService):
         if not user_ids_by_field:
             return errors
 
-        wanted = {
-            user_id for user_ids in user_ids_by_field.values() for user_id in user_ids
-        }
+        wanted = {user_id for ids in user_ids_by_field.values() for user_id in ids}
         statement = org_users(self.organization_id).where(USERS.c.id.in_(wanted))
         users = {
             user.user_id: user.model_dump(mode="json")
-            for user in map(user_read, (await self.session.execute(statement)).tuples())
+            for user in map(
+                FormUserRead.model_validate,
+                (await self.session.execute(statement)).mappings(),
+            )
         }
         multiple = {field.name: field.multiple for field in fields}
         for name, user_ids in user_ids_by_field.items():
@@ -401,13 +375,10 @@ class FormSubmissionsService(BaseWorkspaceService):
         if not autofill:
             return {}
         requester: FormUserRead | None = None
-        if self._user_id is not None:
-            statement = org_users(self.organization_id).where(
-                USERS.c.id == self._user_id
-            )
-            row = (await self.session.execute(statement)).tuples().one_or_none()
-            requester = user_read(row) if row is not None else None
-
+        if (user_id := caller_user_id(self.role)) is not None:
+            statement = org_users(self.organization_id).where(USERS.c.id == user_id)
+            if row := (await self.session.execute(statement)).mappings().first():
+                requester = FormUserRead.model_validate(row)
         values: dict[str, Any] = {}
         for name, source in autofill.items():
             if source is FormAutofillSource.SUBMISSION_ID:
@@ -420,7 +391,7 @@ class FormSubmissionsService(BaseWorkspaceService):
 
     # ----- Read and delete -----
 
-    def _submissions(self, form: Form) -> Select[Any]:
+    def _submissions(self, form_id: uuid.UUID) -> Select[Any]:
         return (
             select(
                 FormSubmission.id,
@@ -428,7 +399,7 @@ class FormSubmissionsService(BaseWorkspaceService):
                 FormSubmission.answers,
                 FormSubmission.definition_version,
                 FormSubmission.wf_exec_id,
-                FormSubmission.created_at,
+                FormSubmission.created_at.label("submitted_at"),
                 FormSubmission.submitted_by_user_id,
                 USERS.c.email,
                 USERS.c.first_name,
@@ -443,29 +414,8 @@ class FormSubmissionsService(BaseWorkspaceService):
             )
             .where(
                 FormSubmission.workspace_id == self.workspace_id,
-                FormSubmission.form_id == form.id,
+                FormSubmission.form_id == form_id,
             )
-        )
-
-    @staticmethod
-    def _submission_read(values: tuple[object, ...]) -> FormSubmissionRead:
-        submission_id = cast(uuid.UUID, values[0])
-        return FormSubmissionRead(
-            id=submission_id,
-            form_id=cast(uuid.UUID, values[1]),
-            reference=submission_reference(submission_id),
-            answers=cast(dict[str, Any], values[2]),
-            definition_version=cast(int, values[3]),
-            wf_exec_id=cast(str, values[4]),
-            submitted_at=cast(datetime, values[5]),
-            submitted_by=actor_read(
-                cast(uuid.UUID | None, values[6]),
-                cast(str | None, values[7]),
-                cast(str | None, values[8]),
-                cast(str | None, values[9]),
-                cast(uuid.UUID | None, values[10]),
-                cast(str | None, values[11]),
-            ),
         )
 
     async def _with_run_status(
@@ -509,49 +459,47 @@ class FormSubmissionsService(BaseWorkspaceService):
         submitted_before: datetime | None = None,
     ) -> CursorPaginatedResponse[FormSubmissionRead]:
         """List a form's submissions newest first, with answers and run status."""
-        statement = self._submissions(form)
+        statement = self._submissions(form.id)
         if submitted_after is not None:
             statement = statement.where(FormSubmission.created_at >= submitted_after)
         if submitted_before is not None:
             statement = statement.where(FormSubmission.created_at < submitted_before)
-        result = await paginate(
+        response = await paginate_rows(
             self.session,
             statement,
-            page=page,
-            order_by=(
-                FormSubmission.created_at.desc(),
-                FormSubmission.surrogate_id.desc(),
-            ),
-            row_factory=self._submission_read,
+            _submission_read,
+            page,
+            FormSubmission.created_at.desc(),
+            FormSubmission.surrogate_id.desc(),
         )
-        response = page_response(result)
-        return response.model_copy(
-            update={"items": await self._with_run_status(response.items)}
-        )
+        response.items = await self._with_run_status(response.items)
+        return response
 
     async def read_submission(
         self, form: Form, submission_id: uuid.UUID
     ) -> FormSubmissionRead | None:
-        """Read one submission.
+        """Read one submission, or None if it is not the caller's to read.
 
         A caller reads their own submissions. Reading anyone else's, and the
         run fields, the workflow version and the answers to inputs the form
         does not show, needs ``form:submission:read``.
-
-        Returns:
-            The submission, or None if it does not exist or is not the
-            caller's to read.
         """
-        statement = self._submissions(form).where(FormSubmission.id == submission_id)
-        row = (await self.session.execute(statement)).tuples().one_or_none()
-        if row is None:
+        statement = self._submissions(form.id).where(FormSubmission.id == submission_id)
+        reader = can_read_submissions(self.role)
+        if not reader:
+            statement = statement.where(
+                is_caller(
+                    self.role,
+                    FormSubmission.submitted_by_user_id,
+                    FormSubmission.submitted_by_service_account_id,
+                )
+            )
+        if (row := (await self.session.execute(statement)).mappings().first()) is None:
             return None
-        submission = self._submission_read(row)
-        if self._has_scope("form:submission:read"):
+        submission = _submission_read(row)
+        if reader:
             [submission] = await self._with_run_status([submission])
             return submission
-        if not self._is_own(submission):
-            return None
         # Requesters never see the run, nor what the form filled in for them.
         shown = await self._shown_field_names(form)
         return submission.model_copy(
@@ -563,7 +511,6 @@ class FormSubmissionsService(BaseWorkspaceService):
                 },
                 "definition_version": None,
                 "wf_exec_id": None,
-                "run_status": None,
             }
         )
 
@@ -573,27 +520,16 @@ class FormSubmissionsService(BaseWorkspaceService):
         Hidden and autofilled inputs are not among them. Empty if the form
         cannot be resolved.
         """
-        forms = FormsService(self.session, self.role)
         try:
-            inputs = await forms.load_inputs(form.workflow_id)
+            inputs = await FormsService(self.session, self.role).load_inputs(
+                form.workflow_id
+            )
         except FormError:
             return set()
         if inputs is None:
             return set()
         result = resolve_form(stored_form_config(form), inputs.expects)
-        if result.has_errors:
-            return set()
-        return {
-            block.name for block in result.blocks if isinstance(block, FormFieldBlock)
-        }
-
-    def _is_own(self, submission: FormSubmissionRead) -> bool:
-        submitter = submission.submitted_by
-        if submitter is None:
-            return False
-        if submitter.type == "user":
-            return self._user_id is not None and submitter.id == self._user_id
-        return submitter.id == self.role.service_account_id
+        return set() if result.has_errors else {field.name for field in result.fields}
 
     async def get_form_of_submission(self, submission_id: uuid.UUID) -> Form | None:
         """Find the form a submission belongs to, for callers with only its ID."""
@@ -619,13 +555,13 @@ class FormSubmissionsService(BaseWorkspaceService):
 
     @audit_log(resource_type="form_submission", action="delete")
     async def delete_submission(self, submission: FormSubmission) -> None:
-        """Delete a submission and its files.
+        """Delete a submission and its files. The run it started is unaffected.
 
-        Its activity events stay, without the link. The file rows go with the
-        submission; their blobs are deleted after the commit, best effort.
+        The file rows go with the submission; their blobs are deleted after
+        the commit, best effort.
         """
-        keys = await submission_file_blob_keys(
-            self.session, self.workspace_id, submission.id
+        keys = await file_blob_keys(
+            self.session, self.workspace_id, FormFile.submission_id == submission.id
         )
         await self.session.delete(submission)
         await self.session.commit()

@@ -195,6 +195,7 @@ def _add_exception_handlers(app: FastAPI) -> None:
         ScopeDeniedError,
         TracecatException,
     )
+    from tracecat.forms.exceptions import FormError, form_error_handler
 
     app.add_exception_handler(Exception, generic_exception_handler)
     app.add_exception_handler(
@@ -203,6 +204,7 @@ def _add_exception_handlers(app: FastAPI) -> None:
     )
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(TableRowError, table_row_exception_handler)
+    app.add_exception_handler(FormError, form_error_handler)
     app.add_exception_handler(
         TracecatQueryTimeoutError,
         query_timeout_exception_handler,

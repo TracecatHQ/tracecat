@@ -10,16 +10,6 @@ class FormStatus(StrEnum):
     OFFLINE = "offline"
 
 
-class FormEventType(StrEnum):
-    """Activity recorded against a form.
-
-    Stored as a plain string column, so a new value needs no migration.
-    """
-
-    FORM_VIEWED = "form_viewed"
-    FORM_SUBMITTED = "form_submitted"
-
-
 class FormWidget(StrEnum):
     """Input controls a form field can render as."""
 
@@ -100,6 +90,8 @@ class FormIssueCode(StrEnum):
 class FormErrorCode(StrEnum):
     """Machine-readable failures of a forms request."""
 
+    NOT_FOUND = "not_found"
+    ALREADY_EXISTS = "already_exists"
     FORM_CONFIG_INVALID = "form_config_invalid"
     FORM_WORKFLOW_UNPUBLISHED = "form_workflow_unpublished"
     FORM_OFFLINE = "form_offline"

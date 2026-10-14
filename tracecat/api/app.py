@@ -140,7 +140,8 @@ from tracecat.exceptions import (
 )
 from tracecat.feature_flags import FeatureFlag, FlagLike, is_feature_enabled
 from tracecat.feature_flags.router import router as feature_flags_router
-from tracecat.forms.requester_router import router as forms_requester_router
+from tracecat.forms.exceptions import FormError, form_error_handler
+from tracecat.forms.router import intake_router as forms_intake_router
 from tracecat.forms.router import router as forms_router
 from tracecat.inbox.router import router as inbox_router
 from tracecat.integrations.router import (
@@ -648,7 +649,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(org_secret_stores_router)
     _include_workspace_scoped_router(app, tables_router)
     _include_workspace_scoped_router(app, forms_router)
-    app.include_router(forms_requester_router)
+    app.include_router(forms_intake_router)
     _include_workspace_scoped_router(app, cases_router)
     _include_workspace_scoped_router(app, case_versions_router)
     _include_workspace_scoped_router(app, case_rows_router)
@@ -768,6 +769,7 @@ def create_app(**kwargs) -> FastAPI:
     )
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(TableRowError, table_row_exception_handler)
+    app.add_exception_handler(FormError, form_error_handler)
     app.add_exception_handler(
         TracecatQueryTimeoutError,
         query_timeout_exception_handler,

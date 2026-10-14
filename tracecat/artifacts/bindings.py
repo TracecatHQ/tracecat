@@ -10,6 +10,7 @@ from typing import Any, Literal, NotRequired, Self, TypedDict, cast
 import orjson
 from pydantic import (
     AliasChoices,
+    AliasPath,
     BaseModel,
     ConfigDict,
     Field,
@@ -62,7 +63,6 @@ class FormArtifactPayload(TypedDict):
     type: Literal["form"]
     id: str
     title: str
-    workflowId: str
     status: NotRequired[Literal["online", "offline"]]
 
 
@@ -142,22 +142,13 @@ class _AgentPresetToolResult(_ArtifactProjectionModel):
     )
 
 
-class _FormConfigTitle(_ArtifactProjectionModel):
-    title: str | None = None
-
-
 class _FormToolResult(_ArtifactProjectionModel):
     id: str
-    workflow_id: str
+    title: str | None = Field(
+        default=None, validation_alias=AliasPath("config", "title")
+    )
     workflow_title: str | None = None
     status: Literal["online", "offline"] | None = None
-    config: _FormConfigTitle | None = None
-
-    @property
-    def resolved_title(self) -> str:
-        if self.config and self.config.title:
-            return self.config.title
-        return self.workflow_title or self.id
 
 
 class _WorkflowEditDocumentMetadata(_ArtifactProjectionModel):
@@ -321,7 +312,21 @@ def _build_agent_artifacts(ctx: ArtifactProjectionContext) -> Iterable[Artifact]
 
 
 def _build_form_artifact(ctx: ArtifactProjectionContext) -> Artifact | None:
-    return _form_artifact_from_output(ctx.tool_output, ctx.tool_call_id)
+    data = _mapping_from_tool_output(ctx.tool_output)
+    if data is None or (result := _FormToolResult.try_validate(data)) is None:
+        return None
+
+    payload: FormArtifactPayload = {
+        "type": "form",
+        "id": result.id,
+        "title": result.title or result.workflow_title or result.id,
+    }
+    if result.status is not None:
+        payload["status"] = result.status
+
+    return ArtifactAdapter.validate_python(
+        _with_parent_scope(payload, ctx.tool_call_id)
+    )
 
 
 def _build_workflow_run_artifact(ctx: ArtifactProjectionContext) -> Artifact | None:
@@ -731,27 +736,6 @@ def _agent_artifacts_from_output(
             yield ArtifactAdapter.validate_python(
                 _with_parent_scope(payload, tool_call_id)
             )
-
-
-def _form_artifact_from_output(value: Any, tool_call_id: str | None) -> Artifact | None:
-    data = _mapping_from_tool_output(value)
-    if data is None:
-        return None
-
-    result = _FormToolResult.try_validate(data)
-    if result is None:
-        return None
-
-    payload: FormArtifactPayload = {
-        "type": "form",
-        "id": result.id,
-        "title": result.resolved_title,
-        "workflowId": result.workflow_id,
-    }
-    if result.status is not None:
-        payload["status"] = result.status
-
-    return ArtifactAdapter.validate_python(_with_parent_scope(payload, tool_call_id))
 
 
 # Default swatch color for workflow artifacts created via the chat copilot.
