@@ -417,7 +417,7 @@ function SkillFolderMoveDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
-          <Popover open={selectorOpen} onOpenChange={setSelectorOpen}>
+          <Popover modal open={selectorOpen} onOpenChange={setSelectorOpen}>
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
@@ -432,7 +432,10 @@ function SkillFolderMoveDialog({
                 </span>
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+            <PopoverContent
+              className="w-[--radix-popover-trigger-width] overflow-hidden p-0"
+              portal={true}
+            >
               <FileTreeCommand
                 items={getFileTreeItems(availableFolders)}
                 onSelect={(path) => {
@@ -497,7 +500,7 @@ function SkillMoveDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
-          <Popover open={selectorOpen} onOpenChange={setSelectorOpen}>
+          <Popover modal open={selectorOpen} onOpenChange={setSelectorOpen}>
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
@@ -512,7 +515,10 @@ function SkillMoveDialog({
                 </span>
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+            <PopoverContent
+              className="w-[--radix-popover-trigger-width] overflow-hidden p-0"
+              portal={true}
+            >
               <FileTreeCommand
                 items={getFileTreeItems(folders)}
                 onSelect={(path) => {
