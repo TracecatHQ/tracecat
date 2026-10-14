@@ -145,6 +145,13 @@ FROM (VALUES
 COMMIT;
 ```
 
+If `schema_usage` is false, the schema owner or an authorized administrator
+restores it for the API role:
+
+```sql
+GRANT USAGE ON SCHEMA public TO synthetic_runtime_role;
+```
+
 When execution is missing, the function owner or an authorized administrator
 grants only these helpers to the API role. Replace `synthetic_runtime_role` with
 that role and rerun the read-only check:
