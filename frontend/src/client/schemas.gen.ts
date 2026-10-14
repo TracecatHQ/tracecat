@@ -10157,6 +10157,35 @@ export const $CaseQuery = {
       ],
       title: "Search Term",
     },
+    search_mode: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SearchMode",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.",
+    },
+    search_columns: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            enum: ["summary", "description"],
+          },
+          type: "array",
+          maxItems: 2,
+          minItems: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search Columns",
+    },
     short_id: {
       anyOf: [
         {
@@ -10506,6 +10535,16 @@ export const $CaseReadMinimal = {
       type: "string",
       title: "Short Id",
     },
+    search_match: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseSearchMatchRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -10672,9 +10711,49 @@ export const $CaseSearchAggregateRead = {
   title: "CaseSearchAggregateRead",
 } as const
 
+export const $CaseSearchMatchRead = {
+  properties: {
+    score: {
+      anyOf: [
+        {
+          type: "number",
+          minimum: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Score",
+    },
+    matched_columns: {
+      items: {
+        type: "string",
+        enum: ["summary", "description", "id", "short_id"],
+      },
+      type: "array",
+      maxItems: 4,
+      title: "Matched Columns",
+    },
+    excerpts: {
+      items: {
+        type: "string",
+        maxLength: 240,
+      },
+      type: "array",
+      maxItems: 2,
+      title: "Excerpts",
+    },
+  },
+  type: "object",
+  title: "CaseSearchMatchRead",
+  description:
+    "Bounded lexical metadata beside case fields; excerpts are untrusted text.",
+} as const
+
 export const $CaseSearchOrder = {
   type: "string",
   enum: [
+    "relevance",
     "created_at",
     "updated_at",
     "priority",
@@ -10737,6 +10816,35 @@ export const $CaseSearchRequest = {
         },
       ],
       title: "Search Term",
+    },
+    search_mode: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SearchMode",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.",
+    },
+    search_columns: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            enum: ["summary", "description"],
+          },
+          type: "array",
+          maxItems: 2,
+          minItems: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search Columns",
     },
     short_id: {
       anyOf: [
@@ -30565,6 +30673,14 @@ Attributes:
     ready: Current documents whose complete embeddings are published.
     backfill_complete: Whether all source rows have been enumerated.
     partial: Whether the index is unavailable or results may be incomplete.`,
+} as const
+
+export const $SearchMode = {
+  type: "string",
+  enum: ["full_text", "literal"],
+  title: "SearchMode",
+  description:
+    "Explicit lexical modes; omitted table mode remains a legacy policy.",
 } as const
 
 export const $SearchState = {

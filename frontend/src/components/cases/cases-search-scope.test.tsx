@@ -101,7 +101,13 @@ const CASE: CaseReadMinimal = {
   num_sub_cases: 0,
 }
 
-function Harness({ hierarchyEnabled = true }: { hierarchyEnabled?: boolean }) {
+function Harness({
+  lexicalControls = false,
+  hierarchyEnabled = true,
+}: {
+  lexicalControls?: boolean
+  hierarchyEnabled?: boolean
+}) {
   const search = useCases({ autoRefresh: false })
   return (
     <CasesLayout
@@ -113,6 +119,7 @@ function Harness({ hierarchyEnabled = true }: { hierarchyEnabled?: boolean }) {
       effectiveHierarchy={search.effectiveHierarchy}
       isSearchPending={search.isSearchPending}
       onSearchChange={search.setSearchQuery}
+      onSearchModeChange={lexicalControls ? search.setSearchMode : undefined}
       onSortByChange={search.setSortBy}
       onStatusChange={search.setStatusFilter}
       onStatusModeChange={search.setStatusMode}
@@ -148,14 +155,17 @@ function Harness({ hierarchyEnabled = true }: { hierarchyEnabled?: boolean }) {
   )
 }
 
-function setup(hierarchyEnabled = true) {
+function setup({ lexicalControls = false, hierarchyEnabled = true } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   })
   return render(
     <QueryClientProvider client={queryClient}>
       <WorkspaceIdProvider workspaceId={WORKSPACE_ID}>
-        <Harness hierarchyEnabled={hierarchyEnabled} />
+        <Harness
+          lexicalControls={lexicalControls}
+          hierarchyEnabled={hierarchyEnabled}
+        />
       </WorkspaceIdProvider>
     </QueryClientProvider>
   )
@@ -208,7 +218,7 @@ describe("exact-first case search UI", () => {
   })
 
   it("shows dates without unsupported hierarchy labels or controls", async () => {
-    setup(false)
+    setup({ hierarchyEnabled: false })
     await waitFor(() => expect(casesSearchCases).toHaveBeenCalledTimes(1))
     const scope = screen.getByRole("status")
     expect(scope).toHaveTextContent("Created in last 30 days")
@@ -281,6 +291,37 @@ describe("exact-first case search UI", () => {
         expect.objectContaining({ orderBy: "updated_at", sort: "desc" })
       )
     )
+  })
+
+  it("restores relevance for the next words search after Reset", async () => {
+    const user = userEvent.setup()
+    setup({ lexicalControls: true })
+    const searchInput = screen.getByRole("textbox", { name: "Search cases" })
+    fireEvent.change(searchInput, { target: { value: "synthetic" } })
+    const sortControl = screen.getByRole("combobox", {
+      name: "Case sort field",
+    })
+    fireEvent.keyDown(sortControl, { key: "ArrowDown" })
+    await user.click(await screen.findByRole("option", { name: /^Tags/ }))
+    await waitFor(() =>
+      expect(casesSearchCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({ orderBy: "tags" })
+      )
+    )
+    await user.click(screen.getByRole("button", { name: "Reset" }))
+    expect(searchInput).toHaveValue("")
+    fireEvent.change(searchInput, { target: { value: "next words" } })
+    await waitFor(() =>
+      expect(casesSearchCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          searchTerm: "next words",
+          searchMode: "full_text",
+          orderBy: "relevance",
+          sort: "desc",
+        })
+      )
+    )
+    expect(sortControl).toHaveTextContent("Relevance")
   })
 
   it("shows the exact match before ordinary matches without duplicating it", async () => {

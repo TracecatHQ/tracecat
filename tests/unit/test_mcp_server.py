@@ -5970,6 +5970,9 @@ async def test_search_cases_forwards_canonical_request(
     )
     response = await _tool(mcp_server.search_cases)(
         workspace_id=workspace_id,
+        search_term="powershell encoded",
+        search_mode="full_text",
+        search_columns=["description"],
         short_id="CASE-0042",
         case_id=case_id,
         parent_id=parent_id,
@@ -5989,6 +5992,10 @@ async def test_search_cases_forwards_canonical_request(
     assert query.await_args is not None
     request = query.await_args.args[0]
     assert isinstance(request, CaseSearchRequest)
+    assert request.search_mode == "full_text" and request.search_columns == [
+        "description"
+    ]
+    assert request.search_term == "powershell encoded"
     assert request.case_id == case_id and request.parent_id == parent_id
     assert request.model_dump(mode="json", exclude_none=True)["filters"] == filters
     assert (

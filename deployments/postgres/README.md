@@ -180,10 +180,13 @@ psql -X -f scripts/postgres/pg-trgm.sql
 ```
 
 The default check opens a read-only transaction. It verifies the extension
-schema, extension ownership of the GIN operator class and similarity function,
-schema `USAGE`, function `EXECUTE`, and function usability. Success reports the
-database, server version, extension version, and an identical-text similarity
-of `1`. Missing server support, extension registration, schema placement, or
+schema, extension ownership of the GIN operator class, `similarity`,
+`strict_word_similarity`, and the `%>>` operator and its implementation. It checks
+schema `USAGE` and `EXECUTE` for each required function, then exercises them as
+the caller. Success reports the database and versions, identical-text similarity
+values of `1`, and a strict-word match of `true`. Missing function permissions
+include an exact `GRANT EXECUTE ON FUNCTION` command for the current role; only an
+administrator should apply it. Missing server support, registration, placement, or
 permissions fails with a PostgreSQL SQLSTATE and an administrator action hint.
 Use `-v VERBOSITY=verbose` to include SQLSTATE in psql error output.
 
@@ -259,7 +262,8 @@ SQL context and applies the resulting transactions to the live database. It crea
 and removes only its uniquely named synthetic databases and role; it never starts
 services or removes volumes. Its three scenarios cover fresh provisioning and
 GIN use, trusted/restricted-role migration behavior and retained downgrade,
-existing data/pgvector preservation and read-only role permissions,
+existing data/pgvector preservation, and missing/granted read-only permissions
+for similarity, strict-word similarity and the `%>>` implementation,
 and incorrect schema or unrelated same-named objects. Do not point it at a
 production server or a database used by another test suite.
 

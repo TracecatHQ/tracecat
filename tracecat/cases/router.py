@@ -61,7 +61,7 @@ from tracecat.cases.schemas import (
     CaseTaskUpdate,
     CaseUpdate,
 )
-from tracecat.cases.search_schemas import CaseQuery, CaseSearchRequest
+from tracecat.cases.search_schemas import CaseQuery, CaseSearchOrder, CaseSearchRequest
 from tracecat.cases.service import (
     CaseCommentsService,
     CaseFieldsService,
@@ -84,6 +84,8 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
+from tracecat.query.errors import TracecatQueryTimeoutError
+from tracecat.query.lexical_types import LexicalSearchError, SearchMode
 from tracecat.tiers.enums import Entitlement
 
 cases_router = APIRouter(prefix="/cases", tags=["cases"])
@@ -317,6 +319,8 @@ async def query_cases(
     """Search with typed AND/OR/NOT filters and independent result details."""
     try:
         return await CasesService(session, role).query_cases(params)
+    except LexicalSearchError as exc:
+        raise HTTPException(status_code=503, detail=exc.detail) from exc
     except (ValueError, TracecatValidationError) as exc:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -329,6 +333,8 @@ async def query_case_aggregates(
     """Count the same typed matching conditions as search."""
     try:
         return await CasesService(session, role).query_case_aggregates(params)
+    except LexicalSearchError as exc:
+        raise HTTPException(status_code=503, detail=exc.detail) from exc
     except (ValueError, TracecatValidationError) as exc:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -350,6 +356,13 @@ async def search_cases(
     search_term: str | None = Query(
         None,
         description="Text to search for in case summary, description, short ID, or case UUID",
+    ),
+    search_mode: SearchMode | None = Query(
+        None,
+        description="Explicit full_text or literal; omitted mode preserves legacy search.",
+    ),
+    search_columns: list[Literal["summary", "description"]] | None = Query(
+        None, description="Selected text fields; omitted searches both."
     ),
     short_id: str | None = Query(
         None,
@@ -394,19 +407,9 @@ async def search_cases(
     assignee_id: list[str] | None = Query(
         None, description="Filter by assignee ID or 'unassigned'"
     ),
-    order_by: Literal[
-        "created_at",
-        "updated_at",
-        "priority",
-        "severity",
-        "status",
-        "tasks",
-        "assignee",
-        "tags",
-    ]
-    | None = Query(
+    order_by: CaseSearchOrder | None = Query(
         None,
-        description="Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks, assignee, tags). Default: created_at",
+        description="Full-text defaults to relevance; legacy/literal defaults to created_at. Explicit columns preserve their ordering.",
     ),
     sort: Literal["asc", "desc"] | None = Query(
         None, description="Direction to sort (asc or desc)"
@@ -449,6 +452,8 @@ async def search_cases(
         cases = await service.search_cases(
             pagination_params,
             search_term=search_term,
+            search_mode=search_mode,
+            search_columns=search_columns,
             short_id=short_id,
             case_id=case_id,
             promote_exact_match=promote_exact_match,
@@ -474,13 +479,15 @@ async def search_cases(
             parent_id=parent_id,
             hierarchy=hierarchy,
         )
+    except LexicalSearchError as exc:
+        raise HTTPException(status_code=503, detail=exc.detail) from exc
     except (ValueError, TracecatValidationError) as e:
         logger.warning(f"Invalid request for search cases: {e}")
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except (HTTPException, EntitlementRequired):
+    except (HTTPException, EntitlementRequired, TracecatQueryTimeoutError):
         raise
     except Exception as e:
         logger.error(f"Failed to search cases: {e}")
@@ -500,6 +507,13 @@ async def search_case_aggregates(
     search_term: str | None = Query(
         None,
         description="Text to search for in case summary, description, short ID, or case UUID",
+    ),
+    search_mode: SearchMode | None = Query(
+        None,
+        description="Explicit full_text or literal; omitted mode preserves legacy search.",
+    ),
+    search_columns: list[Literal["summary", "description"]] | None = Query(
+        None, description="Selected text fields; omitted searches both."
     ),
     short_id: str | None = Query(None),
     case_id: uuid.UUID | None = Query(None),
@@ -554,6 +568,8 @@ async def search_case_aggregates(
     try:
         return await service.get_search_case_aggregates(
             search_term=search_term,
+            search_mode=search_mode,
+            search_columns=search_columns,
             short_id=short_id,
             case_id=case_id,
             status=status,
@@ -570,13 +586,15 @@ async def search_case_aggregates(
             parent_id=parent_id,
             hierarchy=hierarchy,
         )
+    except LexicalSearchError as exc:
+        raise HTTPException(status_code=503, detail=exc.detail) from exc
     except (ValueError, TracecatValidationError) as e:
         logger.warning(f"Invalid request for case aggregate counts: {e}")
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except (HTTPException, EntitlementRequired):
+    except (HTTPException, EntitlementRequired, TracecatQueryTimeoutError):
         raise
     except Exception as e:
         logger.error(f"Failed to fetch case aggregate counts: {e}")

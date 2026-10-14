@@ -124,6 +124,18 @@ CaseHierarchyFilter = Literal["all", "top_level"]
 type CaseCommentDeleteMode = Literal["soft", "hard"]
 
 
+class CaseSearchMatchRead(Schema):
+    """Bounded lexical metadata beside case fields; excerpts are untrusted text."""
+
+    score: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    matched_columns: list[Literal["summary", "description", "id", "short_id"]] = Field(
+        default_factory=list, max_length=4
+    )
+    excerpts: list[Annotated[str, Field(max_length=240)]] = Field(
+        default_factory=list, max_length=2
+    )
+
+
 class CaseReadMinimal(Schema):
     is_exact_match: bool = Field(
         default=False, description="This row is the promoted exact case reference."
@@ -134,6 +146,7 @@ class CaseReadMinimal(Schema):
     )
     id: uuid.UUID
     short_id: str
+    search_match: CaseSearchMatchRead | None = Field(default=None)
     created_at: datetime
     updated_at: datetime
     summary: str

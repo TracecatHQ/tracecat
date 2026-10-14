@@ -243,6 +243,8 @@ class CasesClient:
         cursor: str | Unset = UNSET,
         reverse: bool | Unset = UNSET,
         search_term: str | Unset = UNSET,
+        search_mode: Literal["full_text", "literal"] | Unset = UNSET,
+        search_columns: list[Literal["summary", "description"]] | Unset = UNSET,
         short_id: str | Unset = UNSET,
         case_id: str | Unset = UNSET,
         filters: dict[str, Any] | Unset = UNSET,
@@ -273,9 +275,12 @@ class CasesClient:
         Scalar exclusions omit unset values unless ORed with is_null.
         Exact IDs and compatibility criteria are ANDed with the filter tree.
         Returned details are independent of matching.
+        Explicit full_text uses required words/per-field phrases and defaults to
+        relevance. Literal is an escaped complete substring. Omitted mode retains
+        legacy behavior. search_columns selects summary/description.
 
-        order_by accepts created_at, updated_at, priority, severity, status,
-        tasks, assignee, and tags. Assignee uses lowercase email; tags uses the
+        order_by accepts relevance, created_at, updated_at, priority, severity,
+        status, tasks, assignee, and tags. Assignee uses lowercase email; tags uses the
         first normalized tag alphabetically. Missing values sort last.
         """
         params: dict[str, Any] = {"limit": limit}
@@ -331,6 +336,8 @@ class CasesClient:
             params["include_payload"] = include_payload
 
         for name, value in (
+            ("search_mode", search_mode),
+            ("search_columns", search_columns),
             ("short_id", short_id),
             ("case_id", case_id),
             ("filters", filters),
