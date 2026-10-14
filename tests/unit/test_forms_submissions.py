@@ -426,6 +426,44 @@ async def test_an_empty_controller_counts_as_its_default_through_the_api(
     assert submission.answers == {"urgency": "high", "reason": "Outage"}
 
 
+@pytest.mark.parametrize(
+    ("type_string", "equals", "sent", "typed"),
+    [("int", 1, "1", 1), ("bool", True, "true", True), ("float", 1.5, "1.5", 1.5)],
+)
+async def test_a_controller_sent_as_text_is_read_as_its_input_type(
+    session: AsyncSession,
+    intake_role: Role,
+    temporal: FakeTemporal,
+    svc_workspace: Workspace,
+    type_string: str,
+    equals: Any,
+    sent: str,
+    typed: Any,
+) -> None:
+    # The run receives the typed value, so visibility must use it too.
+    workflow = await create_workflow(session, svc_workspace.id, title="Escalate")
+    expects = {
+        "level": {"type": type_string},
+        "reason": {"type": "str", "default": ""},
+    }
+    await publish_workflow(session, intake_role, workflow, expects)
+    layout = [
+        {"field": "level"},
+        {"field": "reason", "visible_if": {"field": "level", "equals": equals}},
+    ]
+    form = await create_form(session, workflow, layout=layout)
+
+    await forms_router.submit_form(
+        role=intake_role,
+        session=session,
+        form_id=form.id,
+        params=FormSubmissionCreate(values={"level": sent, "reason": "Outage"}),
+    )
+
+    [submission] = await _stored(session)
+    assert submission.answers == {"level": typed, "reason": "Outage"}
+
+
 async def test_submission_is_committed_before_the_run_starts(
     session: AsyncSession,
     service: FormSubmissionsService,

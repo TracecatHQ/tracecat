@@ -51,8 +51,9 @@ async def lock_forms_for_deletion(
 ) -> list[str]:
     """Lock the forms matching ``condition`` and return their files' blob keys.
 
-    An upload holds a key-share lock on its form while it adds its file row,
-    so once the forms are locked no upload can add a key this list misses.
+    An upload holds a FOR NO KEY UPDATE lock on its form while it adds its
+    file row, so once the forms are locked FOR UPDATE no upload can add a key
+    this list misses.
     ``condition`` names ``Form`` columns.
     """
     await session.execute(

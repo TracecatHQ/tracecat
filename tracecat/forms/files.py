@@ -168,9 +168,10 @@ class FormFilesService(BaseWorkspaceService):
             field, filename=filename, content_type=content_type, content=content
         )
 
-        # Serialize this form's uploads so two cannot both pass the count, and
-        # against a deletion of the form, which locks it before collecting the
-        # blob keys. KEY SHARE leaves inserts that reference the form unblocked.
+        # FOR NO KEY UPDATE conflicts with itself, so this form's uploads take
+        # turns and two cannot both pass the count. It also conflicts with the
+        # FOR UPDATE a deletion takes before collecting the blob keys. Inserts
+        # that reference the form need only KEY SHARE, which it allows.
         locked = await self.session.scalar(
             select(Form.id).where(Form.id == form_id).with_for_update(key_share=True)
         )
@@ -219,6 +220,9 @@ class FormFilesService(BaseWorkspaceService):
                 delete(FormFile).where(FormFile.id == file_read.id)
             )
             await self.session.commit()
+            # The write may have landed even though it failed here, such as
+            # when the response timed out.
+            await delete_file_blobs([key])
             # Never log the filename.
             self.logger.error(
                 "Failed to store a form file",

@@ -25,6 +25,7 @@ from tracecat.db.models import (
 )
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.validation import normalize_trigger_inputs
+from tracecat.expressions.schemas import ExpectedField
 from tracecat.forms.access import caller_user_id, can_read_submissions, is_caller
 from tracecat.forms.enums import (
     FormAutofillSource,
@@ -104,6 +105,30 @@ def _pydantic_field_errors(error: ValidationError) -> list[FormFieldError]:
     return errors
 
 
+def _typed_controllers(
+    fields: Sequence[FormFieldBlock],
+    expects: Mapping[str, ExpectedField],
+    values: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Read the answers that a ``visible_if`` compares as their input's type.
+
+    An API caller can send ``"1"`` for an ``int`` input, and the run receives
+    ``1``, so visibility must compare ``1`` too. An answer that does not
+    convert is left as sent, for the checks that follow to report.
+    """
+    typed = dict(values)
+    controllers = {field.visible_if.field for field in fields if field.visible_if}
+    for name in controllers & typed.keys() & expects.keys():
+        try:
+            normalized = normalize_trigger_inputs(
+                {name: expects[name]}, {name: typed[name]}
+            )
+        except ValidationError:
+            continue
+        typed[name] = normalized[name]
+    return typed
+
+
 def _requester_value(source: FormAutofillSource, requester: FormUserRead) -> Any:
     match source:
         case FormAutofillSource.REQUESTER:
@@ -180,7 +205,8 @@ class FormSubmissionsService(BaseWorkspaceService):
 
         # Autofilled inputs are never taken from the caller, so a requester
         # value is a verified Tracecat user or null. Sent, they are unknown keys.
-        checked = check_values(resolved.blocks, params.values)
+        values = _typed_controllers(resolved.fields, inputs.expects, params.values)
+        checked = check_values(resolved.blocks, values)
         answers = checked.values
         file_errors, claimed_files = await FormFilesService(
             self.session, self.role

@@ -68,9 +68,10 @@ from tracecat.workspaces.service import WorkspaceService
 # through the table.
 USERS = User.__table__
 
-_FORM_TITLE = func.coalesce(Form.title, Workflow.title)
+# An empty title or description falls back to the workflow's, as in render.
+_FORM_TITLE = func.coalesce(func.nullif(Form.title, ""), Workflow.title)
 _FORM_DESCRIPTION = func.coalesce(
-    Form.description, func.nullif(Workflow.description, "")
+    func.nullif(Form.description, ""), func.nullif(Workflow.description, "")
 )
 
 

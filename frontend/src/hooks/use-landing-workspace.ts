@@ -32,6 +32,13 @@ export function useLandingWorkspace({
         ]
       : ids
   }, [workspaces, lastViewedWorkspaceId])
+  // A refreshed list starts the scan over: the index belongs to the old one.
+  const candidateKey = candidates.join("\n")
+  const [scannedKey, setScannedKey] = useState(candidateKey)
+  if (scannedKey !== candidateKey) {
+    setScannedKey(candidateKey)
+    setIndex(0)
+  }
   const count = candidates.length
   const needsSearch = enabled && count > 1
   const candidateId = needsSearch ? candidates[index] : undefined

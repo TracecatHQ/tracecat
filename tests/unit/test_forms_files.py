@@ -760,8 +760,8 @@ async def test_deleting_a_form_locks_it_before_collecting_its_file_keys(
     svc_workspace: Workspace,
     owner: str,
 ) -> None:
-    # An upload holds a key-share lock on its form while it adds its row, so
-    # once the deletion holds the form, no upload can add a key it misses.
+    # An upload holds a FOR NO KEY UPDATE lock on its form while it adds its
+    # row, so once the deletion holds the form, no upload can add a key it misses.
     form = await create_form(session, await create_workflow(session, svc_workspace.id))
     statements: list[str] = []
 
@@ -850,6 +850,27 @@ async def test_an_upload_that_races_its_forms_deletion_leaves_no_blob(
     monkeypatch.setattr(blob, "upload_file", upload_while_the_form_is_deleted)
 
     assert await _upload_error(files, form) is FormErrorCode.FILE_UPLOAD_FAILED
+    assert blob_store.objects == {}
+
+
+async def test_an_upload_whose_storage_answer_is_lost_leaves_no_blob(
+    session: AsyncSession,
+    files: FormFilesService,
+    form: Form,
+    blob_store: FakeBlobStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = blob_store.upload_file
+
+    async def stored_then_timed_out(*args: Any, **kwargs: Any) -> None:
+        # Storage kept the object, but its answer never arrived.
+        await store(*args, **kwargs)
+        raise TimeoutError
+
+    monkeypatch.setattr(blob, "upload_file", stored_then_timed_out)
+
+    assert await _upload_error(files, form) is FormErrorCode.FILE_UPLOAD_FAILED
+    assert (await _rows(session)) == {}
     assert blob_store.objects == {}
 
 

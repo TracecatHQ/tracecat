@@ -359,6 +359,24 @@ async def test_list_forms_shows_requesters_online_forms_without_workflow_fields(
     assert listed.last_submitted_at is None
 
 
+async def test_lists_name_a_form_with_an_empty_title_as_render_does(
+    service: FormsService, published_workflow: Workflow
+) -> None:
+    config = {"title": "", "description": ""}
+    form = await service.create_form(
+        _new_form(published_workflow.id, status=FormStatus.ONLINE, config=config)
+    )
+
+    rendered = await service.render_form(form)
+    [listed] = (await service.list_forms(PageParams())).items
+
+    assert (listed.title, listed.description) == (
+        rendered.title,
+        rendered.description,
+    )
+    assert listed.title == "Provision laptop"
+
+
 async def test_list_forms_is_cursor_paginated(
     session: AsyncSession, service: FormsService, svc_workspace: Workspace
 ) -> None:
