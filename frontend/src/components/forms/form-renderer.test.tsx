@@ -159,10 +159,8 @@ describe("FormRenderer", () => {
     await user.click(submitButton())
 
     expect(await submitted()).toBeVisible()
-    expect(onSubmit).toHaveBeenCalledWith({
-      why: "Screen cracked",
-      for_someone_else: false,
-    })
+    // "For someone else" is still at its default, which the server applies.
+    expect(onSubmit).toHaveBeenCalledWith({ why: "Screen cracked" })
     expect(screen.getByText("IT will follow up by email.")).toBeVisible()
     expect(screen.getByText("FRM-8F3K2A1C")).toBeVisible()
     expect(
@@ -592,8 +590,8 @@ describe("FormRenderer", () => {
       expect(screen.getByText("b.pdf")).toBeVisible()
       await user.click(submitButton())
       await waitFor(() =>
+        // "Attach photos" is back at its default, which the server applies.
         expect(onSubmit).toHaveBeenCalledWith({
-          attach: true,
           photos: ["file-a", "file-b"],
         })
       )

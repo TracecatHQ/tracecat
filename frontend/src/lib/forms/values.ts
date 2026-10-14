@@ -133,8 +133,11 @@ function toSubmittedValue(field: FormFieldBlock, value: unknown): unknown {
 /**
  * Build the `values` of a submission from form state.
  *
- * Hidden fields and empty answers are left out. `user` fields send user IDs
- * and `file` fields send uploaded file IDs; the server expands both.
+ * Hidden fields, empty answers and answers still at the field's default are
+ * left out; the server applies the workflow's own default, exactly. A default
+ * parsed from JSON can differ from it, such as an integer past 2^53. `user`
+ * fields send user IDs and `file` fields send uploaded file IDs; the server
+ * expands both.
  */
 export function toSubmissionValues(
   blocks: FormBlock[],
@@ -142,6 +145,9 @@ export function toSubmissionValues(
 ): FormValues {
   const submitted: FormValues = {}
   for (const field of getVisibleFields(blocks, values)) {
+    if (values[field.name] === field.default) {
+      continue
+    }
     const value = toSubmittedValue(field, values[field.name])
     if (!isEmptyFormValue(value)) {
       submitted[field.name] = value

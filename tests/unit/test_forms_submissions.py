@@ -262,6 +262,35 @@ async def test_submit_reports_every_invalid_field(
     temporal.connect.assert_not_awaited()
 
 
+async def test_an_answer_left_out_takes_the_workflows_exact_default(
+    session: AsyncSession,
+    intake_role: Role,
+    temporal: FakeTemporal,
+    svc_workspace: Workspace,
+) -> None:
+    # The requester page leaves out answers still at their default, so the
+    # server's default must be exact, even past what a browser number holds.
+    workflow = await create_workflow(session, svc_workspace.id, title="Account")
+    expects = {
+        "account": {"type": "int", "default": 9007199254740993},
+        "remote": {"type": "bool", "default": True},
+        "note": {"type": "str | None", "default": None},
+    }
+    await publish_workflow(session, intake_role, workflow, expects)
+    form = await create_form(session, workflow)
+    service = FormSubmissionsService(session, intake_role)
+
+    await _submit(service, form, {})
+
+    [submission] = await _stored(session)
+    assert submission.answers == {
+        "account": 9007199254740993,
+        "remote": True,
+        "note": None,
+    }
+    assert temporal.start_kwargs["payload"] == submission.answers
+
+
 async def test_submit_maps_input_schema_errors_to_fields(
     session: AsyncSession,
     intake_role: Role,

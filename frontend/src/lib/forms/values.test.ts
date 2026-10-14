@@ -23,16 +23,24 @@ describe("getInitialFormValues", () => {
     ).toEqual({ reason: "New hire", urgent: false, manager: null, quote: [] })
   })
 
-  it("sends nothing for an untouched toggle whose default is null", () => {
-    // A `bool | None` input with a null default: the run must get null.
+  it("sends nothing for an answer still at its default", () => {
+    // The server applies the workflow's own default, exactly: a null toggle
+    // default, or an int past 2^53 that parsing the form's JSON rounded.
+    const { account } = JSON.parse('{"account": 9007199254740993}')
     const blocks: FormBlock[] = [
       fieldBlock({ name: "escalate", widget: "toggle", default: null }),
       fieldBlock({ name: "remote", widget: "toggle", default: false }),
+      fieldBlock({ name: "account", widget: "number", default: account }),
     ]
     const values = getInitialFormValues(blocks)
 
-    expect(values).toEqual({ escalate: null, remote: false })
-    expect(toSubmissionValues(blocks, values)).toEqual({ remote: false })
+    expect(values).toEqual({ escalate: null, remote: false, account })
+    expect(toSubmissionValues(blocks, values)).toEqual({})
+    const changed = { ...values, remote: true, account: 7 }
+    expect(toSubmissionValues(blocks, changed)).toEqual({
+      remote: true,
+      account: 7,
+    })
   })
 })
 
