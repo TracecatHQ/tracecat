@@ -500,26 +500,41 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
     ) -> set[uuid.UUID]:
         """Return the sessions whose latest turn the user stopped.
 
-        A stopped turn ends with its cancelled marker, and any later turn adds
-        rows after it, so these are the sessions whose latest shown history row
-        is that marker.
+        Turns are not serialized, so a stopped run can save its cancelled marker
+        after the next run's rows. The latest turn is the run that wrote the
+        latest content row, and it was stopped if that run has a marker.
         """
         if not session_ids:
             return set()
 
-        latest_row_ids = (
+        history_filter = and_(
+            AgentSessionHistory.workspace_id == self.workspace_id,
+            AgentSessionHistory.session_id.in_(list(session_ids)),
+        )
+        latest_content_row_ids = (
             select(func.max(AgentSessionHistory.surrogate_id))
             .where(
-                AgentSessionHistory.workspace_id == self.workspace_id,
-                AgentSessionHistory.session_id.in_(list(session_ids)),
-                AgentSessionHistory.kind != MessageKind.INTERNAL.value,
+                history_filter,
+                AgentSessionHistory.kind.not_in(
+                    [MessageKind.INTERNAL.value, MessageKind.CANCELLED.value]
+                ),
             )
             .group_by(AgentSessionHistory.session_id)
         )
+        latest_runs = (
+            select(AgentSessionHistory.session_id, AgentSessionHistory.curr_run_id)
+            .where(AgentSessionHistory.surrogate_id.in_(latest_content_row_ids))
+            .subquery()
+        )
         result = await self.session.execute(
-            select(AgentSessionHistory.session_id).where(
-                AgentSessionHistory.surrogate_id.in_(latest_row_ids),
-                AgentSessionHistory.kind == MessageKind.CANCELLED.value,
+            select(AgentSessionHistory.session_id).join(
+                latest_runs,
+                and_(
+                    AgentSessionHistory.session_id == latest_runs.c.session_id,
+                    AgentSessionHistory.curr_run_id == latest_runs.c.curr_run_id,
+                    history_filter,
+                    AgentSessionHistory.kind == MessageKind.CANCELLED.value,
+                ),
             )
         )
         return set(result.scalars().all())

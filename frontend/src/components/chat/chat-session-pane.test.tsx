@@ -1064,4 +1064,112 @@ describe("ChatSessionPane approvals decided elsewhere", () => {
     )
     expect(mockUseVercelChatResult.sendMessage).not.toHaveBeenCalled()
   })
+
+  it("refreshes a batch in which another surface decided one approval", async () => {
+    /** The paused turn with each call's approval status. */
+    function pausedWith(status: (id: string) => string): UIMessage[] {
+      return [
+        PROMPT,
+        STORED_PAUSED[0],
+        {
+          ...STORED_PAUSED[1],
+          parts: [
+            {
+              type: "data-approval-request",
+              data: CALLS.map((id) => ({
+                tool_call_id: id,
+                tool_name: TOOL,
+                status: status(id),
+              })),
+            },
+          ],
+        },
+      ]
+    }
+    function approveButton(id: string): HTMLElement {
+      return within(screen.getByTestId(`approval-card-${id}`)).getByRole(
+        "button",
+        { name: "Approve" }
+      )
+    }
+    mockUseVercelChatResult.messages = pausedWith(() => "pending")
+    jest.useFakeTimers()
+    fetchSession.mockResolvedValue(serverChat(pausedWith(() => "pending")))
+    renderServerBackedPane()
+    await waitFor(() => expect(approveButton("first")).toBeEnabled())
+
+    // The Inbox approves only the first call; the others still wait. Only the
+    // approval payload changes, so the transcript's shape is the same.
+    fetchSession.mockResolvedValue(
+      serverChat(pausedWith((id) => (id === "first" ? "approved" : "pending")))
+    )
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(5_000)
+    })
+
+    await waitFor(() => expect(approveButton("first")).toBeDisabled())
+    expect(approveButton("second")).toBeEnabled()
+  })
+
+  it("marks only the decisions it sent when another surface decided one", async () => {
+    /** The paused turn with each call's approval status. */
+    function pausedWith(status: (id: string) => string): UIMessage[] {
+      return [
+        PROMPT,
+        STORED_PAUSED[0],
+        {
+          ...STORED_PAUSED[1],
+          parts: [
+            {
+              type: "data-approval-request",
+              data: CALLS.map((id) => ({
+                tool_call_id: id,
+                tool_name: TOOL,
+                status: status(id),
+              })),
+            },
+          ],
+        },
+      ]
+    }
+    function card(id: string) {
+      return within(screen.getByTestId(`approval-card-${id}`))
+    }
+    mockUseVercelChatResult.messages = pausedWith(() => "pending")
+    // Sending starts the continuation, as the SDK does.
+    mockUseVercelChatResult.sendMessage.mockImplementation(async () => {
+      mockUseVercelChatResult.status = "submitted"
+    })
+    fetchSession.mockResolvedValue(serverChat(pausedWith(() => "pending")))
+    renderServerBackedPane()
+    await waitFor(() =>
+      expect(card("first").getByRole("button", { name: "Deny" })).toBeEnabled()
+    )
+
+    // This tab denies the first call and approves the second, but the Inbox
+    // already approved the first.
+    fireEvent.click(card("first").getByRole("button", { name: "Deny" }))
+    fireEvent.click(card("second").getByRole("button", { name: "Approve" }))
+    fetchSession.mockResolvedValue(
+      serverChat(pausedWith((id) => (id === "first" ? "approved" : "pending")))
+    )
+    fireEvent.click(card("third").getByRole("button", { name: "Submit" }))
+
+    await waitFor(() =>
+      expect(mockUseVercelChatResult.sendMessage).toHaveBeenCalledTimes(1)
+    )
+    const [sent] = mockUseVercelChatResult.sendMessage.mock.calls[0]
+    expect(sent.parts[0].data.decisions).toEqual([
+      { tool_call_id: "second", action: "approve" },
+    ])
+    // The first card never shows this tab's unsent denial as its decision.
+    await waitFor(() =>
+      expect(
+        card("first").queryByPlaceholderText("Share a short reason")
+      ).not.toBeInTheDocument()
+    )
+    expect(
+      card("second").getByRole("button", { name: "Approve" })
+    ).toBeDisabled()
+  })
 })

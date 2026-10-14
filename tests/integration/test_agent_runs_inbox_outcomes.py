@@ -31,11 +31,15 @@ async def _run(
     workspace_id: uuid.UUID,
     title: str,
     *,
-    turns: list[MessageKind],
+    turns: list[tuple[int, MessageKind]],
     approval: tuple[ApprovalStatus, str] | None = None,
     last_error: str | None = None,
 ) -> AgentSession:
-    """Add a finished run with its history rows and one approval decision."""
+    """Add a finished session with its history rows and one approval decision.
+
+    Each history row is ``(run, kind)``, in insertion order: rows of one run
+    share its ``curr_run_id``.
+    """
     row = AgentSession(
         workspace_id=workspace_id,
         title=title,
@@ -48,13 +52,15 @@ async def _run(
     )
     session.add(row)
     await session.flush()
-    for kind in turns:
+    run_ids: dict[int, uuid.UUID] = {}
+    for run, kind in turns:
         session.add(
             AgentSessionHistory(
                 workspace_id=workspace_id,
                 session_id=row.id,
                 content={"type": "assistant"},
                 kind=kind.value,
+                curr_run_id=run_ids.setdefault(run, uuid.uuid4()),
             )
         )
         # Rows are ordered by insertion, so flush each one.
@@ -91,28 +97,36 @@ async def test_run_outcomes_show_latest_turn_not_past_denials(
         session,
         workspace_id,
         "denied",
-        turns=[chat, chat],
+        turns=[(1, chat), (1, chat)],
         approval=(ApprovalStatus.REJECTED, "Not this case"),
     )
     stopped = await _run(
         session,
         workspace_id,
         "stopped",
-        turns=[chat, cancelled, MessageKind.INTERNAL],
+        turns=[(1, chat), (1, cancelled), (1, MessageKind.INTERNAL)],
         approval=(ApprovalStatus.REJECTED, "Cancelled while waiting for approval"),
     )
     recovered = await _run(
         session,
         workspace_id,
         "recovered",
-        turns=[chat, cancelled, chat],
+        turns=[(1, chat), (1, cancelled), (2, chat)],
         approval=(ApprovalStatus.REJECTED, "Cancelled while waiting for approval"),
+    )
+    # Turns are not serialized: a stopped run can save its marker after the
+    # next run has already answered.
+    late_marker = await _run(
+        session,
+        workspace_id,
+        "late-marker",
+        turns=[(1, chat), (2, chat), (1, cancelled)],
     )
     errored = await _run(
         session,
         workspace_id,
         "errored",
-        turns=[chat],
+        turns=[(1, chat)],
         last_error="Model request failed",
     )
     await session.commit()
@@ -130,16 +144,23 @@ async def test_run_outcomes_show_latest_turn_not_past_denials(
             ("denied", denied),
             ("stopped", stopped),
             ("recovered", recovered),
+            ("late-marker", late_marker),
             ("errored", errored),
         ]
     } == {
         "denied": (InboxItemStatus.COMPLETED, None, "Execution completed"),
         "stopped": (InboxItemStatus.COMPLETED, "CANCELED", "Execution cancelled"),
         "recovered": (InboxItemStatus.COMPLETED, None, "Execution completed"),
+        "late-marker": (InboxItemStatus.COMPLETED, None, "Agent session"),
         "errored": (InboxItemStatus.FAILED, "FAILED", "Model request failed"),
     }
 
     completed = await provider.list_items(limit=20, group=InboxGroup.COMPLETED)
-    assert set(_by_id(completed.items)) == {denied.id, stopped.id, recovered.id}
+    assert set(_by_id(completed.items)) == {
+        denied.id,
+        stopped.id,
+        recovered.id,
+        late_marker.id,
+    }
     error = await provider.list_items(limit=20, group=InboxGroup.ERROR)
     assert set(_by_id(error.items)) == {errored.id}

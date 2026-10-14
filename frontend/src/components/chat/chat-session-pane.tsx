@@ -670,8 +670,8 @@ export function ChatSessionPane({
   }, [chat?.id, queryClient, workspaceId])
 
   const handleSubmitApprovals = useCallback(
-    async (decisionPayload: ApprovalDecision[]) => {
-      if (isReadonly || !decisionPayload.length) return
+    async (decisionPayload: ApprovalDecision[]): Promise<string[]> => {
+      if (isReadonly || !decisionPayload.length) return []
       // Another tab or the Inbox may have decided these since this pane last
       // refreshed, so submit only the decisions the session still waits on.
       const pendingIds = await fetchPendingApprovalIds()
@@ -691,6 +691,7 @@ export function ChatSessionPane({
       try {
         clearError()
         await sendMessage(makeContinueMessage(decisions))
+        return decisions.map(({ tool_call_id }) => tool_call_id)
       } catch (error) {
         console.error("Failed to submit approvals", error)
         toast({
@@ -1799,7 +1800,8 @@ export function MessagePart({
    * (structured metadata from the data-cancelled part).
    */
   interruptedToolCallIds?: ReadonlySet<string>
-  onSubmitApprovals?: (decisions: ApprovalDecision[]) => Promise<void>
+  /** Resolves with the tool call IDs whose decisions it sent. */
+  onSubmitApprovals?: (decisions: ApprovalDecision[]) => Promise<string[]>
 }) {
   if (part.type === CANCELLED_DATA_PART_TYPE) {
     return (
@@ -2313,7 +2315,8 @@ function ApprovalRequestPart({
   onSubmit,
 }: {
   approvals: ApprovalCard[]
-  onSubmit?: (decisions: ApprovalDecision[]) => Promise<void>
+  /** Resolves with the tool call IDs whose decisions it sent. */
+  onSubmit?: (decisions: ApprovalDecision[]) => Promise<string[]>
 }) {
   const [decisions, setDecisions] = useState<Record<string, DecisionState>>({})
   const [submittedDecisions, setSubmittedDecisions] = useState<
@@ -2422,11 +2425,20 @@ function ApprovalRequestPart({
 
     try {
       setSubmitting(true)
-      await onSubmit(payload)
-      setSubmittedDecisions((prev) => ({
-        ...prev,
-        ...acceptedDecisions,
-      }))
+      const sentIds = new Set(await onSubmit(payload))
+      setSubmittedDecisions((prev) => {
+        const next = { ...prev }
+        for (const [toolCallId, decision] of Object.entries(
+          acceptedDecisions
+        )) {
+          // A decision made elsewhere meanwhile was not sent, so keep its
+          // recorded outcome rather than show this tab's choice.
+          next[toolCallId] = sentIds.has(toolCallId)
+            ? decision
+            : (prev[toolCallId] ?? { action: undefined })
+        }
+        return next
+      })
       setDecisions((prev) => {
         const next = { ...prev }
         for (const toolCallId of Object.keys(acceptedDecisions)) {

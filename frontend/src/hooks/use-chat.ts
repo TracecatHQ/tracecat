@@ -770,8 +770,9 @@ export function useVercelChat({
 
 /**
  * Identity signature of a transcript: message ids plus the id, type, state, and
- * text of each part. Two transcripts with the same signature carry the same
- * rendered content, so an unchanged signature means there is nothing to adopt.
+ * text of each part, and approval card payloads. Two transcripts with the same
+ * signature carry the same rendered content, so an unchanged signature means
+ * there is nothing to adopt.
  */
 function transcriptSignature(messages: UIMessage[]): string {
   return JSON.stringify(
@@ -781,6 +782,8 @@ function transcriptSignature(messages: UIMessage[]): string {
         p.type,
         "state" in p ? p.state : undefined,
         "text" in p ? p.text : undefined,
+        // A decision made elsewhere changes only the card's payload.
+        p.type === "data-approval-request" && "data" in p ? p.data : undefined,
       ]),
     ])
   )
