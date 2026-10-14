@@ -36,6 +36,12 @@ export interface FormWidgetProps {
   field: FormFieldBlock
   value: unknown
   onChange: (value: unknown) => void
+  /**
+   * Set the value from the one form state holds when the change applies, not
+   * the `value` this render saw. For changes that land later, such as an
+   * upload finishing after the widget remounted.
+   */
+  updateValue: (update: (current: unknown) => unknown) => void
   disabled: boolean
   invalid: boolean
   formId: string

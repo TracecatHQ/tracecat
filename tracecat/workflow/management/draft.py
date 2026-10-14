@@ -406,6 +406,11 @@ def normalize_workflow_edit_document_for_persisted_revision(
     return WorkflowEditDocument.model_validate(payload)
 
 
+def _expects_key_order(document: WorkflowEditDocument) -> list[str]:
+    """The input order, which dict equality and sorted-key hashing both ignore."""
+    return list(document.definition.entrypoint.expects or {})
+
+
 def workflow_edit_document_changed_sections(
     original_document: WorkflowEditDocument,
     updated_document: WorkflowEditDocument,
@@ -416,9 +421,12 @@ def workflow_edit_document_changed_sections(
     updated_payload = workflow_edit_document_payload(
         canonicalize_workflow_edit_document(updated_document)
     )
-    return {
+    changed = {
         key for key in updated_payload if updated_payload[key] != original_payload[key]
     }
+    if _expects_key_order(original_document) != _expects_key_order(updated_document):
+        changed.add("definition")
+    return changed
 
 
 def compute_workflow_edit_revision(document: WorkflowEditDocument) -> str:
@@ -426,7 +434,9 @@ def compute_workflow_edit_revision(document: WorkflowEditDocument) -> str:
     payload = workflow_edit_document_payload(
         canonicalize_workflow_edit_document(document)
     )
-    serialized = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS)
+    serialized = orjson.dumps(
+        [payload, _expects_key_order(document)], option=orjson.OPT_SORT_KEYS
+    )
     return hashlib.sha256(serialized).hexdigest()
 
 

@@ -18,8 +18,10 @@ jest.mock("@/client", () => ({
   formsListForms: jest.fn(),
   formsUpdateForm: jest.fn(),
 }))
+let scopes: Record<string, boolean | undefined> = {}
+
 jest.mock("@/components/auth/scope-guard", () => ({
-  useScopeCheck: () => true,
+  useScopeCheck: (scope: string) => scopes[scope],
 }))
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
@@ -51,7 +53,10 @@ function renderControls(version: number | null, forms: FormRead[]) {
   return screen.findByRole("switch", { name: "Enable form" })
 }
 
-beforeEach(() => jest.clearAllMocks())
+beforeEach(() => {
+  jest.clearAllMocks()
+  scopes = { "form:create": true, "form:update": true }
+})
 
 it("stays off until the workflow is published", async () => {
   expect(await renderControls(null, [])).toBeDisabled()
@@ -72,6 +77,23 @@ it("creates an online form for a workflow without one", async () => {
     })
   )
 })
+
+it.each([
+  [{ "form:create": true, "form:update": false }, true],
+  [{ "form:create": false, "form:update": true }, true],
+  // Only a known missing scope disables; a loading one does not.
+  [{ "form:create": true, "form:update": undefined }, false],
+])(
+  "with %j, a workflow without a form is disabled: %p",
+  async (granted, disabled) => {
+    scopes = granted
+    // Without form:update the list hides each form's workflow, so a form
+    // that exists looks absent and creating one would conflict.
+    const toggle = await renderControls(3, [])
+
+    expect(toggle.hasAttribute("disabled")).toBe(disabled)
+  }
+)
 
 it("finds the workflow's form by its short ID and puts it online", async () => {
   jest.mocked(formsUpdateForm).mockResolvedValue(FORM)

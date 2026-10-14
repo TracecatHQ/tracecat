@@ -183,11 +183,14 @@ function SubmissionRow({
   submission,
   workspaceId,
   fields,
+  canOpenRun,
 }: {
   submission: FormSubmissionRead
   workspaceId: string
   /** The form's fields by input name, in the order the form shows them. */
   fields: Record<string, FormFieldBlock>
+  /** Whether the caller holds `workflow:read`, which the run's page needs. */
+  canOpenRun: boolean
 }) {
   const [open, setOpen] = useState(false)
   const actor = submission.submitted_by
@@ -256,14 +259,17 @@ function SubmissionRow({
             </span>
           </span>
         )}
-        {href && (
-          <Link
-            href={href}
-            className="flex-none font-medium text-primary hover:underline"
-          >
-            Run
-          </Link>
-        )}
+        {href &&
+          (canOpenRun ? (
+            <Link
+              href={href}
+              className="flex-none font-medium text-primary hover:underline"
+            >
+              Run
+            </Link>
+          ) : (
+            <span className="flex-none text-muted-foreground">Run</span>
+          ))}
         <Tooltip>
           <TooltipTrigger asChild>
             <time
@@ -340,6 +346,7 @@ function FormActivityTab({
     { workspaceId: form.workspace_id, formId: form.id },
     { enabled: canReadSubmissions }
   )
+  const canOpenRuns = useScopeCheck("workflow:read") === true
 
   if (!canReadSubmissions) {
     return (
@@ -394,6 +401,7 @@ function FormActivityTab({
               submission={submission}
               workspaceId={form.workspace_id}
               fields={fields}
+              canOpenRun={canOpenRuns}
             />
           ))}
         </ul>

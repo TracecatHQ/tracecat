@@ -2,21 +2,36 @@ import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ReactNode } from "react"
 import { type FormReadMinimal, formsDeleteForm, formsListForms } from "@/client"
-import { FormsDashboard } from "@/components/forms/forms-dashboard"
+import {
+  CreateFormDialog,
+  FormsDashboard,
+} from "@/components/forms/forms-dashboard"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
+let scopes = new Set<string>()
+let workflowList: Record<string, unknown> = {}
+const mockToast = jest.fn()
+
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({ push: jest.fn() }),
+}))
 jest.mock("@/client", () => ({
   formsDeleteForm: jest.fn(),
   formsListForms: jest.fn(),
 }))
 jest.mock("@/components/auth/scope-guard", () => ({
-  useScopeCheck: () => true,
+  useScopeCheck: (scope: string) => scopes.has(scope),
+}))
+jest.mock("@/components/ui/use-toast", () => ({
+  toast: (...args: unknown[]) => mockToast(...args),
 }))
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
 }))
-jest.mock("@/lib/hooks", () => ({}))
+jest.mock("@/lib/hooks", () => ({
+  useWorkflowManager: () => workflowList,
+}))
 
 function form(overrides: Partial<FormReadMinimal>): FormReadMinimal {
   return {
@@ -46,6 +61,8 @@ function renderWithClient(ui: ReactNode) {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  scopes = new Set(["form:read", "form:delete", "workflow:read"])
+  workflowList = { workflows: [], workflowsLoading: false }
   // Two pages: the list loads all of them so it can be searched.
   jest
     .mocked(formsListForms)
@@ -96,4 +113,62 @@ it("lists every form with its workflow, status and usage, and deletes after conf
       formId: "form-1",
     })
   )
+})
+
+it("shows each form's workflow as plain text without workflow:read", async () => {
+  scopes.delete("workflow:read")
+  renderWithClient(<FormsDashboard />)
+
+  expect(await screen.findByText("Offboard employee")).toBeInTheDocument()
+  expect(screen.queryByRole("link", { name: "Offboard employee" })).toBeNull()
+})
+
+it("confirms a copied form link only once the clipboard write lands", async () => {
+  const user = renderWithClient(<FormsDashboard />)
+  // After setup, which installs its own clipboard stub.
+  const writeText = jest
+    .spyOn(navigator.clipboard, "writeText")
+    .mockRejectedValueOnce(new Error("Write permission denied"))
+  const url = `${window.location.origin}/forms/form-1`
+  async function copyLink() {
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Open menu for Laptop request",
+      })
+    )
+    await user.click(await screen.findByRole("menuitem", { name: "Copy link" }))
+  }
+
+  await copyLink()
+  await waitFor(() =>
+    expect(mockToast).toHaveBeenCalledWith({
+      title: "Couldn't copy the link",
+      description: url,
+      variant: "destructive",
+    })
+  )
+  expect(mockToast).toHaveBeenCalledTimes(1)
+
+  await copyLink()
+  await waitFor(() =>
+    expect(mockToast).toHaveBeenLastCalledWith({
+      title: "Form link copied",
+      description: url,
+    })
+  )
+  expect(writeText).toHaveBeenCalledTimes(2)
+})
+
+it("says so when the workflows to pick from can't be loaded", async () => {
+  workflowList = {
+    workflows: undefined,
+    workflowsLoading: false,
+    workflowsError: new Error("Forbidden"),
+  }
+  renderWithClient(<CreateFormDialog open onOpenChange={jest.fn()} />)
+
+  expect(
+    await screen.findByText("Couldn't load workflows.")
+  ).toBeInTheDocument()
+  expect(screen.queryByText("No workflows found.")).toBeNull()
 })

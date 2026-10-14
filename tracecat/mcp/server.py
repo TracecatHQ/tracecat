@@ -2985,8 +2985,9 @@ actions:
 A form turns `entrypoint.expects` into a page people fill in. Submitting it runs
 the published workflow with trigger type `form`; answers arrive as
 `TRIGGER.<input>`. It is not part of the workflow definition: use `list_forms`,
-`get_form`, `update_form`. An empty config works: every input renders in schema
-order with a default widget, and an input with no default is required.
+`get_form`, `update_form`. An empty config renders every input in schema order
+with its default widget, and an input with no default is required. A required
+`dict` or `list[dict]` input has no default widget: give it one or an autofill.
 ```yaml
 title: Laptop request     # defaults to the workflow title
 description: Request a new laptop from IT.   # markdown
@@ -6054,9 +6055,9 @@ async def get_form(
     """Get a form: its status, its config and the issues the config has.
 
     `issues` lists what does not resolve against the workflow's published
-    input schema, each with a `loc` path into the config. A form with an
-    error-severity issue cannot be filled in until it is fixed. Find form IDs
-    with `list_forms`.
+    input schema (its draft inputs before the first publish), each with a
+    `loc` path into the config. A form with an error-severity issue cannot be
+    filled in until it is fixed. Find form IDs with `list_forms`.
 
     Args:
         workspace_id: The workspace ID.
@@ -6087,9 +6088,11 @@ async def update_form(
     The workflow's input schema (`entrypoint.expects`) supplies each field's
     name, type, default and whether it is required. `config` only controls
     presentation. Inputs left out of `layout` are appended in schema order
-    with a default widget, so an empty config is a working form. Read the
-    "Form Trigger" section of `tracecat://platform/dsl-reference` for the
-    layout entries, widgets and rules.
+    with their default widget. A required input with no default widget,
+    such as `dict` or `list[dict]`, needs a `user` or `file` widget or an
+    autofill. Read the "Form Trigger" section of
+    `tracecat://platform/dsl-reference` for the layout entries, widgets and
+    rules.
 
     Args:
         workspace_id: The workspace ID.

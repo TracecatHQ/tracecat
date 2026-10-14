@@ -172,11 +172,13 @@ describe("AppSidebar", () => {
   })
 
   it.each([
-    ["hidden", { "form:update": true }, false],
-    ["loading", { "form:update": true }, false],
-    ["enabled", { "form:update": true }, true],
-    ["locked", { "form:submission:read": true }, true],
+    ["hidden", { "form:read": true, "form:update": true }, false],
+    ["loading", { "form:read": true, "form:update": true }, false],
+    ["enabled", { "form:read": true, "form:update": true }, true],
+    ["locked", { "form:read": true, "form:submission:read": true }, true],
     ["enabled", { "form:read": true, "form:submit": true }, false],
+    // The list itself needs `form:read`.
+    ["enabled", { "form:update": true, "form:submission:read": true }, false],
   ])(
     "links to Forms when access is %s with %j: %p",
     (access, scopes, shown) => {

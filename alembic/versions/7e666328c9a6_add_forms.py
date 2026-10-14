@@ -131,7 +131,7 @@ def upgrade() -> None:
         sa.Column("field", sa.String(), nullable=False),
         sa.Column("uploaded_by_user_id", sa.UUID(), nullable=True),
         sa.Column("uploaded_by_service_account_id", sa.UUID(), nullable=True),
-        sa.Column("name", sa.String(length=255), nullable=False),
+        sa.Column("name", sa.String(), nullable=False),
         sa.Column("content_type", sa.String(length=255), nullable=False),
         sa.Column("size", sa.Integer(), nullable=False),
         sa.Column("sha256", sa.String(length=64), nullable=False),

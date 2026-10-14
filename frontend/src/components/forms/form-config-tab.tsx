@@ -18,6 +18,7 @@ import { ImageIcon, WorkflowIcon } from "lucide-react"
 import Link from "next/link"
 import { type ChangeEvent, useEffect, useRef, useState } from "react"
 import type { FormRead } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/use-toast"
@@ -184,6 +185,11 @@ export function FormConfigTab({
     workspaceId: form.workspace_id,
     formId: form.id,
   })
+  const canReadWorkflows = useScopeCheck("workflow:read") === true
+  const workflowName =
+    typeof form.workflow_version === "number"
+      ? `${form.workflow_title} v${form.workflow_version}`
+      : form.workflow_title
   const [view, setView] = useState<EditorView | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   // Problems a save was rejected with, for the text that was sent.
@@ -252,7 +258,7 @@ export function FormConfigTab({
     setIsSaving(true)
     try {
       const saved = await updateForm({ config: parsed.config })
-      draft.markSaved(saved.config)
+      draft.markSaved(saved.config, text)
       setRejected(null)
       toast({ title: "Form saved" })
     } catch (error) {
@@ -364,14 +370,18 @@ export function FormConfigTab({
       <div className="flex h-8 flex-none items-center gap-1.5 border-t px-3 text-xs text-muted-foreground">
         <WorkflowIcon className="size-3.5 flex-none" />
         <span className="flex-none">Inputs from</span>
-        <Link
-          href={`/workspaces/${form.workspace_id}/workflows/${form.workflow_id}`}
-          className="truncate font-medium text-foreground hover:underline"
-        >
-          {form.workflow_title}
-          {typeof form.workflow_version === "number" &&
-            ` v${form.workflow_version}`}
-        </Link>
+        {canReadWorkflows ? (
+          <Link
+            href={`/workspaces/${form.workspace_id}/workflows/${form.workflow_id}`}
+            className="truncate font-medium text-foreground hover:underline"
+          >
+            {workflowName}
+          </Link>
+        ) : (
+          <span className="truncate font-medium text-foreground">
+            {workflowName}
+          </span>
+        )}
         {typeof form.workflow_version !== "number" && (
           <span className="flex-none">(draft, not published)</span>
         )}

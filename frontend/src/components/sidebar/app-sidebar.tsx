@@ -110,6 +110,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewCases = useScopeCheck("case:read")
   // The builder pages need one of these on top of `form:read`; a requester
   // who can only fill in forms has no use for the list.
+  const canReadForms = useScopeCheck("form:read")
   const canBuildForms = useScopeCheck(undefined, [
     "form:update",
     "form:submission:read",
@@ -178,7 +179,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         url: `${basePath}/forms`,
         icon: ClipboardListIcon,
         isActive: pathname?.startsWith(`${basePath}/forms`),
-        visible: formsVisible && canBuildForms === true,
+        visible:
+          formsVisible && canReadForms === true && canBuildForms === true,
       },
       {
         title: "Cases",
@@ -258,6 +260,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       pathname,
       canViewWorkflows,
       formsVisible,
+      canReadForms,
       canBuildForms,
       canViewCases,
       canAccessMissionControl,

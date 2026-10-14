@@ -241,6 +241,12 @@ def _resolve_field_entry(
     kind = state.inputs[name].kind
 
     if entry.hidden:
+        if entry.autofill is not None:
+            state.issue(
+                FormIssueCode.HIDDEN_WITH_AUTOFILL,
+                f"'{name}' cannot be both hidden and autofilled",
+                [*loc, "autofill"],
+            )
         if not expected.has_default():
             state.issue(
                 FormIssueCode.CONDITIONAL_FIELD_REQUIRED,

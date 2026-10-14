@@ -2111,6 +2111,8 @@ function CaseDetailActions({
 function FormsListActions() {
   const enabled = useFormsAccess() === "enabled"
   const canCreate = useScopeCheck("form:create") === true
+  // The New form dialog picks from the workflow list.
+  const canReadWorkflows = useScopeCheck("workflow:read") === true
   const [createOpen, setCreateOpen] = useState(false)
 
   if (!enabled) {
@@ -2123,7 +2125,7 @@ function FormsListActions() {
         branchSlug="forms"
         resources={["workflow"]}
       />
-      {canCreate && (
+      {canCreate && canReadWorkflows && (
         <>
           <Button
             variant="outline"

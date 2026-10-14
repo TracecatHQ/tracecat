@@ -5325,6 +5325,7 @@ export type FormIssueCode =
   | "visible_if_invalid_controller"
   | "visible_if_invalid_value"
   | "autofill_type_mismatch"
+  | "hidden_with_autofill"
   | "unrendered_optional_input"
 
 export type FormIssueSeverity = "error" | "warning"
@@ -5366,6 +5367,10 @@ export type FormPreview = {
    * Published workflow version the blocks come from.
    */
   definition_version?: number | null
+  /**
+   * Version of the config the blocks come from.
+   */
+  config_version: string
   blocks: Array<
     | FormHeadingBlock
     | FormTextBlock
@@ -5434,6 +5439,10 @@ export type FormSubmissionCreate = {
    * The definition_version of the form the requester filled in. If set and stale, the submission is rejected with form_changed.
    */
   definition_version?: number | null
+  /**
+   * The config_version of the form the requester filled in. If set and stale, the submission is rejected with form_changed.
+   */
+  config_version?: string | null
 }
 
 export type FormSubmissionRead = {

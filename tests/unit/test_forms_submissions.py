@@ -31,6 +31,7 @@ from tracecat.forms import internal_router
 from tracecat.forms.enums import FormErrorCode, FormFieldErrorCode, FormStatus
 from tracecat.forms.exceptions import FormError
 from tracecat.forms.schemas import FormSubmissionCreate, FormSubmissionReceipt
+from tracecat.forms.service import FormsService
 from tracecat.forms.submissions import FormSubmissionsService
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.pagination import PageParams
@@ -355,6 +356,41 @@ async def test_submit_refuses_offline_changed_and_unavailable_forms(
     await session.commit()
     error = await _error(_submit(service, form, VALID))
     assert error.code is FormErrorCode.FORM_OFFLINE
+    assert len(await _stored(session)) == 1
+
+
+async def test_submit_refuses_answers_to_a_config_that_changed_since_render(
+    session: AsyncSession,
+    service: FormSubmissionsService,
+    intake_role: Role,
+    temporal: FakeTemporal,
+    form: Form,
+) -> None:
+    forms = FormsService(session, intake_role)
+    rendered = await forms.render_form(form)
+    # The builder makes a field conditional; the workflow stays the same.
+    when_for_someone_else = {
+        "visible_if": {"field": "for_someone_else", "equals": True}
+    }
+    form.layout = [
+        entry | when_for_someone_else if entry["field"] == "needed_by" else entry
+        for entry in LAYOUT
+    ]
+    await session.commit()
+
+    # The old page's answer would be dropped as no longer visible.
+    stale = _submit(
+        service,
+        form,
+        VALID | {"needed_by": "2026-03-01"},
+        config_version=rendered.config_version,
+    )
+    assert (await _error(stale)).code is FormErrorCode.FORM_CHANGED
+    assert await _stored(session) == []
+
+    current = await forms.render_form(form)
+    assert current.config_version != rendered.config_version
+    await _submit(service, form, VALID, config_version=current.config_version)
     assert len(await _stored(session)) == 1
 
 

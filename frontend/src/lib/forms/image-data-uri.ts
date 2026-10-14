@@ -76,8 +76,8 @@ export class FormImageError extends Error {}
 /**
  * Draw an image onto a canvas no longer than {@link FORM_IMAGE_MAX_EDGE} on
  * its long edge, without scaling up, and re-encode it as WebP. A browser
- * without a WebP encoder answers with PNG; a photo is then encoded as JPEG,
- * because PNG would be far over the limit.
+ * without a WebP encoder answers with PNG; a photo is then encoded as JPEG on
+ * white, because PNG would be far over the limit.
  */
 async function resizeImageToDataUri(file: File): Promise<string> {
   const bitmap = await createImageBitmap(file)
@@ -98,6 +98,11 @@ async function resizeImageToDataUri(file: File): Promise<string> {
     if (encoded.startsWith("data:image/webp") || file.type === "image/png") {
       return encoded
     }
+    // JPEG has no alpha, so a transparent WebP would turn black. Paint white
+    // behind the image first.
+    context.globalCompositeOperation = "destination-over"
+    context.fillStyle = "#fff"
+    context.fillRect(0, 0, canvas.width, canvas.height)
     return canvas.toDataURL("image/jpeg", ENCODE_QUALITY)
   } finally {
     bitmap.close()

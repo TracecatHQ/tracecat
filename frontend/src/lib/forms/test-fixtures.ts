@@ -21,6 +21,7 @@ export function resolvedForm(
   return {
     title: "Laptop request",
     definition_version: 4,
+    config_version: "config-1",
     blocks: [],
     ...overrides,
   }

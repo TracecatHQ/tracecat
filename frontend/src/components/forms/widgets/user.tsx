@@ -53,7 +53,7 @@ export function UserWidget(props: FormWidgetProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")
   const [debouncedSearch] = useDebounce(search, 250)
-  const { users, usersIsLoading, hasNextPage, fetchNextPage } =
+  const { users, usersIsLoading, error, hasNextPage, fetchNextPage } =
     useFormUserSearch(
       { workspaceId: props.workspaceId, formId: props.formId },
       debouncedSearch,
@@ -82,6 +82,13 @@ export function UserWidget(props: FormWidgetProps) {
         ? selection.filter((item) => item.user_id !== user.user_id)
         : [...selection, user]
     )
+  }
+
+  let emptyMessage = "No people found."
+  if (usersIsLoading || isCatchingUp) {
+    emptyMessage = "Searching..."
+  } else if (error) {
+    emptyMessage = "Couldn't search people. Try again."
   }
 
   let summary = (
@@ -130,9 +137,7 @@ export function UserWidget(props: FormWidgetProps) {
           />
           <CommandList>
             <CommandEmpty className={cn(formStyles.option, "py-6 text-center")}>
-              {usersIsLoading || isCatchingUp
-                ? "Searching..."
-                : "No people found."}
+              {emptyMessage}
             </CommandEmpty>
             <CommandGroup>
               {visibleUsers.map((user) => {

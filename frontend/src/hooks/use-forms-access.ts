@@ -4,7 +4,8 @@ import { useFeatureFlag } from "@/hooks/use-feature-flags"
 /**
  * Whether the Forms feature is usable.
  *
- * - `loading`: the flag or the entitlement is not known yet.
+ * - `loading`: the flag or the entitlement is not known yet, including after
+ *   the entitlements request failed.
  * - `hidden`: the feature flag is off. Surfaces behave as if Forms did not exist.
  * - `locked`: the flag is on but the organization is not entitled.
  * - `enabled`: the flag is on and the organization is entitled.
@@ -19,7 +20,11 @@ export type FormsAccess = "loading" | "hidden" | "locked" | "enabled"
 export function useFormsAccess(): FormsAccess {
   const { isFeatureEnabled, isLoading: flagLoading } = useFeatureFlag()
   const flagEnabled = isFeatureEnabled("forms")
-  const { hasEntitlement, isLoading: entitlementLoading } = useEntitlements({
+  const {
+    hasEntitlement,
+    hasEntitlementData,
+    isLoading: entitlementLoading,
+  } = useEntitlements({
     enabled: flagEnabled,
   })
   if (flagLoading) {
@@ -28,7 +33,8 @@ export function useFormsAccess(): FormsAccess {
   if (!flagEnabled) {
     return "hidden"
   }
-  if (entitlementLoading) {
+  // A failed request says nothing about the plan; don't show it as locked.
+  if (entitlementLoading || !hasEntitlementData) {
     return "loading"
   }
   return hasEntitlement("forms") ? "enabled" : "locked"

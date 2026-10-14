@@ -18,6 +18,10 @@ function describeLimits(accept: string[], maxFiles: number): string {
   return accept.length > 0 ? `${accept.join(", ")}. ${count}.` : `${count}.`
 }
 
+function toFileItems(value: unknown): FormFileItem[] {
+  return (Array.isArray(value) ? value : []) as FormFileItem[]
+}
+
 function statusLabel(item: FormFileItem): string | null {
   if (item.status === "uploading") return "Uploading..."
   if (item.status === "failed") return item.error ?? "Upload failed"
@@ -35,14 +39,10 @@ function statusLabel(item: FormFileItem): string | null {
  * and nothing leaves the browser.
  */
 export function FileWidget(props: FormWidgetProps) {
-  const { field, value, onChange, disabled, invalid, uploadFile } = props
+  const { field, value, updateValue, disabled, invalid, uploadFile } = props
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
-  const items = (Array.isArray(value) ? value : []) as FormFileItem[]
-  // Uploads finish out of order and after re-renders, so each completion
-  // must patch the newest list, not the one captured when it started.
-  const itemsRef = useRef(items)
-  itemsRef.current = items
+  const items = toFileItems(value)
 
   const accept = field.config?.accept ?? []
   const maxSize = field.config?.max_file_size
@@ -50,22 +50,22 @@ export function FileWidget(props: FormWidgetProps) {
     ? (field.config?.max_files ?? DEFAULT_MAX_FILES)
     : 1
 
-  function commit(next: FormFileItem[]) {
-    itemsRef.current = next
-    onChange(next)
+  // Uploads finish out of order, and can outlive this widget when its field
+  // is hidden and shown again, so every change applies to the list in form
+  // state at that moment, not the one this render saw.
+  function update(change: (current: FormFileItem[]) => FormFileItem[]) {
+    updateValue((current) => change(toFileItems(current)))
   }
 
   function patch(key: string, changes: Partial<FormFileItem>) {
-    commit(
-      itemsRef.current.map((item) =>
-        item.key === key ? { ...item, ...changes } : item
-      )
+    update((current) =>
+      current.map((item) => (item.key === key ? { ...item, ...changes } : item))
     )
   }
 
   function addFiles(files: File[]) {
     // A single-file field replaces its file; a list field fills what is left.
-    const kept = field.multiple ? itemsRef.current : []
+    const kept = field.multiple ? items : []
     const picked = files.slice(0, Math.max(maxFiles - kept.length, 0))
     if (picked.length === 0) return
     const added = picked.map((file) => {
@@ -81,7 +81,8 @@ export function FileWidget(props: FormWidgetProps) {
       }
       return { file, item }
     })
-    commit([...kept, ...added.map(({ item }) => item)])
+    const addedItems = added.map(({ item }) => item)
+    update((current) => [...(field.multiple ? current : []), ...addedItems])
     for (const { file, item } of added) {
       if (!uploadFile || item.status !== "uploading") continue
       uploadFile({
@@ -190,7 +191,9 @@ export function FileWidget(props: FormWidgetProps) {
                 disabled={disabled}
                 aria-label={`Remove ${item.name}`}
                 onClick={() =>
-                  commit(itemsRef.current.filter(({ key }) => key !== item.key))
+                  update((current) =>
+                    current.filter(({ key }) => key !== item.key)
+                  )
                 }
                 className="ml-auto size-8 shrink-0"
               >

@@ -1715,9 +1715,12 @@ class FormFile(WorkspaceModel):
         UUID, ForeignKey("service_account.id", ondelete="SET NULL"), nullable=True
     )
     name: Mapped[str] = mapped_column(
-        String(config.TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH),
+        String,
         nullable=False,
-        doc="Filename as uploaded. Data only, never part of a storage path.",
+        doc=(
+            "Filename as uploaded. Data only, never part of a storage path. Its "
+            "length limit is configurable, so validation enforces it, not the column."
+        ),
     )
     content_type: Mapped[str] = mapped_column(String(255), nullable=False)
     size: Mapped[int] = mapped_column(Integer, nullable=False, doc="Size in bytes")

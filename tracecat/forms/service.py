@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -115,6 +116,11 @@ def _set_form_config(form: Form, form_config: FormConfig) -> None:
     form.layout = data.get("layout")
 
 
+def config_version(form_config: FormConfig) -> str:
+    """A short hash of a config, so a submission can tell the config changed."""
+    return hashlib.sha256(form_config.model_dump_json().encode()).hexdigest()[:16]
+
+
 def _preview(
     inputs: FormInputs, form_config: FormConfig, result: ResolveResult
 ) -> FormPreview:
@@ -123,6 +129,7 @@ def _preview(
         description=form_config.description or inputs.workflow_description or None,
         success_message=form_config.success_message,
         definition_version=inputs.definition_version,
+        config_version=config_version(form_config),
         blocks=result.blocks,
     )
 
@@ -380,7 +387,12 @@ class FormsService(BaseWorkspaceService):
 
     @audit_log(resource_type="form", action="create")
     async def create_form(self, params: FormCreate) -> Form:
-        """Create the form of a workflow. A workflow has at most one form."""
+        """Create the form of a workflow. A workflow has at most one form.
+
+        An offline form with the default config is created even if that config
+        has errors, such as a required input no widget can render, so the
+        editor can show them. It cannot go online until they are fixed.
+        """
         workflow_id = WorkflowUUID.new(params.workflow_id)
         inputs = await self._require_inputs(workflow_id)
         already_exists = FormError(
@@ -389,7 +401,8 @@ class FormsService(BaseWorkspaceService):
         if await self.get_form_by_workflow_id(workflow_id) is not None:
             raise already_exists
         new_config = params.config or FormConfig()
-        self._check_saveable(new_config, inputs, params.status)
+        if params.config is not None or params.status is FormStatus.ONLINE:
+            self._check_saveable(new_config, inputs, params.status)
 
         form = Form(
             workspace_id=self.workspace_id,
@@ -615,7 +628,9 @@ class FormsIntakeService(BaseOrgService):
         workspace_id, workspace_name, organization_id = row
         if organization_id != self.organization_id:
             return None
-        if not await self._can_read_forms(workspace_id):
+        # The same check as the catalog: an organization-wide form:read alone
+        # does not reach a workspace the caller cannot open.
+        if workspace_id not in await self._readable_workspace_ids():
             return None
         return FormIntakeLocation(
             form_id=form_id, workspace_id=workspace_id, workspace_name=workspace_name

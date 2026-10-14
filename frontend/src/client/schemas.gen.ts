@@ -17540,6 +17540,7 @@ export const $FormIssueCode = {
     "visible_if_invalid_controller",
     "visible_if_invalid_value",
     "autofill_type_mismatch",
+    "hidden_with_autofill",
     "unrendered_optional_input",
   ],
   title: "FormIssueCode",
@@ -17687,6 +17688,11 @@ export const $FormPreview = {
       title: "Definition Version",
       description: "Published workflow version the blocks come from.",
     },
+    config_version: {
+      type: "string",
+      title: "Config Version",
+      description: "Version of the config the blocks come from.",
+    },
     blocks: {
       items: {
         oneOf: [
@@ -17722,7 +17728,7 @@ export const $FormPreview = {
     },
   },
   type: "object",
-  required: ["title", "blocks"],
+  required: ["title", "config_version", "blocks"],
   title: "FormPreview",
   description: "What a form renders. Hidden and autofill fields never appear.",
 } as const
@@ -17932,6 +17938,19 @@ export const $FormSubmissionCreate = {
       title: "Definition Version",
       description:
         "The definition_version of the form the requester filled in. If set and stale, the submission is rejected with form_changed.",
+    },
+    config_version: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Config Version",
+      description:
+        "The config_version of the form the requester filled in. If set and stale, the submission is rejected with form_changed.",
     },
   },
   type: "object",

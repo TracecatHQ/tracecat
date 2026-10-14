@@ -27,8 +27,10 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.draft import (
     build_workflow_edit_document,
+    compute_workflow_edit_revision,
     persist_workflow_edit_document,
     replace_workflow_definition_from_dsl,
+    workflow_edit_document_changed_sections,
 )
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.router import (
@@ -239,3 +241,44 @@ async def test_every_draft_write_keeps_input_order(
         reads.append((await service.build_dsl_from_workflow(loaded)).entrypoint.expects)
     for expects in reads:
         assert list(expects or {}) == AUTHOR_ORDER
+
+
+@pytest.mark.anyio
+async def test_reordering_inputs_is_an_edit_that_persists(
+    session: AsyncSession, svc_role: Role, workflow: Workflow
+) -> None:
+    service = WorkflowsManagementService(session, role=svc_role)
+    workflow_id = WorkflowUUID.new(workflow.id)
+    await _update_workflow(service, workflow, svc_role)
+    await session.commit()
+    loaded = await service.get_workflow(workflow_id)
+    assert loaded is not None
+    original = build_workflow_edit_document(loaded)
+    reversed_order = list(reversed(AUTHOR_ORDER))
+    entrypoint = DSLEntrypoint.model_validate(
+        {
+            "ref": original.definition.entrypoint.ref,
+            "expects": {name: EXPECTS[name] for name in reversed_order},
+        }
+    )
+    definition = original.definition.model_copy(update={"entrypoint": entrypoint})
+    updated = original.model_copy(update={"definition": definition})
+
+    # Mapping equality and sorted-key hashing would both miss a reorder.
+    assert "definition" in workflow_edit_document_changed_sections(original, updated)
+    assert compute_workflow_edit_revision(updated) != compute_workflow_edit_revision(
+        original
+    )
+    await persist_workflow_edit_document(
+        role=svc_role,
+        service=service,
+        workflow=loaded,
+        original_document=original,
+        updated_document=updated,
+    )
+    await session.commit()
+    session.expire_all()
+
+    reloaded = await service.get_workflow(workflow_id)
+    assert reloaded is not None
+    assert reloaded.expects_order == reversed_order

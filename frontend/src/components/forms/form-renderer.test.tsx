@@ -344,6 +344,40 @@ describe("FormRenderer", () => {
     expect(searchUsers).not.toHaveBeenCalled()
   })
 
+  describe("a form edited after it was submitted", () => {
+    async function submitThenEdit(mode: FormRendererProps["mode"]) {
+      const view = renderForm({ mode })
+      await view.user.type(why(), "Because")
+      await view.user.click(submitButton())
+      expect(await submitted()).toBeVisible()
+      // In the builder every edit is a new `form`; live, it is a refetch.
+      const notes = fieldBlock({ name: "notes", label: "Notes" })
+      view.rerender(
+        <FormRenderer
+          workspaceId="workspace-1"
+          formId="form-1"
+          mode={mode}
+          form={{ ...form, blocks: [...form.blocks, notes] }}
+        />
+      )
+    }
+    const confirmation = () =>
+      screen.queryByRole("heading", { name: "Request submitted" })
+
+    it("shows the edited form in preview", async () => {
+      await submitThenEdit("preview")
+
+      expect(confirmation()).not.toBeInTheDocument()
+      expect(screen.getByLabelText("Notes")).toBeVisible()
+    })
+
+    it("keeps a requester's confirmation live", async () => {
+      await submitThenEdit("live")
+
+      expect(confirmation()).toBeVisible()
+    })
+  })
+
   it.each([
     ["date", "2026-10-22", "Needed by Oct 22, 2026"],
     ["date", null, "Needed by Pick a date"],
@@ -393,6 +427,20 @@ describe("FormRenderer", () => {
     expect(screen.getByText("Searching...")).toBeVisible()
     expect(await screen.findByText("avery.admin@example.com")).toBeVisible()
     expect(eli()).not.toBeInTheDocument()
+  })
+
+  it("says so when the people search fails", async () => {
+    searchUsers.mockRejectedValue(new Error("Network Error"))
+    const { user } = renderForm({
+      form: formOf(fieldBlock({ name: "manager", widget: "user" })),
+    })
+
+    await user.click(screen.getByRole("combobox"))
+
+    expect(
+      await screen.findByText("Couldn't search people. Try again.")
+    ).toBeVisible()
+    expect(screen.queryByText("No people found.")).not.toBeInTheDocument()
   })
 
   describe("file fields", () => {
@@ -471,18 +519,70 @@ describe("FormRenderer", () => {
       ).toBeVisible()
       expect(onSubmit).not.toHaveBeenCalled()
     })
+
+    it("keeps files added after the field was hidden and shown during an upload", async () => {
+      let finishA: (file: { id: string }) => void = () => {}
+      const uploadFile = jest
+        .fn()
+        .mockReturnValueOnce(
+          new Promise((resolve) => {
+            finishA = resolve
+          })
+        )
+        .mockResolvedValueOnce({ id: "file-b" })
+      const { user, onSubmit, pick } = renderFiles({
+        form: formOf(
+          fieldBlock({
+            name: "attach",
+            label: "Attach photos",
+            widget: "toggle",
+            default: true,
+          }),
+          fieldBlock({
+            name: "photos",
+            label: "Photos",
+            widget: "file",
+            multiple: true,
+            visible_if: { field: "attach", equals: true },
+          })
+        ),
+        uploadFile,
+      })
+      const toggleAttach = () =>
+        user.click(screen.getByRole("switch", { name: "Attach photos" }))
+
+      await pick(pdf("a.pdf"))
+      // Hiding and showing the field mounts a new widget while a.pdf uploads.
+      await toggleAttach()
+      await toggleAttach()
+      await pick(pdf("b.pdf"))
+      finishA({ id: "file-a" })
+
+      await waitFor(() =>
+        expect(screen.queryByText("Uploading...")).not.toBeInTheDocument()
+      )
+      expect(screen.getByText("a.pdf")).toBeVisible()
+      expect(screen.getByText("b.pdf")).toBeVisible()
+      await user.click(submitButton())
+      await waitFor(() =>
+        expect(onSubmit).toHaveBeenCalledWith({
+          attach: true,
+          photos: ["file-a", "file-b"],
+        })
+      )
+    })
   })
 
   describe("cards", () => {
     const PNG = `data:image/png;base64,${btoa("\x89PNG\r\n\x1a\n\0\0\0\r")}`
     const SVG = `data:image/svg+xml;base64,${btoa("<svg/>")}`
-    const cardsForm = (multiple = false) =>
+    const cardsForm = (multiple = false, required = !multiple) =>
       formOf(
         fieldBlock({
           name: "model",
           label: "Laptop model",
           widget: "cards",
-          required: !multiple,
+          required,
           multiple,
           options: [
             { value: "mba", label: "MacBook Air", image: PNG },
@@ -563,6 +663,23 @@ describe("FormRenderer", () => {
       await waitFor(() =>
         expect(onSubmit).toHaveBeenCalledWith({ model: ["mba", "mbp"] })
       )
+    })
+
+    it("describes a required list field as required", () => {
+      renderForm({ form: cardsForm(true, true) })
+
+      const group = screen.getByRole("group", { name: /Laptop model/ })
+      // `aria-required` is not allowed on a group.
+      expect(group).not.toHaveAttribute("aria-required")
+      expect(group).toHaveAccessibleDescription("Required")
+    })
+
+    it("does not describe an optional list field as required", () => {
+      renderForm({ form: cardsForm(true) })
+
+      expect(
+        screen.getByRole("group", { name: /Laptop model/ })
+      ).not.toHaveAccessibleDescription(/Required/)
     })
   })
 })

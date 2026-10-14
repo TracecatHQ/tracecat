@@ -267,11 +267,14 @@ export function FormRenderer({
 
   // The form can change under the requester: a reload after `form_changed`,
   // or every edit in the builder preview. Keep the answers that still apply.
+  // An edit in the preview also shows the edited form in place of a simulated
+  // confirmation; a live reload never hides a requester's confirmation.
   const [shownBlocks, setShownBlocks] = useState(blocks)
   if (shownBlocks !== blocks) {
     setShownBlocks(blocks)
     setValues(carryOverValues(shownBlocks, blocks, values))
     setErrors({})
+    if (mode === "preview") setReceipt(null)
   }
 
   // Controls are disabled while a submit is in flight and a disabled control
@@ -306,9 +309,13 @@ export function FormRenderer({
     target?.focus({ preventScroll: true })
   }
 
-  function setValue(name: string, value: unknown) {
-    setValues((current) => ({ ...current, [name]: value }))
+  function updateValue(name: string, update: (current: unknown) => unknown) {
+    setValues((current) => ({ ...current, [name]: update(current[name]) }))
     setErrors(({ [name]: _cleared, ...rest }) => rest)
+  }
+
+  function setValue(name: string, value: unknown) {
+    updateValue(name, () => value)
   }
 
   function showSubmitError(error: unknown) {
@@ -460,6 +467,7 @@ export function FormRenderer({
             field={block}
             value={values[block.name]}
             onChange={(value) => setValue(block.name, value)}
+            updateValue={(update) => updateValue(block.name, update)}
             error={errors[block.name]}
             disabled={disabled}
             formId={formId}

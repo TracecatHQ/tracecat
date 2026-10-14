@@ -47,6 +47,7 @@ from tracecat.forms.schemas import (
 from tracecat.forms.service import (
     USERS,
     FormsService,
+    config_version,
     org_users,
     paginate_rows,
     stored_form_config,
@@ -166,7 +167,12 @@ class FormSubmissionsService(BaseWorkspaceService):
         inputs, form_config, resolved = await forms.resolve_published(form)
         # resolve_published only returns the inputs of a published definition.
         definition = cast(WorkflowDefinition, inputs.definition)
-        if params.definition_version not in (None, definition.version):
+        # Either change can hide a field the requester answered, whose answer
+        # would then be dropped without an error.
+        if params.definition_version not in (
+            None,
+            definition.version,
+        ) or params.config_version not in (None, config_version(form_config)):
             raise FormError(
                 FormErrorCode.FORM_CHANGED,
                 "This form changed since you opened it. Reload and try again.",

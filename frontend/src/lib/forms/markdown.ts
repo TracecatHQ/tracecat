@@ -52,17 +52,24 @@ export function remarkFormMarkdown() {
   }
 }
 
+// An autolink such as `<https://example.com>` shows its URL. Only the
+// schemes a form may link to; anything else in angle brackets is a tag.
+const AUTOLINK_PATTERN = /<((?:https?|mailto):[^\s<>]*)>/gi
+
 /**
  * Reduce author markdown to one line of plain text, for list rows that have
  * no room for formatting.
  *
  * This is a display helper, not a sanitizer: the result is only ever rendered
- * as text. Images and raw HTML tags are dropped, links keep their text and
- * block and inline markers are removed. Tags are removed until none is left,
- * so a tag split around another one (`<<a>script>`) does not survive.
+ * as text. Images and raw HTML tags are dropped, links and `http(s)` or
+ * `mailto` autolinks keep their text and block and inline markers are
+ * removed. Tags are removed until none is left, so a tag split around another
+ * one (`<<a>script>`) does not survive.
  */
 export function formMarkdownToPlainText(markdown: string): string {
-  const text = stripHtmlTags(markdown.replace(/^\s*(```|~~~).*$/gm, ""))
+  const text = stripHtmlTags(
+    markdown.replace(/^\s*(```|~~~).*$/gm, "").replace(AUTOLINK_PATTERN, "$1")
+  )
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/^\s*(#{1,6}|>|[-*+]|\d+[.)])\s+/gm, "")

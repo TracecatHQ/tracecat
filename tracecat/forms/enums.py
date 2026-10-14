@@ -84,6 +84,7 @@ class FormIssueCode(StrEnum):
     VISIBLE_IF_INVALID_CONTROLLER = "visible_if_invalid_controller"
     VISIBLE_IF_INVALID_VALUE = "visible_if_invalid_value"
     AUTOFILL_TYPE_MISMATCH = "autofill_type_mismatch"
+    HIDDEN_WITH_AUTOFILL = "hidden_with_autofill"
     UNRENDERED_OPTIONAL_INPUT = "unrendered_optional_input"
 
 

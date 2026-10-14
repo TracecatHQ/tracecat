@@ -113,7 +113,12 @@ async function previewTitle(name: string) {
 beforeEach(() => {
   jest.clearAllMocks()
   sessionStorage.clear()
-  scopes = new Set(["form:read", "form:update", "form:submission:read"])
+  scopes = new Set([
+    "form:read",
+    "form:update",
+    "form:submission:read",
+    "workflow:read",
+  ])
   searchParams = new URLSearchParams()
   jest.mocked(formsGetForm).mockResolvedValue(formRead())
   // The server previews each config under its title; "Broken" has an issue.
@@ -152,6 +157,17 @@ describe("FormDetail config", () => {
       "href",
       "/workspaces/workspace-1/workflows/wf_3KbAYlkEEToril859NNEOb"
     )
+  })
+
+  it("names the workflow as plain text without workflow:read", async () => {
+    scopes = new Set(["form:read", "form:update"])
+
+    renderDetail()
+
+    expect(await screen.findByText("Provision laptop v4")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: "Provision laptop v4" })
+    ).toBeNull()
   })
 
   it("saves the YAML as JSON, or lists the problems a save was rejected with", async () => {
@@ -376,6 +392,15 @@ describe("FormDetail activity", () => {
       fileId: "file-1",
     })
     jest.restoreAllMocks()
+  })
+
+  it("shows the run as plain text without workflow:read", async () => {
+    scopes = new Set(["form:read", "form:submission:read"])
+
+    renderDetail()
+
+    expect(await screen.findByText("Run")).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Run" })).toBeNull()
   })
 
   it("asks for no submissions without form:submission:read", async () => {

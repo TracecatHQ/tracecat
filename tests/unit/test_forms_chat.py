@@ -65,11 +65,11 @@ def _gate(
     return is_org_entitled
 
 
-async def _tools(role: Role) -> list[str]:
+async def _tools(role: Role, extras: list[str] | None = None) -> list[str]:
     service = AgentSessionService(AsyncMock(), role)
-    tools = await service._resolve_workspace_chat_actions(
-        _chat_session(role, WORKSPACE_CHAT)
-    )
+    chat = _chat_session(role, WORKSPACE_CHAT)
+    chat.tools = extras
+    tools = await service._resolve_workspace_chat_actions(chat)
     assert tools is not None
     return tools
 
@@ -96,6 +96,19 @@ async def test_chat_gets_the_forms_tools_only_when_forms_are_enabled(
         is_org_entitled.assert_awaited_with(
             ANY, role.organization_id, Entitlement.FORMS
         )
+
+
+@pytest.mark.parametrize("flag", [True, False], ids=["no-entitlement", "flag-off"])
+async def test_saved_forms_tools_are_dropped_while_forms_are_off(
+    monkeypatch: pytest.MonkeyPatch, flag: bool
+) -> None:
+    # Extras saved while forms were on would otherwise fail every turn.
+    _gate(monkeypatch, flag=flag, entitled=False)
+
+    tools = await _tools(_role(), ["core.forms.update_form", "core.table.list_tables"])
+
+    assert "core.table.list_tables" in tools
+    assert [tool for tool in tools if tool.startswith("core.forms.")] == []
 
 
 async def test_forms_tools_pass_the_callers_action_scopes_like_any_tool(

@@ -357,6 +357,9 @@ class FormPreview(Schema):
     definition_version: int | None = Field(
         default=None, description="Published workflow version the blocks come from."
     )
+    config_version: str = Field(
+        description="Version of the config the blocks come from."
+    )
     blocks: list[FormBlock]
 
 
@@ -471,6 +474,13 @@ class FormSubmissionCreate(Schema):
         default=None,
         description=(
             "The definition_version of the form the requester filled in. "
+            "If set and stale, the submission is rejected with form_changed."
+        ),
+    )
+    config_version: str | None = Field(
+        default=None,
+        description=(
+            "The config_version of the form the requester filled in. "
             "If set and stale, the submission is rejected with form_changed."
         ),
     )

@@ -67,7 +67,7 @@ import { useCreateForm, useDeleteForm, useForms } from "@/hooks/use-forms"
 import { getApiErrorDetail } from "@/lib/errors"
 import { getFormErrorDetail } from "@/lib/forms/errors"
 import { useWorkflowManager } from "@/lib/hooks"
-import { cn, shortTimeAgo } from "@/lib/utils"
+import { cn, copyToClipboard, shortTimeAgo } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const BADGE_CLASS = "h-5 px-2 text-[10px] font-normal"
@@ -86,14 +86,21 @@ export function CreateFormDialog({
 }) {
   const router = useRouter()
   const workspaceId = useWorkspaceId()
-  const { workflows, workflowsLoading } = useWorkflowManager(undefined, {
-    listEnabled: open,
-  })
+  const { workflows, workflowsLoading, workflowsError } = useWorkflowManager(
+    undefined,
+    { listEnabled: open }
+  )
   const { forms, formsIsLoading } = useForms(workspaceId, { enabled: open })
   const { mutateAsync: createForm, isPending: createFormIsPending } =
     useCreateForm(workspaceId)
   const taken = new Set(forms.map((form) => form.workflow_id))
   const isLoading = workflowsLoading || formsIsLoading
+  let emptyMessage = "No workflows found."
+  if (workflowsError) {
+    emptyMessage = "Couldn't load workflows."
+  } else if (isLoading) {
+    emptyMessage = "Loading workflows..."
+  }
 
   async function handleSelect(workflow: WorkflowReadMinimal) {
     try {
@@ -125,9 +132,7 @@ export function CreateFormDialog({
         <Command className="min-h-0 flex-1 rounded-none">
           <CommandInput placeholder="Search workflows..." />
           <CommandList className="max-h-none flex-1">
-            <CommandEmpty>
-              {isLoading ? "Loading workflows..." : "No workflows found."}
-            </CommandEmpty>
+            <CommandEmpty>{emptyMessage}</CommandEmpty>
             {!isLoading && (workflows ?? []).length > 0 && (
               <CommandGroup>
                 {(workflows ?? []).map((workflow) => {
@@ -211,10 +216,18 @@ function DeleteFormDialog({
   )
 }
 
-function copyFormLink(formId: string) {
+async function copyFormLink(formId: string) {
   const url = `${window.location.origin}/forms/${formId}`
-  void navigator.clipboard.writeText(url)
-  toast({ title: "Form link copied", description: url })
+  if (await copyToClipboard({ value: url, message: "Form link copied" })) {
+    toast({ title: "Form link copied", description: url })
+  } else {
+    // The link stays in the toast so it can be copied by hand.
+    toast({
+      title: "Couldn't copy the link",
+      description: url,
+      variant: "destructive",
+    })
+  }
 }
 
 /**
@@ -224,6 +237,7 @@ function copyFormLink(formId: string) {
 export function FormsDashboard() {
   const workspaceId = useWorkspaceId()
   const canDelete = useScopeCheck("form:delete") === true
+  const canReadWorkflows = useScopeCheck("workflow:read") === true
   const { forms, formsIsLoading, formsError } = useForms(workspaceId)
   const [searchQuery, setSearchQuery] = useState("")
   const [formToDelete, setFormToDelete] = useState<FormReadMinimal | null>(null)
@@ -306,15 +320,25 @@ export function FormsDashboard() {
                     >
                       {form.title}
                     </Link>
-                    {form.workflow_id && (
-                      <Link
-                        href={`/workspaces/${workspaceId}/workflows/${form.workflow_id}`}
-                        className="flex w-fit max-w-full items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-                      >
-                        <WorkflowIcon className="size-3 flex-none" />
-                        <span className="truncate">{form.workflow_title}</span>
-                      </Link>
-                    )}
+                    {form.workflow_id &&
+                      (canReadWorkflows ? (
+                        <Link
+                          href={`/workspaces/${workspaceId}/workflows/${form.workflow_id}`}
+                          className="flex w-fit max-w-full items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                        >
+                          <WorkflowIcon className="size-3 flex-none" />
+                          <span className="truncate">
+                            {form.workflow_title}
+                          </span>
+                        </Link>
+                      ) : (
+                        <span className="flex w-fit max-w-full items-center gap-1 text-[11px] text-muted-foreground">
+                          <WorkflowIcon className="size-3 flex-none" />
+                          <span className="truncate">
+                            {form.workflow_title}
+                          </span>
+                        </span>
+                      ))}
                   </div>
                   <div className="flex flex-none items-center gap-2">
                     <Badge

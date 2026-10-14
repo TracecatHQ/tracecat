@@ -16,7 +16,7 @@ The Input schema supplies each field's name, type, and default, and a field is r
 
 | Where | Steps | Result |
 | --- | --- | --- |
-| `Forms` in the workspace sidebar | Click `New form` and pick a workflow. | An offline form. Switch it to `Online` in the form's header. |
+| `Forms` in the workspace sidebar | Click `New form` and pick a workflow. | An offline form. Fix any problems the `Config` tab shows, then switch it to `Online` in the form's header. |
 | `Form` tab of the trigger panel in the workflow builder | Publish the workflow, then turn on `Enable form`. | An online form, with its `Requester link` and an `Edit in Forms` link. |
 
 A form goes online only when its workflow is published. An online form reads the published Input schema and starts the published workflow definition. Before the first publish, the form reads the draft Input schema so you can prepare it offline.
@@ -152,7 +152,7 @@ A service account that submits through the API has no user profile, so every `re
 
 ## Hidden fields
 
-`hidden: true` keeps an input off the form, and the workflow receives the input's default, so the input needs one. A field with `hidden` or `autofill` takes no other key.
+`hidden: true` keeps an input off the form, and the workflow receives the input's default, so the input needs one. A field with `hidden` or `autofill` takes no other key, and a field can't be both.
 
 ## File uploads
 
@@ -165,7 +165,7 @@ The `file` widget lets requesters attach files. A `dict` input takes one file. A
   max_files: 2
 ```
 
-Tracecat accepts a file when the workspace attachment settings allow its extension and MIME type, it matches `accept`, its content matches its declared type, and it is not empty and at most `TRACECAT__MAX_ATTACHMENT_SIZE_BYTES` (20 MB by default). One requester holds at most 20 uploaded files on one form before submitting. Tracecat deletes an uploaded file that no submission claims within 24 hours.
+Tracecat accepts a file when the workspace attachment settings allow its extension and MIME type, it matches `accept`, its content matches its declared type, and it is not empty and at most `TRACECAT__MAX_ATTACHMENT_SIZE_BYTES` (20 MB by default). One requester holds at most 20 uploaded files on one form before submitting. An uploaded file that no submission claims within 24 hours expires. Tracecat deletes expired files in batches when later files are uploaded to the workspace.
 
 Read a file's content in the workflow with [`core.forms.download_file`](/automations/core-actions/form-actions/forms), passing `${{ TRIGGER.quote.id }}` as `file_id`. The requester who uploaded a file can download it before and after submitting. A member with `form:submission:read` can download every submitted file from the `Activity` tab. Deleting a submission, its form, or the form's workflow deletes its files.
 
@@ -260,8 +260,8 @@ Build your own frontend on these endpoints. The API Reference tab documents the 
 | Search people for a `user` field | `GET /workspaces/{workspace_id}/forms/{form_id}/users?search=` | `form:read` |
 | Upload a file for a `file` field | `POST /workspaces/{workspace_id}/forms/{form_id}/files?field=` | `form:read`, `form:submit` |
 | Submit | `POST /workspaces/{workspace_id}/forms/{form_id}/submissions` | `form:read`, `form:submit` |
-| Get one submission | `GET /workspaces/{workspace_id}/forms/{form_id}/submissions/{submission_id}` | `form:read` for your own, `form:submission:read` for any |
-| Get a file's download URL | `GET /workspaces/{workspace_id}/forms/{form_id}/files/{file_id}/download` | `form:read` for a file you uploaded, `form:submission:read` for any submitted file |
+| Get one submission | `GET /workspaces/{workspace_id}/forms/{form_id}/submissions/{submission_id}` | `form:read` for your own; `form:read` and `form:submission:read` for any |
+| Get a file's download URL | `GET /workspaces/{workspace_id}/forms/{form_id}/files/{file_id}/download` | `form:read` for a file you uploaded; `form:read` and `form:submission:read` for any submitted file |
 | List submissions | `GET /workspaces/{workspace_id}/forms/{form_id}/submissions` | `form:submission:read` |
 | Delete a submission | `DELETE /workspaces/{workspace_id}/forms/{form_id}/submissions/{submission_id}` | `form:submission:delete` |
 
@@ -271,15 +271,15 @@ Responses return `workflow_id` as a short `wf_...` ID, and requests accept eithe
 
 ### Render and submit
 
-`render` returns `title`, `description`, `success_message`, `definition_version`, and `blocks`. A block's `type` is `heading`, `text` (Markdown), `notice` (with `tone`), `divider`, or `field`. A `field` block carries `name`, `label`, `help`, `placeholder`, `widget`, `required`, `multiple`, `default`, `options`, `visible_if`, and `config`. A `file` field's `config` holds `accept`, `max_files`, and `max_file_size` in bytes. Hidden and autofill inputs are absent. Show a field with `visible_if` only while the named field equals `equals`, and treat a controlling field the requester has not touched as its `default`.
+`render` returns `title`, `description`, `success_message`, `definition_version`, `config_version`, and `blocks`. A block's `type` is `heading`, `text` (Markdown), `notice` (with `tone`), `divider`, or `field`. A `field` block carries `name`, `label`, `help`, `placeholder`, `widget`, `required`, `multiple`, `default`, `options`, `visible_if`, and `config`. A `file` field's `config` holds `accept`, `max_files`, and `max_file_size` in bytes. Hidden and autofill inputs are absent. Show a field with `visible_if` only while the named field equals `equals`, and treat a controlling field the requester has not touched as its `default`.
 
-Send the answers keyed by field `name`, with the `definition_version` from `render`. Send each value as the workflow receives it (see [Widgets](#widgets)), except that a `user` field takes a `user_id` from the users endpoint and a `file` field takes an uploaded file's `id`. A field with `multiple` set to `true` takes a list.
+Send the answers keyed by field `name`, with the `definition_version` and `config_version` from `render`. Send each value as the workflow receives it (see [Widgets](#widgets)), except that a `user` field takes a `user_id` from the users endpoint and a `file` field takes an uploaded file's `id`. A field with `multiple` set to `true` takes a list.
 
 ```bash
 curl -X POST "https://platform.tracecat.com/api/workspaces/<WORKSPACE_ID>/forms/<FORM_ID>/submissions" \
   --header "Authorization: Bearer <SERVICE_ACCOUNT_API_KEY>" \
   --header "Content-Type: application/json" \
-  --data '{"definition_version": 12, "values": {"model": "pro", "justification": "Current laptop is five years old"}}'
+  --data '{"definition_version": 12, "config_version": "<CONFIG_VERSION>", "values": {"model": "pro", "justification": "Current laptop is five years old"}}'
 ```
 
 A `201` response is the receipt: `id`, `reference`, `submitted_at`, and `success_message`.
@@ -306,7 +306,7 @@ Submit and upload errors return `detail.code` and `detail.message`.
 | --- | --- | --- |
 | `409` | `form_offline` | The form is offline. |
 | `409` | `form_unavailable` | The workflow is unpublished, or the config no longer matches the Input schema. |
-| `409` | `form_changed` | `definition_version` is stale. Render again and resubmit. |
+| `409` | `form_changed` | `definition_version` or `config_version` is stale. Render again and resubmit. |
 | `422` | `form_validation_error` | `detail.errors` lists `{field, code, message}`. |
 | `503` | `workflow_start_failed` | The workflow did not start. Tracecat removes the submission and releases its files, so you can retry. When Tracecat cannot tell whether the run started, such as after a timeout, it keeps the submission. |
 | `400` | `file_invalid` | The file is empty, or its name or content failed validation. |

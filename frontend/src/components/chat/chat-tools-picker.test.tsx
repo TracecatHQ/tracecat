@@ -484,12 +484,13 @@ describe("ChatToolsPicker", () => {
   })
 
   it.each([
-    ["workspace-chat", true, true],
-    ["workspace-chat", false, false],
-    ["regular", true, false],
+    ["workspace-chat", true, true, false],
+    ["workspace-chat", false, false, false],
+    ["regular", true, false, true],
+    ["regular", false, false, false],
   ] as const)(
-    "on %s with Forms %p, form tools are always on: %p",
-    (surface, formsEnabled, alwaysOn) => {
+    "on %s with Forms %p, form tools are always on: %p, addable: %p",
+    (surface, formsEnabled, alwaysOn, addable) => {
       render(
         <ChatToolsPicker
           registryActions={[
@@ -508,8 +509,9 @@ describe("ChatToolsPicker", () => {
       )
 
       expect(Boolean(screen.queryByText("Forms"))).toBe(alwaysOn)
-      // A tool that is already on is not offered as an extra.
-      expect(Boolean(screen.queryByText("Forms actions"))).toBe(!alwaysOn)
+      // A tool that is already on is not offered as an extra, and without
+      // Forms the backend rejects a turn that names one.
+      expect(Boolean(screen.queryByText("Forms actions"))).toBe(addable)
     }
   )
 })

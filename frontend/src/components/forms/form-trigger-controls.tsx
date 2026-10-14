@@ -58,7 +58,9 @@ export function FormTriggerControls({
   const isPublished = typeof workflow.version === "number"
   const online = (detail?.status ?? listed?.status) === "online"
   // Only a known missing scope disables the switch; a loading one does not.
-  const lacksScope = listed ? canUpdate === false : canCreate === false
+  // Without `form:update` the list hides each form's workflow, so a form that
+  // exists would look absent and creating another would conflict.
+  const lacksScope = canUpdate === false || (!listed && canCreate === false)
   const isPending = createFormIsPending || updateFormIsPending
 
   let hint = "Form is offline"

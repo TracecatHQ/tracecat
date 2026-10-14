@@ -4,7 +4,7 @@ Kept free of service imports so the forms and workflow services can both use
 it without an import cycle.
 """
 
-import os
+import asyncio
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -15,8 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.db.models import Form, FormFile
 from tracecat.forms.constants import (
+    BLOB_DELETE_BATCH,
     EXPIRED_FILE_PURGE_BATCH,
-    MAX_BLOB_DELETES_PER_REQUEST,
     PENDING_FILE_TTL,
 )
 from tracecat.logger import logger
@@ -82,27 +82,26 @@ async def purge_expired_files(session: AsyncSession, workspace_id: uuid.UUID) ->
 async def delete_file_blobs(keys: Sequence[str]) -> None:
     """Delete blobs whose rows are already gone. Best effort.
 
-    Deletes one blob at a time, at most ``MAX_BLOB_DELETES_PER_REQUEST`` per
-    call. Nothing retries a blob that is skipped or fails: it stays in storage
-    with no row, and the warning names the key prefix to clean up.
+    Deletes every key, ``BLOB_DELETE_BATCH`` at a time. Nothing retries a
+    delete that fails: the blob stays in storage with no row, and the warning
+    names its key.
     """
-    for key in keys[:MAX_BLOB_DELETES_PER_REQUEST]:
-        try:
-            await blob.delete_file(
-                key=key,
-                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
-                redact_log_identifiers=True,
-            )
-        except Exception as e:
-            # The key holds IDs only, so it is safe to log.
-            logger.warning(
-                "Failed to delete a form file from storage",
-                key=key,
-                error_type=type(e).__name__,
-            )
-    if leftover := keys[MAX_BLOB_DELETES_PER_REQUEST:]:
+    for start in range(0, len(keys), BLOB_DELETE_BATCH):
+        batch = keys[start : start + BLOB_DELETE_BATCH]
+        await asyncio.gather(*(_delete_file_blob(key) for key in batch))
+
+
+async def _delete_file_blob(key: str) -> None:
+    try:
+        await blob.delete_file(
+            key=key,
+            bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
+            redact_log_identifiers=True,
+        )
+    except Exception as e:
+        # The key holds IDs only, so it is safe to log.
         logger.warning(
-            "Left form files in storage after deleting their rows",
-            count=len(leftover),
-            key_prefix=os.path.commonprefix(list(leftover)),
+            "Failed to delete a form file from storage",
+            key=key,
+            error_type=type(e).__name__,
         )

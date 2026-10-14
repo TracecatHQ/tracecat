@@ -474,6 +474,13 @@ ISSUE_CASES: list[tuple[Code, list[dict[str, Any]], dict[str, Any], list]] = [
         {"a": {"type": "dict"}},
         [0, "autofill"],
     ),
+    (
+        # Hidden would win and the input would silently take its default.
+        Code.HIDDEN_WITH_AUTOFILL,
+        [{"field": "a", "hidden": True, "autofill": "requester.email"}],
+        {"a": OPTIONAL_STR},
+        [0, "autofill"],
+    ),
 ]
 
 
@@ -569,6 +576,8 @@ def test_missing_controller_counts_as_its_default() -> None:
         (VALID | {"needed_by": "next week"}, {"needed_by": "invalid_date"}),
         (VALID | {"needed_by": "2026-02-30"}, {"needed_by": "invalid_date"}),
         (VALID | {"needed_by": "2026-02-03T10:00:00"}, {"needed_by": "invalid_date"}),
+        # An ISO week date parses, but it is not YYYY-MM-DD.
+        (VALID | {"needed_by": "2026-W06-2"}, {"needed_by": "invalid_date"}),
         (VALID | {"nope": 1}, {"nope": "unknown_field"}),
         # Hidden and autofilled inputs are not fields of the form.
         (VALID | {"priority": "urgent"}, {"priority": "unknown_field"}),
@@ -600,6 +609,8 @@ def test_check_values_keeps_valid_answers_of_visible_fields() -> None:
         ({"tags": ["a", "b"]}, FormFieldErrorCode.INVALID_OPTION),
         ({"tags": "a"}, FormFieldErrorCode.INVALID_VALUE),
         ({"at": "soon"}, FormFieldErrorCode.INVALID_DATE),
+        # A date alone is not a date and time.
+        ({"at": "2026-02-03"}, FormFieldErrorCode.INVALID_DATE),
     ]:
         assert [e.code for e in check_values(blocks, values | bad).errors] == [code]
     # The value of a field the requester cannot see is dropped, not checked.

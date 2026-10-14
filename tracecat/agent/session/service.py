@@ -465,9 +465,12 @@ class AgentSessionService(BaseWorkspaceService):
         extra tools the user added in the chat tools dialog.
         """
         defaults = await self._get_default_tools(AgentSessionEntity.WORKSPACE_CHAT)
+        extras = agent_session.tools or []
         if await self._forms_enabled():
             defaults = [*defaults, *WORKSPACE_CHAT_FORMS_TOOLS]
-        extras = agent_session.tools or []
+        else:
+            # Extras saved while forms were enabled would fail every turn.
+            extras = [tool for tool in extras if not tool.startswith("core.forms.")]
         merged = list(dict.fromkeys([*defaults, *extras]))
         # Chat tools execute under the executor service principal, which the
         # internal API routes authorize against the service allowlist rather than

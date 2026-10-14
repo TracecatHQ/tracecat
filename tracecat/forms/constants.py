@@ -31,8 +31,8 @@ PENDING_FILE_TTL = timedelta(hours=24)
 EXPIRED_FILE_PURGE_BATCH = 100
 """Expired files removed by one upload."""
 
-MAX_BLOB_DELETES_PER_REQUEST = 500
-"""Blobs one request deletes. The rest stay in storage and are logged."""
+BLOB_DELETE_BATCH = 50
+"""Blobs deleted at once. Every blob is deleted, one batch after another."""
 
 FORM_VIEW_DEDUP_WINDOW = timedelta(minutes=5)
 """A user's repeat views of a form within this window count once."""

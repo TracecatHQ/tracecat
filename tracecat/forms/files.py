@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import os
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -34,7 +35,11 @@ from tracecat.forms.schemas import (
     FormFileRead,
 )
 from tracecat.forms.service import FormsService
-from tracecat.forms.storage import file_blob_key, purge_expired_files
+from tracecat.forms.storage import (
+    delete_file_blobs,
+    file_blob_key,
+    purge_expired_files,
+)
 from tracecat.service import BaseWorkspaceService
 from tracecat.storage import blob
 from tracecat.storage.exceptions import (
@@ -188,10 +193,11 @@ class FormFilesService(BaseWorkspaceService):
         file_read = FormFileRead.model_validate(file)
         self.session.add(file)
         await self.session.commit()
+        key = file_blob_key(self.workspace_id, form_id, file_read.id)
         try:
             await blob.upload_file(
                 content=content,
-                key=file_blob_key(self.workspace_id, form_id, file_read.id),
+                key=key,
                 bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
                 content_type=validated.content_type,
                 redact_log_identifiers=True,
@@ -212,6 +218,15 @@ class FormFilesService(BaseWorkspaceService):
                 FormErrorCode.FILE_UPLOAD_FAILED,
                 "The file could not be stored. Try again.",
             ) from e
+        # A form deleted during the upload took the row, and its blob cleanup
+        # ran before this blob existed. Remove the blob too.
+        stored = select(FormFile.id).where(FormFile.id == file_read.id)
+        if await self.session.scalar(stored) is None:
+            await delete_file_blobs([key])
+            raise FormError(
+                FormErrorCode.FILE_UPLOAD_FAILED,
+                "The file could not be stored. Try again.",
+            )
         return file_read
 
     async def _validate(
@@ -268,8 +283,8 @@ class FormFilesService(BaseWorkspaceService):
         """Replace the file IDs of ``file`` fields with file objects, in place.
 
         A file ID is accepted only if the file belongs to this form, was
-        uploaded by this caller to the field it is submitted under, has not
-        expired and is not claimed. The rows are locked, so a file is claimed
+        uploaded by this caller to the field it is submitted under, is of a
+        type the field still accepts, has not expired and is not claimed. The rows are locked, so a file is claimed
         once.
 
         Returns:
@@ -322,12 +337,23 @@ class FormFilesService(BaseWorkspaceService):
             file.id: file for file in (await self.session.execute(statement)).scalars()
         }
         multiple = {field.name: field.multiple for field in fields}
+        accept = {
+            field.name: field.config.accept if field.config is not None else None
+            for field in fields
+        }
         claimed: list[FormFile] = []
         for name, file_ids in file_ids_by_field.items():
+            # The field's accept may have narrowed since the file was uploaded.
             found = [
                 files[file_id]
                 for file_id in file_ids
-                if file_id in files and files[file_id].field == name
+                if file_id in files
+                and files[file_id].field == name
+                and matches_accept(
+                    accept[name],
+                    extension=os.path.splitext(files[file_id].name)[1].lower(),
+                    content_type=files[file_id].content_type,
+                )
             ]
             if len(found) != len(file_ids):
                 errors.append(_invalid_file(name))

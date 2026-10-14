@@ -518,6 +518,7 @@ export function RequesterForm({ formId }: { formId: string }) {
       return await submitForm({
         values,
         definition_version: form?.definition_version,
+        config_version: form?.config_version,
       })
     } catch (error) {
       if (getFormErrorCode(error) === "form_changed") {

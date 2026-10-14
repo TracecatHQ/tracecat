@@ -39,6 +39,8 @@ export const formKeys = {
   list: (workspaceId: string) => ["forms", workspaceId] as const,
   detail: (workspaceId: string, formId: string) =>
     ["form", workspaceId, formId] as const,
+  render: (workspaceId: string, formId: string) =>
+    ["form-render", workspaceId, formId] as const,
   submissions: (workspaceId: string, formId: string) =>
     ["form-submissions", workspaceId, formId] as const,
   mySubmissions: ["requester-submissions"] as const,
@@ -138,23 +140,23 @@ export function useFormDetail(
 }
 
 /**
- * An online form as the blocks a requester fills in. The server records a
- * view on every call, so this never refetches on its own; call `refetch` to
- * reload on purpose, as after `form_changed`.
+ * An online form as the blocks a requester fills in. It loads again on every
+ * mount, so a requester who comes back sees the current config; the server
+ * counts repeat views within 5 minutes as one. It never refetches on focus or
+ * reconnect, so the form does not change while it is being filled in; call
+ * `refetch` to reload on purpose, as after `form_changed`.
  */
 export function useRenderedForm({ workspaceId, formId }: Partial<FormScope>) {
   return useQuery<FormPreview, ApiError>({
-    queryKey: ["form-render", workspaceId, formId],
+    queryKey: formKeys.render(workspaceId ?? "", formId ?? ""),
     queryFn: () =>
       formsRenderForm({
         workspaceId: workspaceId as string,
         formId: formId as string,
       }),
     enabled: Boolean(workspaceId && formId),
-    staleTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
-    refetchOnMount: false,
     retry: false,
     meta: { suppressErrorToast: true },
   })
@@ -199,6 +201,9 @@ export function useUpdateForm({ workspaceId, formId }: FormScope) {
     onSuccess: (form) => {
       queryClient.setQueryData(formKeys.detail(workspaceId, formId), form)
       queryClient.invalidateQueries({ queryKey: formKeys.list(workspaceId) })
+      queryClient.invalidateQueries({
+        queryKey: formKeys.render(workspaceId, formId),
+      })
     },
     meta: { suppressErrorToast: true },
   })
@@ -215,6 +220,9 @@ export function useDeleteForm(workspaceId: string) {
       })
       queryClient.removeQueries({
         queryKey: formKeys.submissions(workspaceId, formId),
+      })
+      queryClient.removeQueries({
+        queryKey: formKeys.render(workspaceId, formId),
       })
       queryClient.invalidateQueries({ queryKey: formKeys.list(workspaceId) })
     },

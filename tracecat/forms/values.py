@@ -45,13 +45,13 @@ def visible_fields(
 
 
 def _is_iso_date(value: Any) -> bool:
-    if not isinstance(value, str) or len(value) != 10:
+    if not isinstance(value, str):
         return False
     try:
-        date.fromisoformat(value)
+        # Other ISO forms parse too, such as the week date 2026-W06-2.
+        return date.fromisoformat(value).isoformat() == value
     except ValueError:
         return False
-    return True
 
 
 def _is_iso_datetime(value: Any) -> bool:
@@ -61,7 +61,8 @@ def _is_iso_datetime(value: Any) -> bool:
         datetime.fromisoformat(value)
     except ValueError:
         return False
-    return True
+    # A date alone parses as midnight; it is not a date and time.
+    return len(value) > len("YYYY-MM-DD")
 
 
 def _check_value(

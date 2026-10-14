@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 from fastapi import HTTPException, UploadFile
-from sqlalchemy import func, select, text, update
+from sqlalchemy import String, delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import Headers
 
@@ -43,6 +43,7 @@ from tracecat.forms.service import FormsService
 from tracecat.forms.storage import file_blob_key, purge_expired_files
 from tracecat.forms.submissions import FormSubmissionsService
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.storage import blob
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 pytestmark = [
@@ -553,6 +554,26 @@ async def test_submit_claims_only_the_callers_pending_uploads_to_that_field(
     assert {mine.id, to_extras.id, elsewhere.id, foreign.id} <= pending
 
 
+async def test_submit_checks_files_against_the_fields_current_accept(
+    session: AsyncSession,
+    files: FormFilesService,
+    submissions: FormSubmissionsService,
+    temporal: FakeTemporal,
+    form: Form,
+) -> None:
+    notes = await _upload(files, form, "extras", **TEXT_FILE)
+    # The builder narrows the field after the upload.
+    form.layout = [
+        entry | {"accept": [".pdf"]} if entry.get("field") == "extras" else entry
+        for entry in LAYOUT
+    ]
+    await session.commit()
+
+    errors = await _claim_errors(submissions, form, extras=[str(notes.id)])
+
+    assert errors == {"extras": FormFieldErrorCode.INVALID_FILE}
+
+
 @pytest.mark.parametrize(
     ("error", "claimed"),
     [
@@ -733,13 +754,42 @@ async def test_deleting_a_workflow_without_a_form_touches_no_blob(
     assert blob_store.deleted == []
 
 
-async def test_blob_deletion_is_best_effort_and_bounded(
-    blob_store: FakeBlobStore, monkeypatch: pytest.MonkeyPatch
+async def test_blob_deletion_is_best_effort_and_covers_every_key(
+    blob_store: FakeBlobStore,
 ) -> None:
-    monkeypatch.setattr(storage, "MAX_BLOB_DELETES_PER_REQUEST", 3)
-    keys = ["forms/w/f/1", "forms/w/f/fail", "forms/w/f/3", "forms/w/f/4"]
+    # More keys than one batch, with a failure early on.
+    keys = ["forms/w/f/fail", *(f"forms/w/f/{i}" for i in range(501))]
 
     await storage.delete_file_blobs(keys)
 
-    # A failure does not stop the rest; the fourth is left for an operator.
-    assert blob_store.deleted == keys[:3]
+    # A failure does not stop the rest, and no key is left behind.
+    assert sorted(blob_store.deleted) == sorted(keys)
+
+
+async def test_an_upload_that_races_its_forms_deletion_leaves_no_blob(
+    session: AsyncSession,
+    files: FormFilesService,
+    form: Form,
+    blob_store: FakeBlobStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = blob_store.upload_file
+
+    async def upload_while_the_form_is_deleted(*args: Any, **kwargs: Any) -> None:
+        # The deletion snapshots its blob keys before this blob exists.
+        await session.execute(delete(Form).where(Form.id == form.id))
+        await session.commit()
+        await store(*args, **kwargs)
+
+    monkeypatch.setattr(blob, "upload_file", upload_while_the_form_is_deleted)
+
+    assert await _upload_error(files, form) is FormErrorCode.FILE_UPLOAD_FAILED
+    assert blob_store.objects == {}
+
+
+def test_file_names_follow_the_configured_length_limit() -> None:
+    # Validation enforces TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH, which may
+    # exceed 255, so the column must not cap names on its own.
+    column_type = FormFile.__table__.c.name.type
+    assert isinstance(column_type, String)
+    assert column_type.length is None

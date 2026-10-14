@@ -16,6 +16,9 @@ jest.mock("next/navigation", () => ({
 jest.mock("@/hooks/use-forms-access", () => ({
   useFormsAccess: () => access,
 }))
+jest.mock("@/components/loading/spinner", () => ({
+  CenteredSpinner: () => <div>Loading</div>,
+}))
 jest.mock("@/components/workspaces/workspace-collection-route-layout", () => ({
   WorkspaceCollectionRouteLayout: ({ children }: { children: ReactNode }) => (
     <div data-testid="workspace-shell">{children}</div>
@@ -34,7 +37,7 @@ const renderLayout = () =>
   )
 
 describe("FormsRouteLayout", () => {
-  it("is a 404 with the flag off and renders nothing while access loads", () => {
+  it("is a 404 with the flag off and a spinner without the shell while access loads", () => {
     access = "hidden"
     jest.spyOn(console, "error").mockImplementation(() => {})
     expect(renderLayout).toThrow("NEXT_NOT_FOUND")
@@ -42,6 +45,7 @@ describe("FormsRouteLayout", () => {
 
     access = "loading"
     renderLayout()
+    expect(screen.getByText("Loading")).toBeInTheDocument()
     expect(screen.queryByTestId("workspace-shell")).not.toBeInTheDocument()
   })
 

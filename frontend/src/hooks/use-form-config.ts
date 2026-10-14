@@ -30,8 +30,11 @@ export interface FormConfigDraft {
   isRestored: boolean
   /** Drop the buffer and take the saved config. */
   reload: () => void
-  /** Take a config this editor just saved as the new starting point. */
-  markSaved: (config: FormConfig_Output) => void
+  /**
+   * Take a config this editor just saved, from the `submitted` text, as the
+   * new starting point. Edits made since `submitted` was sent are kept.
+   */
+  markSaved: (config: FormConfig_Output, submitted: string) => void
 }
 
 interface StoredDraft {
@@ -127,7 +130,13 @@ export function useFormConfigDraft(form: FormRead): FormConfigDraft {
     hasRemoteChange: isDirty && serverText !== baseText,
     isRestored: isRestored && isDirty,
     reload: () => adopt(serverText),
-    markSaved: (config) => adopt(serializeFormConfig(config)),
+    markSaved: (config, submitted) => {
+      const saved = serializeFormConfig(config)
+      // Text typed while the save was in flight stays, unsaved, on the new base.
+      setText((current) => (current === submitted ? saved : current))
+      setBaseText(saved)
+      setIsRestored(false)
+    },
   }
 }
 

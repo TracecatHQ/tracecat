@@ -83,6 +83,11 @@ describe("formMarkdownToPlainText", () => {
     ["- one\n- two\n1. three", "one two three"],
     ["> Reviewed within 2 days", "Reviewed within 2 days"],
     ["Hello <b>there</b><br/>", "Hello there"],
+    [
+      "Docs at <https://example.com/docs>.",
+      "Docs at https://example.com/docs.",
+    ],
+    ["Ask <MAILTO:it@example.com>", "Ask MAILTO:it@example.com"],
     ["```\nmba\n```", "mba"],
     ["Uses needed_by_date and 2 * 3 * 4", "Uses needed_by_date and 2 * 3 * 4"],
     ["  spaced\n\n out  ", "spaced out"],
@@ -94,6 +99,7 @@ describe("formMarkdownToPlainText", () => {
     "<<a>script>alert(1)</script>",
     "<scr<b>ipt>alert(1)</scr</b>ipt>",
     "<<<i>b>script>alert(1)",
+    "<<https://example.com>script>alert(1)",
   ])("leaves no tag behind when tags are nested in %j", (markdown) => {
     const text = formMarkdownToPlainText(markdown)
 

@@ -160,6 +160,33 @@ async def test_form_on_unpublished_workflow_uses_draft_inputs_and_stays_offline(
     assert error.code is FormErrorCode.FORM_WORKFLOW_UNPUBLISHED
 
 
+async def test_a_new_offline_form_shows_the_issues_of_its_default_config(
+    session: AsyncSession, service: FormsService, builder_role: Role, workflow: Workflow
+) -> None:
+    # A required object input has no default widget, so the default config
+    # has an error. The form is still created, offline, to be fixed in the editor.
+    await publish_workflow(session, builder_role, workflow, USER_EXPECTS)
+    online = _new_form(workflow.id, status=FormStatus.ONLINE)
+    assert (await _error(service.create_form(online))).code is (
+        FormErrorCode.FORM_CONFIG_INVALID
+    )
+
+    form = await service.create_form(_new_form(workflow.id))
+
+    read = await service.read_form(form)
+    assert read.status is FormStatus.OFFLINE
+    assert [issue.code for issue in read.issues] == [FormIssueCode.NO_WIDGET_FOR_TYPE]
+    error = await _error(
+        service.update_form(form, FormUpdate(status=FormStatus.ONLINE))
+    )
+    assert error.code is FormErrorCode.FORM_CONFIG_INVALID
+    fixed = FormConfig.model_validate({"layout": USER_LAYOUT})
+    form = await service.update_form(
+        form, FormUpdate(status=FormStatus.ONLINE, config=fixed)
+    )
+    assert form.status == FormStatus.ONLINE.value
+
+
 async def test_update_replaces_the_config_and_saves_nothing_invalid(
     session: AsyncSession, service: FormsService, published_workflow: Workflow
 ) -> None:
@@ -619,9 +646,14 @@ def rbac(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> None:
 
 
 async def _grant(
-    session: AsyncSession, user_id: uuid.UUID | None, workspace: Workspace, *names: str
+    session: AsyncSession,
+    user_id: uuid.UUID | None,
+    workspace: Workspace,
+    *names: str,
+    org_wide: bool = False,
 ) -> UserRoleAssignment:
-    """Give a user a custom role holding these scopes in one workspace."""
+    """Give a user a custom role holding these scopes in one workspace, or in
+    every workspace of its organization."""
     assert user_id is not None
     org_id = workspace.organization_id
     role = DBRole(name=f"Synthetic {uuid.uuid4().hex[:8]}", organization_id=org_id)
@@ -646,7 +678,7 @@ async def _grant(
     assignment = UserRoleAssignment(
         organization_id=org_id,
         user_id=user_id,
-        workspace_id=workspace.id,
+        workspace_id=None if org_wide else workspace.id,
         role_id=role.id,
     )
     session.add(assignment)
@@ -697,6 +729,29 @@ async def test_locate_needs_form_read_in_the_forms_workspace(
     await _grant(session, org_role.user_id, svc_workspace, *names)
 
     assert await _locate(session, org_role, form.id) == status_code
+
+
+@pytest.mark.usefixtures("rbac")
+async def test_locate_needs_access_to_the_forms_workspace(
+    session: AsyncSession, org_role: Role, svc_workspace: Workspace
+) -> None:
+    # An organization role that holds an org scope grants form:read in every
+    # workspace, but no workspace membership.
+    form = await _form_in(session, svc_workspace, "Offboarding")
+    await _grant(
+        session,
+        org_role.user_id,
+        svc_workspace,
+        "org:member:read",
+        "form:read",
+        org_wide=True,
+    )
+    member = org_role.model_copy(update={"scopes": frozenset({"org:member:read"})})
+
+    assert (
+        await FormsIntakeService(session, member).list_forms(PageParams())
+    ).items == []
+    assert await _locate(session, member, form.id) == 404
 
 
 @pytest.mark.usefixtures("rbac")

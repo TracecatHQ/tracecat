@@ -98,6 +98,7 @@ beforeEach(() => {
   })
   renderForm.mockResolvedValue(
     resolvedForm({
+      config_version: "config-a",
       blocks: [fieldBlock({ name: "reason", label: "Reason", required: true })],
     })
   )
@@ -222,6 +223,7 @@ describe("RequesterForm", () => {
       requestBody: {
         values: { reason: "Screen cracked" },
         definition_version: 4,
+        config_version: "config-a",
       },
     })
     expect(screen.getByText("Security")).toBeInTheDocument()

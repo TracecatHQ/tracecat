@@ -53,6 +53,18 @@ export function CardsWidget(props: FormWidgetProps) {
   const checkedIndex = options.findIndex((option) => selected.has(option.value))
   const tabStopIndex = checkedIndex === -1 ? 0 : checkedIndex
 
+  // A group cannot take `aria-required` and the label's `*` is hidden from
+  // screen readers, so a required list field says so in its description.
+  const control = controlProps(props)
+  const requiredId = `${props.id}-required`
+  const describeRequired = field.multiple && field.required
+  const describedBy = [
+    control["aria-describedby"],
+    describeRequired && requiredId,
+  ]
+    .filter(Boolean)
+    .join(" ")
+
   function handleKeyDown(event: KeyboardEvent, index: number) {
     const step = ARROW_STEPS[event.key]
     if (field.multiple || !step) return
@@ -67,9 +79,10 @@ export function CardsWidget(props: FormWidgetProps) {
     // cards stack in a narrow preview pane instead of squeezing their text.
     <div className="@container">
       <div
-        {...controlProps(props)}
+        {...control}
         role={field.multiple ? "group" : "radiogroup"}
         aria-labelledby={`${props.id}-label`}
+        aria-describedby={describedBy || undefined}
         aria-required={field.multiple ? undefined : field.required}
         className="grid grid-cols-1 gap-3 @md:grid-cols-3"
       >
@@ -128,6 +141,11 @@ export function CardsWidget(props: FormWidgetProps) {
           )
         })}
       </div>
+      {describeRequired && (
+        <span id={requiredId} className="sr-only">
+          Required
+        </span>
+      )}
     </div>
   )
 }

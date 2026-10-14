@@ -249,10 +249,16 @@ export function ChatToolsPicker({
     })
   }
 
+  // Without Forms the backend rejects a turn that names a form tool, so they
+  // are not offered, and a selected one shows as no longer available.
   const toolOptions = useMemo<ToolOption[]>(
     () =>
       registryActions
-        .filter((action) => isAgentToolSelectable(action.action))
+        .filter(
+          (action) =>
+            isAgentToolSelectable(action.action) &&
+            (formsEnabled || !action.action.startsWith("core.forms."))
+        )
         .map((action) => ({
           value: action.action,
           label: action.default_title || action.action,
@@ -260,7 +266,7 @@ export function ChatToolsPicker({
           description: action.description,
         }))
         .sort((a, b) => a.value.localeCompare(b.value)),
-    [registryActions]
+    [registryActions, formsEnabled]
   )
 
   const optionByValue = useMemo(
