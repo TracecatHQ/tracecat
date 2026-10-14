@@ -123,6 +123,42 @@ preflights existing function/index definitions and repairs only compatible
 invalid concurrent indexes. It preserves unrelated name collisions and all
 source data. Downgrade removes its own indexes/functions and retains pg_trgm.
 
+If migrations and the API use different database roles, verify the API role
+after the case migration has run. The shared pg_trgm preflight checks extension
+functions; it cannot check case helpers before they exist. A migration owner's
+hardened default privileges can withhold helper execution from the API even
+when the migration and index builds succeed.
+
+Run this read-only check with the actual API database credentials. Both rows
+must report `schema_usage` and `can_execute` as true:
+
+```sql
+BEGIN READ ONLY;
+SELECT current_user, signature,
+       has_schema_privilege('public', 'USAGE') AS schema_usage,
+       coalesce(has_function_privilege(to_regprocedure(signature), 'EXECUTE'), false)
+           AS can_execute
+FROM (VALUES
+    ('public.tracecat_case_safe_vector_v1(text)'),
+    ('public.tracecat_case_text_matches_v1(text,text,boolean)')
+) AS required(signature);
+COMMIT;
+```
+
+When execution is missing, the function owner or an authorized administrator
+grants only these helpers to the API role. Replace `synthetic_runtime_role` with
+that role and rerun the read-only check:
+
+```sql
+GRANT EXECUTE ON FUNCTION public.tracecat_case_safe_vector_v1(text)
+    TO synthetic_runtime_role;
+GRANT EXECUTE ON FUNCTION public.tracecat_case_text_matches_v1(text,text,boolean)
+    TO synthetic_runtime_role;
+```
+
+The migration does not infer application roles or restore `PUBLIC` execution.
+These invoker functions retain the caller's existing database privileges.
+
 Runtime checks include the actual strict-word function/operator permissions,
 localized helper signatures/bodies, fixed simple configuration, and all six
 index definitions/readiness. Missing prerequisites produce shared typed
