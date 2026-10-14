@@ -1593,6 +1593,8 @@ async def test_search_cases_forwards_exact_uuid_and_explicit_filters(
             params={
                 "workspace_id": str(test_admin_role.workspace_id),
                 "case_id": str(case_id),
+                "promote_exact_match": "true",
+                "match_none": "true",
                 "start_time": start_time.isoformat(),
                 "status": "new",
                 "hierarchy": "top_level",
@@ -1601,6 +1603,8 @@ async def test_search_cases_forwards_exact_uuid_and_explicit_filters(
         )
         assert response.status_code == status.HTTP_200_OK
         kwargs = mock_svc.search_cases.call_args.kwargs
+        assert kwargs["promote_exact_match"] is True
+        assert kwargs["match_none"] is True
         assert kwargs["case_id"] == case_id
         assert kwargs["start_time"] == start_time
         assert kwargs["status"] == [CaseStatus.NEW]

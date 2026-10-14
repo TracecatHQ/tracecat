@@ -9,7 +9,6 @@ import {
 } from "@/client"
 import { CancelablePromise } from "@/client/core/CancelablePromise"
 import { useCases } from "@/hooks/use-cases"
-import { parseCaseReference } from "@/lib/cases/search-scope"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 import { WorkspaceIdProvider } from "@/providers/workspace-id"
 
@@ -80,31 +79,7 @@ function mockAggregateResponse(response: CasesSearchCaseAggregatesResponse) {
     )
 }
 
-describe("complete case references", () => {
-  it.each([" CASE-0042 ", "case-0042", "CASE-42", "CASE-12345678901"])(
-    "recognizes %s as a short ID",
-    (query) => {
-      expect(parseCaseReference(query)).toEqual({
-        type: "short_id",
-        value: query.trim().toUpperCase(),
-      })
-    }
-  )
-
-  it("recognizes a canonical UUID", () => {
-    expect(parseCaseReference(OLD_CASE.id)).toEqual({
-      type: "uuid",
-      value: OLD_CASE.id,
-    })
-  })
-
-  it.each(["42", "CASE-", "CASE-0042 alert", "alert"])(
-    "keeps ambiguous or partial query %s as text",
-    (query) => expect(parseCaseReference(query)).toBeNull()
-  )
-})
-
-describe("useCases search scope", () => {
+describe("useCases exact-first requests", () => {
   beforeEach(() => {
     window.localStorage.clear()
     jest.mocked(casesSearchCases).mockReset()
@@ -149,116 +124,69 @@ describe("useCases search scope", () => {
         })
       )
     )
-    expect(result.current.searchScope).toBe("view")
   })
 
-  it("finds an older filtered-out sub-case by complete short ID", async () => {
+  it.each(["CASE-0042", OLD_CASE.id, "42", "CASE-"])(
+    "delegates reference recognition for %s to the server with filters intact",
+    async (query) => {
+      const { result } = setup()
+      act(() => {
+        result.current.setStatusFilter(["new"])
+        result.current.setTagFilter(["synthetic-tag"])
+        result.current.setSearchQuery(query)
+      })
+      await waitFor(() =>
+        expect(casesSearchCases).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            workspaceId: WORKSPACE_ID,
+            searchTerm: query,
+            promoteExactMatch: true,
+            startTime: expect.any(String),
+            status: ["new"],
+            tags: ["synthetic-tag"],
+          })
+        )
+      )
+      const request = jest.mocked(casesSearchCases).mock.calls.at(-1)?.[0]
+      expect(request).not.toHaveProperty("shortId")
+      expect(request).not.toHaveProperty("caseId")
+      expect(result.current.filters.createdAfter).toEqual({
+        type: "preset",
+        value: "1m",
+      })
+    }
+  )
+
+  it("can fetch a promoted case when ordinary enum filters match nothing", async () => {
     mockCasesResponse({
-      items: [OLD_CASE],
+      items: [{ ...OLD_CASE, is_exact_match: true, is_outside_filters: true }],
       has_more: false,
-      total_estimate: 1,
     })
     const { result } = setup()
     act(() => {
-      result.current.setStatusFilter(["new"])
-      result.current.setTagFilter(["synthetic-tag"])
-      result.current.setUpdatedAfter({ type: "preset", value: "1d" })
-      result.current.setSearchQuery("case-0042")
-    })
-    await waitFor(() => expect(result.current.searchScope).toBe("all"))
-    await waitFor(() => expect(result.current.cases).toEqual([OLD_CASE]))
-    expect(casesSearchCases).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        workspaceId: WORKSPACE_ID,
-        shortId: "CASE-0042",
-        searchTerm: undefined,
-        hierarchy: "all",
-      })
-    )
-    const request = jest.mocked(casesSearchCases).mock.calls.at(-1)?.[0]
-    expect(request).not.toHaveProperty("startTime")
-    expect(request).not.toHaveProperty("updatedAfter")
-    expect(request).not.toHaveProperty("status")
-    expect(request).not.toHaveProperty("tags")
-    expect(result.current.searchScope).toBe("all")
-    expect(result.current.totalFilteredCaseEstimate).toBe(1)
-    expect(result.current.stageCounts?.closed).toBe(1)
-    expect(result.current.stageCounts?.new).toBe(0)
-    expect(result.current.filters.statusFilter).toEqual(["new"])
-    expect(result.current.filters.createdAfter).toEqual({
-      type: "preset",
-      value: "1m",
-    })
-  })
-
-  it("uses exact UUID equality rather than fuzzy text search or case viewing", async () => {
-    const { result } = setup()
-    await waitFor(() => expect(result.current.isLoading).toBe(false))
-    jest.mocked(casesSearchCaseAggregates).mockClear()
-    mockCasesResponse({
-      items: [OLD_CASE],
-      has_more: false,
-      total_estimate: 1,
-    })
-    act(() => result.current.setSearchQuery(OLD_CASE.id))
-    await waitFor(() =>
-      expect(result.current.totalFilteredCaseEstimate).toBe(1)
-    )
-    expect(casesSearchCases).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        workspaceId: WORKSPACE_ID,
-        caseId: OLD_CASE.id,
-        searchTerm: undefined,
-        hierarchy: "all",
-      })
-    )
-    expect(casesSearchCaseAggregates).not.toHaveBeenCalled()
-  })
-
-  it("allows exact-looking queries to explicitly search the current view", async () => {
-    const { result } = setup()
-    act(() => {
-      result.current.setStatusFilter(["new"])
+      result.current.setStatusFilter([
+        "new",
+        "in_progress",
+        "on_hold",
+        "resolved",
+        "closed",
+        "unknown",
+        "other",
+      ])
+      result.current.setStatusMode("exclude")
       result.current.setSearchQuery("CASE-0042")
-      result.current.setSearchScope("view")
     })
     await waitFor(() =>
       expect(casesSearchCases).toHaveBeenLastCalledWith(
         expect.objectContaining({
           searchTerm: "CASE-0042",
-          startTime: expect.any(String),
-          status: ["new"],
+          promoteExactMatch: true,
+          matchNone: true,
         })
       )
     )
-    expect(result.current.searchScope).toBe("view")
-  })
-
-  it("expands a text search to all cases and restores the view's filters", async () => {
-    const { result } = setup()
-    act(() => {
-      result.current.setStatusFilter(["new"])
-      result.current.setSearchQuery("synthetic")
-      result.current.setSearchScope("all")
-    })
-    await waitFor(() =>
-      expect(casesSearchCases).toHaveBeenLastCalledWith(
-        expect.objectContaining({ searchTerm: "synthetic", hierarchy: "all" })
-      )
-    )
-    expect(
-      jest.mocked(casesSearchCases).mock.calls.at(-1)?.[0]
-    ).not.toHaveProperty("startTime")
-    act(() => result.current.setSearchScope("view"))
-    await waitFor(() =>
-      expect(casesSearchCases).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          searchTerm: "synthetic",
-          status: ["new"],
-          startTime: expect.any(String),
-        })
-      )
-    )
+    await waitFor(() => expect(result.current.cases).toHaveLength(1))
+    expect(result.current.totalFilteredCaseEstimate).toBe(0)
   })
 
   it("returns no result for an ID in another workspace and isolates caches", async () => {
@@ -291,7 +219,14 @@ describe("useCases search scope", () => {
   it("returns to the default date and hierarchy scope after clearing lookup", async () => {
     const { result } = setup()
     act(() => result.current.setSearchQuery("CASE-0042"))
-    await waitFor(() => expect(result.current.searchScope).toBe("all"))
+    await waitFor(() =>
+      expect(casesSearchCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          searchTerm: "CASE-0042",
+          promoteExactMatch: true,
+        })
+      )
+    )
     act(() => result.current.setSearchQuery(""))
     await waitFor(() =>
       expect(casesSearchCases).toHaveBeenCalledWith(
@@ -302,6 +237,5 @@ describe("useCases search scope", () => {
         })
       )
     )
-    expect(result.current.searchScope).toBe("view")
   })
 })

@@ -11868,6 +11868,8 @@ export const casesCreateCase = (
  * @param data.searchTerm Text to search for in case summary, description, short ID, or case UUID
  * @param data.shortId Search by exact case short ID (e.g. 42 or CASE-0042)
  * @param data.caseId Filter by exact case UUID
+ * @param data.promoteExactMatch Place a complete case reference first, even outside view filters. Workspace authorization and explicit identity/relationship constraints remain strict. Filtered counts exclude cases outside the view.
+ * @param data.matchNone The ordinary filter population is empty; exact promotion may still match.
  * @param data.status Filter by case status
  * @param data.priority Filter by case priority
  * @param data.severity Filter by case severity
@@ -11905,6 +11907,8 @@ export const casesSearchCases = (
       search_term: data.searchTerm,
       short_id: data.shortId,
       case_id: data.caseId,
+      promote_exact_match: data.promoteExactMatch,
+      match_none: data.matchNone,
       status: data.status,
       priority: data.priority,
       severity: data.severity,

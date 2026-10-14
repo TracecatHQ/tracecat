@@ -110,8 +110,6 @@ export default function CasesPage() {
     appliedSearchQuery,
     effectiveHierarchy,
     isSearchPending,
-    searchScope,
-    setSearchScope,
     setSearchQuery,
     setSortBy,
     setStatusFilter,
@@ -159,8 +157,6 @@ export default function CasesPage() {
         appliedSearchQuery={appliedSearchQuery}
         effectiveHierarchy={effectiveHierarchy}
         isSearchPending={isSearchPending}
-        searchScope={searchScope}
-        onSearchScopeChange={setSearchScope}
         members={members}
         tags={caseTags}
         onSearchChange={setSearchQuery}

@@ -17,6 +17,7 @@ import type {
   CaseUpdate,
   WorkspaceMember,
 } from "@/client"
+import { CaseItem } from "@/components/cases/case-item"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
 import { CaseSidePanel } from "@/components/cases/case-side-panel"
 import {
@@ -39,7 +40,6 @@ import type { CaseDateFilterValue, UseCasesFilters } from "@/hooks/use-cases"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { runChunkedCaseBatch } from "@/lib/cases/batch"
 import { invalidateCaseHierarchy } from "@/lib/cases/invalidation"
-import type { CaseSearchScope } from "@/lib/cases/search-scope"
 import { caseHref } from "@/lib/cases/urls"
 import { getApiErrorDetail } from "@/lib/errors"
 import {
@@ -58,8 +58,6 @@ interface CasesLayoutProps {
   appliedSearchQuery: string
   effectiveHierarchy: NonNullable<CasesSearchCasesData["hierarchy"]>
   isSearchPending: boolean
-  searchScope: CaseSearchScope
-  onSearchScopeChange: (scope: CaseSearchScope | null) => void
   members?: WorkspaceMember[]
   tags?: CaseTagRead[]
   onSearchChange: (query: string) => void
@@ -98,7 +96,7 @@ interface CasesLayoutProps {
   onLoadMore: () => void
 }
 
-/** Workspace case list with explicit search scope and bulk actions. */
+/** Workspace case list with a promoted exact match and filtered results. */
 export function CasesLayout({
   cases,
   isLoading,
@@ -107,8 +105,6 @@ export function CasesLayout({
   appliedSearchQuery,
   effectiveHierarchy,
   isSearchPending,
-  searchScope,
-  onSearchScopeChange,
   members,
   tags,
   onSearchChange,
@@ -409,8 +405,6 @@ export function CasesLayout({
     appliedSearchQuery,
     effectiveHierarchy,
     isSearchPending,
-    searchScope,
-    onSearchScopeChange,
     onSearchChange,
     sortBy: filters.sortBy,
     onSortByChange,
@@ -477,10 +471,25 @@ export function CasesLayout({
       Boolean(filter.sortDirection)
     )
 
-  const displayOrderedCases = useMemo(
-    () => orderCasesForDisplay(cases, hasExplicitSort),
-    [cases, hasExplicitSort]
-  )
+  const exactMatch = cases.find((caseData) => caseData.is_exact_match)
+  const filteredCases = cases.filter((caseData) => !caseData.is_exact_match)
+  const filteredStageCounts = stageCounts ? { ...stageCounts } : null
+  const exactMatchInFilters = exactMatch && !exactMatch.is_outside_filters
+  if (exactMatchInFilters && filteredStageCounts) {
+    const status = exactMatch.status
+    filteredStageCounts[status] = Math.max(
+      0,
+      (filteredStageCounts[status] ?? 0) - 1
+    )
+  }
+  const ordinaryTotal =
+    totalFilteredCaseEstimate === null
+      ? null
+      : Math.max(0, totalFilteredCaseEstimate - (exactMatchInFilters ? 1 : 0))
+  const displayOrderedCases = [
+    ...(exactMatch ? [exactMatch] : []),
+    ...orderCasesForDisplay(filteredCases, hasExplicitSort),
+  ]
 
   const handleOpenInSidePanel = useCallback((caseData: CaseReadMinimal) => {
     setSidePanelCaseId(caseData.id)
@@ -534,24 +543,39 @@ export function CasesLayout({
         {cases.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
             <p className="text-sm text-muted-foreground">
-              {searchScope === "view"
-                ? "No cases match the current view."
-                : "No matching cases in this workspace."}
+              No cases match the current filters.
             </p>
-            {searchScope === "view" && (
-              <button
-                type="button"
-                onClick={() => onSearchScopeChange("all")}
-                className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
-              >
-                Search all cases
-              </button>
-            )}
           </div>
         ) : (
-          <div className="min-h-0 flex-1">
+          <div className="flex min-h-0 flex-1 flex-col">
+            {exactMatch && (
+              <section aria-label="Exact match" className="shrink-0 border-b">
+                <p className="px-4 py-2 text-xs text-muted-foreground">
+                  Exact match
+                  {exactMatch.is_outside_filters &&
+                    " · Outside current filters"}
+                </p>
+                <CaseItem
+                  caseData={exactMatch}
+                  isSelected={(sidePanelCaseId ?? selectedId) === exactMatch.id}
+                  isChecked={selectedCaseIdsSet.has(exactMatch.id)}
+                  onCheckChange={(checked) =>
+                    handleCheckChange(exactMatch.id, checked)
+                  }
+                  onClick={() => handleSelectCase(exactMatch.id)}
+                  onDeleteRequest={handleDeleteRequest}
+                  onOpenInSidePanel={handleOpenInSidePanel}
+                  tags={tags}
+                  members={members}
+                  dropdownDefinitions={dropdownDefinitions}
+                  fieldMetadataById={fieldMetadataById}
+                  durationNamesById={durationNamesById}
+                  visibleColumnIds={visibleColumnIds}
+                />
+              </section>
+            )}
             <CasesAccordion
-              cases={cases}
+              cases={filteredCases}
               selectedId={sidePanelCaseId ?? selectedId}
               selectedCaseIds={selectedCaseIdsSet}
               onSelect={handleSelectCase}
@@ -569,12 +593,10 @@ export function CasesLayout({
               assigneeSortDirection={filters.assigneeSortDirection}
               tagSortDirection={filters.tagSortDirection}
               hasExplicitSort={hasExplicitSort}
-              statusFilter={searchScope === "view" ? filters.statusFilter : []}
-              statusMode={
-                searchScope === "view" ? filters.statusMode : "include"
-              }
-              totalFilteredCaseEstimate={totalFilteredCaseEstimate}
-              stageCounts={stageCounts}
+              statusFilter={filters.statusFilter}
+              statusMode={filters.statusMode}
+              totalFilteredCaseEstimate={ordinaryTotal}
+              stageCounts={filteredStageCounts}
               isCountsLoading={isCountsLoading}
               isCountsFetching={isCountsFetching}
               hasNextPage={hasNextPage}

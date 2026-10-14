@@ -2447,6 +2447,12 @@ class TestCasesService:
         )
         assert response.items == []
         assert response.has_more is False
+        promoted = await cases_service.search_cases(
+            CursorPaginationParams(limit=1),
+            search_term=str(other_case.id),
+            promote_exact_match=True,
+        )
+        assert promoted.items == []
 
     async def test_search_cases_short_id_rejects_invalid_value(
         self, cases_service: CasesService
@@ -2755,3 +2761,156 @@ class TestCasesService:
         # Verify the case was NOT created (entire transaction rolled back)
         cases = await _list_cases(cases_service)
         assert len(cases) == 0, "Case should not exist if fields creation failed"
+
+
+@pytest.fixture
+async def exact_search_cases(
+    session: AsyncSession, cases_service: CasesService
+) -> tuple[Case, Case, Case]:
+    """An older exact case and two newer cases mentioning both references."""
+    now = datetime.now(UTC)
+    exact_id = uuid.uuid4()
+    cases = tuple(
+        Case(
+            id=exact_id if number == 42 else uuid.uuid4(),
+            workspace_id=cases_service.workspace_id,
+            case_number=number,
+            summary=(
+                "Synthetic older exact case"
+                if number == 42
+                else f"Synthetic mention CASE-0042 {exact_id}"
+            ),
+            description="Synthetic search fixture",
+            status=CaseStatus.CLOSED if number == 42 else CaseStatus.NEW,
+            priority=CasePriority.LOW,
+            severity=CaseSeverity.LOW,
+            created_at=now - timedelta(days=60 if number == 42 else number - 42),
+            updated_at=now,
+        )
+        for number in (42, 43, 44)
+    )
+    session.add_all(cases)
+    await session.commit()
+    return cases[0], cases[1], cases[2]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("reference_type", ["short_id", "uuid"])
+async def test_promoted_exact_case_paginates_before_filtered_mentions(
+    cases_service: CasesService,
+    session: AsyncSession,
+    exact_search_cases: tuple[Case, Case, Case],
+    reference_type: Literal["short_id", "uuid"],
+) -> None:
+    """One-item pages retain all text hits, exact-first ordering and view counts."""
+    exact, first_mention, second_mention = exact_search_cases
+    query = exact.short_id if reference_type == "short_id" else str(exact.id)
+    start_time = datetime.now(UTC) - timedelta(days=30)
+    events_before = list((await session.scalars(select(CaseEvent.id))).all())
+    cursor = None
+    ids = []
+    pages = []
+    for _ in range(3):
+        page = await cases_service.search_cases(
+            CursorPaginationParams(limit=1, cursor=cursor),
+            search_term=query,
+            promote_exact_match=True,
+            start_time=start_time,
+            status=[CaseStatus.NEW],
+            order_by="created_at",
+            sort="desc",
+        )
+        assert len(page.items) == 1
+        assert page.total_estimate == 2
+        ids.append(page.items[0].id)
+        pages.append(page)
+        cursor = page.next_cursor
+    assert ids == [exact.id, first_mention.id, second_mention.id]
+    assert pages[0].items[0].is_exact_match
+    assert pages[0].items[0].is_outside_filters
+    assert all(not page.items[0].is_exact_match for page in pages[1:])
+    assert pages[-1].has_more is False
+    assert cursor is None
+    assert list((await session.scalars(select(CaseEvent.id))).all()) == events_before
+    # Backward navigation reaches the same exact first page.
+    assert pages[1].prev_cursor is not None
+    previous = await cases_service.search_cases(
+        CursorPaginationParams(limit=1, cursor=pages[1].prev_cursor),
+        search_term=query,
+        promote_exact_match=True,
+        start_time=start_time,
+        status=[CaseStatus.NEW],
+        order_by="created_at",
+        sort="desc",
+    )
+    assert [item.id for item in previous.items] == [exact.id]
+
+
+@pytest.mark.anyio
+async def test_promoted_exact_case_is_not_duplicated_or_counted_twice(
+    cases_service: CasesService, exact_search_cases: tuple[Case, Case, Case]
+) -> None:
+    """A case within the filters appears once and keeps the ordinary total."""
+    exact, first, second = exact_search_cases
+    result = await cases_service.search_cases(
+        CursorPaginationParams(limit=10),
+        search_term=exact.short_id,
+        promote_exact_match=True,
+    )
+    assert [item.id for item in result.items] == [exact.id, first.id, second.id]
+    assert result.items[0].is_exact_match
+    assert result.items[0].is_outside_filters is False
+    assert result.total_estimate == 3
+
+
+@pytest.mark.anyio
+async def test_promoted_exact_case_survives_an_empty_ordinary_population(
+    cases_service: CasesService, exact_search_cases: tuple[Case, Case, Case]
+) -> None:
+    """An impossible client filter still allows only the exact case to appear."""
+    exact, _, _ = exact_search_cases
+    result = await cases_service.search_cases(
+        CursorPaginationParams(limit=1),
+        search_term=exact.short_id,
+        promote_exact_match=True,
+        match_none=True,
+    )
+    assert [item.id for item in result.items] == [exact.id]
+    assert result.items[0].is_outside_filters
+    assert result.total_estimate == 0
+    assert result.has_more is False
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("promote", [False, True])
+async def test_explicit_identity_filters_remain_strict_during_promotion(
+    cases_service: CasesService,
+    exact_search_cases: tuple[Case, Case, Case],
+    promote: bool,
+) -> None:
+    """An explicit identity/relationship query cannot escape supplied filters."""
+    exact, _, _ = exact_search_cases
+    result = await cases_service.search_cases(
+        CursorPaginationParams(limit=10),
+        search_term=exact.short_id,
+        case_id=exact.id,
+        promote_exact_match=promote,
+        status=[CaseStatus.NEW],
+    )
+    assert result.items == []
+
+
+@pytest.mark.anyio
+async def test_numeric_text_does_not_promote_an_old_case(
+    cases_service: CasesService, exact_search_cases: tuple[Case, Case, Case]
+) -> None:
+    """Ambiguous numeric input retains ordinary text and date filtering."""
+    exact, _, _ = exact_search_cases
+    result = await cases_service.search_cases(
+        CursorPaginationParams(limit=10),
+        search_term="42",
+        promote_exact_match=True,
+        start_time=datetime.now(UTC) - timedelta(days=30),
+    )
+    assert exact.id not in {item.id for item in result.items}
+    assert all(not item.is_exact_match for item in result.items)

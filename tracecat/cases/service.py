@@ -76,6 +76,7 @@ from tracecat.cases.event_schemas import (
     UpdatedEvent,
 )
 from tracecat.cases.events import CaseEventsService
+from tracecat.cases.exact_search import find_exact_case_match
 from tracecat.cases.hierarchy import TOP_LEVEL, CaseHierarchyService
 from tracecat.cases.mentions import MentionToken, parse_mentions
 from tracecat.cases.query import CaseFieldResolver, referenced_dropdown_refs
@@ -575,12 +576,17 @@ class CasesService(BaseWorkspaceService):
         linked_row: tuple[uuid.UUID, uuid.UUID] | None = None,
         exclude_case_id: uuid.UUID | None = None,
         case_id: uuid.UUID | None = None,
+        promote_exact_match: bool = False,
+        match_none: bool = False,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """Search cases with cursor-based pagination and filtering.
 
         ``linked_row`` is a ``(table_id, row_id)`` pair that keeps only cases
         linked to that table row. ``case_id`` matches an exact UUID while still
-        applying the workspace and every other explicit filter.
+        applying the workspace and every other explicit filter. Interactive callers
+        can enable ``promote_exact_match`` to place the referenced case before
+        ordinary text matches. Only view filters may be bypassed, and counts
+        retain their filtered-population meaning.
         """
         include_case_addons = await self.has_entitlement(Entitlement.CASE_ADDONS)
         parent_id, top_level_only = await self.hierarchy.resolve_filters(
@@ -589,7 +595,7 @@ class CasesService(BaseWorkspaceService):
         filters = self._build_search_filters(
             linked_row=linked_row,
             exclude_case_id=exclude_case_id,
-            search_term=search_term,
+            search_term=None,
             short_id=short_id,
             case_id=case_id,
             status=status,
@@ -608,6 +614,24 @@ class CasesService(BaseWorkspaceService):
             parent_id=parent_id,
             top_level_only=top_level_only,
         )
+
+        if match_none:
+            filters.append(sa.false())
+
+        view_filters = list(filters)
+        if search_term:
+            filters.extend(self._build_search_filters(search_term=search_term)[1:])
+
+        exact_match = None
+        if promote_exact_match and not any(
+            (case_id, short_id, parent_id, linked_row, exclude_case_id)
+        ):
+            exact_match = await find_exact_case_match(
+                self.session,
+                workspace_id=self.workspace_id,
+                search_term=search_term,
+                filters=view_filters,
+            )
 
         # Base query - eagerly load tags, assignee, and dropdown values.
         stmt = (
@@ -629,8 +653,10 @@ class CasesService(BaseWorkspaceService):
         if include_case_addons and include_durations:
             stmt = stmt.options(selectinload(Case.durations))
 
-        for clause in filters:
-            stmt = stmt.where(clause)
+        if exact_match is not None:
+            stmt = stmt.where(sa.or_(sa.and_(*filters), Case.id == exact_match.id))
+        else:
+            stmt = stmt.where(*filters)
 
         # Compute total count with applied filters (workspace scoped)
         count_stmt = (
@@ -692,6 +718,12 @@ class CasesService(BaseWorkspaceService):
             else:
                 ordering = (sort_attr.desc(), Case.id.desc())
 
+        if exact_match is not None:
+            ordering = (
+                sa.case((Case.id == exact_match.id, 0), else_=1).asc(),
+                *ordering,
+            )
+
         case_page = await paginate(
             self.session,
             stmt,
@@ -741,6 +773,13 @@ class CasesService(BaseWorkspaceService):
             case_items.append(
                 CaseReadMinimal(
                     id=case.id,
+                    is_exact_match=exact_match is not None
+                    and case.id == exact_match.id,
+                    is_outside_filters=(
+                        exact_match is not None
+                        and case.id == exact_match.id
+                        and exact_match.outside_filters
+                    ),
                     created_at=case.created_at,
                     updated_at=case.updated_at,
                     short_id=case.short_id,

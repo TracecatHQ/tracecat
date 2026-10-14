@@ -1,5 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
-import userEvent from "@testing-library/user-event"
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import type { ReactNode } from "react"
 import {
   type CaseReadMinimal,
@@ -42,16 +47,31 @@ jest.mock("@/components/cases/delete-case-dialog", () => ({
 jest.mock("@/components/cases/case-side-panel", () => ({
   CaseSidePanel: () => null,
 }))
+jest.mock("@/components/cases/case-item", () => ({
+  CaseItem: ({
+    caseData,
+    onClick,
+  }: {
+    caseData: CaseReadMinimal
+    onClick: () => void
+  }) => (
+    <button type="button" onClick={onClick}>
+      {caseData.short_id}
+    </button>
+  ),
+}))
 jest.mock("@/components/cases/cases-accordion", () => ({
   orderCasesForDisplay: (cases: CaseReadMinimal[]) => cases,
   CasesAccordion: ({
     cases,
     onSelect,
+    stageCounts,
   }: {
     cases: CaseReadMinimal[]
     onSelect: (id: string) => void
+    stageCounts: { closed: number } | null
   }) => (
-    <div>
+    <div data-testid="ordinary-results" data-closed-count={stageCounts?.closed}>
       {cases.map((caseData) => (
         <button
           type="button"
@@ -90,8 +110,6 @@ function Harness() {
       appliedSearchQuery={search.appliedSearchQuery}
       effectiveHierarchy={search.effectiveHierarchy}
       isSearchPending={search.isSearchPending}
-      searchScope={search.searchScope}
-      onSearchScopeChange={search.setSearchScope}
       onSearchChange={search.setSearchQuery}
       onSortByChange={search.setSortBy}
       onStatusChange={search.setStatusFilter}
@@ -146,21 +164,11 @@ function mockCasesResponse(response: CasesSearchCasesResponse) {
     )
 }
 
-describe("case search scope UI", () => {
+describe("exact-first case search UI", () => {
   beforeEach(() => {
     window.localStorage.clear()
-    mockPush.mockReset()
-    jest.mocked(casesSearchCases).mockReset()
-    jest.mocked(casesSearchCases).mockImplementation((request) => {
-      const items = request.startTime ? [] : [CASE]
-      return new CancelablePromise((resolve) =>
-        resolve({
-          items,
-          has_more: false,
-          total_estimate: items.length,
-        })
-      )
-    })
+    jest.clearAllMocks()
+    mockCasesResponse({ items: [], has_more: false })
     jest.mocked(casesSearchCaseAggregates).mockImplementation(
       () =>
         new CancelablePromise((resolve) =>
@@ -180,294 +188,102 @@ describe("case search scope UI", () => {
     )
   })
 
-  it("shows the default date and hierarchy constraints and text-search hierarchy", async () => {
+  it("keeps the view filters visible without a scope selector", async () => {
     setup()
+    await waitFor(() => expect(casesSearchCases).toHaveBeenCalledTimes(1))
+    expect(
+      screen.queryByRole("combobox", { name: "Case search scope" })
+    ).not.toBeInTheDocument()
     expect(screen.getByRole("status")).toHaveTextContent(
-      "Current view · Created in last 30 days · Updated: any time · Top-level cases only"
-    )
-    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
-      target: { value: "synthetic" },
-    })
-    expect(screen.getByRole("status")).toHaveTextContent("Updating search…")
-    await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent("Includes sub-cases")
-    )
-    expect(screen.getByRole("switch")).toHaveAttribute("aria-checked", "true")
-    expect(screen.getByRole("switch")).toBeDisabled()
-    await screen.findByText("No cases match the current view.")
-  })
-
-  it("expands an empty current-view search and navigates to an older case", async () => {
-    const user = userEvent.setup()
-    setup()
-    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
-      target: { value: "synthetic" },
-    })
-    await user.click(
-      await screen.findByRole("button", { name: "Search all cases" })
-    )
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "All cases in this workspace · Any date · Includes sub-cases · View filters paused"
+      "Created in last 30 days"
     )
     expect(
       screen.getByRole("group", { name: "Current view filters" })
-    ).toBeDisabled()
-    await user.click(await screen.findByRole("button", { name: "CASE-0042" }))
+    ).not.toBeDisabled()
+  })
+
+  it("uses one search request for a complete ID and keeps the view constraints", async () => {
+    setup()
+    await waitFor(() => expect(casesSearchCases).toHaveBeenCalledTimes(1))
+    mockCasesResponse({
+      items: [{ ...CASE, is_exact_match: true, is_outside_filters: true }],
+      has_more: false,
+      total_estimate: 0,
+    })
+    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
+      target: { value: "CASE-0042" },
+    })
+    await screen.findByRole("region", { name: "Exact match" })
+    expect(casesSearchCases).toHaveBeenCalledTimes(2)
+    expect(jest.mocked(casesSearchCases).mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({
+        searchTerm: "CASE-0042",
+        promoteExactMatch: true,
+        startTime: expect.any(String),
+      })
+    )
+    expect(
+      screen.getByText("Exact match · Outside current filters")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("group", { name: "Current view filters" })
+    ).not.toBeDisabled()
+    fireEvent.click(screen.getByRole("button", { name: "CASE-0042" }))
     expect(mockPush).toHaveBeenCalledWith(
       `/workspaces/${WORKSPACE_ID}/cases/${CASE.id}`
     )
   })
 
-  it("offers all cases when only the default date filter hides older cases", async () => {
-    const user = userEvent.setup()
-    setup()
-    await user.click(
-      await screen.findByRole("button", { name: "Search all cases" })
-    )
-    await screen.findByRole("button", { name: "CASE-0042" })
-    expect(screen.getByRole("textbox", { name: "Search cases" })).toHaveValue(
-      ""
-    )
-    expect(screen.getByRole("status")).toHaveTextContent("Any date")
-    expect(casesSearchCases).toHaveBeenLastCalledWith(
-      expect.objectContaining({ hierarchy: "all" })
-    )
-    expect(
-      screen.getByRole("switch", { name: "Including sub-cases" })
-    ).toHaveAttribute("aria-checked", "true")
-    expect(
-      screen.getByRole("switch", { name: "Including sub-cases" })
-    ).toBeDisabled()
-    fireEvent.keyDown(
-      screen.getByRole("combobox", { name: "Case search scope" }),
-      { key: "ArrowDown" }
-    )
-    await user.click(
-      await screen.findByRole("option", { name: "Current view" })
-    )
-    await screen.findByText("No cases match the current view.")
-    expect(casesSearchCases).toHaveBeenLastCalledWith(
-      expect.objectContaining({ hierarchy: "top_level" })
-    )
-    expect(
-      screen.getByRole("switch", { name: "Top-level cases only" })
-    ).toHaveAttribute("aria-checked", "false")
-    expect(
-      screen.getByRole("switch", { name: "Top-level cases only" })
-    ).toBeEnabled()
-  })
-
-  it("makes automatic exact-ID lookup and its filter bypass visible", async () => {
-    setup()
-    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
-      target: { value: "CASE-0042" },
+  it("shows the exact match before ordinary matches without duplicating it", async () => {
+    const other = {
+      ...CASE,
+      id: "00000000-0000-4000-8000-000000000043",
+      short_id: "CASE-0043",
+    }
+    mockCasesResponse({
+      items: [{ ...CASE, is_exact_match: true }, other],
+      has_more: false,
     })
-    expect(screen.getByRole("textbox", { name: "Search cases" })).toHaveValue(
-      "CASE-0042"
-    )
-    expect(screen.getByRole("status")).toHaveTextContent("Current view")
-    expect(screen.getByRole("status")).toHaveTextContent("Updating search…")
-    expect(screen.getByRole("status")).not.toHaveTextContent(
-      "Exact case ID lookup"
-    )
-    await screen.findByRole("button", { name: "CASE-0042" })
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Exact case ID lookup · All cases in this workspace"
-    )
-    expect(
-      screen.getByRole("combobox", { name: "Case search scope" })
-    ).toHaveTextContent("All cases")
-    expect(screen.getByText("1 case")).toBeInTheDocument()
-    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
-      target: { value: "synthetic" },
-    })
-    expect(screen.getByRole("status")).toHaveTextContent("Exact case ID lookup")
-    expect(screen.getByRole("status")).toHaveTextContent("Updating search…")
-    await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent("Current view")
-    )
-    expect(screen.getByRole("status")).not.toHaveTextContent(
-      "Exact case ID lookup"
-    )
-  })
-
-  it("lets an analyst explicitly keep a complete ID within the current view", async () => {
-    const user = userEvent.setup()
     setup()
-    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
-      target: { value: "CASE-0042" },
-    })
-    await screen.findByRole("button", { name: "CASE-0042" })
-    fireEvent.keyDown(
-      screen.getByRole("combobox", { name: "Case search scope" }),
-      {
-        key: "ArrowDown",
-      }
-    )
-    await user.click(
-      await screen.findByRole("option", { name: "Current view" })
-    )
-    await screen.findByText("No cases match the current view.")
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Created in last 30 days"
-    )
+    const exact = await screen.findByRole("region", { name: "Exact match" })
     expect(
-      screen.getByRole("group", { name: "Current view filters" })
-    ).not.toBeDisabled()
-    expect(
-      screen.getByRole("button", { name: "Search all cases" })
+      within(exact).getByRole("button", { name: "CASE-0042" })
     ).toBeInTheDocument()
-    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
-      target: { value: "" },
-    })
-    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
-      target: { value: CASE.short_id },
-    })
-    await waitFor(() =>
-      expect(casesSearchCases).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          searchTerm: CASE.short_id,
-          startTime: expect.any(String),
-        })
-      )
-    )
     expect(
-      screen.getByRole("combobox", { name: "Case search scope" })
-    ).toHaveTextContent("Current view")
-  })
-
-  it("states an unavailable exact ID is absent from this workspace", async () => {
-    mockCasesResponse({ items: [], has_more: false })
-    setup()
-    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
-      target: { value: CASE.id },
-    })
-    await screen.findByText("No matching cases in this workspace.")
+      within(screen.getByTestId("ordinary-results")).queryByText("CASE-0042")
+    ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole("button", { name: "Search all cases" })
+      screen
+        .getAllByRole("button", { name: /CASE-004[23]/ })
+        .map((button) => button.textContent)
+    ).toEqual(["CASE-0042", "CASE-0043"])
+    expect(
+      screen.queryByText(/Outside current filters/)
     ).not.toBeInTheDocument()
   })
 
-  it.each([
-    ["CASE-9999999999", "Short ID number cannot exceed 2147483647"],
-    ["CASE-12345678901", "Short ID must match CASE-<number> or <number>"],
-  ])(
-    "shows API validation for %s instead of a filtered text search",
-    async (reference, detail) => {
-      jest.mocked(casesSearchCases).mockImplementation(
-        (request) =>
-          new CancelablePromise((_resolve, reject) =>
-            request.shortId
-              ? reject(
-                  Object.assign(new Error("Bad Request"), {
-                    status: 400,
-                    body: {
-                      detail,
-                    },
-                  })
-                )
-              : _resolve({ items: [], has_more: false })
-          )
-      )
-      setup()
-      fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
-        target: { value: reference },
-      })
-      await screen.findByText(`Failed to load cases: ${detail}`)
-      expect(screen.getByRole("status")).toHaveTextContent(
-        "Exact case ID lookup"
-      )
-      expect(casesSearchCases).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          shortId: reference,
-          searchTerm: undefined,
-          hierarchy: "all",
-        })
-      )
-    }
-  )
-
-  it("preserves manual all-cases scope on clear until Reset is used", async () => {
-    const user = userEvent.setup()
+  it("clears the promoted result without changing the saved date constraint", async () => {
     setup()
-    await user.click(
-      await screen.findByRole("button", { name: "Search all cases" })
-    )
-    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
-      target: { value: "synthetic" },
+    await waitFor(() => expect(casesSearchCases).toHaveBeenCalledTimes(1))
+    mockCasesResponse({
+      items: [{ ...CASE, is_exact_match: true, is_outside_filters: true }],
+      has_more: false,
     })
-    await waitFor(() =>
-      expect(casesSearchCases).toHaveBeenCalledWith(
-        expect.objectContaining({
-          searchTerm: "synthetic",
-          hierarchy: "all",
-        })
-      )
-    )
-    expect(
-      jest.mocked(casesSearchCases).mock.calls.at(-1)?.[0]
-    ).not.toHaveProperty("startTime")
-    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
-      target: { value: "" },
-    })
-    expect(
-      screen.getByRole("combobox", { name: "Case search scope" })
-    ).toHaveTextContent("All cases")
-    expect(screen.getByRole("status")).toHaveTextContent("Any date")
-    expect(
-      screen.getByRole("group", { name: "Current view filters" })
-    ).toBeDisabled()
-    await user.click(screen.getByRole("button", { name: "Reset" }))
-    expect(
-      screen.getByRole("combobox", { name: "Case search scope" })
-    ).toHaveTextContent("Current view")
-  })
-
-  it("resets an explicit scope to automatic lookup behavior", async () => {
-    const user = userEvent.setup()
-    setup()
-    await user.click(
-      await screen.findByRole("button", { name: "Search all cases" })
-    )
-    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
-      target: { value: "synthetic" },
-    })
-    await user.click(screen.getByRole("button", { name: "Reset" }))
-    expect(
-      screen.getByRole("combobox", { name: "Case search scope" })
-    ).toHaveTextContent("Current view")
-    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
-      target: { value: CASE.short_id },
-    })
-    await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent(
-        "Exact case ID lookup"
-      )
-    )
-  })
-
-  it("clears the lookup and restores the saved view constraints", async () => {
-    setup()
     fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
       target: { value: CASE.id },
     })
-    await screen.findByRole("button", { name: "CASE-0042" })
-    await act(async () => {
-      fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
-        target: { value: "" },
-      })
+    await screen.findByRole("region", { name: "Exact match" })
+    mockCasesResponse({ items: [], has_more: false })
+    fireEvent.change(screen.getByRole("textbox", { name: "Search cases" }), {
+      target: { value: "" },
     })
-    expect(screen.getByRole("status")).toHaveTextContent("Current view")
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Created in last 30 days"
-    )
-    expect(
-      screen.getByRole("group", { name: "Current view filters" })
-    ).not.toBeDisabled()
     await waitFor(() =>
       expect(
-        screen.queryByRole("button", { name: "CASE-0042" })
+        screen.queryByRole("region", { name: "Exact match" })
       ).not.toBeInTheDocument()
+    )
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Created in last 30 days"
     )
   })
 })

@@ -72,10 +72,6 @@ import type {
   DropdownFilterState,
 } from "@/hooks/use-cases"
 import { DEFAULT_CREATED_PRESET } from "@/hooks/use-cases"
-import {
-  type CaseSearchScope,
-  parseCaseReference,
-} from "@/lib/cases/search-scope"
 import { cn } from "@/lib/utils"
 
 const getIconTextClass = (color?: string) =>
@@ -375,8 +371,6 @@ interface CasesHeaderProps {
   appliedSearchQuery: string
   effectiveHierarchy: NonNullable<CasesSearchCasesData["hierarchy"]>
   isSearchPending: boolean
-  searchScope: CaseSearchScope
-  onSearchScopeChange: (scope: CaseSearchScope | null) => void
   onSearchChange: (query: string) => void
   sortBy: CaseSortValue
   onSortByChange: (value: CaseSortValue) => void
@@ -439,8 +433,6 @@ export function CasesHeader({
   appliedSearchQuery,
   effectiveHierarchy,
   isSearchPending,
-  searchScope,
-  onSearchScopeChange,
   onSearchChange,
   sortBy,
   onSortByChange,
@@ -575,28 +567,16 @@ export function CasesHeader({
     createdAfter.type === "preset" &&
     createdAfter.value === DEFAULT_CREATED_PRESET
 
-  const isAllCasesSearch = searchScope === "all"
-  const isExactLookup =
-    isAllCasesSearch && parseCaseReference(appliedSearchQuery)
   const includesSubCases = effectiveHierarchy === "all"
   const hierarchyLabel = includesSubCases
     ? "Includes sub-cases"
     : "Top-level cases only"
-  let scopeDescription: string
-  if (isAllCasesSearch) {
-    scopeDescription = `All cases in this workspace · Any date · ${hierarchyLabel} · View filters paused`
-    if (isExactLookup) {
-      scopeDescription = `Exact case ID lookup · ${scopeDescription}`
-    }
-  } else {
-    const createdLabel = getDateScopeLabel(createdAfter, "Created")
-    const updatedLabel = getDateScopeLabel(updatedAfter, "Updated")
-    scopeDescription = `Current view · ${createdLabel} · ${updatedLabel} · ${hierarchyLabel}`
-  }
+  const createdLabel = getDateScopeLabel(createdAfter, "Created")
+  const updatedLabel = getDateScopeLabel(updatedAfter, "Updated")
+  const scopeDescription = `${createdLabel} · ${updatedLabel} · ${hierarchyLabel}`
 
   const hasFilters =
     searchQuery.trim().length > 0 ||
-    isAllCasesSearch ||
     !isDefaultCaseSort(sortBy) ||
     statusFilter.length > 0 ||
     priorityFilter.length > 0 ||
@@ -610,7 +590,6 @@ export function CasesHeader({
 
   const handleReset = () => {
     onSearchChange("")
-    onSearchScopeChange(null)
     onSortByChange(DEFAULT_CASE_SORT)
     onStatusChange([])
     onStatusModeChange("include")
@@ -666,23 +645,6 @@ export function CasesHeader({
               "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
             )}
           />
-          <Select
-            value={searchScope}
-            onValueChange={(value: CaseSearchScope) =>
-              onSearchScopeChange(value)
-            }
-          >
-            <SelectTrigger
-              aria-label="Case search scope"
-              className="h-7 w-[130px] px-2 text-xs shadow-none"
-            >
-              <span>{isAllCasesSearch ? "All cases" : "Current view"}</span>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="view">Current view</SelectItem>
-              <SelectItem value="all">All cases</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
 
         <div className="ml-auto flex items-center gap-2">
@@ -745,13 +707,7 @@ export function CasesHeader({
           </button>
         )}
 
-        <fieldset
-          disabled={isAllCasesSearch}
-          className={cn(
-            "flex min-w-0 flex-wrap items-center gap-2",
-            isAllCasesSearch && "opacity-50"
-          )}
-        >
+        <fieldset className={cn("flex min-w-0 flex-wrap items-center gap-2")}>
           <legend className="sr-only">Current view filters</legend>
           <FilterMultiSelect
             placeholder="Status"
