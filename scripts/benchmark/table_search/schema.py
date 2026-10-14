@@ -97,6 +97,22 @@ def create_source(conn: Connection, cols: tuple[Column, ...]) -> None:
     conn.execute(HELPERS)
 
 
+def drop_source(conn: Connection) -> None:
+    conn.execute(
+        "DROP TABLE source, projection, literal_projection; "
+        "DROP FUNCTION json_values(jsonb), value_chunks(text)"
+    )
+
+
+def delete_projection(conn: Connection, workspaces: list[int], first_row: int) -> None:
+    """Remove both representations before replacing or deleting probe rows."""
+    for table in ("projection", "literal_projection"):
+        conn.execute(
+            f"DELETE FROM {table} WHERE workspace = ANY(%s) AND row_id >= %s",
+            (workspaces, first_row),
+        )
+
+
 def insert_sql(cols: tuple[Column, ...]) -> str:
     """Server-side seeded generator, avoiding client serialization bottlenecks."""
     text_columns = []

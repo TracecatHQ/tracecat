@@ -17,6 +17,9 @@ from tracecat.query.lexical_types import (
 
 from .schema import CONFIG, Column
 
+type Cursor = tuple[float | str | None, int]
+type Parameter = str | int | float | None
+
 
 @dataclass(frozen=True, slots=True)
 class Search:
@@ -78,116 +81,139 @@ def query(
     search: Search,
     *,
     projection: bool = False,
-    cursor: tuple[float | str | None, int] | None = None,
-) -> tuple[str, tuple[str | int | float | None, ...]]:
-    """Return parameterized AND-of-OR search, rank ordering and keyset paging."""
+    cursor: Cursor | None = None,
+) -> tuple[str, tuple[Parameter, ...]]:
+    """Build matching candidates, then order/page them and fetch full source rows.
+
+    Result columns start with score, cursor value and source row ID.
+    """
     resolved = resolve_search_columns(
         search.selected or "all_columns", tuple(c.name for c in cols)
     )
     selected = [(i, c) for i, c in enumerate(cols) if c.name in resolved]
-    if not selected:
-        raise ValueError("Search requires columns")
-    params: list[str | int | float | None] = []
-    ordering = "score DESC, id DESC"
-    page_ordering = "page.score DESC, page.id DESC"
-    cursor_value = "score"
     if isinstance(search.order, ColumnSearchOrder):
-        if search.order.column not in {
-            "id",
-            *(c.name for c in cols if c.kind == "text"),
-        }:
+        orderable = {"id", *(c.name for c in cols if c.kind == "text")}
+        if search.order.column not in orderable:
             raise ValueError(
                 "Ordering column is missing or unsupported; benchmark orders TEXT or row ID"
             )
-        direction = search.order.direction.upper()
+    if search.mode == SearchMode.LITERAL:
+        matches, params = _literal_matches(selected, search.text, projection)
+    else:
+        matches, params = _full_text_matches(selected, search.text, projection)
+    statement, cursor_params = _page_query(matches, search.order, cursor)
+    return statement, (*params, *cursor_params)
+
+
+def _literal_matches(
+    selected: list[tuple[int, Column]], text: str, projection: bool
+) -> tuple[str, tuple[str, ...]]:
+    pattern = literal_search_pattern(text) or ""
+    if projection:
+        column_ids = ",".join(str(i) for i, _ in selected)
+        predicate = (
+            "s.id IN (SELECT row_id FROM literal_projection "
+            f"WHERE workspace = 1 AND column_id IN ({column_ids}) "
+            "AND body ILIKE %s ESCAPE E'\\\\')"
+        )
+        params = (pattern,)
+    else:
+        predicate = (
+            "("
+            + " OR ".join(
+                f"{column.literal} ILIKE %s ESCAPE E'\\\\'" for _, column in selected
+            )
+            + ")"
+        )
+        params = (pattern,) * len(selected)
+    return (
+        f"SELECT s.id, 0::real AS score FROM source s WHERE workspace = 1 AND {predicate}",
+        params,
+    )
+
+
+def _full_text_matches(
+    selected: list[tuple[int, Column]], text: str, projection: bool
+) -> tuple[str, tuple[str, ...]]:
+    units = parse_full_text_query(text)
+    query_ctes = []
+    for i, unit in enumerate(units):
+        parser = "phraseto_tsquery" if unit.is_phrase else "plainto_tsquery"
+        query_ctes.append(f"q{i} AS (SELECT {parser}('{CONFIG}', %s) AS q)")
+    params = tuple(unit.text for unit in units)
+    if projection:
+        column_ids = ",".join(str(i) for i, _ in selected)
+        hits = [
+            f"h{i} AS (SELECT row_id, max(ts_rank_cd(vector, q{i}.q)) AS score "
+            f"FROM projection CROSS JOIN q{i} WHERE workspace = 1 "
+            f"AND column_id IN ({column_ids}) AND vector @@ q{i}.q GROUP BY row_id)"
+            for i in range(len(units))
+        ]
+        joins = " ".join(f"JOIN h{i} USING(row_id)" for i in range(1, len(units)))
+        score = " + ".join(f"h{i}.score" for i in range(len(units)))
+        return (
+            f"WITH {', '.join(query_ctes + hits)} SELECT row_id AS id, {score} AS score FROM h0 {joins}",
+            params,
+        )
+
+    predicates = []
+    scores = []
+    for i, unit in enumerate(units):
+        matches = []
+        for _, column in selected:
+            match = f"{column.vector} @@ q{i}.q"
+            if unit.is_phrase and column.kind == "jsonb":
+                match += (
+                    f" AND EXISTS (SELECT 1 FROM {column.values} v "
+                    f"WHERE to_tsvector('{CONFIG}', v.value) @@ q{i}.q)"
+                )
+            matches.append(f"({match})")
+        predicates.append("(" + " OR ".join(matches) + ")")
+        scores.append(
+            "greatest("
+            + ",".join(f"ts_rank_cd({column.vector}, q{i}.q)" for _, column in selected)
+            + ")"
+        )
+    cross = ", ".join(f"q{i}" for i in range(len(units)))
+    return (
+        f"WITH {', '.join(query_ctes)} SELECT s.id, {' + '.join(scores)} AS score "
+        f"FROM source s CROSS JOIN {cross} WHERE workspace = 1 AND "
+        + " AND ".join(predicates),
+        params,
+    )
+
+
+def _page_query(
+    matches: str, order: SearchOrder, cursor: Cursor | None
+) -> tuple[str, tuple[Parameter, ...]]:
+    paging = ""
+    params: tuple[Parameter, ...] = ()
+    if isinstance(order, ColumnSearchOrder):
+        matches = f"SELECT candidates.*, ordered.{order.column} AS order_value FROM ({matches}) candidates JOIN source ordered USING(id)"
+        direction = order.direction.upper()
         ordering = f"order_value {direction} NULLS LAST, id {direction}"
         page_ordering = f"page.order_value {direction} NULLS LAST, page.id {direction}"
-        cursor_value = "order_value"
-    if search.mode == SearchMode.LITERAL:
-        pattern = literal_search_pattern(search.text)
-        params.append(pattern or "")
-        if projection:
-            predicate = (
-                "s.id IN (SELECT row_id FROM literal_projection "
-                "WHERE workspace = 1 AND column_id IN ("
-                + ",".join(str(i) for i, _ in selected)
-                + ") AND body ILIKE %s ESCAPE E'\\\\')"
-            )
-        else:
-            predicate = (
-                "("
-                + " OR ".join(
-                    f"{c.literal} ILIKE %s ESCAPE E'\\\\'" for _, c in selected
-                )
-                + ")"
-            )
-            params *= len(selected)
-        cte = f"SELECT s.id, 0::real AS score FROM source s WHERE workspace = 1 AND {predicate}"
-    else:
-        units = parse_full_text_query(search.text)
-        query_ctes = []
-        for i, unit in enumerate(units):
-            parser = "phraseto_tsquery" if unit.is_phrase else "plainto_tsquery"
-            query_ctes.append(f"q{i} AS (SELECT {parser}('{CONFIG}', %s) AS q)")
-            params.append(unit.text)
-        if projection:
-            hits = []
-            for i, _ in enumerate(units):
-                hits.append(
-                    f"h{i} AS (SELECT row_id, max(ts_rank_cd(vector, q{i}.q)) AS score "
-                    f"FROM projection CROSS JOIN q{i} WHERE workspace = 1 "
-                    "AND column_id IN ("
-                    + ",".join(str(j) for j, _ in selected)
-                    + f") AND vector @@ q{i}.q GROUP BY row_id)"
-                )
-            joins = " ".join(f"JOIN h{i} USING(row_id)" for i in range(1, len(units)))
-            score = " + ".join(f"h{i}.score" for i in range(len(units)))
-            cte = f"WITH {', '.join(query_ctes + hits)} SELECT row_id AS id, {score} AS score FROM h0 {joins}"
-        else:
-            predicates = []
-            scores = []
-            for i, unit in enumerate(units):
-                matches = []
-                for _, column in selected:
-                    match = f"{column.vector} @@ q{i}.q"
-                    if unit.is_phrase and column.kind == "jsonb":
-                        match += (
-                            f" AND EXISTS (SELECT 1 FROM {column.values} v "
-                            f"WHERE to_tsvector('{CONFIG}', v.value) @@ q{i}.q)"
-                        )
-                    matches.append(f"({match})")
-                predicates.append("(" + " OR ".join(matches) + ")")
-                scores.append(
-                    "greatest("
-                    + ",".join(f"ts_rank_cd({c.vector}, q{i}.q)" for _, c in selected)
-                    + ")"
-                )
-            cross = ", ".join(f"q{i}" for i in range(len(units)))
-            cte = (
-                f"WITH {', '.join(query_ctes)} SELECT s.id, {' + '.join(scores)} AS score "
-                f"FROM source s CROSS JOIN {cross} WHERE workspace = 1 AND "
-                + " AND ".join(predicates)
-            )
-    if isinstance(search.order, ColumnSearchOrder):
-        cte = f"SELECT candidates.*, ordered.{search.order.column} AS order_value FROM ({cte}) candidates JOIN source ordered USING(id)"
-    paging = ""
-    if cursor:
-        if isinstance(search.order, ColumnSearchOrder):
-            operator = ">" if search.order.direction == "asc" else "<"
-            if cursor[0] is None:
+        cursor_column = "order_value"
+        if cursor is not None:
+            value, row_id = cursor
+            operator = ">" if order.direction == "asc" else "<"
+            if value is None:
                 paging = f"WHERE order_value IS NULL AND id {operator} %s"
-                params.append(cursor[1])
+                params = (row_id,)
             else:
                 paging = f"WHERE (order_value, id) {operator} (%s, %s) OR order_value IS NULL"
-                params.extend(cursor)
-        else:
+                params = cursor
+    else:
+        ordering = "score DESC, id DESC"
+        page_ordering = "page.score DESC, page.id DESC"
+        cursor_column = "score"
+        if cursor is not None:
             paging = "WHERE (score, id) < (%s::real, %s::bigint)"
-            params.extend(cursor)
-    # Fetch the actual wide source row, rather than timing an ID-only response.
+            params = cursor
     statement = (
-        f"WITH matched AS ({cte}), page AS (SELECT *, {cursor_value} AS cursor_value FROM matched {paging} "
+        f"WITH matched AS ({matches}), page AS (SELECT *, {cursor_column} AS cursor_value FROM matched {paging} "
         f"ORDER BY {ordering} LIMIT 50) "
         "SELECT page.score, page.cursor_value, s.* FROM page JOIN source s USING(id) "
         f"ORDER BY {page_ordering}"
     )
-    return statement, tuple(params)
+    return statement, params

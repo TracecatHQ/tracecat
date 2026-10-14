@@ -22,6 +22,23 @@ from scripts.benchmark.table_search.schema import columns, insert_sql
 from tracecat.query.lexical_types import ColumnSearchOrder, SearchMode
 
 
+@pytest.fixture
+def settings() -> Settings:
+    return Settings(
+        sizes=(100,),
+        width=4,
+        workspaces=4,
+        seed=2022,
+        samples=2,
+        broad_samples=1,
+        write_batches=2,
+        write_batch_size=10,
+        timeout_ms=5000,
+        max_value_bytes=2097152,
+        environment="synthetic",
+    )
+
+
 def test_database_guard_rejects_application_database_before_catalog_scan() -> None:
     conn = Mock()
     conn.execute.return_value.fetchone.return_value = ("postgres",)
@@ -74,9 +91,8 @@ def test_trigram_extension_requires_public_namespace(namespace: str) -> None:
     assert conn.execute.call_count == 2
 
 
-def test_next_scenario_clears_search_timeout_before_setup() -> None:
+def test_next_scenario_clears_search_timeout_before_setup(settings: Settings) -> None:
     conn = Mock()
-    settings = Settings((100,), 4, 4, 2022, 2, 1, 2, 10, 5000, 2097152, "synthetic")
 
     def check_setup_timeout(*_args) -> None:
         conn.execute.assert_called_once_with("SET statement_timeout = 0")
@@ -204,9 +220,9 @@ def test_workload_policy_does_not_depend_on_names_or_case_order() -> None:
 @pytest.mark.parametrize("interrupt_during_startup", [False, True])
 def test_concurrent_writer_cancellation_always_releases_and_stops(
     interrupt_during_startup: bool,
+    settings: Settings,
 ) -> None:
     control = WriterControl()
-    settings = Settings((100,), 4, 4, 2022, 2, 1, 2, 10, 5000, 2097152, "synthetic")
     future = Future()
     pool = Mock()
     pool.submit.return_value = future
@@ -232,9 +248,8 @@ def test_concurrent_writer_cancellation_always_releases_and_stops(
     assert control.finished.is_set()
 
 
-def test_concurrent_writer_propagates_startup_failure() -> None:
+def test_concurrent_writer_propagates_startup_failure(settings: Settings) -> None:
     control = WriterControl()
-    settings = Settings((100,), 4, 4, 2022, 2, 1, 2, 10, 5000, 2097152, "synthetic")
     future = Future()
     future.set_exception(ValueError("synthetic writer failed"))
     with (

@@ -2,8 +2,9 @@
 
 Create an empty PostgreSQL 16 database named tracecat_search_bench_* and set
 TABLE_SEARCH_BENCH_DSN to its connection URI. The role needs CONNECT and CREATE;
-pg_trgm must be available in public. Setup refuses existing user relations. Cleanup removes
-only this invocation's random schema, preserving the database and extension.
+pg_trgm must be available in public. Setup refuses existing user relations.
+Cleanup removes only this invocation's random schema, preserving the database
+and extension.
 
 Run from the repository root with synced dependencies::
 
@@ -24,7 +25,7 @@ import platform
 import threading
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
@@ -45,7 +46,9 @@ from .schema import (
     build_indexes,
     columns,
     create_source,
+    delete_projection,
     drop_indexes,
+    drop_source,
     insert_sql,
     populate_projection,
 )
@@ -295,7 +298,7 @@ def writes(
     control: WriterControl | None = None,
 ) -> dict[str, JsonValue]:
     """Measure atomic insert/update batches, then delete the task's probe rows."""
-    timings = []
+    inserts = []
     updates = []
     workspaces = list(range(1, settings.workspaces + 1))
     with connect(dsn, schema, settings.timeout_ms) as writer:
@@ -318,7 +321,7 @@ def writes(
                 )
                 if projection:
                     populate_projection(writer, cols, after=start_id - 1)
-            timings.append((time.perf_counter() - start) * 1000)
+            inserts.append((time.perf_counter() - start) * 1000)
             start = time.perf_counter()
             with writer.transaction():
                 writer.execute(
@@ -326,33 +329,19 @@ def writes(
                     (start_id, end_id),
                 )
                 if projection:
-                    writer.execute(
-                        "DELETE FROM projection WHERE workspace = ANY(%s) AND row_id >= %s",
-                        (workspaces, start_id),
-                    )
-                    writer.execute(
-                        "DELETE FROM literal_projection WHERE workspace = ANY(%s) AND row_id >= %s",
-                        (workspaces, start_id),
-                    )
+                    delete_projection(writer, workspaces, start_id)
                     populate_projection(writer, cols, after=start_id - 1)
             updates.append((time.perf_counter() - start) * 1000)
             if control is not None and batch == 0:
                 control.ready.set()
                 control.release.wait(30)
             with writer.transaction():
-                writer.execute(
-                    "DELETE FROM projection WHERE workspace = ANY(%s) AND row_id >= %s",
-                    (workspaces, start_id),
-                )
-                writer.execute(
-                    "DELETE FROM literal_projection WHERE workspace = ANY(%s) AND row_id >= %s",
-                    (workspaces, start_id),
-                )
+                delete_projection(writer, workspaces, start_id)
                 writer.execute("DELETE FROM source WHERE id >= %s", (start_id,))
             batch += 1
-    total_s = sum(timings) / 1000
+    total_s = sum(inserts) / 1000
     return {
-        "insert_batch": percentiles(timings),
+        "insert_batch": percentiles(inserts),
         "update_batch": percentiles(updates),
         "insert_rows_per_second": batch * settings.write_batch_size / total_s
         if total_s
@@ -362,7 +351,7 @@ def writes(
     }
 
 
-def timed(action) -> float:
+def timed(action: Callable[[], object]) -> float:
     start = time.perf_counter()
     action()
     return time.perf_counter() - start
@@ -479,9 +468,7 @@ def run_scenario(
         if mode != "chunked":
             drop_indexes(conn, cols, mode)
     result["stages"] = stages
-    conn.execute(
-        "DROP TABLE source, projection, literal_projection; DROP FUNCTION json_values(jsonb), value_chunks(text)"
-    )
+    drop_source(conn)
     return result
 
 
@@ -509,17 +496,17 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     settings = Settings(
-        tuple(args.sizes),
-        args.width,
-        args.workspaces,
-        args.seed,
-        args.samples,
-        args.broad_samples,
-        args.write_batches,
-        args.write_batch_size,
-        args.timeout_ms,
-        args.max_value_bytes,
-        args.environment,
+        sizes=tuple(args.sizes),
+        width=args.width,
+        workspaces=args.workspaces,
+        seed=args.seed,
+        samples=args.samples,
+        broad_samples=args.broad_samples,
+        write_batches=args.write_batches,
+        write_batch_size=args.write_batch_size,
+        timeout_ms=args.timeout_ms,
+        max_value_bytes=args.max_value_bytes,
+        environment=args.environment,
     )
     if (
         any(n <= 0 for n in settings.sizes)
@@ -571,9 +558,7 @@ def main() -> None:
             # Safety helpers are measured once independently of ordinary rows.
             create_source(conn, columns(4))
             report["safety"] = safety_probes(conn, settings.max_value_bytes)
-            conn.execute(
-                "DROP TABLE source, projection, literal_projection; DROP FUNCTION json_values(jsonb), value_chunks(text)"
-            )
+            drop_source(conn)
             scenarios: list[JsonValue] = []
             report["scenarios"] = scenarios
             for size in settings.sizes:

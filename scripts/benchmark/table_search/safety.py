@@ -11,44 +11,7 @@ from .schema import CONFIG, columns, populate_projection
 
 def safety_probes(conn: Connection, max_bytes: int) -> list[dict[str, JsonValue]]:
     """Record PostgreSQL limits without letting failed indexes abort source writes."""
-    results: list[dict[str, JsonValue]] = []
-    for count in (255, 256, 257):
-        value = "echo " * count + "beacon"
-        matches = conn.execute(
-            f"SELECT to_tsvector('{CONFIG}', %s) @@ phraseto_tsquery('{CONFIG}', 'echo beacon')",
-            (value,),
-        ).fetchone()[0]
-        results.append(
-            {
-                "name": "repeated_position_boundary",
-                "repetitions": count,
-                "direct_matches": matches,
-            }
-        )
-    for count in (16381, 16382, 16383):
-        matches = conn.execute(
-            f"SELECT to_tsvector('{CONFIG}', %s) @@ phraseto_tsquery('{CONFIG}', 'red fox')",
-            ("pad " * count + "red fox",),
-        ).fetchone()[0]
-        results.append(
-            {
-                "name": "absolute_position_boundary",
-                "prefix_words": count,
-                "direct_matches": matches,
-            }
-        )
-    for value in ("a" * 2047, "a" * 2048, "é" * 1023, "é" * 1024):
-        count = conn.execute(
-            f"SELECT length(to_tsvector('{CONFIG}', %s))", (value,)
-        ).fetchone()[0]
-        results.append(
-            {
-                "name": "lexeme_byte_boundary",
-                "encoding_case": "ascii" if value.isascii() else "utf8_multibyte",
-                "bytes": len(value.encode()),
-                "lexemes": count,
-            }
-        )
+    results = _full_text_limits(conn)
     conn.execute(
         "CREATE TABLE safety_source(id int PRIMARY KEY, value text, doc jsonb)"
     )
@@ -147,33 +110,8 @@ def safety_probes(conn: Connection, max_bytes: int) -> list[dict[str, JsonValue]
                 ) from error
         else:
             probe["projection_write_succeeded"] = True
-        # Trigram indexing does not run to_tsvector. Check both existing-value
-        # builds and a subsequent write, rather than assuming its safety from
-        # the full-text results.
-        conn.execute(
-            "CREATE INDEX safety_trgm ON safety_source USING gin(value public.gin_trgm_ops)"
-        )
-        conn.execute(
-            "UPDATE safety_source SET value=value || ' literalbeacon' WHERE id=%s",
-            (identifier,),
-        )
-        # A tiny fixture normally favors a scan. Force GIN only in this safety
-        # probe and record its plan; performance measurements never force it.
-        with conn.transaction():
-            conn.execute("SET LOCAL enable_seqscan = off")
-            plan = conn.execute(
-                "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) SELECT id FROM safety_source WHERE value ILIKE %s",
-                ("%literalbeacon%",),
-            ).fetchone()[0]
-            rows = conn.execute(
-                "SELECT id FROM safety_source WHERE value ILIKE %s",
-                ("%literalbeacon%",),
-            ).fetchall()
-        if not plan_uses_index(plan, "safety_trgm") or rows != [(identifier,)]:
-            raise AssertionError("GIN-backed tail retrieval failed")
+        probe["trigram_tail_plan"] = _trigram_tail(conn, identifier)
         probe["trigram_write_and_tail_match"] = True
-        probe["trigram_tail_plan"] = plan
-        conn.execute("DROP INDEX safety_trgm")
         results.append(probe)
         conn.execute("TRUNCATE safety_source, safety_projection")
     # Demonstrate an already-built expression index rejecting a valid INSERT.
@@ -191,6 +129,76 @@ def safety_probes(conn: Connection, max_bytes: int) -> list[dict[str, JsonValue]
         raise AssertionError("Expected oversized tsvector rejection was not reproduced")
     conn.execute("DROP TABLE safety_source, safety_projection")
     return results
+
+
+def _full_text_limits(conn: Connection) -> list[dict[str, JsonValue]]:
+    """Probe repeated positions, absolute positions and lexeme byte limits."""
+    results: list[dict[str, JsonValue]] = []
+    for count in (255, 256, 257):
+        value = "echo " * count + "beacon"
+        matches = conn.execute(
+            f"SELECT to_tsvector('{CONFIG}', %s) @@ phraseto_tsquery('{CONFIG}', 'echo beacon')",
+            (value,),
+        ).fetchone()[0]
+        results.append(
+            {
+                "name": "repeated_position_boundary",
+                "repetitions": count,
+                "direct_matches": matches,
+            }
+        )
+    for count in (16381, 16382, 16383):
+        matches = conn.execute(
+            f"SELECT to_tsvector('{CONFIG}', %s) @@ phraseto_tsquery('{CONFIG}', 'red fox')",
+            ("pad " * count + "red fox",),
+        ).fetchone()[0]
+        results.append(
+            {
+                "name": "absolute_position_boundary",
+                "prefix_words": count,
+                "direct_matches": matches,
+            }
+        )
+    for value in ("a" * 2047, "a" * 2048, "é" * 1023, "é" * 1024):
+        count = conn.execute(
+            f"SELECT length(to_tsvector('{CONFIG}', %s))", (value,)
+        ).fetchone()[0]
+        results.append(
+            {
+                "name": "lexeme_byte_boundary",
+                "encoding_case": "ascii" if value.isascii() else "utf8_multibyte",
+                "bytes": len(value.encode()),
+                "lexemes": count,
+            }
+        )
+    return results
+
+
+def _trigram_tail(conn: Connection, source_id: int) -> JsonValue:
+    """Build GIN, append a tail, and verify an indexed predicate finds it."""
+    conn.execute(
+        "CREATE INDEX safety_trgm ON safety_source USING gin(value public.gin_trgm_ops)"
+    )
+    conn.execute(
+        "UPDATE safety_source SET value=value || ' literalbeacon' WHERE id=%s",
+        (source_id,),
+    )
+    # A tiny fixture normally favors a scan. Force GIN only in this safety
+    # probe and record its plan; performance measurements never force it.
+    with conn.transaction():
+        conn.execute("SET LOCAL enable_seqscan = off")
+        plan = conn.execute(
+            "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) SELECT id FROM safety_source WHERE value ILIKE %s",
+            ("%literalbeacon%",),
+        ).fetchone()[0]
+        rows = conn.execute(
+            "SELECT id FROM safety_source WHERE value ILIKE %s",
+            ("%literalbeacon%",),
+        ).fetchall()
+    if not plan_uses_index(plan, "safety_trgm") or rows != [(source_id,)]:
+        raise AssertionError("GIN-backed tail retrieval failed")
+    conn.execute("DROP INDEX safety_trgm")
+    return plan
 
 
 def plan_uses_index(plan: JsonValue, name: str) -> bool:
