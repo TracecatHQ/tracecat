@@ -35,7 +35,6 @@ from tracecat.forms.enums import (
 )
 from tracecat.forms.exceptions import FormError
 from tracecat.forms.files import FormFilesService
-from tracecat.forms.resolver import resolve_form
 from tracecat.forms.schemas import (
     FormActorRead,
     FormFieldBlock,
@@ -51,7 +50,6 @@ from tracecat.forms.service import (
     config_version,
     org_users,
     paginate_rows,
-    stored_form_config,
 )
 from tracecat.forms.storage import delete_file_blobs, file_blob_keys
 from tracecat.forms.values import check_values
@@ -246,6 +244,7 @@ class FormSubmissionsService(BaseWorkspaceService):
             submitted_by_user_id=caller_user_id(self.role),
             submitted_by_service_account_id=self.role.service_account_id,
             answers=normalized,
+            visible_fields=[field.name for field in checked.visible],
             definition_version=definition.version,
             wf_exec_id=wf_exec_id,
         )
@@ -513,10 +512,14 @@ class FormSubmissionsService(BaseWorkspaceService):
         """Read one submission, or None if it is not the caller's to read.
 
         A caller reads their own submissions. Reading anyone else's, and the
-        run fields, the workflow version and the answers to inputs the form
-        does not show, needs ``form:submission:read``.
+        run fields, the workflow version and the answers to fields the caller
+        did not see when submitting, needs ``form:submission:read``.
         """
-        statement = self._submissions(form.id).where(FormSubmission.id == submission_id)
+        statement = (
+            self._submissions(form.id)
+            .add_columns(FormSubmission.visible_fields)
+            .where(FormSubmission.id == submission_id)
+        )
         reader = can_read_submissions(self.role)
         if not reader:
             statement = statement.where(
@@ -532,36 +535,20 @@ class FormSubmissionsService(BaseWorkspaceService):
         if reader:
             [submission] = await self._with_run_status([submission])
             return submission
-        # Requesters never see the run, nor what the form filled in for them.
-        shown = await self._shown_field_names(form)
+        # Requesters never see the run, nor answers they were not shown, such
+        # as what the form filled in for them. Later form changes do not count.
+        visible = set(row["visible_fields"])
         return submission.model_copy(
             update={
                 "answers": {
                     name: answer
                     for name, answer in submission.answers.items()
-                    if name in shown
+                    if name in visible
                 },
                 "definition_version": None,
                 "wf_exec_id": None,
             }
         )
-
-    async def _shown_field_names(self, form: Form) -> set[str]:
-        """Names of the inputs the form shows a requester today.
-
-        Hidden and autofilled inputs are not among them. Empty if the form
-        cannot be resolved.
-        """
-        try:
-            inputs = await FormsService(self.session, self.role).load_inputs(
-                form.workflow_id
-            )
-        except FormError:
-            return set()
-        if inputs is None:
-            return set()
-        result = resolve_form(stored_form_config(form), inputs.expects)
-        return set() if result.has_errors else {field.name for field in result.fields}
 
     async def get_form_of_submission(self, submission_id: uuid.UUID) -> Form | None:
         """Find the form a submission belongs to, for callers with only its ID."""

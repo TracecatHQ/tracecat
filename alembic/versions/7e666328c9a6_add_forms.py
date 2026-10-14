@@ -91,6 +91,9 @@ def upgrade() -> None:
         sa.Column("submitted_by_user_id", sa.UUID(), nullable=True),
         sa.Column("submitted_by_service_account_id", sa.UUID(), nullable=True),
         sa.Column("answers", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column(
+            "visible_fields", postgresql.JSONB(astext_type=sa.Text()), nullable=False
+        ),
         sa.Column("definition_version", sa.Integer(), nullable=False),
         sa.Column("wf_exec_id", sa.String(), nullable=False),
         _foreign_key("form_submission", "form_id", "form", "CASCADE"),

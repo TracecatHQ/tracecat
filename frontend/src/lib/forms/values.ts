@@ -42,8 +42,10 @@ function getInitialValue(field: FormFieldBlock): unknown {
       return field.multiple ? [] : null
     case "file":
       return []
+    // Off is an answer. An optional toggle whose default is null starts as
+    // null, shown off: untouched, it is not sent and the run gets null.
     case "toggle":
-      return field.default ?? false
+      return field.default ?? (field.required ? false : null)
     default:
       return field.default ?? (field.multiple ? [] : null)
   }

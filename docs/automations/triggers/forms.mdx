@@ -284,7 +284,7 @@ curl -X POST "https://platform.tracecat.com/api/workspaces/<WORKSPACE_ID>/forms/
 
 A `201` response is the receipt: `id`, `reference`, `submitted_at`, and `success_message`.
 
-Without `form:submission:read`, a caller reads only their own submissions: `answers` holds the fields the form shows, and `definition_version`, `wf_exec_id`, and `run_status` are `null`.
+Without `form:submission:read`, a caller reads only their own submissions: `answers` holds the fields the form showed them when they submitted, and `definition_version`, `wf_exec_id`, and `run_status` are `null`.
 
 ### Upload and download files
 

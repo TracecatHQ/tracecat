@@ -16,11 +16,23 @@ describe("getInitialFormValues", () => {
       getInitialFormValues([
         { type: "divider" },
         fieldBlock({ name: "reason", default: "New hire" }),
-        fieldBlock({ name: "urgent", widget: "toggle" }),
+        fieldBlock({ name: "urgent", widget: "toggle", required: true }),
         fieldBlock({ name: "manager", widget: "user", default: { id: "x" } }),
         fieldBlock({ name: "quote", widget: "file", default: { id: "y" } }),
       ])
     ).toEqual({ reason: "New hire", urgent: false, manager: null, quote: [] })
+  })
+
+  it("sends nothing for an untouched toggle whose default is null", () => {
+    // A `bool | None` input with a null default: the run must get null.
+    const blocks: FormBlock[] = [
+      fieldBlock({ name: "escalate", widget: "toggle", default: null }),
+      fieldBlock({ name: "remote", widget: "toggle", default: false }),
+    ]
+    const values = getInitialFormValues(blocks)
+
+    expect(values).toEqual({ escalate: null, remote: false })
+    expect(toSubmissionValues(blocks, values)).toEqual({ remote: false })
   })
 })
 

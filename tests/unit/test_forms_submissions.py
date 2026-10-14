@@ -76,6 +76,12 @@ SHOWN_DEFAULTS: dict[str, Any] = {
     "approvers": [],
     "needed_by": None,
 }
+# What a requester who sends VALID sees: "recipient" shows only for someone else.
+SEEN = {
+    name: value
+    for name, value in (VALID | SHOWN_DEFAULTS).items()
+    if name != "recipient"
+}
 
 
 @pytest.fixture
@@ -177,6 +183,7 @@ async def test_submit_stores_the_answers_and_starts_the_run(
         }
     )
     assert submission.answers == expected
+    assert set(submission.visible_fields) == set(SEEN)
     assert (submission.form_id, submission.definition_version) == (form.id, 1)
     assert submission.submitted_by_user_id == requester.id
     assert submission.submitted_by_service_account_id is None
@@ -590,10 +597,8 @@ async def test_the_run_executes_as_the_runner_on_behalf_of_the_requester(
 async def test_requesters_read_only_their_own_submission_without_run_fields(
     session: AsyncSession,
     service: FormSubmissionsService,
-    intake_role: Role,
     colleague_role: Role,
     temporal: FakeTemporal,
-    workflow: Workflow,
     form: Form,
 ) -> None:
     receipt = await _submit(service, form, VALID)
@@ -604,8 +609,9 @@ async def test_requesters_read_only_their_own_submission_without_run_fields(
 
     assert own is not None
     assert (own.id, own.reference) == (receipt.id, receipt.reference)
-    # Only what the form showed them: no hidden default, no autofilled value.
-    assert own.answers == VALID | SHOWN_DEFAULTS
+    # Only what the form showed them: no hidden default, no autofilled value,
+    # no field whose condition hid it.
+    assert own.answers == SEEN
     assert own.submitted_by is not None
     assert own.submitted_by.email == "maya.okafor@example.com"
     assert (own.definition_version, own.wf_exec_id, own.run_status) == (None,) * 3
@@ -614,10 +620,32 @@ async def test_requesters_read_only_their_own_submission_without_run_fields(
     assert await colleague.read_submission(form, receipt.id) is None
     assert await service.read_submission(form, uuid.uuid4()) is None
 
-    # Once the form stops resolving, a requester sees none of the answers.
+
+async def test_requesters_keep_seeing_what_they_saw_when_the_form_changes(
+    session: AsyncSession,
+    service: FormSubmissionsService,
+    intake_role: Role,
+    temporal: FakeTemporal,
+    workflow: Workflow,
+    form: Form,
+) -> None:
+    receipt = await _submit(service, form, VALID)
+
+    # An editor un-hides an input the requester did not see.
+    form.layout = [
+        {"field": "priority"} if entry["field"] == "priority" else entry
+        for entry in LAYOUT
+    ]
+    await session.commit()
+    _, _, resolved = await FormsService(session, intake_role).resolve_published(form)
+    assert "priority" in {field.name for field in resolved.fields}
+    own = await service.read_submission(form, receipt.id)
+    assert own is not None and own.answers == SEEN
+
+    # A publish that leaves the form unable to resolve hides nothing.
     await publish_workflow(session, intake_role, workflow, {"model": {"type": "str"}})
     own = await service.read_submission(form, receipt.id)
-    assert own is not None and own.answers == {}
+    assert own is not None and own.answers == SEEN
 
 
 async def test_readers_list_any_submission_with_run_fields(

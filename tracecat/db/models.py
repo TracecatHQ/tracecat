@@ -1641,6 +1641,12 @@ class FormSubmission(WorkspaceModel):
         nullable=False,
         doc="Normalized trigger inputs the run was started with",
     )
+    visible_fields: Mapped[list[str]] = mapped_column(
+        JSONB,
+        default=list,
+        nullable=False,
+        doc="Names of the fields the requester saw when submitting",
+    )
     definition_version: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
