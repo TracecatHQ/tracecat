@@ -26,7 +26,7 @@ from temporalio.client import (
     WorkflowHistoryEventFilterType,
 )
 from temporalio.common import TypedSearchAttributes, WorkflowIDReusePolicy
-from temporalio.exceptions import TerminatedError
+from temporalio.exceptions import TerminatedError, WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat import config
@@ -100,7 +100,16 @@ from tracecat.workflow.executions.schemas import (
     WorkflowExecutionStatusFilterMode,
     WorkflowExecutionStatusLiteral,
 )
+from tracecat.workflow.executions.types import StartOutcome
 from tracecat.workspaces.service import WorkspaceService
+
+# A tombstone claims the ID of a run whose start answer was lost. No worker
+# registers this type or polls this queue: the execution only has to exist.
+_START_TOMBSTONE_WORKFLOW = "WorkflowStartTombstone"
+_START_TOMBSTONE_TASK_QUEUE = "workflow-start-tombstone"
+# Closes a tombstone whose termination was lost.
+_START_TOMBSTONE_TIMEOUT = datetime.timedelta(seconds=10)
+_START_TOMBSTONE_RPC_TIMEOUT = datetime.timedelta(seconds=5)
 
 
 class WorkflowExecutionResultNotFoundError(ValueError):
@@ -1357,6 +1366,46 @@ class WorkflowExecutionsService:
             wf_id=wf_id,
             wf_exec_id=wf_exec_id,
         )
+
+    async def settle_lost_start(self, wf_exec_id: WorkflowExecutionID) -> StartOutcome:
+        """Find out whether a start whose answer was lost started the run.
+
+        Runs start with ``REJECT_DUPLICATE``, so claiming the run's ID with a
+        tombstone settles it: if the tombstone starts, the lost start can never
+        run; if the ID is taken, the run started. The tombstone needs no worker
+        and is terminated at once. Agent turns settle lost starts the same way.
+        """
+        try:
+            tombstone = await self._client.start_workflow(
+                _START_TOMBSTONE_WORKFLOW,
+                id=wf_exec_id,
+                task_queue=_START_TOMBSTONE_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+                execution_timeout=_START_TOMBSTONE_TIMEOUT,
+                rpc_timeout=_START_TOMBSTONE_RPC_TIMEOUT,
+            )
+        except WorkflowAlreadyStartedError:
+            return "started"
+        except Exception as e:
+            self.logger.warning(
+                "Failed to settle a lost workflow start",
+                wf_exec_id=wf_exec_id,
+                error_type=type(e).__name__,
+            )
+            return "unknown"
+        try:
+            await tombstone.terminate(
+                reason="The run's start was lost",
+                rpc_timeout=_START_TOMBSTONE_RPC_TIMEOUT,
+            )
+        except Exception as e:
+            # The ID is claimed either way; the execution timeout closes it.
+            self.logger.warning(
+                "Failed to terminate a workflow start tombstone",
+                wf_exec_id=wf_exec_id,
+                error_type=type(e).__name__,
+            )
+        return "not_started"
 
     def create_draft_workflow_execution_nowait(
         self,

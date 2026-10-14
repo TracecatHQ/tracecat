@@ -63,6 +63,7 @@ from tracecat.workflow.executions.enums import (
     WorkflowExecutionStatusLiteral,
 )
 from tracecat.workflow.executions.service import WorkflowExecutionsService
+from tracecat.workflow.executions.types import StartOutcome
 
 _RUN_SERVICE_ID: InternalServiceID = "tracecat-runner"
 
@@ -277,22 +278,35 @@ class FormSubmissionsService(BaseWorkspaceService):
                 },
             )
         except Exception as e:
-            # A failed connect never reached Temporal.
-            kept = executions is not None and _run_may_have_started(e)
-            if not kept:
-                await self._discard(submission, claimed_files)
+            # A failed connect never reached Temporal. A lost answer is settled
+            # first, so a retry can never start a second run.
+            outcome: StartOutcome = "not_started"
+            if executions is not None and _run_may_have_started(e):
+                outcome = await executions.settle_lost_start(wf_exec_id)
             # Never log the answers.
-            self.logger.error(
-                "Failed to start the workflow of a form submission",
+            if outcome != "started":
+                if outcome == "not_started":
+                    await self._discard(submission, claimed_files)
+                self.logger.error(
+                    "Failed to start the workflow of a form submission",
+                    form_id=form_id,
+                    wf_exec_id=wf_exec_id,
+                    error_type=type(e).__name__,
+                    submission_kept=outcome == "unknown",
+                )
+                message = "The request could not be started. Try again."
+                if outcome == "unknown":
+                    message = (
+                        "Tracecat could not confirm that the request started. "
+                        "Check your submissions before trying again."
+                    )
+                raise FormError(FormErrorCode.WORKFLOW_START_FAILED, message) from e
+            self.logger.warning(
+                "The start of a form submission's run was lost, but the run started",
                 form_id=form_id,
                 wf_exec_id=wf_exec_id,
                 error_type=type(e).__name__,
-                submission_kept=kept,
             )
-            raise FormError(
-                FormErrorCode.WORKFLOW_START_FAILED,
-                "The request could not be started. Try again.",
-            ) from e
 
         return FormSubmissionReceipt(
             id=submission_id,

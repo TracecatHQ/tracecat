@@ -2,12 +2,11 @@
 
 import uuid
 from collections.abc import Awaitable
-from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import event, select, update
+from sqlalchemy import Select, event, false, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests._forms_utils import (
@@ -42,6 +41,7 @@ from tracecat.db.models import Role as DBRole
 from tracecat.forms import internal_router
 from tracecat.forms import router as forms_router
 from tracecat.forms import service as forms_service
+from tracecat.forms.constants import FORM_VIEW_DEDUP_WINDOW
 from tracecat.forms.enums import FormErrorCode, FormIssueCode, FormStatus
 from tracecat.forms.exceptions import FormError
 from tracecat.forms.schemas import (
@@ -561,10 +561,11 @@ async def test_views_count_once_per_user_within_the_window(
     assert view.user_id == requester.id
 
     await FormsService(session, colleague_role).record_view(form)
+    # Move the first view to the previous window.
     await session.execute(
         update(FormView)
         .where(FormView.id == view.id)
-        .values(created_at=datetime.now(UTC) - timedelta(minutes=6))
+        .values(window_start=view.window_start - FORM_VIEW_DEDUP_WINDOW)
     )
     await session.commit()
     await FormsService(session, intake_role).record_view(form)
@@ -574,6 +575,31 @@ async def test_views_count_once_per_user_within_the_window(
     assert (counts.views, counts.submissions) == (3, 0)
     # Counts need form:submission:read.
     assert (await FormsService(session, intake_role).read_form(form)).counts is None
+
+
+async def test_concurrent_views_in_one_window_count_once(
+    session: AsyncSession,
+    service: FormsService,
+    published_workflow: Workflow,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    form = await create_form(session, published_workflow)
+    execute = session.execute
+
+    async def before_the_other_commits(statement: Any, *args: Any, **kwargs: Any):
+        # Two tabs render at once: neither sees the other's view yet.
+        if isinstance(statement, Select) and FormView.__table__ in (
+            statement.get_final_froms()
+        ):
+            statement = statement.where(false())
+        return await execute(statement, *args, **kwargs)
+
+    monkeypatch.setattr(session, "execute", before_the_other_commits)
+    await service.record_view(form)
+    await service.record_view(form)
+    monkeypatch.undo()
+
+    assert len(await _views(session, form)) == 1
 
 
 async def test_service_accounts_and_failures_record_no_view(

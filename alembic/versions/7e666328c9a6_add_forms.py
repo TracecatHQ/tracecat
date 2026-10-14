@@ -119,13 +119,16 @@ def upgrade() -> None:
         "form_view",
         sa.Column("form_id", sa.UUID(), nullable=False),
         sa.Column("user_id", sa.UUID(), nullable=True),
+        sa.Column("window_start", sa.TIMESTAMP(timezone=True), nullable=False),
         _foreign_key("form_view", "form_id", "form", "CASCADE"),
         _foreign_key("form_view", "user_id", "user", "SET NULL"),
-    )
-    op.create_index(
-        "ix_form_view_form_user_created",
-        "form_view",
-        ["workspace_id", "form_id", "user_id", "created_at"],
+        sa.UniqueConstraint(
+            "workspace_id",
+            "form_id",
+            "user_id",
+            "window_start",
+            name="uq_form_view_form_user_window",
+        ),
     )
     _create_table(
         "form_file",

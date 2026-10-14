@@ -38,4 +38,6 @@ BLOB_DELETE_BATCH = 50
 """Blobs deleted at once. Every blob is deleted, one batch after another."""
 
 FORM_VIEW_DEDUP_WINDOW = timedelta(minutes=5)
-"""A user's repeat views of a form within this window count once."""
+"""A user's views of a form in one window of this length count once.
+
+Windows are fixed, aligned to the Unix epoch."""

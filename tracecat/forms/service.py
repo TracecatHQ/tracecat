@@ -11,6 +11,7 @@ from typing import Any
 
 from pydantic import ValidationError
 from sqlalchemy import ColumnElement, and_, func, null, or_, select, true
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.selectable import Select
@@ -527,29 +528,29 @@ class FormsService(BaseWorkspaceService):
     async def record_view(self, form: Form) -> None:
         """Record that the calling user viewed a form. Best effort.
 
-        One view per user per form within the dedupe window. Service accounts
-        are not recorded.
+        One view per user per form in each dedupe window. A unique key on the
+        window makes concurrent views insert one row. Service accounts are
+        not recorded.
         """
         if self.role.type != "user" or self.role.user_id is None:
             return
         # Read before the try: a rollback expires the row.
         form_id = form.id
-        recent_view = select(FormView.id).where(
-            FormView.workspace_id == self.workspace_id,
-            FormView.form_id == form_id,
-            FormView.user_id == self.role.user_id,
-            FormView.created_at >= datetime.now(UTC) - FORM_VIEW_DEDUP_WINDOW,
+        window = int(FORM_VIEW_DEDUP_WINDOW.total_seconds())
+        now = int(datetime.now(UTC).timestamp())
+        statement = (
+            insert(FormView)
+            .values(
+                workspace_id=self.workspace_id,
+                form_id=form_id,
+                user_id=self.role.user_id,
+                window_start=datetime.fromtimestamp(now - now % window, UTC),
+            )
+            .on_conflict_do_nothing(constraint="uq_form_view_form_user_window")
         )
         try:
-            if (await self.session.execute(recent_view.limit(1))).first() is None:
-                self.session.add(
-                    FormView(
-                        workspace_id=self.workspace_id,
-                        form_id=form_id,
-                        user_id=self.role.user_id,
-                    )
-                )
-                await self.session.commit()
+            await self.session.execute(statement)
+            await self.session.commit()
         except SQLAlchemyError as e:
             await self.session.rollback()
             self.logger.warning(

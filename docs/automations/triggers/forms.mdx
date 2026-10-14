@@ -308,7 +308,7 @@ Submit and upload errors return `detail.code` and `detail.message`.
 | `409` | `form_unavailable` | The workflow is unpublished, or the config no longer matches the Input schema. |
 | `409` | `form_changed` | `definition_version` or `config_version` is stale. Render again and resubmit. |
 | `422` | `form_validation_error` | `detail.errors` lists `{field, code, message}`. |
-| `503` | `workflow_start_failed` | The workflow did not start. Tracecat removes the submission and releases its files, so you can retry. When Tracecat cannot tell whether the run started, such as after a timeout, it keeps the submission. |
+| `503` | `workflow_start_failed` | The workflow did not start. Tracecat removes the submission and releases its files, so you can retry. When Temporal's answer is lost, such as after a timeout, Tracecat first checks whether the run started; if it did, the submission succeeds. If Tracecat can't tell, it keeps the submission: check your submissions before retrying. |
 | `400` | `file_invalid` | The file is empty, or its name or content failed validation. |
 | `409` | `file_limit_reached` | You hold the most uploaded files one requester can hold on this form. Submit, or wait for them to expire. |
 | `413` | `file_too_large` | The file is over the size limit. |

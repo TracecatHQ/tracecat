@@ -1656,16 +1656,17 @@ class FormSubmission(WorkspaceModel):
 
 
 class FormView(WorkspaceModel):
-    """A user's view of a form. Repeat views within a few minutes count once."""
+    """A user's view of a form. Views in the same few minutes count once."""
 
     __tablename__ = "form_view"
     __table_args__ = (
-        Index(
-            "ix_form_view_form_user_created",
+        # Concurrent views in one window insert one row.
+        UniqueConstraint(
             "workspace_id",
             "form_id",
             "user_id",
-            "created_at",
+            "window_start",
+            name="uq_form_view_form_user_window",
         ),
     )
 
@@ -1677,6 +1678,11 @@ class FormView(WorkspaceModel):
     )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    window_start: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        doc="Start of the dedupe window the view falls in",
     )
 
 

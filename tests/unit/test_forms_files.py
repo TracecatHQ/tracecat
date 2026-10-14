@@ -762,7 +762,13 @@ async def test_deleting_an_owner_deletes_its_rows_and_blobs(
     )
     submission = await create_submission(session, form)
     other_submission = await create_submission(session, form)
-    session.add(FormView(workspace_id=form.workspace_id, form_id=form.id))
+    session.add(
+        FormView(
+            workspace_id=form.workspace_id,
+            form_id=form.id,
+            window_start=datetime.now(UTC),
+        )
+    )
     claimed = await create_file(session, form, submission)
     pending = await create_file(session, form)
     kept = [

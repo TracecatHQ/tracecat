@@ -11,6 +11,8 @@ from fastapi import HTTPException
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import Client, WorkflowExecutionStatus
+from temporalio.common import WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from tests._forms_utils import (
@@ -502,16 +504,26 @@ async def test_submission_is_committed_before_the_run_starts(
     assert submission.id == receipt.id
 
 
+DEADLINE = RPCError("deadline", RPCStatusCode.DEADLINE_EXCEEDED, b"")
+
+
 @pytest.mark.parametrize(
-    ("connect_error", "start_error", "kept"),
+    ("connect_error", "start_error", "settled", "kept"),
     [
-        (RuntimeError("Temporal is unreachable"), None, False),
-        (TimeoutError("connect timed out"), None, False),
-        (None, RuntimeError("Temporal rejected the request"), False),
-        (None, RPCError("invalid", RPCStatusCode.INVALID_ARGUMENT, b""), False),
-        # The run may exist, and it reads its submission by ID.
-        (None, TimeoutError("Timed out while dispatching workflow"), True),
-        (None, RPCError("deadline", RPCStatusCode.DEADLINE_EXCEEDED, b""), True),
+        (RuntimeError("Temporal is unreachable"), None, None, False),
+        (TimeoutError("connect timed out"), None, None, False),
+        (None, RuntimeError("Temporal rejected the request"), None, False),
+        (None, RPCError("invalid", RPCStatusCode.INVALID_ARGUMENT, b""), None, False),
+        # The answer was lost: claiming the run's ID settles whether it started.
+        (
+            None,
+            TimeoutError("Timed out while dispatching workflow"),
+            "not_started",
+            False,
+        ),
+        (None, DEADLINE, "not_started", False),
+        # Even that answer was lost. The run may exist and reads its submission.
+        (None, DEADLINE, "unknown", True),
     ],
 )
 async def test_start_failure_keeps_the_submission_only_if_the_run_may_exist(
@@ -521,15 +533,65 @@ async def test_start_failure_keeps_the_submission_only_if_the_run_may_exist(
     form: Form,
     connect_error: Exception | None,
     start_error: Exception | None,
+    settled: str | None,
     kept: bool,
 ) -> None:
     temporal.connect.side_effect = connect_error
     temporal.start.side_effect = start_error
+    temporal.service.settle_lost_start.return_value = settled
 
     error = await _error(_submit(service, form, VALID))
 
     assert error.code is FormErrorCode.WORKFLOW_START_FAILED
     assert len(await _stored(session)) == int(kept)
+    assert ("Check your submissions" in str(error)) is kept
+    if settled is None:
+        temporal.service.settle_lost_start.assert_not_awaited()
+
+
+async def test_a_run_whose_start_answer_was_lost_counts_as_submitted(
+    session: AsyncSession,
+    service: FormSubmissionsService,
+    temporal: FakeTemporal,
+    form: Form,
+) -> None:
+    temporal.start.side_effect = DEADLINE
+    temporal.service.settle_lost_start.return_value = "started"
+
+    receipt = await _submit(service, form, VALID)
+
+    [submission] = await _stored(session)
+    assert submission.id == receipt.id
+    temporal.service.settle_lost_start.assert_awaited_once_with(submission.wf_exec_id)
+
+
+@pytest.mark.parametrize(
+    ("tombstone_start", "outcome"),
+    [
+        (WorkflowAlreadyStartedError("wf_x/exec_y", "DSLWorkflow"), "started"),
+        (None, "not_started"),
+        (DEADLINE, "unknown"),
+    ],
+)
+async def test_a_lost_start_is_settled_by_claiming_the_runs_id(
+    intake_role: Role, tombstone_start: Exception | None, outcome: str
+) -> None:
+    tombstone = Mock()
+    tombstone.terminate = AsyncMock()
+    client = Mock(spec=Client)
+    client.start_workflow = AsyncMock(
+        side_effect=tombstone_start, return_value=tombstone
+    )
+    executions = WorkflowExecutionsService(client=client, role=intake_role)
+
+    assert await executions.settle_lost_start("wf_x/exec_y") == outcome
+
+    assert client.start_workflow.await_args is not None
+    kwargs = client.start_workflow.await_args.kwargs
+    assert kwargs["id"] == "wf_x/exec_y"
+    # A delayed original start is rejected once anything held the ID.
+    assert kwargs["id_reuse_policy"] is WorkflowIDReusePolicy.REJECT_DUPLICATE
+    assert tombstone.terminate.await_count == (outcome == "not_started")
 
 
 async def test_the_run_executes_as_the_runner_on_behalf_of_the_requester(
