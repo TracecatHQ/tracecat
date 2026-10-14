@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import os
 import socket
 from collections.abc import Iterable
 from typing import Any
@@ -178,16 +179,38 @@ def _origin(url: httpx.URL) -> tuple[str, str, int]:
     return url.scheme, url.host, url.port or (443 if url.scheme == "https" else 80)
 
 
-class OutboundHTTPTransport(httpx.AsyncHTTPTransport):
-    """HTTPX transport with socket-level egress policy and optional origin binding."""
+TUNNEL_PROXY_ENV = "TRACECAT__TUNNEL_PROXY_URL"
+"""Set by the executor only for tunneled actions; never read from user input."""
 
-    def __init__(self, *, origin_url: str | None = None, **kwargs: Any) -> None:
+
+def tunnel_proxy_url() -> str | None:
+    """Return the tunnel gateway proxy URL when running a tunneled action."""
+    return os.environ.get(TUNNEL_PROXY_ENV) or None
+
+
+class OutboundHTTPTransport(httpx.AsyncHTTPTransport):
+    """HTTPX transport with socket-level egress policy and optional origin binding.
+
+    In a tunneled action every request goes to the tunnel gateway instead. The
+    gateway's exact host/port allowlist decides which targets are reachable, so
+    the local address check is skipped; URL and origin checks still apply.
+    """
+
+    def __init__(
+        self,
+        *,
+        origin_url: str | None = None,
+        tunnel_proxy: str | None = None,
+        **kwargs: Any,
+    ) -> None:
         # HTTPX exposes no public constructor-options type. The factory below
         # forwards only TLS, protocol and pool options, never proxy or UDS.
         if kwargs.get("verify", True) is True:
             # Trust operator-provided CA bundles without enabling env proxies.
             # Explicit verify contexts/paths retain their normal precedence.
             kwargs["verify"] = httpx.create_ssl_context(verify=True, trust_env=True)
+        if tunnel_proxy is not None:
+            kwargs["proxy"] = httpx.Proxy(tunnel_proxy)
         super().__init__(trust_env=False, **kwargs)
         self._origin = None
         if origin_url is not None:
@@ -197,7 +220,8 @@ class OutboundHTTPTransport(httpx.AsyncHTTPTransport):
         # HTTPX 0.28.1 does not expose HTTPcore's network_backend argument.
         # Set it before any connection exists, keeping HTTPX's TLS setup,
         # streaming adapter and exception mapping. Covered by socket-level tests.
-        self._pool._network_backend = OutboundNetworkBackend()
+        if tunnel_proxy is None:
+            self._pool._network_backend = OutboundNetworkBackend()
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         _validate_url(request.url)
@@ -242,7 +266,11 @@ def create_outbound_http_client(
         if key in kwargs
     }
     return httpx.AsyncClient(
-        transport=OutboundHTTPTransport(origin_url=origin_url, **transport_options),
+        transport=OutboundHTTPTransport(
+            origin_url=origin_url,
+            tunnel_proxy=tunnel_proxy_url(),
+            **transport_options,
+        ),
         trust_env=False,
         **kwargs,
     )

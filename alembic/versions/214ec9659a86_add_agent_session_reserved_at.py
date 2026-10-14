@@ -1,7 +1,7 @@
 """Add agent_session.reserved_run_id and reserved_at.
 
 Revision ID: 214ec9659a86
-Revises: 8b51e0c47d2a
+Revises: 3e54217aadda
 Create Date: 2026-10-13 21:16:37.000000
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "214ec9659a86"
-down_revision: str | None = "8b51e0c47d2a"
+down_revision: str | None = "3e54217aadda"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

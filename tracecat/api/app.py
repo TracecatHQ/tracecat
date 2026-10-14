@@ -32,6 +32,10 @@ from tracecat_ee.secrets.references.router import (
     stores_router as workspace_secret_stores_router,
 )
 from tracecat_ee.secrets.stores.router import router as org_secret_stores_router
+from tracecat_ee.tunnels.gateways import (
+    kubernetes_enabled,
+    start_tunnel_gateway_reconciler,
+)
 from tracecat_ee.tunnels.router import gateway_router as tunnel_gateway_router
 from tracecat_ee.tunnels.router import router as tunnels_router
 from tracecat_ee.watchtower.router import router as watchtower_router
@@ -292,6 +296,12 @@ async def lifespan(app: FastAPI):
         start_case_duration_sync_consumer,
         name="case_duration_sync_consumer",
     )
+
+    if kubernetes_enabled():
+        supervisor.spawn_stoppable(
+            start_tunnel_gateway_reconciler,
+            name="tunnel_gateway_reconciler",
+        )
 
     # SMTP configuration is loaded at process startup; enabling it needs a restart.
     if SMTPTransport.from_config() is not None:

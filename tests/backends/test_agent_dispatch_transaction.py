@@ -879,12 +879,17 @@ async def test_successor_reserved_by_another_writer_is_never_tombstoned(
     await assert_reserved_by(connection, session_id, successor)
 
 
+@pytest.mark.parametrize("adopts_direct_dispatch", [False, True])
 async def test_caller_owned_reservation_is_never_tombstoned(
-    connection: AsyncConnection,
+    connection: AsyncConnection, adopts_direct_dispatch: bool
 ) -> None:
-    """A prepare_new_turn reservation keeps the session until its own workflow ends."""
+    """A prepare_new_turn reservation keeps the session until its own workflow ends.
+
+    That includes a run it adopts from an aged direct dispatch whose start was lost.
+    """
+    backend = PreparationBackend()
     temporal = ScriptedTemporal(
-        start_workflow_execution=[],
+        start_workflow_execution=[unavailable()],
         describe_workflow_execution=[not_found()],
         terminate_workflow_execution=[],
     )
@@ -893,34 +898,44 @@ async def test_caller_owned_reservation_is_never_tombstoned(
         session_id = context.session.id
         service = AgentSessionService(db, context.role)
 
+        async def load_session(*_args: object) -> AgentSession:
+            loaded = await db.scalar(
+                select(AgentSession)
+                .where(AgentSession.id == session_id)
+                .execution_options(populate_existing=True)
+            )
+            assert loaded is not None
+            return loaded
+
         @asynccontextmanager
         async def agent_config(_session: AgentSession) -> AsyncIterator[AgentConfig]:
             yield context.config
 
-        with (
-            patch.object(
-                service,
-                "validate_turn_request",
-                AsyncMock(return_value=context.session),
-            ),
-            patch.object(service, "_build_agent_config", agent_config),
+        with patch(
+            "tracecat.agent.backends.base.get_temporal_client",
+            return_value=temporal_client(AsyncMock(side_effect=temporal.rpc)),
         ):
-            prepared = await service.prepare_new_turn(session_id, "Investigate")
-        # The caller's child start has no deadline, so no age makes it lost.
-        await age_reservation(db, session_id, timedelta(minutes=1))
-        with (
-            patch(
-                "tracecat.agent.backends.base.get_temporal_client",
-                return_value=temporal_client(AsyncMock(side_effect=temporal.rpc)),
-            ),
-            pytest.raises(TracecatConflictError),
-        ):
-            await PreparationBackend().start_turn(
-                replace(context, run_id=uuid4(), stream_id=uuid4())
-            )
+            if adopts_direct_dispatch:
+                await lose_first_start(backend, connection, context)
+                await age_reservation(db, session_id, timedelta(minutes=1))
+            with (
+                patch.object(service, "validate_turn_request", load_session),
+                patch.object(service, "_build_agent_config", agent_config),
+            ):
+                prepared = await service.prepare_new_turn(session_id, "Investigate")
+            # The caller's child start has no deadline, so no age makes it lost.
+            await age_reservation(db, session_id, timedelta(minutes=1))
+            with pytest.raises(TracecatConflictError):
+                await backend.start_turn(
+                    replace(context, run_id=uuid4(), stream_id=uuid4())
+                )
 
-    assert temporal.starts == []
-    await assert_reserved_by(connection, session_id, prepared.run_id)
+    # Only the adopted run's own lost start; recovery never sent a tombstone.
+    assert len(temporal.starts) == int(adopts_direct_dispatch)
+    assert (prepared.run_id == context.run_id) is adopts_direct_dispatch
+    saved = await assert_reserved_by(connection, session_id, prepared.run_id)
+    assert saved.reserved_run_id is None
+    assert saved.reserved_at is None
 
 
 async def reserve_lost_turn(db: AsyncSession) -> tuple[SessionTurnContext, UUID]:

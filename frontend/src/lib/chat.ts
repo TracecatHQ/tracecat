@@ -364,8 +364,13 @@ export type ModelInfo = {
   iconId?: string
 }
 
-type CompactionData = {
+/**
+ * Payload of a `data-compaction` part: the compaction phase and the token
+ * count of the conversation before it was compacted.
+ */
+export type CompactionData = {
   phase?: "started" | "completed" | "failed"
+  pre_tokens?: number
 }
 
 /**

@@ -13,6 +13,7 @@ import {
   LockIcon,
   type LucideIcon,
   MousePointerClickIcon,
+  NetworkIcon,
   Pyramid,
   Sparkles,
   Table2Icon,
@@ -105,6 +106,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewServiceAccounts = useScopeCheck("workspace:service_account:read")
   const canViewMcpAccess = useScopeCheck("workspace:read")
   const canViewCases = useScopeCheck("case:read")
+  const canViewTunnels = useScopeCheck("tunnel:read")
   // Sync users push/pull; workspace admins manage the repository connection.
   const canOpenGitSync = useScopeCheck(undefined, [
     "workspace_sync:sync",
@@ -438,6 +440,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   isActive: pathname?.startsWith(
                     `${basePath}/service-accounts`
                   ),
+                }
+              : null,
+            canViewTunnels === true
+              ? {
+                  title: "Tunnels",
+                  href: `${basePath}/tunnels`,
+                  icon: NetworkIcon,
+                  isActive: pathname?.startsWith(`${basePath}/tunnels`),
                 }
               : null,
             canViewMcpAccess === true

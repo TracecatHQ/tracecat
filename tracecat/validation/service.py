@@ -8,6 +8,7 @@ from pydantic import (
     ConfigDict,
     ValidationError,
 )
+from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import (
@@ -18,6 +19,7 @@ from tracecat_registry import (
 from tracecat.auth.types import Role
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.models import WorkspaceTunnel
 from tracecat.dsl.common import DSLInput, ExecuteSubflowArgs
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ActionStatement
@@ -37,6 +39,8 @@ from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.secrets.service import SecretsService, secret_key_names
+from tracecat.tiers.access import is_org_entitled
+from tracecat.tiers.enums import Entitlement
 from tracecat.validation.common import json_schema_to_pydantic
 from tracecat.validation.schemas import (
     ActionValidationResult,
@@ -593,6 +597,69 @@ def validate_dsl_entrypoint(dsl: DSLInput) -> list[DSLValidationResult]:
     return validate_entrypoint_expects(dsl.entrypoint.expects)
 
 
+async def validate_dsl_tunnels(
+    session: AsyncSession, dsl: DSLInput, *, role: Role
+) -> list[DSLValidationResult]:
+    """Check every tunnel the workflow uses exists in the workspace and is entitled.
+
+    The executor repeats these checks at runtime; this catches mistakes at
+    commit and publish time instead.
+    """
+    uses: list[tuple[str | None, str]] = []
+    if dsl.config.tunnel:
+        uses.append((None, dsl.config.tunnel))
+    for act_stmt in dsl.actions:
+        if act_stmt.tunnel:
+            uses.append((act_stmt.ref, act_stmt.tunnel))
+    if not uses:
+        return []
+
+    if role.organization_id is None or role.workspace_id is None:
+        return [
+            DSLValidationResult(
+                status="error", msg="Tunnels require a workspace context"
+            )
+        ]
+    if not await is_org_entitled(session, role.organization_id, Entitlement.TUNNELS):
+        return [
+            DSLValidationResult(
+                status="error",
+                msg="Tunnels are not available on your current plan",
+                ref=ref,
+            )
+            for ref, _ in uses
+        ]
+
+    result = await session.execute(
+        select(WorkspaceTunnel.name).where(
+            WorkspaceTunnel.workspace_id == role.workspace_id,
+            WorkspaceTunnel.name.in_({name for _, name in uses}),
+        )
+    )
+    existing = set(result.scalars().all())
+    errors = [
+        DSLValidationResult(
+            status="error",
+            msg=f"Tunnel {name!r} not found in this workspace",
+            ref=ref,
+        )
+        for ref, name in uses
+        if name not in existing
+    ]
+    errors.extend(
+        DSLValidationResult(
+            status="error",
+            msg=f"Action {act_stmt.action!r} cannot use a tunnel",
+            ref=act_stmt.ref,
+        )
+        for act_stmt in dsl.actions
+        # The workflow default skips platform actions; only an explicit
+        # per-action tunnel on one is an error.
+        if act_stmt.tunnel and PlatformAction.is_interface(act_stmt.action)
+    )
+    return errors
+
+
 async def validate_dsl(
     session: AsyncSession,
     dsl: DSLInput,
@@ -631,6 +698,9 @@ async def validate_dsl(
             f"{len(dsl_args_errs)} DSL args validation errors", errs=dsl_args_errs
         )
         iterables.extend(ValidationResult.new(err) for err in dsl_args_errs)
+
+    tunnel_errs = await validate_dsl_tunnels(session, dsl, role=role)
+    iterables.extend(ValidationResult.new(err) for err in tunnel_errs)
 
     # Tier 3: Expression validation
     # When we reach this point, the inputs have been validated properly (ignoring templated expressions)

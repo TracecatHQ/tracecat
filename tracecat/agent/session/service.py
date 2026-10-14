@@ -2018,6 +2018,10 @@ class AgentSessionService(BaseWorkspaceService):
 
             agent_session.curr_run_id = run_id
             agent_session.active_stream_id = stream_id
+            # The caller's child start has no deadline, so recovery must never
+            # tombstone this run, even one adopted from a direct dispatch.
+            agent_session.reserved_run_id = None
+            agent_session.reserved_at = None
             agent_session.last_error = None
             self.session.add(agent_session)
             await self.session.commit()
