@@ -15,6 +15,7 @@ import type { CaseParentRead, CaseRead, CaseReadMinimal } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CaseBadge } from "@/components/cases/case-badge"
 import { PRIORITIES, STATUSES } from "@/components/cases/case-categories"
+import { CasePropertiesCard } from "@/components/cases/case-related-cases-drawer"
 import {
   CASE_PANEL_ACTION_ROW_CLASS,
   CASE_PANEL_BOX_CLASS,
@@ -35,6 +36,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
@@ -86,36 +92,49 @@ function CaseSummaryRow({
   const status = STATUSES[caseItem.status]
   const priority = PRIORITIES[caseItem.priority]
   return (
-    <div className="group flex h-9 items-center gap-2 rounded-md px-2 hover:bg-muted/50">
-      <Link
-        href={caseHref(workspaceId, caseItem.id)}
-        className="flex min-w-0 flex-1 items-center gap-2"
+    <HoverCard openDelay={300} closeDelay={100}>
+      <HoverCardTrigger asChild>
+        <div className="group flex h-9 items-center gap-2 rounded-md px-2 hover:bg-muted/50">
+          <Link
+            href={caseHref(workspaceId, caseItem.id)}
+            className="flex min-w-0 flex-1 items-center gap-2"
+          >
+            <span className="shrink-0 text-xs font-medium text-muted-foreground">
+              {caseItem.short_id}
+            </span>
+            <span className="truncate text-sm">{caseItem.summary}</span>
+          </Link>
+          {status && (
+            <CaseBadge
+              value={caseItem.status}
+              label={status.label}
+              icon={status.icon}
+              color={status.color}
+              className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
+            />
+          )}
+          {priority && (
+            <CaseBadge
+              value={caseItem.priority}
+              label={priority.label}
+              icon={priority.icon}
+              color={priority.color}
+              className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
+            />
+          )}
+          {trailing}
+        </div>
+      </HoverCardTrigger>
+      <HoverCardContent
+        side="right"
+        align="start"
+        sideOffset={8}
+        collisionPadding={8}
+        className="max-h-[min(80vh,40rem)] w-96 overflow-y-auto p-0"
       >
-        <span className="shrink-0 text-xs font-medium text-muted-foreground">
-          {caseItem.short_id}
-        </span>
-        <span className="truncate text-sm">{caseItem.summary}</span>
-      </Link>
-      {status && (
-        <CaseBadge
-          value={caseItem.status}
-          label={status.label}
-          icon={status.icon}
-          color={status.color}
-          className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
-        />
-      )}
-      {priority && (
-        <CaseBadge
-          value={caseItem.priority}
-          label={priority.label}
-          icon={priority.icon}
-          color={priority.color}
-          className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
-        />
-      )}
-      {trailing}
-    </div>
+        <CasePropertiesCard caseData={caseItem} workspaceId={workspaceId} />
+      </HoverCardContent>
+    </HoverCard>
   )
 }
 
