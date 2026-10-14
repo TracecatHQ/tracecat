@@ -241,6 +241,19 @@ def _resolve_field_entry(
     expected = state.expects[name]
     kind = state.inputs[name].kind
 
+    # Every int default, hidden or shown. Float inputs are unaffected.
+    if (
+        kind is _K.INT
+        and expected.has_default()
+        and is_unsafe_integer(expected.default)
+    ):
+        state.issue(
+            FormIssueCode.INTEGER_OUT_OF_RANGE,
+            f"The default of '{name}' is outside ±{MAX_SAFE_INTEGER:,}, the "
+            "largest whole number a form holds exactly",
+            loc,
+        )
+
     if entry.hidden:
         if entry.autofill is not None:
             state.issue(
@@ -301,13 +314,6 @@ def _resolve_field_entry(
         return
 
     multiple = kind in _LIST_KINDS
-    if expected.has_default() and is_unsafe_integer(expected.default):
-        state.issue(
-            FormIssueCode.INTEGER_OUT_OF_RANGE,
-            f"The default of '{name}' is outside ±{MAX_SAFE_INTEGER:,}, the "
-            "largest whole number a form holds exactly",
-            loc,
-        )
     if entry.placeholder is not None and not spec.placeholder:
         state.issue(
             FormIssueCode.UNSUPPORTED_WIDGET_OPTION,

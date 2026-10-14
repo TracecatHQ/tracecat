@@ -500,6 +500,13 @@ ISSUE_CASES: list[tuple[Code, list[dict[str, Any]], dict[str, Any], list]] = [
         [0],
     ),
     (
+        # Hidden or shown, every int default is checked.
+        Code.INTEGER_OUT_OF_RANGE,
+        [{"field": "a", "hidden": True}],
+        {"a": {"type": "int", "default": -(2**53)}},
+        [0],
+    ),
+    (
         Code.INTEGER_OUT_OF_RANGE,
         [{"field": "b"}, {"field": "a", **_when("b", -(2**53))}],
         {"b": {"type": "int", "default": 0}, "a": OPTIONAL_STR},
@@ -614,18 +621,16 @@ def test_check_values_errors(values: dict[str, Any], expected: dict[str, str]) -
     assert {error.field: error.code.value for error in checked.errors} == expected
 
 
-def test_check_values_refuses_whole_numbers_a_browser_cannot_hold() -> None:
-    blocks = _resolve(None, count={"type": "int"}, ratio={"type": "float"}).blocks
-    fine = {"count": 2**53 - 1, "ratio": 1e20}
-    assert check_values(blocks, fine).errors == []
+def test_float_values_are_not_range_checked() -> None:
+    # A float is a double in the browser too, so it is always held exactly.
+    result = _resolve(
+        [{"field": "ratio"}, {"field": "note", **_when("ratio", 2.0**60)}],
+        ratio={"type": "float", "default": 2.0**53},
+        scale={"type": "float", "default": 10**20},
+        note=OPTIONAL_STR,
+    )
 
-    for bad in (2**53, -(2**53), str(2**53)):
-        [error] = check_values(blocks, fine | {"count": bad}).errors
-        assert (error.field, error.code) == ("count", FormFieldErrorCode.INVALID_VALUE)
-        assert error.message == (
-            "Enter a whole number between -9,007,199,254,740,991 and "
-            "9,007,199,254,740,991"
-        )
+    assert result.issues == []
 
 
 def test_check_values_keeps_valid_answers_of_visible_fields() -> None:

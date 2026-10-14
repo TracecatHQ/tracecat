@@ -30,22 +30,16 @@ UNSAFE_INTEGER_MESSAGE = (
 
 
 def is_unsafe_integer(value: Any) -> bool:
-    """Whether a value is a whole number a browser cannot hold exactly."""
+    """Whether a value is an int a browser cannot hold exactly.
+
+    The one range check of forms: int defaults, ``visible_if`` values and
+    answers, once read as their input's type. Floats are never caught.
+    """
     return (
         isinstance(value, int)
         and not isinstance(value, bool)
         and abs(value) > MAX_SAFE_INTEGER
     )
-
-
-def _is_unsafe_number(value: Any) -> bool:
-    # An API caller may send a number as text, which the run reads exactly.
-    if isinstance(value, str):
-        try:
-            value = int(value)
-        except ValueError:
-            return False
-    return is_unsafe_integer(value)
 
 
 def _is_empty(value: Any) -> bool:
@@ -109,8 +103,6 @@ def _check_value(
         allowed = {option.value for option in field.options}
         if any(not isinstance(item, str) or item not in allowed for item in items):
             return FormFieldErrorCode.INVALID_OPTION, "Choose one of the options"
-    if field.widget is FormWidget.NUMBER and any(map(_is_unsafe_number, items)):
-        return FormFieldErrorCode.INVALID_VALUE, UNSAFE_INTEGER_MESSAGE
     if field.widget is FormWidget.DATE and not all(map(_is_iso_date, items)):
         return FormFieldErrorCode.INVALID_DATE, "Enter a date as YYYY-MM-DD"
     if field.widget is FormWidget.DATETIME and not all(map(_is_iso_datetime, items)):

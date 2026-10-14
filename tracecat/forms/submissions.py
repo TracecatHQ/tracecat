@@ -52,7 +52,11 @@ from tracecat.forms.service import (
     paginate_rows,
 )
 from tracecat.forms.storage import delete_file_blobs, file_blob_keys
-from tracecat.forms.values import check_values
+from tracecat.forms.values import (
+    UNSAFE_INTEGER_MESSAGE,
+    check_values,
+    is_unsafe_integer,
+)
 from tracecat.identifiers import InternalServiceID
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.pagination import CursorPaginatedResponse, PageParams
@@ -253,6 +257,23 @@ class FormSubmissionsService(BaseWorkspaceService):
                 "Some answers are not valid",
                 errors=_pydantic_field_errors(e),
             ) from e
+        # Checked as the run reads them: text or a whole float sent for an int
+        # input is an int by now, and a float input's answer stays a float.
+        if unsafe := [
+            name for name in checked.values if is_unsafe_integer(normalized[name])
+        ]:
+            raise FormError(
+                FormErrorCode.FORM_VALIDATION_ERROR,
+                "Some answers are not valid",
+                errors=[
+                    FormFieldError(
+                        field=name,
+                        code=FormFieldErrorCode.INVALID_VALUE,
+                        message=UNSAFE_INTEGER_MESSAGE,
+                    )
+                    for name in unsafe
+                ],
+            )
 
         wf_exec_id = generate_exec_id(workflow_id)
         submission = FormSubmission(

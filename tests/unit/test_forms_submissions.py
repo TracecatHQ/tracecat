@@ -262,6 +262,30 @@ async def test_submit_reports_every_invalid_field(
     temporal.connect.assert_not_awaited()
 
 
+async def test_int_answers_stay_in_the_browser_safe_range(
+    session: AsyncSession,
+    intake_role: Role,
+    temporal: FakeTemporal,
+    svc_workspace: Workspace,
+) -> None:
+    workflow = await create_workflow(session, svc_workspace.id, title="Count")
+    expects = {"count": {"type": "int"}, "ratio": {"type": "float", "default": 0.0}}
+    await publish_workflow(session, intake_role, workflow, expects)
+    form = await create_form(session, workflow)
+    service = FormSubmissionsService(session, intake_role)
+
+    # Checked as the run reads them: text and a whole float become ints.
+    for answer in (2**53, -(2**53), "9007199254740992", 9007199254740992.0):
+        error = await _error(_submit(service, form, {"count": answer}))
+        assert [(e.field, e.code) for e in error.errors or []] == [
+            ("count", FormFieldErrorCode.INVALID_VALUE)
+        ]
+
+    # A float input is not range checked.
+    await _submit(service, form, {"count": 2**53 - 1, "ratio": 2.0**60})
+    assert temporal.start_kwargs["payload"] == {"count": 2**53 - 1, "ratio": 2.0**60}
+
+
 async def test_a_missing_requester_name_leaves_its_input_unanswered(
     session: AsyncSession,
     intake_role: Role,

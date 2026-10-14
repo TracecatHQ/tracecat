@@ -91,29 +91,6 @@ describe("validateFormValues", () => {
   })
 })
 
-describe("validateFormValues whole numbers", () => {
-  it("refuses one a browser cannot hold exactly", () => {
-    const blocks: FormBlock[] = [
-      fieldBlock({ name: "account", widget: "number" }),
-      fieldBlock({ name: "largest", widget: "number" }),
-      fieldBlock({ name: "ratio", widget: "number" }),
-    ]
-    // Typed as 9007199254740993, the value is already rounded in state.
-    const typed = Number("9007199254740993")
-
-    expect(
-      validateFormValues(blocks, {
-        account: typed,
-        largest: Number.MAX_SAFE_INTEGER,
-        ratio: 0.5,
-      })
-    ).toEqual({
-      account:
-        "Enter a whole number between -9,007,199,254,740,991 and 9,007,199,254,740,991",
-    })
-  })
-})
-
 describe("toSubmissionValues", () => {
   it("sends user IDs for user fields", () => {
     const blocks: FormBlock[] = [

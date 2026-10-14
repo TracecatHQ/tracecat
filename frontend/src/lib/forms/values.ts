@@ -86,24 +86,9 @@ export function getVisibleFields(
   })
 }
 
-const MAX_SAFE = Number.MAX_SAFE_INTEGER.toLocaleString("en-US")
-
 /**
- * Forms take whole numbers a browser holds exactly, as the server does. A
- * larger one has already lost digits by the time it is in form state.
- */
-function isUnsafeInteger(value: unknown): boolean {
-  return (
-    typeof value === "number" &&
-    Number.isInteger(value) &&
-    !Number.isSafeInteger(value)
-  )
-}
-
-/**
- * Check form state before it is submitted: required answers, whole numbers
- * a browser holds exactly, and files that are still uploading or failed.
- * Only visible fields are checked.
+ * Check form state before it is submitted: required answers, and files that
+ * are still uploading or failed. Only visible fields are checked.
  *
  * The server checks everything again, including options and formats, and its
  * errors are shown on the same fields.
@@ -125,9 +110,6 @@ export function validateFormValues(
       errors[field.name] = "Remove the files that failed to upload"
     } else if (field.required && isEmptyFormValue(value)) {
       errors[field.name] = "This field is required"
-    } else if (field.widget === "number" && isUnsafeInteger(value)) {
-      errors[field.name] =
-        `Enter a whole number between -${MAX_SAFE} and ${MAX_SAFE}`
     }
   }
   return errors

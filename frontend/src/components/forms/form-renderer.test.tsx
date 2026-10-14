@@ -146,18 +146,20 @@ describe("FormRenderer", () => {
     expect(screen.getAllByText("This field is required")).toHaveLength(1)
   })
 
-  it("refuses a whole number past 2^53 rather than rounding it", async () => {
+  it("submits a large whole-number float default unchanged", async () => {
+    // A float is a double in the browser too, so the page never range checks
+    // numbers; the server checks int answers.
     const { user, onSubmit } = renderForm({
-      form: formOf(fieldBlock({ name: "account", widget: "number" })),
+      form: formOf(
+        fieldBlock({ name: "ratio", widget: "number", default: 2 ** 53 })
+      ),
     })
 
-    await user.type(screen.getByLabelText("account"), "9007199254740993")
     await user.click(submitButton())
 
-    expect(
-      await screen.findByText(/Enter a whole number between/)
-    ).toBeVisible()
-    expect(onSubmit).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith({ ratio: 2 ** 53 })
+    )
   })
 
   it("shows a conditional field live and sends visible answers only", async () => {
