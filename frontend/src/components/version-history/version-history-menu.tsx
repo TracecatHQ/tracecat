@@ -1,6 +1,6 @@
 "use client"
 
-import { History, Loader2 } from "lucide-react"
+import { ChevronDown, History, Loader2 } from "lucide-react"
 import type { ReactNode } from "react"
 import { useState } from "react"
 import {
@@ -93,6 +93,8 @@ export type VersionHistoryMenuProps = {
   isRestoreDisabled?: (version: VersionHistoryEntry) => boolean
   /** Horizontal alignment of the dropdown relative to the trigger. */
   align?: "start" | "end"
+  /** Renders a labelled chip, e.g. `v12`, instead of the clock icon. */
+  triggerLabel?: string
 }
 
 /**
@@ -118,6 +120,7 @@ export function VersionHistoryMenu({
   restoreDisabled,
   isRestoreDisabled,
   align = "end",
+  triggerLabel,
 }: VersionHistoryMenuProps) {
   const [selectedVersion, setSelectedVersion] =
     useState<VersionHistoryEntry | null>(null)
@@ -231,15 +234,28 @@ export function VersionHistoryMenu({
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="size-7"
-                disabled={disabled}
-              >
-                <History className="size-4" />
-                <span className="sr-only">Versions</span>
-              </Button>
+              {triggerLabel ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 gap-1 px-1.5 pl-2 font-mono text-xs font-normal shadow-none"
+                  disabled={disabled}
+                  aria-label={`${triggerLabel}, open version history`}
+                >
+                  {triggerLabel}
+                  <ChevronDown className="size-3 text-muted-foreground" />
+                </Button>
+              ) : (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-7"
+                  disabled={disabled}
+                >
+                  <History className="size-4" />
+                  <span className="sr-only">Versions</span>
+                </Button>
+              )}
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent>Versions</TooltipContent>

@@ -746,3 +746,42 @@ it("returns focus to the element that opened the picker", async () => {
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   await waitFor(() => expect(opener).toHaveFocus())
 })
+
+it("opens on several groups together until another source is chosen", async () => {
+  const user = userEvent.setup()
+  const catalog = buildToolIndex(
+    [
+      registryTool("tools.alpha.first", { display_group: "Alpha" }),
+      registryTool("tools.alpha.custom", {
+        display_group: "Alpha",
+        origin: "git+ssh://git@example.com/org/registry.git",
+      }),
+      registryTool("tools.beta.third", { display_group: "Beta" }),
+    ],
+    []
+  )
+  render(
+    <ToolPickerDialog
+      index={catalog}
+      open
+      onOpenChange={jest.fn()}
+      value={defaults}
+      onChange={jest.fn()}
+      initialSource={["tracecat:tools.alpha", "custom:tools.alpha"]}
+    />
+  )
+  expect(
+    await screen.findByRole("option", { name: /first/ })
+  ).toBeInTheDocument()
+  expect(screen.getByRole("option", { name: /custom/ })).toBeInTheDocument()
+  expect(
+    screen.queryByRole("option", { name: /third/ })
+  ).not.toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "Beta 1" }))
+  expect(
+    await screen.findByRole("option", { name: /third/ })
+  ).toBeInTheDocument()
+  expect(
+    screen.queryByRole("option", { name: /first/ })
+  ).not.toBeInTheDocument()
+})
