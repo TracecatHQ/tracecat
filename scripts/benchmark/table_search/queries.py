@@ -1,11 +1,18 @@
 """Contract-consuming query shapes shared by all measured prototypes."""
 
 from dataclasses import dataclass
+from typing import Literal
 
 from tracecat.query.lexical import (
     literal_search_pattern,
     parse_full_text_query,
     resolve_search_columns,
+)
+from tracecat.query.lexical_types import (
+    ColumnSearchOrder,
+    LexicalSearchOptions,
+    SearchMode,
+    SearchOrder,
 )
 
 from .schema import CONFIG, Column
@@ -15,23 +22,54 @@ from .schema import CONFIG, Column
 class Search:
     name: str
     text: str
-    mode: str = "fts"
+    mode: SearchMode = SearchMode.FULL_TEXT
     selected: tuple[str, ...] = ()
+    order: SearchOrder = "relevance"
+    sampling: Literal["selective", "broad"] = "selective"
+    concurrent_for: tuple[Literal["fts", "trgm", "chunked"], ...] = ()
+
+    def __post_init__(self) -> None:
+        LexicalSearchOptions(self.mode, self.selected or "all_columns", self.order)
 
 
 SEARCHES = (
-    Search("selective", "needle"),
+    Search("selective", "needle", concurrent_for=("fts", "chunked")),
     Search("cross_column", "needle jsonbeacon selectneedle multineedle"),
     Search("phrase", '"red fox"'),
-    Search("json_key", "keyneedle", selected=("payload",)),
+    Search("json_key", "keyneedle", selected=("payload",), sampling="broad"),
     Search("json_scalar", "jsonbeacon", selected=("payload",)),
     Search("select", "selectneedle", selected=("choice",)),
     Search("multi_select", "multineedle", selected=("choices",)),
-    Search("broad", "common"),
-    Search("literal_selective", "beacon", "trgm"),
-    Search("literal_json_serialized", '"nested": {', "trgm", ("payload",)),
-    Search("literal_broad", "com", "trgm"),
-    Search("literal_no_trigrams", "!!!", "trgm"),
+    Search("broad", "common", sampling="broad"),
+    Search(
+        "literal_selective",
+        "beacon",
+        SearchMode.LITERAL,
+        order=ColumnSearchOrder("choice"),
+        concurrent_for=("trgm",),
+    ),
+    Search(
+        "literal_json_serialized",
+        '"nested": {',
+        SearchMode.LITERAL,
+        ("payload",),
+        order=ColumnSearchOrder("choice"),
+        sampling="broad",
+    ),
+    Search(
+        "literal_broad",
+        "com",
+        SearchMode.LITERAL,
+        order=ColumnSearchOrder("choice"),
+        sampling="broad",
+    ),
+    Search(
+        "literal_no_trigrams",
+        "!!!",
+        SearchMode.LITERAL,
+        order=ColumnSearchOrder("choice"),
+        sampling="broad",
+    ),
 )
 
 
@@ -40,8 +78,8 @@ def query(
     search: Search,
     *,
     projection: bool = False,
-    cursor: tuple[float, int] | None = None,
-) -> tuple[str, tuple[str | int | float, ...]]:
+    cursor: tuple[float | str | None, int] | None = None,
+) -> tuple[str, tuple[str | int | float | None, ...]]:
     """Return parameterized AND-of-OR search, rank ordering and keyset paging."""
     resolved = resolve_search_columns(
         search.selected or "all_columns", tuple(c.name for c in cols)
@@ -49,8 +87,23 @@ def query(
     selected = [(i, c) for i, c in enumerate(cols) if c.name in resolved]
     if not selected:
         raise ValueError("Search requires columns")
-    params: list[str | int | float] = []
-    if search.mode == "trgm":
+    params: list[str | int | float | None] = []
+    ordering = "score DESC, id DESC"
+    page_ordering = "page.score DESC, page.id DESC"
+    cursor_value = "score"
+    if isinstance(search.order, ColumnSearchOrder):
+        if search.order.column not in {
+            "id",
+            *(c.name for c in cols if c.kind == "text"),
+        }:
+            raise ValueError(
+                "Ordering column is missing or unsupported; benchmark orders TEXT or row ID"
+            )
+        direction = search.order.direction.upper()
+        ordering = f"order_value {direction} NULLS LAST, id {direction}"
+        page_ordering = f"page.order_value {direction} NULLS LAST, page.id {direction}"
+        cursor_value = "order_value"
+    if search.mode == SearchMode.LITERAL:
         pattern = literal_search_pattern(search.text)
         params.append(pattern or "")
         if projection:
@@ -115,15 +168,26 @@ def query(
                 f"FROM source s CROSS JOIN {cross} WHERE workspace = 1 AND "
                 + " AND ".join(predicates)
             )
+    if isinstance(search.order, ColumnSearchOrder):
+        cte = f"SELECT candidates.*, ordered.{search.order.column} AS order_value FROM ({cte}) candidates JOIN source ordered USING(id)"
     paging = ""
     if cursor:
-        paging = "WHERE (score, id) < (%s::real, %s::bigint)"
-        params.extend(cursor)
+        if isinstance(search.order, ColumnSearchOrder):
+            operator = ">" if search.order.direction == "asc" else "<"
+            if cursor[0] is None:
+                paging = f"WHERE order_value IS NULL AND id {operator} %s"
+                params.append(cursor[1])
+            else:
+                paging = f"WHERE (order_value, id) {operator} (%s, %s) OR order_value IS NULL"
+                params.extend(cursor)
+        else:
+            paging = "WHERE (score, id) < (%s::real, %s::bigint)"
+            params.extend(cursor)
     # Fetch the actual wide source row, rather than timing an ID-only response.
     statement = (
-        f"WITH matched AS ({cte}), page AS (SELECT * FROM matched {paging} "
-        "ORDER BY score DESC, id DESC LIMIT 50) "
-        "SELECT page.score, s.* FROM page JOIN source s USING(id) "
-        "ORDER BY page.score DESC, page.id DESC"
+        f"WITH matched AS ({cte}), page AS (SELECT *, {cursor_value} AS cursor_value FROM matched {paging} "
+        f"ORDER BY {ordering} LIMIT 50) "
+        "SELECT page.score, page.cursor_value, s.* FROM page JOIN source s USING(id) "
+        f"ORDER BY {page_ordering}"
     )
     return statement, tuple(params)

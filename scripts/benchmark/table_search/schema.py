@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from psycopg import Connection, sql
 
-CONFIG = "pg_catalog.simple"
+from tracecat.query.lexical_types import TEXT_SEARCH_CONFIG as CONFIG
 
 
 @dataclass(frozen=True, slots=True)

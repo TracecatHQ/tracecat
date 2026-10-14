@@ -18,13 +18,16 @@ recorded storage decision live in the ENG-2022 pull-request description.
 """
 
 import argparse
+import hashlib
 import os
 import platform
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass
+from collections.abc import Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -32,6 +35,8 @@ import orjson
 import psycopg
 from psycopg import Connection, Error, sql
 from pydantic import JsonValue
+
+from tracecat.query.lexical_types import ColumnSearchOrder, SearchMode
 
 from .queries import SEARCHES, Search, query
 from .safety import check_contract, safety_probes
@@ -76,7 +81,7 @@ def percentiles(values: list[float]) -> dict[str, JsonValue]:
 
 
 def connect(dsn: str, schema: str, timeout_ms: int) -> Connection:
-    conn = psycopg.connect(dsn, autocommit=True)
+    conn = psycopg.connect(dsn, autocommit=True, connect_timeout=10)
     conn.execute(
         sql.SQL("SET search_path TO {}, public, pg_catalog").format(
             sql.Identifier(schema)
@@ -143,7 +148,7 @@ def environment(conn: Connection, settings: Settings) -> dict[str, JsonValue]:
                 "SELECT datcollate,datctype,datlocprovider FROM pg_database WHERE datname=current_database()"
             ).fetchone()
         ),
-        "cache_policy": "one untimed warmup; no cache flush; client wall time includes transferring 50 full rows",
+        "cache_policy": "one untimed query warmup plus one EXPLAIN ANALYZE execution before sampling; no cache flush; client wall time includes transferring 50 full rows",
         "percentile_method": "nearest rank, completed queries only; timeouts reported separately",
     }
 
@@ -159,6 +164,11 @@ def measure(
     statement, params = query(cols, search, projection=projection)
     result: dict[str, JsonValue] = {
         "name": search.name,
+        "mode": search.mode.value,
+        "order": asdict(search.order)
+        if isinstance(search.order, ColumnSearchOrder)
+        else search.order,
+        "sampling": search.sampling,
         "sql": statement,
         "params": list(params),
     }
@@ -192,7 +202,7 @@ def measure(
     # deduplication before recording the separately measured second page.
     if first:
         page_sql, page_params = query(
-            cols, search, projection=projection, cursor=(first[-1][0], first[-1][1])
+            cols, search, projection=projection, cursor=(first[-1][1], first[-1][2])
         )
         start = time.perf_counter()
         try:
@@ -200,7 +210,7 @@ def measure(
         except psycopg.errors.QueryCanceled:
             result["page_two_timeout"] = True
         else:
-            if {r[1] for r in first} & {r[1] for r in second}:
+            if {r[2] for r in first} & {r[2] for r in second}:
                 raise AssertionError("Keyset pages overlap")
             result["page_two_ms"] = (time.perf_counter() - start) * 1000
             result["page_two_rows"] = len(second)
@@ -218,6 +228,51 @@ def relation_sizes(conn: Connection) -> list[dict[str, JsonValue]]:
     ]
 
 
+@dataclass(frozen=True, slots=True)
+class WriterControl:
+    ready: threading.Event = field(default_factory=threading.Event)
+    release: threading.Event = field(default_factory=threading.Event)
+    finished: threading.Event = field(default_factory=threading.Event)
+
+
+@contextmanager
+def concurrent_writer(
+    dsn: str,
+    schema: str,
+    cols: tuple[Column, ...],
+    settings: Settings,
+    size: int,
+    *,
+    projection: bool,
+) -> Iterator[Future[dict[str, JsonValue]]]:
+    """Own writer startup and always stop/release it before joining the thread."""
+    control = WriterControl()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        try:
+            future = pool.submit(
+                writes,
+                dsn,
+                schema,
+                cols,
+                settings,
+                size,
+                projection=projection,
+                control=control,
+            )
+            deadline = time.monotonic() + 30
+            while not control.ready.wait(0.05):
+                if future.done():
+                    future.result()
+                    raise RuntimeError("Writer stopped before its first batch")
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("Writer did not start")
+            control.release.set()
+            yield future
+        finally:
+            control.finished.set()
+            control.release.set()
+
+
 def writes(
     dsn: str,
     schema: str,
@@ -226,40 +281,54 @@ def writes(
     size: int,
     *,
     projection: bool,
-    started: threading.Event | None = None,
-    release: threading.Event | None = None,
-    finished: threading.Event | None = None,
+    control: WriterControl | None = None,
 ) -> dict[str, JsonValue]:
-    """Insert then update real indexed rows; roll back only the task's probe rows."""
+    """Measure atomic insert/update batches, then delete the task's probe rows."""
     timings = []
     updates = []
     workspaces = list(range(1, settings.workspaces + 1))
     with connect(dsn, schema, settings.timeout_ms) as writer:
         batch = 0
-        while batch < settings.write_batches or (
-            finished is not None and not finished.is_set()
-        ):
+        while batch < settings.write_batches or control is not None:
+            if control is not None and control.finished.is_set():
+                break
             start_id = size + batch * settings.write_batch_size + 1
             end_id = start_id + settings.write_batch_size - 1
             start = time.perf_counter()
-            writer.execute(
-                insert_sql(cols),
-                {
-                    "start": start_id,
-                    "end": end_id,
-                    "seed": settings.seed,
-                    "workspaces": settings.workspaces,
-                },
-            )
-            if projection:
-                populate_projection(writer, cols, after=start_id - 1)
+            with writer.transaction():
+                writer.execute(
+                    insert_sql(cols),
+                    {
+                        "start": start_id,
+                        "end": end_id,
+                        "seed": settings.seed,
+                        "workspaces": settings.workspaces,
+                    },
+                )
+                if projection:
+                    populate_projection(writer, cols, after=start_id - 1)
             timings.append((time.perf_counter() - start) * 1000)
             start = time.perf_counter()
-            writer.execute(
-                "UPDATE source SET text_0=text_0 || ' updated', revision=revision+1 WHERE id BETWEEN %s AND %s",
-                (start_id, end_id),
-            )
-            if projection:
+            with writer.transaction():
+                writer.execute(
+                    "UPDATE source SET text_0=text_0 || ' updated', revision=revision+1 WHERE id BETWEEN %s AND %s",
+                    (start_id, end_id),
+                )
+                if projection:
+                    writer.execute(
+                        "DELETE FROM projection WHERE workspace = ANY(%s) AND row_id >= %s",
+                        (workspaces, start_id),
+                    )
+                    writer.execute(
+                        "DELETE FROM literal_projection WHERE workspace = ANY(%s) AND row_id >= %s",
+                        (workspaces, start_id),
+                    )
+                    populate_projection(writer, cols, after=start_id - 1)
+            updates.append((time.perf_counter() - start) * 1000)
+            if control is not None and batch == 0:
+                control.ready.set()
+                control.release.wait(30)
+            with writer.transaction():
                 writer.execute(
                     "DELETE FROM projection WHERE workspace = ANY(%s) AND row_id >= %s",
                     (workspaces, start_id),
@@ -268,26 +337,15 @@ def writes(
                     "DELETE FROM literal_projection WHERE workspace = ANY(%s) AND row_id >= %s",
                     (workspaces, start_id),
                 )
-                populate_projection(writer, cols, after=start_id - 1)
-            updates.append((time.perf_counter() - start) * 1000)
-            if started and release and batch == 0:
-                started.set()
-                release.wait(30)
-            writer.execute(
-                "DELETE FROM projection WHERE workspace = ANY(%s) AND row_id >= %s",
-                (workspaces, start_id),
-            )
-            writer.execute(
-                "DELETE FROM literal_projection WHERE workspace = ANY(%s) AND row_id >= %s",
-                (workspaces, start_id),
-            )
-            writer.execute("DELETE FROM source WHERE id >= %s", (start_id,))
+                writer.execute("DELETE FROM source WHERE id >= %s", (start_id,))
             batch += 1
     total_s = sum(timings) / 1000
     return {
         "insert_batch": percentiles(timings),
         "update_batch": percentiles(updates),
-        "insert_rows_per_second": batch * settings.write_batch_size / total_s,
+        "insert_rows_per_second": batch * settings.write_batch_size / total_s
+        if total_s
+        else 0,
         "rows": batch * settings.write_batch_size,
         "projection_ownership": "synchronous client prototype; production requires database change capture and fenced async publication",
     }
@@ -299,15 +357,13 @@ def timed(action) -> float:
     return time.perf_counter() - start
 
 
-def run_scenario(
-    conn: Connection, dsn: str, schema: str, settings: Settings, size: int
-) -> dict[str, JsonValue]:
-    cols = columns(settings.width)
-    create_source(conn, cols)
-    contract = check_contract(conn)
-    # Build/import statements get a larger limit than user-facing searches.
+def load_source(
+    conn: Connection, cols: tuple[Column, ...], settings: Settings, size: int
+) -> float:
+    """Reset heaps/indexes so each prototype starts with the same seeded corpus."""
     conn.execute("SET statement_timeout = 0")
-    load_s = timed(
+    conn.execute("TRUNCATE source, projection, literal_projection")
+    elapsed = timed(
         lambda: conn.execute(
             insert_sql(cols),
             {
@@ -319,6 +375,16 @@ def run_scenario(
         )
     )
     conn.execute("ANALYZE source")
+    return elapsed
+
+
+def run_scenario(
+    conn: Connection, dsn: str, schema: str, settings: Settings, size: int
+) -> dict[str, JsonValue]:
+    cols = columns(settings.width)
+    create_source(conn, cols)
+    contract = check_contract(conn)
+    load_s = load_source(conn, cols, settings, size)
     result: dict[str, JsonValue] = {
         "rows": size,
         "width": settings.width,
@@ -331,7 +397,7 @@ def run_scenario(
     result["unindexed_writes"] = baseline
     for mode in ("fts", "trgm", "chunked"):
         print(f"rows={size} stage={mode}: building", flush=True)
-        conn.execute("SET statement_timeout = 0")
+        stage_import_s = load_source(conn, cols, settings, size)
         if mode == "chunked":
             build_s = timed(lambda: populate_projection(conn, cols))
             index_s = timed(
@@ -348,17 +414,18 @@ def run_scenario(
             "SELECT set_config('statement_timeout', %s, false)",
             (str(settings.timeout_ms),),
         )
-        searches = [s for s in SEARCHES if mode == "chunked" or s.mode == mode]
+        search_mode = SearchMode.FULL_TEXT if mode == "fts" else SearchMode.LITERAL
+        searches = [s for s in SEARCHES if mode == "chunked" or s.mode == search_mode]
+        concurrent_cases = [s for s in searches if mode in s.concurrent_for]
+        if len(concurrent_cases) != 1:
+            raise ValueError("Each prototype requires exactly one concurrent workload")
+        clean_relations = relation_sizes(conn)
         measurements = [
             measure(
                 conn,
                 cols,
                 s,
-                settings.broad_samples
-                if "broad" in s.name
-                or "no_trigrams" in s.name
-                or s.name in ("json_key", "literal_json_serialized")
-                else settings.samples,
+                settings.broad_samples if s.sampling == "broad" else settings.samples,
                 projection=mode == "chunked",
             )
             for s in searches
@@ -366,49 +433,25 @@ def run_scenario(
         write_result = writes(
             dsn, schema, cols, settings, size, projection=mode == "chunked"
         )
-        # Writers must signal after their first committed batch. They then start
-        # the next batch as the reader begins, avoiding a no-overlap measurement.
-        started, release, finished = (
-            threading.Event(),
-            threading.Event(),
-            threading.Event(),
-        )
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(
-                writes,
-                dsn,
-                schema,
+        with concurrent_writer(
+            dsn, schema, cols, settings, size, projection=mode == "chunked"
+        ) as future:
+            concurrent = measure(
+                conn,
                 cols,
-                settings,
-                size,
+                concurrent_cases[0],
+                settings.samples,
                 projection=mode == "chunked",
-                started=started,
-                release=release,
-                finished=finished,
             )
-            if not started.wait(30):
-                release.set()
-                finished.set()
-                future.result()
-                raise RuntimeError("Writer did not start")
-            release.set()
-            try:
-                concurrent = measure(
-                    conn,
-                    cols,
-                    searches[0],
-                    settings.samples,
-                    projection=mode == "chunked",
-                )
-            finally:
-                finished.set()
-            concurrent_writes = future.result()
+        concurrent_writes = future.result()
         stages.append(
             {
                 "mode": mode,
+                "source_import_seconds": stage_import_s,
                 "build_seconds": build_s,
                 "index_build_seconds": index_s,
-                "relations": relation_sizes(conn),
+                "relations": clean_relations,
+                "post_write_relations": relation_sizes(conn),
                 "queries": measurements,
                 "writes": write_result,
                 "concurrent_search": concurrent,
@@ -485,6 +528,11 @@ def main() -> None:
     dsn = os.environ["TABLE_SEARCH_BENCH_DSN"]
     schema = f"tsbench_{uuid.uuid4().hex}"
     report: dict[str, JsonValue] = {
+        "protocol_version": 2,
+        "source_sha256": {
+            p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(Path(__file__).parent.glob("*.py"))
+        },
         "started_at": datetime.now(UTC).isoformat(),
         "settings": asdict(settings),
         "scenarios": [],
