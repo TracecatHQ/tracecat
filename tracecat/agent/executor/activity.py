@@ -82,7 +82,10 @@ from tracecat.agent.runtime.claude_code.broker import (
     ConcurrentSessionTurnError,
 )
 from tracecat.agent.runtime.session_paths import build_agent_sandbox_path_mapping
-from tracecat.agent.runtime_services import get_claude_runtime_broker
+from tracecat.agent.runtime_services import (
+    get_claude_runtime_broker,
+    get_otel_delivery_pool,
+)
 from tracecat.agent.sandbox.llm_proxy import (
     LLM_SOCKET_NAME,
     LLMProxyError,
@@ -691,6 +694,7 @@ class SandboxedAgentExecutor:
                     self._otel_receiver = OtelSocketReceiver(
                         socket_path=otel_socket_path,
                         plan=otel_plan,
+                        pool=get_otel_delivery_pool(),
                         expected_workspace_id=self.input.workspace_id,
                         expected_organization_id=self.input.role.organization_id,
                         expected_session_id=self.input.session_id,

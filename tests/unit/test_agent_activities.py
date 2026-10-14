@@ -75,6 +75,7 @@ from tracecat.agent.executor.loopback import (
 )
 from tracecat.agent.mcp import user_client
 from tracecat.agent.otel_config import AgentOtelConfig, ResolvedAgentOtelConfig
+from tracecat.agent.otel_delivery import OtelDeliveryPool
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeTurnRequest,
@@ -3479,11 +3480,16 @@ class TestSandboxedAgentExecutorFilesystemPersistence:
         )
         monkeypatch.setattr(executor, "_run_with_broker", fake_run_with_broker)
         monkeypatch.setattr(executor, "_cleanup", AsyncMock())
+        pool = cast(OtelDeliveryPool, object())
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_otel_delivery_pool", lambda: pool
+        )
 
         result = await executor.run()
 
         assert result.success is True
         assert executor._otel_receiver is not None
+        assert executor._otel_receiver._pool is pool
         assert executor._otel_receiver._plan.tenant is not None
         assert executor._otel_receiver._plan.platform_endpoint is None
         assert captured_socket_paths == [job_dir / "sockets" / "otel.sock"]
