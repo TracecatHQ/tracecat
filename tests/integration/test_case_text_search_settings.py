@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from tests.integration.test_case_text_search_postgres import (
+    apply_search_migration,
+)
 from tests.integration.test_case_text_search_postgres import (
     search_database as _search_database,
 )
@@ -18,6 +23,74 @@ from tracecat.query.lexical_types import LexicalSearchError, LexicalSearchErrorC
 
 pytestmark = pytest.mark.integration
 search_database = _search_database
+
+
+@pytest.mark.anyio
+async def test_separate_runtime_role_needs_explicit_helper_grants(
+    search_database: Engine,
+) -> None:
+    """A hardened migration owner succeeds; the runtime role needs both grants."""
+    apply_search_migration(search_database, downgrade=True)
+    with search_database.begin() as conn:
+        conn.execute(
+            sa.text("ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC")
+        )
+    apply_search_migration(search_database)
+
+    role = f"case_text_runtime_{uuid.uuid4().hex}"
+    operator = sa.create_engine(search_database.url, poolclass=NullPool)
+    runtime = create_async_engine(
+        search_database.url.set(drivername="postgresql+asyncpg"),
+        poolclass=NullPool,
+        connect_args={"server_settings": {"role": role}},
+    )
+    try:
+        with operator.begin() as conn:
+            conn.execute(sa.text(f'CREATE ROLE "{role}"'))
+            conn.execute(sa.text(f'GRANT USAGE ON SCHEMA public TO "{role}"'))
+        async with AsyncSession(runtime) as session:
+            with pytest.raises(LexicalSearchError) as error:
+                await ensure_case_text_indexes(session)
+            assert error.value.code == LexicalSearchErrorCode.UNAVAILABLE
+
+        with operator.begin() as conn:
+            conn.execute(
+                sa.text(
+                    f'GRANT EXECUTE ON FUNCTION public.tracecat_case_safe_vector_v1(text) TO "{role}"'
+                )
+            )
+        async with AsyncSession(runtime) as session:
+            with pytest.raises(LexicalSearchError) as error:
+                await ensure_case_text_indexes(session)
+            assert error.value.code == LexicalSearchErrorCode.UNAVAILABLE
+
+        with operator.begin() as conn:
+            conn.execute(
+                sa.text(
+                    f'GRANT EXECUTE ON FUNCTION public.tracecat_case_text_matches_v1(text,text,boolean) TO "{role}"'
+                )
+            )
+        async with AsyncSession(runtime) as session:
+            await ensure_case_text_indexes(session)
+            assert await session.scalar(
+                sa.text(
+                    "SELECT public.tracecat_case_text_matches_v1('synthetic text', 'synthetic', false)"
+                )
+            )
+            assert (
+                await session.scalar(
+                    sa.text(
+                        "SELECT public.tracecat_case_safe_vector_v1('synthetic text')"
+                    )
+                )
+                is not None
+            )
+    finally:
+        await runtime.dispose()
+        with operator.begin() as conn:
+            conn.execute(sa.text(f'DROP OWNED BY "{role}"'))
+            conn.execute(sa.text(f'DROP ROLE IF EXISTS "{role}"'))
+        operator.dispose()
 
 
 @pytest.mark.anyio
