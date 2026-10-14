@@ -858,17 +858,20 @@ async def test_session_sink_sends_each_event_to_redis_and_the_channel(
 )
 async def test_session_sink_fans_out_only_for_slack_sessions(
     monkeypatch: pytest.MonkeyPatch,
+    patched_slack_client: _FakeSlackClient,
     entity_type: AgentSessionEntity,
     fans_out: bool,
 ) -> None:
     """Only Slack-bound sessions stream to their thread; others use Redis alone."""
+    channel_id = "C1"
+    thread_ts = "1700000000.100"
     preset_id = uuid.uuid4()
     agent_session = SimpleNamespace(
         entity_type=entity_type.value,
         channel_context={
             "channel_type": "slack",
-            "channel_id": "C1",
-            "thread_ts": "1700000000.100",
+            "channel_id": channel_id,
+            "thread_ts": thread_ts,
         },
         agent_preset_id=preset_id,
         entity_id=preset_id,
@@ -906,6 +909,14 @@ async def test_session_sink_fans_out_only_for_slack_sessions(
         assert isinstance(redis_sink, AgentStreamSink)
         assert redis_sink.stream is redis_stream
         assert isinstance(channel_sink, SlackStreamSink)
+        await channel_sink.append(
+            UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, text="hello")
+        )
+        await channel_sink.done()
+        start_method, start_payload = patched_slack_client.calls[0]
+        assert start_method == "chat.startStream"
+        assert start_payload["channel"] == channel_id
+        assert start_payload["thread_ts"] == thread_ts
     else:
         assert isinstance(sink, AgentStreamSink)
         assert sink.stream is redis_stream
