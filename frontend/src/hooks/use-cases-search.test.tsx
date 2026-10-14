@@ -146,13 +146,12 @@ describe("case search applied identity and cancellation", () => {
     expect(JSON.parse(String(rowsKey?.[2])).filtersKey).toBe(countsKey?.[3])
   })
 
-  it("keeps scope and reference detection on the applied term during typing", async () => {
+  it("keeps exact promotion on the applied term during typing", async () => {
     const { result } = setup()
     await advance()
     act(() => result.current.setSearchQuery("synthetic"))
     await advance(300)
     act(() => result.current.setSearchQuery("CASE-0042"))
-    expect(result.current.searchScope).toBe("view")
     expect(result.current.appliedSearchQuery).toBe("synthetic")
     await advance(299)
     expect(jest.mocked(casesSearchCases).mock.calls.at(-1)?.[0]).toMatchObject({
@@ -160,17 +159,15 @@ describe("case search applied identity and cancellation", () => {
       startTime: expect.any(String),
     })
     await advance(1)
-    expect(result.current.searchScope).toBe("all")
     expect(jest.mocked(casesSearchCases).mock.calls.at(-1)?.[0]).toMatchObject({
-      shortId: "CASE-0042",
-      searchTerm: undefined,
+      searchTerm: "CASE-0042",
+      promoteExactMatch: true,
+      startTime: expect.any(String),
       hierarchy: "all",
     })
     act(() => result.current.setSearchQuery("synthetic again"))
-    expect(result.current.searchScope).toBe("all")
     expect(result.current.appliedSearchQuery).toBe("CASE-0042")
     await advance(300)
-    expect(result.current.searchScope).toBe("view")
     expect(jest.mocked(casesSearchCases).mock.calls.at(-1)?.[0]).toMatchObject({
       searchTerm: "synthetic again",
       startTime: expect.any(String),
@@ -360,7 +357,6 @@ describe("case search applied identity and cancellation", () => {
     )
     act(() => changeWorkspace(OTHER_WORKSPACE_ID))
     expect(result.current.appliedSearchQuery).toBe("new workspace synthetic")
-    expect(result.current.searchScope).toBe("view")
     await advance()
     expect(casesSearchCases).toHaveBeenLastCalledWith(
       expect.objectContaining({

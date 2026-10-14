@@ -920,7 +920,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
     return {
       apiQueryParams: {
-        searchTerm: appliedSearchQuery.length > 0 ? appliedSearchQuery : undefined,
+        searchTerm:
+          appliedSearchQuery.length > 0 ? appliedSearchQuery : undefined,
         status: resolvedStatus.values,
         priority: resolvedPriority.values,
         severity: resolvedSeverity.values,
