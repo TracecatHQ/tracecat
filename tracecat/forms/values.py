@@ -23,13 +23,19 @@ def _equals(value: Any, expected: Any) -> bool:
     return value == expected
 
 
+def _is_empty(value: Any) -> bool:
+    """Whether an answer counts as left empty. False is a valid toggle answer."""
+    return value is None or value == "" or value == []
+
+
 def visible_fields(
     blocks: Sequence[FormBlock], values: Mapping[str, Any]
 ) -> list[FormFieldBlock]:
     """Return the fields a requester with these values sees, in block order.
 
     A conditional field is visible while its controller equals the rule's
-    value. A controller the requester left out counts as its default.
+    value. A controller left out or empty counts as its default, which is
+    what the run receives for it, as on the requester page.
     """
     fields = [block for block in blocks if isinstance(block, FormFieldBlock)]
     by_name = {field.name: field for field in fields}
@@ -37,9 +43,11 @@ def visible_fields(
     for field in fields:
         if (rule := field.visible_if) is None:
             visible.append(field)
-        elif (controller := by_name.get(rule.field)) is not None and _equals(
-            values.get(rule.field, controller.default), rule.equals
-        ):
+            continue
+        if (controller := by_name.get(rule.field)) is None:
+            continue
+        answer = values.get(rule.field)
+        if _equals(controller.default if _is_empty(answer) else answer, rule.equals):
             visible.append(field)
     return visible
 
@@ -110,8 +118,7 @@ def check_values(
     kept: dict[str, Any] = {}
     for field in visible:
         value = values.get(field.name)
-        # False is a valid toggle answer, so only these count as empty.
-        if value is None or value == "" or value == []:
+        if _is_empty(value):
             if field.required:
                 errors.append(
                     FormFieldError(

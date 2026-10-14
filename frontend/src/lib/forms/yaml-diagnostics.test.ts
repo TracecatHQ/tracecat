@@ -26,6 +26,18 @@ it("reports a YAML syntax error inside the text and returns no config", () => {
   expect(problems[0].to).toBeLessThanOrEqual(text.length)
 })
 
+it("reports an alias with no anchor on the alias and returns no config", () => {
+  // The parser accepts it; only reading the document as JSON fails.
+  const text = "title: *missing\nlayout: []\n"
+
+  const { config, problems } = parseFormConfigYaml(text)
+
+  expect(config).toBeNull()
+  expect(problems).toHaveLength(1)
+  expect(problems[0]).toMatchObject({ severity: "error" })
+  expect(text.slice(problems[0].from, problems[0].to)).toBe("*missing")
+})
+
 it.each([
   [["layout", 1, "widget"], "widget: cards"],
   // Pydantic's union tag (`field`, `notice`) is not in the text.

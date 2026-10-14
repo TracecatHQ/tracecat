@@ -290,6 +290,31 @@ describe("FormDetail config", () => {
     await waitFor(() => expect(editor()).toHaveValue(SAVED_YAML))
   })
 
+  it("survives a restored draft with an unresolved alias and marks it", async () => {
+    const first = renderDetail()
+    await waitFor(() => expect(editor()).toHaveValue(SAVED_YAML))
+    edit("title: *missing\n")
+    expect(
+      await screen.findByRole(
+        "button",
+        { name: "1 error blocks saving" },
+        { timeout: 3000 }
+      )
+    ).toBeInTheDocument()
+    first.unmount()
+
+    renderDetail()
+
+    await waitFor(() => expect(editor()).toHaveValue("title: *missing\n"))
+    expect(
+      await screen.findByRole(
+        "button",
+        { name: "1 error blocks saving" },
+        { timeout: 3000 }
+      )
+    ).toBeInTheDocument()
+  })
+
   it("gives a builder without form:update a read-only editor and the saved config's preview", async () => {
     scopes = new Set(["form:read", "form:submission:read"])
 

@@ -28,6 +28,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.models import Form, FormSubmission, User, Workflow, Workspace
 from tracecat.exceptions import ScopeDeniedError
 from tracecat.forms import internal_router
+from tracecat.forms import router as forms_router
 from tracecat.forms.enums import FormErrorCode, FormFieldErrorCode, FormStatus
 from tracecat.forms.exceptions import FormError
 from tracecat.forms.schemas import FormSubmissionCreate, FormSubmissionReceipt
@@ -392,6 +393,37 @@ async def test_submit_refuses_answers_to_a_config_that_changed_since_render(
     assert current.config_version != rendered.config_version
     await _submit(service, form, VALID, config_version=current.config_version)
     assert len(await _stored(session)) == 1
+
+
+async def test_an_empty_controller_counts_as_its_default_through_the_api(
+    session: AsyncSession,
+    intake_role: Role,
+    temporal: FakeTemporal,
+    svc_workspace: Workspace,
+) -> None:
+    # The page never sends an empty answer, and the run gets the default, so
+    # the field it controls follows the default too, as it does on the page.
+    workflow = await create_workflow(session, svc_workspace.id, title="Escalate")
+    expects = {
+        "urgency": {"type": "str", "default": "high"},
+        "reason": {"type": "str", "default": ""},
+    }
+    await publish_workflow(session, intake_role, workflow, expects)
+    layout = [
+        {"field": "urgency"},
+        {"field": "reason", "visible_if": {"field": "urgency", "equals": "high"}},
+    ]
+    form = await create_form(session, workflow, layout=layout)
+
+    await forms_router.submit_form(
+        role=intake_role,
+        session=session,
+        form_id=form.id,
+        params=FormSubmissionCreate(values={"urgency": "", "reason": "Outage"}),
+    )
+
+    [submission] = await _stored(session)
+    assert submission.answers == {"urgency": "high", "reason": "Outage"}
 
 
 async def test_submission_is_committed_before_the_run_starts(

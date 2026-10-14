@@ -35,10 +35,23 @@ function renderLanding(
   ).result
 }
 
-it("uses the last-viewed workspace without asking for scopes", () => {
-  expect(renderLanding({ a: INTAKE, b: INTAKE }, "b").current).toBe("b")
-  expect(usersGetMyScopes).not.toHaveBeenCalled()
-})
+it.each([
+  // The last-viewed workspace is checked first, then the rest in order.
+  [{ a: ["workspace:read"], b: ["workspace:read"] }, "b"],
+  // Its access can have changed since: intake-only now, so it is skipped.
+  [{ a: ["workspace:read"], b: INTAKE }, "a"],
+  // Nothing is readable: keep the last-viewed one.
+  [{ a: INTAKE, b: INTAKE }, "b"],
+])(
+  "lands a user with %p, who last viewed b, in %s",
+  async (scopes, landing) => {
+    const result = renderLanding(scopes, "b")
+
+    expect(result.current).toBeUndefined()
+    await waitFor(() => expect(result.current).toBe(landing))
+    expect(usersGetMyScopes).toHaveBeenCalledWith({ workspaceId: "b" })
+  }
+)
 
 it.each([
   // Intake-only or unknown workspaces are skipped; nothing is chosen

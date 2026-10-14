@@ -48,7 +48,7 @@ from tracecat.exceptions import (
     WorkflowAliasResolutionError,
 )
 from tracecat.expressions.eval import eval_templated_object
-from tracecat.forms.storage import delete_file_blobs, file_blob_keys
+from tracecat.forms.storage import delete_file_blobs, lock_forms_for_deletion
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import (
     LEGACY_WF_ID_PATTERN,
@@ -854,7 +854,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
 
         # The cascade removes the form and its file rows. Their blobs are
         # deleted after the commit, best effort.
-        form_file_keys = await file_blob_keys(
+        form_file_keys = await lock_forms_for_deletion(
             self.session, self.workspace_id, Form.workflow_id == workflow_uuid
         )
 

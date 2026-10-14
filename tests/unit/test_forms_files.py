@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 from fastapi import HTTPException, UploadFile
-from sqlalchemy import String, delete, func, select, text, update
+from sqlalchemy import String, delete, event, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import Headers
 
@@ -574,6 +574,20 @@ async def test_submit_checks_files_against_the_fields_current_accept(
     assert errors == {"extras": FormFieldErrorCode.INVALID_FILE}
 
 
+async def test_submit_reads_the_extension_as_the_upload_check_does(
+    files: FormFilesService,
+    submissions: FormSubmissionsService,
+    temporal: FakeTemporal,
+    form: Form,
+) -> None:
+    # The stored name keeps the requester's spaces; the extension ignores them.
+    quote = await _upload(files, form, filename="quote.PDF ")
+
+    await submissions.submit(form, _values(quote=str(quote.id)))
+
+    temporal.start.assert_awaited_once()
+
+
 @pytest.mark.parametrize(
     ("error", "claimed"),
     [
@@ -737,6 +751,58 @@ async def test_deleting_an_owner_deletes_its_rows_and_blobs(
                 .where(model.workspace_id == form.workspace_id)
             )
             assert await session.scalar(count) == (1 if model is Form else 0)
+
+
+@pytest.mark.parametrize("owner", ["form", "workflow"])
+async def test_deleting_a_form_locks_it_before_collecting_its_file_keys(
+    session: AsyncSession,
+    builder_role: Role,
+    svc_workspace: Workspace,
+    owner: str,
+) -> None:
+    # An upload holds a key-share lock on its form while it adds its row, so
+    # once the deletion holds the form, no upload can add a key it misses.
+    form = await create_form(session, await create_workflow(session, svc_workspace.id))
+    statements: list[str] = []
+
+    def record(*args: Any) -> None:
+        statements.append(args[2])
+
+    connection = (await session.connection()).sync_connection
+    assert connection is not None
+    event.listen(connection, "before_cursor_execute", record)
+    try:
+        if owner == "form":
+            await FormsService(session, builder_role).delete_form(form)
+        else:
+            await WorkflowsManagementService(
+                session, role=builder_role
+            ).delete_workflow(WorkflowUUID.new(form.workflow_id))
+    finally:
+        event.remove(connection, "before_cursor_execute", record)
+
+    locked = [
+        i
+        for i, sql in enumerate(statements)
+        if "FROM form " in sql and "FOR UPDATE" in sql
+    ]
+    collected = [i for i, sql in enumerate(statements) if "FROM form_file" in sql]
+    assert locked and collected and locked[0] < collected[0]
+
+
+async def test_an_upload_to_a_form_deleted_meanwhile_stores_nothing(
+    session: AsyncSession,
+    files: FormFilesService,
+    form: Form,
+    blob_store: FakeBlobStore,
+) -> None:
+    # The upload resolved the form, then waited for its lock while it was deleted.
+    await session.execute(delete(Form).where(Form.id == form.id))
+    await session.commit()
+
+    assert await _upload_error(files, form) is FormErrorCode.NOT_FOUND
+    assert (await _rows(session)) == {}
+    assert blob_store.objects == {}
 
 
 async def test_deleting_a_workflow_without_a_form_touches_no_blob(

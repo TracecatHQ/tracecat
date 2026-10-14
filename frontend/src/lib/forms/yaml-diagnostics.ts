@@ -6,6 +6,7 @@ import {
   type ParsedNode,
   parseDocument,
   stringify,
+  visit,
 } from "yaml"
 import type {
   FormConfig_Input,
@@ -27,8 +28,8 @@ function lineEnd(text: string, from: number): number {
 
 /**
  * Read the config editor's YAML as the JSON the API takes. Empty text is an
- * empty config. Syntax errors come back as problems at the position the
- * parser reports, and `config` is then `null`.
+ * empty config. Syntax errors, and an alias with no anchor, come back as
+ * problems on the text that caused them, and `config` is then `null`.
  */
 export function parseFormConfigYaml(text: string): {
   config: FormConfig_Input | null
@@ -50,7 +51,30 @@ export function parseFormConfigYaml(text: string): {
       }),
     }
   }
-  const value: unknown = document.toJS()
+  let value: unknown
+  try {
+    value = document.toJS()
+  } catch (error) {
+    // The parser accepts an alias with no anchor (`title: *missing`); only
+    // reading the document fails. Mark the alias, else the first line.
+    let range: [number, number] = [0, lineEnd(text, 0)]
+    visit(document, {
+      Alias(_, alias) {
+        if (alias.range && !alias.resolve(document)) {
+          range = [alias.range[0], alias.range[1]]
+          return visit.BREAK
+        }
+      },
+    })
+    const message =
+      error instanceof Error
+        ? error.message.split("\n")[0]
+        : "The config could not be read."
+    return {
+      config: null,
+      problems: [{ severity: "error", message, from: range[0], to: range[1] }],
+    }
+  }
   if (value === null || value === undefined) {
     return { config: {}, problems: [] }
   }

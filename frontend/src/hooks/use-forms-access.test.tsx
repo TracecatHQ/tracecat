@@ -2,14 +2,15 @@ import { renderHook } from "@testing-library/react"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useFormsAccess } from "@/hooks/use-forms-access"
 
-let flag: boolean | undefined
-// `null` is a failed entitlements request: settled, but with no data.
+// `null` is a failed request: settled, but with no data.
+let flag: boolean | null | undefined
 let entitled: boolean | null | undefined
 
 jest.mock("@/hooks/use-feature-flags", () => ({
   useFeatureFlag: () => ({
     isFeatureEnabled: () => flag === true,
     isLoading: flag === undefined,
+    hasFeatureData: typeof flag === "boolean",
   }),
 }))
 jest.mock("@/hooks/use-entitlements", () => ({
@@ -22,6 +23,7 @@ jest.mock("@/hooks/use-entitlements", () => ({
 
 it.each([
   ["loading", undefined, true],
+  ["loading", null, true],
   ["hidden", false, true],
   ["loading", true, undefined],
   ["loading", true, null],

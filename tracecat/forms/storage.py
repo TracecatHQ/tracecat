@@ -46,6 +46,23 @@ async def file_blob_keys(
     return [file_blob_key(workspace_id, form_id, file_id) for form_id, file_id in rows]
 
 
+async def lock_forms_for_deletion(
+    session: AsyncSession, workspace_id: uuid.UUID, condition: ColumnElement[bool]
+) -> list[str]:
+    """Lock the forms matching ``condition`` and return their files' blob keys.
+
+    An upload holds a key-share lock on its form while it adds its file row,
+    so once the forms are locked no upload can add a key this list misses.
+    ``condition`` names ``Form`` columns.
+    """
+    await session.execute(
+        select(Form.id)
+        .where(Form.workspace_id == workspace_id, condition)
+        .with_for_update()
+    )
+    return await file_blob_keys(session, workspace_id, condition)
+
+
 async def purge_expired_files(session: AsyncSession, workspace_id: uuid.UUID) -> None:
     """Delete a bounded batch of a workspace's files nobody claimed in time.
 

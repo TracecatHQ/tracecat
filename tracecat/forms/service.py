@@ -22,7 +22,6 @@ from tracecat.authz.controls import has_scope
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     Form,
-    FormFile,
     FormSubmission,
     FormView,
     OrganizationMembership,
@@ -56,7 +55,7 @@ from tracecat.forms.schemas import (
     FormUserRead,
     FormValidateResponse,
 )
-from tracecat.forms.storage import delete_file_blobs, file_blob_keys
+from tracecat.forms.storage import delete_file_blobs, lock_forms_for_deletion
 from tracecat.forms.types import ResolveResult
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -459,8 +458,8 @@ class FormsService(BaseWorkspaceService):
 
         The file blobs are deleted after the commit, best effort.
         """
-        keys = await file_blob_keys(
-            self.session, self.workspace_id, FormFile.form_id == form.id
+        keys = await lock_forms_for_deletion(
+            self.session, self.workspace_id, Form.id == form.id
         )
         await self.session.delete(form)
         await self.session.commit()

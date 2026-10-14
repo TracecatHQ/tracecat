@@ -244,15 +244,17 @@ async def test_every_draft_write_keeps_input_order(
 
 
 @pytest.mark.anyio
-async def test_reordering_inputs_is_an_edit_that_persists(
+async def test_reordering_inputs_is_an_edit_that_keeps_the_action_graph(
     session: AsyncSession, svc_role: Role, workflow: Workflow
 ) -> None:
     service = WorkflowsManagementService(session, role=svc_role)
     workflow_id = WorkflowUUID.new(workflow.id)
-    await _update_workflow(service, workflow, svc_role)
+    await _replace_from_dsl(service, workflow, svc_role)
     await session.commit()
     loaded = await service.get_workflow(workflow_id)
     assert loaded is not None
+    action_ids = {action.id for action in loaded.actions}
+    graph_version = loaded.graph_version
     original = build_workflow_edit_document(loaded)
     reversed_order = list(reversed(AUTHOR_ORDER))
     entrypoint = DSLEntrypoint.model_validate(
@@ -264,8 +266,10 @@ async def test_reordering_inputs_is_an_edit_that_persists(
     definition = original.definition.model_copy(update={"entrypoint": entrypoint})
     updated = original.model_copy(update={"definition": definition})
 
-    # Mapping equality and sorted-key hashing would both miss a reorder.
-    assert "definition" in workflow_edit_document_changed_sections(original, updated)
+    # Mapping equality and sorted-key hashing would both miss a reorder. It is
+    # its own change, not a definition rewrite.
+    changed = workflow_edit_document_changed_sections(original, updated)
+    assert changed == {"expects_order"}
     assert compute_workflow_edit_revision(updated) != compute_workflow_edit_revision(
         original
     )
@@ -282,3 +286,5 @@ async def test_reordering_inputs_is_an_edit_that_persists(
     reloaded = await service.get_workflow(workflow_id)
     assert reloaded is not None
     assert reloaded.expects_order == reversed_order
+    assert {action.id for action in reloaded.actions} == action_ids
+    assert reloaded.graph_version == graph_version

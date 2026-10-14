@@ -271,7 +271,7 @@ Responses return `workflow_id` as a short `wf_...` ID, and requests accept eithe
 
 ### Render and submit
 
-`render` returns `title`, `description`, `success_message`, `definition_version`, `config_version`, and `blocks`. A block's `type` is `heading`, `text` (Markdown), `notice` (with `tone`), `divider`, or `field`. A `field` block carries `name`, `label`, `help`, `placeholder`, `widget`, `required`, `multiple`, `default`, `options`, `visible_if`, and `config`. A `file` field's `config` holds `accept`, `max_files`, and `max_file_size` in bytes. Hidden and autofill inputs are absent. Show a field with `visible_if` only while the named field equals `equals`, and treat a controlling field the requester has not touched as its `default`.
+`render` returns `title`, `description`, `success_message`, `definition_version`, `config_version`, and `blocks`. A block's `type` is `heading`, `text` (Markdown), `notice` (with `tone`), `divider`, or `field`. A `field` block carries `name`, `label`, `help`, `placeholder`, `widget`, `required`, `multiple`, `default`, `options`, `visible_if`, and `config`. A `file` field's `config` holds `accept`, `max_files`, and `max_file_size` in bytes. Hidden and autofill inputs are absent. Show a field with `visible_if` only while the named field equals `equals`, and treat a controlling field that is empty or not sent as its `default`.
 
 Send the answers keyed by field `name`, with the `definition_version` and `config_version` from `render`. Send each value as the workflow receives it (see [Widgets](#widgets)), except that a `user` field takes a `user_id` from the users endpoint and a `file` field takes an uploaded file's `id`. A field with `multiple` set to `true` takes a list.
 

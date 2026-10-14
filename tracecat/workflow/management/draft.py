@@ -424,8 +424,10 @@ def workflow_edit_document_changed_sections(
     changed = {
         key for key in updated_payload if updated_payload[key] != original_payload[key]
     }
+    # A reorder alone leaves the definition equal and is saved on its own,
+    # without rewriting the action graph.
     if _expects_key_order(original_document) != _expects_key_order(updated_document):
-        changed.add("definition")
+        changed.add("expects_order")
     return changed
 
 
@@ -943,6 +945,11 @@ async def persist_workflow_edit_document(
             )
             await service.session.flush()
             await service.session.refresh(workflow, ["actions"])
+    if "expects_order" in changed_sections and "definition" not in changed_sections:
+        workflow.expects_order = expects_key_order(
+            updated_document.definition.entrypoint.expects
+        )
+        service.session.add(workflow)
     if "metadata" in changed_sections:
         metadata = updated_document.metadata
         update_params = WorkflowUpdate(

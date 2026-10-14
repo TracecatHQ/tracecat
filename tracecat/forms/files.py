@@ -80,6 +80,14 @@ def matches_accept(
     return False
 
 
+def _extension(filename: str) -> str:
+    """A stored file's extension, read as upload validation reads it.
+
+    The stored name keeps the requester's spaces; the extension ignores them.
+    """
+    return os.path.splitext(filename.strip())[1].lower().strip()
+
+
 def _invalid_file(field: str) -> FormFieldError:
     # One message for every reason, so a caller cannot probe for file IDs.
     return FormFieldError(
@@ -160,11 +168,15 @@ class FormFilesService(BaseWorkspaceService):
             field, filename=filename, content_type=content_type, content=content
         )
 
-        # Serialize this form's uploads so two cannot both pass the count.
-        # NO KEY UPDATE leaves inserts that reference the form unblocked.
-        await self.session.execute(
+        # Serialize this form's uploads so two cannot both pass the count, and
+        # against a deletion of the form, which locks it before collecting the
+        # blob keys. KEY SHARE leaves inserts that reference the form unblocked.
+        locked = await self.session.scalar(
             select(Form.id).where(Form.id == form_id).with_for_update(key_share=True)
         )
+        if locked is None:
+            # The form was deleted while this upload waited for it.
+            raise FormError(FormErrorCode.NOT_FOUND, "Form not found")
         pending_count = await self.session.scalar(
             select(func.count())
             .select_from(FormFile)
@@ -351,7 +363,7 @@ class FormFilesService(BaseWorkspaceService):
                 and files[file_id].field == name
                 and matches_accept(
                     accept[name],
-                    extension=os.path.splitext(files[file_id].name)[1].lower(),
+                    extension=_extension(files[file_id].name),
                     content_type=files[file_id].content_type,
                 )
             ]

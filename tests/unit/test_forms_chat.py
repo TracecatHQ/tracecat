@@ -98,12 +98,17 @@ async def test_chat_gets_the_forms_tools_only_when_forms_are_enabled(
         )
 
 
-@pytest.mark.parametrize("flag", [True, False], ids=["no-entitlement", "flag-off"])
+@pytest.mark.parametrize(
+    ("flag", "entitled"),
+    [(True, False), (False, True)],
+    ids=["no-entitlement", "flag-off"],
+)
 async def test_saved_forms_tools_are_dropped_while_forms_are_off(
-    monkeypatch: pytest.MonkeyPatch, flag: bool
+    monkeypatch: pytest.MonkeyPatch, flag: bool, entitled: bool
 ) -> None:
-    # Extras saved while forms were on would otherwise fail every turn.
-    _gate(monkeypatch, flag=flag, entitled=False)
+    # Extras saved while forms were on would otherwise fail every turn. Each
+    # case turns off one gate only.
+    _gate(monkeypatch, flag=flag, entitled=entitled)
 
     tools = await _tools(_role(), ["core.forms.update_form", "core.table.list_tables"])
 
