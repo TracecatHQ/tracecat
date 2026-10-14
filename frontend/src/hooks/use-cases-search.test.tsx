@@ -62,10 +62,11 @@ async function advance(ms = 1) {
   })
 }
 
-function setup() {
-  const queryClient = new QueryClient({
+function setup(
+  queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   })
+) {
   let workspaceId = WORKSPACE_ID
   function Wrapper({ children }: { children: ReactNode }) {
     return (
@@ -204,6 +205,52 @@ describe("case search applied identity and cancellation", () => {
     expect(result.current.cases).toHaveLength(2)
     expect(casesSearchCases).toHaveBeenCalledTimes(rowRequests)
     expect(casesSearchCaseAggregates).toHaveBeenCalledTimes(countRequests)
+  })
+
+  it("starts a newly applied search at page one after remounting with a live cache", async () => {
+    jest.mocked(casesSearchCases).mockImplementation((request) =>
+      resolved<CasesSearchCasesResponse>({
+        items: [
+          {
+            ...CASE,
+            id: request.cursor
+              ? "00000000-0000-4000-8000-000000000043"
+              : CASE.id,
+          },
+        ],
+        has_more: !request.cursor,
+        next_cursor: request.cursor ? null : "synthetic-cursor",
+      })
+    )
+    const first = setup()
+    await advance()
+    act(() =>
+      first.result.current.setCreatedAfter({ type: "preset", value: null })
+    )
+    await advance()
+    act(() => first.result.current.setSearchQuery("synthetic alpha"))
+    await advance(300)
+    await advance()
+    act(() => first.result.current.fetchNextPage())
+    await advance()
+    expect(first.result.current.cases).toHaveLength(2)
+    act(() => first.result.current.setSearchQuery("synthetic bravo"))
+    await advance(300)
+    first.unmount()
+
+    const second = setup(first.queryClient)
+    await advance()
+    expect(second.result.current.appliedSearchQuery).toBe("synthetic bravo")
+    act(() => second.result.current.setSearchQuery("synthetic alpha"))
+    await advance(300)
+    await advance()
+    expect(second.result.current.cases).toHaveLength(1)
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        searchTerm: "synthetic alpha",
+        cursor: undefined,
+      })
+    )
   })
 
   it("clears immediately, cancels pending application, and starts at page one", async () => {

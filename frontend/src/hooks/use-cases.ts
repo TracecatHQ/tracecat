@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { DateRange } from "react-day-picker"
+import { v4 as uuid4 } from "uuid"
 import {
   type CasePriority,
   type CaseReadMinimal,
@@ -610,14 +611,17 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   )
   const [appliedSearch, setAppliedSearch] = useState({
     query: initialFilterState.searchQuery.trim(),
-    revision: 0,
+    revision: "",
   })
   const appliedSearchQuery = appliedSearch.query
   const normalizedSearchInput = searchQuery.trim()
   const applySearch = useCallback((query: string, resetPagination = false) => {
+    // Query cache entries can outlive this hook, so each application needs a
+    // generation that remains unique across remounts.
+    const revision = uuid4()
     setAppliedSearch((previous) => {
       if (previous.query === query && !resetPagination) return previous
-      return { query, revision: previous.revision + 1 }
+      return { query, revision }
     })
   }, [])
   useEffect(() => {
