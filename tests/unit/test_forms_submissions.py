@@ -542,9 +542,13 @@ async def test_start_failure_keeps_the_submission_only_if_the_run_may_exist(
 
     error = await _error(_submit(service, form, VALID))
 
-    assert error.code is FormErrorCode.WORKFLOW_START_FAILED
+    # Only a start known to have failed invites a retry.
+    assert error.code is (
+        FormErrorCode.WORKFLOW_START_UNCONFIRMED
+        if kept
+        else FormErrorCode.WORKFLOW_START_FAILED
+    )
     assert len(await _stored(session)) == int(kept)
-    assert ("Check your submissions" in str(error)) is kept
     if settled is None:
         temporal.service.settle_lost_start.assert_not_awaited()
 

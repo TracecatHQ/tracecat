@@ -100,6 +100,7 @@ class FormErrorCode(StrEnum):
     FORM_CHANGED = "form_changed"
     FORM_VALIDATION_ERROR = "form_validation_error"
     WORKFLOW_START_FAILED = "workflow_start_failed"
+    WORKFLOW_START_UNCONFIRMED = "workflow_start_unconfirmed"
     FILE_FIELD_INVALID = "file_field_invalid"
     FILE_INVALID = "file_invalid"
     FILE_TYPE_NOT_ALLOWED = "file_type_not_allowed"

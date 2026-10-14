@@ -121,7 +121,8 @@ LongText = Annotated[str, Field(max_length=MAX_LONG_TEXT_LENGTH)]
 class FormOption(FormConfigModel):
     """One choice of a select, multi-select or cards field."""
 
-    value: ShortText
+    # An empty value reads as no answer, so it could never be submitted.
+    value: str = Field(min_length=1, max_length=MAX_SHORT_TEXT_LENGTH)
     label: ShortText | None = None
     description: LongText | None = None
     image: Annotated[str, AfterValidator(_check_image)] | None = Field(

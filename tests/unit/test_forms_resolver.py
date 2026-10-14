@@ -114,6 +114,17 @@ def test_option_images_reject_anything_else(image: str) -> None:
         FormConfig.model_validate(_with_images(image))
 
 
+def test_an_option_value_cannot_be_empty() -> None:
+    # An empty answer counts as unanswered, so this option could never be sent.
+    layout = [{"field": "model", "options": [{"value": "", "label": "None"}]}]
+
+    with pytest.raises(ValidationError) as exc_info:
+        FormConfig.model_validate({"layout": layout})
+
+    [error] = exc_info.value.errors()
+    assert error["loc"][-3:] == ("options", 0, "value")
+
+
 def test_images_of_one_config_are_limited_in_total() -> None:
     image = _image("png", PNG + b"\x00" * (MAX_IMAGE_BYTES - len(PNG)))
     count = MAX_CONFIG_IMAGE_BYTES // MAX_IMAGE_BYTES

@@ -192,8 +192,10 @@ class FormSubmissionsService(BaseWorkspaceService):
         # resolve_published only returns the inputs of a published definition.
         definition = cast(WorkflowDefinition, inputs.definition)
         # Either change can hide a field the requester answered, whose answer
-        # would then be dropped without an error. The form was read when this
-        # request started; an edit committed since is ordered after it.
+        # would then be dropped without an error. The config is the one read
+        # with the form when this request started. The definition was read
+        # just above, so a publish since then fails the definition_version
+        # check when the requester sent one.
         if params.definition_version not in (
             None,
             definition.version,
@@ -294,13 +296,16 @@ class FormSubmissionsService(BaseWorkspaceService):
                     error_type=type(e).__name__,
                     submission_kept=outcome == "unknown",
                 )
-                message = "The request could not be started. Try again."
                 if outcome == "unknown":
-                    message = (
+                    raise FormError(
+                        FormErrorCode.WORKFLOW_START_UNCONFIRMED,
                         "Tracecat could not confirm that the request started. "
-                        "Check your submissions before trying again."
-                    )
-                raise FormError(FormErrorCode.WORKFLOW_START_FAILED, message) from e
+                        "Check your submissions before trying again.",
+                    ) from e
+                raise FormError(
+                    FormErrorCode.WORKFLOW_START_FAILED,
+                    "The request could not be started. Try again.",
+                ) from e
             self.logger.warning(
                 "The start of a form submission's run was lost, but the run started",
                 form_id=form_id,

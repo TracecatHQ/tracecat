@@ -16878,6 +16878,7 @@ export const $FormErrorCode = {
     "form_changed",
     "form_validation_error",
     "workflow_start_failed",
+    "workflow_start_unconfirmed",
     "file_field_invalid",
     "file_invalid",
     "file_type_not_allowed",
@@ -17602,6 +17603,7 @@ export const $FormOption = {
     value: {
       type: "string",
       maxLength: 255,
+      minLength: 1,
       title: "Value",
     },
     label: {
