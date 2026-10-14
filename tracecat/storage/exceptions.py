@@ -22,10 +22,17 @@ class FileExtensionError(FileValidationError):
 class FileMimeTypeError(FileValidationError):
     """Raised when file content type is not allowed."""
 
-    def __init__(self, message: str, mime_type: str, allowed_types: list[str]):
+    def __init__(
+        self,
+        message: str,
+        mime_type: str,
+        allowed_types: list[str],
+        detected_types: list[str] | None = None,
+    ):
         super().__init__(message)
         self.mime_type = mime_type
         self.allowed_types = allowed_types
+        self.detected_types = detected_types
 
 
 class FileContentMismatchError(FileValidationError):
