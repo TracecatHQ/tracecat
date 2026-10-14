@@ -122,6 +122,13 @@ async def test_run_outcomes_show_latest_turn_not_past_denials(
         "late-marker",
         turns=[(1, chat), (2, chat), (1, cancelled)],
     )
+    # A run stopped before it wrote anything saves only its marker.
+    stopped_early = await _run(
+        session,
+        workspace_id,
+        "stopped-early",
+        turns=[(1, chat), (2, cancelled)],
+    )
     errored = await _run(
         session,
         workspace_id,
@@ -145,6 +152,7 @@ async def test_run_outcomes_show_latest_turn_not_past_denials(
             ("stopped", stopped),
             ("recovered", recovered),
             ("late-marker", late_marker),
+            ("stopped-early", stopped_early),
             ("errored", errored),
         ]
     } == {
@@ -152,6 +160,11 @@ async def test_run_outcomes_show_latest_turn_not_past_denials(
         "stopped": (InboxItemStatus.COMPLETED, "CANCELED", "Execution cancelled"),
         "recovered": (InboxItemStatus.COMPLETED, None, "Execution completed"),
         "late-marker": (InboxItemStatus.COMPLETED, None, "Agent session"),
+        "stopped-early": (
+            InboxItemStatus.COMPLETED,
+            "CANCELED",
+            "Execution cancelled",
+        ),
         "errored": (InboxItemStatus.FAILED, "FAILED", "Model request failed"),
     }
 
@@ -161,6 +174,7 @@ async def test_run_outcomes_show_latest_turn_not_past_denials(
         stopped.id,
         recovered.id,
         late_marker.id,
+        stopped_early.id,
     }
     error = await provider.list_items(limit=20, group=InboxGroup.ERROR)
     assert set(_by_id(error.items)) == {errored.id}

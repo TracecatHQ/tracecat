@@ -501,8 +501,9 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         """Return the sessions whose latest turn the user stopped.
 
         Turns are not serialized, so a stopped run can save its cancelled marker
-        after the next run's rows. The latest turn is the run that wrote the
-        latest content row, and it was stopped if that run has a marker.
+        after the next run's rows, and a run stopped before it wrote anything
+        saves only its marker. The latest turn is the run whose first row is the
+        latest, and it was stopped if that run has a marker.
         """
         if not session_ids:
             return set()
@@ -511,19 +512,22 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             AgentSessionHistory.workspace_id == self.workspace_id,
             AgentSessionHistory.session_id.in_(list(session_ids)),
         )
-        latest_content_row_ids = (
-            select(func.max(AgentSessionHistory.surrogate_id))
-            .where(
-                history_filter,
-                AgentSessionHistory.kind.not_in(
-                    [MessageKind.INTERNAL.value, MessageKind.CANCELLED.value]
-                ),
+        run_starts = (
+            select(
+                AgentSessionHistory.session_id,
+                AgentSessionHistory.curr_run_id,
+                func.min(AgentSessionHistory.surrogate_id).label("first_row_id"),
             )
-            .group_by(AgentSessionHistory.session_id)
+            .where(history_filter, AgentSessionHistory.curr_run_id.is_not(None))
+            .group_by(AgentSessionHistory.session_id, AgentSessionHistory.curr_run_id)
+            .subquery()
+        )
+        latest_start_ids = select(func.max(run_starts.c.first_row_id)).group_by(
+            run_starts.c.session_id
         )
         latest_runs = (
-            select(AgentSessionHistory.session_id, AgentSessionHistory.curr_run_id)
-            .where(AgentSessionHistory.surrogate_id.in_(latest_content_row_ids))
+            select(run_starts.c.session_id, run_starts.c.curr_run_id)
+            .where(run_starts.c.first_row_id.in_(latest_start_ids))
             .subquery()
         )
         result = await self.session.execute(
