@@ -1,4 +1,21 @@
-"""Run with python -m scripts.benchmark.table_search.run; see README.md."""
+"""Benchmark isolated PostgreSQL lexical-search storage prototypes.
+
+Create an empty PostgreSQL 16 database named tracecat_search_bench_* and set
+TABLE_SEARCH_BENCH_DSN to its connection URI. The role needs CONNECT and CREATE;
+pg_trgm must be available. Setup refuses existing user relations. Cleanup removes
+only this invocation's random schema, preserving the database and extension.
+
+Run from the repository root with synced dependencies::
+
+    uv run python -m scripts.benchmark.table_search.run \\
+      --sizes 10000 100000 1000000 --width 4 --workspaces 4 --seed 2022 \\
+      --environment 'Server CPU, RAM, storage and competing workloads' \\
+      --output /tmp/table-search-scale.json
+
+Use --width 16 for a wide-schema run and --max-value-bytes 20971520 for 20 MiB
+safety probes. These are experimental chunkers; production requirements and the
+recorded storage decision live in the ENG-2022 pull-request description.
+"""
 
 import argparse
 import os
@@ -413,7 +430,9 @@ def run_scenario(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument(
         "--sizes", type=int, nargs="+", default=[10_000, 100_000, 1_000_000]
     )
