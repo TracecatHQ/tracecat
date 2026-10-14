@@ -20,8 +20,10 @@ from tracecat.agent.executor.activity import (
 from tracecat.agent.runtime_services import (
     start_claude_runtime_broker,
     start_mcp_server,
+    start_otel_delivery_pool,
     stop_claude_runtime_broker,
     stop_mcp_server,
+    stop_otel_delivery_pool,
 )
 from tracecat.agent.sandbox.cgroup import sandbox_cgroup
 from tracecat.agent.worker import new_sandbox_runner
@@ -53,6 +55,7 @@ def get_activities() -> list:
 async def _start_runtime_services() -> Client:
     """Start shared runtime services needed by the agent executor worker."""
     logger.info("Starting runtime services")
+    start_otel_delivery_pool()
     _, _, client = await asyncio.gather(
         start_claude_runtime_broker(),
         start_mcp_server(),
@@ -67,10 +70,11 @@ async def _stop_runtime_services() -> None:
     results = await asyncio.gather(
         stop_claude_runtime_broker(),
         stop_mcp_server(),
+        stop_otel_delivery_pool(),
         return_exceptions=True,
     )
     for service_name, result in zip(
-        ("Claude runtime broker", "MCP server"),
+        ("Claude runtime broker", "MCP server", "OTel delivery pool"),
         results,
         strict=True,
     ):
