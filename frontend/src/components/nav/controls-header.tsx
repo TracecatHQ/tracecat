@@ -22,6 +22,7 @@ import {
   Plus,
   TagsIcon,
   Trash2,
+  UngroupIcon,
   User,
   X,
 } from "lucide-react"
@@ -1584,7 +1585,10 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
                   }}
                 >
                   <span className="flex items-center gap-2">
-                    <X className="size-3 text-muted-foreground" aria-hidden />
+                    <UngroupIcon
+                      className="size-3 text-muted-foreground"
+                      aria-hidden
+                    />
                     <span>Ungroup case</span>
                   </span>
                 </DropdownMenuItem>
