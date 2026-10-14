@@ -938,6 +938,83 @@ async def test_caller_owned_reservation_is_never_tombstoned(
     assert saved.reserved_at is None
 
 
+async def test_stale_preparation_keeps_a_newer_reservation_recoverable(
+    connection: AsyncConnection,
+) -> None:
+    """Preparation that read an older run never clears the marker of its replacement."""
+    backend = PreparationBackend()
+    temporal = ScriptedTemporal(
+        start_workflow_execution=[
+            unavailable(),
+            StartWorkflowExecutionResponse(run_id="tombstone-a"),
+            unavailable(),
+            StartWorkflowExecutionResponse(run_id="tombstone-b"),
+            StartWorkflowExecutionResponse(run_id="c"),
+        ],
+        describe_workflow_execution=[not_found(), not_found()],
+        terminate_workflow_execution=[
+            TerminateWorkflowExecutionResponse(),
+            TerminateWorkflowExecutionResponse(),
+        ],
+    )
+    async with AsyncSession(connection, expire_on_commit=False) as db:
+        context = await make_context(db)
+        session_id = context.session.id
+        service = AgentSessionService(db, context.role)
+        turn_b = replace(context, run_id=uuid4(), stream_id=uuid4())
+        turn_c = replace(context, run_id=uuid4(), stream_id=uuid4())
+
+        async def load_session(*_args: object) -> AgentSession:
+            loaded = await db.scalar(
+                select(AgentSession)
+                .where(AgentSession.id == session_id)
+                .execution_options(populate_existing=True)
+            )
+            assert loaded is not None
+            return loaded
+
+        @asynccontextmanager
+        async def agent_config(_session: AgentSession) -> AsyncIterator[AgentConfig]:
+            # Preparation has read run A and pauses here. Its read transaction
+            # ends, but its loaded row stays as it was, like a READ COMMITTED
+            # reader's object while another sender commits.
+            await db.commit()
+            async with AsyncSession(connection, expire_on_commit=False) as other:
+                # The other sender tombstones A, then reserves B and loses its start.
+                with pytest.raises(SessionDispatchUncertain):
+                    await backend.start_turn(replace(turn_b, db=other))
+            yield context.config
+
+        with patch(
+            "tracecat.agent.backends.base.get_temporal_client",
+            return_value=temporal_client(AsyncMock(side_effect=temporal.rpc)),
+        ):
+            await lose_first_start(backend, connection, context)
+            await age_reservation(db, session_id, timedelta(minutes=1))
+            with (
+                patch.object(service, "validate_turn_request", load_session),
+                patch.object(service, "_build_agent_config", agent_config),
+            ):
+                prepared = await service.prepare_new_turn(session_id, "Investigate")
+            assert prepared.run_id == context.run_id
+            saved = await assert_reserved_by(connection, session_id, turn_b.run_id)
+            assert saved.reserved_run_id == turn_b.run_id
+            assert saved.reserved_at is not None
+
+            # B is still a direct dispatch's lost start, so a later send recovers it.
+            await age_reservation(db, session_id, timedelta(minutes=1))
+            await backend.start_turn(turn_c)
+
+    assert [start.workflow_id for start in temporal.starts] == [
+        f"agent/{context.run_id}",
+        f"agent/{context.run_id}",
+        f"agent/{turn_b.run_id}",
+        f"agent/{turn_b.run_id}",
+        f"agent/{turn_c.run_id}",
+    ]
+    await assert_reserved_by(connection, session_id, turn_c.run_id)
+
+
 async def reserve_lost_turn(db: AsyncSession) -> tuple[SessionTurnContext, UUID]:
     """Commit a direct dispatch reservation whose start never reached Temporal."""
     context = await make_context(db)
