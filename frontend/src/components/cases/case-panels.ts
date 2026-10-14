@@ -17,10 +17,10 @@ export const CASE_PANEL_KEYS = [
   "description",
   "tasks",
   "attachments",
+  "sub-cases",
   "rows",
   "payload",
   "activity",
-  "sub-cases",
 ] as const
 
 /** One key from {@link CASE_PANEL_KEYS}. */
@@ -53,10 +53,10 @@ export const CASE_PANELS: readonly CasePanelDefinition[] = [
   { key: "description", label: "Description", icon: AlignLeft, shortcut: 1 },
   { key: "tasks", label: "Tasks", icon: ListChecks, shortcut: 2 },
   { key: "attachments", label: "Attachments", icon: Paperclip, shortcut: 3 },
+  { key: "sub-cases", label: "Sub-cases", icon: ListTree, shortcut: 7 },
   { key: "rows", label: "Tables", icon: Table2, shortcut: 4 },
   { key: "payload", label: "Payload", icon: Braces, shortcut: 5 },
   { key: "activity", label: "Activity", icon: Activity, shortcut: 6 },
-  { key: "sub-cases", label: "Sub-cases", icon: ListTree, shortcut: 7 },
 ]
 
 /**
