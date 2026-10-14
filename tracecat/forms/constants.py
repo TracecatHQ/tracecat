@@ -29,7 +29,10 @@ PENDING_FILE_TTL = timedelta(hours=24)
 """How long an uploaded file may wait for a submission to claim it."""
 
 EXPIRED_FILE_PURGE_BATCH = 100
-"""Expired files removed by one upload."""
+"""Expired files removed in one transaction."""
+
+EXPIRED_FILE_PURGE_INTERVAL = timedelta(minutes=10)
+"""How often each API process purges expired files."""
 
 BLOB_DELETE_BATCH = 50
 """Blobs deleted at once. Every blob is deleted, one batch after another."""

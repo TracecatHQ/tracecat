@@ -385,6 +385,13 @@ class FormUpdate(Schema):
     config: FormConfig | None = Field(
         default=None, description="Replaces the whole config."
     )
+    base_config_version: str | None = Field(
+        default=None,
+        description=(
+            "The config_version the edit started from. If set and the saved "
+            "config has changed since, the update is rejected with form_changed."
+        ),
+    )
 
 
 class FormValidateRequest(Schema):
@@ -434,6 +441,7 @@ class FormRead(Schema):
     )
     status: FormStatus
     config: FormConfig
+    config_version: str = Field(description="Version of the saved config.")
     issues: list[FormIssue]
     url: str
     counts: FormCounts | None = Field(

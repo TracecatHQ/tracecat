@@ -257,8 +257,14 @@ export function FormConfigTab({
     }
     setIsSaving(true)
     try {
-      const saved = await updateForm({ config: parsed.config })
-      draft.markSaved(saved.config, text)
+      // A save goes over the config the edit started from, and is refused
+      // if that changed. Overwrite saves over whatever is there.
+      const saved = await updateForm(
+        overwrite
+          ? { config: parsed.config }
+          : { config: parsed.config, base_config_version: draft.baseVersion }
+      )
+      draft.markSaved(saved, text)
       setRejected(null)
       toast({ title: "Form saved" })
     } catch (error) {

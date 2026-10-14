@@ -3,6 +3,7 @@
 Blob storage is the in-memory ``blob_store`` fake, so these tests need no MinIO.
 """
 
+import asyncio
 import base64
 import hashlib
 import io
@@ -26,6 +27,7 @@ from tests._forms_utils import (
     create_submission,
     create_workflow,
     publish_workflow,
+    use_session,
 )
 from tracecat import config
 from tracecat.auth.types import Role
@@ -367,6 +369,10 @@ async def test_pending_files_are_capped_per_uploader_per_form(
     # A claimed file no longer counts.
     await submissions.submit(form, _values(quote=str(uploads[0].id)))
     await _upload(files, form)
+    assert await _upload_error(files, form) is FormErrorCode.FILE_LIMIT_REACHED
+    # Nor does an expired one, before a purge removes it.
+    await _age(session, uploads[1].id, EXPIRED)
+    await _upload(files, form)
 
 
 async def test_upload_failures_leave_no_row_and_api_keys_are_recorded(
@@ -389,7 +395,7 @@ async def test_upload_failures_leave_no_row_and_api_keys_are_recorded(
 # ----- Expiry -----
 
 
-async def test_upload_purges_the_workspaces_expired_pending_files(
+async def test_expiry_purges_every_workspace_without_waiting_for_an_upload(
     session: AsyncSession,
     files: FormFilesService,
     submissions: FormSubmissionsService,
@@ -397,31 +403,72 @@ async def test_upload_purges_the_workspaces_expired_pending_files(
     temporal: FakeTemporal,
     form: Form,
     intake_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     expired, fresh, claimed = [await _upload(files, form) for _ in range(3)]
     await submissions.submit(form, _values(quote=str(claimed.id)))
-    # Nothing uploads to an offline form, so only another form's upload can
-    # remove what was left on it.
+    # Nothing uploads to an offline form or to the other workspace again.
     offline = await _online_form(session, intake_role, form.workspace_id)
-    elsewhere = await _upload(files, offline)
+    on_offline = await _upload(files, offline)
     offline.status = FormStatus.OFFLINE.value
     other_workspace = await create_organization_with_workspace(session, name="other")
     other_form = await _online_form(session, intake_role, other_workspace.id)
     foreign = await create_file(session, other_form)
     for file_id, age in [
         (expired.id, EXPIRED),
-        (elsewhere.id, EXPIRED),
+        (on_offline.id, EXPIRED),
         (foreign.id, EXPIRED),
         (claimed.id, PENDING_FILE_TTL + timedelta(days=30)),
         (fresh.id, PENDING_FILE_TTL - timedelta(minutes=1)),
     ]:
         await _age(session, file_id, age)
+    # Two batches hold the three expired files.
+    monkeypatch.setattr(storage, "EXPIRED_FILE_PURGE_BATCH", 2)
+    monkeypatch.setattr(
+        storage, "get_async_session_bypass_rls_context_manager", use_session(session)
+    )
+    stop = asyncio.Event()
+    purge = storage.purge_expired_files
 
-    newest = await _upload(files, form)
+    async def purge_until_done(session: AsyncSession) -> int:
+        if (purged := await purge(session)) < 2:
+            stop.set()
+        return purged
 
-    kept = {fresh.id, claimed.id, newest.id}
-    assert set(await _rows(session)) == kept | {foreign.id}
+    monkeypatch.setattr(storage, "purge_expired_files", purge_until_done)
+
+    async with asyncio.timeout(10):
+        await storage.run_file_expiry(stop)
+
+    kept = {fresh.id, claimed.id}
+    assert set(await _rows(session)) == kept
     assert set(blob_store.objects) == {_key(form, file_id) for file_id in kept}
+    assert file_blob_key(other_workspace.id, other_form.id, foreign.id) in (
+        blob_store.deleted
+    )
+
+
+async def test_expiry_keeps_running_after_a_failed_pass(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stop = asyncio.Event()
+    passes: list[str] = []
+
+    async def purge(session: AsyncSession) -> int:
+        if not passes:
+            passes.append("failed")
+            raise TimeoutError
+        passes.append("purged")
+        stop.set()
+        return 0
+
+    monkeypatch.setattr(storage, "purge_expired_files", purge)
+    monkeypatch.setattr(storage, "EXPIRED_FILE_PURGE_INTERVAL", timedelta(0))
+
+    async with asyncio.timeout(10):
+        await storage.run_file_expiry(stop)
+
+    assert passes == ["failed", "purged"]
 
 
 async def test_purge_removes_a_bounded_batch(
@@ -441,7 +488,7 @@ async def test_purge_removes_a_bounded_batch(
     for uploaded in uploads:
         await _age(session, uploaded.id, EXPIRED)
 
-    await purge_expired_files(session, form.workspace_id)
+    assert await purge_expired_files(session) == 2
 
     remaining = await _rows(session)
     assert len(remaining) == 1
@@ -525,7 +572,7 @@ async def test_submit_claims_only_the_callers_pending_uploads_to_that_field(
     await session.commit()
     claimed = await _upload(files, form)
     await submissions.submit(form, _values(quote=str(claimed.id)))
-    # Aged after the last upload, so no purge removed it: the claim refuses it.
+    # Expired but not yet purged: the claim refuses it.
     await _age(session, expired.id, EXPIRED)
 
     cases: list[tuple[Role, str, Any]] = [

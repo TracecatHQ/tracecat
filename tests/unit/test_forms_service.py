@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import event, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests._forms_utils import (
@@ -211,6 +211,31 @@ async def test_update_replaces_the_config_and_saves_nothing_invalid(
     assert error.code is FormErrorCode.FORM_CONFIG_INVALID
     await session.refresh(form)
     assert (form.status, form.layout) == ("online", [{"heading": "Details"}])
+
+
+async def test_an_update_started_from_an_older_config_is_rejected(
+    session: AsyncSession, service: FormsService, published_workflow: Workflow
+) -> None:
+    form = await service.create_form(
+        _new_form(published_workflow.id, config={"title": "Laptop request"})
+    )
+    opened = (await service.read_form(form)).config_version
+    # Another editor, the chat or a sync saves first.
+    elsewhere = FormConfig(title="Renamed elsewhere")
+    form = await service.update_form(form, FormUpdate(config=elsewhere))
+
+    mine = FormUpdate(config=FormConfig(title="Mine"), base_config_version=opened)
+    error = await _error(service.update_form(form, mine))
+    assert error.code is FormErrorCode.FORM_CHANGED
+    await session.refresh(form)
+    assert form.title == "Renamed elsewhere"
+
+    # Saving over the config on screen, or overwriting on purpose, works.
+    current = (await service.read_form(form)).config_version
+    mine.base_config_version = current
+    assert (await service.update_form(form, mine)).title == "Mine"
+    overwrite = FormUpdate(config=FormConfig(title="Overwritten"))
+    assert (await service.update_form(form, overwrite)).title == "Overwritten"
 
 
 async def test_form_cannot_go_online_once_its_config_stops_resolving(
@@ -657,6 +682,7 @@ def rbac(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> None:
     """Run the real scope query, and the RLS-bypass reads, on the test session."""
     for module, name in (
         (credentials, "get_async_session_auth_context_manager"),
+        (forms_service, "get_async_session_auth_context_manager"),
         (forms_service, "get_async_session_bypass_rls_context_manager"),
     ):
         monkeypatch.setattr(module, name, use_session(session))
@@ -770,6 +796,36 @@ async def test_locate_needs_access_to_the_forms_workspace(
         await FormsIntakeService(session, member).list_forms(PageParams())
     ).items == []
     assert await _locate(session, member, form.id) == 404
+
+
+@pytest.mark.usefixtures("rbac")
+async def test_intake_reads_scopes_in_one_query_however_many_workspaces(
+    session: AsyncSession, org_role: Role, svc_workspace: Workspace
+) -> None:
+    workspaces = [svc_workspace]
+    for name in ("second", "third"):
+        workspace = Workspace(name=name, organization_id=svc_workspace.organization_id)
+        session.add(workspace)
+        workspaces.append(workspace)
+    await session.commit()
+    forms = [await _form_in(session, ws, ws.name) for ws in workspaces]
+    await _grant(session, org_role.user_id, workspaces[0], "form:read")
+    await _grant(session, org_role.user_id, workspaces[2], "form:read")
+    statements: list[str] = []
+
+    def record(*args: Any) -> None:
+        statements.append(args[2])
+
+    connection = (await session.connection()).sync_connection
+    assert connection is not None
+    event.listen(connection, "before_cursor_execute", record)
+    try:
+        page = await FormsIntakeService(session, org_role).list_forms(PageParams())
+    finally:
+        event.remove(connection, "before_cursor_execute", record)
+
+    assert {item.id for item in page.items} == {forms[0].id, forms[2].id}
+    assert sum("role_scope" in sql for sql in statements) == 1
 
 
 @pytest.mark.usefixtures("rbac")

@@ -17,9 +17,12 @@ from sqlalchemy.sql.selectable import Select
 
 from tracecat import config
 from tracecat.audit.logger import audit_log
-from tracecat.auth.credentials import compute_effective_scopes
 from tracecat.authz.controls import has_scope
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.authz.service import query_effective_scopes_by_workspace
+from tracecat.db.engine import (
+    get_async_session_auth_context_manager,
+    get_async_session_bypass_rls_context_manager,
+)
 from tracecat.db.models import (
     Form,
     FormSubmission,
@@ -378,6 +381,7 @@ class FormsService(BaseWorkspaceService):
             workflow_version=inputs.definition_version,
             status=FormStatus(form.status),
             config=current_config,
+            config_version=config_version(current_config),
             issues=resolve_form(current_config, inputs.expects).issues,
             url=f"{config.TRACECAT__PUBLIC_APP_URL}/forms/{form.id}",
             counts=counts,
@@ -424,8 +428,22 @@ class FormsService(BaseWorkspaceService):
         """Update a form's status, config or both. ``config`` replaces whole.
 
         A config with errors is not saved, and an unpublished workflow's form
-        cannot go online. Going offline is always allowed.
+        cannot go online. Going offline is always allowed. With
+        ``base_config_version``, an update to a config that changed since is
+        rejected.
+
+        Raises:
+            FormError: ``form_changed`` for a stale ``base_config_version``, or
+                the reason the config or status cannot be saved.
         """
+        if params.base_config_version is not None:
+            # Locked, so two saves from the same config cannot both pass.
+            await self.session.refresh(form, with_for_update=True)
+            if params.base_config_version != config_version(stored_form_config(form)):
+                raise FormError(
+                    FormErrorCode.FORM_CHANGED,
+                    "This form changed since you opened it",
+                )
         status = params.status or FormStatus(form.status)
         if params.config is not None or params.status is FormStatus.ONLINE:
             inputs = await self._require_inputs(form.workflow_id)
@@ -591,22 +609,28 @@ class FormsIntakeService(BaseOrgService):
 
     service_name = "forms_intake"
 
-    async def _can_read_forms(self, workspace_id: WorkspaceID) -> bool:
-        """Whether the caller holds ``form:read`` in a workspace.
-
-        Scopes are matched in Python: custom roles can hold wildcards.
-        """
-        if self.role.type != "user":
-            return False
-        workspace_role = self.role.model_copy(update={"workspace_id": workspace_id})
-        return has_scope(await compute_effective_scopes(workspace_role), "form:read")
-
     async def _readable_workspace_ids(self) -> list[WorkspaceID]:
+        """The workspaces the caller can open and holds ``form:read`` in.
+
+        One scope query covers every workspace. Scopes are matched in
+        Python: custom roles can hold wildcards.
+        """
+        if self.role.type != "user" or self.role.user_id is None:
+            return []
         workspaces = WorkspaceService(self.session, role=self.role)
+        workspace_ids = [
+            workspace.id for workspace in await workspaces.list_accessible_workspaces()
+        ]
+        if not workspace_ids or self.role.is_platform_superuser:
+            return workspace_ids
+        async with get_async_session_auth_context_manager() as session:
+            scopes = await query_effective_scopes_by_workspace(
+                session, self.role.user_id, self.organization_id, workspace_ids
+            )
         return [
-            workspace.id
-            for workspace in await workspaces.list_accessible_workspaces()
-            if await self._can_read_forms(workspace.id)
+            workspace_id
+            for workspace_id in workspace_ids
+            if has_scope(scopes[workspace_id], "form:read")
         ]
 
     async def locate_form(self, form_id: uuid.UUID) -> FormIntakeLocation | None:

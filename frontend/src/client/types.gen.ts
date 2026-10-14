@@ -5391,6 +5391,10 @@ export type FormRead = {
   workflow_version?: number | null
   status: FormStatus
   config: FormConfig_Output
+  /**
+   * Version of the saved config.
+   */
+  config_version: string
   issues: Array<FormIssue>
   url: string
   /**
@@ -5513,6 +5517,10 @@ export type FormUpdate = {
    * Replaces the whole config.
    */
   config?: FormConfig_Input | null
+  /**
+   * The config_version the edit started from. If set and the saved config has changed since, the update is rejected with form_changed.
+   */
+  base_config_version?: string | null
 }
 
 /**

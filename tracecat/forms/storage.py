@@ -7,16 +7,19 @@ it without an import cycle.
 import asyncio
 import uuid
 from collections.abc import Sequence
+from contextlib import suppress
 from datetime import UTC, datetime
 
 from sqlalchemy import ColumnElement, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import Form, FormFile
 from tracecat.forms.constants import (
     BLOB_DELETE_BATCH,
     EXPIRED_FILE_PURGE_BATCH,
+    EXPIRED_FILE_PURGE_INTERVAL,
     PENDING_FILE_TTL,
 )
 from tracecat.logger import logger
@@ -64,11 +67,11 @@ async def lock_forms_for_deletion(
     return await file_blob_keys(session, workspace_id, condition)
 
 
-async def purge_expired_files(session: AsyncSession, workspace_id: uuid.UUID) -> None:
-    """Delete a bounded batch of a workspace's files nobody claimed in time.
+async def purge_expired_files(session: AsyncSession) -> int:
+    """Delete a bounded batch of the files nobody claimed in time.
 
-    Covers every form of the workspace, online or not. Commits the row
-    deletion, then deletes the blobs.
+    Covers every workspace, so the session must bypass RLS. Commits the row
+    deletion, then deletes the blobs. Returns how many files it deleted.
     """
     # Lock the batch first, in a statement of its own. As a subquery of the
     # DELETE, Postgres may run the limited select once per file row, and each
@@ -76,7 +79,6 @@ async def purge_expired_files(session: AsyncSession, workspace_id: uuid.UUID) ->
     expired = (
         select(FormFile.id)
         .where(
-            FormFile.workspace_id == workspace_id,
             FormFile.submission_id.is_(None),
             FormFile.created_at < datetime.now(UTC) - PENDING_FILE_TTL,
         )
@@ -84,17 +86,40 @@ async def purge_expired_files(session: AsyncSession, workspace_id: uuid.UUID) ->
         .with_for_update(skip_locked=True)
     )
     if not (file_ids := (await session.execute(expired)).scalars().all()):
-        return
+        return 0
     statement = (
         delete(FormFile)
         .where(FormFile.id.in_(file_ids))
-        .returning(FormFile.form_id, FormFile.id)
+        .returning(FormFile.workspace_id, FormFile.form_id, FormFile.id)
     )
     rows = (await session.execute(statement)).tuples().all()
     await session.commit()
-    await delete_file_blobs(
-        [file_blob_key(workspace_id, form_id, file_id) for form_id, file_id in rows]
-    )
+    await delete_file_blobs([file_blob_key(*row) for row in rows])
+    return len(rows)
+
+
+async def run_file_expiry(stop_event: asyncio.Event) -> None:
+    """Purge expired files now and every ``EXPIRED_FILE_PURGE_INTERVAL``.
+
+    Runs in every API process until ``stop_event`` is set. Batches skip the
+    rows another process has locked, so processes never purge the same file.
+    """
+    while not stop_event.is_set():
+        try:
+            async with get_async_session_bypass_rls_context_manager() as session:
+                while (
+                    not stop_event.is_set()
+                    and await purge_expired_files(session) == EXPIRED_FILE_PURGE_BATCH
+                ):
+                    pass
+        except Exception as e:
+            logger.warning(
+                "Failed to purge expired form files", error_type=type(e).__name__
+            )
+        with suppress(TimeoutError):
+            await asyncio.wait_for(
+                stop_event.wait(), EXPIRED_FILE_PURGE_INTERVAL.total_seconds()
+            )
 
 
 async def delete_file_blobs(keys: Sequence[str]) -> None:

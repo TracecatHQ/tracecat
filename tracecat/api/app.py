@@ -147,6 +147,7 @@ from tracecat.feature_flags.router import router as feature_flags_router
 from tracecat.forms.exceptions import FormError, form_error_handler
 from tracecat.forms.router import intake_router as forms_intake_router
 from tracecat.forms.router import router as forms_router
+from tracecat.forms.storage import run_file_expiry
 from tracecat.inbox.router import router as inbox_router
 from tracecat.integrations.router import (
     integrations_router,
@@ -299,6 +300,7 @@ async def lifespan(app: FastAPI):
         start_case_duration_sync_consumer,
         name="case_duration_sync_consumer",
     )
+    supervisor.spawn_stoppable(run_file_expiry, name="form_file_expiry")
 
     if kubernetes_enabled():
         supervisor.spawn_stoppable(

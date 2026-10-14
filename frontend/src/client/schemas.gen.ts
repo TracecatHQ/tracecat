@@ -17772,6 +17772,11 @@ export const $FormRead = {
     config: {
       $ref: "#/components/schemas/FormConfig-Output",
     },
+    config_version: {
+      type: "string",
+      title: "Config Version",
+      description: "Version of the saved config.",
+    },
     issues: {
       items: {
         $ref: "#/components/schemas/FormIssue",
@@ -17813,6 +17818,7 @@ export const $FormRead = {
     "workflow_title",
     "status",
     "config",
+    "config_version",
     "issues",
     "url",
     "created_at",
@@ -18137,6 +18143,19 @@ export const $FormUpdate = {
         },
       ],
       description: "Replaces the whole config.",
+    },
+    base_config_version: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Config Version",
+      description:
+        "The config_version the edit started from. If set and the saved config has changed since, the update is rejected with form_changed.",
     },
   },
   type: "object",

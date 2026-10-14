@@ -82,6 +82,7 @@ function formRead(overrides: Partial<FormRead> = {}): FormRead {
     workflow_title: "Provision laptop",
     workflow_version: 4,
     config: { title: "Laptop request", layout: [{ field: "model" }] },
+    config_version: "v-saved",
     counts: { views: 311, submissions: 42 },
     ...overrides,
   } as FormRead
@@ -204,7 +205,10 @@ describe("FormDetail config", () => {
     expect(updateForm).toHaveBeenLastCalledWith({
       workspaceId: "workspace-1",
       formId: "form-1",
-      requestBody: { config: { title: "Order" } },
+      requestBody: {
+        config: { title: "Order" },
+        base_config_version: "v-saved",
+      },
     })
     expect(saveButton()).toBeDisabled()
   })
@@ -268,6 +272,55 @@ describe("FormDetail config", () => {
     await user.click(screen.getByRole("button", { name: "Overwrite" }))
     await waitFor(() =>
       expect(updateForm).toHaveBeenCalledWith(
+        expect.objectContaining({ requestBody: { config: { title: "Mine" } } })
+      )
+    )
+  })
+
+  it("refuses a save over a config that changed since it was loaded, then offers Overwrite", async () => {
+    updateForm.mockRejectedValueOnce(
+      Object.assign(new Error("Conflict"), {
+        status: 409,
+        body: {
+          detail: {
+            code: "form_changed",
+            message: "This form changed since you opened it",
+          },
+        },
+      })
+    )
+    updateForm.mockResolvedValue(
+      formRead({ config: { title: "Mine" }, config_version: "v-mine" })
+    )
+    const { user } = renderDetail()
+    await waitFor(() => expect(editor()).toHaveValue(SAVED_YAML))
+    // A colleague saves while this editor's copy is still the one it loaded.
+    jest.mocked(formsGetForm).mockResolvedValue(
+      formRead({
+        config: { title: "Renamed by a colleague" },
+        config_version: "v-colleague",
+      })
+    )
+
+    edit("title: Mine\n")
+    await user.click(saveButton())
+
+    expect(updateForm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestBody: {
+          config: { title: "Mine" },
+          base_config_version: "v-saved",
+        },
+      })
+    )
+    expect(
+      await screen.findByText(/This form changed elsewhere/)
+    ).toBeInTheDocument()
+    expect(editor()).toHaveValue("title: Mine\n")
+
+    await user.click(screen.getByRole("button", { name: "Overwrite" }))
+    await waitFor(() =>
+      expect(updateForm).toHaveBeenLastCalledWith(
         expect.objectContaining({ requestBody: { config: { title: "Mine" } } })
       )
     )

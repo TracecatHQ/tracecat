@@ -21,6 +21,7 @@ import {
   formsSubmitForm,
   formsUpdateForm,
 } from "@/client"
+import { getFormErrorCode } from "@/lib/forms/errors"
 import {
   useInfiniteQuery,
   useMutation,
@@ -204,6 +205,14 @@ export function useUpdateForm({ workspaceId, formId }: FormScope) {
       queryClient.invalidateQueries({
         queryKey: formKeys.render(workspaceId, formId),
       })
+    },
+    onError: (error) => {
+      // Load the newer config, so the editor can offer Reload or Overwrite.
+      if (getFormErrorCode(error) === "form_changed") {
+        queryClient.invalidateQueries({
+          queryKey: formKeys.detail(workspaceId, formId),
+        })
+      }
     },
     meta: { suppressErrorToast: true },
   })

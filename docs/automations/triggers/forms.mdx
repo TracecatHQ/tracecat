@@ -165,7 +165,7 @@ The `file` widget lets requesters attach files. A `dict` input takes one file. A
   max_files: 2
 ```
 
-Tracecat accepts a file when the workspace attachment settings allow its extension and MIME type, it matches `accept`, its content matches its declared type, and it is not empty and at most `TRACECAT__MAX_ATTACHMENT_SIZE_BYTES` (20 MB by default). One requester holds at most 20 uploaded files on one form before submitting. An uploaded file that no submission claims within 24 hours expires. Tracecat deletes expired files in batches when later files are uploaded to the workspace.
+Tracecat accepts a file when the workspace attachment settings allow its extension and MIME type, it matches `accept`, its content matches its declared type, and it is not empty and at most `TRACECAT__MAX_ATTACHMENT_SIZE_BYTES` (20 MB by default). One requester holds at most 20 uploaded files on one form before submitting. An uploaded file that no submission claims within 24 hours expires. Tracecat deletes expired files every 10 minutes.
 
 Read a file's content in the workflow with [`core.forms.download_file`](/automations/core-actions/form-actions/forms), passing `${{ TRIGGER.quote.id }}` as `file_id`. The requester who uploaded a file can download it before and after submitting. A member with `form:submission:read` can download every submitted file from the `Activity` tab. Deleting a submission, its form, or the form's workflow deletes its files.
 

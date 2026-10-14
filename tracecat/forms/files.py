@@ -35,11 +35,7 @@ from tracecat.forms.schemas import (
     FormFileRead,
 )
 from tracecat.forms.service import FormsService
-from tracecat.forms.storage import (
-    delete_file_blobs,
-    file_blob_key,
-    purge_expired_files,
-)
+from tracecat.forms.storage import delete_file_blobs, file_blob_key
 from tracecat.service import BaseWorkspaceService
 from tracecat.storage import blob
 from tracecat.storage.exceptions import (
@@ -110,10 +106,16 @@ class FormFilesService(BaseWorkspaceService):
         )
 
     def _pending(self, form_id: uuid.UUID) -> tuple[ColumnElement[bool], ...]:
+        """This form's files that wait for a submission and have not expired.
+
+        An expired file stays until the next purge, but nothing counts or
+        claims it.
+        """
         return (
             FormFile.workspace_id == self.workspace_id,
             FormFile.form_id == form_id,
             FormFile.submission_id.is_(None),
+            FormFile.created_at >= datetime.now(UTC) - PENDING_FILE_TTL,
         )
 
     # ----- Upload -----
@@ -131,8 +133,7 @@ class FormFilesService(BaseWorkspaceService):
 
         The file stays pending until the caller submits its ID. The filename
         is validated and stored as data; the declared type is checked against
-        the bytes. Uploading also purges a batch of the workspace's expired
-        pending files.
+        the bytes.
 
         Raises:
             FormError: If the form cannot be filled in, the field is not a
@@ -163,7 +164,6 @@ class FormFilesService(BaseWorkspaceService):
                 FormErrorCode.FILE_FIELD_INVALID, "This form has no such file field"
             )
 
-        await purge_expired_files(self.session, self.workspace_id)
         validated = await self._validate(
             field, filename=filename, content_type=content_type, content=content
         )
@@ -300,8 +300,8 @@ class FormFilesService(BaseWorkspaceService):
 
         A file ID is accepted only if the file belongs to this form, was
         uploaded by this caller to the field it is submitted under, is of a
-        type the field still accepts, has not expired and is not claimed. The rows are locked, so a file is claimed
-        once.
+        type the field still accepts, has not expired and is not claimed. The
+        rows are locked, so a file is claimed once.
 
         Returns:
             The field errors, and the files to attach to the submission once
@@ -344,7 +344,6 @@ class FormFilesService(BaseWorkspaceService):
             .where(
                 *self._pending(form_id),
                 FormFile.id.in_(wanted),
-                FormFile.created_at >= datetime.now(UTC) - PENDING_FILE_TTL,
                 self._uploaded_by_caller(),
             )
             .with_for_update()

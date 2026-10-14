@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import {
-  type FormConfig_Output,
-  type FormPreview,
-  type FormRead,
-  formsValidateForm,
-} from "@/client"
+import { type FormPreview, type FormRead, formsValidateForm } from "@/client"
 import { useDebounce } from "@/hooks/use-debounce"
 import type { FormScope } from "@/hooks/use-forms"
 import { getFormConfigIssues } from "@/lib/forms/errors"
@@ -24,6 +19,8 @@ export interface FormConfigDraft {
   setText: (text: string) => void
   /** Whether the buffer differs from the config it started from. */
   isDirty: boolean
+  /** The `config_version` of the config the buffer started from. */
+  baseVersion: string
   /** Whether the saved config changed elsewhere under unsaved edits. */
   hasRemoteChange: boolean
   /** Whether the unsaved edits come from an earlier visit in this tab. */
@@ -31,15 +28,16 @@ export interface FormConfigDraft {
   /** Drop the buffer and take the saved config. */
   reload: () => void
   /**
-   * Take a config this editor just saved, from the `submitted` text, as the
+   * Take the form this editor just saved, from the `submitted` text, as the
    * new starting point. Edits made since `submitted` was sent are kept.
    */
-  markSaved: (config: FormConfig_Output, submitted: string) => void
+  markSaved: (saved: FormRead, submitted: string) => void
 }
 
 interface StoredDraft {
   text: string
   baseText: string
+  baseVersion: string
 }
 
 const draftStorageKey = (formId: string) =>
@@ -51,13 +49,14 @@ function readStoredDraft(formId: string): StoredDraft | null {
   try {
     const raw = sessionStorage.getItem(draftStorageKey(formId))
     const stored = (raw ? JSON.parse(raw) : null) as Partial<StoredDraft> | null
-    const { text, baseText } = stored ?? {}
+    const { text, baseText, baseVersion } = stored ?? {}
     if (
       typeof text === "string" &&
       typeof baseText === "string" &&
+      typeof baseVersion === "string" &&
       text !== baseText
     ) {
-      return { text, baseText }
+      return { text, baseText, baseVersion }
     }
   } catch {}
   return null
@@ -93,24 +92,30 @@ export function useFormConfigDraft(form: FormRead): FormConfigDraft {
   // keeps the base it was written against, so a config that changed since
   // then shows as a remote change.
   const [baseText, setBaseText] = useState(stored?.baseText ?? serverText)
+  const [baseVersion, setBaseVersion] = useState(
+    stored?.baseVersion ?? form.config_version
+  )
   const [isRestored, setIsRestored] = useState(stored !== null)
   const isDirty = text !== baseText
+  const isBehind =
+    serverText !== baseText || form.config_version !== baseVersion
 
-  const adopt = useCallback((next: string) => {
+  const adopt = useCallback((next: string, version: string) => {
     setText(next)
     setBaseText(next)
+    setBaseVersion(version)
     setIsRestored(false)
   }, [])
 
   useEffect(() => {
-    if (serverText !== baseText && !isDirty) {
-      adopt(serverText)
+    if (isBehind && !isDirty) {
+      adopt(serverText, form.config_version)
     }
-  }, [serverText, baseText, isDirty, adopt])
+  }, [isBehind, isDirty, serverText, form.config_version, adopt])
 
   useEffect(() => {
-    writeStoredDraft(form.id, isDirty ? { text, baseText } : null)
-  }, [form.id, isDirty, text, baseText])
+    writeStoredDraft(form.id, isDirty ? { text, baseText, baseVersion } : null)
+  }, [form.id, isDirty, text, baseText, baseVersion])
 
   useEffect(() => {
     if (!isDirty) {
@@ -127,14 +132,16 @@ export function useFormConfigDraft(form: FormRead): FormConfigDraft {
     text,
     setText,
     isDirty,
-    hasRemoteChange: isDirty && serverText !== baseText,
+    baseVersion,
+    hasRemoteChange: isDirty && isBehind,
     isRestored: isRestored && isDirty,
-    reload: () => adopt(serverText),
-    markSaved: (config, submitted) => {
-      const saved = serializeFormConfig(config)
+    reload: () => adopt(serverText, form.config_version),
+    markSaved: (saved, submitted) => {
+      const savedText = serializeFormConfig(saved.config)
       // Text typed while the save was in flight stays, unsaved, on the new base.
-      setText((current) => (current === submitted ? saved : current))
-      setBaseText(saved)
+      setText((current) => (current === submitted ? savedText : current))
+      setBaseText(savedText)
+      setBaseVersion(saved.config_version)
       setIsRestored(false)
     },
   }

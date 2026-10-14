@@ -4,15 +4,20 @@ import { useFormConfigDraft } from "@/hooks/use-form-config"
 
 const SENT = "title: Sent\n"
 
-function formRead(config: FormRead["config"]): FormRead {
-  return { id: "form-1", workspace_id: "workspace-1", config } as FormRead
+function formRead(config: FormRead["config"], version: string): FormRead {
+  return {
+    id: "form-1",
+    workspace_id: "workspace-1",
+    config,
+    config_version: version,
+  } as FormRead
 }
 
 /** Edit the buffer, "send" it, and make further edits before the save lands. */
 function renderDraft(editAfterSending: string | null) {
   const { result, rerender } = renderHook(
     ({ form }: { form: FormRead }) => useFormConfigDraft(form),
-    { initialProps: { form: formRead({ title: "Draft" }) } }
+    { initialProps: { form: formRead({ title: "Draft" }, "v1") } }
   )
   act(() => result.current.setText(SENT))
   const submitted = result.current.text
@@ -20,8 +25,8 @@ function renderDraft(editAfterSending: string | null) {
     act(() => result.current.setText(editAfterSending))
   }
   // The mutation writes the saved form to the cache before it resolves.
-  const saved = { title: "Sent" }
-  rerender({ form: formRead(saved) })
+  const saved = formRead({ title: "Sent" }, "v2")
+  rerender({ form: saved })
   act(() => result.current.markSaved(saved, submitted))
   return result
 }
@@ -35,6 +40,8 @@ describe("useFormConfigDraft markSaved", () => {
     expect(result.current.text).toBe("title: Sent and more\n")
     expect(result.current.isDirty).toBe(true)
     expect(result.current.hasRemoteChange).toBe(false)
+    // The next save goes over the config this one saved.
+    expect(result.current.baseVersion).toBe("v2")
     expect(
       sessionStorage.getItem("tracecat:form-config-draft:form-1")
     ).toContain("Sent and more")
