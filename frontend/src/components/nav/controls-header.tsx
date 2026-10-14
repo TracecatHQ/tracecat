@@ -1574,7 +1574,7 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
                       className="size-3 text-muted-foreground"
                       aria-hidden
                     />
-                    <span>Group under parent case...</span>
+                    <span>Group case</span>
                   </span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
@@ -1585,7 +1585,7 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
                 >
                   <span className="flex items-center gap-2">
                     <X className="size-3 text-muted-foreground" aria-hidden />
-                    <span>Remove from parent case</span>
+                    <span>Ungroup case</span>
                   </span>
                 </DropdownMenuItem>
               </>
