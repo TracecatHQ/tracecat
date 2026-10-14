@@ -150,7 +150,12 @@ import {
   useUpdateAgentPreset,
 } from "@/hooks/use-agent-presets"
 import { useAuth } from "@/hooks/use-auth"
-import { useCreateChat, useGetChatVercel, useListChats } from "@/hooks/use-chat"
+import {
+  useCreateChat,
+  useGetChatVercel,
+  useListChats,
+  useUpdateChat,
+} from "@/hooks/use-chat"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useSkillLibrary } from "@/hooks/use-skill-library"
 import { useSkills } from "@/hooks/use-skills"
@@ -655,6 +660,7 @@ function AgentPresetChatPane({
   }
 
   const { createChat, createChatPending } = useCreateChat(workspaceId)
+  const { updateChat, isUpdating } = useUpdateChat(workspaceId)
   const { chat, chatLoading, chatError } = useGetChatVercel({
     chatId: activeChatId,
     workspaceId,
@@ -727,6 +733,19 @@ function AgentPresetChatPane({
       await refetchChats()
     } catch (error) {
       console.error("Failed to create agent preset chat", error)
+    }
+  }
+
+  // New chats run the latest version; older chats may still be pinned.
+  const handleUseLatest = async () => {
+    if (!activeChatId) return
+    try {
+      await updateChat({
+        chatId: activeChatId,
+        update: { agent_preset_version_id: null },
+      })
+    } catch (error) {
+      console.error("Failed to unpin preset chat version", error)
     }
   }
 
@@ -848,6 +867,26 @@ function AgentPresetChatPane({
       <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border/60 px-5">
         {leading}
         <span className="flex-1" />
+        {preset && selectedVersionId ? (
+          <span className="mr-1 flex items-center gap-1 text-xs text-muted-foreground">
+            Pinned to{" "}
+            {selectedVersionConfig
+              ? `v${selectedVersionConfig.version}`
+              : "an older version"}
+            {chat?.is_readonly ? null : (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                disabled={isUpdating}
+                onClick={() => void handleUseLatest()}
+              >
+                Use latest
+              </Button>
+            )}
+          </span>
+        ) : null}
         {preset ? (
           <>
             <ChatHistoryDropdown
@@ -1532,7 +1571,8 @@ function AgentPresetForm({
       onValueChange={(value) => {
         setLeftMode(value)
         setRailPinned(null)
-        onTabChange?.(value === "playground" ? "live-chat" : "configuration")
+        if (railView.kind !== "channels")
+          onTabChange?.(value === "playground" ? "live-chat" : "configuration")
       }}
       options={[
         { value: "instructions", label: "Instructions" },
@@ -1581,7 +1621,28 @@ function AgentPresetForm({
         enabledModelOptions={enabledModelOptions}
         enabledModelsLoaded={enabledModelsLoaded}
         leading={modeSwitch}
-        trailing={railToggle}
+        trailing={
+          <>
+            {/* No detail header (artifact view): keep form actions reachable. */}
+            {detail ? null : (
+              <AgentPresetDetailActions
+                workspaceId={workspaceId}
+                presetId={presetIdValue}
+                currentVersionId={presetCurrentVersionId}
+                getDraftPayload={getDraftPayloadStable}
+                isSaving={isSaving}
+                canSubmit={canSubmit}
+                submitLabel={submitLabel}
+                onPublish={submit}
+                isDirty={isDirty}
+                cutsVersion={cutsVersion}
+                onDiscard={discard}
+                showVersionChip
+              />
+            )}
+            {railToggle}
+          </>
+        }
       />
     )
 
@@ -2134,7 +2195,7 @@ function AgentPresetSettingsRows({
   }
 
   function setRetries(next: number) {
-    form.setValue("retries", Math.max(0, Math.min(10, next)), {
+    form.setValue("retries", Math.max(0, next), {
       shouldDirty: true,
       shouldValidate: true,
     })
@@ -2242,7 +2303,7 @@ function AgentPresetSettingsRows({
               size="icon"
               className="size-5 text-muted-foreground"
               aria-label="More retries"
-              disabled={isSaving || retries >= 10}
+              disabled={isSaving}
               onClick={() => setRetries(retries + 1)}
             >
               <Plus className="size-3" />
@@ -3365,7 +3426,12 @@ function useOutputKindChange(
     ) {
       rememberedDataType.current =
         form.getValues("outputTypeDataType") || rememberedDataType.current
-      form.resetField("outputTypeDataType")
+      // setValue, not resetField: resetField skips unregistered fields.
+      form.setValue(
+        "outputTypeDataType",
+        form.formState.defaultValues?.outputTypeDataType ?? "",
+        { shouldDirty: true }
+      )
     }
     form.setValue("outputTypeKind", value, { shouldDirty: true })
   }

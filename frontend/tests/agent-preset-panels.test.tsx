@@ -661,7 +661,9 @@ function ConfigurationTestForm({
   savedNamespaces = ["tools.test"],
   namespaces = savedNamespaces,
   mcpIntegrations = [],
+  toolApprovals = [],
 }: {
+  toolApprovals?: AgentPresetFormValues["toolApprovals"]
   savedSkillIds?: string[]
   skillIds?: string[]
   savedNamespaces?: string[]
@@ -673,7 +675,7 @@ function ConfigurationTestForm({
       actions: ["tools.test.authored"],
       namespaces,
       mcpIntegrations: ["mcp-example"],
-      toolApprovals: [],
+      toolApprovals,
       skills: skillIds.map((skillId) => ({ skillId })),
     },
   })
@@ -779,6 +781,27 @@ it("toggles approval for a tool that only a skill provides", async () => {
   await user.click(toggle)
   expect(toggle).toHaveAttribute("aria-pressed", "true")
   expect(toggle).toHaveTextContent("Needs approval")
+})
+
+it("lists ask rules for unlisted tools and clears them", async () => {
+  const user = userEvent.setup()
+  renderConfiguration({
+    savedSkillIds: [],
+    toolApprovals: [
+      { tool: "tools.other.orphan", allow: true },
+      { tool: "tools.other.open", allow: false },
+    ],
+  })
+  const group = screen.getByText("Other approval rules")
+    .parentElement as HTMLElement
+  expect(within(group).getByText("tools.other.orphan")).toBeInTheDocument()
+  expect(within(group).queryByText("tools.other.open")).not.toBeInTheDocument()
+  await user.click(
+    within(group).getByRole("button", {
+      name: "Require approval for tools.other.orphan",
+    })
+  )
+  expect(screen.queryByText("Other approval rules")).not.toBeInTheDocument()
 })
 
 it("previews changed skills and removes the group without a request when all skills are removed", async () => {

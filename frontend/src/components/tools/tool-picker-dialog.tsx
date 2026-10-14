@@ -48,8 +48,8 @@ export interface ToolPickerDialogProps {
   mcpEnabled?: boolean
   /** Called instead of selecting when a locked entry is chosen. */
   onLockedSelect?: (entry: ToolEntry) => void
-  /** Group id to open on instead of all tools. */
-  initialSource?: string
+  /** Group ids to open on instead of all tools; several open together. */
+  initialSource?: string | string[]
 }
 
 // Catalogue rows share one grid: a leading column exactly as wide as the
@@ -152,10 +152,17 @@ function PickerBody({
   }))
   const [query, setQuery] = useState("")
   const deferredQuery = useDeferredValue(query)
+  const [initialIds] = useState(() =>
+    [initialSource ?? []]
+      .flat()
+      .filter((id) => index.groups.some((group) => group.id === id))
+  )
   const [source, setSource] = useState(() =>
-    initialSource && index.groups.some((group) => group.id === initialSource)
-      ? initialSource
-      : "all"
+    initialIds.length === 1 ? initialIds[0] : "all"
+  )
+  // Groups shown together until another source is chosen.
+  const [scope, setScope] = useState(() =>
+    initialIds.length > 1 ? new Set(initialIds) : null
   )
   const [activeId, setActiveId] = useState<string | null>(null)
   const railRef = useRef<HTMLElement>(null)
@@ -216,6 +223,7 @@ function PickerBody({
       if (!mcpEnabled && group.section === "mcp") continue
       if (source !== "all" && source !== "selected" && source !== group.id)
         continue
+      if (scope && !scope.has(group.id)) continue
       const entries =
         source === "selected"
           ? group.entries.filter((entry) => selectedFilter?.has(entry.id))
@@ -232,7 +240,7 @@ function PickerBody({
         result.push({ kind: "tool", id: entry.id, entry })
     }
     return result
-  }, [index, source, selectedFilter, deferredQuery, matches, mcpEnabled])
+  }, [index, source, scope, selectedFilter, deferredQuery, matches, mcpEnabled])
   const optionIndices = useMemo(
     () => rows.flatMap((row, i) => (row.kind === "tool" ? [i] : [])),
     [rows]
@@ -429,6 +437,7 @@ function PickerBody({
   const chooseSource = useCallback(
     function chooseSource(id: string) {
       setSource(id)
+      setScope(null)
       setQuery("")
       setActiveId(null)
       listRef.current?.scrollTo({ top: 0 })
@@ -505,7 +514,9 @@ function PickerBody({
     initialOffset: () =>
       Math.max(
         0,
-        railRowsRef.current.findIndex((row) => row.id === source) - 8
+        railRowsRef.current.findIndex(
+          (row) => row.id === (initialIds[0] ?? source)
+        ) - 8
       ) * 36,
     overscan: 8,
   })
@@ -564,7 +575,7 @@ function PickerBody({
                     row={row}
                     selected={railCounts.get(row.id) ?? 0}
                     granted={grantedGroups.has(row.id)}
-                    active={source === row.id}
+                    active={scope ? scope.has(row.id) : source === row.id}
                     onChoose={chooseSource}
                   />
                 </div>

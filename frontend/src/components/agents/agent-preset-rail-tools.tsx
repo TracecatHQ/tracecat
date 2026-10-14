@@ -227,6 +227,12 @@ export function AgentPresetRailTools({
   } = useRailToolsData(registryActions, mcpIntegrations, ready)
   const selected = new Set(value.actions)
   const skillOnly = (skillActions ?? []).filter((key) => !selected.has(key))
+  // Ask rules for tools that are neither listed nor granted by a skill.
+  const skillKeys = new Set(skillOnly)
+  const otherRules = value.toolApprovals.filter(
+    (rule) =>
+      rule.allow && !selected.has(rule.tool) && !skillKeys.has(rule.tool)
+  )
   const approvalCount =
     groupApprovalCount +
     skillOnly.filter((key) => getToolApproval(value.toolApprovals, key, index))
@@ -279,7 +285,10 @@ export function AgentPresetRailTools({
           <span className="text-destructive">Unable to load tools.</span>
         </RailEmpty>
       ) : null}
-      {ready && selectedCount === 0 && skillOnly.length === 0 ? (
+      {ready &&
+      selectedCount === 0 &&
+      skillOnly.length === 0 &&
+      otherRules.length === 0 ? (
         <RailEmpty />
       ) : null}
       {ready
@@ -381,6 +390,34 @@ export function AgentPresetRailTools({
                   ask={ask}
                   disabled={isSaving}
                   onToggle={() => toggleApproval(key, ask)}
+                  className="-mr-2"
+                />
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
+      {ready && otherRules.length > 0 ? (
+        <div className="pt-1">
+          <p className="px-2 pb-0.5 text-xs text-muted-foreground/70">
+            Other approval rules
+          </p>
+          {otherRules.map(({ tool }) => {
+            const entry = index.byKey.get(tool)
+            return (
+              <div key={tool} className={cn(RAIL_LIST_ROW, "h-[34px] py-0")}>
+                {entry ? <ToolLogo entry={entry} /> : <LogoTile>?</LogoTile>}
+                <span className="min-w-0 shrink truncate text-[13.5px]">
+                  {entry?.title ?? tool}
+                </span>
+                <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground/70">
+                  {entry ? tool : null}
+                </span>
+                <ApprovalButton
+                  tool={tool}
+                  ask
+                  disabled={isSaving}
+                  onToggle={() => toggleApproval(tool, true)}
                   className="-mr-2"
                 />
               </div>
@@ -631,14 +668,14 @@ export function AgentPresetRailToolGroup({
         disabled={isSaving}
         value={value}
         onChange={onChange}
-        initialSource={
-          index.groups.find(
+        initialSource={index.groups
+          .filter(
             (candidate) =>
               (candidate.section === "mcp"
                 ? candidate.id
                 : candidate.namespace) === groupKey
-          )?.id
-        }
+          )
+          .map((candidate) => candidate.id)}
       />
     </div>
   )
