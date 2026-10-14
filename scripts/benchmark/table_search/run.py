@@ -2,7 +2,7 @@
 
 Create an empty PostgreSQL 16 database named tracecat_search_bench_* and set
 TABLE_SEARCH_BENCH_DSN to its connection URI. The role needs CONNECT and CREATE;
-pg_trgm must be available in public. Setup refuses existing user relations.
+pg_trgm must be available in public. Setup refuses user relations and routines.
 Cleanup removes only this invocation's random schema, preserving the database
 and extension.
 
@@ -86,31 +86,44 @@ def percentiles(values: list[float]) -> dict[str, JsonValue]:
 def connect(dsn: str, schema: str, timeout_ms: int) -> Connection:
     conn = psycopg.connect(dsn, autocommit=True, connect_timeout=10)
     conn.execute(
-        sql.SQL("SET search_path TO {}, public, pg_catalog").format(
+        sql.SQL("SET search_path TO {}, pg_catalog, public").format(
             sql.Identifier(schema)
         )
     )
     conn.execute(
-        "SELECT set_config('statement_timeout', %s, false)", (str(timeout_ms),)
+        "SELECT pg_catalog.set_config('statement_timeout', %s, false)",
+        (str(timeout_ms),),
     )
     return conn
 
 
 def validate_database(conn: Connection) -> None:
     """Refuse application databases even if accidentally renamed with the prefix."""
-    name = conn.execute("SELECT current_database()").fetchone()[0]
+    name = conn.execute("SELECT pg_catalog.current_database()").fetchone()[0]
     if not name.startswith("tracecat_search_bench_"):
         raise ValueError("Database name must start with tracecat_search_bench_")
     count = conn.execute("""
-        SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        SELECT count(*) FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
         WHERE c.relkind IN ('r','p','v','m','f','S')
           AND n.nspname NOT IN ('pg_catalog','information_schema')
           AND n.nspname NOT LIKE 'pg_toast%'
-          AND NOT EXISTS (SELECT 1 FROM pg_depend d
-                          WHERE d.classid='pg_class'::regclass AND d.objid=c.oid AND d.deptype='e')
+          AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d
+                          WHERE d.classid='pg_catalog.pg_class'::regclass
+                            AND d.objid=c.oid AND d.deptype='e')
     """).fetchone()[0]
     if count:
         raise ValueError("Benchmark database must contain no user relations")
+    routines = conn.execute("""
+        SELECT count(*) FROM pg_catalog.pg_proc p
+        JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname NOT IN ('pg_catalog','information_schema')
+          AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d
+                          WHERE d.classid='pg_catalog.pg_proc'::regclass
+                            AND d.objid=p.oid AND d.deptype='e')
+    """).fetchone()[0]
+    if routines:
+        raise ValueError("Benchmark database must contain no user routines")
 
 
 def ensure_trigram_extension(conn: Connection) -> None:
@@ -550,7 +563,7 @@ def main() -> None:
         conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
         try:
             conn.execute(
-                sql.SQL("SET search_path TO {}, public, pg_catalog").format(
+                sql.SQL("SET search_path TO {}, pg_catalog, public").format(
                     sql.Identifier(schema)
                 )
             )

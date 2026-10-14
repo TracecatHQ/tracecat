@@ -62,8 +62,20 @@ def test_database_guard_accepts_empty_isolated_database() -> None:
     conn.execute.return_value.fetchone.side_effect = [
         ("tracecat_search_bench_synthetic",),
         (0,),
+        (0,),
     ]
     validate_database(conn)
+
+
+def test_database_guard_rejects_user_routines_without_relations() -> None:
+    conn = Mock()
+    conn.execute.return_value.fetchone.side_effect = [
+        ("tracecat_search_bench_synthetic",),
+        (0,),
+        (1,),
+    ]
+    with pytest.raises(ValueError, match="no user routines"):
+        validate_database(conn)
 
 
 def test_setup_connection_disables_inherited_statement_timeout() -> None:
@@ -75,7 +87,7 @@ def test_setup_connection_disables_inherited_statement_timeout() -> None:
         "synthetic", autocommit=True, connect_timeout=10
     )
     conn.execute.assert_any_call(
-        "SELECT set_config('statement_timeout', %s, false)", ("0",)
+        "SELECT pg_catalog.set_config('statement_timeout', %s, false)", ("0",)
     )
 
 

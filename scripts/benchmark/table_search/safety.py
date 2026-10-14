@@ -24,7 +24,12 @@ def safety_probes(conn: Connection, max_bytes: int) -> list[dict[str, JsonValue]
     fixtures = [
         ("position_tail", "pad " * 20_000 + "red fox", "red fox", True),
         ("repeated_word_tail", "echo " * 300 + "beacon", "echo beacon", True),
-        ("large_nested_tail", "pad " * (max_bytes // 4) + "red fox", "red fox", True),
+        (
+            "large_nested_tail",
+            "pad " * ((max_bytes - len(b"red fox")) // 4) + "red fox",
+            "red fox",
+            True,
+        ),
         (
             "oversized_vector",
             " ".join(f"word{i:07}" for i in range(max_bytes // 12)),
