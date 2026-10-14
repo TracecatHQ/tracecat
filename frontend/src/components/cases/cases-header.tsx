@@ -304,13 +304,23 @@ function isDefaultCaseSort(value: CaseSortValue): boolean {
 
 interface CaseSortSelectProps {
   value: CaseSortValue
+  allowRelevance?: boolean
   onChange: (value: CaseSortValue) => void
 }
 
-function CaseSortSelect({ value, onChange }: CaseSortSelectProps) {
+function CaseSortSelect({
+  value,
+  onChange,
+  allowRelevance,
+}: CaseSortSelectProps) {
+  const options: typeof CASE_SORT_OPTIONS = allowRelevance
+    ? [
+        { value: "relevance" as const, label: "Relevance", icon: SearchIcon },
+        ...CASE_SORT_OPTIONS,
+      ]
+    : CASE_SORT_OPTIONS
   const selectedLabel =
-    CASE_SORT_OPTIONS.find((option) => option.value === value.field)?.label ??
-    "Updated"
+    options.find((option) => option.value === value.field)?.label ?? "Updated"
 
   return (
     <div className="inline-flex items-center rounded-md border border-input bg-transparent">
@@ -319,7 +329,7 @@ function CaseSortSelect({ value, onChange }: CaseSortSelectProps) {
         onValueChange={(nextField) =>
           onChange({
             field: nextField as CaseSortField,
-            direction: value.direction,
+            direction: nextField === "relevance" ? "desc" : value.direction,
           })
         }
       >
@@ -331,7 +341,7 @@ function CaseSortSelect({ value, onChange }: CaseSortSelectProps) {
           <span className="text-foreground">{selectedLabel}</span>
         </SelectTrigger>
         <SelectContent align="start">
-          {CASE_SORT_OPTIONS.map((option) => {
+          {options.map((option) => {
             const Icon = option.icon
             return (
               <SelectItem
@@ -357,6 +367,7 @@ function CaseSortSelect({ value, onChange }: CaseSortSelectProps) {
       </Select>
       <button
         type="button"
+        disabled={value.field === "relevance"}
         className="flex h-6 w-7 items-center justify-center border-l border-input text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
         onClick={() =>
           onChange({
@@ -380,6 +391,8 @@ function CaseSortSelect({ value, onChange }: CaseSortSelectProps) {
 
 interface CasesHeaderProps {
   searchQuery: string
+  searchMode?: "full_text" | "literal"
+  onSearchModeChange?: (mode: "full_text" | "literal") => void
   appliedSearchQuery: string
   effectiveHierarchy: NonNullable<CasesSearchCasesData["hierarchy"]>
   isSearchPending: boolean
@@ -443,6 +456,8 @@ interface CasesHeaderProps {
 /** Case search, visible scope, and the current view's filter controls. */
 export function CasesHeader({
   searchQuery,
+  searchMode = "full_text",
+  onSearchModeChange,
   appliedSearchQuery,
   effectiveHierarchy,
   isSearchPending,
@@ -599,7 +614,7 @@ export function CasesHeader({
 
   const handleReset = () => {
     onSearchChange("")
-    onSortByChange(DEFAULT_CASE_SORT)
+    onSearchModeChange?.("full_text")
     onStatusChange([])
     onStatusModeChange("include")
     onPriorityChange([])
@@ -629,6 +644,11 @@ export function CasesHeader({
       value: DEFAULT_CREATED_PRESET,
     })
     onIncludeSubCasesChange?.(false)
+    onSortByChange(
+      onSearchModeChange
+        ? { field: "relevance", direction: "desc" }
+        : DEFAULT_CASE_SORT
+    )
   }
 
   return (
@@ -643,7 +663,11 @@ export function CasesHeader({
             type="text"
             aria-label="Search cases"
             aria-describedby="case-search-scope"
-            placeholder="Search by summary or ID..."
+            placeholder={
+              searchMode === "literal"
+                ? "Search exact characters..."
+                : 'Search words, "phrases", or ID...'
+            }
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             className={cn(
@@ -654,6 +678,21 @@ export function CasesHeader({
               "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
             )}
           />
+          {onSearchModeChange && (
+            <Select value={searchMode} onValueChange={onSearchModeChange}>
+              <SelectTrigger
+                aria-label="Case search mode"
+                className="h-7 w-[100px] shrink-0 px-2 text-xs shadow-none"
+              >
+                <span>{searchMode === "full_text" ? "Words" : "Literal"}</span>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="full_text">Words and phrases</SelectItem>
+                <SelectItem value="literal">Literal characters</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+
         </div>
 
         <div className="ml-auto flex items-center gap-2">
@@ -895,7 +934,14 @@ export function CasesHeader({
           )}
         </fieldset>
 
-        <CaseSortSelect value={sortBy} onChange={onSortByChange} />
+        <CaseSortSelect
+          value={sortBy}
+          onChange={onSortByChange}
+          allowRelevance={
+            searchMode === "full_text" &&
+            Boolean(appliedSearchQuery)
+          }
+        />
 
         {hasFilters && (
           <button

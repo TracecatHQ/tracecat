@@ -101,7 +101,7 @@ from tracecat.cases.schemas import (
     _normalize_case_field_read_type,
 )
 from tracecat.cases.search_adapters import legacy_case_filters
-from tracecat.cases.search_schemas import CaseQuery, CaseSearchRequest
+from tracecat.cases.search_schemas import CaseQuery, CaseSearchOrder, CaseSearchRequest
 from tracecat.cases.search_service import (
     CaseSearchService,
     parse_case_short_id,
@@ -150,6 +150,7 @@ from tracecat.pagination import (
 from tracecat.query.compiler import compile_aggregation, compile_filter
 from tracecat.query.execution import query_execution_context
 from tracecat.query.filters import Filter
+from tracecat.query.lexical_types import SearchMode
 from tracecat.query.resolver import ResolvedAggregationField
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tables.common import (
@@ -350,17 +351,7 @@ class CasesService(BaseWorkspaceService):
         end_time: datetime | None = None,
         updated_before: datetime | None = None,
         updated_after: datetime | None = None,
-        order_by: Literal[
-            "created_at",
-            "updated_at",
-            "priority",
-            "severity",
-            "status",
-            "tasks",
-            "assignee",
-            "tags",
-        ]
-        | None = None,
+        order_by: CaseSearchOrder | None = None,
         sort: Literal["asc", "desc"] | None = None,
         parent_id: uuid.UUID | None = None,
         hierarchy: CaseHierarchyFilter = "all",
@@ -377,6 +368,9 @@ class CasesService(BaseWorkspaceService):
         include_rows: bool = False,
         field_ids: list[str] | None = None,
         filters: Filter | None = None,
+        *,
+        search_mode: SearchMode | None = None,
+        search_columns: list[Literal["summary", "description"]] | None = None,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """Adapt shipped search arguments to the canonical query executor."""
         executor = self._search_service()
@@ -398,6 +392,8 @@ class CasesService(BaseWorkspaceService):
             cursor=params.cursor,
             reverse=params.reverse,
             search_term=search_term,
+            search_mode=search_mode,
+            search_columns=search_columns,
             short_id=short_id,
             case_id=case_id,
             parent_id=parent_id,
@@ -430,6 +426,8 @@ class CasesService(BaseWorkspaceService):
         self,
         *,
         search_term: str | None = None,
+        search_mode: SearchMode | None = None,
+        search_columns: list[Literal["summary", "description"]] | None = None,
         short_id: str | None = None,
         case_id: uuid.UUID | None = None,
         filters: Filter | None = None,
@@ -465,6 +463,8 @@ class CasesService(BaseWorkspaceService):
         return await executor.query_aggregates(
             CaseQuery(
                 search_term=search_term,
+                search_mode=search_mode,
+                search_columns=search_columns,
                 parent_id=parent_id,
                 hierarchy=hierarchy,
                 short_id=short_id,

@@ -1418,6 +1418,10 @@ async def test_search_cases_forwards_canonical_controls_and_preserves_shape(
     response = {"items": [], "next_cursor": "synthetic-cursor", "total_estimate": None}
     mock_cases_client.search_cases.return_value = response
     result = await search_cases(
+        search_term="powershell encoded",
+        search_mode="full_text",
+        search_columns=["description"],
+        order_by="relevance",
         short_id="CASE-0042",
         case_id=case_id,
         parent_id=parent_id,
@@ -1432,6 +1436,10 @@ async def test_search_cases_forwards_canonical_controls_and_preserves_shape(
     assert result == (response if paginate else response["items"])
     mock_cases_client.search_cases.assert_awaited_once_with(
         limit=100,
+        search_term="powershell encoded",
+        search_mode="full_text",
+        search_columns=["description"],
+        order_by="relevance",
         short_id="CASE-0042",
         case_id=case_id,
         parent_id=parent_id,

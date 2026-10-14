@@ -703,6 +703,18 @@ async def search_cases(
         str | None,
         Doc("Text to search for in case summary and description."),
     ] = None,
+    search_mode: Annotated[
+        Literal["full_text", "literal"] | None,
+        Doc(
+            "Explicit words/phrases or escaped substring. Omitted preserves legacy matching."
+        ),
+    ] = None,
+    search_columns: Annotated[
+        list[Literal["summary", "description"]] | None,
+        Doc(
+            "Search selected text fields; requires an explicit search_mode. Omitted searches both."
+        ),
+    ] = None,
     status: Annotated[
         StatusType | list[StatusType] | None,
         Doc("Filter by case status."),
@@ -757,6 +769,7 @@ async def search_cases(
     ] = False,
     order_by: Annotated[
         Literal[
+            "relevance",
             "created_at",
             "updated_at",
             "priority",
@@ -770,7 +783,7 @@ async def search_cases(
         ]
         | None,
         Doc(
-            "The field to order by. Assignee uses lowercase email; tags uses the first normalized tag alphabetically. Missing values sort last."
+            "The field to order by. Relevance requires search_mode='full_text' and descending sort. Assignee uses lowercase email; tags uses the first normalized tag alphabetically. Missing values sort last."
         ),
     ] = None,
     sort: Annotated[
@@ -882,6 +895,8 @@ async def search_cases(
     if not include_count:
         params["include_count"] = False
     for name, value in (
+        ("search_mode", search_mode),
+        ("search_columns", search_columns),
         ("short_id", short_id),
         ("case_id", case_id),
         ("filters", filters),
