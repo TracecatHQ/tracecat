@@ -21,6 +21,7 @@ from tracecat.api.common import (
     query_overflow_exception_handler,
     query_timeout_exception_handler,
     table_row_exception_handler,
+    without_inputs,
 )
 from tracecat.contexts import ctx_role
 from tracecat.executor.action_gateway.policy import (
@@ -68,9 +69,13 @@ async def request_logging_middleware(
 
 
 def validation_exception_handler(request: Request, exc: Exception) -> Response:
-    """Handle validation errors for action gateway-served internal routes."""
+    """Handle validation errors for action gateway-served internal routes.
+
+    The rejected input is left out: the executor turns this response into an
+    action error that is kept with the run.
+    """
     errors = (
-        to_jsonable_python(exc.errors(), fallback=str)
+        to_jsonable_python(without_inputs(exc.errors()), fallback=str)
         if isinstance(exc, RequestValidationError)
         else str(exc)
     )

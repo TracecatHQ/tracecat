@@ -191,7 +191,8 @@ class FormSubmissionsService(BaseWorkspaceService):
         # resolve_published only returns the inputs of a published definition.
         definition = cast(WorkflowDefinition, inputs.definition)
         # Either change can hide a field the requester answered, whose answer
-        # would then be dropped without an error.
+        # would then be dropped without an error. The form was read when this
+        # request started; an edit committed since is ordered after it.
         if params.definition_version not in (
             None,
             definition.version,

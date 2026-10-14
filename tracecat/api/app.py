@@ -81,6 +81,7 @@ from tracecat.api.common import (
     query_timeout_exception_handler,
     table_row_exception_handler,
     tracecat_exception_handler,
+    without_inputs,
 )
 from tracecat.api.lifespan import LifespanTaskSupervisor
 from tracecat.auth.credentials import authenticated_user_only
@@ -435,7 +436,7 @@ def validation_exception_handler(request: Request, exc: Exception) -> Response:
         "API Model Validation error",
         method=request.method,
         path=request.url.path,
-        errors=ser_errors,
+        errors=without_inputs(ser_errors),
     )
     return ORJSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
