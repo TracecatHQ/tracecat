@@ -100,10 +100,11 @@ async def test_otel_delivery_pool_keeps_proxy_env_and_drains_within_stop_timeout
 
     runtime_services.start_otel_delivery_pool()
     pool = runtime_services.get_otel_delivery_pool()
-    assert pool.client.trust_env is True
-    assert pool.limits.drain_seconds < 30
-
-    await runtime_services.stop_otel_delivery_pool()
+    try:
+        assert pool.client.trust_env is True
+        assert pool.limits.drain_seconds < 30
+    finally:
+        await runtime_services.stop_otel_delivery_pool()
     assert pool.client.is_closed
     with pytest.raises(RuntimeError, match="not started"):
         runtime_services.get_otel_delivery_pool()
@@ -131,30 +132,31 @@ async def test_stopping_the_otel_delivery_pool_delivers_admitted_batches_first(
     monkeypatch.setattr(runtime_services, "collector_client", mock_collector_client)
     runtime_services.start_otel_delivery_pool()
     pool = runtime_services.get_otel_delivery_pool()
-    organization_id = uuid.uuid4()
-    reservation = pool.reserve(organization_id, 4)
-    assert reservation is not None
-    assert pool.admit(
-        reservation,
-        [
-            OtelDelivery(
-                share=organization_id,
-                signal="/v1/logs",
-                url="https://collector.example.com/v1/logs",
-                headers={},
-                content_type="application/x-protobuf",
-                body=b"logs",
-                organization_id=organization_id,
-                workspace_id=uuid.uuid4(),
-                session_id=uuid.uuid4(),
-            )
-        ],
-    )
-    reservation.close()
-    # The collector answers only once shutdown has started waiting.
-    asyncio.get_running_loop().call_later(0.05, release.set)
-
-    await runtime_services.stop_otel_delivery_pool()
+    try:
+        organization_id = uuid.uuid4()
+        reservation = pool.reserve(organization_id, 4)
+        assert reservation is not None
+        assert pool.admit(
+            reservation,
+            [
+                OtelDelivery(
+                    share=organization_id,
+                    signal="/v1/logs",
+                    url="https://collector.example.com/v1/logs",
+                    headers={},
+                    content_type="application/x-protobuf",
+                    body=b"logs",
+                    organization_id=organization_id,
+                    workspace_id=uuid.uuid4(),
+                    session_id=uuid.uuid4(),
+                )
+            ],
+        )
+        reservation.close()
+        # The collector answers only once shutdown has started waiting.
+        asyncio.get_running_loop().call_later(0.05, release.set)
+    finally:
+        await runtime_services.stop_otel_delivery_pool()
 
     assert len(captured) == 1
     assert pool.client.is_closed

@@ -39,6 +39,10 @@ _RETRY_AFTER_STATUS_CODES = frozenset({429, 503})
 
 _RETRY_BASE_DELAY_SECONDS = 0.5
 
+# An OTLP export response is a small Export*ServiceResponse. Reading one this
+# size to its end returns the connection to the pool for the next delivery.
+_MAX_DISCARDED_RESPONSE_BYTES = 64 * 1024
+
 
 @dataclass(frozen=True, slots=True)
 class DeliveryLimits:
@@ -172,6 +176,24 @@ def _retry_after_seconds(
         return None
     # Clamped before conversion: float() overflows on a huge integer.
     return float(min(seconds, cap))
+
+
+async def _discard_response_body(response: httpx.Response) -> None:
+    """Read and drop a small response body so its connection can be reused.
+
+    Each chunk is dropped as it arrives, so a hostile collector cannot make
+    the host buffer its body. A body past the cap is left unread, and closing
+    the response then closes its connection instead of pooling it.
+    """
+    # A transport that returns the body already read (httpx.MockTransport)
+    # leaves nothing to discard.
+    if response.is_stream_consumed:
+        return
+    discarded = 0
+    async for chunk in response.aiter_raw():
+        discarded += len(chunk)
+        if discarded > _MAX_DISCARDED_RESPONSE_BYTES:
+            return
 
 
 class OtelDeliveryPool:
@@ -357,7 +379,7 @@ class OtelDeliveryPool:
                 try:
                     async with self._posts, asyncio.timeout(limits.attempt_seconds):
                         # Streamed so a hostile collector cannot make the host
-                        # buffer its response; only status and headers are read.
+                        # buffer its response.
                         async with self.client.stream(
                             "POST",
                             delivery.url,
@@ -370,6 +392,7 @@ class OtelDeliveryPool:
                                 response.headers.get("retry-after"),
                                 limits.max_retry_after_seconds,
                             )
+                            await _discard_response_body(response)
                 except (httpx.TransportError, TimeoutError) as exc:
                     error_type = type(exc).__name__
                 except Exception as exc:
@@ -392,8 +415,9 @@ class OtelDeliveryPool:
                         duration_ms=round((time.perf_counter() - started) * 1000),
                     )
                     return
-                # A transport error or a missed deadline leaves no status and
-                # is retried.
+                # A transport error or a missed deadline before the status
+                # arrived is retried. One while discarding the body keeps the
+                # status, so a batch the collector accepted is not resent.
                 retryable = (
                     status_code is None or status_code in _RETRYABLE_STATUS_CODES
                 )

@@ -33,16 +33,22 @@ def no_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(otel_delivery, "_RETRY_BASE_DELAY_SECONDS", 0.0)
 
 
-class _ExplodingStream(httpx.AsyncByteStream):
-    """Response body that fails loudly if anything tries to consume it."""
+class _EndlessStream(httpx.AsyncByteStream):
+    """Response body that never ends, counting the bytes anything pulls from it."""
+
+    chunk = b"x" * 4096
 
     def __init__(self) -> None:
-        self.consumed = False
+        self.pulled = 0
+        self.closed = False
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
-        self.consumed = True
-        raise AssertionError("collector response body was consumed")
-        yield b""  # pragma: no cover - unreachable, makes this an async gen
+        while True:
+            self.pulled += len(self.chunk)
+            yield self.chunk
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 def _delivery(
@@ -72,13 +78,14 @@ def _export(
     body: bytes = BODY,
     *,
     platform_body: bytes | None = None,
+    url: str = COLLECTOR,
 ) -> bool:
     """Reserve, admit and close one export the way the receiver does."""
     reservation = pool.reserve(organization_id, len(body))
     if reservation is None:
         return False
     try:
-        deliveries = [_delivery(organization_id, organization_id, body)]
+        deliveries = [_delivery(organization_id, organization_id, body, url=url)]
         if platform_body is not None:
             deliveries.append(_delivery("platform", organization_id, platform_body))
         return pool.admit(reservation, deliveries)
@@ -411,9 +418,10 @@ async def test_retry_backoff_is_jittered(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 @pytest.mark.anyio
-async def test_pool_never_consumes_collector_response_body() -> None:
-    """A hostile collector's response body is never buffered by the host."""
-    stream = _ExplodingStream()
+async def test_endless_response_body_is_read_only_up_to_the_cap() -> None:
+    """A hostile collector's endless body is abandoned at the cap, and the
+    delivery still counts as accepted on its status."""
+    stream = _EndlessStream()
     captured: list[httpx.Request] = []
 
     async def collector(request: httpx.Request) -> httpx.Response:
@@ -422,9 +430,72 @@ async def test_pool_never_consumes_collector_response_body() -> None:
 
     async with _pool(collector) as pool:
         assert _export(pool, uuid.uuid4())
-    # Delivery succeeded on the status line alone; one attempt, body untouched.
     assert len(captured) == 1
-    assert stream.consumed is False
+    cap = otel_delivery._MAX_DISCARDED_RESPONSE_BYTES
+    assert cap < stream.pulled <= cap + len(_EndlessStream.chunk)
+    assert stream.closed
+
+
+@asynccontextmanager
+async def _keepalive_collector(
+    reply: bytes,
+) -> AsyncIterator[tuple[str, list[int]]]:
+    """A TCP collector that answers every request with `reply` as its body and
+    keeps the connection open for the next request."""
+    connections: list[int] = []
+
+    async def handle(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        connections.append(len(connections) + 1)
+        try:
+            while True:
+                head = await reader.readuntil(b"\r\n\r\n")
+                length = next(
+                    int(line.split(b":", 1)[1])
+                    for line in head.split(b"\r\n")
+                    if line.lower().startswith(b"content-length:")
+                )
+                await reader.readexactly(length)
+                writer.write(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n" % len(reply)
+                    + reply
+                )
+                await writer.drain()
+        except (ConnectionError, asyncio.IncompleteReadError):
+            pass
+        finally:
+            writer.close()
+
+    server = await asyncio.start_server(handle, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    try:
+        yield f"http://127.0.0.1:{port}/v1/traces", connections
+    finally:
+        server.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("reply", "connections_used"),
+    [(b"{}", 1), (b"x" * (2 * otel_delivery._MAX_DISCARDED_RESPONSE_BYTES), 2)],
+    ids=["small-reply-reuses-connection", "oversized-reply-closes-connection"],
+)
+async def test_small_replies_return_their_connection_to_the_pool(
+    reply: bytes, connections_used: int
+) -> None:
+    """A collector's small reply is read to its end so the next delivery reuses the
+    connection; a reply past the cap closes it instead."""
+    organization_id = uuid.uuid4()
+    async with (
+        _keepalive_collector(reply) as (url, connections),
+        collector_client(trust_env=False) as client,
+    ):
+        pool = OtelDeliveryPool(client)
+        for _ in range(2):
+            assert _export(pool, organization_id, url=url)
+            await asyncio.wait_for(pool.drain(), timeout=5)
+        assert connections == list(range(1, connections_used + 1))
 
 
 @pytest.mark.anyio
