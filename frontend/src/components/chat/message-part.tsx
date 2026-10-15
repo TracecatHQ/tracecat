@@ -43,9 +43,6 @@ import { getIcon } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import {
   Trace,
-  TraceCollapsible,
-  TraceCollapsibleContent,
-  TraceCollapsibleTrigger,
   TraceDescription,
   TraceIcon,
   TraceLine,
@@ -533,7 +530,8 @@ function SubagentToolPart({
   const sessionId = outputSessionId ?? lastSessionIdRef.current
 
   return (
-    <Tool defaultOpen={defaultOpen}>
+    // A running subagent opens so its steps stream in view.
+    <Tool defaultOpen={defaultOpen || !finished}>
       <ToolHeader
         title={alias}
         type={part.type}
@@ -544,16 +542,9 @@ function SubagentToolPart({
       />
       <ToolContent>
         {task ? (
-          <TraceCollapsible>
-            <TraceCollapsibleTrigger>
-              <TraceLine>
-                <TraceTitle>Task</TraceTitle>
-              </TraceLine>
-            </TraceCollapsibleTrigger>
-            <TraceCollapsibleContent className="whitespace-pre-wrap text-xs">
-              {task}
-            </TraceCollapsibleContent>
-          </TraceCollapsible>
+          <p className="line-clamp-3 whitespace-pre-wrap text-xs text-muted-foreground">
+            {task}
+          </p>
         ) : null}
         <SubagentTranscript sessionId={sessionId} finished={finished} />
         {cardState === "output-interrupted" ? (

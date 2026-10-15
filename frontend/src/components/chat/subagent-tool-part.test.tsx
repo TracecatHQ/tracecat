@@ -269,10 +269,8 @@ describe("subagent tool part", () => {
     expect(screen.getByTestId("tool-state")).toHaveTextContent(
       "output-available"
     )
-    // The task stays collapsed and the child prompt is not repeated.
-    expect(
-      screen.queryByText("Summarize the open cases")
-    ).not.toBeInTheDocument()
+    // The task shows once; the child prompt is not repeated.
+    expect(screen.getAllByText("Summarize the open cases")).toHaveLength(1)
     await waitFor(() =>
       expect(mockUseGetChatVercel).toHaveBeenCalledWith({
         chatId: CHILD_ID,
