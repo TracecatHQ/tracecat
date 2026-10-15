@@ -196,6 +196,7 @@ export function toUIMessage(message: UIMessage): ai.UIMessage {
   return {
     id: message.id,
     role: message.role,
+    ...(message.metadata != null ? { metadata: message.metadata } : {}),
     parts: message.parts.map(
       (part): ai.UIMessagePart<ai.UIDataTypes, ai.UITools> => {
         // Type-narrowing with guards ensures proper typing

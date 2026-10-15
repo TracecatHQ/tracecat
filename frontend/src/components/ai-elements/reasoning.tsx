@@ -1,7 +1,7 @@
 "use client"
 
 import { useControllableState } from "@radix-ui/react-use-controllable-state"
-import { CircleCheckIcon, LoaderCircleIcon } from "lucide-react"
+import { LoaderCircleIcon } from "lucide-react"
 import type { ComponentProps } from "react"
 import {
   createContext,
@@ -49,6 +49,8 @@ export type ReasoningProps = ComponentProps<typeof TraceCollapsible> & {
   defaultOpen?: boolean
   onOpenChange?: (open: boolean) => void
   duration?: number
+  /** Open while it streams and close once it finishes. */
+  followStreaming?: boolean
 }
 
 const AUTO_CLOSE_DELAY = 1000
@@ -64,6 +66,7 @@ export const Reasoning = memo(
     defaultOpen = true,
     onOpenChange,
     duration: durationProp,
+    followStreaming = true,
     children,
     ...props
   }: ReasoningProps) => {
@@ -77,7 +80,9 @@ export const Reasoning = memo(
       defaultProp: 0,
     })
 
-    const [shouldAutoClose, setShouldAutoClose] = useState(defaultOpen)
+    const [shouldAutoClose, setShouldAutoClose] = useState(
+      followStreaming && defaultOpen
+    )
     const [hasAutoClosed, setHasAutoClosed] = useState(false)
     const [startTime, setStartTime] = useState<number | null>(null)
 
@@ -95,12 +100,12 @@ export const Reasoning = memo(
 
     // Ensure reasoning stays open while streaming and auto-close again afterwards.
     useEffect(() => {
-      if (isStreaming) {
+      if (followStreaming && isStreaming) {
         setIsOpen(true)
         setShouldAutoClose(true)
         setHasAutoClosed(false)
       }
-    }, [isStreaming, setIsOpen])
+    }, [followStreaming, isStreaming, setIsOpen])
 
     // Auto-open when streaming starts, auto-close when streaming ends (once only)
     useEffect(() => {
@@ -149,13 +154,11 @@ export const ReasoningTrigger = memo(
       <TraceCollapsibleTrigger className={className} {...props}>
         {children ?? (
           <TraceLine status={isStreaming ? "running" : undefined}>
-            <TraceIcon>
-              {isStreaming ? (
+            {isStreaming ? (
+              <TraceIcon>
                 <LoaderCircleIcon className="animate-spin" />
-              ) : (
-                <CircleCheckIcon />
-              )}
-            </TraceIcon>
+              </TraceIcon>
+            ) : null}
             <TraceTitle>{isStreaming ? "Thinking" : "Thought"}</TraceTitle>
             {!isStreaming && duration ? (
               <TraceDescription>{duration}s</TraceDescription>

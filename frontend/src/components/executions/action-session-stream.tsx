@@ -11,10 +11,14 @@ import {
   ConversationContent,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation"
-import { MessagePart } from "@/components/chat/message-part"
+import { MessageParts } from "@/components/chat/message-part"
 import { Spinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"
 import { parseChatError } from "@/hooks/use-chat"
+import {
+  ChatVerbosityContext,
+  useWorkspaceChatVerbosity,
+} from "@/hooks/use-chat-verbosity"
 import { isUIMessageArray } from "@/lib/agents"
 import { getBaseUrl } from "@/lib/api"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -28,18 +32,14 @@ export function ActionSessionStream({ session }: { session: Session_Any_ }) {
       <ActionSessionShell>
         <Conversation className="flex-1">
           <ConversationContent>
-            {messages.map(({ id, role, parts }) => (
-              <div key={id}>
-                {parts?.map((part, partIdx) => (
-                  <MessagePart
-                    key={`${id}-${partIdx}`}
-                    part={part}
-                    partIdx={partIdx}
-                    id={id}
-                    role={role}
-                    isLastMessage={id === messages[messages.length - 1].id}
-                  />
-                ))}
+            {messages.map((message) => (
+              <div key={message.id}>
+                <MessageParts
+                  message={message}
+                  isLastMessage={
+                    message.id === messages[messages.length - 1].id
+                  }
+                />
               </div>
             ))}
           </ConversationContent>
@@ -95,19 +95,15 @@ function ActionSessionLiveStream({ sessionId }: { sessionId: string }) {
       ) : (
         <Conversation className="flex-1">
           <ConversationContent>
-            {messages.map(({ id, role, parts }) => (
-              <div key={id}>
-                {parts?.map((part, partIdx) => (
-                  <MessagePart
-                    key={`${id}-${partIdx}`}
-                    part={part}
-                    partIdx={partIdx}
-                    id={id}
-                    role={role}
-                    status={status}
-                    isLastMessage={id === messages[messages.length - 1].id}
-                  />
-                ))}
+            {messages.map((message) => (
+              <div key={message.id}>
+                <MessageParts
+                  message={message}
+                  status={status}
+                  isLastMessage={
+                    message.id === messages[messages.length - 1].id
+                  }
+                />
               </div>
             ))}
           </ConversationContent>
@@ -125,19 +121,25 @@ function ActionSessionShell({
   status?: string
   children: ReactNode
 }) {
+  const workspaceId = useWorkspaceId()
+  const verbosity = useWorkspaceChatVerbosity(workspaceId)
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-md border bg-card">
-      <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-        <MessageCircle className="size-3" />
-        <span>Session</span>
-        {status === "streaming" && (
-          <span className="ml-auto flex items-center gap-1 text-[10px] font-medium normal-case text-muted-foreground">
-            <Spinner className="size-3" />
-            <span>Streaming…</span>
-          </span>
-        )}
+    <ChatVerbosityContext.Provider value={verbosity}>
+      <div className="flex h-full flex-col overflow-hidden rounded-md border bg-card">
+        <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <MessageCircle className="size-3" />
+          <span>Session</span>
+          {status === "streaming" && (
+            <span className="ml-auto flex items-center gap-1 text-[10px] font-medium normal-case text-muted-foreground">
+              <Spinner className="size-3" />
+              <span>Streaming…</span>
+            </span>
+          )}
+        </div>
+        <div className="mb-8 flex min-h-[160px] flex-1 flex-col">
+          {children}
+        </div>
       </div>
-      <div className="mb-8 flex min-h-[160px] flex-1 flex-col">{children}</div>
-    </div>
+    </ChatVerbosityContext.Provider>
   )
 }

@@ -13,6 +13,7 @@ import {
 } from "lucide-react"
 import {
   type ComponentProps,
+  Fragment,
   isValidElement,
   memo,
   type ReactNode,
@@ -66,8 +67,18 @@ export type ToolState =
   | LegacyToolState
   | InterruptedToolState
 
+/** How a tool line reads while running, after it succeeds, and after it fails. */
+export type ToolVerbs = { running: string; done: string; failed: string }
+
+const DEFAULT_TOOL_VERBS: ToolVerbs = {
+  running: "Running",
+  done: "Ran",
+  failed: "Failed to run",
+}
+
 export type ToolHeaderProps = {
   title?: string
+  verbs?: ToolVerbs
   className?: string
   icon?: ReactNode
   type: ToolPart["type"]
@@ -130,24 +141,27 @@ export const getStatusBadge = (status: ToolState) => (
 )
 
 /** How a tool state reads on its Trace line. */
-export function getToolLineStatus(state: ToolState): {
+export function getToolLineStatus(
+  state: ToolState,
+  verbs: ToolVerbs = DEFAULT_TOOL_VERBS
+): {
   status: TraceStatus | undefined
   verb: string
 } {
   switch (state) {
     case "input-streaming":
     case "input-available":
-      return { status: "running", verb: "Running" }
+      return { status: "running", verb: verbs.running }
     case "approval-requested":
       return { status: "pending", verb: "Waiting for approval to run" }
     case "output-error":
-      return { status: "error", verb: "Failed to run" }
+      return { status: "error", verb: verbs.failed }
     case "output-denied":
       return { status: "error", verb: "Denied" }
     case "output-interrupted":
       return { status: "pending", verb: "Stopped" }
     default:
-      return { status: undefined, verb: "Ran" }
+      return { status: undefined, verb: verbs.done }
   }
 }
 
@@ -175,12 +189,13 @@ export const ToolHeader = ({
   state,
   toolName,
   icon,
+  verbs,
 }: ToolHeaderProps) => {
   const derivedName =
     type === "dynamic-tool"
       ? (toolName ?? "dynamic-tool")
       : type.split("-").slice(1).join("-")
-  const { status, verb } = getToolLineStatus(state)
+  const { status, verb } = getToolLineStatus(state, verbs)
 
   return (
     <TraceCollapsibleTrigger className={className}>
@@ -399,6 +414,10 @@ const ToolPayload = memo(
       )
     }
 
+    if (serialized.extension === "txt") {
+      return <PlainOutput text={serialized.text} />
+    }
+
     return (
       <div className="space-y-2">
         <CodeBlock
@@ -420,15 +439,83 @@ export type ToolInputProps = ComponentProps<"div"> & {
   input: ToolPart["input"]
 }
 
-export const ToolInput = memo(
-  ({ className, input, ...props }: ToolInputProps) => (
-    <div className={cn("space-y-2 overflow-hidden", className)} {...props}>
-      <h4 className="font-medium text-[11px] text-muted-foreground">
-        Parameters
-      </h4>
-      <ToolPayload payload={input} downloadName="tool-parameters" />
-    </div>
+/** Plain text output, without a code frame. */
+function PlainOutput({
+  text,
+  isError = false,
+}: {
+  text: string
+  isError?: boolean
+}) {
+  return (
+    <pre
+      className={cn(
+        "max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 p-2.5 font-mono text-xs text-foreground",
+        isError && "text-destructive"
+      )}
+    >
+      {text}
+    </pre>
   )
+}
+
+type ParamEntry = [key: string, value: string]
+
+/** Inputs whose values are all scalars, as key-value rows; else null. */
+function getFlatParams(input: unknown): ParamEntry[] | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return null
+  }
+  const entries: ParamEntry[] = []
+  for (const [key, value] of Object.entries(input)) {
+    if (
+      value !== null &&
+      typeof value !== "string" &&
+      typeof value !== "number" &&
+      typeof value !== "boolean"
+    ) {
+      return null
+    }
+    entries.push([key, String(value)])
+  }
+  return entries
+}
+
+export const ToolInput = memo(
+  ({ className, input, ...props }: ToolInputProps) => {
+    const flatParams = getFlatParams(input)
+    if (flatParams?.length === 0) {
+      return null
+    }
+    if (flatParams) {
+      return (
+        <dl
+          className={cn(
+            "grid grid-cols-[minmax(0,max-content)_1fr] gap-x-4 gap-y-1 text-xs",
+            className
+          )}
+          {...(props as ComponentProps<"dl">)}
+        >
+          {flatParams.map(([key, value]) => (
+            <Fragment key={key}>
+              <dt className="truncate text-muted-foreground">{key}</dt>
+              <dd className="min-w-0 whitespace-pre-wrap break-words font-mono text-foreground">
+                {value}
+              </dd>
+            </Fragment>
+          ))}
+        </dl>
+      )
+    }
+    return (
+      <div className={cn("space-y-2 overflow-hidden", className)} {...props}>
+        <h4 className="font-medium text-[11px] text-muted-foreground">
+          Parameters
+        </h4>
+        <ToolPayload payload={input} downloadName="tool-parameters" />
+      </div>
+    )
+  }
 )
 ToolInput.displayName = "ToolInput"
 
@@ -467,3 +554,24 @@ export const ToolOutput = memo(
   }
 )
 ToolOutput.displayName = "ToolOutput"
+
+export type ToolTerminalOutputProps = {
+  output: ToolPart["output"]
+  errorText?: string
+}
+
+/** A command's output as plain terminal text. */
+export const ToolTerminalOutput = memo(
+  ({ output, errorText }: ToolTerminalOutputProps) => {
+    if (errorText === undefined && (output === undefined || output === null)) {
+      return null
+    }
+    const text =
+      errorText ?? serializeToolPayload(extractMcpTextContent(output)).text
+    if (!text.trim()) {
+      return <p className="text-[11px] text-muted-foreground">No output</p>
+    }
+    return <PlainOutput text={text} isError={errorText !== undefined} />
+  }
+)
+ToolTerminalOutput.displayName = "ToolTerminalOutput"

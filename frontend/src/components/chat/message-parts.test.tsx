@@ -1,0 +1,217 @@
+import { useChat } from "@ai-sdk/react"
+import { createChat } from "@shadcn/helpers/ai-sdk"
+import { fireEvent, render, screen } from "@testing-library/react"
+import type { ReactNode } from "react"
+import { MessageParts } from "@/components/chat/message-part"
+import {
+  type ChatVerbosity,
+  ChatVerbosityContext,
+} from "@/hooks/use-chat-verbosity"
+
+jest.mock("@/components/ai-elements/code-block", () => ({
+  CodeBlock: ({ code }: { code: string }) => <pre>{code}</pre>,
+  CodeBlockCopyButton: () => null,
+}))
+
+jest.mock("@/components/ai-elements/response", () => ({
+  Response: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+}))
+
+jest.mock("@/components/icons", () => ({
+  getIcon: () => <span data-testid="tool-icon" />,
+}))
+
+jest.mock("@/hooks/use-subagent-stream", () => ({
+  useSubagentTranscript: () => ({
+    messages: [],
+    isLive: false,
+    isLoading: false,
+    isError: false,
+    isRecoveryPaused: false,
+    retryRecovery: jest.fn(),
+  }),
+}))
+
+const QUESTION = "Why did the alert fire?"
+const ANSWER = "The rule matched a burst of failed logins."
+
+/** A turn that thinks, runs one tool, fails another, then answers. */
+function scriptTurn({ toolDelayMs = 0 }: { toolDelayMs?: number } = {}) {
+  return createChat()
+    .user(QUESTION)
+    .assistant(({ writer }) => {
+      writer.reasoning("Check the detection rule before the logs.")
+      writer
+        .tool("core__cases__list_cases", { input: { limit: 5 } })
+        .sleep(toolDelayMs)
+        .output({ cases: [] })
+      writer
+        .tool("core__http_request", { input: { url: "https://example.com" } })
+        .error("Connection refused")
+      writer.text(ANSWER)
+    })
+}
+
+function Thread({
+  chat,
+  verbosity,
+}: {
+  chat: ReturnType<typeof scriptTurn>
+  verbosity: ChatVerbosity
+}) {
+  const { messages, sendMessage, status } = useChat({
+    transport: chat.transport({ delayMs: undefined }),
+  })
+  return (
+    <ChatVerbosityContext.Provider value={verbosity}>
+      <button type="button" onClick={() => sendMessage({ text: QUESTION })}>
+        Send
+      </button>
+      {messages.map((message) => (
+        <MessageParts
+          key={message.id}
+          message={message}
+          status={status}
+          isLastMessage={message.id === messages.at(-1)?.id}
+        />
+      ))}
+    </ChatVerbosityContext.Provider>
+  )
+}
+
+async function streamTurn(
+  verbosity: ChatVerbosity,
+  chat: ReturnType<typeof scriptTurn> = scriptTurn()
+) {
+  render(<Thread chat={chat} verbosity={verbosity} />)
+  fireEvent.click(screen.getByRole("button", { name: "Send" }))
+  await screen.findByText(ANSWER)
+}
+
+describe("MessageParts", () => {
+  it("draws each step as a collapsed line at milestones", async () => {
+    await streamTurn("milestones")
+
+    expect(screen.getByText("Thought")).toBeInTheDocument()
+    expect(screen.getByText("Ran core.cases.list_cases")).toBeInTheDocument()
+    expect(
+      screen.getByText("Failed to run core.http_request")
+    ).toBeInTheDocument()
+    expect(screen.queryByText("limit")).not.toBeInTheDocument()
+    expect(
+      screen.queryByText("Check the detection rule before the logs.")
+    ).not.toBeInTheDocument()
+  })
+
+  it("expands a line when the person opens it", async () => {
+    await streamTurn("milestones")
+
+    fireEvent.click(screen.getByText("Ran core.cases.list_cases"))
+
+    expect(screen.getByText("limit")).toBeInTheDocument()
+    expect(screen.getByText("5")).toBeInTheDocument()
+  })
+
+  it("keeps only the answer and failures at minimal", async () => {
+    await streamTurn("minimal")
+
+    expect(screen.queryByText("Thought")).not.toBeInTheDocument()
+    expect(
+      screen.queryByText("Ran core.cases.list_cases")
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByText("Failed to run core.http_request")
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Working...")).not.toBeInTheDocument()
+  })
+
+  it("shows one working line at minimal while steps run", async () => {
+    render(
+      <Thread chat={scriptTurn({ toolDelayMs: 300 })} verbosity="minimal" />
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Send" }))
+
+    const working = await screen.findByText("Working...")
+    expect(working.closest("[data-slot=trace-line]")).toHaveAttribute(
+      "data-status",
+      "running"
+    )
+    expect(
+      screen.queryByText(/core\.cases\.list_cases/)
+    ).not.toBeInTheDocument()
+
+    await screen.findByText(ANSWER)
+    expect(screen.queryByText("Working...")).not.toBeInTheDocument()
+  })
+
+  it("marks a running tool line while it waits for output", async () => {
+    render(
+      <Thread chat={scriptTurn({ toolDelayMs: 300 })} verbosity="milestones" />
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Send" }))
+
+    const running = await screen.findByText("Running core.cases.list_cases")
+    expect(running.closest("[data-slot=trace-line]")).toHaveAttribute(
+      "data-status",
+      "running"
+    )
+
+    expect(
+      await screen.findByText("Ran core.cases.list_cases")
+    ).toBeInTheDocument()
+  })
+
+  it("expands every step at full", async () => {
+    await streamTurn("full")
+
+    expect(screen.getByText("limit")).toBeInTheDocument()
+    expect(screen.getByText("https://example.com")).toBeInTheDocument()
+    expect(
+      screen.getByText("Check the detection rule before the logs.")
+    ).toBeInTheDocument()
+    expect(screen.getByText("Connection refused")).toBeInTheDocument()
+  })
+
+  it("names the command a shell tool ran and shows only its output", async () => {
+    const chat = createChat()
+      .user(QUESTION)
+      .assistant(({ writer }) => {
+        writer
+          .tool("Bash", {
+            dynamic: true,
+            input: { command: "rg -l ThemeProvider app", description: "Find" },
+          })
+          .output("app/layout.tsx")
+        writer
+          .tool("Read", { dynamic: true, input: { file_path: "app/page.tsx" } })
+          .output("export default function Page() {}")
+        writer.text(ANSWER)
+      })
+    await streamTurn("milestones", chat)
+
+    expect(screen.getByText("Ran rg -l ThemeProvider app")).toBeInTheDocument()
+    expect(screen.getByText("Read app/page.tsx")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText("Ran rg -l ThemeProvider app"))
+
+    expect(screen.getByText("app/layout.tsx")).toBeInTheDocument()
+    expect(screen.queryByText("description")).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ["milestones", false],
+    ["full", true],
+  ] as const)("draws tool search at %s: %s", async (verbosity, shown) => {
+    const chat = createChat()
+      .user(QUESTION)
+      .assistant(({ writer }) => {
+        writer
+          .tool("ToolSearch", { dynamic: true, input: { query: "tables" } })
+          .output([])
+        writer.text(ANSWER)
+      })
+    await streamTurn(verbosity, chat)
+
+    expect(Boolean(screen.queryByText(/ToolSearch/))).toBe(shown)
+  })
+})

@@ -24,6 +24,13 @@ import { useEntitlements } from "@/hooks/use-entitlements"
 import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
+// These tests read every step of finished turns, which only the full level
+// draws without expanding the turn first.
+jest.mock("@/hooks/use-chat-verbosity", () => ({
+  ...jest.requireActual("@/hooks/use-chat-verbosity"),
+  useWorkspaceChatVerbosity: () => "full",
+}))
+
 jest.mock("@/hooks/use-chat", () => ({
   useVercelChat: jest.fn(),
   useAdoptServerTranscript:
@@ -619,7 +626,7 @@ describe("ChatSessionPane", () => {
     })
   })
 
-  it("renders dots indicator while status is submitted", () => {
+  it("renders a thinking line while status is submitted", () => {
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
       setMessages: jest.fn(),
@@ -645,7 +652,47 @@ describe("ChatSessionPane", () => {
       </QueryClientProvider>
     )
 
-    expect(screen.getByTestId("dots-loader")).toBeInTheDocument()
+    expect(screen.getByTestId("agent-running-line")).toHaveTextContent(
+      "Thinking..."
+    )
+  })
+
+  it("skips resuming a new session it opens to send the first message", () => {
+    // A resume that finds no stream resets the send's status to ready, which
+    // would hide the thinking line until the first part arrives.
+    mockUseVercelChat.mockReturnValue({
+      sendMessage: jest.fn(),
+      setMessages: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+    const chat = createChatFixture()
+    const tree = (pendingMessage?: string) => (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={chat}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            pendingMessage={pendingMessage}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    const { rerender } = render(tree("Say hi"))
+    // Clearing the pending message after the send must not start a resume.
+    rerender(tree(undefined))
+
+    for (const [args] of mockUseVercelChat.mock.calls) {
+      expect(args).toEqual(expect.objectContaining({ resume: false }))
+    }
   })
 
   it("does not refocus after response if the textarea was not focused before disabling", async () => {

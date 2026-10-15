@@ -55,18 +55,20 @@ import {
   SourcesContent,
   SourcesTrigger,
 } from "@/components/ai-elements/sources"
+import { AgentTurn, groupThread } from "@/components/chat/agent-turn"
 import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
 import { ChatToolsPicker } from "@/components/chat/chat-tools-picker"
 import {
   getCompactionData,
-  MemoizedMessagePart,
+  MessageParts,
+  RunningLine,
 } from "@/components/chat/message-part"
 import { getIcon, ProviderIcon } from "@/components/icons"
-import { Dots } from "@/components/loading/dots"
 import { MentionHint } from "@/components/mentions/mention-hint"
 import { MentionPopover } from "@/components/mentions/mention-popover"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
+import { Trace } from "@/components/ui/trace"
 import { toast } from "@/components/ui/use-toast"
 import {
   makeContinueMessage,
@@ -77,7 +79,10 @@ import {
   useUpdateChat,
   useVercelChat,
 } from "@/hooks/use-chat"
-import { useFormsAccess } from "@/hooks/use-forms-access"
+import {
+  ChatVerbosityContext,
+  useWorkspaceChatVerbosity,
+} from "@/hooks/use-chat-verbosity"
 import { useMentions } from "@/hooks/use-mentions"
 import { useOverflowBadges } from "@/hooks/use-overflow-badges"
 import { SubagentStreamContext } from "@/hooks/use-subagent-stream"
@@ -101,8 +106,13 @@ import { PageContext } from "@/providers/chat-page-context"
 import type { ChatSurface } from "@/types/chat-surface"
 import { ARTIFACT_DATA_PART_TYPE } from "@/types/workspace-chat-artifacts"
 
+/** Whether a part draws anything in the thread. */
+function isRenderedPart(part: UIMessage["parts"][number]): boolean {
+  return part.type !== ARTIFACT_DATA_PART_TYPE
+}
+
 function messageHasVisibleParts(message: UIMessage): boolean {
-  return message.parts.some((part) => part.type !== ARTIFACT_DATA_PART_TYPE)
+  return message.parts.some(isRenderedPart)
 }
 
 /**
@@ -382,6 +392,15 @@ export function ChatSessionPane({
   const promptInputClassName = isWorkspaceChat
     ? "[&_[data-slot=input-group]]:rounded-2xl [&_[data-slot=input-group]]:border-muted-foreground/25 [&_[data-slot=input-group]]:shadow-none"
     : undefined
+  // A session opened to send its first message has no stream to resume, and a
+  // resume that finds none resets the send's status. Decided once per chat.
+  const [resumeDecision, setResumeDecision] = useState(() => ({
+    chatId: chat?.id,
+    resume: resume && !pendingMessage,
+  }))
+  if (resumeDecision.chatId !== chat?.id) {
+    setResumeDecision({ chatId: chat?.id, resume: resume && !pendingMessage })
+  }
   const {
     sendMessage,
     messages,
@@ -397,9 +416,9 @@ export function ChatSessionPane({
     messages: uiMessages,
     modelInfo,
     onData,
-    pageContext,
-    resume,
+    resume: resumeDecision.resume,
   })
+  const verbosity = useWorkspaceChatVerbosity(workspaceId)
   const subagentStreamContext = useMemo(
     () =>
       subagentStore ? { store: subagentStore, workspaceId, status } : null,
@@ -948,6 +967,11 @@ export function ChatSessionPane({
     () => transformMessages(markLiveDenials(messages)),
     [messages]
   )
+  const threadBlocks = useMemo(
+    () => groupThread(transformedMessages),
+    [transformedMessages]
+  )
+  const lastMessageId = messages.at(-1)?.id
 
   // Response actions go on the latest message on screen when it is the
   // assistant's. That need not be the transcript's last message: a
@@ -1390,78 +1414,74 @@ export function ChatSessionPane({
                   {emptyState}
                 </div>
               ) : null}
-              {transformedMessages.map(({ id, role, parts }, index) => {
-                const visibleParts = parts?.filter(
-                  (part) => part.type !== ARTIFACT_DATA_PART_TYPE
-                )
-                if (!visibleParts?.length) {
-                  return null
+              {threadBlocks.map((block, blockIndex) => {
+                if (block.kind === "prompt") {
+                  const { message } = block
+                  if (!message.parts.some(isRenderedPart)) {
+                    return null
+                  }
+                  return (
+                    <div key={message.id} className="group relative">
+                      <MessageParts
+                        message={message}
+                        status={status}
+                        isLastMessage={message.id === lastMessageId}
+                      />
+                    </div>
+                  )
                 }
-
-                const isLastMessage = id === messages[messages.length - 1].id
                 // Keep the latest response's actions visible.
-                const isLatestResponse = index === latestResponseIndex
-                const sourceUrlParts = visibleParts.filter(
-                  (part) => part.type === "source-url"
+                const holdsLatestResponse =
+                  latestResponseIndex >= block.startIndex &&
+                  latestResponseIndex <= block.endIndex
+                const sourceUrlParts = block.messages.flatMap((message) =>
+                  message.parts.filter((part) => part.type === "source-url")
                 )
                 return (
-                  <div key={id} className="group relative">
-                    {role === "assistant" && sourceUrlParts.length > 0 && (
-                      <Sources>
+                  <div key={block.messages[0].id} className="group relative">
+                    {verbosity !== "minimal" && sourceUrlParts.length > 0 && (
+                      <Sources className="py-1">
                         <SourcesTrigger count={sourceUrlParts.length} />
-                        {sourceUrlParts.map((part, partIdx) => (
-                          <SourcesContent key={`${id}-${part.type}-${partIdx}`}>
+                        <SourcesContent>
+                          {sourceUrlParts.map((part) => (
                             <Source
-                              href={"url" in part ? part.url : "#"}
-                              title={"url" in part ? part.url : "Source"}
+                              key={part.sourceId}
+                              href={part.url}
+                              title={part.title ?? part.url}
                             />
-                          </SourcesContent>
-                        ))}
+                          ))}
+                        </SourcesContent>
                       </Sources>
                     )}
-
-                    {visibleParts.map((part, partIdx) => (
-                      <MemoizedMessagePart
-                        key={`${id}-${part.type}-${partIdx}`}
-                        part={part}
-                        partIdx={partIdx}
-                        id={id}
-                        role={role}
-                        status={status}
-                        isLastMessage={isLastMessage}
-                        turnCancelled={cancelledTurnMessageIds.has(id)}
-                        interruptedToolCallIds={interruptedToolCallIds}
-                        onSubmitApprovals={
-                          isReadonly ? undefined : handleSubmitApprovals
-                        }
-                      />
-                    ))}
-                    {role === "assistant" &&
+                    <AgentTurn
+                      messages={block.messages}
+                      startedAt={block.startedAt}
+                      status={status}
+                      isLive={
+                        blockIndex === threadBlocks.length - 1 &&
+                        isGeneratingTurn
+                      }
+                      lastMessageId={lastMessageId}
+                      cancelledMessageIds={cancelledTurnMessageIds}
+                      interruptedToolCallIds={interruptedToolCallIds}
+                      onSubmitApprovals={
+                        isReadonly ? undefined : handleSubmitApprovals
+                      }
+                    />
+                    {holdsLatestResponse &&
                       !isWaitingForResponse &&
                       !isReadonly && (
-                        // Render response actions for assistant messages and reveal them on hover for older messages.
-                        <Actions
-                          className={cn(
-                            "mt-4",
-                            // Apply a smooth transition so the actions fade in and out gracefully.
-                            "transition-opacity duration-200 ease-out",
-                            // Hide actions by default for earlier messages and reveal them when the message group is hovered.
-                            !isLatestResponse &&
-                              "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
-                          )}
-                        >
-                          {isLatestResponse && (
-                            <Action
-                              size="sm"
-                              onClick={() =>
-                                regenerate({ messageId: retryMessageId })
-                              }
-                              label="Retry"
-                              tooltip="Retry"
-                            >
-                              <RefreshCcwIcon className="size-3" />
-                            </Action>
-                          )}
+                        <Actions className="mt-4">
+                          <Action
+                            size="sm"
+                            onClick={() =>
+                              regenerate({ messageId: retryMessageId })
+                            }
+                            label="Retry"
+                            tooltip="Retry"
+                          >
+                            <RefreshCcwIcon className="size-3" />
+                          </Action>
                         </Actions>
                       )}
                   </div>
@@ -1475,7 +1495,9 @@ export function ChatSessionPane({
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.3, ease: "easeInOut" }}
                 >
-                  <Dots />
+                  <Trace>
+                    <RunningLine label="Thinking..." />
+                  </Trace>
                 </motion.div>
               )}
             </ConversationContent>
@@ -1493,9 +1515,11 @@ export function ChatSessionPane({
   )
 
   return (
-    <SubagentStreamContext.Provider value={subagentStreamContext}>
-      {conversationView}
-    </SubagentStreamContext.Provider>
+    <ChatVerbosityContext.Provider value={verbosity}>
+      <SubagentStreamContext.Provider value={subagentStreamContext}>
+        {conversationView}
+      </SubagentStreamContext.Provider>
+    </ChatVerbosityContext.Provider>
   )
 }
 
@@ -1629,7 +1653,9 @@ function OptimisticPendingMessage({ text }: { text: string }) {
         exit={{ opacity: 0 }}
         transition={{ duration: 0.3, ease: "easeInOut" }}
       >
-        <Dots />
+        <Trace>
+          <RunningLine label="Thinking..." />
+        </Trace>
       </motion.div>
     </>
   )
