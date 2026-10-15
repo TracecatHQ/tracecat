@@ -39,6 +39,7 @@ WORKSPACE_CHAT_BASE_DEFAULT_TOOLS = [
     "core.workflow.create_workflow",
     "core.workflow.get_workflow",
     "core.workflow.edit_workflow",
+    "core.workflow.list_actions",
     "core.workflow.get_authoring_context",
     "core.workflow.get_webhook",
     "core.workflow.update_webhook",

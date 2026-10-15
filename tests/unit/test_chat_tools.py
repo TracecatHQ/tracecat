@@ -55,6 +55,7 @@ def test_workspace_chat_default_tools_include_authoring_actions() -> None:
         "core.workflow.create_workflow",
         "core.workflow.get_workflow",
         "core.workflow.edit_workflow",
+        "core.workflow.list_actions",
         "core.workflow.get_authoring_context",
         "core.workflow.get_webhook",
         "core.workflow.update_webhook",

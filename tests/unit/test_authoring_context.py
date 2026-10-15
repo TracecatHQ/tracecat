@@ -408,3 +408,68 @@ class TestAuthoringContextRouteCallerScoping:
             "secret_hints": role.scopes,
             "enabled_models": role.scopes,
         }
+
+
+@pytest.mark.anyio
+async def test_workspace_action_discovery_pages_and_uses_attributed_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.contexts import ctx_role
+    from tracecat.mcp.schemas import WorkflowActionDiscoveryRequest
+    from tracecat.workflow.executions import internal_router
+
+    role = TestAuthoringContextRouteCallerScoping._executor_role()
+    user_scopes = frozenset({"workflow:read"})
+    observed_scopes: list[frozenset[str]] = []
+    entries = [
+        (
+            SimpleNamespace(
+                namespace="tools.example",
+                name=f"event_{index:03d}",
+                description="Search events",
+            ),
+            "platform",
+        )
+        for index in range(60)
+    ]
+
+    async def _fake_attributed(_role: Any) -> frozenset[str]:
+        return user_scopes
+
+    class _RegistryService:
+        def __init__(self, _session: Any, *, role: Any) -> None:
+            observed_scopes.append(role.scopes)
+
+        async def search_actions_from_index(
+            self, _query: str, *, limit: int | None = None
+        ) -> list[Any]:
+            assert limit is None
+            return entries
+
+    monkeypatch.setattr(
+        internal_router, "compute_attributed_user_scopes", _fake_attributed
+    )
+    monkeypatch.setattr(internal_router, "RegistryActionsService", _RegistryService)
+    token = ctx_role.set(role)
+    try:
+        first_page = await internal_router.list_actions(
+            role=role,
+            session=None,  # type: ignore[arg-type]
+            params=WorkflowActionDiscoveryRequest(query="example", limit=50),
+        )
+        second_page = await internal_router.list_actions(
+            role=role,
+            session=None,  # type: ignore[arg-type]
+            params=WorkflowActionDiscoveryRequest(
+                query="example", limit=50, cursor=first_page.next_cursor
+            ),
+        )
+    finally:
+        ctx_role.reset(token)
+
+    assert observed_scopes == [user_scopes, user_scopes]
+    assert len(first_page.items) == 50
+    assert first_page.has_more is True
+    assert first_page.items[0].action_name == "tools.example.event_000"
+    assert len(second_page.items) == 10
+    assert second_page.has_more is False

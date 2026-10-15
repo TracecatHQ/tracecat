@@ -265,6 +265,25 @@ class WorkflowsClient:
             "status": "STARTED",
         }
 
+    async def list_actions(
+        self,
+        *,
+        query: str | None = None,
+        namespace: str | None = None,
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """Search or browse action names in pages before fetching their schemas."""
+        return await self._client.post(
+            "/workflows/actions/search",
+            json={
+                "query": query,
+                "namespace": namespace,
+                "limit": limit,
+                "cursor": cursor,
+            },
+        )
+
     async def get_authoring_context(
         self,
         *,

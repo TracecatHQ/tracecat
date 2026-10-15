@@ -21,6 +21,7 @@ from starlette.status import (
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.service import RPCError
 
+from tracecat.agent.action_discovery import list_action_entry_page
 from tracecat.agent.authoring_context import (
     WorkflowAuthoringContextResponse,
     build_action_contexts,
@@ -48,11 +49,14 @@ from tracecat.logger import logger
 from tracecat.mcp.json_patch import apply_json_patch_operations
 from tracecat.mcp.schemas import (
     JsonPatchOperation,
+    WorkflowActionDiscoveryItem,
+    WorkflowActionDiscoveryRequest,
     WorkflowAuthoringContextRequest,
     WorkflowEditDocument,
     WorkflowEditResponse,
 )
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
+from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.webhooks import service as webhook_service
 from tracecat.webhooks.schemas import WebhookRead, WebhookUpdate
@@ -761,6 +765,47 @@ async def list_workflow_executions(
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(e)) from e
     return CursorPaginatedResponse(
         items=[build_execution_summary(execution) for execution in page.items],
+        next_cursor=page.next_cursor,
+        prev_cursor=page.prev_cursor,
+        has_more=page.has_more,
+        has_previous=page.has_previous,
+    )
+
+
+@router.post("/actions/search", status_code=HTTP_200_OK)
+@require_scope("workflow:read")
+async def list_actions(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    params: WorkflowActionDiscoveryRequest,
+) -> CursorPaginatedResponse[WorkflowActionDiscoveryItem]:
+    """Discover action names in pages before requesting full authoring context."""
+    user_scopes = await compute_attributed_user_scopes(role)
+    context_role = (
+        role.model_copy(update={"scopes": user_scopes})
+        if user_scopes is not None
+        else role
+    )
+    service = RegistryActionsService(session, role=context_role)
+    try:
+        page = await list_action_entry_page(
+            service,
+            query=params.query,
+            namespace=params.namespace,
+            limit=params.limit,
+            cursor=params.cursor,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return CursorPaginatedResponse(
+        items=[
+            WorkflowActionDiscoveryItem(
+                action_name=f"{entry.namespace}.{entry.name}",
+                description=entry.description,
+            )
+            for entry, _ in page.entries
+        ],
         next_cursor=page.next_cursor,
         prev_cursor=page.prev_cursor,
         has_more=page.has_more,

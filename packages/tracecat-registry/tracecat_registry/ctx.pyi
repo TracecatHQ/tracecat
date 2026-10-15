@@ -1322,6 +1322,14 @@ class _WorkflowsAsync:
         patch_ops: Sequence[JsonPatchOperation | dict[str, Any]],
         validate_only: bool = ...,
     ) -> dict[str, Any]: ...
+    async def list_actions(
+        self,
+        *,
+        query: str | None = ...,
+        namespace: str | None = ...,
+        limit: int = ...,
+        cursor: str | None = ...,
+    ) -> dict[str, Any]: ...
     async def get_authoring_context(
         self,
         *,
@@ -1413,6 +1421,14 @@ class _Workflows:
         base_revision: str,
         patch_ops: Sequence[JsonPatchOperation | dict[str, Any]],
         validate_only: bool = ...,
+    ) -> dict[str, Any]: ...
+    def list_actions(
+        self,
+        *,
+        query: str | None = ...,
+        namespace: str | None = ...,
+        limit: int = ...,
+        cursor: str | None = ...,
     ) -> dict[str, Any]: ...
     def get_authoring_context(
         self,

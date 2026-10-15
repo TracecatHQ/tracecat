@@ -352,6 +352,20 @@ class WorkflowAuthoringContextRequest(BaseModel):
     query: str | None = None
 
 
+class WorkflowActionDiscoveryRequest(BaseModel):
+    """Filters and cursor for compact workflow action discovery."""
+
+    query: str | None = None
+    namespace: str | None = None
+    limit: int = Field(default=50, ge=1, le=200)
+    cursor: str | None = None
+
+
+class WorkflowActionDiscoveryItem(BaseModel):
+    action_name: str
+    description: str | None = None
+
+
 class ActionSecretRequirement(BaseModel):
     name: str
     required_keys: list[str] = Field(default_factory=list)

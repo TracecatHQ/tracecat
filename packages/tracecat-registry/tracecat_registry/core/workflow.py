@@ -250,6 +250,43 @@ async def edit_workflow(
 @registry.register(
     namespace="core.workflow",
     description=(
+        "Search or browse available workflow actions by name and description. "
+        "Follow `next_cursor` while `has_more` is true, then call "
+        "`core.workflow.get_authoring_context` with selected `action_names` "
+        "for schemas and credentials. Search is a literal substring."
+        + _WORKSPACE_CHAT_SKILL_GUIDANCE
+    ),
+    default_title="List workflow actions",
+    display_group="Workflows",
+)
+async def list_actions(
+    *,
+    query: Annotated[
+        str | None,
+        Doc("Literal action name or description substring to search."),
+    ] = None,
+    namespace: Annotated[
+        str | None,
+        Doc("Optional namespace prefix, such as `tools` or `tools.example`."),
+    ] = None,
+    limit: Annotated[
+        int,
+        Doc("Maximum results per page, from 1 to 200."),
+    ] = 50,
+    cursor: Annotated[
+        str | None,
+        Doc("Pass `next_cursor` with the same filters to read the next page."),
+    ] = None,
+) -> dict[str, Any]:
+    """Return compact action discovery results with continuation cursors."""
+    return await ctx.workflows.aio.list_actions(
+        query=query, namespace=namespace, limit=limit, cursor=cursor
+    )
+
+
+@registry.register(
+    namespace="core.workflow",
+    description=(
         "Get action schemas, required secrets, example args, and the models "
         "enabled for this workspace before writing an action's `args:`. When "
         "configuring an AI action (`ai.action`, `ai.agent`) or agent preset, "
