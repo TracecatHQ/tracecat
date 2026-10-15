@@ -709,6 +709,8 @@ async def test_reference_within_view_matches_identity_and_native_mentions_once(
     assert [item.id for item in page.items] == [exact.id, mention.id]
     assert page.items[0].is_exact_match
     assert page.items[0].is_outside_filters is False
+    assert page.items[0].search_match is not None
+    assert "short_id" in page.items[0].search_match.matched_columns
     assert page.total_estimate == 2
 
 
@@ -728,6 +730,10 @@ async def test_literal_promotion_reports_ordinary_membership_for_group_counts(
     assert [item.id for item in page.items] == [exact.id, mention.id]
     assert page.items[0].is_exact_match
     assert page.items[0].is_outside_filters
+    assert page.items[0].search_match is None
+    assert page.items[1].search_match is not None
+    assert page.items[1].search_match.matched_columns == ["summary"]
+    assert page.items[1].search_match.excerpts
     assert page.total_estimate == 1
     counts = await lexical_service.query_case_aggregates(
         CaseQuery(
