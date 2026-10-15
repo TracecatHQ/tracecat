@@ -219,10 +219,10 @@ WORKDIR /app
 # ====================
 FROM base AS plugin-skills
 
-ARG TRACECAT_PLUGINS_REF=a41bbdbb4ad3d5e5cf15eda8a6e3d8c3018393cd
-ARG TRACECAT_PLUGINS_ARCHIVE_SHA256=e3c67cc4ae2cf0319fe4455b507d0500999600de4f52d93c7c673d9b00a2096f
+ARG TRACECAT_PLUGINS_REF=1437a98a225501b1a024d384108cf8f541a09a10
+ARG TRACECAT_PLUGINS_ARCHIVE_SHA256=4e1f1d01b01de0bc1928b046af691546ee042f0f19170ff77bfe546597dd0697
 
-# Pinned to a tracecat-plugins commit on main. Bump both values when the
+# Pinned to a tracecat-plugins commit. Bump both values when the
 # vendored skills change so the trusted payload is verified before extraction.
 RUN set -eux; \
     mkdir -p /skills /tmp/tracecat-plugins; \
