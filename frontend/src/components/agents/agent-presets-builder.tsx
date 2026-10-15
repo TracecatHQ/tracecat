@@ -793,7 +793,12 @@ function AgentPresetChatPane({
       )
     }
 
-    if (canExecuteAgents === false && !activeChatId && !chatsLoading) {
+    if (
+      canExecuteAgents === false &&
+      !activeChatId &&
+      !chatsLoading &&
+      !chatsError
+    ) {
       return <AgentExecuteRequiredNotice />
     }
 

@@ -607,7 +607,8 @@ export function ChatSessionPane({
   }, [isGeneratingTurn])
 
   const handleStop = useCallback(async () => {
-    if (!chat?.id || cancelRequested || isReadonly) return
+    if (!chat?.id || cancelRequested || isReadonly || cannotExecuteAgents)
+      return
     setCancelRequested(true)
     try {
       await cancelChatTurn({ chatId: chat.id })
@@ -618,7 +619,13 @@ export function ChatSessionPane({
         description: parseChatError(error),
       })
     }
-  }, [cancelChatTurn, cancelRequested, chat?.id, isReadonly])
+  }, [
+    cancelChatTurn,
+    cancelRequested,
+    chat?.id,
+    isReadonly,
+    cannotExecuteAgents,
+  ])
   const isInputDisabledRef = useRef(isInputDisabled)
   isInputDisabledRef.current = isInputDisabled
   /** Guards `handleSubmit` against re-entry while it awaits a preset write. */
@@ -1372,7 +1379,9 @@ export function ChatSessionPane({
                   selectedMcpIntegrations={selectedMcpIntegrations}
                   onMcpChange={commitSelectedMcpIntegrations}
                   mcpEnabled={sessionMcpEnabled}
-                  disabled={inputDisabled || isUpdatingTools}
+                  disabled={
+                    inputDisabled || isUpdatingTools || cannotExecuteAgents
+                  }
                   surface={surface}
                   formsEnabled={formsAccess === "enabled"}
                   mcpIntegrationsHref={`/workspaces/${workspaceId}/mcp-servers`}
@@ -1388,7 +1397,10 @@ export function ChatSessionPane({
                   label={activePresetLabel}
                   showSpinner={presetSelector?.showSpinner}
                   disabled={
-                    presetSelector?.disabled || inputDisabled || !canSubmit
+                    presetSelector?.disabled ||
+                    inputDisabled ||
+                    cannotExecuteAgents ||
+                    !canSubmit
                   }
                   onClear={() => void presetSelector?.onSelect(null)}
                 />
@@ -1402,6 +1414,7 @@ export function ChatSessionPane({
               <PromptInputSubmit
                 disabled={
                   isReadonly ||
+                  cannotExecuteAgents ||
                   (isGeneratingTurn
                     ? isCancellingChatTurn || cancelRequested
                     : isInputDisabled || !input.trim())

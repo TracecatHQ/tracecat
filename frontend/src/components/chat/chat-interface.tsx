@@ -205,7 +205,8 @@ export function ChatInterface({
   // and the picker would offer to connect a server on a page the role cannot
   // open.
   const canReadIntegrations = useScopeCheck("integration:read")
-  // `undefined` while scopes load: creation waits, nothing is disabled.
+  // `undefined` while scopes load: creation and its controls wait until the
+  // scope resolves; only a resolved denial shows the reason.
   const canExecuteAgents = useScopeCheck("agent:execute")
   const sessionMcpEnabled =
     canReadIntegrations === true && entityType === "copilot"
@@ -352,7 +353,12 @@ export function ChatInterface({
     selectedTools?: string[],
     selectedMcpIntegrations?: string[]
   ) => {
-    if (!deferSessionCreation || !backendSelectionReady || createChatPending) {
+    if (
+      !deferSessionCreation ||
+      !backendSelectionReady ||
+      createChatPending ||
+      canExecuteAgents !== true
+    ) {
       return null
     }
 
@@ -517,7 +523,7 @@ export function ChatInterface({
                         disabled={
                           createChatPending ||
                           !backendSelectionReady ||
-                          canExecuteAgents === false
+                          canExecuteAgents !== true
                         }
                       >
                         <Plus className="h-4 w-4" />
@@ -549,7 +555,7 @@ export function ChatInterface({
                     disabled={
                       createChatPending ||
                       !backendSelectionReady ||
-                      canExecuteAgents === false
+                      canExecuteAgents !== true
                     }
                     onClick={() => void handleCreateChat()}
                   >
@@ -719,6 +725,7 @@ function ChatBody({
   const {
     ready: chatReady,
     loading: chatReadyLoading,
+    reason: chatReadyReason,
     modelInfo,
   } = useChatReadiness(
     workspaceId,
@@ -769,11 +776,28 @@ function ChatBody({
   // Render active chat session when ready
   if ((!chatReady || !modelInfo) && !chat?.is_readonly) {
     // Render configuration required state
+    const defaultNotEnabled = chatReadyReason === "default_not_enabled"
     if (surface === "workspace-chat") {
       return (
         <ChatEmptyHero>
-          <NoDefaultModelComposer />
+          <NoDefaultModelComposer defaultNotEnabled={defaultNotEnabled} />
         </ChatEmptyHero>
+      )
+    }
+
+    if (defaultNotEnabled) {
+      return (
+        <>
+          <NoMessages />
+          <div className="rounded-md border border-border bg-muted/40 p-4">
+            <h4 className="mb-1 text-sm font-medium text-foreground">
+              Default model not enabled
+            </h4>
+            <p className="text-xs text-muted-foreground">
+              {DEFAULT_MODEL_NOT_ENABLED_MESSAGE}
+            </p>
+          </div>
+        </>
       )
     }
 
@@ -879,7 +903,15 @@ function ChatBody({
  * real prompt input but is non-interactive, with a CTA linking to agent
  * settings where a default model can be selected.
  */
-function NoDefaultModelComposer() {
+/** Shown when the org default exists but this workspace's subset excludes it. */
+const DEFAULT_MODEL_NOT_ENABLED_MESSAGE =
+  "The organization default model is not enabled for this workspace. A workspace admin can enable it in workspace AI model settings."
+
+function NoDefaultModelComposer({
+  defaultNotEnabled,
+}: {
+  defaultNotEnabled: boolean
+}) {
   return (
     <div className="space-y-3">
       <PromptInput
@@ -889,7 +921,11 @@ function NoDefaultModelComposer() {
       >
         <PromptInputBody>
           <PromptInputTextarea
-            placeholder="Select a default model to start chatting..."
+            placeholder={
+              defaultNotEnabled
+                ? "Enable the default model to start chatting..."
+                : "Select a default model to start chatting..."
+            }
             readOnly
             tabIndex={-1}
             aria-disabled="true"
@@ -905,16 +941,22 @@ function NoDefaultModelComposer() {
           />
         </PromptInputFooter>
       </PromptInput>
-      <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-        <span>No default model configured.</span>
-        <Link
-          href="/organization/settings/agent"
-          className="inline-flex items-center gap-0.5 font-medium text-foreground underline-offset-4 hover:underline"
-        >
-          Select one in agent settings
-          <ArrowRight className="size-3" />
-        </Link>
-      </div>
+      {defaultNotEnabled ? (
+        <p className="text-center text-xs text-muted-foreground">
+          {DEFAULT_MODEL_NOT_ENABLED_MESSAGE}
+        </p>
+      ) : (
+        <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+          <span>No default model configured.</span>
+          <Link
+            href="/organization/settings/agent"
+            className="inline-flex items-center gap-0.5 font-medium text-foreground underline-offset-4 hover:underline"
+          >
+            Select one in agent settings
+            <ArrowRight className="size-3" />
+          </Link>
+        </div>
+      )}
     </div>
   )
 }

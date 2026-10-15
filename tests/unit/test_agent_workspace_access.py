@@ -439,17 +439,17 @@ async def test_workspace_default_is_the_org_default_only_when_enabled_here(
     assert excluded.has_org_default is True
 
 
-async def test_workspace_models_carry_custom_provider_labels(
+async def test_workspace_models_carry_provider_labels_without_url_credentials(
     session: AsyncSession,
 ) -> None:
-    """Workspace pages get custom provider names from the workspace route."""
+    """Workspace pages get custom provider labels, never credentials in the URL."""
     org = await _org(session)
     workspace = await _workspace(session, org)
     viewer = await _workspace_user(session, org, workspace, "workspace-viewer")
     provider = AgentCustomProvider(
         organization_id=org.id,
         display_name="Synthetic gateway",
-        base_url="https://gateway.example.com/v1",
+        base_url="https://synthetic-user:synthetic-pass@gateway.example.com:8443/v1",
     )
     session.add(provider)
     await session.flush()
@@ -472,7 +472,7 @@ async def test_workspace_models_carry_custom_provider_labels(
 
     (item,) = models.items
     assert item.custom_provider_name == "Synthetic gateway"
-    assert item.custom_provider_base_url == "https://gateway.example.com/v1"
+    assert item.custom_provider_base_url == "https://gateway.example.com:8443/v1"
     assert models.has_org_default is False
 
 

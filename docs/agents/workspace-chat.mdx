@@ -11,9 +11,9 @@ Workspace chat is a workspace-level assistant that is separate from the copilot 
 
 ## Set the default model
 
-Go to `Organization > Settings > Agent`, connect a [provider](/agents/custom-llm-providers), and choose an organization default model. If the workspace uses a subset of the organization's models, the default must be in it. Until both hold, Tracecat disables the composer and links you to agent settings.
+Go to `Organization > Settings > Agent`, connect a [provider](/agents/custom-llm-providers), and choose an organization default model. If the workspace uses a subset of the organization's models, the default must be in it. A chat that uses the organization default stays disabled until both hold; a chat with a preset agent uses the preset's model instead.
 
-Your workspace role needs `agent:execute` to open workspace chat, so `workspace-editor` and `workspace-admin` can use it and `workspace-viewer` cannot.
+Your workspace role needs `agent:read` and `agent:execute` to open workspace chat, so `workspace-editor` and `workspace-admin` can use it and `workspace-viewer` cannot.
 
 ## Choose tools and MCP integrations
 

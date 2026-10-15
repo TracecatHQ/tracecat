@@ -1,6 +1,7 @@
 """Service for managing model access control."""
 
 from datetime import datetime
+from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
@@ -30,6 +31,16 @@ from tracecat.db.models import (
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.service import BaseOrgService
+
+
+def _without_userinfo(url: str | None) -> str | None:
+    """Drop credentials a provider URL carries in its userinfo."""
+    if url is None:
+        return None
+    parts = urlsplit(url)
+    if "@" not in parts.netloc:
+        return url
+    return urlunsplit(parts._replace(netloc=parts.netloc.rpartition("@")[2]))
 
 
 class AgentModelAccessService(BaseOrgService):
@@ -270,6 +281,17 @@ class AgentModelAccessService(BaseOrgService):
             TracecatValidationError: A catalog ID is not enabled for the
                 organization.
         """
+        # Serialize replacements of one workspace's subset, so concurrent saves
+        # cannot interleave into the union of both. NO KEY UPDATE still lets
+        # other writers insert rows that reference the workspace.
+        await self.session.execute(
+            select(Workspace.id)
+            .where(
+                Workspace.id == workspace_id,
+                Workspace.organization_id == self.organization_id,
+            )
+            .with_for_update(key_share=True)
+        )
         desired_catalog_ids = set(params.catalog_ids)
         if desired_catalog_ids:
             candidates = await self._list_labelled_models(
@@ -376,7 +398,7 @@ class AgentModelAccessService(BaseOrgService):
             WorkspaceAgentModelRead(
                 **AgentCatalogRead.model_validate(row).model_dump(),
                 custom_provider_name=provider_name,
-                custom_provider_base_url=provider_base_url,
+                custom_provider_base_url=_without_userinfo(provider_base_url),
             )
             for row, provider_name, provider_base_url in rows
         ]

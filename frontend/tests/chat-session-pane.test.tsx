@@ -969,6 +969,37 @@ describe("ChatSessionPane", () => {
     expect(sendMessage).not.toHaveBeenCalled()
   })
 
+  it("does not let a role without agent:execute stop a running turn", () => {
+    // Cancelling a turn is a session mutation that needs agent:execute.
+    mockUseScopeCheck.mockImplementation((scope) => scope !== "agent:execute")
+    mockUseVercelChat.mockReturnValue({
+      sendMessage: jest.fn(),
+      setMessages: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [],
+      status: "streaming",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture()}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    expect(screen.getByRole("button", { name: "Stop" })).toBeDisabled()
+  })
+
   it("lets a role with agent:execute send, retry and approve", () => {
     // Editors and admins run the agent.
     const sendMessage = jest.fn().mockResolvedValue(undefined)

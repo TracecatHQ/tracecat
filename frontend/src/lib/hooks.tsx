@@ -5922,6 +5922,11 @@ export function useAgentDefaultModel() {
       queryClient.invalidateQueries({
         queryKey: ["agent-default-model-selection"],
       })
+      // Workspace pages read the default through their agent-models view.
+      queryClient.invalidateQueries({
+        queryKey: ["workspace"],
+        predicate: (query) => query.queryKey[2] === "agent-models",
+      })
     },
   })
 
@@ -6073,7 +6078,7 @@ export function useDeleteProviderCredentials() {
  * Are we ready to chat?
  * Returns { ready, reason, modelInfo }
  *  ready   – boolean
- *  reason  – "no_model" | null
+ *  reason  – "no_model" | "default_not_enabled" | null
  *  modelInfo – model info (if any)
  *
  * Without a model override, chat uses the org default model if it is enabled
@@ -6094,7 +6099,7 @@ export function useChatReadiness(
   workspaceId: string | null | undefined,
   options?: ChatReadinessOptions
 ) {
-  const { models, defaultCatalogId, modelsLoading } =
+  const { models, defaultCatalogId, hasOrgDefault, modelsLoading } =
     useWorkspaceAgentModels(workspaceId)
   const modelOverride = options?.modelOverride
 
@@ -6126,7 +6131,7 @@ export function useChatReadiness(
     return {
       ready: false,
       loading: false,
-      reason: "no_model",
+      reason: hasOrgDefault ? "default_not_enabled" : "no_model",
     }
   }
 
