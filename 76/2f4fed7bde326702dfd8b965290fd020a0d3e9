@@ -1,0 +1,22 @@
+docs/snippets/mcp-tools.mdx
+  s_3fab07a328f4d4::t_ca8618cc6e6b94 91
+tracecat/mcp/server.py
+  s_3fab07a328f4d4::t_a6de11e40f225c 4844-4845
+  s_3fab07a328f4d4::t_4db00a93f1ff1c 4819-4821
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "762f4fed7bde326702dfd8b965290fd020a0d3e9",
+  "prompts": {},
+  "sessions": {
+    "s_3fab07a328f4d4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a140d1-98e7-7b53-9710-5c426d6d882a",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
