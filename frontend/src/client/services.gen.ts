@@ -167,6 +167,8 @@ import type {
   AgentPresetsListAgentPresetsResponse,
   AgentPresetsListAgentPresetVersionsData,
   AgentPresetsListAgentPresetVersionsResponse,
+  AgentPresetsListAgentPresetWorkflowReferencesData,
+  AgentPresetsListAgentPresetWorkflowReferencesResponse,
   AgentPresetsListPresetTagsData,
   AgentPresetsListPresetTagsResponse,
   AgentPresetsMoveAgentPresetToFolderData,
@@ -6159,6 +6161,36 @@ export const agentPresetsCreateAgentPreset = (
     mediaType: "application/json",
     errors: {
       400: "Invalid agent preset configuration",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Agent Preset Workflow References
+ * Page through the workflows that run each agent preset.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_AgentPresetWorkflowReference_ Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsListAgentPresetWorkflowReferences = (
+  data: AgentPresetsListAgentPresetWorkflowReferencesData
+): CancelablePromise<AgentPresetsListAgentPresetWorkflowReferencesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/presets/workflow-references",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      400: "Invalid cursor",
       422: "Validation Error",
     },
   })

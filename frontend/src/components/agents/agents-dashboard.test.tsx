@@ -24,6 +24,8 @@ const mockSetDefaultAgent = jest.fn()
 const mockUpdateAgentPreset = jest.fn()
 const mockUseScopeCheck = jest.fn<boolean, [string]>(() => true)
 const mockPush = jest.fn()
+const mockReplace = jest.fn()
+const mockUseWorkflowReferences = jest.fn()
 const mockUseListMcpIntegrations = jest.fn()
 
 jest.mock("@/client", () => ({
@@ -42,7 +44,7 @@ jest.mock("@/hooks/use-workspace", () => ({
 }))
 
 jest.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mockPush, replace: jest.fn() }),
+  useRouter: () => ({ push: mockPush, replace: mockReplace }),
   useSearchParams: () => mockSearchParams.current,
 }))
 
@@ -64,6 +66,8 @@ jest.mock("@/hooks/use-entitlements", () => ({
 
 jest.mock("@/hooks/use-agent-presets", () => ({
   useAgentPresets: (...args: unknown[]) => mockUseAgentPresets(...args),
+  useAgentPresetWorkflowReferences: (...args: unknown[]) =>
+    mockUseWorkflowReferences(...args),
   useAgentDirectoryItems: (...args: unknown[]) =>
     mockUseAgentDirectoryItems(...args),
   useAgentTagCatalog: (...args: unknown[]) => mockUseAgentTagCatalog(...args),
@@ -160,6 +164,9 @@ describe("AgentsDashboard entitlement split", () => {
     })
     mockUseListMcpIntegrations.mockReset()
     mockUseListMcpIntegrations.mockReturnValue({ mcpIntegrations: undefined })
+    mockReplace.mockClear()
+    mockUseWorkflowReferences.mockReset()
+    mockUseWorkflowReferences.mockReturnValue({ workflowReferences: [] })
   })
 
   describe.each(["list", "folders"] as const)("%s row details", (view) => {
@@ -644,5 +651,84 @@ describe("AgentsDashboard entitlement split", () => {
     expect(
       screen.queryByRole("link", { name: /Default agent:/ })
     ).not.toBeInTheDocument()
+  })
+
+  describe("workflow and MCP filters", () => {
+    const TRIAGE = {
+      ...PRESET,
+      id: "triage",
+      name: "Triage agent",
+      tool_summary: { tool_count: 0, namespaces: [], mcp_slugs: ["github"] },
+    }
+    const ENRICH = {
+      ...PRESET,
+      id: "enrich",
+      name: "Enrich agent",
+      tool_summary: { tool_count: 0, namespaces: [], mcp_slugs: ["jira"] },
+    }
+
+    function renderCatalog(params = "") {
+      mockSearchParams.current = new URLSearchParams(params)
+      mockUseAgentPresets.mockReturnValue({
+        presets: [TRIAGE, ENRICH],
+        presetsIsLoading: false,
+        presetsError: null,
+      })
+      mockUseWorkflowReferences.mockReturnValue({
+        workflowReferences: ["Alpha", "Beta", "Gamma"].map((title) => ({
+          preset_id: "triage",
+          workflow_id: `wf_${title.toLowerCase()}`,
+          workflow_title: title,
+        })),
+      })
+      return renderDashboard()
+    }
+
+    it("shows workflow badges and folds overflow into +N", async () => {
+      renderCatalog()
+      const badges = within(screen.getByTestId("workflow-badges"))
+      expect(badges.getByText("Alpha")).toBeInTheDocument()
+      expect(badges.getByText("Beta")).toBeInTheDocument()
+      expect(badges.queryByText("Gamma")).not.toBeInTheDocument()
+      await userEvent.hover(badges.getByText("+1"))
+      expect(await screen.findByRole("tooltip")).toHaveTextContent("Gamma")
+      expect(screen.getAllByTestId("workflow-badges")).toHaveLength(1)
+    })
+
+    it.each([
+      ["mcp=jira", ["Enrich agent"]],
+      ["mcp=jira&mcp=github", ["Triage agent", "Enrich agent"]],
+      ["workflow=wf_beta", ["Triage agent"]],
+      ["mcp=jira&workflow=wf_beta", []],
+    ])("narrows rows for ?%s", (params, expected) => {
+      renderCatalog(params)
+      for (const name of ["Triage agent", "Enrich agent"]) {
+        if (expected.includes(name)) {
+          expect(screen.getByText(name)).toBeInTheDocument()
+        } else {
+          expect(screen.queryByText(name)).not.toBeInTheDocument()
+        }
+      }
+    })
+
+    it("writes selected MCP servers to the URL", async () => {
+      renderCatalog("view=list&mcp=github")
+      await userEvent.click(screen.getByRole("button", { name: /MCP servers/ }))
+      await userEvent.click(await screen.findByRole("option", { name: /jira/ }))
+      expect(mockReplace).toHaveBeenLastCalledWith(
+        "/workspaces/workspace-1/agents?view=list&mcp=github&mcp=jira"
+      )
+    })
+
+    it("hides workflow data without the workflow read scope", () => {
+      mockUseScopeCheck.mockImplementation((scope) => scope !== "workflow:read")
+      renderCatalog("workflow=wf_beta")
+      expect(lastOptions(mockUseWorkflowReferences)?.enabled).toBe(false)
+      expect(
+        screen.queryByRole("button", { name: /Workflows/ })
+      ).not.toBeInTheDocument()
+      expect(screen.queryByTestId("workflow-badges")).not.toBeInTheDocument()
+      expect(screen.getByText("Enrich agent")).toBeInTheDocument()
+    })
   })
 })

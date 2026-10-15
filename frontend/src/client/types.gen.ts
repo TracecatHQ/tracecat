@@ -1043,6 +1043,15 @@ export type AgentPresetVersionReadMinimal = {
 }
 
 /**
+ * A workflow whose draft runs a preset through `ai.preset_agent`.
+ */
+export type AgentPresetWorkflowReference = {
+  preset_id: string
+  workflow_id: string
+  workflow_title: string
+}
+
+/**
  * Response schema for persisted agent session artifacts.
  */
 export type AgentSessionArtifactsRead = {
@@ -3708,6 +3717,30 @@ export type CursorPaginatedResponse_AgentFolderRead_ = {
 
 export type CursorPaginatedResponse_AgentPresetVersionReadMinimal_ = {
   items: Array<AgentPresetVersionReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_AgentPresetWorkflowReference_ = {
+  items: Array<AgentPresetWorkflowReference>
   /**
    * Cursor for next page
    */
@@ -14451,6 +14484,15 @@ export type AgentPresetsCreateAgentPresetData = {
 
 export type AgentPresetsCreateAgentPresetResponse = AgentPresetRead
 
+export type AgentPresetsListAgentPresetWorkflowReferencesData = {
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type AgentPresetsListAgentPresetWorkflowReferencesResponse =
+  CursorPaginatedResponse_AgentPresetWorkflowReference_
+
 export type AgentPresetsPreviewToolPolicyData = {
   requestBody: AgentPresetToolPolicyPreview
   workspaceId: string
@@ -20549,6 +20591,25 @@ export type $OpenApiTs = {
         201: AgentPresetRead
         /**
          * Invalid agent preset configuration
+         */
+        400: AgentPresetValidationErrorResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/presets/workflow-references": {
+    get: {
+      req: AgentPresetsListAgentPresetWorkflowReferencesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_AgentPresetWorkflowReference_
+        /**
+         * Invalid cursor
          */
         400: AgentPresetValidationErrorResponse
         /**

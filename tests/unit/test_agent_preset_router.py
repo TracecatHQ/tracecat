@@ -14,6 +14,7 @@ from tracecat.agent.preset.router import (
     create_agent_preset,
     get_agent_preset_version,
     list_agent_preset_versions,
+    list_agent_preset_workflow_references,
     preview_tool_policy,
     restore_agent_preset_version,
     router,
@@ -29,6 +30,7 @@ from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session
 from tracecat.exceptions import TracecatValidationError
+from tracecat.pagination import PaginationError, PaginationErrorCode
 
 
 @pytest.mark.parametrize(
@@ -223,3 +225,34 @@ async def test_preset_routes_preserve_validation_details(
     if isinstance(detail, dict) and "message" not in detail:
         expected = {**detail, "message": "Invalid preset configuration"}
     assert exc_info.value.detail == expected
+
+
+@pytest.mark.anyio
+async def test_workflow_references_invalid_cursor_is_400() -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:read", "workflow:read"}),
+    )
+    error = PaginationError("Invalid cursor", code=PaginationErrorCode.INVALID_CURSOR)
+    with (
+        patch(
+            "tracecat.agent.preset.router.AgentPresetWorkflowReferenceService.list_references",
+            new_callable=AsyncMock,
+            side_effect=error,
+        ),
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        await list_agent_preset_workflow_references(
+            role=role,
+            session=AsyncMock(spec=AsyncSession),
+            limit=20,
+            cursor="invalid-cursor",
+        )
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == {
+        "code": "invalid_cursor",
+        "message": "Invalid cursor",
+    }

@@ -13,6 +13,7 @@ import {
   type AgentPresetUpdate,
   type AgentPresetVersionRead,
   type AgentPresetVersionReadMinimal,
+  type AgentPresetWorkflowReference,
   type AgentTagRead,
   agentFoldersCreateFolder,
   agentFoldersDeleteFolder,
@@ -26,6 +27,7 @@ import {
   agentPresetsGetAgentPresetVersion,
   agentPresetsListAgentPresets,
   agentPresetsListAgentPresetVersions,
+  agentPresetsListAgentPresetWorkflowReferences,
   agentPresetsMoveAgentPresetToFolder,
   agentPresetsPreviewToolPolicy,
   agentPresetsRestoreAgentPresetVersion,
@@ -101,6 +103,50 @@ async function listAllAgentTags(workspaceId: string): Promise<AgentTagRead[]> {
   } while (cursor)
 
   return agentTags
+}
+
+async function listAllAgentPresetWorkflowReferences(
+  workspaceId: string
+): Promise<AgentPresetWorkflowReference[]> {
+  const references: AgentPresetWorkflowReference[] = []
+  let cursor: string | undefined
+
+  do {
+    const response = await agentPresetsListAgentPresetWorkflowReferences({
+      workspaceId,
+      limit: 200,
+      cursor,
+    })
+    references.push(...response.items)
+    cursor = response.next_cursor ?? undefined
+  } while (cursor)
+
+  return references
+}
+
+/** List the workflows whose drafts run each agent preset. */
+export function useAgentPresetWorkflowReferences(
+  workspaceId: string,
+  { enabled = true }: { enabled?: boolean } = {}
+) {
+  const { data, isLoading, error } = useQuery<
+    AgentPresetWorkflowReference[],
+    TracecatApiError
+  >({
+    queryKey: ["agent-preset-workflow-references", workspaceId],
+    queryFn: () => listAllAgentPresetWorkflowReferences(workspaceId),
+    enabled: enabled && Boolean(workspaceId),
+    retry: retryHandler,
+    // Each fetch walks every page of a workspace-wide scan.
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  })
+
+  return {
+    workflowReferences: data,
+    workflowReferencesIsLoading: isLoading,
+    workflowReferencesError: error,
+  }
 }
 
 export function useAgentPresets(
