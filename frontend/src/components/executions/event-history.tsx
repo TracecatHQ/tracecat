@@ -1,6 +1,6 @@
 "use client"
 
-import { Repeat2Icon } from "lucide-react"
+import { PinIcon, Repeat2Icon } from "lucide-react"
 import {
   getAggregateWorkflowEventStatus,
   getWorkflowEventIcon,
@@ -115,7 +115,21 @@ export function WorkflowExecutionEventHistory({
       return {
         key: actionRef,
         label: refToLabel(actionRef),
-        meta: loopBadge,
+        meta:
+          loopBadge ??
+          (latestEvent?.fixed_from_execution_id ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex items-center gap-0.5">
+                  <PinIcon className="size-2.5" />
+                  Fixed
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="font-mono tracking-tight">
+                Result reused from {latestEvent.fixed_from_execution_id}
+              </TooltipContent>
+            </Tooltip>
+          ) : undefined),
         time: latestEventTime,
         icon: isLoopAction ? (
           loopTooltip ? (
