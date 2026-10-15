@@ -1,7 +1,6 @@
 """Service for managing model access control."""
 
 from datetime import datetime
-from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
@@ -32,16 +31,6 @@ from tracecat.db.models import (
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.service import BaseOrgService
-
-
-def _without_userinfo(url: str | None) -> str | None:
-    """Drop credentials a provider URL carries in its userinfo."""
-    if url is None:
-        return None
-    parts = urlsplit(url)
-    if "@" not in parts.netloc:
-        return url
-    return urlunsplit(parts._replace(netloc=parts.netloc.rpartition("@")[2]))
 
 
 class AgentModelAccessService(BaseOrgService):
@@ -391,7 +380,7 @@ class AgentModelAccessService(BaseOrgService):
             WorkspaceAgentModelRead(
                 **AgentCatalogRead.model_validate(row).model_dump(),
                 custom_provider_name=provider_name,
-                custom_provider_base_url=_without_userinfo(provider_base_url),
+                custom_provider_base_url=provider_base_url,
             )
             for row, provider_name, provider_base_url in rows
         ]

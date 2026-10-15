@@ -526,17 +526,21 @@ async def test_workspace_default_is_the_org_default_only_when_enabled_here(
     assert excluded.has_org_default is True
 
 
-async def test_workspace_models_carry_provider_labels_without_url_credentials(
+async def test_workspace_models_carry_custom_provider_labels(
     session: AsyncSession,
 ) -> None:
-    """Workspace pages get custom provider labels, never credentials in the URL."""
+    """Workspace pages get custom provider names and URLs from the workspace route.
+
+    The URL is returned as stored: chat and preset creation send it on as the
+    runtime base URL, so a rewritten one would break provider authentication.
+    """
     org = await _org(session)
     workspace = await _workspace(session, org)
     viewer = await _workspace_user(session, org, workspace, "workspace-viewer")
     provider = AgentCustomProvider(
         organization_id=org.id,
         display_name="Synthetic gateway",
-        base_url="https://synthetic-user:synthetic-pass@gateway.example.com:8443/v1",
+        base_url="https://gateway.example.com:8443/v1",
     )
     session.add(provider)
     await session.flush()
