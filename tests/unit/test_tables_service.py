@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 import pytest
 import sqlalchemy as sa
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -47,6 +47,7 @@ from tracecat.tables.schemas import (
 )
 from tracecat.tables.service import (
     DYNAMIC_WORKSPACE_TENANT_COLUMN,
+    BaseTablesService,
     TableEditorService,
     TablesService,
     is_internal_column_name,
@@ -1077,6 +1078,74 @@ class TestTableColumns:
 
         refreshed = await tables_service.get_table(created.id)
         assert await tables_service.get_index(refreshed) == ["key"]
+
+    async def test_create_table_adds_columns_in_one_statement(
+        self,
+        tables_service: TablesService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A new table's columns are added by one ALTER TABLE, not per column."""
+
+        async def fail_create_column(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("create_table must not add columns one by one")
+
+        monkeypatch.setattr(BaseTablesService, "create_column", fail_create_column)
+        statements: list[str] = []
+
+        def capture(
+            conn: object,
+            cursor: object,
+            statement: str,
+            parameters: object,
+            context: object,
+            executemany: bool,
+        ) -> None:
+            statements.append(statement)
+
+        bind = session.get_bind()
+        event.listen(bind, "before_cursor_execute", capture)
+        try:
+            created = await tables_service.create_table(
+                TableCreate(
+                    name="batched_columns",
+                    columns=[
+                        TableColumnCreate(name="key", type=SqlType.TEXT, is_index=True),
+                        TableColumnCreate(
+                            name="count",
+                            type=SqlType.INTEGER,
+                            nullable=False,
+                            default=0,
+                        ),
+                        TableColumnCreate(
+                            name="status",
+                            type=SqlType.SELECT,
+                            options=["open", "closed"],
+                        ),
+                    ],
+                )
+            )
+        finally:
+            event.remove(bind, "before_cursor_execute", capture)
+
+        add_column_statements = [s for s in statements if "ADD COLUMN" in s]
+        assert len(add_column_statements) == 1
+        assert add_column_statements[0].count("ADD COLUMN") == 3
+
+        refreshed = await tables_service.get_table(created.id)
+        columns = {column.name: column for column in refreshed.columns}
+        assert set(columns) == {"key", "count", "status"}
+        assert columns["count"].nullable is False
+        assert columns["count"].default == "0"
+        assert columns["status"].options == ["open", "closed"]
+        assert await tables_service.get_index(refreshed) == ["key"]
+        await tables_service.insert_row(
+            refreshed, TableRowInsert(data={"key": "a", "status": "open"})
+        )
+        rows = await _list_rows(tables_service, refreshed)
+        assert [(row["key"], row["count"], row["status"]) for row in rows] == [
+            ("a", 0, "open")
+        ]
 
     async def test_update_column_can_create_unique_index(
         self, tables_service: TablesService, table: Table, session: AsyncSession

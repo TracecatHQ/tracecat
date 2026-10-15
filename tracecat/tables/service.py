@@ -648,12 +648,44 @@ class BaseTablesService(BaseWorkspaceService):
         self.session.add(table)
         await self.session.flush()
 
-        # Create columns if specified
-        # Call base class method directly to avoid per-column commits
-        for col_params in params.columns:
-            await BaseTablesService.create_column(self, table, col_params)
+        if params.columns:
+            await self._add_initial_columns(conn, table, params.columns)
 
         return table
+
+    async def _add_initial_columns(
+        self,
+        conn: AsyncConnection,
+        table: Table,
+        columns: Sequence[TableColumnCreate],
+    ) -> None:
+        """Add a new table's columns with one ALTER TABLE and one flush.
+
+        The table's own create audit event covers these columns, so they are
+        not audited one by one.
+        """
+        await self.search.for_table(table.id)
+        prepared = [self._prepare_column(table, params) for params in columns]
+        self.session.add_all(column for column, _ in prepared)
+        add_clauses = ", ".join(
+            f"ADD COLUMN {column_def}" for _, column_def in prepared
+        )
+        await conn.execute(
+            sa.DDL(
+                "ALTER TABLE %s %s", (self._full_table_name(table.name), add_clauses)
+            )
+        )
+        await self.session.flush()
+
+        index_columns = [
+            column.name
+            for (column, _), params in zip(prepared, columns, strict=True)
+            if params.is_index
+        ]
+        if index_columns:
+            await self.session.refresh(table, ["columns"])
+        for column_name in index_columns:
+            await self.create_unique_index(table, column_name)
 
     @audit_log(resource_type="table", action="update")
     async def update_table(self, table: Table, params: TableUpdate) -> Table:
@@ -745,12 +777,39 @@ class BaseTablesService(BaseWorkspaceService):
         Raises:
             ValueError: If the column type is invalid
         """
+        column, column_def_str = self._prepare_column(table, params)
+        await self.search.for_table(table.id)
+        self.session.add(column)
+
+        # Add the column to the physical table
+        conn = await self.session.connection()
+        await conn.execute(
+            sa.DDL(
+                "ALTER TABLE %s ADD COLUMN %s",
+                (self._full_table_name(table.name), column_def_str),
+            )
+        )
+
+        await self.session.flush()
+        if params.is_index:
+            await self.session.refresh(table, ["columns"])
+            await self.create_unique_index(table, column.name)
+        return column
+
+    def _prepare_column(
+        self, table: Table, params: TableColumnCreate
+    ) -> tuple[TableColumn, str]:
+        """Validate a new column and build its metadata row and DDL definition.
+
+        Returns:
+            The unsaved column metadata row and its ``ADD COLUMN`` definition.
+
+        Raises:
+            ValueError: If the column name or type is invalid
+        """
         self._assert_user_column_name_allowed(params.name)
         column_name = validate_identifier(params.name)
-        await self.search.for_table(table.id)
-        full_table_name = self._full_table_name(table.name)
 
-        # Validate SQL type first
         if not is_valid_sql_type(params.type):
             raise ValueError(f"Invalid type: {params.type}")
         sql_type = SqlType(params.type)
@@ -763,7 +822,6 @@ class BaseTablesService(BaseWorkspaceService):
             default_value, rendered_default = prepare_default_value(
                 sql_type, default_value
             )
-        # Create the column metadata first
         column = TableColumn(
             table_id=table.id,
             name=column_name,
@@ -772,9 +830,7 @@ class BaseTablesService(BaseWorkspaceService):
             default=default_value,
             options=normalized_options,
         )
-        self.session.add(column)
 
-        # Build the column definition string
         # Map SELECT -> TEXT, MULTI_SELECT -> JSONB for physical storage
         if sql_type is SqlType.SELECT:
             column_type_sql = SqlType.TEXT.value
@@ -790,23 +846,7 @@ class BaseTablesService(BaseWorkspaceService):
             column_def.append("NOT NULL")
         if rendered_default is not None:
             column_def.append(f"DEFAULT {rendered_default}")
-
-        column_def_str = " ".join(column_def)
-
-        # Add the column to the physical table
-        conn = await self.session.connection()
-        await conn.execute(
-            sa.DDL(
-                "ALTER TABLE %s ADD COLUMN %s",
-                (full_table_name, column_def_str),
-            )
-        )
-
-        await self.session.flush()
-        if params.is_index:
-            await self.session.refresh(table, ["columns"])
-            await self.create_unique_index(table, column_name)
-        return column
+        return column, " ".join(column_def)
 
     @audit_log(resource_type="table_column", action="update")
     async def update_column(
