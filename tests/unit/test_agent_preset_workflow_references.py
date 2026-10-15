@@ -173,6 +173,37 @@ async def test_list_workflow_references_empty_without_preset_actions(
 
 
 @pytest.mark.anyio
+async def test_list_workflow_references_skips_other_workspace_workflows(
+    session: AsyncSession, svc_role: Role, svc_workspace: Workspace
+) -> None:
+    preset = await AgentPresetService(session=session, role=svc_role).create_preset(
+        _preset_params("Triage agent")
+    )
+    other_workspace = Workspace(
+        name="Other workspace", organization_id=svc_workspace.organization_id
+    )
+    session.add(other_workspace)
+    await session.flush()
+    foreign = await _add_workflow(session, other_workspace, "Foreign", [])
+    session.add(
+        Action(
+            workspace_id=svc_workspace.id,
+            workflow_id=foreign.id,
+            type="ai.preset_agent",
+            title="Cross-workspace action",
+            description="",
+            inputs=f"preset: {preset.slug}",
+        )
+    )
+    await session.flush()
+
+    page = await AgentPresetWorkflowReferenceService(
+        session=session, role=svc_role
+    ).list_references(PageParams())
+    assert page.items == []
+
+
+@pytest.mark.anyio
 async def test_list_workflow_references_rejects_invalid_cursor(
     session: AsyncSession, svc_role: Role
 ) -> None:

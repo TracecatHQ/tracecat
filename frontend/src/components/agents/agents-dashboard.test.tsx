@@ -289,15 +289,12 @@ describe("AgentsDashboard entitlement split", () => {
       )
     })
 
-    it("loads MCP integrations only when a preset uses one", () => {
-      const { unmount } = renderPreset({
+    it("loads MCP integrations for the filter even when no preset uses one", () => {
+      renderPreset({
         tool_count: 1,
         namespaces: ["tools.slack"],
         mcp_slugs: [],
       })
-      expect(lastOptions(mockUseListMcpIntegrations)?.enabled).toBe(false)
-      unmount()
-      renderPreset({ tool_count: 1, namespaces: [], mcp_slugs: ["remote"] })
       expect(lastOptions(mockUseListMcpIntegrations)?.enabled).toBe(true)
     })
 
@@ -667,21 +664,30 @@ describe("AgentsDashboard entitlement split", () => {
       tool_summary: { tool_count: 0, namespaces: [], mcp_slugs: ["jira"] },
     }
 
-    function renderCatalog(params = "") {
+    function renderCatalog(
+      params = "",
+      references: object = {
+        workflowReferences: ["Alpha", "Beta", "Gamma"].map((title) => ({
+          preset_id: "triage",
+          workflow_id: `wf_${title.toLowerCase()}`,
+          workflow_title: title,
+        })),
+      }
+    ) {
       mockSearchParams.current = new URLSearchParams(params)
       mockUseAgentPresets.mockReturnValue({
         presets: [TRIAGE, ENRICH],
         presetsIsLoading: false,
         presetsError: null,
       })
-      mockUseWorkflowReferences.mockReturnValue({
-        workflowReferences: ["Alpha", "Beta", "Gamma"].map((title) => ({
-          preset_id: "triage",
-          workflow_id: `wf_${title.toLowerCase()}`,
-          workflow_title: title,
-        })),
-      })
+      mockUseWorkflowReferences.mockReturnValue(references)
       return renderDashboard()
+    }
+
+    const REFERENCES_LOADING = {
+      workflowReferences: undefined,
+      workflowReferencesIsLoading: true,
+      workflowReferencesError: null,
     }
 
     it("shows workflow badges and folds overflow into +N", async () => {
@@ -720,15 +726,38 @@ describe("AgentsDashboard entitlement split", () => {
       )
     })
 
-    it("hides workflow data without the workflow read scope", () => {
-      mockUseScopeCheck.mockImplementation((scope) => scope !== "workflow:read")
-      renderCatalog("workflow=wf_beta")
-      expect(lastOptions(mockUseWorkflowReferences)?.enabled).toBe(false)
-      expect(
-        screen.queryByRole("button", { name: /Workflows/ })
-      ).not.toBeInTheDocument()
-      expect(screen.queryByTestId("workflow-badges")).not.toBeInTheDocument()
+    it("waits for workflow references before applying a workflow filter", () => {
+      renderCatalog("workflow=wf_beta", REFERENCES_LOADING)
+      expect(screen.queryByText("No agents yet")).not.toBeInTheDocument()
+      expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+    })
+
+    it("shows an error when workflow references fail under a workflow filter", () => {
+      renderCatalog("workflow=wf_beta", {
+        workflowReferences: undefined,
+        workflowReferencesIsLoading: false,
+        workflowReferencesError: new Error("boom"),
+      })
+      expect(screen.getByText("Failed to load agents.")).toBeInTheDocument()
+    })
+
+    it("does not wait on workflow references without a workflow filter", () => {
+      renderCatalog("mcp=jira", REFERENCES_LOADING)
       expect(screen.getByText("Enrich agent")).toBeInTheDocument()
     })
+
+    it.each(["workflow:read", "agent:read"])(
+      "hides workflow data without %s",
+      (missing) => {
+        mockUseScopeCheck.mockImplementation((scope) => scope !== missing)
+        renderCatalog("workflow=wf_beta")
+        expect(lastOptions(mockUseWorkflowReferences)?.enabled).toBe(false)
+        expect(
+          screen.queryByRole("button", { name: /Workflows/ })
+        ).not.toBeInTheDocument()
+        expect(screen.queryByTestId("workflow-badges")).not.toBeInTheDocument()
+        expect(screen.getByText("Enrich agent")).toBeInTheDocument()
+      }
+    )
   })
 })

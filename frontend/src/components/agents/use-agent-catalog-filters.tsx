@@ -14,6 +14,7 @@ import {
   parseAgentCatalogFilters,
   writeAgentCatalogFilters,
 } from "@/lib/agent-catalog-filters"
+import type { TracecatApiError } from "@/lib/errors"
 
 /** URL-backed agents catalog filters, their options, and workflow references. */
 export function useAgentCatalogFilters({
@@ -35,9 +36,19 @@ export function useAgentCatalogFilters({
   mcpOptions: FilterOption[]
   /** Null without workflow read access. */
   workflowOptions: FilterOption[] | null
+  /** An active workflow filter is waiting on references. */
+  workflowFilterIsLoading: boolean
+  workflowFilterError: TracecatApiError | null
 } {
-  const canReadWorkflows = useScopeCheck("workflow:read") === true
-  const { workflowReferences } = useAgentPresetWorkflowReferences(workspaceId, {
+  // The references endpoint needs both scopes.
+  const canReadAgents = useScopeCheck("agent:read") === true
+  const canReadWorkflows =
+    useScopeCheck("workflow:read") === true && canReadAgents
+  const {
+    workflowReferences,
+    workflowReferencesIsLoading,
+    workflowReferencesError,
+  } = useAgentPresetWorkflowReferences(workspaceId, {
     enabled: canReadWorkflows,
   })
   // A skipped query still returns data cached before the scope was lost.
@@ -86,5 +97,14 @@ export function useAgentCatalogFilters({
     [canReadWorkflows, workflowsByPreset]
   )
 
-  return { filters, setFilters, workflowsByPreset, mcpOptions, workflowOptions }
+  const filteringByWorkflow = filters.workflowIds.length > 0
+  return {
+    filters,
+    setFilters,
+    workflowsByPreset,
+    mcpOptions,
+    workflowOptions,
+    workflowFilterIsLoading: filteringByWorkflow && workflowReferencesIsLoading,
+    workflowFilterError: filteringByWorkflow ? workflowReferencesError : null,
+  }
 }

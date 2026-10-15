@@ -32,7 +32,9 @@ export function AgentWorkflowBadges({
           className="h-5 max-w-[160px] gap-1 px-2 text-[10px] font-normal"
         >
           <WorkflowIcon className="size-3 shrink-0" />
-          <span className="truncate">{workflow.title}</span>
+          <span title={workflow.title} className="truncate">
+            {workflow.title}
+          </span>
         </Badge>
       ))}
       {overflow.length > 0 ? (

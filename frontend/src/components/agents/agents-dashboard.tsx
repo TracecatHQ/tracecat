@@ -2191,9 +2191,8 @@ export function AgentsDashboard() {
     [buildRoute, router]
   )
 
-  // Tool counts and filter labels need the attached MCP integrations, which
-  // the preset summary only names by slug. Check unfiltered items so
-  // filtering never unloads them.
+  // The preset summary names MCP integrations only by slug. Use unfiltered
+  // items so filtering never drops an option.
   const usedMcpSlugs = useMemo(() => {
     const summaries =
       view === "folders"
@@ -2205,12 +2204,11 @@ export function AgentsDashboard() {
       ...new Set(summaries.flatMap((summary) => summary?.mcp_slugs ?? [])),
     ]
   }, [directoryItems, presets, view])
-  const hasMcpSources = usedMcpSlugs.length > 0
   // The list endpoint needs `integration:read`; without it the request 403s
   // and the slugs stay uncounted.
   const canReadIntegrations = useScopeCheck("integration:read") === true
   const mcpQuery = useListMcpIntegrations(workspaceId, undefined, {
-    enabled: hasMcpSources && canReadIntegrations,
+    enabled: canReadIntegrations,
   })
   // A skipped query still returns data cached before the scope was lost.
   const mcpIntegrations = canReadIntegrations
@@ -2234,6 +2232,8 @@ export function AgentsDashboard() {
     workflowsByPreset,
     mcpOptions,
     workflowOptions,
+    workflowFilterIsLoading,
+    workflowFilterError,
   } = useAgentCatalogFilters({
     workspaceId,
     searchParams,
@@ -2419,8 +2419,11 @@ export function AgentsDashboard() {
     view === "folders" ? sortedDirectoryItems : sortedListItems
   const isLoading =
     entitlementsLoading ||
+    workflowFilterIsLoading ||
     (view === "folders" ? directoryItemsIsLoading : presetsIsLoading)
-  const error = view === "folders" ? directoryItemsError : presetsError
+  const error =
+    (view === "folders" ? directoryItemsError : presetsError) ??
+    workflowFilterError
 
   return (
     <TooltipProvider>

@@ -76,6 +76,8 @@ class AgentPresetWorkflowReferenceService(BaseWorkspaceService):
             .join(Workflow, Action.workflow_id == Workflow.id)
             .where(
                 Action.workspace_id == self.workspace_id,
+                # Action creation does not check the workflow's workspace.
+                Workflow.workspace_id == self.workspace_id,
                 Action.type == PlatformAction.AI_PRESET_AGENT,
             )
         )
