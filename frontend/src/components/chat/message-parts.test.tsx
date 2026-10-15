@@ -111,6 +111,38 @@ describe("MessageParts", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("reopens or folds steps when the level changes", () => {
+    const message: UIMessage = {
+      id: "a1",
+      role: "assistant",
+      parts: [
+        {
+          type: "dynamic-tool",
+          toolName: "core__cases__list_cases",
+          toolCallId: "call-1",
+          state: "output-available",
+          input: { limit: 5 },
+          output: [],
+        },
+      ],
+    }
+    function renderAt(verbosity: ChatVerbosity) {
+      return (
+        <ChatVerbosityContext.Provider value={verbosity}>
+          <MessageParts message={message} status="ready" isLastMessage />
+        </ChatVerbosityContext.Provider>
+      )
+    }
+    const { rerender } = render(renderAt("default"))
+    expect(screen.queryByText("limit")).not.toBeInTheDocument()
+
+    rerender(renderAt("verbose"))
+    expect(screen.getByText("limit")).toBeInTheDocument()
+
+    rerender(renderAt("default"))
+    expect(screen.queryByText("limit")).not.toBeInTheDocument()
+  })
+
   it("expands a line when the person opens it", async () => {
     await streamTurn("default")
 
@@ -243,6 +275,22 @@ describe("MessageParts", () => {
 
 describe("getRunningLineLabel", () => {
   const minimal = getChatVerbosityPolicy("minimal")
+  const defaults = getChatVerbosityPolicy("default")
+  function running(toolName: string): UIMessage {
+    return {
+      id: "a0",
+      role: "assistant",
+      parts: [
+        {
+          type: "dynamic-tool",
+          toolName,
+          toolCallId: "call-0",
+          state: "input-available",
+          input: {},
+        },
+      ],
+    }
+  }
   const prompt: UIMessage = {
     id: "u1",
     role: "user",
@@ -285,6 +333,18 @@ describe("getRunningLineLabel", () => {
     const thread = transformMessages([prompt, opened, continued])
     expect(thread.map(({ id }) => id)).toEqual(["u1", "a1"])
     expect(getRunningLineLabel("streaming", thread, minimal)).toBe("Working...")
+  })
+
+  it("leaves a running tool's own line to show progress at default", () => {
+    const thread = [prompt, running("core__cases__list_cases")]
+    expect(getRunningLineLabel("streaming", thread, defaults)).toBe(null)
+  })
+
+  it("thinks while a hidden tool runs at default", () => {
+    const thread = [prompt, running("ToolSearch")]
+    expect(getRunningLineLabel("streaming", thread, defaults)).toBe(
+      "Thinking..."
+    )
   })
 
   it("draws nothing while an approval waits", () => {

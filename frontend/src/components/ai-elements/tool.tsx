@@ -376,14 +376,20 @@ function PlainOutput({
   isError?: boolean
 }) {
   return (
-    <pre
-      className={cn(
-        "max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 p-2.5 font-mono text-xs text-foreground",
-        isError && "text-destructive"
-      )}
-    >
-      {text}
-    </pre>
+    <div className="relative">
+      <pre
+        className={cn(
+          "max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 p-2.5 pr-8 font-mono text-xs text-foreground",
+          isError && "text-destructive"
+        )}
+      >
+        {text}
+      </pre>
+      <CodeBlockCopyButton
+        code={text}
+        className="absolute right-1.5 top-1.5 z-10 size-5 [&_svg]:size-3"
+      />
+    </div>
   )
 }
 

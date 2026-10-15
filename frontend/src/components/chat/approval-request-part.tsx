@@ -153,24 +153,21 @@ export function ApprovalRequestPart({
         payload.push({ tool_call_id: approval.tool_call_id, action: "approve" })
         acceptedDecisions[approval.tool_call_id] = decision
       } else if (decision.action === "override") {
-        try {
-          const parsed = decision.overrideArgs
-            ? JSON.parse(decision.overrideArgs)
-            : {}
-          payload.push({
-            tool_call_id: approval.tool_call_id,
-            action: "override",
-            override_args: parsed,
-          })
-          acceptedDecisions[approval.tool_call_id] = decision
-        } catch {
+        const overrideArgs = parseOverrideArgs(decision.overrideArgs)
+        if (!overrideArgs) {
           toast({
             variant: "destructive",
-            title: "Invalid JSON",
-            description: `Fix override args for ${approval.tool_name} and try again.`,
+            title: "Invalid override args",
+            description: `Override args for ${approval.tool_name} must be a JSON object.`,
           })
           return
         }
+        payload.push({
+          tool_call_id: approval.tool_call_id,
+          action: "override",
+          override_args: overrideArgs,
+        })
+        acceptedDecisions[approval.tool_call_id] = decision
       } else if (decision.action === "deny") {
         payload.push({
           tool_call_id: approval.tool_call_id,
@@ -419,6 +416,24 @@ function ApprovalRequiredBadge() {
       </Tooltip>
     </TooltipProvider>
   )
+}
+
+/** Override args as a JSON object, or null when the text is not one. */
+function parseOverrideArgs(
+  text: string | undefined
+): Record<string, unknown> | null {
+  if (!text) {
+    return {}
+  }
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>
+    }
+    return null
+  } catch {
+    return null
+  }
 }
 
 function formatArgs(args: unknown): string {

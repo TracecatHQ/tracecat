@@ -1066,7 +1066,9 @@ function ToolCallRow({ toolCall }: { toolCall: WatchtowerAgentToolCallRead }) {
   return (
     <>
       <Tool className="gap-1 border-b px-3 py-2 last:border-b-0">
+        {/* Rows in a list toggle across their full width. */}
         <ToolHeader
+          className="w-full"
           title={toolName}
           state={mapCallStatusToToolState(toolCall.call_status)}
           icon={getIcon(toolName, {

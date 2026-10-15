@@ -161,6 +161,14 @@ def is_approval_interrupt_content(content: object) -> bool:
     )
 
 
+def _parent_uuid(line_data: Mapping[str, object]) -> str | None:
+    match line_data:
+        case {"parentUuid": str(parent_uuid)}:
+            return parent_uuid
+        case _:
+            return None
+
+
 def mark_hidden_continuation(
     line_data: Mapping[str, object],
     hidden_uuids: set[str],
@@ -179,7 +187,7 @@ def mark_hidden_continuation(
         in_chain = line_uuid is not None and (
             is_synthetic_session_line(line_data)
             or is_approval_continuation_prompt_line(line_data)
-            or line_data.get("parentUuid") in hidden_uuids
+            or _parent_uuid(line_data) in hidden_uuids
         )
     else:
         in_chain = is_continuation_control_artifact(line_data, hidden_uuids)

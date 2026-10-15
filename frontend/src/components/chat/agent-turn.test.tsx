@@ -102,6 +102,17 @@ describe("AgentTurn", () => {
     expect(screen.getByText("Thought for 3 seconds")).toBeInTheDocument()
   })
 
+  it("times a turn that ends with an untimed marker", () => {
+    const cancelled: UIMessage = {
+      id: "cancelled",
+      role: "assistant",
+      parts: [{ type: "data-cancelled", data: {} }],
+    }
+    renderTurn([PROMPT, THOUGHT, TOOL_CALL, ANSWER_MESSAGE, cancelled])
+
+    expect(screen.getByText("Worked for 16s")).toBeInTheDocument()
+  })
+
   it("shows a turn that only thought as its thought", () => {
     renderTurn([PROMPT, THOUGHT, ANSWER_MESSAGE])
 

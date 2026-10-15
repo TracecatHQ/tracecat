@@ -1413,6 +1413,8 @@ export function ChatSessionPane({
                         message={message}
                         status={status}
                         isLastMessage={message.id === lastMessageId}
+                        turnCancelled={cancelledTurnMessageIds.has(message.id)}
+                        interruptedToolCallIds={interruptedToolCallIds}
                       />
                     </div>
                   )

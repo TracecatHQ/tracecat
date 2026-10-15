@@ -144,6 +144,8 @@ export function MessagePart({
   reasoningSeconds,
 }: MessagePartProps) {
   const { expandSteps } = useChatVerbosityPolicy()
+  // Steps remount on a level change, since defaultOpen applies only on mount.
+  const stepKey = `${id}-${partIdx}-${expandSteps ? "open" : "folded"}`
 
   if (part.type === CANCELLED_DATA_PART_TYPE) {
     return (
@@ -206,7 +208,7 @@ export function MessagePart({
   if (part.type === "reasoning") {
     return (
       <Reasoning
-        key={`${id}-${partIdx}`}
+        key={stepKey}
         className="w-full"
         defaultOpen={expandSteps}
         duration={reasoningSeconds}
@@ -230,7 +232,7 @@ export function MessagePart({
     if (toolName === SUBAGENT_TOOL_NAME) {
       return (
         <SubagentToolPart
-          key={`${id}-${partIdx}`}
+          key={stepKey}
           part={part}
           state={state}
           errorText={errorText}
@@ -256,7 +258,7 @@ export function MessagePart({
       content = <ToolOutput output={part.output} errorText={visibleErrorText} />
     }
     return (
-      <Tool key={`${id}-${partIdx}`} defaultOpen={expandSteps}>
+      <Tool key={stepKey} defaultOpen={expandSteps}>
         <ToolHeader
           title={display.title}
           verbs={display.verbs}
@@ -482,6 +484,15 @@ export function getRunningLineLabel(
   policy: ChatVerbosityPolicy
 ): string | null {
   if (policy.showSteps) {
+    const lastPart = messages.at(-1)?.parts.at(-1)
+    // A running tool line already shows progress, unless the level hides it.
+    const isRunningToolInView =
+      status === "streaming" &&
+      lastPart !== undefined &&
+      isToolUIPart(lastPart) &&
+      lastPart.state === "input-available" &&
+      (policy.showInternalTools || !isInternalTool(lastPart))
+    if (isRunningToolInView) return null
     return isAwaitingOutput(status, messages) ? "Thinking..." : null
   }
   if (status === "submitted") return "Thinking..."

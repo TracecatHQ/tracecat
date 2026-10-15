@@ -195,7 +195,9 @@ export function AgentTurn({
     return renderMessages(messages, "all")
   }
 
-  const endedAt = getRecordedAt(messages[messages.length - 1])
+  // Cancel and compaction markers carry no timestamp.
+  const endedAt =
+    messages.map(getRecordedAt).findLast((time) => time !== null) ?? null
   const title =
     startedAt !== null && endedAt !== null && endedAt > startedAt
       ? `Worked for ${formatDuration(endedAt - startedAt)}`

@@ -12,6 +12,7 @@ from claude_agent_sdk.types import AssistantMessage, ThinkingBlock, UserMessage
 from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_CONTINUATION_PROMPT,
     MODEL_CONTEXT_PROMPT_PREFIX,
+    mark_hidden_continuation,
 )
 from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
@@ -540,3 +541,14 @@ async def test_list_messages_keeps_thinking_after_internal_context_rows() -> Non
     assert len(messages) == 1
     assert isinstance(messages[0].message, AssistantMessage)
     assert isinstance(messages[0].message.content[0], ThinkingBlock)
+
+
+@pytest.mark.parametrize("parent_uuid", [["parent"], {"id": "parent"}, None])
+def test_mark_hidden_continuation_ignores_malformed_parent(
+    parent_uuid: object,
+) -> None:
+    hidden = {"parent"}
+    line = {"uuid": "child", "parentUuid": parent_uuid}
+
+    assert not mark_hidden_continuation(line, hidden, internal_row=True)
+    assert hidden == {"parent"}

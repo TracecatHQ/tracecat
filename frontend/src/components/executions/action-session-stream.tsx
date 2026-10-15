@@ -1,7 +1,7 @@
 "use client"
 
 import { useChat } from "@ai-sdk/react"
-import { DefaultChatTransport } from "ai"
+import { type ChatStatus, DefaultChatTransport, type UIMessage } from "ai"
 import { MessageCircle } from "lucide-react"
 import type { ReactNode } from "react"
 import { useMemo } from "react"
@@ -11,6 +11,7 @@ import {
   ConversationContent,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation"
+import { AgentTurn, groupThread } from "@/components/chat/agent-turn"
 import { AgentRunningLine, MessageParts } from "@/components/chat/message-part"
 import { Spinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"
@@ -21,6 +22,7 @@ import {
 } from "@/hooks/use-chat-verbosity"
 import { isUIMessageArray } from "@/lib/agents"
 import { getBaseUrl } from "@/lib/api"
+import { transformMessages } from "@/lib/chat"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 /** Render a completed agent transcript or reconnect to its live stream. */
@@ -32,16 +34,7 @@ export function ActionSessionStream({ session }: { session: Session_Any_ }) {
       <ActionSessionShell>
         <Conversation className="flex-1">
           <ConversationContent>
-            {messages.map((message) => (
-              <div key={message.id}>
-                <MessageParts
-                  message={message}
-                  isLastMessage={
-                    message.id === messages[messages.length - 1].id
-                  }
-                />
-              </div>
-            ))}
+            <ActionSessionThread messages={messages} />
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>
@@ -95,17 +88,7 @@ function ActionSessionLiveStream({ sessionId }: { sessionId: string }) {
       ) : (
         <Conversation className="flex-1">
           <ConversationContent>
-            {messages.map((message) => (
-              <div key={message.id}>
-                <MessageParts
-                  message={message}
-                  status={status}
-                  isLastMessage={
-                    message.id === messages[messages.length - 1].id
-                  }
-                />
-              </div>
-            ))}
+            <ActionSessionThread messages={messages} status={status} />
             <AgentRunningLine status={status} messages={messages} />
           </ConversationContent>
           <ConversationScrollButton />
@@ -113,6 +96,46 @@ function ActionSessionLiveStream({ sessionId }: { sessionId: string }) {
       )}
     </ActionSessionShell>
   )
+}
+
+/** A session's messages, each agent turn folded once it finishes, as in chat. */
+function ActionSessionThread({
+  messages,
+  status,
+}: {
+  messages: UIMessage[]
+  status?: ChatStatus
+}) {
+  const blocks = useMemo(
+    () => groupThread(transformMessages(messages)),
+    [messages]
+  )
+  const lastMessageId = messages.at(-1)?.id
+  const isRunning = status === "streaming" || status === "submitted"
+  return blocks.map((block, blockIndex) => {
+    if (block.kind === "prompt") {
+      return (
+        <div key={block.message.id}>
+          <MessageParts
+            message={block.message}
+            status={status}
+            isLastMessage={block.message.id === lastMessageId}
+          />
+        </div>
+      )
+    }
+    return (
+      <div key={`turn-${block.startIndex}`}>
+        <AgentTurn
+          messages={block.messages}
+          startedAt={block.startedAt}
+          status={status}
+          isLive={isRunning && blockIndex === blocks.length - 1}
+          lastMessageId={lastMessageId}
+        />
+      </div>
+    )
+  })
 }
 
 function ActionSessionShell({
