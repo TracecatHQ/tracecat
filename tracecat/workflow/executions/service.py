@@ -706,11 +706,13 @@ class WorkflowExecutionsService:
                     action_input = await _resolve_trigger_context(
                         dsl_run_args.trigger_inputs
                     )
-                    fixed_results = dsl_run_args.fixed_action_results
-                    if dsl_run_args.dsl is not None:
-                        fixed_action_names = {
-                            stmt.ref: stmt.action for stmt in dsl_run_args.dsl.actions
-                        }
+                    if run_args_data.get("fixed_action_results"):
+                        fixed_results = dsl_run_args.fixed_action_results
+                        if dsl_run_args.dsl is not None:
+                            fixed_action_names = {
+                                stmt.ref: stmt.action
+                                for stmt in dsl_run_args.dsl.actions
+                            }
                 event_time = event.event_time.ToDatetime(datetime.UTC)
                 id2event[event.event_id] = WorkflowExecutionEventCompact(
                     source_event_id=event.event_id,
