@@ -1,4 +1,3 @@
-import re
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
@@ -76,6 +75,11 @@ from tracecat.cases.event_schemas import (
     UpdatedEvent,
 )
 from tracecat.cases.events import CaseEventsService
+from tracecat.cases.exact_search import (
+    MAX_CASE_NUMBER,
+    SHORT_ID_PATTERN,
+    prepare_exact_case_match,
+)
 from tracecat.cases.hierarchy import TOP_LEVEL, CaseHierarchyService
 from tracecat.cases.mentions import MentionToken, parse_mentions
 from tracecat.cases.query import CaseFieldResolver, referenced_dropdown_refs
@@ -173,6 +177,37 @@ from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.enums import SyncResourceType
 
 
+def case_text_predicate(search_term: str) -> ColumnElement[bool]:
+    """Build literal text and ID matching independently of view filters."""
+    if len(search_term) > 1000:
+        raise ValueError("Search term cannot exceed 1000 characters")
+    if "\x00" in search_term:
+        raise ValueError("Search term cannot contain null bytes")
+
+    case_number_text = cast(Case.case_number, sa.String)
+    short_id_expr = func.concat(
+        "CASE-",
+        func.lpad(
+            case_number_text,
+            func.greatest(4, func.length(case_number_text)),
+            "0",
+        ),
+    )
+    search_conditions: list[Any] = [
+        Case.summary.icontains(search_term, autoescape=True, escape="\\"),
+        Case.description.icontains(search_term, autoescape=True, escape="\\"),
+        short_id_expr.icontains(search_term, autoescape=True, escape="\\"),
+    ]
+    case_number = parse_case_short_id(search_term)
+    if case_number is not None and case_number <= MAX_CASE_NUMBER:
+        search_conditions.append(Case.case_number == case_number)
+    try:
+        search_conditions.append(Case.id == uuid.UUID(search_term.strip()))
+    except ValueError:
+        pass
+    return or_(*search_conditions)
+
+
 def _normalize_filter_values(values: Any) -> list[Any]:
     """Ensure filter inputs are lists of unique values."""
     if values is None:
@@ -210,8 +245,6 @@ def _is_field_value_empty(value: Any) -> bool:
 CASE_PRIORITY_SORT_ORDER = tuple(priority.value for priority in CasePriority)
 CASE_SEVERITY_SORT_ORDER = tuple(severity.value for severity in CaseSeverity)
 CASE_STATUS_SORT_ORDER = tuple(status.value for status in CaseStatus)
-MAX_CASE_NUMBER = 2**31 - 1
-SHORT_ID_PATTERN = re.compile(r"^(?:CASE-)?(\d{1,10})$", re.IGNORECASE)
 
 
 def parse_case_short_id(value: str) -> int | None:
@@ -392,6 +425,7 @@ class CasesService(BaseWorkspaceService):
         top_level_only: bool = False,
         search_term: str | None = None,
         short_id: str | None = None,
+        case_id: uuid.UUID | None = None,
         status: CaseStatus | Sequence[CaseStatus] | None = None,
         priority: CasePriority | Sequence[CasePriority] | None = None,
         severity: CaseSeverity | Sequence[CaseSeverity] | None = None,
@@ -408,39 +442,16 @@ class CasesService(BaseWorkspaceService):
     ) -> list[Any]:
         filters: list[Any] = [Case.workspace_id == self.workspace_id]
 
+        if case_id is not None:
+            filters.append(Case.id == case_id)
+
         if parent_id is not None:
             filters.append(Case.parent_id == parent_id)
         elif top_level_only:
             filters.append(Case.parent_id.is_(None))
 
         if search_term:
-            if len(search_term) > 1000:
-                raise ValueError("Search term cannot exceed 1000 characters")
-            if "\x00" in search_term:
-                raise ValueError("Search term cannot contain null bytes")
-
-            case_number_text = cast(Case.case_number, sa.String)
-            short_id_expr = func.concat(
-                "CASE-",
-                func.lpad(
-                    case_number_text,
-                    func.greatest(4, func.length(case_number_text)),
-                    "0",
-                ),
-            )
-            search_conditions: list[Any] = [
-                Case.summary.icontains(search_term, autoescape=True, escape="\\"),
-                Case.description.icontains(search_term, autoescape=True, escape="\\"),
-                short_id_expr.icontains(search_term, autoescape=True, escape="\\"),
-            ]
-            case_number = parse_case_short_id(search_term)
-            if case_number is not None and case_number <= MAX_CASE_NUMBER:
-                search_conditions.append(Case.case_number == case_number)
-            try:
-                search_conditions.append(Case.id == uuid.UUID(search_term.strip()))
-            except ValueError:
-                pass
-            filters.append(or_(*search_conditions))
+            filters.append(case_text_predicate(search_term))
 
         if short_id:
             normalized_short_id = short_id.strip().upper()
@@ -454,6 +465,8 @@ class CasesService(BaseWorkspaceService):
                 raise ValueError("Short ID must match CASE-<number> or <number>")
 
             short_id_number = int(match.group(1))
+            if short_id_number > MAX_CASE_NUMBER:
+                raise ValueError(f"Short ID number cannot exceed {MAX_CASE_NUMBER}")
             filters.append(Case.case_number == short_id_number)
 
         normalized_statuses = _normalize_filter_values(status)
@@ -568,11 +581,18 @@ class CasesService(BaseWorkspaceService):
         include_payload: bool = False,
         linked_row: tuple[uuid.UUID, uuid.UUID] | None = None,
         exclude_case_id: uuid.UUID | None = None,
+        case_id: uuid.UUID | None = None,
+        promote_exact_match: bool = False,
+        match_none: bool = False,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """Search cases with cursor-based pagination and filtering.
 
         ``linked_row`` is a ``(table_id, row_id)`` pair that keeps only cases
-        linked to that table row.
+        linked to that table row. ``case_id`` matches an exact UUID while still
+        applying the workspace and every other explicit filter. Interactive callers
+        can enable ``promote_exact_match`` to place the referenced case before
+        ordinary text matches. Only view filters may be bypassed, and counts
+        retain their filtered-population meaning.
         """
         include_case_addons = await self.has_entitlement(Entitlement.CASE_ADDONS)
         parent_id, top_level_only = await self.hierarchy.resolve_filters(
@@ -581,8 +601,9 @@ class CasesService(BaseWorkspaceService):
         filters = self._build_search_filters(
             linked_row=linked_row,
             exclude_case_id=exclude_case_id,
-            search_term=search_term,
+            search_term=None,
             short_id=short_id,
+            case_id=case_id,
             status=status,
             priority=priority,
             severity=severity,
@@ -599,6 +620,24 @@ class CasesService(BaseWorkspaceService):
             parent_id=parent_id,
             top_level_only=top_level_only,
         )
+
+        if match_none:
+            filters.append(sa.false())
+
+        view_filters = list(filters)
+        if search_term:
+            filters.append(case_text_predicate(search_term))
+
+        exact_match = None
+        if promote_exact_match and not any(
+            (case_id, short_id, parent_id, top_level_only, linked_row, exclude_case_id)
+        ):
+            exact_match = await prepare_exact_case_match(
+                self.session,
+                workspace_id=self.workspace_id,
+                search_term=search_term,
+                filters=view_filters,
+            )
 
         # Base query - eagerly load tags, assignee, and dropdown values.
         stmt = (
@@ -620,8 +659,10 @@ class CasesService(BaseWorkspaceService):
         if include_case_addons and include_durations:
             stmt = stmt.options(selectinload(Case.durations))
 
-        for clause in filters:
-            stmt = stmt.where(clause)
+        if exact_match is not None:
+            stmt = stmt.where(sa.or_(sa.and_(*filters), exact_match.predicate))
+        else:
+            stmt = stmt.where(*filters)
 
         # Compute total count with applied filters (workspace scoped)
         count_stmt = (
@@ -683,6 +724,12 @@ class CasesService(BaseWorkspaceService):
             else:
                 ordering = (sort_attr.desc(), Case.id.desc())
 
+        if exact_match is not None:
+            ordering = (
+                sa.case((exact_match.predicate, 0), else_=1).asc(),
+                *ordering,
+            )
+
         case_page = await paginate(
             self.session,
             stmt,
@@ -732,6 +779,13 @@ class CasesService(BaseWorkspaceService):
             case_items.append(
                 CaseReadMinimal(
                     id=case.id,
+                    is_exact_match=exact_match is not None
+                    and case.id == exact_match.id,
+                    is_outside_filters=(
+                        exact_match is not None
+                        and case.id == exact_match.id
+                        and exact_match.outside_filters
+                    ),
                     created_at=case.created_at,
                     updated_at=case.updated_at,
                     short_id=case.short_id,

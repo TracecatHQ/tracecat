@@ -10215,6 +10215,18 @@ export const $CaseRead = {
 
 export const $CaseReadMinimal = {
   properties: {
+    is_exact_match: {
+      type: "boolean",
+      title: "Is Exact Match",
+      description: "This row is the promoted exact case reference.",
+      default: false,
+    },
+    is_outside_filters: {
+      type: "boolean",
+      title: "Is Outside Filters",
+      description: "The promoted reference falls outside the filtered results.",
+      default: false,
+    },
     id: {
       type: "string",
       format: "uuid",

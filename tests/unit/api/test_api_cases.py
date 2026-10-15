@@ -1575,6 +1575,96 @@ async def test_case_search_empty_tags_remain_unfiltered(
 
 
 @pytest.mark.anyio
+async def test_search_cases_forwards_exact_uuid_and_explicit_filters(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Exact UUID lookup leaves transport filters intact and does not view cases."""
+    case_id = uuid.UUID("00000000-0000-4000-8000-000000000042")
+    start_time = datetime(2024, 1, 1, tzinfo=UTC)
+    with patch.object(cases_router, "CasesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.search_cases.return_value = CursorPaginatedResponse[CaseReadMinimal](
+            items=[], has_more=False, has_previous=False
+        )
+        MockService.return_value = mock_svc
+        response = client.get(
+            "/cases/search",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "case_id": str(case_id),
+                "promote_exact_match": "true",
+                "match_none": "true",
+                "start_time": start_time.isoformat(),
+                "status": "new",
+                "hierarchy": "top_level",
+                "limit": 1,
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK
+        kwargs = mock_svc.search_cases.call_args.kwargs
+        assert kwargs["promote_exact_match"] is True
+        assert kwargs["match_none"] is True
+        assert kwargs["case_id"] == case_id
+        assert kwargs["start_time"] == start_time
+        assert kwargs["status"] == [CaseStatus.NEW]
+        assert kwargs["hierarchy"] == "top_level"
+        mock_svc.get_case.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_search_cases_rejects_invalid_exact_uuid(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Invalid exact references receive normal UUID query validation."""
+    with patch.object(cases_router, "CasesService") as MockService:
+        response = client.get(
+            "/cases/search",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "case_id": "invalid-synthetic-uuid",
+            },
+        )
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        MockService.assert_not_called()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("reference", "detail"),
+    [
+        ("CASE-9999999999", "Short ID number cannot exceed 2147483647"),
+        ("CASE-12345678901", "Short ID must match CASE-<number> or <number>"),
+    ],
+)
+async def test_search_cases_rejects_oversized_exact_short_id(
+    client: TestClient,
+    test_admin_role: Role,
+    reference: str,
+    detail: str,
+) -> None:
+    """Pasted oversized short IDs receive a readable 400 from real validation."""
+    with (
+        patch.object(
+            cases_router.CasesService,
+            "has_entitlement",
+            new=AsyncMock(return_value=True),
+        ),
+        patch.object(CaseHierarchyService, "enabled", new=AsyncMock(return_value=True)),
+    ):
+        response = client.get(
+            "/cases/search",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "short_id": reference,
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == detail
+
+
+@pytest.mark.anyio
 async def test_search_cases_hydrates_requested_fields_and_durations(
     client: TestClient,
     test_admin_role: Role,

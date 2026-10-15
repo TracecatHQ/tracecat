@@ -107,6 +107,9 @@ export default function CasesPage() {
     isLoading,
     error,
     filters,
+    appliedSearchQuery,
+    effectiveHierarchy,
+    isSearchPending,
     setSearchQuery,
     setSortBy,
     setStatusFilter,
@@ -151,6 +154,9 @@ export default function CasesPage() {
         isLoading={isLoading}
         error={error}
         filters={filters}
+        appliedSearchQuery={appliedSearchQuery}
+        effectiveHierarchy={effectiveHierarchy}
+        isSearchPending={isSearchPending}
         members={members}
         tags={caseTags}
         onSearchChange={setSearchQuery}

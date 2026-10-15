@@ -119,6 +119,9 @@ export interface UseCasesResult {
   error: Error | null
   refetch: () => void
   filters: UseCasesFilters
+  appliedSearchQuery: string
+  effectiveHierarchy: CaseHierarchyFilter
+  isSearchPending: boolean
   setSearchQuery: (query: string) => void
   setSortBy: (value: CaseSortValue) => void
   setStatusFilter: (status: CaseStatus[]) => void
@@ -583,6 +586,7 @@ function resolveEnumIncludeFilter<T extends string>(
   return { values: complement, matchesNone: false }
 }
 
+/** Workspace case search with server-owned exact-reference promotion. */
 export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   const {
     enabled = true,
@@ -601,10 +605,23 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   }
   const initialFilterState = initialFilterStateRef.current
 
-  const [searchQuery, setSearchQuery] = useState(initialFilterState.searchQuery)
+  const [searchQuery, setSearchQueryState] = useState(
+    initialFilterState.searchQuery
+  )
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useDebounce(
     searchQuery.trim(),
     CASES_SEARCH_DEBOUNCE_MS
+  )
+  const hasSearchQuery = searchQuery.trim().length > 0
+  const normalizedSearch = hasSearchQuery ? debouncedSearchQuery : ""
+  const setSearchQuery = useCallback(
+    (query: string) => {
+      setSearchQueryState(query)
+      if (!query.trim()) {
+        setDebouncedSearchQuery("")
+      }
+    },
+    [setDebouncedSearchQuery]
   )
   const [sortBy, setSortByState] = useState<CaseSortValue>(
     initialFilterState.sortBy
@@ -725,7 +742,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     }
 
     const nextFilterState = loadPersistedCasesFilterState(workspaceId)
-    setSearchQuery(nextFilterState.searchQuery)
+    setSearchQueryState(nextFilterState.searchQuery)
     setDebouncedSearchQuery(nextFilterState.searchQuery.trim())
     setSortByState(nextFilterState.sortBy)
     setStatusFilter(nextFilterState.statusFilter)
@@ -853,10 +870,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       })),
     []
   )
-
-  // Clearing the search applies immediately; typing waits for the debounce.
-  const hasSearchQuery = searchQuery.trim().length > 0
-  const normalizedSearch = hasSearchQuery ? debouncedSearchQuery : ""
 
   useEffect(() => {
     if (!hasSearchQuery) {
@@ -1008,6 +1021,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       casesSearchCases({
         workspaceId,
         ...apiQueryParams,
+        promoteExactMatch: Boolean(normalizedSearch) || undefined,
+        matchNone: hasImpossibleEnumFilter || undefined,
         orderBy: serverSortParams.orderBy,
         sort: serverSortParams.sort,
         limit: CASES_PAGE_SIZE,
@@ -1020,7 +1035,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       enabled &&
       Boolean(workspaceId) &&
       hasHydratedFilters &&
-      !hasImpossibleEnumFilter,
+      (!hasImpossibleEnumFilter || Boolean(normalizedSearch)),
     initialPageParam: null,
     getNextPageParam: (lastPage) => {
       if (!lastPage.has_more || !lastPage.next_cursor) {
@@ -1102,7 +1117,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     return flattenedCases
   }, [flattenedCases, assigneeSortDirection, tagSortDirection])
 
-  const cases = hasImpossibleEnumFilter ? [] : sortedCases
+  const cases = sortedCases
 
   const totalFilteredCaseEstimate = hasImpossibleEnumFilter
     ? 0
@@ -1129,6 +1144,9 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     isLoading: isHydrationPending ? true : isLoading,
     error: error ?? null,
     refetch,
+    appliedSearchQuery: normalizedSearch,
+    effectiveHierarchy: apiQueryParams.hierarchy,
+    isSearchPending: searchQuery.trim() !== normalizedSearch,
     filters: {
       searchQuery,
       sortBy,

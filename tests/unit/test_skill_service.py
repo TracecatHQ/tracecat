@@ -4691,3 +4691,93 @@ metadata:
             )
         assert exc_info.value.detail is not None
         assert exc_info.value.detail["code"] == "mcp_integration_referenced_by_skill"
+
+
+@pytest.mark.anyio
+class TestBatchBlobMaterialization:
+    async def test_get_or_create_blobs_uploads_new_blobs_concurrently(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """New blobs upload in parallel, up to the cap, once per digest, in input order."""
+
+        in_flight = 0
+        max_in_flight = 0
+        uploaded_keys: list[str] = []
+        release = asyncio.Event()
+
+        async def fake_upload_file(
+            *,
+            content: bytes,
+            key: str,
+            bucket: str,
+            content_type: str,
+            redact_log_identifiers: bool = False,
+        ) -> None:
+            del content, bucket, content_type, redact_log_identifiers
+            nonlocal in_flight, max_in_flight
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+            uploaded_keys.append(key)
+            if max_in_flight == skill_service_module.BLOB_UPLOAD_CONCURRENCY:
+                release.set()
+            # Uploads that ran one at a time would never fill the cap.
+            await asyncio.wait_for(release.wait(), timeout=5)
+            in_flight -= 1
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.upload_file", fake_upload_file
+        )
+        contents = [f"file {index}".encode() for index in range(12)]
+        contents.append(contents[0])
+
+        blobs = await skill_service._get_or_create_blobs(contents)
+
+        assert max_in_flight == skill_service_module.BLOB_UPLOAD_CONCURRENCY
+        assert len(uploaded_keys) == 12
+        assert [blob_row.sha256 for blob_row in blobs] == [
+            hashlib.sha256(content).hexdigest() for content in contents
+        ]
+        assert blobs[0] is blobs[-1]
+
+    async def test_get_or_create_blobs_drops_rows_whose_upload_failed(
+        self,
+        skill_service: SkillService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A failed upload removes only its own claimed row and re-raises the error."""
+
+        failing = b"upload fails"
+        succeeding = b"upload succeeds"
+
+        async def fake_upload_file(
+            *,
+            content: bytes,
+            key: str,
+            bucket: str,
+            content_type: str,
+            redact_log_identifiers: bool = False,
+        ) -> None:
+            del key, bucket, content_type, redact_log_identifiers
+            if content == failing:
+                raise RuntimeError("object storage unavailable")
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.upload_file", fake_upload_file
+        )
+
+        with pytest.raises(RuntimeError, match="object storage unavailable"):
+            await skill_service._get_or_create_blobs([failing, succeeding])
+        await session.flush()
+
+        remaining = set(
+            await session.scalars(
+                select(SkillBlob.sha256).where(
+                    SkillBlob.workspace_id == skill_service.workspace_id
+                )
+            )
+        )
+        assert hashlib.sha256(failing).hexdigest() not in remaining
+        assert hashlib.sha256(succeeding).hexdigest() in remaining

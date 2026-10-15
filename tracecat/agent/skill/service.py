@@ -113,6 +113,8 @@ DEFAULT_DOWNLOAD_TTL_SECONDS = 15 * 60
 MAX_CONTENT_TYPE_LENGTH = 255
 SKILL_SLUG_MAX_LENGTH = 64
 SKILL_SLUG_INSERT_ATTEMPTS = 3
+# Object uploads in flight at once while materializing a batch of new blobs.
+BLOB_UPLOAD_CONCURRENCY = 8
 SKILL_SLUG_UNIQUE_CONSTRAINT = "uq_skill_workspace_slug_active"
 SKILL_TOOL_ERROR_CODES = frozenset(
     {
@@ -662,44 +664,85 @@ class SkillService(SkillBindingService):
             The deduplicated blob row.
         """
 
-        sha256 = self._compute_sha256(content)
-        existing = await self._get_blob_by_identity(sha256=sha256)
-        if existing is not None:
-            return existing
+        [blob_row] = await self._get_or_create_blobs([content], published=published)
+        return blob_row
 
-        storage_key = self._storage_key_for(sha256)
-        claim = await self._claim_blob_publication(
-            sha256=sha256,
-            bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
-            key=storage_key,
-            size_bytes=len(content),
-        )
-        if not claim.is_owner:
-            return claim.blob
+    async def _get_or_create_blobs(
+        self,
+        contents: Sequence[bytes],
+        *,
+        published: list[PublishedBlobObject] | None = None,
+    ) -> list[SkillBlob]:
+        """Create or reuse content-addressed skill blobs, uploading in parallel.
 
-        # Record the prospective key before the network call: a CancelledError
-        # can arrive after object storage accepts the upload but before the
+        Rows are claimed one at a time, in digest order, on the shared session.
+        Only the object uploads, which never touch the session, run
+        concurrently.
+
+        Args:
+            contents: Blob payloads.
+            published: Collector for objects this call writes for new,
+                still-uncommitted blob rows, so a caller that rolls back can
+                delete them. Reused rows are never recorded.
+
+        Returns:
+            The deduplicated blob rows, in the order of ``contents``.
+        """
+
+        bucket = config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS
+        digests = [self._compute_sha256(content) for content in contents]
+        rows_by_sha256: dict[str, SkillBlob] = {}
+        uploads: list[tuple[SkillBlob, bytes]] = []
+        for sha256, content in sorted(
+            dict(zip(digests, contents, strict=True)).items()
+        ):
+            existing = await self._get_blob_by_identity(sha256=sha256)
+            if existing is not None:
+                rows_by_sha256[sha256] = existing
+                continue
+            claim = await self._claim_blob_publication(
+                sha256=sha256,
+                bucket=bucket,
+                key=self._storage_key_for(sha256),
+                size_bytes=len(content),
+            )
+            rows_by_sha256[sha256] = claim.blob
+            if claim.is_owner:
+                uploads.append((claim.blob, content))
+
+        # Record the prospective keys before the network calls: a CancelledError
+        # can arrive after object storage accepts an upload but before the
         # client receives its response. Rollback cleanup may therefore issue a
         # harmless no-op delete when the upload did not create an object.
         if published is not None:
-            published.append(
-                PublishedBlobObject(
-                    bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
-                    key=storage_key,
+            published.extend(
+                PublishedBlobObject(bucket=bucket, key=blob_row.key)
+                for blob_row, _ in uploads
+            )
+        semaphore = asyncio.Semaphore(BLOB_UPLOAD_CONCURRENCY)
+
+        async def upload(blob_row: SkillBlob, content: bytes) -> None:
+            async with semaphore:
+                await blob.upload_file(
+                    content=content,
+                    key=blob_row.key,
+                    bucket=bucket,
+                    content_type="application/octet-stream",
+                    redact_log_identifiers=True,
                 )
-            )
-        try:
-            await blob.upload_file(
-                content=content,
-                key=storage_key,
-                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
-                content_type="application/octet-stream",
-                redact_log_identifiers=True,
-            )
-        except Exception:
-            await self.session.delete(claim.blob)
-            raise
-        return claim.blob
+
+        results = await asyncio.gather(
+            *(upload(blob_row, content) for blob_row, content in uploads),
+            return_exceptions=True,
+        )
+        errors: list[BaseException] = []
+        for (blob_row, _), result in zip(uploads, results, strict=True):
+            if isinstance(result, BaseException):
+                await self.session.delete(blob_row)
+                errors.append(result)
+        if errors:
+            raise errors[0]
+        return [rows_by_sha256[sha256] for sha256 in digests]
 
     async def _delete_published_blob_objects_best_effort(
         self, published: Sequence[PublishedBlobObject]

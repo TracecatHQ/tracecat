@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ssl
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
@@ -937,7 +938,9 @@ async def test_post_event_uses_custom_payload_headers_and_verify_ssl(
         await audit_service._post_event(webhook_url=webhook_url, payload=event)
         await flush_audit_deliveries()
 
-    async_client_ctor.assert_called_once_with(timeout=10.0, verify=False)
+    async_client_ctor.assert_called_once_with(
+        timeout=10.0, verify=audit_service_module._delivery_ssl_context(False)
+    )
     assert client_mock.post.await_count == 1
     args = client_mock.post.await_args.args
     kwargs = client_mock.post.await_args.kwargs
@@ -948,6 +951,19 @@ async def test_post_event_uses_custom_payload_headers_and_verify_ssl(
     assert kwargs["json"]["resource_id"] == str(event.resource_id)
     assert kwargs["json"]["status"] == "SUCCESS"
     assert kwargs["json"]["actor_label"] == "user@example.com"
+
+
+def test_delivery_ssl_context_is_built_once_per_verify_mode() -> None:
+    """Deliveries share one TLS context per verify mode, keeping its security settings."""
+    verified = audit_service_module._delivery_ssl_context(True)
+    unverified = audit_service_module._delivery_ssl_context(False)
+
+    assert audit_service_module._delivery_ssl_context(True) is verified
+    assert audit_service_module._delivery_ssl_context(False) is unverified
+    assert verified.verify_mode == ssl.CERT_REQUIRED
+    assert verified.check_hostname is True
+    assert unverified.verify_mode == ssl.CERT_NONE
+    assert unverified.check_hostname is False
 
 
 @pytest.mark.anyio
@@ -995,7 +1011,9 @@ async def test_post_event_wraps_payload_when_attribute_configured(
         await audit_service._post_event(webhook_url=webhook_url, payload=event)
         await flush_audit_deliveries()
 
-    async_client_ctor.assert_called_once_with(timeout=10.0, verify=True)
+    async_client_ctor.assert_called_once_with(
+        timeout=10.0, verify=audit_service_module._delivery_ssl_context(True)
+    )
     kwargs = client_mock.post.await_args.kwargs
     wrapped_payload = kwargs["json"]
     assert set(wrapped_payload.keys()) == {"event"}
