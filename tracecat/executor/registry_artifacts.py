@@ -100,12 +100,11 @@ class RegistryArtifactFormat(StrEnum):
     TAR_GZ = "tar.gz"
 
 
-_DOWNLOAD_MB_PER_S = metrics.get_meter(
-    "tracecat.executor.registry_cache"
-).create_histogram(
+_METER = metrics.get_meter("tracecat.executor.registry_cache")
+_DOWNLOAD_MB_PER_S = _METER.create_histogram(
     "registry_cache.download.mb_per_s",
     unit="MBy/s",
-    description="Throughput of each cold registry artifact download.",
+    description="Megabytes per second of download-slot hold time, capacity waits included.",
 )
 
 REGISTRY_ARTIFACT_CAPACITY_MAX_ATTEMPTS = 4
@@ -365,7 +364,7 @@ class SquashfsArtifact(RegistryArtifact):
 
         mount_start = time.monotonic()
         # Held only around the mount; a failed mount frees it before extraction.
-        async with ctx.mount_slots or contextlib.nullcontext():
+        async with ctx.mount_slots:
             await self._mount_image(image_path, target_dir)
         mount_elapsed = (time.monotonic() - mount_start) * 1000
         total_elapsed = (time.monotonic() - start_time) * 1000
@@ -407,18 +406,15 @@ class SquashfsArtifact(RegistryArtifact):
 
         temp_dir = self._temp_path(ctx, ".unsquashfs")
         try:
-            # The size probe and unsquashfs are CPU work, bounded by extract slots.
-            async with ctx.extract_slots or contextlib.nullcontext():
-                if ctx.admission is not None:
-                    extracted_size = await self._squashfs_extracted_size(
-                        image_path,
-                        allocation_unit=ctx.admission.allocation_unit,
-                    )
-                    extracted_size += _directory_records_size_bound(
-                        (temp_dir.name, target_dir.name),
-                        allocation_unit=ctx.admission.allocation_unit,
-                    )
-                    await ctx.admission.ensure_capacity(extracted_size)
+            await _reserve_extraction(
+                ctx,
+                lambda unit: self._squashfs_extracted_size(
+                    image_path, allocation_unit=unit
+                ),
+                temp_dir=temp_dir,
+                target_dir=target_dir,
+            )
+            async with ctx.extract_slots:
                 extract_start = time.monotonic()
                 temp_dir.mkdir(parents=True, exist_ok=True)
                 await self._extract_image(image_path, temp_dir)
@@ -554,6 +550,17 @@ class TarballArtifact(RegistryArtifact):
             return [ctx.paths.tarball_target_dir]
         return None
 
+    async def _extracted_size(self, tarball: Path, *, allocation_unit: int) -> int:
+        """Read-through size bound; an unreadable tarball is an extraction error."""
+        try:
+            return await run_blocking_rejoin_on_cancel(
+                lambda: _tarball_extracted_size(
+                    tarball, allocation_unit=allocation_unit
+                )
+            )
+        except Exception:
+            raise RegistryArtifactExtractionError() from None
+
     async def materialize(
         self, ctx: RegistryArtifactMaterializationContext
     ) -> list[Path]:
@@ -577,24 +584,13 @@ class TarballArtifact(RegistryArtifact):
             await self.download(ctx, temp_tarball)
             download_elapsed = (time.monotonic() - download_start) * 1000
 
-            # The size read-through and extraction are CPU work, bounded by extract slots.
-            async with ctx.extract_slots or contextlib.nullcontext():
-                if (admission := ctx.admission) is not None:
-                    try:
-                        extracted_size = await run_blocking_rejoin_on_cancel(
-                            lambda: _tarball_extracted_size(
-                                temp_tarball,
-                                allocation_unit=admission.allocation_unit,
-                            )
-                        )
-                    except Exception:
-                        raise RegistryArtifactExtractionError() from None
-                    extracted_size += _directory_records_size_bound(
-                        (temp_dir.name, target_dir.name),
-                        allocation_unit=admission.allocation_unit,
-                    )
-                    await admission.ensure_capacity(extracted_size)
-
+            await _reserve_extraction(
+                ctx,
+                lambda unit: self._extracted_size(temp_tarball, allocation_unit=unit),
+                temp_dir=temp_dir,
+                target_dir=target_dir,
+            )
+            async with ctx.extract_slots:
                 extract_start = time.monotonic()
                 temp_dir.mkdir(parents=True, exist_ok=True)
                 await self.extract(temp_tarball, temp_dir)
@@ -674,6 +670,28 @@ class TarballArtifact(RegistryArtifact):
         )
 
 
+async def _reserve_extraction(
+    ctx: RegistryArtifactMaterializationContext,
+    probe: Callable[[int], Awaitable[int]],
+    *,
+    temp_dir: Path,
+    target_dir: Path,
+) -> None:
+    """Probe under an extract slot, then wait for capacity holding none.
+
+    A writer waiting here never blocks the writer it waits on from extracting.
+    """
+    if (admission := ctx.admission) is None:
+        return
+    async with ctx.extract_slots:
+        extracted_size = await probe(admission.allocation_unit)
+    extracted_size += _directory_records_size_bound(
+        (temp_dir.name, target_dir.name),
+        allocation_unit=admission.allocation_unit,
+    )
+    await admission.ensure_capacity(extracted_size)
+
+
 async def _download_registry_artifact(
     ctx: RegistryArtifactMaterializationContext,
     artifact_uri: str,
@@ -681,9 +699,9 @@ async def _download_registry_artifact(
     *,
     published_path: Path | None = None,
 ) -> None:
-    """Download under a download slot and record its throughput."""
-    async with ctx.download_slots or contextlib.nullcontext():
-        in_flight = ctx.download_slots.in_use if ctx.download_slots else 1
+    """Download under a download slot and record its slot-held rate."""
+    async with ctx.download_slots:
+        in_flight = ctx.download_slots.in_use
         started = time.monotonic()
         await _download_s3_artifact(
             artifact_uri,
@@ -704,7 +722,7 @@ async def _download_registry_artifact(
         cache_key=ctx.cache_key,
         artifact_uri=_artifact_uri_for_logging(artifact_uri),
         size_bytes=size_bytes,
-        download_ms=f"{elapsed * 1000:.1f}",
+        slot_held_ms=f"{elapsed * 1000:.1f}",
         mb_per_s=f"{mb_per_s:.1f}",
         downloads_in_flight=in_flight,
     )

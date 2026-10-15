@@ -323,11 +323,11 @@ class RegistryArtifactMaterializationContext:
     paths: RegistryArtifactPaths
     defer_cleanup: Callable[[Path], None]
     squashfs_mount_policy: registry_artifact_mounts.SquashfsMountPolicy
+    download_slots: MeteredSlots
+    extract_slots: MeteredSlots
+    mount_slots: MeteredSlots
     admission: RegistryArtifactAdmission | None = None
     staging_paths: list[Path] | None = None
-    download_slots: MeteredSlots | None = None
-    extract_slots: MeteredSlots | None = None
-    mount_slots: MeteredSlots | None = None
     squashfs_remount_failed: bool = False
     """This lease's warm remount already exhausted its mount attempts."""
 
@@ -762,11 +762,11 @@ class RegistryArtifactCacheStorage:
             paths=self._paths_for(cache_key),
             defer_cleanup=self._defer_cleanup,
             squashfs_mount_policy=self._squashfs_mount_policy,
-            admission=admission,
-            staging_paths=staging_paths,
             download_slots=self._download_slots,
             extract_slots=self._extract_slots,
             mount_slots=self._mount_slots,
+            admission=admission,
+            staging_paths=staging_paths,
         )
 
     def _new_entry_lease(
@@ -807,7 +807,6 @@ class RegistryArtifactCacheStorage:
                 additional_bytes,
                 allocation_unit=allocation_unit,
             )
-            self._set_reserved_bytes(reservation, 0)
             self._live_reservations.add(reservation)
             started = time.monotonic()
             deadline = started + RESERVATION_WAIT_SECONDS
@@ -821,9 +820,11 @@ class RegistryArtifactCacheStorage:
                         allocation_unit,
                     )
                     charge = need + carried
+                    # Our old charge stays held while waiting; the new one replaces it.
+                    others = self._reserved_bytes - reservation.bytes
                     try:
                         await self._ensure_cache_capacity(
-                            additional_bytes=charge + self._reserved_bytes,
+                            additional_bytes=charge + others,
                             protected_key=cache_key,
                             max_bytes=max_bytes,
                             attempt_cache_keys=attempt_cache_keys,
@@ -833,7 +834,7 @@ class RegistryArtifactCacheStorage:
                         blocked = error
                     except RegistryArtifactCacheCapacityError as error:
                         # Only in-flight reservations can still free this space.
-                        if self._reserved_bytes == 0:
+                        if others == 0:
                             raise
                         blocked = error
                     else:
@@ -863,11 +864,14 @@ class RegistryArtifactCacheStorage:
         reservation: RegistryArtifactByteReservation,
         charge: int,
     ) -> None:
-        """Replace one reservation's charge and keep the pod total in step."""
+        """Replace one reservation's charge, keep the pod total in step, and wake
+        capacity waiters when it shrinks."""
         delta = charge - reservation.bytes
         reservation.bytes = charge
         self._reserved_bytes += delta
         _RESERVED_BYTES.add(delta)
+        if delta < 0:
+            self._signal_capacity_changed()
 
     def _release_reservation(
         self,
@@ -880,7 +884,6 @@ class RegistryArtifactCacheStorage:
         """
         self._set_reserved_bytes(reservation, 0)
         self._live_reservations.discard(reservation)
-        self._signal_capacity_changed()
 
     def _owned_staging_names(self) -> frozenset[str]:
         """Return staging names that live reservations already charge for."""
@@ -1362,14 +1365,8 @@ class RegistryArtifactCacheStorage:
         """
         self._prepare_budget_roots()
         allocation_unit = _filesystem_allocation_unit(self.cache_dir)
-        staging_bytes = (
-            self._unowned_staging_footprint(owned_staging_names, allocation_unit)
-            if owned_staging_names
-            else _directory_footprint(
-                self.staging_dir,
-                allocation_unit=allocation_unit,
-                include_root=False,
-            )
+        staging_bytes = self._unowned_staging_footprint(
+            owned_staging_names, allocation_unit
         )
         return RegistryArtifactCacheSnapshot(
             entries=self._scan_cache_entries(allocation_unit=allocation_unit),
@@ -1395,6 +1392,12 @@ class RegistryArtifactCacheStorage:
         self, owned_names: frozenset[str], allocation_unit: int
     ) -> int:
         """Measure staging paths no live reservation owns."""
+        if not owned_names:
+            return _directory_footprint(
+                self.staging_dir,
+                allocation_unit=allocation_unit,
+                include_root=False,
+            )
         return sum(
             _directory_footprint(path, allocation_unit=allocation_unit)
             for path in self._staging_children()

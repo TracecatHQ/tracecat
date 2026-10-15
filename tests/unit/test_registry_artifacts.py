@@ -955,6 +955,116 @@ class TestRegistryArtifactCache:
         assert cache._reserved_bytes == 0
 
     @pytest.mark.anyio
+    async def test_waiting_writer_keeps_staged_bytes_charged(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """A writer waiting to grow its reservation still charges its staged bytes."""
+        mib = 1024 * 1024
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        staged, holder, newcomer = (RegistryArtifactByteReservation() for _ in range(3))
+
+        with (
+            patch(MAX_BYTES_CONFIG, 10 * mib),
+            patch(
+                "tracecat.executor.registry_artifact_storage.RESERVATION_WAIT_SECONDS",
+                0.2,
+            ),
+        ):
+            staged_admission = cache._admission_for("a" * 16, staged)
+            holder_admission = cache._admission_for("b" * 16, holder)
+            newcomer_admission = cache._admission_for("c" * 16, newcomer)
+            assert staged_admission and holder_admission and newcomer_admission
+            tarball = unique_work_path(cache.staging_dir, "a" * 16, suffix=".tar.gz")
+            staged.staging_paths.append(tarball)
+            await staged_admission.ensure_capacity(3 * mib)
+            tarball.write_bytes(b"\0" * (3 * mib))
+            await holder_admission.ensure_capacity(1 * mib)
+
+            # 7 more for extraction + 3 staged + 1 held exceeds 10: it waits.
+            growing = asyncio.ensure_future(staged_admission.ensure_capacity(7 * mib))
+            await asyncio.sleep(0.05)
+            assert not growing.done()
+            assert staged.bytes >= 3 * mib
+
+            # The staged 3 stay visible, so 7 more can't be admitted beside them.
+            with pytest.raises(RegistryArtifactCacheLeaseContentionError):
+                await newcomer_admission.ensure_capacity(7 * mib)
+            with pytest.raises(RegistryArtifactCacheLeaseContentionError):
+                await growing
+            for reservation in (staged, holder, newcomer):
+                cache._release_reservation(reservation)
+
+        assert cache._reserved_bytes == 0
+
+    @pytest.mark.anyio
+    async def test_capacity_wait_does_not_hold_extract_slot(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """A writer waiting for space lets the writer it waits on extract and finish."""
+        mib = 1024 * 1024
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        big_uri, small_uri = "s3://bucket/big.tar.gz", "s3://bucket/small.tar.gz"
+        big_key = compute_registry_artifact_cache_key(big_uri)
+        small_reserved = asyncio.Event()
+        big_probed = threading.Event()
+
+        async def fake_download(
+            *,
+            key: str,
+            output_path: Path,
+            ensure_capacity: Callable[[int], Awaitable[None]] | None,
+            **_: object,
+        ) -> None:
+            assert ensure_capacity is not None
+            if key == "big.tar.gz":
+                await small_reserved.wait()
+            await ensure_capacity(3 * mib)
+            output_path.write_bytes(b"\0" * (3 * mib))
+            if key == "small.tar.gz":
+                small_reserved.set()
+                # Small extracts only after big has probed and started waiting.
+                assert await asyncio.to_thread(big_probed.wait, 1)
+
+        def extracted_size(tarball: Path, *, allocation_unit: int) -> int:
+            del allocation_unit
+            if big_key in tarball.name:
+                big_probed.set()
+                return 6 * mib
+            return 4 * mib
+
+        with (
+            patch(MAX_BYTES_CONFIG, 11 * mib),
+            patch(SQUASHFS_ENABLED_CONFIG, False),
+            patch(
+                "tracecat.executor.registry_artifact_storage.RESERVATION_WAIT_SECONDS",
+                5,
+            ),
+            patch(
+                "tracecat.executor.registry_artifacts.blob.download_file_to_path",
+                fake_download,
+            ),
+            patch(
+                "tracecat.executor.registry_artifacts._tarball_extracted_size",
+                extracted_size,
+            ),
+            patch.object(TarballArtifact, "extract", new_callable=AsyncMock),
+            patch.object(cache, "_converge_cache_budget", new_callable=AsyncMock),
+        ):
+            # Big (6 + 3 staged + 3 held) waits for small (4 + 3 + 3), which fits.
+            await asyncio.wait_for(
+                asyncio.gather(
+                    _lease_and_release(cache, big_uri),
+                    _lease_and_release(cache, small_uri),
+                ),
+                timeout=2,
+            )
+
+        assert cache._extract_slots.in_use == 0
+        assert cache._reserved_bytes == 0
+
+    @pytest.mark.anyio
     async def test_cancelled_writer_releases_reservation_after_write_stops(
         self, temp_cache_dir: Path
     ) -> None:
@@ -986,10 +1096,6 @@ class TestRegistryArtifactCache:
             events.append("reservation released")
             release(reservation)
 
-        async def take_lease() -> None:
-            async with cache.lease(["s3://bucket/cancelled.squashfs"]):
-                pass
-
         with (
             patch(MAX_BYTES_CONFIG, 10 * 1024 * 1024),
             patch(SQUASHFS_ENABLED_CONFIG, True),
@@ -999,7 +1105,9 @@ class TestRegistryArtifactCache:
             ),
             patch.object(cache, "_release_reservation", tracking_release),
         ):
-            task = asyncio.create_task(take_lease())
+            task = asyncio.create_task(
+                _lease_and_release(cache, "s3://bucket/cancelled.squashfs")
+            )
             assert await asyncio.to_thread(write_started.wait, 1)
             task.cancel()
             await asyncio.sleep(0)
@@ -1039,10 +1147,6 @@ class TestRegistryArtifactCache:
             in_flight -= 1
             output_path.write_bytes(b"squashfs")
 
-        async def take_lease(uri: str) -> None:
-            async with cache.lease([uri]):
-                pass
-
         mounted: set[Path] = set()
         with (
             patch(MAX_BYTES_CONFIG, 10 * 1024 * 1024),
@@ -1054,7 +1158,7 @@ class TestRegistryArtifactCache:
         ):
             await asyncio.gather(
                 *(
-                    take_lease(f"s3://bucket/cold-{index}.squashfs")
+                    _lease_and_release(cache, f"s3://bucket/cold-{index}.squashfs")
                     for index in range(4)
                 )
             )
@@ -1097,10 +1201,6 @@ class TestRegistryArtifactCache:
                 await release_first_mount.wait()
             mounted.add(target_dir)
 
-        async def take_lease(uri: str) -> None:
-            async with cache.lease([uri]):
-                pass
-
         with (
             patch(MAX_BYTES_CONFIG, 10 * 1024 * 1024),
             _fake_squashfs_mounts(cache, mounted, mount=slow_first_mount),
@@ -1109,9 +1209,9 @@ class TestRegistryArtifactCache:
                 fake_download,
             ),
         ):
-            first = asyncio.create_task(take_lease(first_uri))
+            first = asyncio.create_task(_lease_and_release(cache, first_uri))
             await asyncio.wait_for(first_mounting.wait(), timeout=1)
-            second = asyncio.create_task(take_lease(second_uri))
+            second = asyncio.create_task(_lease_and_release(cache, second_uri))
             await asyncio.wait_for(second_downloaded.wait(), timeout=1)
             release_first_mount.set()
             await asyncio.gather(first, second)
@@ -1143,19 +1243,15 @@ class TestRegistryArtifactCache:
             ctx.paths.tarball_target_dir.mkdir(parents=True)
             return [ctx.paths.tarball_target_dir]
 
-        async def take_lease(uri: str) -> None:
-            async with cache.lease([uri]):
-                pass
-
         with (
             patch(SQUASHFS_ENABLED_CONFIG, False),
             patch.object(TarballArtifact, "materialize", controlled_materialize),
             patch.object(cache, "_enforce_cache_budget", new_callable=AsyncMock),
             patch.object(cache, "_converge_cache_budget", new_callable=AsyncMock),
         ):
-            first = asyncio.create_task(take_lease(uris[0]))
+            first = asyncio.create_task(_lease_and_release(cache, uris[0]))
             await first_started.wait()
-            second = asyncio.create_task(take_lease(uris[1]))
+            second = asyncio.create_task(_lease_and_release(cache, uris[1]))
             await asyncio.wait_for(second_started.wait(), timeout=1)
 
             release_first.set()
