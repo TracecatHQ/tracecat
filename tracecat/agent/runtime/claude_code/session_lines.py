@@ -91,20 +91,9 @@ def is_approval_continuation_prompt_line(line_data: Mapping[str, object]) -> boo
             return False
 
 
-def opens_hidden_continuation(line_data: Mapping[str, object]) -> bool:
-    """Return True for rows that start a hidden approval-continuation chain.
-
-    Other internal rows, such as attachments and skill loads, are ordinary turn
-    context, so the reasoning that follows them is shown.
-    """
-    return is_synthetic_session_line(line_data) or (
-        is_approval_continuation_prompt_line(line_data)
-    )
-
-
 def is_continuation_control_artifact(
     line_data: Mapping[str, object],
-    internal_uuids: set[str],
+    hidden_uuids: set[str],
 ) -> bool:
     """Return True for Claude Code continuation artifacts, even if mis-kind-ed.
 
@@ -119,7 +108,7 @@ def is_continuation_control_artifact(
 
     match line_data:
         case {"parentUuid": str(parent_uuid)}:
-            parent_is_internal = parent_uuid in internal_uuids
+            parent_is_internal = parent_uuid in hidden_uuids
         case _:
             parent_is_internal = False
 
@@ -170,3 +159,30 @@ def is_approval_interrupt_content(content: object) -> bool:
     return content_text == APPROVAL_INTERRUPT_CONTENT_EXACT or any(
         marker in content_text for marker in APPROVAL_INTERRUPT_CONTENT_MARKERS
     )
+
+
+def mark_hidden_continuation(
+    line_data: Mapping[str, object],
+    hidden_uuids: set[str],
+    *,
+    internal_row: bool,
+) -> bool:
+    """Return True for rows in a hidden continuation chain, recording their UUID.
+
+    An internal row joins only by opening a chain (a synthetic row or the
+    approval prompt) or descending from one. Other internal rows, such as
+    attachments and skill loads, are ordinary turn context, so the reasoning
+    that follows them is shown. Any other row joins as a control artifact.
+    """
+    line_uuid = session_line_uuid(line_data)
+    if internal_row:
+        in_chain = line_uuid is not None and (
+            is_synthetic_session_line(line_data)
+            or is_approval_continuation_prompt_line(line_data)
+            or line_data.get("parentUuid") in hidden_uuids
+        )
+    else:
+        in_chain = is_continuation_control_artifact(line_data, hidden_uuids)
+    if in_chain and line_uuid is not None:
+        hidden_uuids.add(line_uuid)
+    return in_chain

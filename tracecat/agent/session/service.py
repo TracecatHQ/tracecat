@@ -68,10 +68,9 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_INTERRUPT_CONTENT_MARKERS,
     DISPLAY_ONLY_SESSION_LINE_FLAG,
     is_approval_interrupt_tool_result,
-    is_continuation_control_artifact,
     is_display_only_session_line,
     is_model_context_session_line,
-    opens_hidden_continuation,
+    mark_hidden_continuation,
     session_line_uuid,
 )
 from tracecat.agent.service import AgentManagementService
@@ -1364,7 +1363,8 @@ class AgentSessionService(BaseWorkspaceService):
         # on later resumes.
         lines = []
         included_uuids: set[str] = set()
-        internal_uuids: set[str] = set()
+        # Internal and continuation rows left out of the rebuilt transcript.
+        dropped_uuids: set[str] = set()
         last_visible_uuid: str | None = None
         for entry in history_entries:
             history_content = _session_history_content(entry)
@@ -1380,7 +1380,7 @@ class AgentSessionService(BaseWorkspaceService):
                 is_model_context_session_line(content)
             ):
                 if line_uuid is not None:
-                    internal_uuids.add(line_uuid)
+                    dropped_uuids.add(line_uuid)
                 continue
 
             # Cancelled markers are UI-only timeline rows, not SDK transcript
@@ -1388,9 +1388,7 @@ class AgentSessionService(BaseWorkspaceService):
             if entry.kind == MessageKind.CANCELLED.value:
                 continue
 
-            if is_continuation_control_artifact(content, internal_uuids):
-                if line_uuid is not None:
-                    internal_uuids.add(line_uuid)
+            if mark_hidden_continuation(content, dropped_uuids, internal_row=False):
                 continue
 
             parent_uuid = content.get("parentUuid")
@@ -3044,26 +3042,19 @@ class AgentSessionService(BaseWorkspaceService):
     ) -> list[ChatMessage]:
         """Render visible history rows into the interleaved chat timeline."""
         messages: list[ChatMessage] = []
-        internal_uuids: set[str] = set()
+        # Only rows in a hidden continuation chain, not every internal row.
+        hidden_chain_uuids: set[str] = set()
 
         for entry in entries:
             content = history.project(entry) if history is not None else entry.content
             if not content:
                 continue
 
-            if entry.kind == MessageKind.INTERNAL.value:
-                line_uuid = session_line_uuid(content)
-                # Only a continuation chain hides the thinking that follows it.
-                if line_uuid and (
-                    opens_hidden_continuation(content)
-                    or content.get("parentUuid") in internal_uuids
-                ):
-                    internal_uuids.add(line_uuid)
-                continue
-
-            if is_continuation_control_artifact(content, internal_uuids):
-                if line_uuid := session_line_uuid(content):
-                    internal_uuids.add(line_uuid)
+            is_internal = entry.kind == MessageKind.INTERNAL.value
+            in_chain = mark_hidden_continuation(
+                content, hidden_chain_uuids, internal_row=is_internal
+            )
+            if is_internal or in_chain:
                 continue
 
             if entry.kind == MessageKind.COMPACTION.value:
