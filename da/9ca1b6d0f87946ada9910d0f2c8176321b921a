@@ -1,0 +1,26 @@
+frontend/src/components/chat/chat-tools-picker.tsx
+  s_3fab07a328f4d4::t_8068ab32a54b3b 210,213-216,218-219,493
+tracecat/mcp/action_discovery.py
+  s_3fab07a328f4d4::t_49c90221221f1e 1-146
+tracecat/mcp/server.py
+  s_3fab07a328f4d4::t_2cc5c3b4ddb85f 2879-2880
+  s_3fab07a328f4d4::t_bfc5f92203b536 198
+tests/unit/test_action_discovery.py
+  s_3fab07a328f4d4::t_49c90221221f1e 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "da9ca1b6d0f87946ada9910d0f2c8176321b921a",
+  "prompts": {},
+  "sessions": {
+    "s_3fab07a328f4d4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a140d1-98e7-7b53-9710-5c426d6d882a",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
