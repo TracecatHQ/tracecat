@@ -21,6 +21,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 import tracecat_registry
+from opentelemetry import metrics
 from tenacity import (
     AsyncRetrying,
     RetryCallState,
@@ -42,6 +43,7 @@ from tracecat.executor.registry_artifact_mounts import (
 )
 from tracecat.executor.registry_artifact_storage import (
     RegistryArtifactAdmission,
+    RegistryArtifactByteReservation,
     RegistryArtifactCacheCapacityError,
     RegistryArtifactCacheEntryLease,
     RegistryArtifactCacheLeaseAttempt,
@@ -97,6 +99,13 @@ class RegistryArtifactFormat(StrEnum):
     SQUASHFS = "squashfs"
     TAR_GZ = "tar.gz"
 
+
+_METER = metrics.get_meter("tracecat.executor.registry_cache")
+_DOWNLOAD_MB_PER_S = _METER.create_histogram(
+    "registry_cache.download.mb_per_s",
+    unit="MBy/s",
+    description="Megabytes per second of download-slot hold time, capacity waits included.",
+)
 
 REGISTRY_ARTIFACT_CAPACITY_MAX_ATTEMPTS = 4
 REGISTRY_ARTIFACT_CAPACITY_RETRY_BASE_SECONDS = 0.25
@@ -170,7 +179,10 @@ class RegistryArtifact(ABC):
         ctx: RegistryArtifactMaterializationContext,
         suffix: str,
     ) -> Path:
-        return unique_work_path(ctx.staging_dir, self.cache_key, suffix=suffix)
+        path = unique_work_path(ctx.staging_dir, self.cache_key, suffix=suffix)
+        if ctx.admission is not None:
+            ctx.admission.reservation.staging_paths.append(path)
+        return path
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,11 +300,10 @@ class SquashfsArtifact(RegistryArtifact):
         temp_image = self._temp_path(ctx, ".squashfs")
         try:
             download_start = time.monotonic()
-            await _download_s3_artifact(
+            await _download_registry_artifact(
+                ctx,
                 self.uri,
                 temp_image,
-                admission=ctx.admission,
-                defer_cleanup=ctx.defer_cleanup,
                 published_path=image_path,
             )
             try:
@@ -300,6 +311,9 @@ class SquashfsArtifact(RegistryArtifact):
             except OSError:
                 if not image_path.exists():
                     raise
+            if ctx.admission is not None:
+                # The published image is measured on disk from here on.
+                await ctx.admission.settle()
             return (time.monotonic() - download_start) * 1000
         finally:
             remove_file_or_defer(
@@ -353,7 +367,7 @@ class SquashfsArtifact(RegistryArtifact):
 
         mount_start = time.monotonic()
         # Held only around the mount; a failed mount frees it before extraction.
-        async with ctx.mount_slots or contextlib.nullcontext():
+        async with ctx.mount_slots:
             await self._mount_image(image_path, target_dir)
         mount_elapsed = (time.monotonic() - mount_start) * 1000
         total_elapsed = (time.monotonic() - start_time) * 1000
@@ -395,20 +409,19 @@ class SquashfsArtifact(RegistryArtifact):
 
         temp_dir = self._temp_path(ctx, ".unsquashfs")
         try:
-            if ctx.admission is not None:
-                extracted_size = await self._squashfs_extracted_size(
-                    image_path,
-                    allocation_unit=ctx.admission.allocation_unit,
-                )
-                extracted_size += _directory_records_size_bound(
-                    (temp_dir.name, target_dir.name),
-                    allocation_unit=ctx.admission.allocation_unit,
-                )
-                await ctx.admission.ensure_capacity(extracted_size)
-            extract_start = time.monotonic()
-            temp_dir.mkdir(parents=True, exist_ok=True)
-            await self._extract_image(image_path, temp_dir)
-            extract_elapsed = (time.monotonic() - extract_start) * 1000
+            await _reserve_extraction(
+                ctx,
+                lambda unit: self._squashfs_extracted_size(
+                    image_path, allocation_unit=unit
+                ),
+                temp_dir=temp_dir,
+                target_dir=target_dir,
+            )
+            async with ctx.extract_slots:
+                extract_start = time.monotonic()
+                temp_dir.mkdir(parents=True, exist_ok=True)
+                await self._extract_image(image_path, temp_dir)
+                extract_elapsed = (time.monotonic() - extract_start) * 1000
 
             try:
                 temp_dir.rename(target_dir)
@@ -540,6 +553,17 @@ class TarballArtifact(RegistryArtifact):
             return [ctx.paths.tarball_target_dir]
         return None
 
+    async def _extracted_size(self, tarball: Path, *, allocation_unit: int) -> int:
+        """Read-through size bound; an unreadable tarball is an extraction error."""
+        try:
+            return await run_blocking_rejoin_on_cancel(
+                lambda: _tarball_extracted_size(
+                    tarball, allocation_unit=allocation_unit
+                )
+            )
+        except Exception:
+            raise RegistryArtifactExtractionError() from None
+
     async def materialize(
         self, ctx: RegistryArtifactMaterializationContext
     ) -> list[Path]:
@@ -563,26 +587,17 @@ class TarballArtifact(RegistryArtifact):
             await self.download(ctx, temp_tarball)
             download_elapsed = (time.monotonic() - download_start) * 1000
 
-            if (admission := ctx.admission) is not None:
-                try:
-                    extracted_size = await run_blocking_rejoin_on_cancel(
-                        lambda: _tarball_extracted_size(
-                            temp_tarball,
-                            allocation_unit=admission.allocation_unit,
-                        )
-                    )
-                except Exception:
-                    raise RegistryArtifactExtractionError() from None
-                extracted_size += _directory_records_size_bound(
-                    (temp_dir.name, target_dir.name),
-                    allocation_unit=admission.allocation_unit,
-                )
-                await admission.ensure_capacity(extracted_size)
-
-            extract_start = time.monotonic()
-            temp_dir.mkdir(parents=True, exist_ok=True)
-            await self.extract(temp_tarball, temp_dir)
-            extract_elapsed = (time.monotonic() - extract_start) * 1000
+            await _reserve_extraction(
+                ctx,
+                lambda unit: self._extracted_size(temp_tarball, allocation_unit=unit),
+                temp_dir=temp_dir,
+                target_dir=target_dir,
+            )
+            async with ctx.extract_slots:
+                extract_start = time.monotonic()
+                temp_dir.mkdir(parents=True, exist_ok=True)
+                await self.extract(temp_tarball, temp_dir)
+                extract_elapsed = (time.monotonic() - extract_start) * 1000
 
             try:
                 temp_dir.rename(target_dir)
@@ -628,12 +643,7 @@ class TarballArtifact(RegistryArtifact):
         ctx: RegistryArtifactMaterializationContext,
         output_path: Path,
     ) -> None:
-        await _download_s3_artifact(
-            self.uri,
-            output_path,
-            admission=ctx.admission,
-            defer_cleanup=ctx.defer_cleanup,
-        )
+        await _download_registry_artifact(ctx, self.uri, output_path)
 
     async def extract(self, tarball_path: Path, target_dir: Path) -> None:
         """Extract a supported registry tarball to target directory.
@@ -661,6 +671,64 @@ class TarballArtifact(RegistryArtifact):
             target=str(target_dir),
             artifact_format=_artifact_format(str(tarball_path)).value,
         )
+
+
+async def _reserve_extraction(
+    ctx: RegistryArtifactMaterializationContext,
+    probe: Callable[[int], Awaitable[int]],
+    *,
+    temp_dir: Path,
+    target_dir: Path,
+) -> None:
+    """Probe under an extract slot, then wait for capacity holding none.
+
+    A writer waiting here never blocks the writer it waits on from extracting.
+    """
+    if (admission := ctx.admission) is None:
+        return
+    async with ctx.extract_slots:
+        extracted_size = await probe(admission.allocation_unit)
+    extracted_size += _directory_records_size_bound(
+        (temp_dir.name, target_dir.name),
+        allocation_unit=admission.allocation_unit,
+    )
+    await admission.ensure_capacity(extracted_size)
+
+
+async def _download_registry_artifact(
+    ctx: RegistryArtifactMaterializationContext,
+    artifact_uri: str,
+    output_path: Path,
+    *,
+    published_path: Path | None = None,
+) -> None:
+    """Download under a download slot and record its slot-held rate."""
+    async with ctx.download_slots:
+        in_flight = ctx.download_slots.in_use
+        started = time.monotonic()
+        await _download_s3_artifact(
+            artifact_uri,
+            output_path,
+            admission=ctx.admission,
+            defer_cleanup=ctx.defer_cleanup,
+            published_path=published_path,
+        )
+        elapsed = time.monotonic() - started
+    try:
+        size_bytes = output_path.stat().st_size
+    except OSError:
+        return
+    mb_per_s = size_bytes / 1_000_000 / elapsed if elapsed > 0 else 0.0
+    _DOWNLOAD_MB_PER_S.record(mb_per_s)
+    logger.info(
+        "Downloaded registry artifact",
+        cache_key=ctx.cache_key,
+        artifact_uri=_artifact_uri_for_logging(artifact_uri),
+        size_bytes=size_bytes,
+        slot_held_ms=f"{elapsed * 1000:.1f}",
+        mb_per_s=f"{mb_per_s:.1f}",
+        downloads_in_flight=in_flight,
+    )
 
 
 async def _download_s3_artifact(
@@ -1134,9 +1202,14 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
 
     async def _finish_lease_cleanup(self, idle_keys: list[str]) -> None:
         """Unmount every newly idle entry and converge the cache budget."""
-        for cache_key in idle_keys:
-            await self._unmount_idle_entry(cache_key)
-            await self._discard_idle_squashfs_extraction(cache_key)
+        try:
+            for cache_key in idle_keys:
+                await self._unmount_idle_entry(cache_key)
+                await self._discard_idle_squashfs_extraction(cache_key)
+        finally:
+            if idle_keys:
+                # Idle entries are evictable once unmount frees their key.
+                self._signal_capacity_changed()
         await self._converge_cache_budget()
 
     async def _discard_idle_squashfs_extraction(self, cache_key: str) -> None:
@@ -1210,28 +1283,32 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
             else:
                 remount_failed = False
 
-        async with self._admission_lock:
-            async with self._runtime_lock(cache_key):
-                if cached_paths := self._locally_cached_path(ctx, artifact_uri):
-                    return cached_paths
-                ctx = self._context_for(
+        # Writes reserve bytes; slots bound the work, so distinct keys run concurrently.
+        reservation = RegistryArtifactByteReservation()
+        async with self._runtime_lock(cache_key):
+            if cached_paths := self._locally_cached_path(ctx, artifact_uri):
+                return cached_paths
+            ctx = self._context_for(
+                cache_key,
+                admission=self._admission_for(
                     cache_key,
-                    admission=self._admission_for(
-                        cache_key,
-                        attempt_cache_keys=lease.attempt.cache_keys,
-                    ),
-                )
-                ctx.squashfs_remount_failed = remount_failed
+                    reservation,
+                    attempt_cache_keys=lease.attempt.cache_keys,
+                ),
+            )
+            ctx.squashfs_remount_failed = remount_failed
+            try:
                 candidates = await self._artifact_candidates(ctx, artifact_uri)
                 if cached_paths := self._first_cached_path(candidates, ctx):
                     return cached_paths
                 paths = await self._materialize_candidates(ctx, candidates)
-                self._touch_entry(cache_key)
+            finally:
+                # Runs only after the writer's blocking work has rejoined.
+                self._release_reservation(reservation)
+            self._touch_entry(cache_key)
 
         # Enforce entry count and final measured size after publication,
-        # outside the per-key lock. Peak-byte reservations may already
-        # have reclaimed idle LRU entries when that was required to keep
-        # staging and extraction within the hard byte cap.
+        # outside the per-key lock.
         try:
             await self._enforce_cache_budget(protected_key=cache_key)
         except OSError as e:
@@ -1338,9 +1415,15 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
                         if not materialized:
                             self._remove_unpublished_entry(ctx)
                 return registry_paths
+            except RegistryArtifactCacheLeaseContentionError:
+                # A fallback would contend for the same space; retry the lease.
+                raise
             except Exception as e:
                 if index == len(candidates) - 1:
                     raise
+                if ctx.admission is not None:
+                    # Drop the failed candidate's charge before the next one waits.
+                    await ctx.admission.settle()
                 logger.warning(
                     "Failed to materialize registry artifact candidate, trying fallback",
                     cache_key=cache_key,
