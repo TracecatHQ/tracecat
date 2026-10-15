@@ -222,6 +222,48 @@ async def test_discovery_servers_share_total_budget(
 
 
 @pytest.mark.anyio
+async def test_budget_timeout_firing_early_skips_remaining_servers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    contacted: list[str] = []
+
+    async def hang(
+        self: UserMCPClient, name: str, config: MCPHttpServerConfig
+    ) -> dict[str, MCPToolDefinition]:
+        contacted.append(name)
+        await asyncio.Event().wait()
+        return {}
+
+    monkeypatch.setattr(UserMCPClient, "_discover_server_tools", hang)
+    monkeypatch.setattr(
+        user_client, "MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS", 1, raising=False
+    )
+    monkeypatch.setattr(
+        user_client, "MCP_DISCOVERY_TIMEOUT_SECONDS", 0.05, raising=False
+    )
+    # The event loop runs timers up to one clock resolution before their
+    # deadline whenever something else wakes it, as other tasks do here.
+    monkeypatch.setattr(asyncio.get_running_loop(), "_clock_resolution", 0.04)
+
+    async def wake_loop() -> None:
+        while True:
+            await asyncio.sleep(0.001)
+
+    ticker = asyncio.create_task(wake_loop())
+    try:
+        result = await asyncio.wait_for(
+            UserMCPClient(
+                [_mcp_server("first"), _mcp_server("second")]
+            ).discover_tools_detailed(),
+            timeout=1,
+        )
+    finally:
+        ticker.cancel()
+    assert contacted == ["first"]
+    assert result.failed_servers["second"] == "UserMCPDiscoveryBudgetExceededError"
+
+
+@pytest.mark.anyio
 async def test_strict_discovery_raises_budget_error_for_uncontacted_server(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
