@@ -150,13 +150,20 @@ async def _await_with_timeout(
     scope = asyncio.timeout(timeout_seconds)
     try:
         async with scope:
-            return await coro
+            result = await coro
     except TimeoutError:
         # Only our own deadline is an action timeout; a TimeoutError raised by
         # the action itself propagates unchanged.
         if timeout_seconds is not None and scope.expired():
             raise ActionTimeoutError(_timeout_message(timeout_seconds)) from None
         raise
+    # Blocking code in the coroutine can starve the event loop so the deadline
+    # never fires. A result that arrives late is still a timeout.
+    deadline = scope.when()
+    late = deadline is not None and asyncio.get_running_loop().time() >= deadline
+    if timeout_seconds is not None and late:
+        raise ActionTimeoutError(_timeout_message(timeout_seconds))
+    return result
 
 
 def _call_sync_with_timeout(

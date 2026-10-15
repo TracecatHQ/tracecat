@@ -1245,6 +1245,57 @@ async def test_run_python_backend_holds_registry_lease_for_whole_sandbox_run(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("action_timeout", "script_timeout", "expected"),
+    [(5.0, 60, 5), (300.0, 60, 60), (47.3, None, 48)],
+)
+async def test_run_python_script_never_outlives_the_action_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    action_timeout: float,
+    script_timeout: int | None,
+    expected: int,
+) -> None:
+    """The sandbox timeout is min(script timeout_seconds, action timeout)."""
+    artifact_path = tmp_path / "registry-artifact"
+    artifact_path.mkdir()
+    fake_runner = _FakeRunPythonRegistryPathRunner([artifact_path])
+    captured: dict[str, Any] = {}
+
+    async def _get_artifact_uris(_input: RunActionInput, _role: Role) -> list[str]:
+        return ["s3://tracecat-registry/test/site-packages.tar.gz"]
+
+    class FakeSandboxService:
+        async def run_python(self, **kwargs: Any) -> dict[str, bool]:
+            captured.update(kwargs)
+            return {"ok": True}
+
+    monkeypatch.setattr(
+        "tracecat.executor.backends.base.SandboxService",
+        FakeSandboxService,
+    )
+    monkeypatch.setattr(
+        "tracecat.executor.backends.base.get_action_runner",
+        lambda: fake_runner,
+    )
+    backend = DirectBackend()
+    monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
+    resolved_context = _make_run_python_context()
+    if script_timeout is not None:
+        resolved_context.evaluated_args["timeout_seconds"] = script_timeout
+
+    result = await backend.execute(
+        input=_make_run_python_input(),
+        role=_make_role(),
+        resolved_context=resolved_context,
+        timeout=action_timeout,
+    )
+
+    assert result.type == "success"
+    assert captured["timeout_seconds"] == expected
+
+
+@pytest.mark.anyio
 async def test_run_python_backend_fails_without_registry_artifacts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

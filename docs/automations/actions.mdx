@@ -170,7 +170,9 @@ Defaults to 300 seconds. Tracecat clamps the value to `TRACECAT__EXECUTOR_CLIENT
 
 The timeout covers only the function call. Platform work such as resolving secrets, loading the action's registry code, and starting the sandbox doesn't count toward it. An attempt that hits the timeout fails with `Action execution timed out after <timeout>s` and is retried if `max_attempts` allows it.
 
-A template action counts as one action: its steps share one timeout, which starts when the first step starts. A step that would start after the timeout has run out fails the attempt instead.
+A template action counts as one action: its steps share one timeout, which starts when the first step starts. A template that runs past the timeout fails the attempt, and a step that would start after the timeout has run out never starts.
+
+For `core.script.run_python`, the shorter of `timeout` and the script's `timeout_seconds` applies.
 
 Each `for_each` iteration gets the full timeout, but all iterations share one attempt that Tracecat caps at the timeout plus 600 seconds. A loop whose iterations run longer than that fails the attempt, and a retry runs every iteration again.
 

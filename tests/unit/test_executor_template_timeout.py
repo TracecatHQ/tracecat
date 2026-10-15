@@ -178,6 +178,26 @@ async def test_template_fails_before_a_step_once_its_budget_runs_out(
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
+async def test_template_whose_last_step_ends_after_its_budget_times_out(
+    monkeypatch: pytest.MonkeyPatch, role: Role, clock: dict[str, float]
+) -> None:
+    """A template that finishes after its shared budget fails instead of succeeding late."""
+    action_input = _template_input(timeout=300)
+    _use_template(monkeypatch, role, action_input, steps=3)
+    timeouts: list[float] = []
+
+    with pytest.raises(ExecutionError) as caught:
+        await service.invoke_once(
+            _timed_backend(clock, timeouts),
+            action_input,
+            service.DispatchActionContext(role),
+        )
+
+    assert timeouts == [300.0, 180.0, 60.0]
+    assert caught.value.info.type == ActionTimeoutError.__name__
+    assert caught.value.info.message == "Action execution timed out after 300s"
+
+
 async def test_step_timeout_reports_the_template_budget(
     monkeypatch: pytest.MonkeyPatch, role: Role, clock: dict[str, float]
 ) -> None:

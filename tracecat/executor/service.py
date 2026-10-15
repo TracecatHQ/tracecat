@@ -591,6 +591,11 @@ async def _execute_template_action(
         ).to_materialized_dict()
         logger.trace("Template step completed", step_ref=step.ref)
 
+    # Step timers exclude subprocess startup, so the last step can finish
+    # after the deadline. A late template is still a timeout.
+    if time.monotonic() >= deadline:
+        raise ActionTimeoutError(f"Action execution timed out after {timeout:g}s")
+
     # Evaluate returns expression with final template context
     return eval_templated_object(
         template_def.returns, operand=template_context, provenance=provenance

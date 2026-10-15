@@ -10,6 +10,7 @@ Available backends:
 
 from __future__ import annotations
 
+import math
 import os
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -80,7 +81,9 @@ class ExecutorBackend(ABC):
 
         # Platform actions with special execution requirements
         if action_name == PlatformAction.RUN_PYTHON:
-            return await self._execute_run_python(input, role, resolved_context)
+            return await self._execute_run_python(
+                input, role, resolved_context, timeout
+            )
 
         # Normal UDF execution via backend-specific implementation
         return await self._execute(input, role, resolved_context, timeout)
@@ -104,11 +107,14 @@ class ExecutorBackend(ABC):
         input: RunActionInput,
         role: Role,
         resolved_context: ResolvedContext,
+        timeout: float,
     ) -> ExecutorResult:
         """Execute run_python action using host sandbox.
 
         This executes directly on the host rather than delegating to
         backend workers, because run_python needs its own nsjail sandbox.
+        The script runs for at most the action timeout, even when its own
+        ``timeout_seconds`` is longer.
         """
         args = resolved_context.evaluated_args
         script = args.get("script", "")
@@ -144,6 +150,7 @@ class ExecutorBackend(ABC):
                 env_vars=env_vars,
                 registry_paths=local_registry_paths,
                 resolved_context=resolved_context,
+                timeout=timeout,
             )
 
         # The lease is held for the whole sandbox run so cache eviction cannot
@@ -157,6 +164,7 @@ class ExecutorBackend(ABC):
                 env_vars=env_vars,
                 registry_paths=registry_paths,
                 resolved_context=resolved_context,
+                timeout=timeout,
             )
 
     async def _run_python_in_sandbox(
@@ -167,6 +175,7 @@ class ExecutorBackend(ABC):
         env_vars: dict[str, str],
         registry_paths: list[Path],
         resolved_context: ResolvedContext,
+        timeout: float,
     ) -> ExecutorResult:
         """Run a validated run_python script against resolved registry paths.
 
@@ -176,18 +185,20 @@ class ExecutorBackend(ABC):
             env_vars: Environment variables for the sandboxed script.
             registry_paths: Import roots for the sandboxed script.
             resolved_context: Pre-resolved execution context.
+            timeout: Action timeout that caps the script's own timeout_seconds.
 
         Returns:
             ExecutorResultSuccess on success, ExecutorResultFailure on a
             sandbox, validation, or dependency-install failure.
         """
+        script_timeout = min(args.get("timeout_seconds", 300), timeout)
         service = SandboxService()
         try:
             result = await service.run_python(
                 script=script,
                 inputs=args.get("inputs"),
                 dependencies=args.get("dependencies"),
-                timeout_seconds=args.get("timeout_seconds", 300),
+                timeout_seconds=math.ceil(script_timeout),
                 allow_network=args.get("allow_network", False),
                 env_vars=env_vars,
                 python_path_dirs=registry_paths,

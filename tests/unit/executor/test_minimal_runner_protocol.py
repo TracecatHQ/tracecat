@@ -1116,6 +1116,23 @@ def test_main_minimal_times_out_blocking_sync_action(monkeypatch) -> None:
     assert result["error"]["type"] == "ActionTimeoutError"
 
 
+def test_main_minimal_times_out_async_action_that_blocks_the_loop(
+    monkeypatch,
+) -> None:
+    """An async action that blocks past its deadline fails instead of succeeding late."""
+    import time
+
+    async def blocking_action() -> str:
+        time.sleep(0.1)
+        return "late"
+
+    result = _run_timed_action(monkeypatch, blocking_action, timeout_seconds=0.02)
+
+    assert result["success"] is False
+    assert result["error"]["type"] == "ActionTimeoutError"
+    assert result["error"]["message"] == "Action execution timed out after 0.02s"
+
+
 def test_main_minimal_keeps_action_raised_timeout_error(monkeypatch) -> None:
     async def action_with_own_timeout() -> None:
         async with asyncio.timeout(0.01):
