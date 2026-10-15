@@ -1,21 +1,26 @@
 "use client"
 
-import { CheckIcon, Loader2, PencilIcon, XIcon } from "lucide-react"
+import { CheckIcon, ClockIcon, Loader2, PencilIcon, XIcon } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type { ApprovalDecision } from "@/client"
-import { getStatusBadge } from "@/components/ai-elements/tool"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getIcon } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import {
   type ApprovalCard,
   isToolApprovedDecision,
   isToolDeniedDecision,
 } from "@/lib/chat"
-import { cn } from "@/lib/utils"
+import { cn, reconstructActionType } from "@/lib/utils"
 
 const TOOL_ICON_PROPS = { className: "size-5 p-[3px]" } as const
 
@@ -210,7 +215,7 @@ export function ApprovalRequestPart({
     <div className="space-y-4">
       <div className="space-y-3">
         {approvals.map((approval, index) => {
-          const actionId = approval.tool_name.replaceAll("__", ".")
+          const actionId = reconstructActionType(approval.tool_name)
           const decision = decisions[approval.tool_call_id]
           const submittedDecision = submittedDecisions[approval.tool_call_id]
           const visibleDecision = submittedDecision ?? decision
@@ -236,7 +241,7 @@ export function ApprovalRequestPart({
                     <p className="min-w-0 truncate font-medium text-sm">
                       {actionId}
                     </p>
-                    {isSubmitted ? null : getStatusBadge("approval-requested")}
+                    {isSubmitted ? null : <ApprovalRequiredBadge />}
                   </div>
                 </div>
                 <JsonViewWithControls
@@ -389,6 +394,26 @@ export function ApprovalRequestPart({
         </p>
       )}
     </div>
+  )
+}
+
+function ApprovalRequiredBadge() {
+  return (
+    <TooltipProvider delayDuration={0}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            aria-label="Approval required"
+            className="inline-flex items-center"
+            role="img"
+          >
+            <ClockIcon className="size-3.5 text-amber-500 animate-pulse" />
+            <span className="sr-only">Approval required</span>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top">Approval required</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   )
 }
 

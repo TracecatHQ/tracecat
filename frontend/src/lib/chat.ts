@@ -72,6 +72,28 @@ export function getCancelledPartToolCallIds(data: unknown): string[] {
   return toolCallIds.filter((id): id is string => typeof id === "string")
 }
 
+const NO_INTERRUPTED_TOOL_CALL_IDS: ReadonlySet<string> = new Set()
+
+/**
+ * Tool call IDs that the cancelled markers in these messages say an interrupt
+ * aborted. Shares one empty set so memoized parts skip re-rendering.
+ */
+export function collectInterruptedToolCallIds(
+  messages: readonly Pick<ai.UIMessage, "parts">[]
+): ReadonlySet<string> {
+  const toolCallIds = new Set<string>()
+  for (const { parts } of messages) {
+    for (const part of parts) {
+      if (part.type === CANCELLED_DATA_PART_TYPE) {
+        for (const toolCallId of getCancelledPartToolCallIds(part.data)) {
+          toolCallIds.add(toolCallId)
+        }
+      }
+    }
+  }
+  return toolCallIds.size > 0 ? toolCallIds : NO_INTERRUPTED_TOOL_CALL_IDS
+}
+
 /**
  * Error strings the Claude SDK records for tool calls that were aborted by a
  * user interrupt rather than failing on their own.
@@ -372,6 +394,11 @@ export type ModelInfo = {
 export type CompactionData = {
   phase?: "started" | "completed" | "failed"
   pre_tokens?: number
+}
+
+/** A `data-compaction` payload, or an empty one if malformed. */
+export function getCompactionData(data: unknown): CompactionData {
+  return data && typeof data === "object" ? (data as CompactionData) : {}
 }
 
 /**
@@ -687,11 +714,7 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
           }
         }
       } else if (part.type === "data-compaction") {
-        const phase =
-          part.data &&
-          typeof part.data === "object" &&
-          "phase" in part.data &&
-          (part.data as CompactionData).phase
+        const { phase } = getCompactionData(part.data)
 
         if (phase === "started") {
           if (pendingCompactionStartPos) {

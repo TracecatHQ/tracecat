@@ -50,18 +50,20 @@ import {
   TraceTitle,
 } from "@/components/ui/trace"
 import {
-  type ChatVerbosity,
-  useChatVerbosity,
+  type ChatVerbosityPolicy,
+  useChatVerbosityPolicy,
 } from "@/hooks/use-chat-verbosity"
 import { useSubagentTranscript } from "@/hooks/use-subagent-stream"
 import {
   CANCELLED_DATA_PART_TYPE,
   type CompactionData,
-  getCancelledPartToolCallIds,
+  collectInterruptedToolCallIds,
+  getCompactionData,
   isApprovalCardArray,
   isInterruptArtifactError,
 } from "@/lib/chat"
 import { getSubagentSessionId, SUBAGENT_TOOL_NAME } from "@/lib/subagent-stream"
+import { reconstructActionType } from "@/lib/utils"
 import { ARTIFACT_DATA_PART_TYPE } from "@/types/workspace-chat-artifacts"
 
 const AGENT_TOOL_NAMES = new Set(["Agent", "Task"])
@@ -141,8 +143,7 @@ export function MessagePart({
   onSubmitApprovals,
   reasoningSeconds,
 }: MessagePartProps) {
-  const verbosity = useChatVerbosity()
-  const expanded = verbosity === "verbose"
+  const { expandSteps } = useChatVerbosityPolicy()
 
   if (part.type === CANCELLED_DATA_PART_TYPE) {
     return (
@@ -154,7 +155,7 @@ export function MessagePart({
   }
 
   if (part.type === "data-approval-request") {
-    const payload = (part as { data?: unknown }).data
+    const payload = part.data
     const approvals = isApprovalCardArray(payload) ? payload : []
     return (
       <ApprovalRequestPart
@@ -166,7 +167,7 @@ export function MessagePart({
   }
 
   if (part.type === "data-compaction") {
-    const compaction = getCompactionData(part)
+    const compaction = getCompactionData(part.data)
     const {
       label,
       icon,
@@ -205,9 +206,8 @@ export function MessagePart({
       <Reasoning
         key={`${id}-${partIdx}`}
         className="w-full"
-        defaultOpen={expanded}
+        defaultOpen={expandSteps}
         duration={reasoningSeconds}
-        followStreaming={false}
         isStreaming={
           status === "streaming" && isLastMessage && part.state !== "done"
         }
@@ -219,7 +219,7 @@ export function MessagePart({
   }
 
   if (isToolUIPart(part)) {
-    const toolName = getToolName(part).replaceAll("__", ".")
+    const toolName = reconstructActionType(getToolName(part))
     const { state, errorText, isInterrupted } = deriveToolState(
       part,
       turnCancelled,
@@ -232,7 +232,7 @@ export function MessagePart({
           part={part}
           state={state}
           errorText={errorText}
-          defaultOpen={expanded}
+          defaultOpen={expandSteps}
         />
       )
     }
@@ -254,11 +254,10 @@ export function MessagePart({
       content = <ToolOutput output={part.output} errorText={visibleErrorText} />
     }
     return (
-      <Tool key={`${id}-${partIdx}`} defaultOpen={expanded}>
+      <Tool key={`${id}-${partIdx}`} defaultOpen={expandSteps}>
         <ToolHeader
           title={display.title}
           verbs={display.verbs}
-          type={part.type}
           state={state}
           icon={display.icon}
         />
@@ -309,6 +308,15 @@ export function isHiddenPart(part: UIMessage["parts"][number]): boolean {
   )
 }
 
+/**
+ * Whether the last part a message draws is a step. Without visible steps, such
+ * a message draws its own working line.
+ */
+export function endsWithActivity(parts: UIMessage["parts"]): boolean {
+  const lastShownPart = parts.findLast((part) => !isHiddenPart(part))
+  return lastShownPart !== undefined && isActivityPart(lastShownPart)
+}
+
 /** Fold consecutive activity parts into runs, keeping content parts apart. */
 function groupParts(parts: UIMessage["parts"]): PartGroup[] {
   const groups: PartGroup[] = []
@@ -340,7 +348,7 @@ function isNotableActivity(
   interruptedToolCallIds: ReadonlySet<string>
 ): boolean {
   if (part.type === "data-compaction") {
-    return getCompactionData(part).phase === "failed"
+    return getCompactionData(part.data).phase === "failed"
   }
   if (isToolUIPart(part)) {
     return (
@@ -360,20 +368,19 @@ function isInternalTool(part: UIMessage["parts"][number]): boolean {
 
 function visibleActivity(
   parts: IndexedPart[],
-  verbosity: ChatVerbosity,
+  policy: ChatVerbosityPolicy,
   turnCancelled: boolean,
   interruptedToolCallIds: ReadonlySet<string>
 ): IndexedPart[] {
-  switch (verbosity) {
-    case "verbose":
-      return parts
-    case "default":
-      return parts.filter(({ part }) => !isInternalTool(part))
-    case "minimal":
-      return parts.filter(({ part }) =>
-        isNotableActivity(part, turnCancelled, interruptedToolCallIds)
-      )
+  if (!policy.showSteps) {
+    return parts.filter(({ part }) =>
+      isNotableActivity(part, turnCancelled, interruptedToolCallIds)
+    )
   }
+  if (policy.showInternalTools) {
+    return parts
+  }
+  return parts.filter(({ part }) => !isInternalTool(part))
 }
 
 /**
@@ -390,7 +397,7 @@ export function MessageParts({
   onSubmitApprovals,
   reasoningSeconds,
 }: MessagePartsProps) {
-  const verbosity = useChatVerbosity()
+  const policy = useChatVerbosityPolicy()
   const groups = useMemo(() => groupParts(message.parts), [message.parts])
   const isLive = status === "streaming" && isLastMessage
 
@@ -418,13 +425,13 @@ export function MessageParts({
     }
     const shown = visibleActivity(
       group.parts,
-      verbosity,
+      policy,
       turnCancelled,
       interruptedToolCallIds
     )
-    // Minimal hides the steps, so the run still in progress gets one line.
+    // Hidden steps leave the run still in progress one line.
     const showWorking =
-      verbosity === "minimal" && isLive && groupIdx === groups.length - 1
+      !policy.showSteps && isLive && groupIdx === groups.length - 1
     if (shown.length === 0 && !showWorking) {
       return null
     }
@@ -447,16 +454,6 @@ export function RunningLine({ label }: { label: string }) {
       <TraceTitle>{label}</TraceTitle>
     </TraceLine>
   )
-}
-
-/** The payload of a `data-compaction` part, or an empty one if malformed. */
-export function getCompactionData(
-  part: UIMessage["parts"][number]
-): CompactionData {
-  const payload = (part as { data?: unknown }).data
-  return payload && typeof payload === "object"
-    ? (payload as CompactionData)
-    : {}
 }
 
 /** Label, icon, and line status for a compaction. A missing phase means completed. */
@@ -539,7 +536,6 @@ function SubagentToolPart({
     <Tool defaultOpen={defaultOpen || !finished}>
       <ToolHeader
         title={alias}
-        type={part.type}
         state={cardState}
         icon={
           <MousePointerClickIcon className="size-4 text-muted-foreground" />
@@ -586,21 +582,10 @@ function SubagentTranscript({
   // A cancelled child's own marker lists the tool calls the cancellation
   // aborted, so they render as interrupted rather than failed. Reuse the
   // shared empty set while streaming so memoized parts skip re-rendering.
-  const interruptedToolCallIds = useMemo((): ReadonlySet<string> => {
-    const toolCallIds = new Set<string>()
-    for (const { parts } of messages) {
-      for (const part of parts) {
-        if (part.type === CANCELLED_DATA_PART_TYPE) {
-          for (const toolCallId of getCancelledPartToolCallIds(
-            (part as { data?: unknown }).data
-          )) {
-            toolCallIds.add(toolCallId)
-          }
-        }
-      }
-    }
-    return toolCallIds.size > 0 ? toolCallIds : EMPTY_INTERRUPTED_TOOL_CALL_IDS
-  }, [messages])
+  const interruptedToolCallIds = useMemo(
+    () => collectInterruptedToolCallIds(messages),
+    [messages]
+  )
   const recoveryNotice = isRecoveryPaused ? (
     <div className="flex items-center gap-2 text-xs text-muted-foreground">
       <span>Transcript recovery paused.</span>

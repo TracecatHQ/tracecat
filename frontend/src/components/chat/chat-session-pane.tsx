@@ -59,9 +59,7 @@ import { AgentTurn, groupThread } from "@/components/chat/agent-turn"
 import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
 import { ChatToolsPicker } from "@/components/chat/chat-tools-picker"
 import {
-  getCompactionData,
-  isActivityPart,
-  isHiddenPart,
+  endsWithActivity,
   MessageParts,
   RunningLine,
 } from "@/components/chat/message-part"
@@ -83,6 +81,7 @@ import {
 } from "@/hooks/use-chat"
 import {
   ChatVerbosityContext,
+  getChatVerbosityPolicy,
   useChatVerbosityPreference,
 } from "@/hooks/use-chat-verbosity"
 import { useMentions } from "@/hooks/use-mentions"
@@ -91,9 +90,9 @@ import { SubagentStreamContext } from "@/hooks/use-subagent-stream"
 import { isAgentToolSelectable } from "@/lib/agent-tools"
 import {
   CANCELLED_DATA_PART_TYPE,
+  collectInterruptedToolCallIds,
   ENTITY_TO_INVALIDATION,
-  getCancelledPartToolCallIds,
-  getPendingApprovalIds,
+  getCompactionData,
   getSessionLastError,
   type ModelInfo,
   markLiveDenials,
@@ -108,13 +107,9 @@ import { PageContext } from "@/providers/chat-page-context"
 import type { ChatSurface } from "@/types/chat-surface"
 import { ARTIFACT_DATA_PART_TYPE } from "@/types/workspace-chat-artifacts"
 
-/** Whether a part draws anything in the thread. */
-function isRenderedPart(part: UIMessage["parts"][number]): boolean {
-  return part.type !== ARTIFACT_DATA_PART_TYPE
-}
-
-function messageHasVisibleParts(message: UIMessage): boolean {
-  return message.parts.some(isRenderedPart)
+/** Whether a message draws anything in the thread. */
+function messageHasVisibleParts(message: Pick<UIMessage, "parts">): boolean {
+  return message.parts.some((part) => part.type !== ARTIFACT_DATA_PART_TYPE)
 }
 
 /**
@@ -426,6 +421,7 @@ export function ChatSessionPane({
     resume: resume && !openedToSend.value,
   })
   const [verbosity] = useChatVerbosityPreference()
+  const verbosityPolicy = getChatVerbosityPolicy(verbosity)
   const subagentStreamContext = useMemo(
     () =>
       subagentStore ? { store: subagentStore, workspaceId, status } : null,
@@ -535,7 +531,7 @@ export function ChatSessionPane({
         // The in-progress compaction badge shows its own spinner. A finished
         // compaction doesn't, so the loader returns while the turn continues.
         (lastPart.type === "data-compaction" &&
-          getCompactionData(lastPart).phase === "started")
+          getCompactionData(lastPart.data).phase === "started")
 
       if (lastPart.type === "data-approval-request") return false
 
@@ -544,15 +540,13 @@ export function ChatSessionPane({
     return false
   }, [status, messages])
 
-  // At minimal the last message draws its own working line over its steps.
+  // Without visible steps, a message ending in steps draws its own working line.
   const showThinkingLine = useMemo(() => {
     if (!isWaitingForResponse) return false
-    if (verbosity !== "minimal") return true
-    const lastShownPart = messages
-      .at(-1)
-      ?.parts.findLast((part) => !isHiddenPart(part))
-    return !(lastShownPart && isActivityPart(lastShownPart))
-  }, [isWaitingForResponse, verbosity, messages])
+    if (verbosityPolicy.showSteps) return true
+    const lastMessage = messages.at(-1)
+    return !(lastMessage && endsWithActivity(lastMessage.parts))
+  }, [isWaitingForResponse, verbosityPolicy, messages])
 
   const isOptimisticBeforeSendPending = optimisticMessageText !== null
   const isInputDisabled =
@@ -1025,7 +1019,6 @@ export function ChatSessionPane({
   // time; tool call IDs are globally unique, so one session-wide set works.
   const { cancelledTurnMessageIds, interruptedToolCallIds } = useMemo(() => {
     const ids = new Set<string>()
-    const toolCallIds = new Set<string>()
     let lastContentMessageId: string | null = null
     for (const message of transformedMessages) {
       const parts = message.parts ?? []
@@ -1034,11 +1027,6 @@ export function ChatSessionPane({
       for (const part of parts) {
         if (part.type === CANCELLED_DATA_PART_TYPE) {
           hasCancelledPart = true
-          for (const toolCallId of getCancelledPartToolCallIds(
-            (part as { data?: unknown }).data
-          )) {
-            toolCallIds.add(toolCallId)
-          }
         } else if (isCancelAttributionContentPart(part)) {
           hasContentParts = true
         }
@@ -1053,7 +1041,11 @@ export function ChatSessionPane({
         lastContentMessageId = message.id
       }
     }
-    return { cancelledTurnMessageIds: ids, interruptedToolCallIds: toolCallIds }
+    return {
+      cancelledTurnMessageIds: ids,
+      interruptedToolCallIds:
+        collectInterruptedToolCallIds(transformedMessages),
+    }
   }, [transformedMessages])
 
   const invalidateEntityQueries = useCallback(
@@ -1434,7 +1426,7 @@ export function ChatSessionPane({
               {threadBlocks.map((block, blockIndex) => {
                 if (block.kind === "prompt") {
                   const { message } = block
-                  if (!message.parts.some(isRenderedPart)) {
+                  if (!messageHasVisibleParts(message)) {
                     return null
                   }
                   return (
@@ -1456,20 +1448,21 @@ export function ChatSessionPane({
                 )
                 return (
                   <div key={block.messages[0].id} className="group relative">
-                    {verbosity !== "minimal" && sourceUrlParts.length > 0 && (
-                      <Sources className="py-1">
-                        <SourcesTrigger count={sourceUrlParts.length} />
-                        <SourcesContent>
-                          {sourceUrlParts.map((part) => (
-                            <Source
-                              key={part.sourceId}
-                              href={part.url}
-                              title={part.title ?? part.url}
-                            />
-                          ))}
-                        </SourcesContent>
-                      </Sources>
-                    )}
+                    {verbosityPolicy.showSources &&
+                      sourceUrlParts.length > 0 && (
+                        <Sources className="py-1">
+                          <SourcesTrigger count={sourceUrlParts.length} />
+                          <SourcesContent>
+                            {sourceUrlParts.map((part) => (
+                              <Source
+                                key={part.sourceId}
+                                href={part.url}
+                                title={part.title ?? part.url}
+                              />
+                            ))}
+                          </SourcesContent>
+                        </Sources>
+                      )}
                     <AgentTurn
                       messages={block.messages}
                       startedAt={block.startedAt}
@@ -1504,19 +1497,7 @@ export function ChatSessionPane({
                   </div>
                 )
               })}
-              {showThinkingLine && (
-                <motion.div
-                  className="mt-5"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.3, ease: "easeInOut" }}
-                >
-                  <Trace>
-                    <RunningLine label="Thinking..." />
-                  </Trace>
-                </motion.div>
-              )}
+              {showThinkingLine && <ThinkingLine />}
             </ConversationContent>
             <ConversationScrollButton />
           </Conversation>
@@ -1663,18 +1644,25 @@ function OptimisticPendingMessage({ text }: { text: string }) {
           <Response>{text}</Response>
         </MessageContent>
       </Message>
-      <motion.div
-        className="mt-5"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.3, ease: "easeInOut" }}
-      >
-        <Trace>
-          <RunningLine label="Thinking..." />
-        </Trace>
-      </motion.div>
+      <ThinkingLine />
     </>
+  )
+}
+
+/** The line an agent draws before its first step or text. */
+function ThinkingLine() {
+  return (
+    <motion.div
+      className="mt-5"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.3, ease: "easeInOut" }}
+    >
+      <Trace>
+        <RunningLine label="Thinking..." />
+      </Trace>
+    </motion.div>
   )
 }
 

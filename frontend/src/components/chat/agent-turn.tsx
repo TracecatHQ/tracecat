@@ -15,12 +15,12 @@ import {
   TraceLine,
   TraceTitle,
 } from "@/components/ui/trace"
-import { useChatVerbosity } from "@/hooks/use-chat-verbosity"
+import { useChatVerbosityPolicy } from "@/hooks/use-chat-verbosity"
 
 type ThreadMessage = Pick<UIMessage, "id" | "role" | "parts" | "metadata">
 
 /** A thread split into user prompts and the agent turns that answer them. */
-export type ThreadBlock =
+type ThreadBlock =
   | { kind: "prompt"; message: ThreadMessage; index: number }
   | {
       kind: "turn"
@@ -151,10 +151,9 @@ export function AgentTurn({
   interruptedToolCallIds,
   onSubmitApprovals,
 }: AgentTurnProps) {
-  const verbosity = useChatVerbosity()
-  // Only the default level folds; verbose keeps the whole transcript inline.
+  const { foldFinishedTurns } = useChatVerbosityPolicy()
   const split =
-    isLive || verbosity !== "default" ? null : splitFinishedTurn(messages)
+    isLive || !foldFinishedTurns ? null : splitFinishedTurn(messages)
 
   // Each thought is its own history row, so it took as long as the gap since
   // the row before it.

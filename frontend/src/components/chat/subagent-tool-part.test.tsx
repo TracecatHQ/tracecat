@@ -23,7 +23,6 @@ jest.mock("@/hooks/use-chat", () => ({
 
 // The real tool components pull in ESM-only syntax highlighting.
 jest.mock("@/components/ai-elements/tool", () => ({
-  getStatusBadge: () => null,
   Tool: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
   ToolContent: ({ children }: { children?: ReactNode }) => (
     <div>{children}</div>

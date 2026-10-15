@@ -1068,7 +1068,6 @@ function ToolCallRow({ toolCall }: { toolCall: WatchtowerAgentToolCallRead }) {
       <Tool className="gap-1 border-b px-3 py-2 last:border-b-0">
         <ToolHeader
           title={toolName}
-          type={"tool-watchtower" as ToolUIPart["type"]}
           state={mapCallStatusToToolState(toolCall.call_status)}
           icon={getIcon(toolName, {
             className: "size-4 p-[3px]",

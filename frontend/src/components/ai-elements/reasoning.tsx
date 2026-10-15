@@ -25,8 +25,6 @@ import { Response } from "./response"
 
 type ReasoningContextValue = {
   isStreaming: boolean
-  isOpen: boolean
-  setIsOpen: (open: boolean) => void
   duration: number
 }
 
@@ -42,15 +40,9 @@ const useReasoning = () => {
 
 export type ReasoningProps = ComponentProps<typeof TraceCollapsible> & {
   isStreaming?: boolean
-  open?: boolean
-  defaultOpen?: boolean
-  onOpenChange?: (open: boolean) => void
   duration?: number
-  /** Open while it streams and close once it finishes. */
-  followStreaming?: boolean
 }
 
-const AUTO_CLOSE_DELAY = 1000
 const MS_IN_S = 1000
 // Treat the user as "pinned" when within this many px of the bottom.
 const STICK_TO_BOTTOM_THRESHOLD_PX = 16
@@ -59,28 +51,15 @@ export const Reasoning = memo(
   ({
     className,
     isStreaming = false,
-    open,
     defaultOpen = true,
-    onOpenChange,
     duration: durationProp,
-    followStreaming = true,
     children,
     ...props
   }: ReasoningProps) => {
-    const [isOpen, setIsOpen] = useControllableState({
-      prop: open,
-      defaultProp: defaultOpen,
-      onChange: onOpenChange,
-    })
     const [duration, setDuration] = useControllableState({
       prop: durationProp,
       defaultProp: 0,
     })
-
-    const [shouldAutoClose, setShouldAutoClose] = useState(
-      followStreaming && defaultOpen
-    )
-    const [hasAutoClosed, setHasAutoClosed] = useState(false)
     const [startTime, setStartTime] = useState<number | null>(null)
 
     // Track duration when streaming starts and ends
@@ -95,42 +74,10 @@ export const Reasoning = memo(
       }
     }, [isStreaming, startTime, setDuration])
 
-    // Ensure reasoning stays open while streaming and auto-close again afterwards.
-    useEffect(() => {
-      if (followStreaming && isStreaming) {
-        setIsOpen(true)
-        setShouldAutoClose(true)
-        setHasAutoClosed(false)
-      }
-    }, [followStreaming, isStreaming, setIsOpen])
-
-    // Auto-open when streaming starts, auto-close when streaming ends (once only)
-    useEffect(() => {
-      if (shouldAutoClose && !isStreaming && isOpen && !hasAutoClosed) {
-        // Add a small delay before closing to allow user to see the content
-        const timer = setTimeout(() => {
-          setIsOpen(false)
-          setHasAutoClosed(true)
-        }, AUTO_CLOSE_DELAY)
-
-        return () => clearTimeout(timer)
-      }
-    }, [isStreaming, isOpen, shouldAutoClose, setIsOpen, hasAutoClosed])
-
-    const handleOpenChange = (newOpen: boolean) => {
-      setIsOpen(newOpen)
-    }
-
     return (
-      <ReasoningContext.Provider
-        value={{ isStreaming, isOpen, setIsOpen, duration }}
-      >
+      <ReasoningContext.Provider value={{ isStreaming, duration }}>
         <Trace className={cn("not-prose", className)}>
-          <TraceCollapsible
-            onOpenChange={handleOpenChange}
-            open={isOpen}
-            {...props}
-          >
+          <TraceCollapsible defaultOpen={defaultOpen} {...props}>
             {children}
           </TraceCollapsible>
         </Trace>

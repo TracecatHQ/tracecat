@@ -3,13 +3,9 @@
 import type { DynamicToolUIPart, ToolUIPart } from "ai"
 import {
   CircleAlertIcon,
-  CircleCheckIcon,
-  CircleSlashIcon,
-  ClockIcon,
   DownloadIcon,
   LoaderCircleIcon,
   WrenchIcon,
-  XCircleIcon,
 } from "lucide-react"
 import {
   type ComponentProps,
@@ -22,12 +18,6 @@ import {
   useState,
 } from "react"
 import { Button } from "@/components/ui/button"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import {
   Trace,
   TraceCollapsible,
@@ -77,71 +67,15 @@ const DEFAULT_TOOL_VERBS: ToolVerbs = {
 }
 
 export type ToolHeaderProps = {
-  title?: string
+  title: string
   verbs?: ToolVerbs
   className?: string
   icon?: ReactNode
-  type: ToolPart["type"]
   state: ToolState
-  toolName?: string
 }
-
-const statusLabels: Record<ToolState, string> = {
-  "approval-requested": "Approval required",
-  "approval-responded": "Completed",
-  "input-available": "In progress",
-  "input-streaming": "In progress",
-  "output-available": "Completed",
-  "output-denied": "Denied",
-  "output-error": "Error",
-  "output-interrupted": "Interrupted",
-}
-
-const statusIcons: Record<ToolState, ReactNode> = {
-  "approval-requested": (
-    <ClockIcon className="size-3.5 text-amber-500 animate-pulse" />
-  ),
-  "approval-responded": (
-    <CircleCheckIcon className="size-4 fill-emerald-500 stroke-background" />
-  ),
-  "input-available": (
-    <ClockIcon className="size-3.5 text-amber-500 animate-pulse" />
-  ),
-  "input-streaming": (
-    <ClockIcon className="size-3.5 text-amber-500 animate-pulse" />
-  ),
-  "output-available": (
-    <CircleCheckIcon className="size-4 fill-emerald-500 stroke-background" />
-  ),
-  "output-denied": <BanIcon className="size-3.5 text-muted-foreground" />,
-  "output-error": (
-    <XCircleIcon className="size-4 fill-rose-500 stroke-background" />
-  ),
-  "output-interrupted": (
-    <CircleSlashIcon className="size-3.5 text-muted-foreground" />
-  ),
-}
-
-export const getStatusBadge = (status: ToolState) => (
-  <TooltipProvider delayDuration={0}>
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span
-          aria-label={statusLabels[status]}
-          className="inline-flex items-center"
-          role="img"
-        >
-          {statusIcons[status]}
-          <span className="sr-only">{statusLabels[status]}</span>
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="top">{statusLabels[status]}</TooltipContent>
-    </Tooltip>
-  </TooltipProvider>
-)
 
 /** How a tool state reads on its Trace line. */
-export function getToolLineStatus(
+function getToolLineStatus(
   state: ToolState,
   verbs: ToolVerbs = DEFAULT_TOOL_VERBS
 ): {
@@ -166,7 +100,7 @@ export function getToolLineStatus(
 }
 
 /** The leading icon for a tool line: a spinner or alert overrides the tool's own. */
-export function ToolLineIcon({
+function ToolLineIcon({
   status,
   icon,
 }: {
@@ -185,16 +119,10 @@ export function ToolLineIcon({
 export const ToolHeader = ({
   className,
   title,
-  type,
   state,
-  toolName,
   icon,
   verbs,
 }: ToolHeaderProps) => {
-  const derivedName =
-    type === "dynamic-tool"
-      ? (toolName ?? "dynamic-tool")
-      : type.split("-").slice(1).join("-")
   const { status, verb } = getToolLineStatus(state, verbs)
 
   return (
@@ -204,7 +132,7 @@ export const ToolHeader = ({
           <ToolLineIcon status={status} icon={icon} />
         </TraceIcon>
         <TraceTitle>
-          {verb} {title ?? derivedName}
+          {verb} {title}
         </TraceTitle>
       </TraceLine>
     </TraceCollapsibleTrigger>

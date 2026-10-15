@@ -53,7 +53,6 @@ jest.mock("@/components/icons", () => ({
 }))
 
 jest.mock("@/components/ai-elements/tool", () => ({
-  getStatusBadge: () => null,
   Tool: ({ children }: { children?: ReactNode }) => (
     <div data-testid="tool">{children}</div>
   ),
