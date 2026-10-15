@@ -5,6 +5,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import type { ReactNode } from "react"
 import {
   type CaseReadMinimal,
@@ -249,12 +250,9 @@ describe("exact-first case search UI", () => {
     )
   })
 
-  it("offers usable relationship sorting in All cases and shows the actual selected field", async () => {
+  it("keeps relationship sorting usable with active view filters", async () => {
     const user = userEvent.setup()
     setup()
-    await user.click(
-      await screen.findByRole("button", { name: "Search all cases" })
-    )
     const sortControl = screen.getByRole("combobox", {
       name: "Case sort field",
     })
