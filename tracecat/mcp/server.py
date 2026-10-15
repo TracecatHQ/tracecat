@@ -5531,6 +5531,7 @@ async def rerun_workflow_execution(
     use_draft: bool = True,
     version: int | None = None,
     fixed_action_refs: list[str] | None = None,
+    rerun_from_ref: str | None = None,
     dry_run: bool = False,
 ) -> WorkflowRerunToolResponse:
     """Rerun a past execution against the draft or a published version.
@@ -5560,6 +5561,8 @@ async def rerun_workflow_execution(
         fixed_action_refs: Refs whose results to reuse. Null reuses every
             match; an empty list reruns everything. Refs that cannot be
             reused are rejected.
+        rerun_from_ref: Rerun from this action. It and every action
+            downstream of it run fresh; other matches are still reused.
         dry_run: Return the match plan without starting a run.
 
     Returns JSON with ``started``, the new ``execution_id`` (when started),
@@ -5573,6 +5576,7 @@ async def rerun_workflow_execution(
                 use_draft=use_draft,
                 version=version,
                 fixed_action_refs=fixed_action_refs,
+                rerun_from_ref=rerun_from_ref,
                 dry_run=dry_run,
             )
         if isinstance(result, WorkflowRerunPlan):

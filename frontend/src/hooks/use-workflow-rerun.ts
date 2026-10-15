@@ -15,7 +15,10 @@ import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 export function useWorkflowRerunPreview(
   workspaceId: string,
   executionId: string,
-  target: Pick<WorkflowRerunRequest, "use_draft" | "version">,
+  target: Pick<
+    WorkflowRerunRequest,
+    "use_draft" | "version" | "rerun_from_ref"
+  >,
   { enabled = true }: { enabled?: boolean } = {}
 ) {
   const { data, isLoading, error } = useQuery<
@@ -28,6 +31,7 @@ export function useWorkflowRerunPreview(
       executionId,
       target.use_draft,
       target.version ?? null,
+      target.rerun_from_ref ?? null,
     ],
     queryFn: async () =>
       await workflowExecutionsPreviewWorkflowExecutionRerun({
@@ -37,10 +41,12 @@ export function useWorkflowRerunPreview(
           use_draft: target.use_draft,
           version: target.version ?? null,
           fixed_action_refs: null,
+          rerun_from_ref: target.rerun_from_ref ?? null,
         },
       }),
     enabled: enabled && Boolean(workspaceId) && Boolean(executionId),
     retry: retryHandler,
+    placeholderData: (previous) => previous,
   })
 
   return {

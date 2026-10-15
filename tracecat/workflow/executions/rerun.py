@@ -60,6 +60,13 @@ class WorkflowRerunRequest(BaseModel):
             "successful action; an empty list reruns everything."
         ),
     )
+    rerun_from_ref: str | None = Field(
+        default=None,
+        description=(
+            "Rerun from this action: it and every action downstream of it "
+            "in the target run fresh."
+        ),
+    )
 
 
 class WorkflowRerunActionMatch(BaseModel):
@@ -116,6 +123,21 @@ class RerunMatch:
     unmatched_refs: list[str]
 
 
+def downstream_refs(dsl: DSLInput, ref: str) -> set[str]:
+    """``ref`` and every action reachable from it in the target."""
+    adj = dsl._to_adjacency()
+    if ref not in adj:
+        raise ValueError(f"Action {ref!r} is not in the target workflow.")
+    seen = {ref}
+    stack = [ref]
+    while stack:
+        for child in adj[stack.pop()]:
+            if child not in seen:
+                seen.add(child)
+                stack.append(child)
+    return seen
+
+
 def _target_ineligible_reason(dsl: DSLInput) -> dict[str, str]:
     scopes, _, _ = dsl._assign_action_scopes(dsl._to_adjacency())
     reasons: dict[str, str] = {}
@@ -134,9 +156,11 @@ def match_rerun_actions(
     dsl: DSLInput,
     *,
     fixed_action_refs: list[str] | None = None,
+    rerun_from_ref: str | None = None,
 ) -> RerunMatch:
     """Match the source run's action results against a target definition."""
     ineligible = _target_ineligible_reason(dsl)
+    rerun_refs = downstream_refs(dsl, rerun_from_ref) if rerun_from_ref else set()
     requested = None if fixed_action_refs is None else set(fixed_action_refs)
     actions: list[WorkflowRerunActionMatch] = []
     fixed: dict[str, FixedActionResult] = {}
@@ -185,6 +209,17 @@ def match_rerun_actions(
                     source_action=src.action,
                     target_action=stmt.action,
                     reason=reason,
+                )
+            )
+            continue
+        if stmt.ref in rerun_refs:
+            actions.append(
+                WorkflowRerunActionMatch(
+                    ref=stmt.ref,
+                    status=WorkflowRerunActionStatus.EXCLUDED,
+                    source_action=src.action,
+                    target_action=stmt.action,
+                    reason=f"Reruns from {rerun_from_ref}.",
                 )
             )
             continue

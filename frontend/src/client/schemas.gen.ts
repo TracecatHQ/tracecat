@@ -41416,6 +41416,19 @@ export const $WorkflowRerunRequest = {
       description:
         "Action refs whose results to reuse. Null reuses every matching successful action; an empty list reruns everything.",
     },
+    rerun_from_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Rerun From Ref",
+      description:
+        "Rerun from this action: it and every action downstream of it in the target run fresh.",
+    },
   },
   type: "object",
   title: "WorkflowRerunRequest",

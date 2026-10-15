@@ -577,6 +577,7 @@ async def _rerun_workflow_execution(
                 use_draft=params.use_draft,
                 version=params.version,
                 fixed_action_refs=params.fixed_action_refs,
+                rerun_from_ref=params.rerun_from_ref,
                 dry_run=dry_run,
             )
     except TracecatNotFoundError as e:

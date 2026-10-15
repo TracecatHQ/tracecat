@@ -23,7 +23,7 @@ own embedded collection truncation behavior below.
 - `validate_workflow(workspace_id, workflow_id)`
 - `publish_workflow(workspace_id, workflow_id)`
 - `run_workflow(workspace_id, workflow_id, inputs=None, use_draft=True, version=None)`
-- `rerun_workflow_execution(workspace_id, execution_id, use_draft=True, version=None, fixed_action_refs=None, dry_run=False)`
+- `rerun_workflow_execution(workspace_id, execution_id, use_draft=True, version=None, fixed_action_refs=None, rerun_from_ref=None, dry_run=False)`
 - `list_workflow_executions(workspace_id, workflow_id, limit=20, cursor=None)`
 - `get_workflow_execution(workspace_id, execution_id, action_refs=None, include_results=True)`
 - `get_execution_action_result(workspace_id, execution_id, action_ref, stream_id=None, max_bytes=65536, offset=0)`

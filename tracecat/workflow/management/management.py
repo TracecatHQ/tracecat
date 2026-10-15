@@ -1219,6 +1219,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
         use_draft: bool = True,
         version: int | None = None,
         fixed_action_refs: list[str] | None = None,
+        rerun_from_ref: str | None = None,
         dry_run: bool = False,
     ) -> WorkflowRerunPlan | WorkflowRerunResponse:
         """Rerun a past execution against the draft or a published version.
@@ -1235,6 +1236,8 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 ``None`` uses the current published version.
             fixed_action_refs: Refs whose results to reuse. ``None`` reuses
                 every match; refs that cannot be reused are rejected.
+            rerun_from_ref: Run this action and everything downstream of it
+                fresh, even when their results could be reused.
             dry_run: Return the match plan without starting a run.
 
         Raises:
@@ -1264,7 +1267,15 @@ class WorkflowsManagementService(BaseWorkspaceService):
             source = await exec_service.get_rerun_source(execution_id)
         except WorkflowExecutionNotFoundError as e:
             raise TracecatNotFoundError(str(e)) from e
-        match = match_rerun_actions(source, dsl, fixed_action_refs=fixed_action_refs)
+        try:
+            match = match_rerun_actions(
+                source,
+                dsl,
+                fixed_action_refs=fixed_action_refs,
+                rerun_from_ref=rerun_from_ref,
+            )
+        except ValueError as e:
+            raise TracecatValidationError(str(e)) from e
         inputs_error: TracecatValidationError | None = None
         try:
             self._validate_trigger_inputs(dsl, source.trigger_inputs)

@@ -1,6 +1,6 @@
 "use client"
 
-import { PinIcon, Repeat2Icon } from "lucide-react"
+import { PinIcon, Repeat2Icon, RotateCcwIcon } from "lucide-react"
 import {
   getAggregateWorkflowEventStatus,
   getWorkflowEventIcon,
@@ -10,6 +10,7 @@ import {
   type WorkflowEventsListRow,
 } from "@/components/events/workflow-events-list"
 import { Spinner } from "@/components/loading/spinner"
+import { ContextMenuItem } from "@/components/ui/context-menu"
 import {
   Tooltip,
   TooltipContent,
@@ -34,10 +35,13 @@ export function WorkflowExecutionEventHistory({
   execution,
   selectedActionRef,
   setSelectedActionRef,
+  onRerunFrom,
 }: {
   execution: WorkflowExecutionReadCompact
   selectedActionRef?: string
   setSelectedActionRef: (actionRef: string) => void
+  /** Rerun this execution from an action; adds a right-click menu to rows. */
+  onRerunFrom?: (actionRef: string) => void
 }) {
   const workspaceId = useWorkspaceId()
 
@@ -159,6 +163,17 @@ export function WorkflowExecutionEventHistory({
         onSelect: latestEvent
           ? () => setSelectedActionRef(actionRef)
           : undefined,
+        contextMenu:
+          onRerunFrom && !actionRef.startsWith("__workflow_") ? (
+            <ContextMenuItem
+              className="gap-2 text-xs"
+              disabled={execution.status === "RUNNING"}
+              onSelect={() => onRerunFrom(actionRef)}
+            >
+              <RotateCcwIcon className="size-3.5" />
+              Rerun from this action
+            </ContextMenuItem>
+          ) : undefined,
       }
     }
   )

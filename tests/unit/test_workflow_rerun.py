@@ -137,6 +137,28 @@ def test_match_respects_requested_refs() -> None:
     assert match_rerun_actions(source, dsl, fixed_action_refs=[]).fixed == {}
 
 
+def test_match_reruns_from_ref_and_downstream() -> None:
+    source = _source(
+        **{
+            r: RerunSourceAction(ref=r, action="core.noop", fixed=_fixed(i))
+            for i, r in enumerate("abcd")
+        }
+    )
+    dsl = _dsl(
+        ActionStatement(ref="a", action="core.noop"),
+        ActionStatement(ref="b", action="core.noop", depends_on=["a"]),
+        ActionStatement(ref="c", action="core.noop", depends_on=["b.error"]),
+        ActionStatement(ref="d", action="core.noop", depends_on=["a"]),
+    )
+    match = match_rerun_actions(source, dsl, rerun_from_ref="b")
+    statuses = {a.ref: a.status for a in match.actions}
+    assert set(match.fixed) == {"a", "d"}
+    assert statuses["b"] == WorkflowRerunActionStatus.EXCLUDED
+    assert statuses["c"] == WorkflowRerunActionStatus.EXCLUDED
+    with pytest.raises(ValueError):
+        match_rerun_actions(source, dsl, rerun_from_ref="missing")
+
+
 def _scheduler(
     dsl: DSLInput, executed: list[str], fixed: dict[str, TaskResult]
 ) -> DSLScheduler:

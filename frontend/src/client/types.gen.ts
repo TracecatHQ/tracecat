@@ -12420,6 +12420,10 @@ export type WorkflowRerunRequest = {
    * Action refs whose results to reuse. Null reuses every matching successful action; an empty list reruns everything.
    */
   fixed_action_refs?: Array<string> | null
+  /**
+   * Rerun from this action: it and every action downstream of it in the target run fresh.
+   */
+  rerun_from_ref?: string | null
 }
 
 export type WorkflowRerunResponse = {

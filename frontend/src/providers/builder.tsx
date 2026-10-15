@@ -121,6 +121,11 @@ interface ReactFlowContextType {
   setSelectedActionEventRef: React.Dispatch<SetStateAction<string | undefined>>
   currentExecutionId: string | null
   setCurrentExecutionId: React.Dispatch<SetStateAction<string | null>>
+  /** Open the rerun dialog for the shown run, optionally from an action ref. */
+  rerunRequest: { fromRef: string | null } | null
+  setRerunRequest: React.Dispatch<
+    SetStateAction<{ fromRef: string | null } | null>
+  >
   triggerPayload: string
   setTriggerPayload: React.Dispatch<SetStateAction<string>>
   actionDrafts: Record<string, unknown>
@@ -163,6 +168,9 @@ export const WorkflowBuilderProvider: React.FC<
   const [currentExecutionId, setCurrentExecutionId] = useState<string | null>(
     null
   )
+  const [rerunRequest, setRerunRequest] = useState<{
+    fromRef: string | null
+  } | null>(null)
   const [triggerPayloadState, setTriggerPayloadState] = useState<string>(
     DEFAULT_TRIGGER_PAYLOAD
   )
@@ -447,6 +455,8 @@ export const WorkflowBuilderProvider: React.FC<
       toggleActionPanel,
       currentExecutionId,
       setCurrentExecutionId,
+      rerunRequest,
+      setRerunRequest,
       triggerPayload,
       setTriggerPayload,
       actionDrafts,
@@ -477,6 +487,7 @@ export const WorkflowBuilderProvider: React.FC<
       toggleActionPanel,
       currentExecutionId,
       setCurrentExecutionId,
+      rerunRequest,
       triggerPayload,
       setTriggerPayload,
       actionDrafts,

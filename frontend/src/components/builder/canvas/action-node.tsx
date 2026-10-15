@@ -16,6 +16,7 @@ import {
   CopyPlusIcon,
   LayoutListIcon,
   PencilIcon,
+  RotateCcwIcon,
   SquareArrowOutUpRightIcon,
   Trash2Icon,
 } from "lucide-react"
@@ -57,6 +58,12 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 import { FormControl, FormField, FormItem } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -113,6 +120,7 @@ export default React.memo(function ActionNode({
     sidebarRef,
     actionPanelRef,
     setSelectedActionEventRef,
+    setRerunRequest,
   } = useWorkflowBuilder()
   const { validationErrors } = useWorkflow()
 
@@ -365,51 +373,68 @@ export default React.memo(function ActionNode({
     <TooltipProvider>
       <FormProvider {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)}>
-          <Card
-            ref={nodeRef}
-            className={cn(
-              "min-w-64",
-              nodeStyles.common,
-              selected ? nodeStyles.selected : nodeStyles.hover
-            )}
-            onMouseEnter={handleNodeMouseEnter}
-            onMouseLeave={handleNodeMouseLeave}
-            onClick={expandActionPanel}
-          >
-            <ActionNodeContent
-              workspaceId={workspaceId}
-              actionType={action?.type}
-              actionInputs={actionInputsObj}
-              actionIsLoading={actionIsLoading}
-              submitHandler={form.handleSubmit(onSubmit)}
-              style={style}
-              breakpoint={breakpoint}
-              Icon={Icon}
-              childWorkflowInfo={childWorkflowInfo}
-              error={error}
-              validationErrors={actionValidationErrors}
-            />
-            <ActionTargetHandle
-              action={action}
-              indegree={incomingEdges.length}
-              showFullCondition={selected || isMouseOverNode}
-            />
-            <ActionSoruceSuccessHandle type="source" />
-            <ActionSourceErrorHandle type="source" />
-            {action && (
-              <ActionNodeToolbar
-                action={action}
-                childWorkflowInfo={childWorkflowInfo}
-                showToolbar={showToolbar}
-                selected={selected}
-                sidebarRef={sidebarRef}
-                setSelectedActionEventRef={setSelectedActionEventRef}
-                setIsMouseOverToolbar={setIsMouseOverToolbar}
-                handleDeleteNode={handleDeleteNode}
-                handleDuplicateNode={handleDuplicateNode}
-              />
-            )}
-          </Card>
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
+              <Card
+                ref={nodeRef}
+                className={cn(
+                  "min-w-64",
+                  nodeStyles.common,
+                  selected ? nodeStyles.selected : nodeStyles.hover
+                )}
+                onMouseEnter={handleNodeMouseEnter}
+                onMouseLeave={handleNodeMouseLeave}
+                onClick={expandActionPanel}
+              >
+                <ActionNodeContent
+                  workspaceId={workspaceId}
+                  actionType={action?.type}
+                  actionInputs={actionInputsObj}
+                  actionIsLoading={actionIsLoading}
+                  submitHandler={form.handleSubmit(onSubmit)}
+                  style={style}
+                  breakpoint={breakpoint}
+                  Icon={Icon}
+                  childWorkflowInfo={childWorkflowInfo}
+                  error={error}
+                  validationErrors={actionValidationErrors}
+                />
+                <ActionTargetHandle
+                  action={action}
+                  indegree={incomingEdges.length}
+                  showFullCondition={selected || isMouseOverNode}
+                />
+                <ActionSoruceSuccessHandle type="source" />
+                <ActionSourceErrorHandle type="source" />
+                {action && (
+                  <ActionNodeToolbar
+                    action={action}
+                    childWorkflowInfo={childWorkflowInfo}
+                    showToolbar={showToolbar}
+                    selected={selected}
+                    sidebarRef={sidebarRef}
+                    setSelectedActionEventRef={setSelectedActionEventRef}
+                    setIsMouseOverToolbar={setIsMouseOverToolbar}
+                    handleDeleteNode={handleDeleteNode}
+                    handleDuplicateNode={handleDuplicateNode}
+                  />
+                )}
+              </Card>
+            </ContextMenuTrigger>
+            <ContextMenuContent>
+              <ContextMenuItem
+                className="gap-2 text-xs"
+                disabled={!action}
+                onSelect={() =>
+                  action &&
+                  setRerunRequest({ fromRef: slugifyActionRef(action.title) })
+                }
+              >
+                <RotateCcwIcon className="size-3.5" />
+                Rerun last run from here
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
         </form>
       </FormProvider>
     </TooltipProvider>

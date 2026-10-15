@@ -66,6 +66,7 @@ function ExecutionDetails({ executionId }: { executionId: string }) {
   const { execution, executionIsLoading, executionError } =
     useCompactWorkflowExecution(executionId)
   const [rerunOpen, setRerunOpen] = useState(false)
+  const [rerunFromRef, setRerunFromRef] = useState<string | null>(null)
   const router = useRouter()
   const pathname = usePathname()
   const selectedActionRef =
@@ -97,7 +98,10 @@ function ExecutionDetails({ executionId }: { executionId: string }) {
                   size="sm"
                   className="h-6 gap-1 px-2 text-xs"
                   disabled={execution.status === "RUNNING"}
-                  onClick={() => setRerunOpen(true)}
+                  onClick={() => {
+                    setRerunFromRef(null)
+                    setRerunOpen(true)
+                  }}
                 >
                   <RotateCcwIcon className="size-3" />
                   Rerun
@@ -111,6 +115,7 @@ function ExecutionDetails({ executionId }: { executionId: string }) {
               workflowId={parseFullExecutionId(execution.id).wf}
               open={rerunOpen}
               onOpenChange={setRerunOpen}
+              rerunFromRef={rerunFromRef}
               onStarted={(wfExecId) => {
                 const baseUrl = pathname?.split("/executions")[0] ?? ""
                 router.push(
@@ -126,6 +131,10 @@ function ExecutionDetails({ executionId }: { executionId: string }) {
               error={executionError}
               selectedActionRef={selectedActionRef}
               setSelectedActionRef={setRequestedActionRef}
+              onRerunFrom={(actionRef) => {
+                setRerunFromRef(actionRef)
+                setRerunOpen(true)
+              }}
             />
           </div>
         </div>
@@ -169,12 +178,14 @@ function EventHistoryContent({
   error,
   selectedActionRef,
   setSelectedActionRef,
+  onRerunFrom,
 }: {
   execution: WorkflowExecutionReadCompact | null | undefined
   isLoading: boolean
   error: Error | null
   selectedActionRef?: string
   setSelectedActionRef: (actionRef: string) => void
+  onRerunFrom: (actionRef: string) => void
 }) {
   if (isLoading) {
     return <CenteredSpinner />
@@ -190,6 +201,7 @@ function EventHistoryContent({
       execution={execution}
       selectedActionRef={selectedActionRef}
       setSelectedActionRef={setSelectedActionRef}
+      onRerunFrom={onRerunFrom}
     />
   )
 }
