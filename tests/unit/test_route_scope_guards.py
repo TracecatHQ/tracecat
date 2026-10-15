@@ -25,6 +25,8 @@ from tracecat.cases.tags import router as case_tags_router
 from tracecat.cases.versions import router as case_versions_router
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError
+from tracecat.forms import internal_router as internal_forms_router
+from tracecat.forms import router as forms_router
 from tracecat.inbox import router as inbox_router
 from tracecat.integrations import router as integrations_router
 from tracecat.invitations import router as invitations_router
@@ -660,6 +662,39 @@ async def test_mcp_create_scope_guards(endpoint: AsyncEndpoint) -> None:
         endpoint,
         ("integration:create", "integration:read"),
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scopes"),
+    [
+        (forms_router.list_forms, ("form:read",)),
+        (forms_router.create_form, ("form:create",)),
+        (forms_router.get_form, ("form:read",)),
+        (forms_router.update_form, ("form:update",)),
+        (forms_router.delete_form, ("form:delete",)),
+        (forms_router.validate_form, ("form:read",)),
+        (forms_router.render_form, ("form:read",)),
+        (forms_router.search_form_users, ("form:read",)),
+        (forms_router.submit_form, ("form:read", "form:submit")),
+        (forms_router.upload_form_file, ("form:read", "form:submit")),
+        (forms_router.download_form_file, ("form:read",)),
+        (forms_router.list_form_submissions, ("form:submission:read",)),
+        (forms_router.get_form_submission, ("form:read",)),
+        (forms_router.delete_form_submission, ("form:submission:delete",)),
+        (internal_forms_router.list_forms, ("form:read",)),
+        (internal_forms_router.get_form, ("form:read",)),
+        (internal_forms_router.upsert_form, ("form:create", "form:update")),
+        (internal_forms_router.list_submissions, ("form:submission:read",)),
+        (internal_forms_router.get_submission, ("form:submission:read",)),
+        (internal_forms_router.delete_submission, ("form:submission:delete",)),
+        (internal_forms_router.download_file, ("form:submission:read",)),
+    ],
+)
+async def test_form_scope_guards(
+    endpoint: AsyncEndpoint, required_scopes: tuple[str, ...]
+) -> None:
+    await _assert_endpoint_requires_all_scopes(endpoint, required_scopes)
 
 
 @pytest.mark.anyio

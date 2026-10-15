@@ -8,6 +8,7 @@ import {
   useState,
 } from "react"
 import type { AgentCatalogRead, AgentCustomProviderRead } from "@/client"
+import { LogoTile } from "@/components/agents/agent-preset-rail-primitives"
 import { getModelProviderIconId, ProviderIcon } from "@/components/icons"
 import {
   Command,
@@ -74,6 +75,8 @@ export interface AgentModelComboboxProps
   unavailableLabel?: string
   triggerClassName?: string
   contentClassName?: string
+  /** Property-row trigger: logo tile and model name, no source or chevron. */
+  inline?: boolean
 }
 
 function getSourceType(model: AgentCatalogRead): string {
@@ -199,11 +202,35 @@ function ModelLabel({
   iconId,
   name,
   detail,
+  inline = false,
+  status,
 }: {
   iconId: string
   name: string
   detail: string
+  inline?: boolean
+  /** Inline only: a muted note such as "Legacy" after the name. */
+  status?: string
 }) {
+  if (inline) {
+    return (
+      <span className="flex min-w-0 items-center gap-2">
+        <LogoTile>
+          <ProviderIcon
+            inline
+            providerId={iconId}
+            className="size-3 rounded-none bg-transparent p-0"
+          />
+        </LogoTile>
+        <span className="truncate" title={name}>
+          {name}
+        </span>
+        {status ? (
+          <span className="shrink-0 text-muted-foreground">{status}</span>
+        ) : null}
+      </span>
+    )
+  }
   return (
     <span className="flex min-w-0 items-center gap-2">
       <ProviderIcon
@@ -236,6 +263,7 @@ export const AgentModelCombobox = forwardRef<
     unavailableLabel = "Legacy",
     triggerClassName,
     contentClassName,
+    inline = false,
     ...triggerProps
   },
   ref
@@ -249,6 +277,7 @@ export const AgentModelCombobox = forwardRef<
         iconId={selected.iconId}
         name={selected.displayName}
         detail={selected.sourceName}
+        inline={inline}
       />
     )
   } else if (value.modelProvider && value.modelName) {
@@ -258,8 +287,14 @@ export const AgentModelCombobox = forwardRef<
       label = (
         <ModelLabel
           iconId={getModelProviderIconId(value.modelProvider)}
-          name={`${value.modelProvider} / ${value.modelName}`}
+          name={
+            inline
+              ? value.modelName
+              : `${value.modelProvider} / ${value.modelName}`
+          }
           detail={detail}
+          inline={inline}
+          status={detail}
         />
       )
     }
@@ -282,7 +317,9 @@ export const AgentModelCombobox = forwardRef<
           disabled={disabled}
         >
           {label}
-          <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
+          {inline ? null : (
+            <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
+          )}
         </button>
       </PopoverTrigger>
       <PopoverContent

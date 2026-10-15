@@ -7,6 +7,7 @@ from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import delete, select, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import DBAPIError
@@ -38,6 +39,7 @@ from tracecat.cases.enums import (
     CaseSeverity,
     CaseStatus,
 )
+from tracecat.cases.filters import resolve_tag_ids
 from tracecat.cases.schemas import (
     CaseCommentCreate,
     CaseCreate,
@@ -2173,6 +2175,115 @@ class TestCasesService:
         assert case_with_first_tag.id in result_ids
         assert case_with_second_tag.id in result_ids
         assert unrelated_case.id not in result_ids
+
+        aggregates = await cases_service.get_search_case_aggregates(
+            tag_ids=[tag_one.id, tag_two.id]
+        )
+        assert aggregates.total == len(response.items) == 2
+
+    @pytest.mark.parametrize("search_term", ["%", "_", "\\", r"\%_"])
+    async def test_search_literal_metacharacters_match_rows_and_counts(
+        self,
+        cases_service: CasesService,
+        session: AsyncSession,
+        svc_organization: Organization,
+        search_term: str,
+    ) -> None:
+        """Literal text matches both text columns without crossing workspaces."""
+        summary_match = await cases_service.create_case(
+            CaseCreate(
+                summary=f"Literal {search_term} marker",
+                description="Plain description",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+        description_match = await cases_service.create_case(
+            CaseCreate(
+                summary="Plain summary",
+                description=f"Literal {search_term} marker",
+                status=CaseStatus.RESOLVED,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+        await cases_service.create_case(
+            CaseCreate(
+                summary="Literal wildcard replacement marker",
+                description="Plain description",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+
+        other_workspace = Workspace(
+            name="literal-search-other-workspace", organization_id=svc_organization.id
+        )
+        session.add(other_workspace)
+        await session.commit()
+        other_role = cases_service.role.model_copy(
+            update={"workspace_id": other_workspace.id}
+        )
+        other_service = CasesService(session, other_role)
+        await other_service.create_case(
+            CaseCreate(
+                summary=f"Literal {search_term} marker",
+                description="Plain description",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+
+        response = await cases_service.search_cases(
+            CursorPaginationParams(limit=20), search_term=search_term
+        )
+        aggregates = await cases_service.get_search_case_aggregates(
+            search_term=search_term
+        )
+
+        assert {item.id for item in response.items} == {
+            summary_match.id,
+            description_match.id,
+        }
+        assert aggregates.total == len(response.items) == 2
+        assert aggregates.status_groups.new == 1
+        assert aggregates.status_groups.resolved == 1
+
+    async def test_search_tag_resolution_is_workspace_scoped(
+        self,
+        cases_service: CasesService,
+        session: AsyncSession,
+        svc_organization: Organization,
+    ) -> None:
+        """Foreign tag UUIDs and refs cannot silently remove a requested filter."""
+        tag = await cases_service.tags.create_tag(TagCreate(name="Local search tag"))
+        resolved_ids = await resolve_tag_ids(
+            tags=[tag.ref, str(tag.id)], role=cases_service.role, session=session
+        )
+        assert resolved_ids == [tag.id, tag.id]
+
+        other_workspace = Workspace(
+            name="tag-search-other-workspace", organization_id=svc_organization.id
+        )
+        session.add(other_workspace)
+        await session.commit()
+        other_role = cases_service.role.model_copy(
+            update={"workspace_id": other_workspace.id}
+        )
+        other_tag = await CaseTagsService(session, other_role).create_tag(
+            TagCreate(name="Foreign search tag")
+        )
+
+        for identifier in (other_tag.ref, str(other_tag.id)):
+            with pytest.raises(HTTPException) as error:
+                await resolve_tag_ids(
+                    tags=[tag.ref, identifier], role=cases_service.role, session=session
+                )
+            assert error.value.status_code == 400
+            assert error.value.detail == f"Unknown case tag filter: {identifier!r}"
 
     async def test_search_cases_short_id_exact_match(
         self, cases_service: CasesService

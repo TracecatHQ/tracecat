@@ -21,6 +21,7 @@ from tracecat.secrets.schemas import (
 from tracecat.sync import CommitInfo, PullResourceDiff
 from tracecat.workflow.store.schemas import (
     RemoteCaseTrigger,
+    RemoteForm,
     RemoteWebhook,
     RemoteWorkflowSchedule,
     RemoteWorkflowTag,
@@ -157,6 +158,10 @@ class WorkflowResourceSpec(BaseModel):
     case_trigger: RemoteCaseTrigger | None = Field(
         default=None,
         description="Case-event trigger config, if the workflow has one.",
+    )
+    form: RemoteForm | None = Field(
+        default=None,
+        description="Form config and status, if the workflow has a configured form.",
     )
     definition: DSLInput = Field(
         description="The workflow DSL: the executable graph and its metadata.",

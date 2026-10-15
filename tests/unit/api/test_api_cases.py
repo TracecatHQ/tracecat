@@ -8,7 +8,7 @@ import pytest
 from asyncpg import DuplicateColumnError
 from fastapi import status
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import NoResultFound, ProgrammingError
 
 from tracecat.auth.types import Role
 from tracecat.cases import router as cases_router
@@ -31,6 +31,7 @@ from tracecat.cases.schemas import (
     CaseSearchAggregateRead,
     CaseStatusGroupCounts,
 )
+from tracecat.cases.tags.service import CaseTagsService
 from tracecat.cases.versions import router as case_versions_router
 from tracecat.cases.versions.schemas import (
     CaseVersionCompareRead,
@@ -1505,6 +1506,72 @@ async def test_search_cases_success(
         assert len(data["items"]) == 1
         assert data["items"][0]["summary"] == "Test Case Summary"
         mock_svc.search_cases.assert_called_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/cases/search", "/cases/search/aggregate"])
+@pytest.mark.parametrize("include_known", [False, True])
+async def test_case_search_rejects_unresolved_tags(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case_tag: CaseTag,
+    path: str,
+    include_known: bool,
+) -> None:
+    tags = [mock_case_tag.ref, "missing-tag"] if include_known else ["missing-tag"]
+    results = [mock_case_tag, NoResultFound()] if include_known else [NoResultFound()]
+    with (
+        patch.object(cases_router, "CasesService") as service_cls,
+        patch.object(
+            CaseTagsService, "get_tag_by_ref_or_id", new=AsyncMock(side_effect=results)
+        ),
+    ):
+        response = client.get(
+            path,
+            params=[("workspace_id", str(test_admin_role.workspace_id))]
+            + [("tags", tag) for tag in tags],
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Unknown case tag filter: 'missing-tag'"
+    service_cls.return_value.search_cases.assert_not_called()
+    service_cls.return_value.get_search_case_aggregates.assert_not_called()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/cases/search", "/cases/search/aggregate"])
+@pytest.mark.parametrize("tags", [[], [""]])
+async def test_case_search_empty_tags_remain_unfiltered(
+    client: TestClient, test_admin_role: Role, path: str, tags: list[str]
+) -> None:
+    with (
+        patch.object(cases_router, "CasesService") as service_cls,
+        patch.object(
+            CaseTagsService, "get_tag_by_ref_or_id", new=AsyncMock()
+        ) as resolve,
+    ):
+        service = AsyncMock()
+        service.search_cases.return_value = CursorPaginatedResponse[CaseReadMinimal](
+            items=[], has_more=False, has_previous=False
+        )
+        service.get_search_case_aggregates.return_value = CaseSearchAggregateRead(
+            total=0, status_groups=CaseStatusGroupCounts()
+        )
+        service_cls.return_value = service
+        response = client.get(
+            path,
+            params=[("workspace_id", str(test_admin_role.workspace_id))]
+            + [("tags", tag) for tag in tags],
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    resolve.assert_not_awaited()
+    search = (
+        service.search_cases
+        if path == "/cases/search"
+        else service.get_search_case_aggregates
+    )
+    assert search.call_args.kwargs["tag_ids"] is None
 
 
 @pytest.mark.anyio

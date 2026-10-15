@@ -21,6 +21,7 @@ from tracecat.contexts import ctx_logical_time
 from tracecat.db.models import (
     Action,
     CaseTrigger,
+    Form,
     Schedule,
     Webhook,
     Workflow,
@@ -34,6 +35,7 @@ from tracecat.dsl.common import (
     DSLInput,
     build_action_statements_from_actions,
     edge_components_from_dep,
+    expects_key_order,
 )
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import DSLConfig, ExecutionContext, RunContext
@@ -46,6 +48,7 @@ from tracecat.exceptions import (
     WorkflowAliasResolutionError,
 )
 from tracecat.expressions.eval import eval_templated_object
+from tracecat.forms.storage import delete_file_blobs, lock_forms_for_deletion
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import (
     LEGACY_WF_ID_PATTERN,
@@ -150,6 +153,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
             "title": dsl.title,
             "description": dsl.description,
             "expects": dsl.entrypoint.model_dump(mode="json").get("expects"),
+            "expects_order": expects_key_order(dsl.entrypoint.expects),
             "returns": dsl.returns,
             "config": dsl.config.model_dump(),
             "error_handler": dsl.error_handler,
@@ -799,6 +803,8 @@ class WorkflowsManagementService(BaseWorkspaceService):
             set_fields["object"] = normalized_graph.model_dump(
                 by_alias=True, mode="json"
             )
+        if "expects" in set_fields:
+            workflow.expects_order = expects_key_order(set_fields["expects"])
 
         for key, value in set_fields.items():
             # Safe because params has been validated
@@ -846,9 +852,16 @@ class WorkflowsManagementService(BaseWorkspaceService):
                     error=str(e),
                 )
 
+        # The cascade removes the form and its file rows. Their blobs are
+        # deleted after the commit, best effort.
+        form_file_keys = await lock_forms_for_deletion(
+            self.session, self.workspace_id, Form.workflow_id == workflow_uuid
+        )
+
         # Now delete the workflow (cascade will handle database schedule cleanup)
         await self.session.delete(workflow)
         await self.session.commit()
+        await delete_file_blobs(form_file_keys)
 
     @require_scope("workflow:create")
     @audit_log(resource_type="workflow", action="create", resource_id_attr="id")
@@ -1058,7 +1071,9 @@ class WorkflowsManagementService(BaseWorkspaceService):
         return DSLInput(
             title=workflow.title,
             description=workflow.description,
-            entrypoint=DSLEntrypoint(expects=workflow.expects),
+            entrypoint=DSLEntrypoint(
+                expects=workflow.expects, expects_order=workflow.expects_order
+            ),
             actions=action_statements,
             config=DSLConfig(**workflow.config),
             returns=workflow.returns,
@@ -1597,6 +1612,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 wait_until=act_stmt.wait_until,
                 join_strategy=act_stmt.join_strategy,
                 environment=act_stmt.environment,
+                tunnel=act_stmt.tunnel,
                 mask_output=act_stmt.mask_output,
                 unsafe_disable_secret_error_withholding=act_stmt.unsafe_disable_secret_error_withholding,
             )

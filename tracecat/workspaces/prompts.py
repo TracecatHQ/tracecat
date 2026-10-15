@@ -1,6 +1,7 @@
 """Workspace copilot prompts."""
 
 import textwrap
+import uuid
 
 from pydantic import BaseModel
 
@@ -59,3 +60,15 @@ class WorkspaceCopilotPrompts(BaseModel):
         raise NotImplementedError(
             "User prompt is not implemented for the workspace copilot."
         )
+
+
+def form_page_context(form_id: uuid.UUID) -> str:
+    """Context line for a workspace chat docked on a form's page.
+
+    Carries the form ID only: a form's own text is author-written and must not
+    reach the system prompt.
+    """
+    return (
+        f"<page-context>The user has this chat open beside form `{form_id}`. "
+        'When they say "this form", they mean that form.</page-context>'
+    )

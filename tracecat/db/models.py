@@ -79,6 +79,7 @@ from tracecat.cases.enums import (
     CaseTaskStatus,
     CaseVersionField,
 )
+from tracecat.forms.enums import FormStatus
 from tracecat.identifiers import (
     OrganizationID,
     OwnerID,
@@ -1086,6 +1087,11 @@ class Workflow(WorkspaceModel):
         nullable=True,
         doc="Input schema for the workflow",
     )
+    expects_order: Mapped[list[str] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Author's key order for expects; JSONB does not keep object key order",
+    )
     returns: Mapped[Any | None] = mapped_column(
         JSONB, nullable=True, doc="Workflow return values"
     )
@@ -1567,6 +1573,170 @@ class CaseTrigger(WorkspaceModel):
     )
 
     workflow: Mapped[Workflow] = relationship(back_populates="case_trigger")
+
+
+class Form(WorkspaceModel):
+    """Form configuration for a workflow. One form per workflow.
+
+    Deliberately has no relationship on ``Workflow``: ``layout`` can carry
+    inline images and must not load with every workflow.
+    """
+
+    __tablename__ = "form"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("workflow.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), default=FormStatus.OFFLINE.value, nullable=False
+    )
+    title: Mapped[str | None] = mapped_column(String, nullable=True)
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
+    success_message: Mapped[str | None] = mapped_column(String, nullable=True)
+    layout: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Ordered layout entries. Null renders every input in schema order.",
+    )
+
+
+class FormSubmission(WorkspaceModel):
+    """One submission of a form, with the answers that started the run."""
+
+    __tablename__ = "form_submission"
+    __table_args__ = (
+        Index(
+            "ix_form_submission_form_created",
+            "workspace_id",
+            "form_id",
+            "created_at",
+            "surrogate_id",
+        ),
+        Index(
+            "ix_form_submission_user_created",
+            "submitted_by_user_id",
+            "created_at",
+            "surrogate_id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    form_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("form.id", ondelete="CASCADE"), nullable=False
+    )
+    submitted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    submitted_by_service_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("service_account.id", ondelete="SET NULL"), nullable=True
+    )
+    answers: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        default=dict,
+        nullable=False,
+        doc="Normalized trigger inputs the run was started with",
+    )
+    visible_fields: Mapped[list[str]] = mapped_column(
+        JSONB,
+        default=list,
+        nullable=False,
+        doc="Names of the fields the requester saw when submitting",
+    )
+    definition_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        doc="Workflow definition version the submission ran against",
+    )
+    wf_exec_id: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class FormView(WorkspaceModel):
+    """A user's view of a form. Views in the same few minutes count once."""
+
+    __tablename__ = "form_view"
+    __table_args__ = (
+        # Concurrent views in one window insert one row.
+        UniqueConstraint(
+            "workspace_id",
+            "form_id",
+            "user_id",
+            "window_start",
+            name="uq_form_view_form_user_window",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    form_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("form.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    window_start: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        doc="Start of the dedupe window the view falls in",
+    )
+
+
+class FormFile(WorkspaceModel):
+    """A file uploaded to a form's ``file`` field.
+
+    Not the shared ``File`` table: case attachments deduplicate by content
+    hash and share blobs. A form file owns its blob, stored under
+    ``forms/{workspace_id}/{form_id}/{id}``. ``submission_id`` is null until a
+    submission claims the file.
+    """
+
+    __tablename__ = "form_file"
+    __table_args__ = (
+        # Pending counts and expiry.
+        Index(
+            "ix_form_file_form_submission_created",
+            "workspace_id",
+            "form_id",
+            "submission_id",
+            "created_at",
+        ),
+        Index("ix_form_file_submission_id", "submission_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    form_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("form.id", ondelete="CASCADE"), nullable=False
+    )
+    submission_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("form_submission.id", ondelete="CASCADE"), nullable=True
+    )
+    field: Mapped[str] = mapped_column(
+        String, nullable=False, doc="Name of the form field the file was uploaded to"
+    )
+    uploaded_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    uploaded_by_service_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("service_account.id", ondelete="SET NULL"), nullable=True
+    )
+    name: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        doc=(
+            "Filename as uploaded. Data only, never part of a storage path. Its "
+            "length limit is configurable, so validation enforces it, not the column."
+        ),
+    )
+    content_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False, doc="Size in bytes")
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
 class Schedule(WorkspaceModel):
@@ -3369,6 +3539,19 @@ class AgentSession(WorkspaceModel):
         nullable=True,
         index=True,
         doc="Per-turn stream id - Redis key suffix for the active turn's stream",
+    )
+    # Set together by direct dispatch only: the run it reserved and the
+    # database-clock commit time of that reservation. Recovery may tombstone
+    # curr_run_id only while it still equals reserved_run_id.
+    reserved_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        nullable=True,
+        doc="Run reserved by direct dispatch - the only kind recovery may tombstone",
+    )
+    reserved_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When reserved_run_id was reserved - recovery waits out its start deadline",
     )
     # Terminal error summary for the most recent run
     last_error: Mapped[str | None] = mapped_column(

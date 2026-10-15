@@ -74,14 +74,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { useResourceCategories } from "@/hooks/use-resource-categories"
 import { getDisplayName } from "@/lib/auth"
 import type { TracecatApiError } from "@/lib/errors"
 import { useQuery } from "@/lib/query"
-import {
-  getCategoryScopes,
-  type PermissionLevel,
-  RESOURCE_CATEGORIES,
-} from "@/lib/rbac"
+import { getCategoryScopes, type PermissionLevel } from "@/lib/rbac"
 import { cn } from "@/lib/utils"
 
 interface ServiceAccountApiKeysPage {
@@ -626,6 +623,7 @@ export function ServiceAccountsManager({
   onRevokeApiKey,
   listApiKeys,
 }: ServiceAccountsManagerProps) {
+  const resourceCategories = useResourceCategories()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingServiceAccount, setEditingServiceAccount] =
     useState<ServiceAccountRead | null>(null)
@@ -680,7 +678,7 @@ export function ServiceAccountsManager({
 
   const scopeCounts = useMemo(() => {
     let total = 0
-    for (const category of Object.values(RESOURCE_CATEGORIES)) {
+    for (const category of Object.values(resourceCategories)) {
       const categoryScopes = getCategoryScopes(
         category.resources,
         permissionScopes
@@ -690,7 +688,7 @@ export function ServiceAccountsManager({
       ).length
     }
     return total
-  }, [permissionScopes, selectedScopeIds])
+  }, [permissionScopes, resourceCategories, selectedScopeIds])
 
   const isSaving = createPending || updatePending
   const isActionPending =
@@ -1256,7 +1254,7 @@ export function ServiceAccountsManager({
                   </div>
                   <div className="h-[400px] overflow-y-auto rounded-md border">
                     <div className="divide-y divide-border/50">
-                      {Object.entries(RESOURCE_CATEGORIES).map(
+                      {Object.entries(resourceCategories).map(
                         ([key, category]) => (
                           <ScopeCategoryRow
                             key={key}

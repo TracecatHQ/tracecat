@@ -36,7 +36,11 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.sync import CommitInfo, PullOptions, PushStatus
 from tracecat.vcs.github.app import GitHubAppError
-from tracecat.workflow.store.schemas import RemoteCaseTrigger, RemoteWorkflowSchedule
+from tracecat.workflow.store.schemas import (
+    RemoteCaseTrigger,
+    RemoteForm,
+    RemoteWorkflowSchedule,
+)
 from tracecat.workspace_sync.adapters import (
     AGENT_PRESET_RESOURCE_ADAPTER,
     SECRET_METADATA_RESOURCE_ADAPTER,
@@ -940,6 +944,43 @@ def test_pull_requires_workspace_update_only_for_explicit_default_metadata(
         assert exc_info.value.missing_scopes == ["workspace:update"]
     else:
         service._require_pull_scopes(spec, dry_run=dry_run)
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_pull_requires_form_write_scopes_only_to_apply_a_form_block(
+    dry_run: bool,
+    sample_dsl: DSLInput,
+) -> None:
+    """Applying a workflow's ``form:`` block needs form:create and form:update."""
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset(
+            {
+                "workspace_sync:sync",
+                "workflow:read",
+                "workflow:create",
+                "workflow:update",
+            }
+        ),
+    )
+    service = WorkspaceSyncService(session=AsyncMock(), role=role)
+    spec = WorkspaceSpec(
+        workflows={
+            "intake": WorkflowResourceSpec(
+                id="intake", form=RemoteForm(title="Intake"), definition=sample_dsl
+            )
+        }
+    )
+
+    if dry_run:
+        service._require_pull_scopes(spec, dry_run=dry_run)
+    else:
+        with pytest.raises(ScopeDeniedError) as exc_info:
+            service._require_pull_scopes(spec, dry_run=dry_run)
+        assert exc_info.value.missing_scopes == ["form:create", "form:update"]
 
 
 @pytest.mark.anyio

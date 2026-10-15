@@ -339,7 +339,7 @@ function RelatedCaseRow({
         }}
         onEscapeKeyDown={onUnpin}
       >
-        <RelatedCaseProperties caseData={caseData} workspaceId={workspaceId} />
+        <CasePropertiesCard caseData={caseData} workspaceId={workspaceId} />
       </HoverCardContent>
     </HoverCard>
   )
@@ -372,11 +372,11 @@ function formatTimestamp(timestamp: string): string {
 }
 
 /**
- * A related case's full property sheet. The list row already holds the core
- * properties and dropdowns; custom fields come from the case itself, fetched
- * when the card first opens.
+ * A case's full property sheet for hover cards. The list row already holds the
+ * core properties and dropdowns; custom fields come from the case itself,
+ * fetched when the card first opens.
  */
-function RelatedCaseProperties({
+export function CasePropertiesCard({
   caseData,
   workspaceId,
 }: {

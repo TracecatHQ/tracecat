@@ -181,8 +181,12 @@ class TestWebhookStartWorkflowInvariants:
         )
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize("trigger_type", [TriggerType.WEBHOOK, TriggerType.FORM])
     async def test_time_anchor_is_minted_for_webhook_triggers(
-        self, service: WorkflowExecutionsService, mock_client: MagicMock
+        self,
+        service: WorkflowExecutionsService,
+        mock_client: MagicMock,
+        trigger_type: TriggerType,
     ):
         """Webhook triggers must mint a time_anchor when none is provided.
 
@@ -209,12 +213,14 @@ class TestWebhookStartWorkflowInvariants:
                 wf_id=_WF_ID,
                 wf_exec_id=f"{_WF_ID.short()}/exec_test",
                 trigger_inputs={"x": 1},
-                trigger_type=TriggerType.WEBHOOK,
+                trigger_type=trigger_type,
                 time_anchor=None,  # <-- not provided
             )
         after = datetime.datetime.now(datetime.UTC)
 
         call_args = mock_client.start_workflow.call_args
+        search_attrs: TypedSearchAttributes = call_args.kwargs["search_attributes"]
+        assert search_attrs.get(TemporalSearchAttr.TRIGGER_TYPE.key) == trigger_type
         dsl_run_args: DSLRunArgs = call_args.args[1]
         assert dsl_run_args.time_anchor is not None, (
             "time_anchor must be minted for webhook triggers"
@@ -1481,8 +1487,12 @@ class TestWebhookDispatchWorkflowInvariants:
         return WorkflowExecutionsService(client=mock_client, role=_role())
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize("trigger_type", [TriggerType.WEBHOOK, TriggerType.FORM])
     async def test_dispatch_mints_time_anchor_for_webhook(
-        self, service: WorkflowExecutionsService, mock_client: MagicMock
+        self,
+        service: WorkflowExecutionsService,
+        mock_client: MagicMock,
+        trigger_type: TriggerType,
     ):
         """Same time_anchor invariant as _start_workflow."""
         dsl = _dsl_input()
@@ -1504,11 +1514,13 @@ class TestWebhookDispatchWorkflowInvariants:
                 wf_id=_WF_ID,
                 wf_exec_id=f"{_WF_ID.short()}/exec_test",
                 trigger_inputs={"x": 1},
-                trigger_type=TriggerType.WEBHOOK,
+                trigger_type=trigger_type,
             )
         after = datetime.datetime.now(datetime.UTC)
 
         call_args = mock_client.execute_workflow.call_args
+        search_attrs: TypedSearchAttributes = call_args.kwargs["search_attributes"]
+        assert search_attrs.get(TemporalSearchAttr.TRIGGER_TYPE.key) == trigger_type
         dsl_run_args: DSLRunArgs = call_args.args[1]
         assert dsl_run_args.time_anchor is not None
         assert before <= dsl_run_args.time_anchor <= after

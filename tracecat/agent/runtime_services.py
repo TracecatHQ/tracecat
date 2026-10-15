@@ -7,6 +7,11 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from tracecat.agent.otel_delivery import (
+    DeliveryLimits,
+    OtelDeliveryPool,
+    collector_client,
+)
 from tracecat.logger import logger
 
 _mcp_server_task: asyncio.Task[None] | None = None
@@ -15,6 +20,11 @@ if TYPE_CHECKING:
     from tracecat.agent.runtime.claude_code.broker import ClaudeRuntimeBroker
 
 _claude_runtime_broker: ClaudeRuntimeBroker | None = None
+
+_otel_delivery_pool: OtelDeliveryPool | None = None
+
+# Fargate's default 30 s stop timeout would cut the pool's default 45 s drain.
+_OTEL_DRAIN_SECONDS = 25.0
 
 
 async def _wait_for_socket(
@@ -108,3 +118,39 @@ def get_claude_runtime_broker() -> ClaudeRuntimeBroker:
     if _claude_runtime_broker is None:
         raise RuntimeError("Claude runtime broker is not started")
     return _claude_runtime_broker
+
+
+def start_otel_delivery_pool() -> None:
+    """Build the worker-global pool that delivers agent OTel to collectors."""
+    global _otel_delivery_pool
+
+    if _otel_delivery_pool is not None:
+        return
+    # Trusts the environment so proxy settings keep reaching the collector.
+    _otel_delivery_pool = OtelDeliveryPool(
+        collector_client(trust_env=True),
+        DeliveryLimits(drain_seconds=_OTEL_DRAIN_SECONDS),
+    )
+    logger.info("OTel delivery pool started")
+
+
+async def stop_otel_delivery_pool() -> None:
+    """Drain pending OTel deliveries, then close the collector client."""
+    global _otel_delivery_pool
+
+    if _otel_delivery_pool is None:
+        return
+    pool = _otel_delivery_pool
+    _otel_delivery_pool = None
+    try:
+        await pool.drain()
+    finally:
+        await pool.client.aclose()
+    logger.info("OTel delivery pool stopped")
+
+
+def get_otel_delivery_pool() -> OtelDeliveryPool:
+    """Return the initialized worker-global OTel delivery pool."""
+    if _otel_delivery_pool is None:
+        raise RuntimeError("OTel delivery pool is not started")
+    return _otel_delivery_pool

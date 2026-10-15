@@ -302,6 +302,21 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
     ScopeDefinition("case:create", "case", "create", "Create new cases"),
     ScopeDefinition("case:update", "case", "update", "Modify existing cases"),
     ScopeDefinition("case:delete", "case", "delete", "Delete cases"),
+    # Form scopes
+    ScopeDefinition("form:read", "form", "read", "View forms"),
+    ScopeDefinition("form:create", "form", "create", "Create new forms"),
+    ScopeDefinition("form:update", "form", "update", "Modify existing forms"),
+    ScopeDefinition("form:delete", "form", "delete", "Delete forms"),
+    ScopeDefinition("form:submit", "form", "submit", "Submit forms"),
+    ScopeDefinition(
+        "form:submission:read", "form:submission", "read", "View form submissions"
+    ),
+    ScopeDefinition(
+        "form:submission:delete",
+        "form:submission",
+        "delete",
+        "Delete form submissions",
+    ),
     # Inbox scopes
     ScopeDefinition("inbox:read", "inbox", "read", "View inbox items"),
     # Table scopes
@@ -381,6 +396,11 @@ class RoleDefinition(NamedTuple):
 
 PRESET_ROLE_DEFINITIONS: dict[str, RoleDefinition] = {
     # slug → RoleDefinition(name, description, scopes)
+    "workspace-intake": RoleDefinition(
+        "Intake only",
+        "Fill in and submit forms, no other workspace access",
+        PRESET_ROLE_SCOPES["workspace-intake"],
+    ),
     "workspace-viewer": RoleDefinition(
         "Workspace Viewer",
         "Read-only access to workspace resources",

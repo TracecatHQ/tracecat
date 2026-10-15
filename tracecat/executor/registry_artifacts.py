@@ -352,7 +352,9 @@ class SquashfsArtifact(RegistryArtifact):
         download_elapsed = await self.download(ctx, image_path)
 
         mount_start = time.monotonic()
-        await self._mount_image(image_path, target_dir)
+        # Held only around the mount; a failed mount frees it before extraction.
+        async with ctx.mount_slots or contextlib.nullcontext():
+            await self._mount_image(image_path, target_dir)
         mount_elapsed = (time.monotonic() - mount_start) * 1000
         total_elapsed = (time.monotonic() - start_time) * 1000
 
@@ -1195,6 +1197,18 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
             lease.acquire_entry_lease()
             if cached_paths := self._locally_cached_path(ctx, artifact_uri):
                 return cached_paths
+            try:
+                if remounted := await self._remount_cached_image(ctx, artifact_uri):
+                    return remounted
+            except SquashfsMountCommandError as e:
+                logger.warning(
+                    "Failed to remount cached SquashFS image, extracting instead",
+                    cache_key=cache_key,
+                    error=str(e),
+                )
+                remount_failed = True
+            else:
+                remount_failed = False
 
         async with self._admission_lock:
             async with self._runtime_lock(cache_key):
@@ -1207,6 +1221,7 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
                         attempt_cache_keys=lease.attempt.cache_keys,
                     ),
                 )
+                ctx.squashfs_remount_failed = remount_failed
                 candidates = await self._artifact_candidates(ctx, artifact_uri)
                 if cached_paths := self._first_cached_path(candidates, ctx):
                     return cached_paths
@@ -1227,6 +1242,69 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
                 error=str(e),
             )
         return paths
+
+    async def _remount_cached_image(
+        self,
+        ctx: RegistryArtifactMaterializationContext,
+        artifact_uri: str,
+    ) -> list[Path] | None:
+        """Mount a SquashFS image already on disk without admission.
+
+        Callers hold the cache key lock and a lease, so eviction cannot retire
+        the image. A remount writes no artifact bytes, so it skips the
+        admission lock and budget passes.
+
+        Args:
+            ctx: Materialization context without admission.
+            artifact_uri: Registry artifact URI being leased.
+
+        Returns:
+            The mount directory, or ``None`` when the cold path must run.
+
+        Raises:
+            SquashfsMountCommandError: Every mount attempt failed.
+        """
+        if not ctx.can_mount_squashfs():
+            return None
+        image_path = ctx.paths.squashfs_image_path
+        if not is_reusable_cache_file(image_path):
+            return None
+        # Creating the mount point writes bytes, which needs cold admission.
+        if not is_reusable_cache_directory(ctx.paths.squashfs_mount_dir):
+            return None
+        candidates = self._candidate_artifacts(
+            ctx,
+            artifact_uri,
+            include_squashfs_sidecar=self._can_try_squashfs(),
+        )
+        artifact = next(
+            (c for c in candidates if isinstance(c, SquashfsArtifact)),
+            None,
+        )
+        if artifact is None:
+            return None
+        try:
+            mounted_path = await artifact.mount(ctx, image_path)
+        except SquashfsMountUnavailableError as e:
+            ctx.squashfs_mount_policy.record_mount_unavailable()
+            logger.warning(
+                "SquashFS mounting is unavailable, using cold registry path",
+                cache_key=ctx.cache_key,
+                error=str(e),
+            )
+            return None
+        except SquashfsMountCommandError:
+            raise
+        except Exception as e:
+            # The cold path owns candidate fallback for unexpected failures.
+            logger.warning(
+                "Failed to remount cached SquashFS image, using cold registry path",
+                cache_key=ctx.cache_key,
+                error_type=type(e).__name__,
+            )
+            return None
+        ctx.squashfs_mount_policy.record_mount_success()
+        return [mounted_path]
 
     async def _materialize_candidates(
         self,

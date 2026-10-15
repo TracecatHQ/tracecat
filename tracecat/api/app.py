@@ -32,6 +32,10 @@ from tracecat_ee.secrets.references.router import (
     stores_router as workspace_secret_stores_router,
 )
 from tracecat_ee.secrets.stores.router import router as org_secret_stores_router
+from tracecat_ee.tunnels.gateways import (
+    kubernetes_enabled,
+    start_tunnel_gateway_reconciler,
+)
 from tracecat_ee.tunnels.router import gateway_router as tunnel_gateway_router
 from tracecat_ee.tunnels.router import router as tunnels_router
 from tracecat_ee.watchtower.router import router as watchtower_router
@@ -77,6 +81,7 @@ from tracecat.api.common import (
     query_timeout_exception_handler,
     table_row_exception_handler,
     tracecat_exception_handler,
+    without_inputs,
 )
 from tracecat.api.lifespan import LifespanTaskSupervisor
 from tracecat.auth.credentials import authenticated_user_only
@@ -140,6 +145,10 @@ from tracecat.exceptions import (
 )
 from tracecat.feature_flags import FeatureFlag, FlagLike, is_feature_enabled
 from tracecat.feature_flags.router import router as feature_flags_router
+from tracecat.forms.exceptions import FormError, form_error_handler
+from tracecat.forms.router import intake_router as forms_intake_router
+from tracecat.forms.router import router as forms_router
+from tracecat.forms.storage import run_file_expiry
 from tracecat.inbox.router import router as inbox_router
 from tracecat.integrations.router import (
     integrations_router,
@@ -292,6 +301,13 @@ async def lifespan(app: FastAPI):
         start_case_duration_sync_consumer,
         name="case_duration_sync_consumer",
     )
+    supervisor.spawn_stoppable(run_file_expiry, name="form_file_expiry")
+
+    if kubernetes_enabled():
+        supervisor.spawn_stoppable(
+            start_tunnel_gateway_reconciler,
+            name="tunnel_gateway_reconciler",
+        )
 
     # SMTP configuration is loaded at process startup; enabling it needs a restart.
     if SMTPTransport.from_config() is not None:
@@ -420,7 +436,7 @@ def validation_exception_handler(request: Request, exc: Exception) -> Response:
         "API Model Validation error",
         method=request.method,
         path=request.url.path,
-        errors=ser_errors,
+        errors=without_inputs(ser_errors),
     )
     return ORJSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -645,6 +661,8 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(org_secrets_router)
     app.include_router(org_secret_stores_router)
     _include_workspace_scoped_router(app, tables_router)
+    _include_workspace_scoped_router(app, forms_router)
+    app.include_router(forms_intake_router)
     _include_workspace_scoped_router(app, cases_router)
     _include_workspace_scoped_router(app, case_versions_router)
     _include_workspace_scoped_router(app, case_rows_router)
@@ -764,6 +782,7 @@ def create_app(**kwargs) -> FastAPI:
     )
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(TableRowError, table_row_exception_handler)
+    app.add_exception_handler(FormError, form_error_handler)
     app.add_exception_handler(
         TracecatQueryTimeoutError,
         query_timeout_exception_handler,

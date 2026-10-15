@@ -4,7 +4,7 @@ from typing import Literal, NoReturn, TypedDict
 
 from asyncpg import DuplicateColumnError
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy.exc import DBAPIError, NoResultFound, ProgrammingError
+from sqlalchemy.exc import DBAPIError, ProgrammingError
 from starlette.status import (
     HTTP_200_OK,
     HTTP_201_CREATED,
@@ -34,7 +34,7 @@ from tracecat.cases.event_schemas import (
     CaseEventsWithUsers,
     TaskAssigneeChangedEventRead,
 )
-from tracecat.cases.filters import parse_assignee_filter
+from tracecat.cases.filters import parse_assignee_filter, resolve_tag_ids
 from tracecat.cases.hierarchy import TOP_LEVEL, CaseHierarchyService
 from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
@@ -68,7 +68,6 @@ from tracecat.cases.service import (
     CaseTasksService,
 )
 from tracecat.cases.tags.schemas import CaseTagRead
-from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Case
 from tracecat.exceptions import (
@@ -208,26 +207,6 @@ def _parse_dropdown_filter(
     return parsed_dropdown_filters
 
 
-async def _resolve_tag_ids(
-    *,
-    tags: list[str] | None,
-    role: WorkspaceActorRouteRole,
-    session: AsyncDBSession,
-) -> list[uuid.UUID] | None:
-    if not tags:
-        return None
-
-    tag_ids: list[uuid.UUID] = []
-    tags_service = CaseTagsService(session, role)
-    for tag_identifier in tags:
-        try:
-            tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
-            tag_ids.append(tag.id)
-        except NoResultFound:
-            continue
-    return tag_ids or None
-
-
 async def _parse_case_search_filters(
     *,
     role: WorkspaceActorRouteRole,
@@ -241,7 +220,7 @@ async def _parse_case_search_filters(
     return {
         "assignee_ids": include_assignees["assignee_ids"],
         "include_unassigned": include_assignees["include_unassigned"],
-        "tag_ids": await _resolve_tag_ids(tags=tags, role=role, session=session),
+        "tag_ids": await resolve_tag_ids(tags=tags, role=role, session=session),
         "dropdown_filters": _parse_dropdown_filter(dropdown),
     }
 

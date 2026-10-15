@@ -105,6 +105,21 @@ export const $ActionControlFlow = {
       title: "Environment",
       description: "Override environment for this action's execution",
     },
+    tunnel: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 63,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel",
+      description:
+        "Workspace tunnel to route this action's HTTP(S) traffic through",
+    },
     mask_output: {
       type: "boolean",
       title: "Mask Output",
@@ -527,6 +542,21 @@ export const $ActionStatement_Input = {
       description:
         "Override environment for this action's execution. Can be a template expression.",
     },
+    tunnel: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 63,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel",
+      description:
+        "Name of a workspace tunnel to route this action's HTTP(S) traffic through. Overrides the workflow's default tunnel.",
+    },
     mask_output: {
       type: "boolean",
       title: "Mask Output",
@@ -653,6 +683,21 @@ export const $ActionStatement_Output = {
       title: "Environment",
       description:
         "Override environment for this action's execution. Can be a template expression.",
+    },
+    tunnel: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 63,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel",
+      description:
+        "Name of a workspace tunnel to route this action's HTTP(S) traffic through. Overrides the workflow's default tunnel.",
     },
     mask_output: {
       type: "boolean",
@@ -5689,6 +5734,9 @@ export const $Artifact = {
       $ref: "#/components/schemas/AgentArtifact",
     },
     {
+      $ref: "#/components/schemas/FormArtifact",
+    },
+    {
       $ref: "#/components/schemas/AlertArtifact",
     },
     {
@@ -5707,6 +5755,7 @@ export const $Artifact = {
       agent: "#/components/schemas/AgentArtifact",
       alert: "#/components/schemas/AlertArtifact",
       case: "#/components/schemas/CaseArtifact",
+      form: "#/components/schemas/FormArtifact",
       generic: "#/components/schemas/GenericArtifact",
       integration: "#/components/schemas/IntegrationArtifact",
       run: "#/components/schemas/RunArtifact",
@@ -7317,6 +7366,19 @@ export const $Body_case_attachments_create_attachment = {
   type: "object",
   required: ["file"],
   title: "Body_case-attachments-create_attachment",
+} as const
+
+export const $Body_forms_upload_form_file = {
+  properties: {
+    file: {
+      type: "string",
+      title: "File",
+      format: "binary",
+    },
+  },
+  type: "object",
+  required: ["file"],
+  title: "Body_forms-upload_form_file",
 } as const
 
 export const $Body_tables_import_csv = {
@@ -11623,6 +11685,31 @@ This model supports multiple message kinds:
 - kind=CANCELLED: Contains cancelled field with turn-cancelled marker data`,
 } as const
 
+export const $ChatPageContext = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "form",
+      title: "Kind",
+      description: "What the page shows.",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description: "ID of the object the page shows.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["kind", "id"],
+  title: "ChatPageContext",
+  description: `The page a docked chat is open on.
+
+\`\`kind\`\` is a closed set and \`\`id\`\` is a UUID, so nothing the client sends
+here can carry free text into the prompt.`,
+} as const
+
 export const $ChatRead = {
   properties: {
     id: {
@@ -13149,6 +13236,321 @@ export const $CursorPaginatedResponse_CaseVersionReadMinimal_ = {
   title: "CursorPaginatedResponse[CaseVersionReadMinimal]",
 } as const
 
+export const $CursorPaginatedResponse_FormIntakeRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/FormIntakeRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[FormIntakeRead]",
+} as const
+
+export const $CursorPaginatedResponse_FormIntakeSubmissionRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/FormIntakeSubmissionRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[FormIntakeSubmissionRead]",
+} as const
+
+export const $CursorPaginatedResponse_FormReadMinimal_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/FormReadMinimal",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[FormReadMinimal]",
+} as const
+
+export const $CursorPaginatedResponse_FormSubmissionRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/FormSubmissionRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[FormSubmissionRead]",
+} as const
+
+export const $CursorPaginatedResponse_FormUserRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/FormUserRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[FormUserRead]",
+} as const
+
 export const $CursorPaginatedResponse_InboxItemRead_ = {
   properties: {
     items: {
@@ -14027,6 +14429,21 @@ export const $DSLConfig_Input = {
         "Workflow timeout in seconds. If set to 0, the workflow has no timeout.",
       default: 0,
     },
+    tunnel: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 63,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel",
+      description:
+        "Default workspace tunnel for actions that do not set their own.",
+    },
   },
   type: "object",
   title: "DSLConfig",
@@ -14050,6 +14467,21 @@ export const $DSLConfig_Output = {
       description:
         "Workflow timeout in seconds. If set to 0, the workflow has no timeout.",
       default: 0,
+    },
+    tunnel: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 63,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel",
+      description:
+        "Default workspace tunnel for actions that do not set their own.",
     },
   },
   type: "object",
@@ -14995,6 +15427,12 @@ export const $EffectiveEntitlements = {
         "Whether semantic (vector) search over table columns is enabled",
       default: false,
     },
+    forms: {
+      type: "boolean",
+      title: "Forms",
+      description: "Whether workflow forms are enabled",
+      default: false,
+    },
     tunnels: {
       type: "boolean",
       title: "Tunnels",
@@ -15231,6 +15669,11 @@ export const $EntitlementsDict = {
       title: "Semantic search",
       description:
         "Whether semantic (vector) search over table columns is enabled",
+    },
+    forms: {
+      type: "boolean",
+      title: "Forms",
+      description: "Whether workflow forms are enabled",
     },
     tunnels: {
       type: "boolean",
@@ -15831,6 +16274,7 @@ export const $FeatureFlag = {
     "agent-fs-persistence",
     "agent-runtime",
     "workspace-sync-github-archive",
+    "forms",
   ],
   title: "FeatureFlag",
   description: "Feature flag enum reserved for engineering rollouts.",
@@ -16055,6 +16499,1798 @@ export const $FolderDirectoryItem = {
     "num_workflows",
   ],
   title: "FolderDirectoryItem",
+} as const
+
+export const $FormActorRead = {
+  properties: {
+    type: {
+      type: "string",
+      enum: ["user", "service_account"],
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Email",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+    name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+      description: "Service account name.",
+    },
+  },
+  type: "object",
+  required: ["type", "id"],
+  title: "FormActorRead",
+  description: "Who submitted a form.",
+} as const
+
+export const $FormArtifact = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    scope: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ArtifactScope",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    type: {
+      type: "string",
+      const: "form",
+      title: "Type",
+      default: "form",
+    },
+    status: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["online", "offline"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Status",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["id", "title"],
+  title: "FormArtifact",
+  description:
+    "Workflow form artifact. Lets a surface refresh a form the chat edited.",
+} as const
+
+export const $FormAutofillSource = {
+  type: "string",
+  enum: [
+    "requester",
+    "requester.user_id",
+    "requester.email",
+    "requester.first_name",
+    "requester.last_name",
+    "submission.id",
+  ],
+  title: "FormAutofillSource",
+  description: "Values the server fills in on submit.",
+} as const
+
+export const $FormConfig_Input = {
+  properties: {
+    title: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+      description: "Defaults to the workflow title.",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+      description: "Markdown. Defaults to the workflow description.",
+    },
+    success_message: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Success Message",
+    },
+    layout: {
+      anyOf: [
+        {
+          items: {
+            oneOf: [
+              {
+                $ref: "#/components/schemas/FormFieldEntry",
+              },
+              {
+                $ref: "#/components/schemas/FormHeadingEntry",
+              },
+              {
+                $ref: "#/components/schemas/FormTextEntry",
+              },
+              {
+                $ref: "#/components/schemas/FormNoticeEntry",
+              },
+              {
+                $ref: "#/components/schemas/FormDividerEntry",
+              },
+            ],
+          },
+          type: "array",
+          maxItems: 200,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Layout",
+      description:
+        "Ordered blocks. Inputs left out are appended in schema order.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "FormConfig",
+  description:
+    "Presentation layer of a form. The workflow input schema supplies the rest.",
+} as const
+
+export const $FormConfig_Output = {
+  properties: {
+    title: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+      description: "Defaults to the workflow title.",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+      description: "Markdown. Defaults to the workflow description.",
+    },
+    success_message: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Success Message",
+    },
+    layout: {
+      anyOf: [
+        {
+          items: {
+            oneOf: [
+              {
+                $ref: "#/components/schemas/FormFieldEntry",
+              },
+              {
+                $ref: "#/components/schemas/FormHeadingEntry",
+              },
+              {
+                $ref: "#/components/schemas/FormTextEntry",
+              },
+              {
+                $ref: "#/components/schemas/FormNoticeEntry",
+              },
+              {
+                $ref: "#/components/schemas/FormDividerEntry",
+              },
+            ],
+          },
+          type: "array",
+          maxItems: 200,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Layout",
+      description:
+        "Ordered blocks. Inputs left out are appended in schema order.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "FormConfig",
+  description:
+    "Presentation layer of a form. The workflow input schema supplies the rest.",
+} as const
+
+export const $FormCounts = {
+  properties: {
+    views: {
+      type: "integer",
+      title: "Views",
+    },
+    submissions: {
+      type: "integer",
+      title: "Submissions",
+    },
+  },
+  type: "object",
+  required: ["views", "submissions"],
+  title: "FormCounts",
+} as const
+
+export const $FormCreate = {
+  properties: {
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+      ],
+      title: "Workflow Id",
+    },
+    status: {
+      $ref: "#/components/schemas/FormStatus",
+      default: "offline",
+    },
+    config: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormConfig-Input",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["workflow_id"],
+  title: "FormCreate",
+} as const
+
+export const $FormDividerBlock = {
+  properties: {
+    type: {
+      type: "string",
+      const: "divider",
+      title: "Type",
+    },
+  },
+  type: "object",
+  required: ["type"],
+  title: "FormDividerBlock",
+} as const
+
+export const $FormDividerEntry = {
+  properties: {
+    divider: {
+      type: "boolean",
+      const: true,
+      title: "Divider",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["divider"],
+  title: "FormDividerEntry",
+} as const
+
+export const $FormErrorCode = {
+  type: "string",
+  enum: [
+    "not_found",
+    "already_exists",
+    "form_config_invalid",
+    "form_workflow_unpublished",
+    "form_offline",
+    "form_unavailable",
+    "form_changed",
+    "form_validation_error",
+    "workflow_start_failed",
+    "workflow_start_unconfirmed",
+    "file_field_invalid",
+    "file_invalid",
+    "file_type_not_allowed",
+    "file_too_large",
+    "file_limit_reached",
+    "file_upload_failed",
+  ],
+  title: "FormErrorCode",
+  description: "Machine-readable failures of a forms request.",
+} as const
+
+export const $FormErrorDetail = {
+  properties: {
+    code: {
+      $ref: "#/components/schemas/FormErrorCode",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    errors: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/FormFieldError",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Errors",
+      description: "Per-field errors of a rejected submission.",
+    },
+    issues: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/FormIssue",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Issues",
+      description: "Issues of a rejected form config.",
+    },
+  },
+  type: "object",
+  required: ["code", "message"],
+  title: "FormErrorDetail",
+} as const
+
+export const $FormErrorResponse = {
+  properties: {
+    detail: {
+      $ref: "#/components/schemas/FormErrorDetail",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "FormErrorResponse",
+} as const
+
+export const $FormFieldBlock = {
+  properties: {
+    type: {
+      type: "string",
+      const: "field",
+      title: "Type",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+    },
+    help: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Help",
+    },
+    placeholder: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Placeholder",
+    },
+    widget: {
+      $ref: "#/components/schemas/FormWidget",
+    },
+    required: {
+      type: "boolean",
+      title: "Required",
+    },
+    multiple: {
+      type: "boolean",
+      title: "Multiple",
+    },
+    default: {
+      title: "Default",
+    },
+    options: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/FormFieldOption",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
+    },
+    visible_if: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormVisibleIf",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    config: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormFieldConfig",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["type", "name", "label", "widget", "required", "multiple"],
+  title: "FormFieldBlock",
+  description: "An input the requester fills in.",
+} as const
+
+export const $FormFieldConfig = {
+  properties: {
+    accept: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Accept",
+    },
+    max_files: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Files",
+    },
+    max_file_size: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max File Size",
+      description: "Largest file the field takes, in bytes.",
+    },
+  },
+  type: "object",
+  title: "FormFieldConfig",
+  description: "Widget-specific settings.",
+} as const
+
+export const $FormFieldEntry = {
+  properties: {
+    field: {
+      type: "string",
+      maxLength: 255,
+      title: "Field",
+      description: "Name of the workflow input.",
+    },
+    label: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Label",
+    },
+    help: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Help",
+    },
+    placeholder: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Placeholder",
+    },
+    widget: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormWidget",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    options: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/FormOption",
+          },
+          type: "array",
+          maxItems: 100,
+          minItems: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
+    },
+    visible_if: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormVisibleIf",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    autofill: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormAutofillSource",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    hidden: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Hidden",
+    },
+    accept: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            maxLength: 255,
+          },
+          type: "array",
+          maxItems: 20,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Accept",
+      description: "File extensions or MIME types a file field takes.",
+    },
+    max_files: {
+      anyOf: [
+        {
+          type: "integer",
+          maximum: 10,
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Files",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["field"],
+  title: "FormFieldEntry",
+  description: "Presentation of one workflow input.",
+} as const
+
+export const $FormFieldError = {
+  properties: {
+    field: {
+      type: "string",
+      title: "Field",
+    },
+    code: {
+      $ref: "#/components/schemas/FormFieldErrorCode",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+  },
+  type: "object",
+  required: ["field", "code", "message"],
+  title: "FormFieldError",
+} as const
+
+export const $FormFieldErrorCode = {
+  type: "string",
+  enum: [
+    "required",
+    "unknown_field",
+    "invalid_value",
+    "invalid_option",
+    "invalid_date",
+    "invalid_user",
+    "invalid_file",
+    "too_many_files",
+  ],
+  title: "FormFieldErrorCode",
+  description: "Why a submitted value was rejected.",
+} as const
+
+export const $FormFieldOption = {
+  properties: {
+    value: {
+      type: "string",
+      title: "Value",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    image: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Image",
+    },
+  },
+  type: "object",
+  required: ["value", "label"],
+  title: "FormFieldOption",
+} as const
+
+export const $FormFileDownload = {
+  properties: {
+    download_url: {
+      type: "string",
+      title: "Download Url",
+      description: "Short-lived URL that forces a download.",
+    },
+    file_name: {
+      type: "string",
+      title: "File Name",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+    },
+  },
+  type: "object",
+  required: ["download_url", "file_name", "content_type"],
+  title: "FormFileDownload",
+} as const
+
+export const $FormFileRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+    },
+    size: {
+      type: "integer",
+      title: "Size",
+    },
+    sha256: {
+      type: "string",
+      title: "Sha256",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "content_type", "size", "sha256"],
+  title: "FormFileRead",
+  description: `An uploaded file. Also what a file ID expands to in the answers.
+
+Carries no storage key and no URL.`,
+} as const
+
+export const $FormHeadingBlock = {
+  properties: {
+    type: {
+      type: "string",
+      const: "heading",
+      title: "Type",
+    },
+    text: {
+      type: "string",
+      title: "Text",
+    },
+  },
+  type: "object",
+  required: ["type", "text"],
+  title: "FormHeadingBlock",
+} as const
+
+export const $FormHeadingEntry = {
+  properties: {
+    heading: {
+      type: "string",
+      maxLength: 255,
+      title: "Heading",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["heading"],
+  title: "FormHeadingEntry",
+} as const
+
+export const $FormIntakeLocation = {
+  properties: {
+    form_id: {
+      type: "string",
+      format: "uuid",
+      title: "Form Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      type: "string",
+      title: "Workspace Name",
+    },
+  },
+  type: "object",
+  required: ["form_id", "workspace_id", "workspace_name"],
+  title: "FormIntakeLocation",
+  description: "Where a form lives, for a requester who only has its ID.",
+} as const
+
+export const $FormIntakeRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      type: "string",
+      title: "Workspace Name",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+  },
+  type: "object",
+  required: ["id", "workspace_id", "workspace_name", "title"],
+  title: "FormIntakeRead",
+} as const
+
+export const $FormIntakeSubmissionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    form_id: {
+      type: "string",
+      format: "uuid",
+      title: "Form Id",
+    },
+    form_title: {
+      type: "string",
+      title: "Form Title",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workspace_name: {
+      type: "string",
+      title: "Workspace Name",
+    },
+    submitted_at: {
+      type: "string",
+      format: "date-time",
+      title: "Submitted At",
+    },
+    reference: {
+      type: "string",
+      title: "Reference",
+      description: "Short code a requester can quote for a submission.",
+      readOnly: true,
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "form_id",
+    "form_title",
+    "workspace_id",
+    "workspace_name",
+    "submitted_at",
+    "reference",
+  ],
+  title: "FormIntakeSubmissionRead",
+  description: "A requester's own submission. Carries no run fields.",
+} as const
+
+export const $FormIssue = {
+  properties: {
+    severity: {
+      $ref: "#/components/schemas/FormIssueSeverity",
+    },
+    code: {
+      $ref: "#/components/schemas/FormIssueCode",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    loc: {
+      items: {
+        anyOf: [
+          {
+            type: "string",
+          },
+          {
+            type: "integer",
+          },
+        ],
+      },
+      type: "array",
+      title: "Loc",
+      description: "Path to the offending config key.",
+    },
+  },
+  type: "object",
+  required: ["severity", "code", "message", "loc"],
+  title: "FormIssue",
+  description:
+    "A problem found while resolving a form config against its inputs.",
+} as const
+
+export const $FormIssueCode = {
+  type: "string",
+  enum: [
+    "unknown_field",
+    "duplicate_field",
+    "incompatible_widget",
+    "no_widget_for_type",
+    "unsupported_widget_option",
+    "options_required",
+    "options_not_supported",
+    "option_not_in_enum",
+    "default_invalid",
+    "conditional_field_required",
+    "visible_if_unknown_field",
+    "visible_if_invalid_controller",
+    "visible_if_invalid_value",
+    "autofill_type_mismatch",
+    "hidden_with_autofill",
+    "unrendered_optional_input",
+    "integer_out_of_range",
+  ],
+  title: "FormIssueCode",
+  description: "Problems the resolver finds in a form config.",
+} as const
+
+export const $FormIssueSeverity = {
+  type: "string",
+  enum: ["error", "warning"],
+  title: "FormIssueSeverity",
+} as const
+
+export const $FormNoticeBlock = {
+  properties: {
+    type: {
+      type: "string",
+      const: "notice",
+      title: "Type",
+    },
+    text: {
+      type: "string",
+      title: "Text",
+    },
+    tone: {
+      $ref: "#/components/schemas/FormNoticeTone",
+    },
+  },
+  type: "object",
+  required: ["type", "text", "tone"],
+  title: "FormNoticeBlock",
+} as const
+
+export const $FormNoticeEntry = {
+  properties: {
+    notice: {
+      type: "string",
+      maxLength: 10000,
+      title: "Notice",
+    },
+    tone: {
+      $ref: "#/components/schemas/FormNoticeTone",
+      default: "info",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["notice"],
+  title: "FormNoticeEntry",
+} as const
+
+export const $FormNoticeTone = {
+  type: "string",
+  enum: ["info", "success", "warning", "danger"],
+  title: "FormNoticeTone",
+} as const
+
+export const $FormOption = {
+  properties: {
+    value: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Value",
+    },
+    label: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Label",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    image: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Image",
+      description: "Inline PNG, JPEG or WebP data URI.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["value"],
+  title: "FormOption",
+  description: "One choice of a select, multi-select or cards field.",
+} as const
+
+export const $FormPreview = {
+  properties: {
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    success_message: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Success Message",
+    },
+    definition_version: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Definition Version",
+      description: "Published workflow version the blocks come from.",
+    },
+    config_version: {
+      type: "string",
+      title: "Config Version",
+      description: "Version of the config the blocks come from.",
+    },
+    blocks: {
+      items: {
+        oneOf: [
+          {
+            $ref: "#/components/schemas/FormHeadingBlock",
+          },
+          {
+            $ref: "#/components/schemas/FormTextBlock",
+          },
+          {
+            $ref: "#/components/schemas/FormNoticeBlock",
+          },
+          {
+            $ref: "#/components/schemas/FormDividerBlock",
+          },
+          {
+            $ref: "#/components/schemas/FormFieldBlock",
+          },
+        ],
+        discriminator: {
+          propertyName: "type",
+          mapping: {
+            divider: "#/components/schemas/FormDividerBlock",
+            field: "#/components/schemas/FormFieldBlock",
+            heading: "#/components/schemas/FormHeadingBlock",
+            notice: "#/components/schemas/FormNoticeBlock",
+            text: "#/components/schemas/FormTextBlock",
+          },
+        },
+      },
+      type: "array",
+      title: "Blocks",
+    },
+  },
+  type: "object",
+  required: ["title", "config_version", "blocks"],
+  title: "FormPreview",
+  description: "What a form renders. Hidden and autofill fields never appear.",
+} as const
+
+export const $FormRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    workflow_id: {
+      type: "string",
+      pattern: "wf_[0-9a-zA-Z]+",
+      title: "Workflow Id",
+    },
+    workflow_title: {
+      type: "string",
+      title: "Workflow Title",
+    },
+    workflow_version: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Version",
+      description: "Published workflow version the inputs come from, if any.",
+    },
+    status: {
+      $ref: "#/components/schemas/FormStatus",
+    },
+    config: {
+      $ref: "#/components/schemas/FormConfig-Output",
+    },
+    config_version: {
+      type: "string",
+      title: "Config Version",
+      description: "Version of the saved config.",
+    },
+    issues: {
+      items: {
+        $ref: "#/components/schemas/FormIssue",
+      },
+      type: "array",
+      title: "Issues",
+    },
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    counts: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormCounts",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Null without form:submission:read.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "workflow_id",
+    "workflow_title",
+    "status",
+    "config",
+    "config_version",
+    "issues",
+    "url",
+    "created_at",
+    "updated_at",
+  ],
+  title: "FormRead",
+} as const
+
+export const $FormReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Id",
+      description: "Null without form:update or form:submission:read.",
+    },
+    workflow_title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Title",
+      description: "Null without form:update or form:submission:read.",
+    },
+    status: {
+      $ref: "#/components/schemas/FormStatus",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    submission_count: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Submission Count",
+      description: "Null without form:submission:read.",
+    },
+    last_submitted_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Submitted At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "status", "title", "created_at", "updated_at"],
+  title: "FormReadMinimal",
+} as const
+
+export const $FormStatus = {
+  type: "string",
+  enum: ["online", "offline"],
+  title: "FormStatus",
+  description: "Whether a form accepts submissions.",
+} as const
+
+export const $FormSubmissionCreate = {
+  properties: {
+    values: {
+      additionalProperties: true,
+      type: "object",
+      title: "Values",
+      description: "Answers keyed by field name.",
+    },
+    definition_version: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Definition Version",
+      description:
+        "The definition_version of the form the requester filled in. If set and stale, the submission is rejected with form_changed.",
+    },
+    config_version: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Config Version",
+      description:
+        "The config_version of the form the requester filled in. If set and stale, the submission is rejected with form_changed.",
+    },
+  },
+  type: "object",
+  title: "FormSubmissionCreate",
+} as const
+
+export const $FormSubmissionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    form_id: {
+      type: "string",
+      format: "uuid",
+      title: "Form Id",
+    },
+    answers: {
+      additionalProperties: true,
+      type: "object",
+      title: "Answers",
+    },
+    submitted_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormActorRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    definition_version: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Definition Version",
+      description: "Null without form:submission:read.",
+    },
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "Null without form:submission:read.",
+    },
+    run_status: {
+      anyOf: [
+        {
+          type: "string",
+          enum: [
+            "RUNNING",
+            "COMPLETED",
+            "FAILED",
+            "CANCELED",
+            "TERMINATED",
+            "CONTINUED_AS_NEW",
+            "TIMED_OUT",
+          ],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Run Status",
+      description: "Null without form:submission:read, or if it is not known.",
+    },
+    submitted_at: {
+      type: "string",
+      format: "date-time",
+      title: "Submitted At",
+    },
+    reference: {
+      type: "string",
+      title: "Reference",
+      description: "Short code a requester can quote for a submission.",
+      readOnly: true,
+    },
+  },
+  type: "object",
+  required: ["id", "form_id", "answers", "submitted_at", "reference"],
+  title: "FormSubmissionRead",
+} as const
+
+export const $FormSubmissionReceipt = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    submitted_at: {
+      type: "string",
+      format: "date-time",
+      title: "Submitted At",
+    },
+    success_message: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Success Message",
+    },
+    reference: {
+      type: "string",
+      title: "Reference",
+      description: "Short code a requester can quote for a submission.",
+      readOnly: true,
+    },
+  },
+  type: "object",
+  required: ["id", "submitted_at", "reference"],
+  title: "FormSubmissionReceipt",
+  description: "What a requester gets back. Carries no run fields.",
+} as const
+
+export const $FormTextBlock = {
+  properties: {
+    type: {
+      type: "string",
+      const: "text",
+      title: "Type",
+    },
+    text: {
+      type: "string",
+      title: "Text",
+      description: "Markdown.",
+    },
+  },
+  type: "object",
+  required: ["type", "text"],
+  title: "FormTextBlock",
+} as const
+
+export const $FormTextEntry = {
+  properties: {
+    text: {
+      type: "string",
+      maxLength: 10000,
+      title: "Text",
+      description: "Markdown.",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["text"],
+  title: "FormTextEntry",
+} as const
+
+export const $FormUpdate = {
+  properties: {
+    status: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormStatus",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    config: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormConfig-Input",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Replaces the whole config.",
+    },
+    base_config_version: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Config Version",
+      description:
+        "The config_version the edit started from. If set and the saved config has changed since, the update is rejected with form_changed.",
+    },
+  },
+  type: "object",
+  title: "FormUpdate",
+} as const
+
+export const $FormUserRead = {
+  properties: {
+    user_id: {
+      type: "string",
+      format: "uuid",
+      title: "User Id",
+    },
+    email: {
+      type: "string",
+      title: "Email",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+  },
+  type: "object",
+  required: ["user_id", "email"],
+  title: "FormUserRead",
+  description:
+    "A choice of the ``user`` widget, and what a chosen user expands to.",
+} as const
+
+export const $FormValidateRequest = {
+  properties: {
+    config: {
+      $ref: "#/components/schemas/FormConfig-Input",
+    },
+  },
+  type: "object",
+  required: ["config"],
+  title: "FormValidateRequest",
+} as const
+
+export const $FormValidateResponse = {
+  properties: {
+    valid: {
+      type: "boolean",
+      title: "Valid",
+    },
+    issues: {
+      items: {
+        $ref: "#/components/schemas/FormIssue",
+      },
+      type: "array",
+      title: "Issues",
+    },
+    preview: {
+      $ref: "#/components/schemas/FormPreview",
+    },
+  },
+  type: "object",
+  required: ["valid", "issues", "preview"],
+  title: "FormValidateResponse",
+} as const
+
+export const $FormVisibleIf = {
+  properties: {
+    field: {
+      type: "string",
+      maxLength: 255,
+      title: "Field",
+    },
+    equals: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "integer",
+        },
+        {
+          type: "number",
+        },
+        {
+          type: "string",
+          maxLength: 255,
+        },
+      ],
+      title: "Equals",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["field", "equals"],
+  title: "FormVisibleIf",
+  description: "Show a field only while another field has this value.",
+} as const
+
+export const $FormWidget = {
+  type: "string",
+  enum: [
+    "text",
+    "long_text",
+    "number",
+    "toggle",
+    "select",
+    "multi_select",
+    "cards",
+    "tags",
+    "date",
+    "datetime",
+    "user",
+    "file",
+  ],
+  title: "FormWidget",
+  description: "Input controls a form field can render as.",
 } as const
 
 export const $GenericArtifact = {
@@ -25773,6 +28009,17 @@ export const $RunContext = {
       format: "date-time",
       title: "Logical Time",
     },
+    tunnel: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel",
+    },
   },
   type: "object",
   required: ["wf_id", "wf_exec_id", "wf_run_id", "environment", "logical_time"],
@@ -33667,7 +35914,7 @@ export const $Trigger = {
 
 export const $TriggerType = {
   type: "string",
-  enum: ["manual", "scheduled", "webhook", "case"],
+  enum: ["manual", "scheduled", "webhook", "case", "form"],
   title: "TriggerType",
   description: "Trigger type for a workflow execution.",
 } as const
@@ -33883,6 +36130,17 @@ export const $TunnelStatusRead = {
         },
       ],
       title: "Site Online",
+    },
+    gateway_ready: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Gateway Ready",
     },
   },
   type: "object",
@@ -35289,6 +37547,18 @@ export const $VercelChatRequest = {
       ],
       title: "Base Url",
       description: "Optional base URL for the model provider",
+    },
+    page_context: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ChatPageContext",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "The page the chat is docked on. Only Workspace chat uses it.",
     },
   },
   type: "object",

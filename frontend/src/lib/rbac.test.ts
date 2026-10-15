@@ -2,6 +2,7 @@ import type { ScopeRead } from "@/client"
 import {
   abbreviateName,
   abbreviateRoleName,
+  getCategoryPermissionLevel,
   getCategoryScopes,
   getScopesForLevel,
   organizationTier,
@@ -38,6 +39,48 @@ describe("RESOURCE_CATEGORIES", () => {
       getScopesForLevel(integrations.resources, [integrationReadScope], "read")
     ).toEqual([integrationReadScope.id])
   })
+})
+
+describe("forms category", () => {
+  // Resources and actions as seeded in tracecat/authz/seeding.py.
+  const scopes = [
+    "form:read",
+    "form:create",
+    "form:update",
+    "form:delete",
+    "form:submit",
+    "form:submission:read",
+    "form:submission:delete",
+    "workflow:execute",
+  ].map((id) => ({
+    ...integrationReadScope,
+    id,
+    name: id,
+    resource: id.slice(0, id.lastIndexOf(":")),
+    action: id.slice(id.lastIndexOf(":") + 1),
+  }))
+  const { resources } = RESOURCE_CATEGORIES.forms
+
+  it.each([
+    ["read", ["form:read", "form:submission:read"]],
+    [
+      "write",
+      ["form:read", "form:create", "form:update", "form:submission:read"],
+    ],
+    // Executing a form is submitting it.
+    ["execute", ["form:read", "form:submit", "form:submission:read"]],
+    ["admin", scopes.slice(0, 7).map((scope) => scope.id)],
+  ] as const)(
+    "maps the %s level to its form scopes and back",
+    (level, expected) => {
+      const selected = getScopesForLevel(resources, scopes, level)
+
+      expect(selected).toEqual(expected)
+      expect(
+        getCategoryPermissionLevel(resources, scopes, new Set(selected))
+      ).toBe(level)
+    }
+  )
 })
 
 describe("rolesForScope and rolesForAssignmentEdit", () => {

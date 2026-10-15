@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import ipaddress
 import json
 import uuid
 from collections.abc import AsyncGenerator
@@ -7,6 +8,7 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+import tracecat_ee.tunnels.gateway.proxy as proxy_module
 from tracecat_ee.tunnels.gateway.proxy import (
     GatewayConfig,
     GatewayPolicy,
@@ -54,6 +56,17 @@ def _static(*targets: tuple[str, int], managed: bool = False) -> PolicyFetcher:
     return _MutablePolicy(_policy(*targets, managed=managed))
 
 
+_REAL_REFRESH_API_ADDRESSES = TunnelGateway._refresh_api_addresses
+
+
+@pytest.fixture(autouse=True)
+def skip_api_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _noop(self: TunnelGateway) -> None:
+        return None
+
+    monkeypatch.setattr(TunnelGateway, "_refresh_api_addresses", _noop)
+
+
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
@@ -76,6 +89,7 @@ async def upstream_port() -> AsyncGenerator[int, None]:
 @pytest.fixture
 async def gateway_port(upstream_port: int) -> AsyncGenerator[int, None]:
     config = GatewayConfig(
+        blocked_networks=(),
         tunnel_id=TUNNEL_ID,
         gateway_key=KEY,
         host="127.0.0.1",
@@ -221,6 +235,7 @@ async def test_rejects_oversized_headers(gateway_port: int) -> None:
 async def test_unreachable_upstream_returns_bad_gateway(upstream_port: int) -> None:
     closed_port = upstream_port + 1
     config = GatewayConfig(
+        blocked_networks=(),
         tunnel_id=TUNNEL_ID,
         gateway_key=KEY,
         host="127.0.0.1",
@@ -286,6 +301,7 @@ async def http_upstream_port() -> AsyncGenerator[int, None]:
 @pytest.fixture
 async def http_gateway_port(http_upstream_port: int) -> AsyncGenerator[int, None]:
     config = GatewayConfig(
+        blocked_networks=(),
         tunnel_id=TUNNEL_ID,
         gateway_key=KEY,
         host="127.0.0.1",
@@ -369,13 +385,17 @@ async def test_managed_gateway_dials_per_tunnel_alias(
     expected = managed_alias(TUNNEL_ID, host) if uses_alias else host
     dialed: list[str] = []
 
-    async def _open_connection(dial_host: str, port: int) -> None:
+    async def _resolve(dial_host: str, port: int) -> list[ipaddress.IPv4Address]:
         dialed.append(dial_host)
+        return [ipaddress.IPv4Address("10.0.0.9")]
+
+    async def _open_connection(dial_host: str, port: int) -> None:
         raise OSError("unreachable")
 
+    monkeypatch.setattr(proxy_module, "_resolve", _resolve)
     monkeypatch.setattr(asyncio, "open_connection", _open_connection)
     gateway = TunnelGateway(
-        GatewayConfig(tunnel_id=TUNNEL_ID, gateway_key=KEY),
+        GatewayConfig(tunnel_id=TUNNEL_ID, gateway_key=KEY, blocked_networks=()),
         _static((host, 8089), managed=managed),
     )
     await gateway.refresh()
@@ -394,6 +414,7 @@ async def _revocable_gateway(
     source = _MutablePolicy(_policy(("127.0.0.1", upstream_port)))
     server, gateway = await start_gateway(
         GatewayConfig(
+            blocked_networks=(),
             tunnel_id=TUNNEL_ID,
             gateway_key=KEY,
             host="127.0.0.1",
@@ -513,13 +534,13 @@ async def test_fetch_policy_signs_request_and_parses_policy() -> None:
 
 @pytest.mark.parametrize("status_code", [401, 403, 404])
 async def test_fetch_policy_revoked_statuses_return_none(status_code: int) -> None:
-    config = GatewayConfig(tunnel_id=TUNNEL_ID, gateway_key=KEY)
+    config = GatewayConfig(tunnel_id=TUNNEL_ID, gateway_key=KEY, blocked_networks=())
     async with _policy_client(lambda _req: httpx.Response(status_code)) as client:
         assert await fetch_policy(config, client) is None
 
 
 async def test_fetch_policy_rejects_other_tunnels_policy() -> None:
-    config = GatewayConfig(tunnel_id=TUNNEL_ID, gateway_key=KEY)
+    config = GatewayConfig(tunnel_id=TUNNEL_ID, gateway_key=KEY, blocked_networks=())
     body = {
         "tunnel_id": str(uuid.uuid4()),
         "workspace_id": str(WORKSPACE_ID),
@@ -529,3 +550,110 @@ async def test_fetch_policy_rejects_other_tunnels_policy() -> None:
     async with _policy_client(lambda _req: httpx.Response(200, json=body)) as client:
         with pytest.raises(ValueError):
             await fetch_policy(config, client)
+
+
+async def _handle_connect(gateway: TunnelGateway, target: str) -> bytes:
+    await gateway.refresh()
+    reader = asyncio.StreamReader()
+    reader.feed_data(_connect(target, f"Bearer {_token()}"))
+    written: list[bytes] = []
+    writer = AsyncMock()
+    writer.write = written.append
+    writer.close = lambda: None
+    await gateway.handle(reader, writer)
+    return b"".join(written)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("host", "resolved"),
+    [
+        ("127.0.0.1", "127.0.0.1"),
+        ("::ffff:127.0.0.1", "::ffff:127.0.0.1"),
+        ("splunk.corp", "169.254.169.254"),
+        ("splunk.corp", "fd00:ec2::254"),
+        ("splunk.corp", "0.0.0.0"),
+    ],
+)
+async def test_blocks_internal_destinations_after_resolution(
+    monkeypatch: pytest.MonkeyPatch, host: str, resolved: str
+) -> None:
+    dialed: list[str] = []
+
+    async def _resolve(dial_host: str, port: int) -> list[ipaddress._BaseAddress]:
+        return [ipaddress.ip_address(resolved)]
+
+    async def _open_connection(dial_host: str, port: int) -> None:
+        dialed.append(dial_host)
+        raise OSError("unreachable")
+
+    monkeypatch.setattr(proxy_module, "_resolve", _resolve)
+    monkeypatch.setattr(asyncio, "open_connection", _open_connection)
+    gateway = TunnelGateway(
+        GatewayConfig(tunnel_id=TUNNEL_ID, gateway_key=KEY),
+        _static((host, 8089)),
+    )
+    response = await _handle_connect(gateway, f"{host}:8089")
+    assert response.startswith(b"HTTP/1.1 403")
+    assert dialed == []
+
+
+@pytest.mark.anyio
+async def test_blocks_the_tracecat_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        TunnelGateway, "_refresh_api_addresses", _REAL_REFRESH_API_ADDRESSES
+    )
+    dialed: list[str] = []
+
+    async def _resolve(dial_host: str, port: int) -> list[ipaddress.IPv4Address]:
+        return [ipaddress.IPv4Address("10.1.2.3")]
+
+    async def _open_connection(dial_host: str, port: int) -> None:
+        dialed.append(dial_host)
+        raise OSError("unreachable")
+
+    monkeypatch.setattr(proxy_module, "_resolve", _resolve)
+    monkeypatch.setattr(asyncio, "open_connection", _open_connection)
+    gateway = TunnelGateway(
+        GatewayConfig(tunnel_id=TUNNEL_ID, gateway_key=KEY, api_url="http://api:8000"),
+        _static(("api.internal", 8000)),
+    )
+    response = await _handle_connect(gateway, "api.internal:8000")
+    assert response.startswith(b"HTTP/1.1 403")
+    assert dialed == []
+
+
+@pytest.mark.anyio
+async def test_dials_resolved_private_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    dialed: list[str] = []
+
+    async def _resolve(dial_host: str, port: int) -> list[ipaddress.IPv4Address]:
+        return [ipaddress.IPv4Address("10.20.0.15")]
+
+    async def _open_connection(dial_host: str, port: int) -> None:
+        dialed.append(dial_host)
+        raise OSError("unreachable")
+
+    monkeypatch.setattr(proxy_module, "_resolve", _resolve)
+    monkeypatch.setattr(asyncio, "open_connection", _open_connection)
+    gateway = TunnelGateway(
+        GatewayConfig(tunnel_id=TUNNEL_ID, gateway_key=KEY),
+        _static(("splunk.corp", 8089)),
+    )
+    response = await _handle_connect(gateway, "splunk.corp:8089")
+    assert response.startswith(b"HTTP/1.1 502")
+    assert dialed == ["10.20.0.15"]
+
+
+def test_config_reads_blocked_cidrs() -> None:
+    config = GatewayConfig.from_env(
+        {
+            "TRACECAT_TUNNEL_ID": str(TUNNEL_ID),
+            "TRACECAT_TUNNEL_GATEWAY_KEY": KEY,
+            "TRACECAT_TUNNEL_API_URL": "http://api:8000",
+            "TRACECAT_TUNNEL_GATEWAY_BLOCKED_CIDRS": "10.96.0.0/12, 172.20.0.0/16",
+        }
+    )
+    assert ipaddress.ip_network("10.96.0.0/12") in config.blocked_networks
+    assert ipaddress.ip_network("172.20.0.0/16") in config.blocked_networks
+    assert ipaddress.ip_network("127.0.0.0/8") in config.blocked_networks

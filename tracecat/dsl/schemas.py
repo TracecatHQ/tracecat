@@ -351,6 +351,15 @@ class ActionStatement(BaseModel):
         default=None,
         description="Override environment for this action's execution. Can be a template expression.",
     )
+    tunnel: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=63,
+        description=(
+            "Name of a workspace tunnel to route this action's HTTP(S) traffic through. "
+            "Overrides the workflow's default tunnel."
+        ),
+    )
     mask_output: bool = Field(
         default=False,
         description=(
@@ -407,6 +416,12 @@ class DSLConfig(BaseModel):
         description="Workflow timeout in seconds. If set to 0, the workflow has no timeout.",
     )
     """Workflow timeout in seconds. If set to 0, the workflow has no timeout."""
+    tunnel: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=63,
+        description="Default workspace tunnel for actions that do not set their own.",
+    )
 
 
 class Trigger(BaseModel):
@@ -440,6 +455,8 @@ class RunContext(BaseModel):
     environment: str
     logical_time: datetime
     """The logical start time for the workflow run."""
+    tunnel: str | None = None
+    """The workflow's default tunnel name, if any."""
 
     @field_validator("wf_id", mode="before")
     @classmethod

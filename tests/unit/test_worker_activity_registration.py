@@ -405,9 +405,12 @@ async def test_agent_executor_worker_cleans_up_runtime_services_on_startup_failu
 
     stop_mcp_server = AsyncMock()
     stop_broker = AsyncMock()
+    start_otel_pool = Mock()
+    stop_otel_pool = AsyncMock()
 
     monkeypatch.setattr(executor_worker, "start_claude_runtime_broker", AsyncMock())
     monkeypatch.setattr(executor_worker, "start_mcp_server", AsyncMock())
+    monkeypatch.setattr(executor_worker, "start_otel_delivery_pool", start_otel_pool)
     monkeypatch.setattr(
         executor_worker,
         "get_temporal_client",
@@ -415,11 +418,14 @@ async def test_agent_executor_worker_cleans_up_runtime_services_on_startup_failu
     )
     monkeypatch.setattr(executor_worker, "stop_mcp_server", stop_mcp_server)
     monkeypatch.setattr(executor_worker, "stop_claude_runtime_broker", stop_broker)
+    monkeypatch.setattr(executor_worker, "stop_otel_delivery_pool", stop_otel_pool)
     with pytest.raises(RuntimeError, match="boom"):
         await executor_worker.main()
 
     stop_mcp_server.assert_awaited_once()
     stop_broker.assert_awaited_once()
+    start_otel_pool.assert_called_once()
+    stop_otel_pool.assert_awaited_once()
 
 
 @pytest.mark.anyio

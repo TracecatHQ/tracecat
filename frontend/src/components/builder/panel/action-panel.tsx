@@ -63,6 +63,7 @@ import { getIcon } from "@/components/icons"
 import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import { TunnelSelect } from "@/components/tunnels/tunnel-select"
 import {
   Accordion,
   AccordionContent,
@@ -201,6 +202,7 @@ const actionFormSchema = z.object({
     .max(1000, "Environment must be less than 1000 characters")
     .transform((val) => normalizeOptionalExpression(val))
     .optional(),
+  tunnel: z.string().max(63).optional(),
   mask_output: z.boolean().default(false),
   unsafe_disable_secret_error_withholding: z.boolean().default(false),
 })
@@ -342,6 +344,7 @@ function ActionPanelContent({
       join_strategy: actionControlFlow?.join_strategy,
       wait_until: actionControlFlow?.wait_until || undefined,
       environment: actionControlFlow?.environment || undefined,
+      tunnel: actionControlFlow?.tunnel || undefined,
       mask_output: actionControlFlow?.mask_output ?? false,
       unsafe_disable_secret_error_withholding:
         actionControlFlow?.unsafe_disable_secret_error_withholding ?? false,
@@ -359,6 +362,7 @@ function ActionPanelContent({
       actionControlFlow?.join_strategy,
       actionControlFlow?.wait_until,
       actionControlFlow?.environment,
+      actionControlFlow?.tunnel,
       actionControlFlow?.mask_output,
       actionControlFlow?.unsafe_disable_secret_error_withholding,
     ]
@@ -619,6 +623,7 @@ function ActionPanelContent({
             join_strategy: values.join_strategy,
             wait_until: values.wait_until,
             environment: values.environment,
+            tunnel: values.tunnel ?? null,
             mask_output: values.mask_output ?? false,
             unsafe_disable_secret_error_withholding:
               values.unsafe_disable_secret_error_withholding ?? false,
@@ -1365,6 +1370,28 @@ function ActionPanelContent({
                                   value={field.value || ""}
                                   onChange={field.onChange}
                                   placeholder="Type @ to begin an expression..."
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      <ControlFlowField
+                        label="Tunnel"
+                        description="Route this action's HTTP(S) traffic through a workspace tunnel, otherwise the workflow's default tunnel is used."
+                      >
+                        <FormField
+                          name="tunnel"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <FormControl>
+                                <TunnelSelect
+                                  value={field.value}
+                                  onChange={field.onChange}
+                                  noneLabel="Workflow default"
                                 />
                               </FormControl>
                             </FormItem>

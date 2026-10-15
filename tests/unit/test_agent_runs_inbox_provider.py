@@ -343,13 +343,13 @@ async def test_ungrouped_reverse_returns_rows_adjacent_to_cursor(
 
 
 @pytest.mark.anyio
-async def test_classify_rejected_only_non_workflow_session_lands_in_error_group(
+async def test_classify_rejected_only_session_lands_in_completed_group(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Any session whose only signal is a rejected approval groups under ERROR.
+    """A rejected approval alone never groups a session under ERROR.
 
-    ``_enrich_sessions`` renders such a session FAILED, so classification must
-    place it in ERROR rather than COMPLETED even when it is not workflow-backed.
+    Denials, including approvals a cancel resolved, are the user's decision,
+    so the run's own outcome decides the group.
     """
     workspace_id = uuid.uuid4()
     provider = AgentRunsInboxProvider(
@@ -388,7 +388,7 @@ async def test_classify_rejected_only_non_workflow_session_lands_in_error_group(
         [rejected], group=InboxGroup.ERROR
     )
 
-    assert classifications[rejected.id] is InboxGroup.ERROR
+    assert classifications[rejected.id] is InboxGroup.COMPLETED
 
 
 @pytest.mark.anyio

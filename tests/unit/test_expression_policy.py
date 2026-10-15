@@ -123,6 +123,14 @@ def test_http_transport_credential_fields_resolve_secrets(
     assert prepared == {parameter: expected[parameter]}
 
 
+def test_form_config_written_by_a_workflow_never_stores_a_secret() -> None:
+    # A form's config is shown to everyone who can fill the form in.
+    assert (
+        expression_policy("core.forms.update_form", "config")
+        is ExpressionPolicy.REDACT_SECRETS
+    )
+
+
 def test_expression_policy_requires_exact_action_parameter_pair() -> None:
     assert (
         expression_policy("core.workflow.edit_workflow", "patch_ops")

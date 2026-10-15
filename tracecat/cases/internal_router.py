@@ -34,7 +34,7 @@ from tracecat.cases.event_schemas import (
     CaseEventsWithUsers,
     TaskAssigneeChangedEventRead,
 )
-from tracecat.cases.filters import parse_assignee_filter
+from tracecat.cases.filters import parse_assignee_filter, resolve_tag_ids
 from tracecat.cases.hierarchy import (
     TOP_LEVEL,
     CaseHierarchy,
@@ -68,7 +68,6 @@ from tracecat.cases.service import (
     CaseTasksService,
 )
 from tracecat.cases.tags.schemas import CaseTagRead
-from tracecat.cases.tags.service import CaseTagsService
 from tracecat.core.schemas import Schema
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Case
@@ -327,15 +326,7 @@ async def search_cases(
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     service = CasesService(session, role)
 
-    tag_ids: list[uuid.UUID] = []
-    if tags:
-        tags_service = CaseTagsService(session, role)
-        for tag_identifier in tags:
-            try:
-                tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
-                tag_ids.append(tag.id)
-            except NoResultFound:
-                continue
+    tag_ids = await resolve_tag_ids(tags=tags, role=role, session=session)
 
     pagination_params = CursorPaginationParams(
         limit=limit,
@@ -367,7 +358,7 @@ async def search_cases(
             severity=severity,
             assignee_ids=parsed_assignee_filters["assignee_ids"],
             include_unassigned=parsed_assignee_filters["include_unassigned"],
-            tag_ids=tag_ids if tag_ids else None,
+            tag_ids=tag_ids,
             dropdown_filters=parsed_dropdown_filters,
             start_time=start_time,
             end_time=end_time,

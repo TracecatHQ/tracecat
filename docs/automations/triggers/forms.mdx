@@ -1,0 +1,326 @@
+---
+title: "Forms"
+description: "Turn a workflow's Input schema into a form that workspace members fill in, configure its layout in YAML, and read what people submit."
+icon: "lock"
+---
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+## Overview
+
+A form turns a workflow's [Input schema](/automations/workflows#input-schema) into a page that workspace members fill in. Each submission starts the workflow with trigger type `form`.
+
+The Input schema supplies each field's name, type, and default, and a field is required when its input has no default. The form config controls presentation only.
+
+## Create a form
+
+| Where | Steps | Result |
+| --- | --- | --- |
+| `Forms` in the workspace sidebar | Click `New form` and pick a workflow. | An offline form. Fix any problems the `Config` tab shows, then switch it to `Online` in the form's header. |
+| `Form` tab of the trigger panel in the workflow builder | Publish the workflow, then turn on `Enable form`. | An online form, with its `Requester link` and an `Edit in Forms` link. |
+
+A form goes online only when its workflow is published. An online form reads the published Input schema and starts the published workflow definition. Before the first publish, the form reads the draft Input schema so you can prepare it offline.
+
+Tracecat checks the config against the published Input schema on every render and submit. When a publish removes or retypes an input the config uses, the form stops accepting submissions until you fix the config.
+
+## Form config
+
+Edit the config as YAML on the form's `Config` tab. The `Preview` pane updates as you type, and the editor marks each problem on its line. Tracecat refuses to save a config with errors. Saving replaces the whole config and drops YAML comments. Every key is optional, and Tracecat rejects keys outside this reference.
+
+| Key | Description |
+| --- | --- |
+| `title` | Form title. Defaults to the workflow title. |
+| `description` | Markdown under the title. Defaults to the workflow description. |
+| `success_message` | Text the requester sees after submitting. |
+| `layout` | Ordered list of entries. Tracecat appends inputs you leave out, in Input schema order. |
+
+Each `layout` entry has exactly one of these keys:
+
+| Entry | Renders |
+| --- | --- |
+| `field: <input name>` | An input. Each input appears once. |
+| `heading: <text>` | A section heading. |
+| `text: <markdown>` | A paragraph. Markdown renders formatting, lists, and links. |
+| `notice: <text>` | A callout. Optional `tone`: `info` (default), `success`, `warning`, or `danger`. |
+| `divider: true` | A horizontal rule. |
+
+A `field` entry also takes `widget`, `options`, `visible_if`, `autofill`, `hidden`, `accept`, and `max_files`, described in the sections below, and these text keys:
+
+| Key | Description |
+| --- | --- |
+| `label` | Defaults to the input name, humanized: `for_someone_else` becomes `For someone else`. |
+| `help` | Defaults to the input's `description`. |
+| `placeholder` | Every widget except `toggle`, `cards`, and `file`. |
+
+Text keys hold at most 255 characters (`title`, `heading`, `label`, `placeholder`, and an option's `value` and `label`) or 10,000 (`description`, `success_message`, `help`, `text`, `notice`, and an option's `description`). A `layout` holds at most 200 entries and `options` at most 100 choices.
+
+This config:
+
+```yaml
+title: Laptop request
+description: Request a new laptop from IT.
+success_message: IT will follow up by email.
+layout:
+  - notice: IT reviews requests within 2 business days.
+  - field: model
+    label: Choose your laptop
+    widget: cards
+    options:
+      - { value: air, label: Laptop Air 13, description: 16 GB memory }
+      - { value: pro, label: Laptop Pro 14 }
+  - field: justification
+    widget: long_text
+    placeholder: What do you need it for?
+  - heading: Delivery
+  - field: for_someone_else
+    label: This is for someone else
+  - field: recipient
+    widget: user
+    visible_if: { field: for_someone_else, equals: true }
+  - field: requester
+    autofill: requester
+  - field: cost_center
+    hidden: true
+```
+
+Presents this Input schema:
+
+```yaml
+model: { type: 'enum["air", "pro"]' }
+justification: { type: str }
+for_someone_else: { type: bool, default: false }
+recipient: { type: "dict[str, Any] | None", default: null }
+requester: { type: "dict[str, Any]" }
+cost_center: { type: str, default: IT-000 }
+```
+
+## Widgets
+
+A field without `widget` uses the default widget for its input type. `T | None` behaves as `T`.
+
+| Widget | Input types | Default for | Value the workflow receives |
+| --- | --- | --- | --- |
+| `text` | `str` | `str` | String |
+| `long_text` | `str` | | String |
+| `number` | `int`, `float` | `int`, `float` | Number |
+| `toggle` | `bool` | `bool` | Boolean |
+| `select` | `enum[...]`, `str` | `enum[...]` | String |
+| `multi_select` | `list[enum[...]]`, `list[str]` | `list[enum[...]]` | List of strings |
+| `cards` | `enum[...]`, `str`, `list[enum[...]]`, `list[str]` | | String, or list of strings for a list input |
+| `tags` | `list[str]` | `list[str]` | List of strings the requester types |
+| `date` | `str`, `datetime` | | `YYYY-MM-DD` |
+| `datetime` | `datetime`, `str` | `datetime` | `YYYY-MM-DDTHH:MM`, with optional seconds and an optional `Z` or `±HH:MM` offset |
+| `user` | `dict`, `list[dict]` | | `{user_id, email, first_name, last_name}`, or a list of them |
+| `file` | `dict`, `list[dict]` | | `{id, name, content_type, size, sha256}`, or a list of them |
+
+Input types outside the `Default for` column, such as `dict`, `duration`, `any`, or `str | int`, have no default widget. Set `widget: user` or `widget: file` on a `dict` or `list[dict]` input, or fill the input with `autofill` or its default. An input with a default and no widget stays off the form and takes its default. The `user` widget searches active members of the organization.
+
+A shown field starts with its input's default, so a non-null default must be a valid answer for the field. `user` and `file` fields start empty instead, and Tracecat applies their default on submission. Tracecat doesn't check the defaults of hidden and autofill inputs, or of inputs with no widget, as answers.
+
+Integers in a form stay between -9,007,199,254,740,991 and 9,007,199,254,740,991, the range a browser holds exactly. That covers the default of an `int` input, hidden or shown, an integer `visible_if` value, and an answer to an `int` input, including one sent as text or as a whole-number float. Outside the range, a default or `visible_if` value is a config error and an answer fails with `invalid_value`. `float` inputs are unaffected, since a browser holds every float exactly.
+
+## Options and images
+
+`options` is a list of choices. Each choice has a unique `value` and optional `label`, `description`, and `image`.
+
+- For an `enum[...]` or `list[enum[...]]` input, options decorate the enum's values. Each `value` must be an enum value, and Tracecat appends the values you leave out.
+- For a `str` or `list[str]` input, options define the allowed values. `select`, `multi_select`, and `cards` require them.
+
+The `cards` widget shows each choice as a card with its `image`, `label`, and `description`. An `image` is an inline data URI: `data:image/png;base64,...`, `data:image/jpeg;base64,...`, or `data:image/webp;base64,...`. Each image is at most 100 KB decoded, and the images in one form total at most 1 MB.
+
+`Insert image` on the `Config` tab takes a PNG, JPEG, or WebP file, resizes it to 320 px on its long edge, and inserts the data URI at the cursor.
+
+## Conditional fields
+
+`visible_if` shows a field only while another field equals a value, as `recipient` does in the [example](#form-config). A field takes one rule:
+
+- The conditional input has a default, which the workflow receives while the field is not shown.
+- The controlling field sits earlier in the form, has no `visible_if` of its own, and has type `str`, `int`, `float`, `bool`, or `enum[...]`.
+- `equals` is a string, number, or boolean the controlling field can take. For a field with options, it is one of their values.
+
+The server re-evaluates every rule on submit and drops values for fields the requester could not see.
+
+## Autofill
+
+`autofill` fills an input on the server when the requester submits. The field stays off the form.
+
+| Source | Value | Input type |
+| --- | --- | --- |
+| `requester` | `{user_id, email, first_name, last_name}` | `dict` or `any` |
+| `requester.user_id`, `requester.email`, `requester.first_name`, `requester.last_name` | That property of the requester | `str` or `any` |
+| `submission.id` | The submission ID | `str` or `any` |
+
+Tracecat rejects an autofill input sent in `values` with `unknown_field`, so a `requester` value is always a verified Tracecat user.
+
+A service account that submits through the API has no user profile, so it has no `requester` values, and a user may have no first or last name. An input whose value is missing takes its default. Without a default it holds `null` if its type takes `null`, such as `str | None`, and otherwise the submission fails with `required`. To record your own end user, add an ordinary input such as `end_user_email` and send it in `values`.
+
+## Hidden fields
+
+`hidden: true` keeps an input off the form, and the workflow receives the input's default, so the input needs one. A field with `hidden` or `autofill` takes no other key, and a field can't be both.
+
+## File uploads
+
+The `file` widget lets requesters attach files. A `dict` input takes one file. A `list[dict]` input takes up to `max_files` files, from 1 to 10 (default 10). `accept` lists up to 20 extensions such as `.pdf`, MIME types such as `application/pdf`, or wildcards such as `image/*`. Without `accept`, the field takes every type the workspace allows.
+
+```yaml
+- field: quote
+  widget: file
+  accept: [".pdf", "image/*"]
+  max_files: 2
+```
+
+Tracecat accepts a file when the workspace attachment settings allow its extension and MIME type, it matches `accept`, its content matches its declared type, and it is not empty and at most `TRACECAT__MAX_ATTACHMENT_SIZE_BYTES` (20 MB by default). One requester holds at most 20 uploaded files on one form before submitting. An uploaded file that no submission claims within 24 hours expires. Tracecat deletes expired files every 10 minutes.
+
+Read a file's content in the workflow with [`core.forms.download_file`](/automations/core-actions/form-actions/forms), passing `${{ TRIGGER.quote.id }}` as `file_id`. The requester who uploaded a file can download it before and after submitting. A member with `form:submission:read` can download every submitted file from the `Activity` tab. Deleting a submission, its form, or the form's workflow deletes its files.
+
+## What requesters see
+
+Requesters need `form:read` in the form's workspace and can open every online form in that workspace.
+
+| Page | Shows |
+| --- | --- |
+| `/forms` | The `Forms` tab lists online forms from every workspace where you hold `form:read`, grouped by workspace. |
+| `/forms?tab=submissions` | The `My submissions` tab lists your own submissions with the form, a reference, and the time. |
+| `/forms/{form_id}` | The form. This is the link you share. |
+
+After submitting, the requester sees the `success_message` and a reference such as `FRM-8F3C2A1C`. A member without `form:submit` sees the form read-only. An offline form shows `This form isn't accepting requests`. A member who holds `form:read` and no `workspace:read` lands on `/forms` when they open Tracecat.
+
+## What the workflow receives
+
+`TRIGGER` holds one key per input, validated against the Input schema. For the example form:
+
+```json
+{
+  "model": "pro",
+  "justification": "Current laptop is five years old",
+  "for_someone_else": false,
+  "recipient": null,
+  "requester": { "user_id": "5b0f4c1e-7a2d-4e83-9c16-3d8a2f6b9e01", "email": "maya.okafor@example.com", "first_name": "Maya", "last_name": "Okafor" },
+  "cost_center": "IT-000"
+}
+```
+
+An answered field holds its [widget's value](#widgets). An optional field left empty, a conditional field the requester could not see, and a hidden field hold the input's default. An autofill input holds the value Tracecat fills in.
+
+`ENV.workflow.trigger_type` is `form`. The run records the requester as the user who triggered it and executes with the workflow runner's permissions, as a webhook run does, so a requester needs no workflow or action scopes.
+
+## Activity
+
+The `Activity` tab of a form shows `Views` and `Submissions` counts and lists submissions newest first. Expand a submission to read its answers. Each row shows the submitter, the run status, and a `Run` link. Tracecat counts one view per user per form every five minutes.
+
+Tracecat keeps submissions until you delete them. Deleting a submission removes its stored answers and files and leaves the workflow run and its inputs in place. To delete old submissions, run a workflow on a [schedule](/automations/triggers/schedules) that lists them with `core.forms.list_submissions` and `submitted_before`, then deletes each with `core.forms.delete_submission`. See [Forms actions](/automations/core-actions/form-actions/forms) for both steps.
+
+## Permissions
+
+| Scope | Allows | Preset roles |
+| --- | --- | --- |
+| `form:read` | Open online forms and the requester pages. | `Intake only` and above |
+| `form:submit` | Submit a form and upload its files. | `Intake only` and above |
+| `form:submission:read` | Read every submission, the `Activity` tab, and run status, and download submitted files. | `workspace-viewer` and above |
+| `form:create` | Create a form. | `workspace-editor` and above |
+| `form:update` | Edit the config, change the status, and see offline forms. | `workspace-editor` and above |
+| `form:delete` | Delete a form with its submissions and files. | `workspace-admin` and above |
+| `form:submission:delete` | Delete a submission and its files. | `workspace-admin` and above |
+
+Assign `Intake only` (`workspace-intake`) to members who only fill in forms. It holds `form:read` and `form:submit` and no other workspace access. The `Forms` sidebar entry and a form's config need `form:update` or `form:submission:read` on top of `form:read`. See [Roles and permissions](/manage-platform/rbac) for assigning roles.
+
+## Edit a form in workspace chat
+
+Open the chat panel on a form's page and describe the change, such as `Make model a card picker`. [Workspace chat](/agents/workspace-chat) knows which form is open, edits it with the `core.forms.list_forms`, `core.forms.get_form`, and `core.forms.update_form` tools, and the editor and preview refresh. The [Tracecat MCP](/automations/tracecat-mcp) server exposes the same operations as `list_forms`, `get_form`, and `update_form`.
+
+## Git sync
+
+[Git sync](/manage-platform/git-sync) stores a form in its workflow's `workflows/<id>/definition.yml` as a `form:` block: the form config followed by `status`.
+
+```yaml
+form:
+  title: Laptop request
+  layout:
+    - field: model
+      widget: cards
+  status: online
+```
+
+| Operation | Behavior |
+| --- | --- |
+| Export | Writes the block when the form is online or has any config. Submissions and views stay in the workspace. |
+| Pull, block present | Creates or replaces the form with the block's config and `status`. `status` defaults to `offline`. |
+| Pull, block absent | Sets the workflow's existing form offline and clears its config. The form keeps its ID and submissions. |
+| Pull, block no longer matches the inputs | The pull succeeds and stores the block as written. The form stops accepting submissions until you fix its config. |
+
+Applying a pull that carries a `form:` block needs `form:create` and `form:update`. Applying a pull that sets a form offline or clears its config needs `form:update`. A dry run needs neither.
+
+A Tracecat instance on a version without Forms writes `definition.yml` without the `form:` block, so the next pull on a newer instance takes that form offline and clears its config. Upgrade every instance that pushes to the repository before you build forms in it.
+
+## REST API
+
+Build your own frontend on these endpoints. The API Reference tab documents the request and response bodies of every forms endpoint, including the builder endpoints that create, update, and `validate` a form. Workspace endpoints accept a signed-in user or a [service account API key](/api-reference/authentication). `/intake` endpoints accept a signed-in user only.
+
+| Step | Endpoint | Scopes |
+| --- | --- | --- |
+| List online forms across workspaces | `GET /intake/forms` | `form:read` |
+| Find a form's workspace | `GET /intake/forms/{form_id}` | `form:read` in that workspace |
+| List your own submissions | `GET /intake/submissions` | `form:read` |
+| List a workspace's forms | `GET /workspaces/{workspace_id}/forms` | `form:read` |
+| Get the form to render | `GET /workspaces/{workspace_id}/forms/{form_id}/render` | `form:read` |
+| Search people for a `user` field | `GET /workspaces/{workspace_id}/forms/{form_id}/users?search=` | `form:read` |
+| Upload a file for a `file` field | `POST /workspaces/{workspace_id}/forms/{form_id}/files?field=` | `form:read`, `form:submit` |
+| Submit | `POST /workspaces/{workspace_id}/forms/{form_id}/submissions` | `form:read`, `form:submit` |
+| Get one submission | `GET /workspaces/{workspace_id}/forms/{form_id}/submissions/{submission_id}` | `form:read` for your own; `form:read` and `form:submission:read` for any |
+| Get a file's download URL | `GET /workspaces/{workspace_id}/forms/{form_id}/files/{file_id}/download` | `form:read` for a file you uploaded; `form:read` and `form:submission:read` for any submitted file |
+| List submissions | `GET /workspaces/{workspace_id}/forms/{form_id}/submissions` | `form:submission:read` |
+| Delete a submission | `DELETE /workspaces/{workspace_id}/forms/{form_id}/submissions/{submission_id}` | `form:submission:delete` |
+
+List endpoints take `limit` (default 20, at most 200) and `cursor`, and return `items` with `next_cursor`. The submissions list also takes `submitted_after` and `submitted_before`.
+
+Responses return `workflow_id` as a short `wf_...` ID, and requests accept either ID form. The forms list returns `workflow_id` and `workflow_title` only to callers with `form:update` or `form:submission:read`. The users endpoint needs an online form with a `user` field unless the caller holds `form:update`.
+
+### Render and submit
+
+`render` returns `title`, `description`, `success_message`, `definition_version`, `config_version`, and `blocks`. A block's `type` is `heading`, `text` (Markdown), `notice` (with `tone`), `divider`, or `field`. A `field` block carries `name`, `label`, `help`, `placeholder`, `widget`, `required`, `multiple`, `default`, `options`, `visible_if`, and `config`. A `file` field's `config` holds `accept`, `max_files`, and `max_file_size` in bytes. Hidden and autofill inputs are absent. Show a field with `visible_if` only while the named field equals `equals`, and treat a controlling field that is empty or not sent as its `default`.
+
+Send the answers keyed by field `name`, with the `definition_version` and `config_version` from `render`. Send each value as the workflow receives it (see [Widgets](#widgets)), except that a `user` field takes a `user_id` from the users endpoint and a `file` field takes an uploaded file's `id`. A field with `multiple` set to `true` takes a list.
+
+```bash
+curl -X POST "https://platform.tracecat.com/api/workspaces/<WORKSPACE_ID>/forms/<FORM_ID>/submissions" \
+  --header "Authorization: Bearer <SERVICE_ACCOUNT_API_KEY>" \
+  --header "Content-Type: application/json" \
+  --data '{"definition_version": 12, "config_version": "<CONFIG_VERSION>", "values": {"model": "pro", "justification": "Current laptop is five years old"}}'
+```
+
+A `201` response is the receipt: `id`, `reference`, `submitted_at`, and `success_message`.
+
+Without `form:submission:read`, a caller reads only their own submissions: `answers` holds the fields the form showed them when they submitted, and `definition_version`, `wf_exec_id`, and `run_status` are `null`.
+
+### Upload and download files
+
+Upload each file before you submit, as `multipart/form-data` with one `file` part. Name the `file` field in the `field` query parameter. A `201` response is the file object; send its `id` as the field's value.
+
+```bash
+curl -X POST "https://platform.tracecat.com/api/workspaces/<WORKSPACE_ID>/forms/<FORM_ID>/files?field=quote" \
+  --header "Authorization: Bearer <SERVICE_ACCOUNT_API_KEY>" \
+  --form "file=@quote.pdf;type=application/pdf"
+```
+
+The download endpoint returns `download_url`, `file_name`, and `content_type`. `download_url` is a short-lived URL that downloads the file as an attachment. The endpoint returns `404` for a file the caller cannot read.
+
+### Errors
+
+Submit and upload errors return `detail.code` and `detail.message`.
+
+| Status | `detail.code` | Meaning |
+| --- | --- | --- |
+| `409` | `form_offline` | The form is offline. |
+| `409` | `form_unavailable` | The workflow is unpublished, or the config no longer matches the Input schema. |
+| `409` | `form_changed` | `definition_version` or `config_version` is stale. Render again and resubmit. |
+| `422` | `form_validation_error` | `detail.errors` lists `{field, code, message}`. |
+| `503` | `workflow_start_failed` | The workflow did not start and will not. Tracecat removes the submission and releases its files, so you can retry. When Temporal's answer is lost, such as after a timeout, Tracecat first checks whether the run started; if it did, the submission succeeds. |
+| `503` | `workflow_start_unconfirmed` | Tracecat could not confirm whether the run started, so it keeps the submission. Don't retry until you've checked whether the run happened. |
+| `400` | `file_invalid` | The file is empty, or its name or content failed validation. |
+| `409` | `file_limit_reached` | You hold the most uploaded files one requester can hold on this form. Submit, or wait for them to expire. |
+| `413` | `file_too_large` | The file is over the size limit. |
+| `415` | `file_type_not_allowed` | The workspace or the field's `accept` does not allow the type. |
+| `422` | `file_field_invalid` | The form has no `file` field with that name. |
+| `503` | `file_upload_failed` | Tracecat could not store the file. Retry. |
+
+A field error's `code` is `required`, `unknown_field`, `invalid_value`, `invalid_option`, `invalid_date`, `invalid_user`, `invalid_file`, or `too_many_files`. `invalid_file` means a file ID is not a file you uploaded to that field of this form in the last 24 hours, or a submission already holds it. `too_many_files` means the field got more files than its `max_files`.
