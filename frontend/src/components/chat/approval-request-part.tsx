@@ -71,9 +71,12 @@ function approvalStateKey(approval: ApprovalCard): string {
 export function ApprovalRequestPart({
   approvals,
   onSubmit,
+  canSubmit = true,
 }: {
   approvals: ApprovalCard[]
   onSubmit?: (decisions: ApprovalDecision[]) => Promise<void>
+  /** False until the backend has saved the pause the decisions answer. */
+  canSubmit?: boolean
 }) {
   const [decisions, setDecisions] = useState<Record<string, DecisionState>>({})
   const [submittedDecisions, setSubmittedDecisions] = useState<
@@ -363,6 +366,7 @@ export function ApprovalRequestPart({
                     onClick={handleSubmit}
                     disabled={
                       disabled ||
+                      !canSubmit ||
                       submitting ||
                       allApprovalsSubmitted ||
                       !hasSelectedPendingDecision

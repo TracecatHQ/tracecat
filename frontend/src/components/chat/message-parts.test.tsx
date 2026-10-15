@@ -307,3 +307,43 @@ describe("getRunningLineLabel", () => {
     )
   })
 })
+
+describe("approval submit", () => {
+  const opened: UIMessage = {
+    id: "a1",
+    role: "assistant",
+    parts: [
+      {
+        type: "data-approval-request",
+        data: [{ tool_call_id: "call-1", tool_name: "core.cases.list_cases" }],
+      },
+    ],
+  }
+
+  function renderCard(status: "streaming" | "ready") {
+    return render(
+      <MessageParts
+        message={opened}
+        status={status}
+        isLastMessage
+        onSubmitApprovals={jest.fn()}
+      />
+    )
+  }
+
+  it("waits for the paused stream to close before submitting", () => {
+    const { rerender } = renderCard("streaming")
+    fireEvent.click(screen.getByRole("button", { name: /^Approve$/ }))
+    expect(screen.getByRole("button", { name: /^Submit/ })).toBeDisabled()
+
+    rerender(
+      <MessageParts
+        message={opened}
+        status="ready"
+        isLastMessage
+        onSubmitApprovals={jest.fn()}
+      />
+    )
+    expect(screen.getByRole("button", { name: /^Submit/ })).toBeEnabled()
+  })
+})

@@ -162,6 +162,8 @@ export function MessagePart({
         key={`${id}-${partIdx}`}
         approvals={approvals}
         onSubmit={onSubmitApprovals}
+        // The stream closes only once the approval rows are saved.
+        canSubmit={status !== "streaming" && status !== "submitted"}
       />
     )
   }
