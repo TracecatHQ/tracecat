@@ -28,6 +28,7 @@ import {
   agentSessionsListSessions,
   agentSessionsRemoveSessionArtifact,
   agentSessionsUpdateSession,
+  type ChatPageContext,
   type ContinueRunRequest,
   type VercelChatRequest,
 } from "@/client"
@@ -588,6 +589,7 @@ export function useVercelChat({
   messages,
   modelInfo,
   onData,
+  pageContext,
   resume = true,
 }: {
   chatId?: string
@@ -595,6 +597,8 @@ export function useVercelChat({
   messages: UIMessage[]
   modelInfo?: ModelInfo
   onData?: ChatOnDataCallback<UIMessage>
+  /** The object the page around a docked chat shows, sent with each turn. */
+  pageContext?: ChatPageContext | null
   /**
    * Reconnect to the live event stream on mount. Defaults to true. Set to
    * false for terminal sessions whose history is already seeded from the DB:
@@ -623,6 +627,12 @@ export function useVercelChat({
     url.searchParams.set("workspace_id", workspaceId)
     return url.toString()
   }, [chatId, workspaceId])
+
+  // The AI SDK builds its transport once per chat id and ignores later ones, so
+  // a closure over `pageContext` would keep the page the chat first rendered
+  // on. Read it through a ref when the request is built instead.
+  const pageContextRef = useRef(pageContext)
+  pageContextRef.current = pageContext
 
   // Use Vercel's useChat hook for streaming. On reconnect the server replays the
   // whole active turn from the start (it hides the active run's DB rows mid-turn,
@@ -669,6 +679,8 @@ export function useVercelChat({
         }
         const baseUrl = (modelInfo as { baseUrl?: string | null })?.baseUrl
         if (baseUrl != null) body.base_url = baseUrl
+        const currentPageContext = pageContextRef.current
+        if (currentPageContext) body.page_context = currentPageContext
         return { body }
       },
     }),

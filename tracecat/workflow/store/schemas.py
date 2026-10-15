@@ -13,6 +13,8 @@ from pydantic import (
 
 from tracecat.cases.enums import CaseEventType
 from tracecat.dsl.common import DSLInput
+from tracecat.forms.enums import FormStatus
+from tracecat.forms.schemas import FormConfig
 from tracecat.identifiers.workflow import WorkflowID, WorkflowIDShort
 from tracecat.store import Source
 
@@ -216,6 +218,16 @@ class RemoteCaseTrigger(BaseModel):
         return self
 
 
+class RemoteForm(FormConfig):
+    """Represents a workflow's form in a remote store.
+
+    The same block the form's Config tab edits, plus its status. Submissions
+    never sync.
+    """
+
+    status: FormStatus = Field(default=FormStatus.OFFLINE)
+
+
 class RemoteWorkflowSchedule(BaseModel):
     """
     Represents a schedule for a workflow in a remote store.
@@ -288,6 +300,9 @@ class RemoteWorkflowDefinition(BaseModel):
 
     case_trigger: RemoteCaseTrigger | None = None
     """Case trigger configuration for the workflow."""
+
+    form: RemoteForm | None = None
+    """Form of the workflow, if it has a configured one."""
 
     definition: DSLInput
 

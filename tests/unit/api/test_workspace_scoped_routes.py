@@ -23,6 +23,7 @@ WORKSPACE_ROUTE_PREFIXES = [
     "/cases",
     "/editor",
     "/folders",
+    "/forms",
     "/inbox",
     "/integrations",
     "/mcp-integrations",

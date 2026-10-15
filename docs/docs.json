@@ -54,7 +54,8 @@
                   "automations/triggers/error-workflows",
                   "automations/triggers/case-triggers",
                   "automations/triggers/task-triggers",
-                  "automations/triggers/comment-triggers"
+                  "automations/triggers/comment-triggers",
+                  "automations/triggers/forms"
                 ]
               },
               {
@@ -195,6 +196,14 @@
               "automations/core-actions/memory-actions/lookups",
               "automations/core-actions/memory-actions/rows",
               "automations/core-actions/memory-actions/export"
+            ]
+          },
+          {
+            "group": "Form",
+            "icon": "clipboard-list",
+            "expanded": true,
+            "pages": [
+              "automations/core-actions/form-actions/forms"
             ]
           }
         ]

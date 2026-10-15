@@ -285,7 +285,8 @@ class TestSystemRoleScopes:
         assert "inbox:read" in VIEWER_SCOPES
 
     def test_viewer_scopes_are_read_only(self):
-        for scope in VIEWER_SCOPES:
+        # Submitting a form is intake, not editing: viewers may do it.
+        for scope in VIEWER_SCOPES - {"form:submit"}:
             # Viewer should only have read scopes (no create, update, delete, execute)
             action = scope.split(":")[-1]
             assert action in ("read", "member:read"), f"Unexpected scope: {scope}"

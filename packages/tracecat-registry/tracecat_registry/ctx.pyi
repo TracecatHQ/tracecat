@@ -941,6 +941,58 @@ class _Deduplicate:
         expire_seconds: int,
     ) -> list[bool]: ...
 
+class _FormsAsync:
+    async def list_forms(
+        self, *, limit: int = ..., cursor: str | None = ...
+    ) -> dict[str, Any]: ...
+    async def get_form(self, form_id: str) -> dict[str, Any]: ...
+    async def update_form(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"] | None = ...,
+        config: dict[str, Any] | None = ...,
+    ) -> dict[str, Any]: ...
+    async def list_submissions(
+        self,
+        form_id: str,
+        *,
+        limit: int = ...,
+        cursor: str | None = ...,
+        submitted_after: datetime | None = ...,
+        submitted_before: datetime | None = ...,
+    ) -> dict[str, Any]: ...
+    async def get_submission(self, submission_id: str) -> dict[str, Any]: ...
+    async def delete_submission(self, submission_id: str) -> None: ...
+    async def download_file(self, file_id: str) -> dict[str, Any]: ...
+
+class _Forms:
+    @property
+    def aio(self) -> _FormsAsync: ...
+    def list_forms(
+        self, *, limit: int = ..., cursor: str | None = ...
+    ) -> dict[str, Any]: ...
+    def get_form(self, form_id: str) -> dict[str, Any]: ...
+    def update_form(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"] | None = ...,
+        config: dict[str, Any] | None = ...,
+    ) -> dict[str, Any]: ...
+    def list_submissions(
+        self,
+        form_id: str,
+        *,
+        limit: int = ...,
+        cursor: str | None = ...,
+        submitted_after: datetime | None = ...,
+        submitted_before: datetime | None = ...,
+    ) -> dict[str, Any]: ...
+    def get_submission(self, submission_id: str) -> dict[str, Any]: ...
+    def delete_submission(self, submission_id: str) -> None: ...
+    def download_file(self, file_id: str) -> dict[str, Any]: ...
+
 class _TablesAsync:
     async def search(
         self,
@@ -1416,6 +1468,7 @@ class _Workflows:
 agents: _Agents
 cases: _Cases
 deduplicate: _Deduplicate
+forms: _Forms
 tables: _Tables
 variables: _Variables
 workflows: _Workflows

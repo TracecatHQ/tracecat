@@ -102,6 +102,21 @@ truncation metadata under `truncation.collections`.
 - `get_case_trigger(workspace_id, workflow_id)`
 - `update_case_trigger(workspace_id, workflow_id, status=None, event_types=None, tag_filters=None)`
 
+## Form tools
+
+These need the `forms` feature flag and the `forms` entitlement, plus scopes:
+`list_forms` needs `form:read`; `get_form` needs `form:read` and one of
+`form:update` or `form:submission:read`, and reports a form it hides as not
+found; `update_form` needs `form:read` and `form:update`, and `form:create`
+when it creates the form.
+
+- `list_forms(workspace_id, limit=..., cursor=None)`
+- `get_form(workspace_id, form_id)`
+- `update_form(workspace_id, workflow_id, status=None, config=None)`
+
+`update_form` creates the form if the workflow has none. `config` replaces the
+stored config whole. Submissions are not exposed over MCP.
+
 ## Workflow tag tools
 
 - `list_workflow_tags(workspace_id, limit=20, cursor=None)`

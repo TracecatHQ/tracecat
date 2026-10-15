@@ -13,7 +13,8 @@ import hashlib
 import json
 import uuid
 from collections import defaultdict, deque
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import AsyncIterator, Collection, Mapping, Sequence
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from io import StringIO
 from pathlib import PurePosixPath
@@ -178,6 +179,12 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.feature_flags import FeatureFlag, is_feature_enabled
+from tracecat.forms.access import can_read_form_config
+from tracecat.forms.enums import FormStatus
+from tracecat.forms.exceptions import FormError
+from tracecat.forms.schemas import FormConfig, FormRead, FormReadMinimal, FormUpdate
+from tracecat.forms.service import FormsService
 from tracecat.identifiers.workflow import (
     WorkflowExecutionID,
     WorkflowIDShort,
@@ -229,7 +236,11 @@ from tracecat.mcp.schemas import (
     WorkflowYamlPayload,
 )
 from tracecat.mcp.workflow_graph import build_workflow_graph
-from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
+from tracecat.pagination import (
+    CursorPaginatedResponse,
+    CursorPaginationParams,
+    PageParams,
+)
 from tracecat.registry.actions.schemas import TemplateAction
 from tracecat.registry.actions.service import (
     RegistryActionsService,
@@ -2969,6 +2980,54 @@ actions:
                 "tag_refs": [tag["ref"] for tag in tags],
             }
 ```
+
+### Form Trigger
+A form turns `entrypoint.expects` into a page people fill in. Submitting it runs
+the published workflow with trigger type `form`; answers arrive as
+`TRIGGER.<input>`. It is not part of the workflow definition: use `list_forms`,
+`get_form`, `update_form`. An empty config renders every input in schema order
+with its default widget, and an input with no default is required. A required
+`dict` or `list[dict]` input has no default widget: give it one or an autofill.
+```yaml
+title: Laptop request     # defaults to the workflow title
+description: Request a new laptop from IT.   # markdown
+success_message: IT will follow up by email.
+layout:
+  - notice: Reviewed within 2 business days.
+    tone: info            # info | success | warning | danger
+  - field: model          # an input name
+    label: Choose your laptop
+    widget: cards
+    options:
+      - {value: mba, label: MacBook Air, description: "M3, 16 GB"}
+  - heading: Delivery
+  - field: for_someone_else
+  - field: recipient
+    widget: user
+    visible_if: {field: for_someone_else, equals: true}
+  - field: requester
+    autofill: requester
+```
+- Entries: `field`, `heading`, `text` (markdown), `notice`, `divider: true`.
+  Field keys: `label`, `help`, `placeholder`, `widget`, `options`,
+  `visible_if`, `autofill`, `hidden`, `accept`, `max_files`.
+- Widgets (first is the default): `str`: text, long_text, select, cards, date,
+  datetime. `int`/`float`: number. `bool`: toggle. `enum[...]`: select, cards.
+  `list[enum]`: multi_select, cards. `list[str]`: tags, multi_select, cards.
+  `datetime`: datetime, date. `dict`/`list[dict]`: user, file (no default).
+- `file` takes `accept` (`[".pdf", "image/*"]`) and `max_files` (1 to 10; above
+  1 needs `list[dict]`). The input gets
+  `{id, name, content_type, size, sha256}`; read the bytes with
+  `core.forms.download_file`.
+- `options` decorate an `enum[...]` input's values; for `str` and `list[str]`
+  they define the allowed values.
+- `visible_if` needs an earlier, unconditional scalar field. A field with
+  `hidden` or `visible_if` needs a schema default.
+- `autofill`: `requester` (`{user_id, email, first_name, last_name}`),
+  `requester.<key>`, `submission.id`. `hidden` and `autofill` fields take no
+  other keys.
+- A type with no widget (`duration`, `any`, unions) needs a default or
+  `autofill`.
 """
 
 
@@ -3272,7 +3331,7 @@ success, error
 ## Workflow Execution
 
 ### Trigger Type
-manual, scheduled, webhook, case
+manual, scheduled, webhook, case, form
 
 ### Execution Type
 draft, published
@@ -5911,6 +5970,152 @@ async def update_case_trigger(
     except Exception as e:
         logger.error("Failed to update case trigger", error=str(e))
         raise ToolError(f"Failed to update case trigger: {e}") from None
+
+
+@asynccontextmanager
+async def _forms_service(
+    workspace_id: uuid.UUID, action: str, *scopes: str
+) -> AsyncIterator[FormsService]:
+    """Open the forms service for one form tool call and map its errors.
+
+    Checks, in order: the caller's workspace role, the ``forms`` feature flag,
+    the ``forms`` entitlement, and the scopes. Any error raised inside the
+    block, the tool's own included, reaches the client as a ``ToolError``.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        if not is_feature_enabled(FeatureFlag.FORMS):
+            raise ToolError("Forms are not enabled on this Tracecat instance")
+        async with FormsService.with_session(role=role) as svc:
+            if not await svc.has_entitlement(Entitlement.FORMS):
+                raise EntitlementRequired(Entitlement.FORMS.value)
+            check_scopes(role, *scopes)
+            yield svc
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except FormError as e:
+        issues = "; ".join(
+            f"{'.'.join(str(part) for part in issue.loc) or 'config'}: {issue.message}"
+            for issue in e.issues or []
+        )
+        raise ToolError(f"{e}: {issues}" if issues else str(e)) from e
+    except (EntitlementRequired, ValueError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error(f"Failed to {action}", error=str(e))
+        raise ToolError(f"Failed to {action}: {e}") from None
+
+
+@mcp.tool()
+async def list_forms(
+    workspace_id: uuid.UUID,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> MCPPaginatedResponse[FormReadMinimal]:
+    """List the forms of a workspace, newest first.
+
+    A form turns a workflow's input schema into a page people fill in.
+    Submitting it runs the workflow. Callers who cannot edit forms only see
+    online forms.
+
+    Args:
+        workspace_id: The workspace ID.
+        limit: Maximum number of forms to return.
+        cursor: `next_cursor` from a previous page.
+
+    Returns JSON with `items` (id, workflow_id, workflow_title, status, title,
+    description, submission_count, last_submitted_at) and the cursor fields.
+    `workflow_id` and `workflow_title` are null unless the caller holds
+    `form:update` or `form:submission:read`.
+    """
+    async with _forms_service(workspace_id, "list forms", "form:read") as svc:
+        limit = _normalize_limit(
+            limit,
+            default=config.TRACECAT__LIMIT_DEFAULT,
+            max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+        )
+        forms = await svc.list_forms(PageParams(limit=limit, cursor=cursor))
+    return MCPPaginatedResponse(
+        items=forms.items,
+        next_cursor=forms.next_cursor,
+        prev_cursor=forms.prev_cursor,
+        has_more=forms.has_more,
+        has_previous=forms.has_previous,
+    )
+
+
+@mcp.tool()
+async def get_form(
+    workspace_id: uuid.UUID,
+    form_id: uuid.UUID,
+) -> FormRead:
+    """Get a form: its status, its config and the issues the config has.
+
+    `issues` lists what does not resolve against the workflow's published
+    input schema (its draft inputs before the first publish), each with a
+    `loc` path into the config. A form with an error-severity issue cannot be
+    filled in until it is fixed. Find form IDs with `list_forms`.
+
+    Args:
+        workspace_id: The workspace ID.
+        form_id: The form ID.
+
+    Returns JSON with id, workflow_id, workflow_title, workflow_version,
+    status, config, issues, url and counts.
+    """
+    async with _forms_service(workspace_id, "get form", "form:read") as svc:
+        form_id = _coerce_uuid_arg(form_id, "form_id")
+        # The raw config is for people who build forms or read submissions.
+        # Anyone else gets the same answer as for no form.
+        form = await svc.get_form(form_id) if can_read_form_config(svc.role) else None
+        if form is None:
+            raise ToolError(f"Form {form_id} not found")
+        return await svc.read_form(form)
+
+
+@mcp.tool()
+async def update_form(
+    workspace_id: uuid.UUID,
+    workflow_id: MCPWorkflowUUID,
+    status: Literal["online", "offline"] | None = None,
+    config: FormConfig | None = None,
+) -> FormRead:
+    """Update the form of a workflow, creating it if the workflow has none.
+
+    The workflow's input schema (`entrypoint.expects`) supplies each field's
+    name, type, default and whether it is required. `config` only controls
+    presentation. Inputs left out of `layout` are appended in schema order
+    with their default widget. A required input with no default widget,
+    such as `dict` or `list[dict]`, needs a `user` or `file` widget or an
+    autofill. Read the "Form Trigger" section of
+    `tracecat://platform/dsl-reference` for the layout entries, widgets and
+    rules.
+
+    Args:
+        workspace_id: The workspace ID.
+        workflow_id: The workflow the form belongs to.
+        status: `"online"` lets people submit the form and needs a published
+            workflow. `"offline"` stops submissions. Omit to leave unchanged.
+        config: The whole config (`title`, `description`, `success_message`,
+            `layout`). It replaces the stored config, so call `get_form` first
+            and send back what you mean to keep. Omit to leave unchanged.
+
+    Returns the saved form as JSON, in the same shape as `get_form`. A config
+    with errors is rejected with the list of issues and nothing is saved.
+    """
+    scopes = ("form:read", "form:update")
+    async with _forms_service(workspace_id, "update form", *scopes) as svc:
+        workflow_id = WorkflowUUID.new(workflow_id)
+        if await svc.get_form_by_workflow_id(workflow_id) is None:
+            check_scopes(svc.role, "form:create")
+        params = FormUpdate(
+            status=FormStatus(status) if status else None, config=config
+        )
+        form = await svc.upsert_form(workflow_id, params)
+        return await svc.read_form(form)
 
 
 @mcp.tool()

@@ -1465,6 +1465,7 @@ export type Artifact =
   | RunArtifact
   | TableArtifact
   | AgentArtifact
+  | FormArtifact
   | AlertArtifact
   | IntegrationArtifact
   | SecretArtifact
@@ -1925,6 +1926,10 @@ export type Body_auth_verify_verify = {
 }
 
 export type Body_case_attachments_create_attachment = {
+  file: Blob | File
+}
+
+export type Body_forms_upload_form_file = {
   file: Blob | File
 }
 
@@ -3187,6 +3192,23 @@ export type ChatMessage = {
 }
 
 /**
+ * The page a docked chat is open on.
+ *
+ * ``kind`` is a closed set and ``id`` is a UUID, so nothing the client sends
+ * here can carry free text into the prompt.
+ */
+export type ChatPageContext = {
+  /**
+   * What the page shows.
+   */
+  kind: "form"
+  /**
+   * ID of the object the page shows.
+   */
+  id: string
+}
+
+/**
  * Model for chat metadata with message history.
  */
 export type ChatRead = {
@@ -3760,6 +3782,126 @@ export type CursorPaginatedResponse_CaseTableRowRead_ = {
 
 export type CursorPaginatedResponse_CaseVersionReadMinimal_ = {
   items: Array<CaseVersionReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_FormIntakeRead_ = {
+  items: Array<FormIntakeRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_FormIntakeSubmissionRead_ = {
+  items: Array<FormIntakeSubmissionRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_FormReadMinimal_ = {
+  items: Array<FormReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_FormSubmissionRead_ = {
+  items: Array<FormSubmissionRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_FormUserRead_ = {
+  items: Array<FormUserRead>
   /**
    * Cursor for next page
    */
@@ -4479,6 +4621,10 @@ export type EffectiveEntitlements = {
    */
   semantic_search?: boolean
   /**
+   * Whether workflow forms are enabled
+   */
+  forms?: boolean
+  /**
    * Whether workspaces may route actions through private network tunnels such as Pangolin
    */
   tunnels?: boolean
@@ -4607,6 +4753,10 @@ export type EntitlementsDict = {
    * Whether semantic (vector) search over table columns is enabled
    */
   semantic_search?: boolean
+  /**
+   * Whether workflow forms are enabled
+   */
+  forms?: boolean
   /**
    * Whether workspaces may route actions through private network tunnels such as Pangolin
    */
@@ -4788,6 +4938,7 @@ export type FeatureFlag =
   | "agent-fs-persistence"
   | "agent-runtime"
   | "workspace-sync-github-archive"
+  | "forms"
 
 /**
  * Response model for feature flags.
@@ -4855,6 +5006,570 @@ export type FolderDirectoryItem = {
   num_items: number
   num_workflows: number
 }
+
+/**
+ * Who submitted a form.
+ */
+export type FormActorRead = {
+  type: "user" | "service_account"
+  id: string
+  email?: string | null
+  first_name?: string | null
+  last_name?: string | null
+  /**
+   * Service account name.
+   */
+  name?: string | null
+}
+
+export type type = "user" | "service_account"
+
+/**
+ * Workflow form artifact. Lets a surface refresh a form the chat edited.
+ */
+export type FormArtifact = {
+  id: string
+  title: string
+  scope?: ArtifactScope | null
+  type?: "form"
+  status?: "online" | "offline" | null
+}
+
+/**
+ * Values the server fills in on submit.
+ */
+export type FormAutofillSource =
+  | "requester"
+  | "requester.user_id"
+  | "requester.email"
+  | "requester.first_name"
+  | "requester.last_name"
+  | "submission.id"
+
+/**
+ * Presentation layer of a form. The workflow input schema supplies the rest.
+ */
+export type FormConfig_Input = {
+  /**
+   * Defaults to the workflow title.
+   */
+  title?: string | null
+  /**
+   * Markdown. Defaults to the workflow description.
+   */
+  description?: string | null
+  success_message?: string | null
+  /**
+   * Ordered blocks. Inputs left out are appended in schema order.
+   */
+  layout?: Array<
+    | FormFieldEntry
+    | FormHeadingEntry
+    | FormTextEntry
+    | FormNoticeEntry
+    | FormDividerEntry
+  > | null
+}
+
+/**
+ * Presentation layer of a form. The workflow input schema supplies the rest.
+ */
+export type FormConfig_Output = {
+  /**
+   * Defaults to the workflow title.
+   */
+  title?: string | null
+  /**
+   * Markdown. Defaults to the workflow description.
+   */
+  description?: string | null
+  success_message?: string | null
+  /**
+   * Ordered blocks. Inputs left out are appended in schema order.
+   */
+  layout?: Array<
+    | FormFieldEntry
+    | FormHeadingEntry
+    | FormTextEntry
+    | FormNoticeEntry
+    | FormDividerEntry
+  > | null
+}
+
+export type FormCounts = {
+  views: number
+  submissions: number
+}
+
+export type FormCreate = {
+  workflow_id: string
+  status?: FormStatus
+  config?: FormConfig_Input | null
+}
+
+export type FormDividerBlock = {
+  type: "divider"
+}
+
+export type FormDividerEntry = {
+  divider: true
+}
+
+/**
+ * Machine-readable failures of a forms request.
+ */
+export type FormErrorCode =
+  | "not_found"
+  | "already_exists"
+  | "form_config_invalid"
+  | "form_workflow_unpublished"
+  | "form_offline"
+  | "form_unavailable"
+  | "form_changed"
+  | "form_validation_error"
+  | "workflow_start_failed"
+  | "workflow_start_unconfirmed"
+  | "file_field_invalid"
+  | "file_invalid"
+  | "file_type_not_allowed"
+  | "file_too_large"
+  | "file_limit_reached"
+  | "file_upload_failed"
+
+export type FormErrorDetail = {
+  code: FormErrorCode
+  message: string
+  /**
+   * Per-field errors of a rejected submission.
+   */
+  errors?: Array<FormFieldError> | null
+  /**
+   * Issues of a rejected form config.
+   */
+  issues?: Array<FormIssue> | null
+}
+
+export type FormErrorResponse = {
+  detail: FormErrorDetail
+}
+
+/**
+ * An input the requester fills in.
+ */
+export type FormFieldBlock = {
+  type: "field"
+  name: string
+  label: string
+  help?: string | null
+  placeholder?: string | null
+  widget: FormWidget
+  required: boolean
+  multiple: boolean
+  default?: unknown
+  options?: Array<FormFieldOption> | null
+  visible_if?: FormVisibleIf | null
+  config?: FormFieldConfig | null
+}
+
+/**
+ * Widget-specific settings.
+ */
+export type FormFieldConfig = {
+  accept?: Array<string> | null
+  max_files?: number | null
+  /**
+   * Largest file the field takes, in bytes.
+   */
+  max_file_size?: number | null
+}
+
+/**
+ * Presentation of one workflow input.
+ */
+export type FormFieldEntry = {
+  /**
+   * Name of the workflow input.
+   */
+  field: string
+  label?: string | null
+  help?: string | null
+  placeholder?: string | null
+  widget?: FormWidget | null
+  options?: Array<FormOption> | null
+  visible_if?: FormVisibleIf | null
+  autofill?: FormAutofillSource | null
+  hidden?: boolean | null
+  /**
+   * File extensions or MIME types a file field takes.
+   */
+  accept?: Array<string> | null
+  max_files?: number | null
+}
+
+export type FormFieldError = {
+  field: string
+  code: FormFieldErrorCode
+  message: string
+}
+
+/**
+ * Why a submitted value was rejected.
+ */
+export type FormFieldErrorCode =
+  | "required"
+  | "unknown_field"
+  | "invalid_value"
+  | "invalid_option"
+  | "invalid_date"
+  | "invalid_user"
+  | "invalid_file"
+  | "too_many_files"
+
+export type FormFieldOption = {
+  value: string
+  label: string
+  description?: string | null
+  image?: string | null
+}
+
+export type FormFileDownload = {
+  /**
+   * Short-lived URL that forces a download.
+   */
+  download_url: string
+  file_name: string
+  content_type: string
+}
+
+/**
+ * An uploaded file. Also what a file ID expands to in the answers.
+ *
+ * Carries no storage key and no URL.
+ */
+export type FormFileRead = {
+  id: string
+  name: string
+  content_type: string
+  size: number
+  sha256: string
+}
+
+export type FormHeadingBlock = {
+  type: "heading"
+  text: string
+}
+
+export type FormHeadingEntry = {
+  heading: string
+}
+
+/**
+ * Where a form lives, for a requester who only has its ID.
+ */
+export type FormIntakeLocation = {
+  form_id: string
+  workspace_id: string
+  workspace_name: string
+}
+
+export type FormIntakeRead = {
+  id: string
+  workspace_id: string
+  workspace_name: string
+  title: string
+  description?: string | null
+}
+
+/**
+ * A requester's own submission. Carries no run fields.
+ */
+export type FormIntakeSubmissionRead = {
+  id: string
+  form_id: string
+  form_title: string
+  workspace_id: string
+  workspace_name: string
+  submitted_at: string
+  /**
+   * Short code a requester can quote for a submission.
+   */
+  readonly reference: string
+}
+
+/**
+ * A problem found while resolving a form config against its inputs.
+ */
+export type FormIssue = {
+  severity: FormIssueSeverity
+  code: FormIssueCode
+  message: string
+  /**
+   * Path to the offending config key.
+   */
+  loc: Array<string | number>
+}
+
+/**
+ * Problems the resolver finds in a form config.
+ */
+export type FormIssueCode =
+  | "unknown_field"
+  | "duplicate_field"
+  | "incompatible_widget"
+  | "no_widget_for_type"
+  | "unsupported_widget_option"
+  | "options_required"
+  | "options_not_supported"
+  | "option_not_in_enum"
+  | "default_invalid"
+  | "conditional_field_required"
+  | "visible_if_unknown_field"
+  | "visible_if_invalid_controller"
+  | "visible_if_invalid_value"
+  | "autofill_type_mismatch"
+  | "hidden_with_autofill"
+  | "unrendered_optional_input"
+  | "integer_out_of_range"
+
+export type FormIssueSeverity = "error" | "warning"
+
+export type FormNoticeBlock = {
+  type: "notice"
+  text: string
+  tone: FormNoticeTone
+}
+
+export type FormNoticeEntry = {
+  notice: string
+  tone?: FormNoticeTone
+}
+
+export type FormNoticeTone = "info" | "success" | "warning" | "danger"
+
+/**
+ * One choice of a select, multi-select or cards field.
+ */
+export type FormOption = {
+  value: string
+  label?: string | null
+  description?: string | null
+  /**
+   * Inline PNG, JPEG or WebP data URI.
+   */
+  image?: string | null
+}
+
+/**
+ * What a form renders. Hidden and autofill fields never appear.
+ */
+export type FormPreview = {
+  title: string
+  description?: string | null
+  success_message?: string | null
+  /**
+   * Published workflow version the blocks come from.
+   */
+  definition_version?: number | null
+  /**
+   * Version of the config the blocks come from.
+   */
+  config_version: string
+  blocks: Array<
+    | FormHeadingBlock
+    | FormTextBlock
+    | FormNoticeBlock
+    | FormDividerBlock
+    | FormFieldBlock
+  >
+}
+
+export type FormRead = {
+  id: string
+  workspace_id: string
+  workflow_id: string
+  workflow_title: string
+  /**
+   * Published workflow version the inputs come from, if any.
+   */
+  workflow_version?: number | null
+  status: FormStatus
+  config: FormConfig_Output
+  /**
+   * Version of the saved config.
+   */
+  config_version: string
+  issues: Array<FormIssue>
+  url: string
+  /**
+   * Null without form:submission:read.
+   */
+  counts?: FormCounts | null
+  created_at: string
+  updated_at: string
+}
+
+export type FormReadMinimal = {
+  id: string
+  /**
+   * Null without form:update or form:submission:read.
+   */
+  workflow_id?: string | null
+  /**
+   * Null without form:update or form:submission:read.
+   */
+  workflow_title?: string | null
+  status: FormStatus
+  title: string
+  description?: string | null
+  /**
+   * Null without form:submission:read.
+   */
+  submission_count?: number | null
+  last_submitted_at?: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Whether a form accepts submissions.
+ */
+export type FormStatus = "online" | "offline"
+
+export type FormSubmissionCreate = {
+  /**
+   * Answers keyed by field name.
+   */
+  values?: {
+    [key: string]: unknown
+  }
+  /**
+   * The definition_version of the form the requester filled in. If set and stale, the submission is rejected with form_changed.
+   */
+  definition_version?: number | null
+  /**
+   * The config_version of the form the requester filled in. If set and stale, the submission is rejected with form_changed.
+   */
+  config_version?: string | null
+}
+
+export type FormSubmissionRead = {
+  id: string
+  form_id: string
+  answers: {
+    [key: string]: unknown
+  }
+  submitted_by?: FormActorRead | null
+  /**
+   * Null without form:submission:read.
+   */
+  definition_version?: number | null
+  /**
+   * Null without form:submission:read.
+   */
+  wf_exec_id?: string | null
+  /**
+   * Null without form:submission:read, or if it is not known.
+   */
+  run_status?:
+    | "RUNNING"
+    | "COMPLETED"
+    | "FAILED"
+    | "CANCELED"
+    | "TERMINATED"
+    | "CONTINUED_AS_NEW"
+    | "TIMED_OUT"
+    | null
+  submitted_at: string
+  /**
+   * Short code a requester can quote for a submission.
+   */
+  readonly reference: string
+}
+
+/**
+ * What a requester gets back. Carries no run fields.
+ */
+export type FormSubmissionReceipt = {
+  id: string
+  submitted_at: string
+  success_message?: string | null
+  /**
+   * Short code a requester can quote for a submission.
+   */
+  readonly reference: string
+}
+
+export type FormTextBlock = {
+  type: "text"
+  /**
+   * Markdown.
+   */
+  text: string
+}
+
+export type FormTextEntry = {
+  /**
+   * Markdown.
+   */
+  text: string
+}
+
+export type FormUpdate = {
+  status?: FormStatus | null
+  /**
+   * Replaces the whole config.
+   */
+  config?: FormConfig_Input | null
+  /**
+   * The config_version the edit started from. If set and the saved config has changed since, the update is rejected with form_changed.
+   */
+  base_config_version?: string | null
+}
+
+/**
+ * A choice of the ``user`` widget, and what a chosen user expands to.
+ */
+export type FormUserRead = {
+  user_id: string
+  email: string
+  first_name?: string | null
+  last_name?: string | null
+}
+
+export type FormValidateRequest = {
+  config: FormConfig_Input
+}
+
+export type FormValidateResponse = {
+  valid: boolean
+  issues: Array<FormIssue>
+  preview: FormPreview
+}
+
+/**
+ * Show a field only while another field has this value.
+ */
+export type FormVisibleIf = {
+  field: string
+  equals: boolean | number | string
+}
+
+/**
+ * Input controls a form field can render as.
+ */
+export type FormWidget =
+  | "text"
+  | "long_text"
+  | "number"
+  | "toggle"
+  | "select"
+  | "multi_select"
+  | "cards"
+  | "tags"
+  | "date"
+  | "datetime"
+  | "user"
+  | "file"
 
 /**
  * Escape hatch for surfaced objects without a dedicated panel view.
@@ -5791,7 +6506,7 @@ export type MCPConfigField = {
 
 export type target = "server_uri" | "oauth_client" | "http_header" | "stdio_env"
 
-export type type = "string" | "url"
+export type type2 = "string" | "url"
 
 /**
  * User-supplied value needed to materialize a catalog connection.
@@ -7043,7 +7758,7 @@ export type ProviderCredentialField = {
 /**
  * Input type: 'text', 'password', or 'boolean'
  */
-export type type2 = "text" | "password" | "boolean"
+export type type3 = "text" | "password" | "boolean"
 
 /**
  * Metadata for a provider.
@@ -7344,7 +8059,7 @@ export type RegistryActionRead = {
 /**
  * The type of the action
  */
-export type type3 = "udf" | "template"
+export type type4 = "udf" | "template"
 
 /**
  * API minimal read model for a registered action.
@@ -7733,7 +8448,7 @@ export type Role = {
   [key: string]: unknown | string | boolean
 }
 
-export type type4 = "user" | "service" | "service_account" | "scim"
+export type type5 = "user" | "service" | "service_account" | "scim"
 
 export type service_id =
   | "tracecat-api"
@@ -10243,12 +10958,12 @@ export type Trigger = {
   }
 }
 
-export type type5 = "schedule" | "webhook"
+export type type6 = "schedule" | "webhook"
 
 /**
  * Trigger type for a workflow execution.
  */
-export type TriggerType = "manual" | "scheduled" | "webhook" | "case"
+export type TriggerType = "manual" | "scheduled" | "webhook" | "case" | "form"
 
 export type TunnelCreate = {
   name: string
@@ -10658,6 +11373,10 @@ export type VercelChatRequest = {
    * Optional base URL for the model provider
    */
   base_url?: string | null
+  /**
+   * The page the chat is docked on. Only Workspace chat uses it.
+   */
+  page_context?: ChatPageContext | null
 }
 
 /**
@@ -14231,6 +14950,7 @@ export type AgentSessionsRemoveSessionArtifactData = {
     | "run"
     | "table"
     | "agent"
+    | "form"
     | "alert"
     | "integration"
     | "secret"
@@ -15188,6 +15908,152 @@ export type TablesGetTableSearchProgressData = {
 }
 
 export type TablesGetTableSearchProgressResponse = TableSearchProgressPage
+
+export type FormsListFormsData = {
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type FormsListFormsResponse = CursorPaginatedResponse_FormReadMinimal_
+
+export type FormsCreateFormData = {
+  requestBody: FormCreate
+  workspaceId: string
+}
+
+export type FormsCreateFormResponse = FormRead
+
+export type FormsGetFormData = {
+  formId: string
+  workspaceId: string
+}
+
+export type FormsGetFormResponse = FormRead
+
+export type FormsUpdateFormData = {
+  formId: string
+  requestBody: FormUpdate
+  workspaceId: string
+}
+
+export type FormsUpdateFormResponse = FormRead
+
+export type FormsDeleteFormData = {
+  formId: string
+  workspaceId: string
+}
+
+export type FormsDeleteFormResponse = void
+
+export type FormsValidateFormData = {
+  formId: string
+  requestBody: FormValidateRequest
+  workspaceId: string
+}
+
+export type FormsValidateFormResponse = FormValidateResponse
+
+export type FormsRenderFormData = {
+  formId: string
+  workspaceId: string
+}
+
+export type FormsRenderFormResponse = FormPreview
+
+export type FormsSearchFormUsersData = {
+  cursor?: string | null
+  formId: string
+  limit?: number
+  search?: string | null
+  workspaceId: string
+}
+
+export type FormsSearchFormUsersResponse = CursorPaginatedResponse_FormUserRead_
+
+export type FormsSubmitFormData = {
+  formId: string
+  requestBody: FormSubmissionCreate
+  workspaceId: string
+}
+
+export type FormsSubmitFormResponse = FormSubmissionReceipt
+
+export type FormsListFormSubmissionsData = {
+  cursor?: string | null
+  formId: string
+  limit?: number
+  /**
+   * Only submissions at or after this time.
+   */
+  submittedAfter?: string | null
+  /**
+   * Only submissions before this time.
+   */
+  submittedBefore?: string | null
+  workspaceId: string
+}
+
+export type FormsListFormSubmissionsResponse =
+  CursorPaginatedResponse_FormSubmissionRead_
+
+export type FormsUploadFormFileData = {
+  /**
+   * Name of the file field the upload is for.
+   */
+  field: string
+  formData: Body_forms_upload_form_file
+  formId: string
+  workspaceId: string
+}
+
+export type FormsUploadFormFileResponse = FormFileRead
+
+export type FormsDownloadFormFileData = {
+  fileId: string
+  formId: string
+  workspaceId: string
+}
+
+export type FormsDownloadFormFileResponse = FormFileDownload
+
+export type FormsGetFormSubmissionData = {
+  formId: string
+  submissionId: string
+  workspaceId: string
+}
+
+export type FormsGetFormSubmissionResponse = FormSubmissionRead
+
+export type FormsDeleteFormSubmissionData = {
+  formId: string
+  submissionId: string
+  workspaceId: string
+}
+
+export type FormsDeleteFormSubmissionResponse = void
+
+export type FormsListIntakeFormsData = {
+  cursor?: string | null
+  limit?: number
+}
+
+export type FormsListIntakeFormsResponse =
+  CursorPaginatedResponse_FormIntakeRead_
+
+export type FormsLocateIntakeFormData = {
+  formId: string
+}
+
+export type FormsLocateIntakeFormResponse = FormIntakeLocation
+
+export type FormsListIntakeSubmissionsData = {
+  cursor?: string | null
+  limit?: number
+}
+
+export type FormsListIntakeSubmissionsResponse =
+  CursorPaginatedResponse_FormIntakeSubmissionRead_
 
 export type CasesListCasesData = {
   /**
@@ -22455,6 +23321,303 @@ export type $OpenApiTs = {
          * Conflict
          */
         409: TableSearchErrorResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/forms": {
+    get: {
+      req: FormsListFormsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_FormReadMinimal_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: FormsCreateFormData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: FormRead
+        /**
+         * Not Found
+         */
+        404: FormErrorResponse
+        /**
+         * Conflict
+         */
+        409: FormErrorResponse
+        /**
+         * Unprocessable Entity
+         */
+        422: FormErrorResponse
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/forms/{form_id}": {
+    get: {
+      req: FormsGetFormData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FormRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: FormsUpdateFormData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FormRead
+        /**
+         * Conflict
+         */
+        409: FormErrorResponse
+        /**
+         * Unprocessable Entity
+         */
+        422: FormErrorResponse
+      }
+    }
+    delete: {
+      req: FormsDeleteFormData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/forms/{form_id}/validate": {
+    post: {
+      req: FormsValidateFormData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FormValidateResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/forms/{form_id}/render": {
+    get: {
+      req: FormsRenderFormData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FormPreview
+        /**
+         * Conflict
+         */
+        409: FormErrorResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/forms/{form_id}/users": {
+    get: {
+      req: FormsSearchFormUsersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_FormUserRead_
+        /**
+         * Not Found
+         */
+        404: FormErrorResponse
+        /**
+         * Conflict
+         */
+        409: FormErrorResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/forms/{form_id}/submissions": {
+    post: {
+      req: FormsSubmitFormData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: FormSubmissionReceipt
+        /**
+         * Conflict
+         */
+        409: FormErrorResponse
+        /**
+         * Unprocessable Entity
+         */
+        422: FormErrorResponse
+        /**
+         * Service Unavailable
+         */
+        503: FormErrorResponse
+      }
+    }
+    get: {
+      req: FormsListFormSubmissionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_FormSubmissionRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/forms/{form_id}/files": {
+    post: {
+      req: FormsUploadFormFileData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: FormFileRead
+        /**
+         * Bad Request
+         */
+        400: FormErrorResponse
+        /**
+         * Conflict
+         */
+        409: FormErrorResponse
+        /**
+         * Request Entity Too Large
+         */
+        413: FormErrorResponse
+        /**
+         * Unsupported Media Type
+         */
+        415: FormErrorResponse
+        /**
+         * Unprocessable Entity
+         */
+        422: FormErrorResponse
+        /**
+         * Service Unavailable
+         */
+        503: FormErrorResponse
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/forms/{form_id}/files/{file_id}/download": {
+    get: {
+      req: FormsDownloadFormFileData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FormFileDownload
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/forms/{form_id}/submissions/{submission_id}": {
+    get: {
+      req: FormsGetFormSubmissionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FormSubmissionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: FormsDeleteFormSubmissionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/intake/forms": {
+    get: {
+      req: FormsListIntakeFormsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_FormIntakeRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/intake/forms/{form_id}": {
+    get: {
+      req: FormsLocateIntakeFormData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FormIntakeLocation
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/intake/submissions": {
+    get: {
+      req: FormsListIntakeSubmissionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_FormIntakeSubmissionRead_
         /**
          * Validation Error
          */

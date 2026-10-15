@@ -5,6 +5,7 @@ import {
   BotIcon,
   BoxIcon,
   ChevronDown,
+  ClipboardListIcon,
   GitBranchIcon,
   KeyRound,
   LayersIcon,
@@ -56,6 +57,7 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useFormsAccess } from "@/hooks/use-forms-access"
 import { usePendingApprovalsCount } from "@/hooks/use-pending-approvals-count"
 import { formatPendingApprovalCount } from "@/lib/approvals"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -106,6 +108,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewServiceAccounts = useScopeCheck("workspace:service_account:read")
   const canViewMcpAccess = useScopeCheck("workspace:read")
   const canViewCases = useScopeCheck("case:read")
+  // The builder pages need one of these on top of `form:read`; a requester
+  // who can only fill in forms has no use for the list.
+  const canReadForms = useScopeCheck("form:read")
+  const canBuildForms = useScopeCheck(undefined, [
+    "form:update",
+    "form:submission:read",
+  ])
+  // Hidden with the feature flag off. Without the entitlement the link stays
+  // and the page explains why Forms is unavailable.
+  const formsAccess = useFormsAccess()
+  const formsVisible = formsAccess === "enabled" || formsAccess === "locked"
   const canViewTunnels = useScopeCheck("tunnel:read")
   // Sync users push/pull; workspace admins manage the repository connection.
   const canOpenGitSync = useScopeCheck(undefined, [
@@ -160,6 +173,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         icon: WorkflowIcon,
         isActive: pathname?.startsWith(`${basePath}/workflows`),
         visible: canViewWorkflows === true,
+      },
+      {
+        title: "Forms",
+        url: `${basePath}/forms`,
+        icon: ClipboardListIcon,
+        isActive: pathname?.startsWith(`${basePath}/forms`),
+        visible:
+          formsVisible && canReadForms === true && canBuildForms === true,
       },
       {
         title: "Cases",
@@ -238,6 +259,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       basePath,
       pathname,
       canViewWorkflows,
+      formsVisible,
+      canReadForms,
+      canBuildForms,
       canViewCases,
       canAccessMissionControl,
       canViewTables,

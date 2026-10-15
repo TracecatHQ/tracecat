@@ -81,6 +81,7 @@ A full export writes `tracecat.json` and one directory per resource type: workfl
 
 Exports carry configuration, not data:
 
+- Forms export as a [`form:` block](/automations/triggers/forms#git-sync) in their workflow's `definition.yml`, with no submissions.
 - Tables export their column schema and no rows.
 - Variables export key names and no values.
 - Secrets export metadata only; a secret file with a `value` or `values` key fails import.
