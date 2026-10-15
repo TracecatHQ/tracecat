@@ -86,6 +86,15 @@ export type ActionInterfaceChange = {
 
 export type field = "expects" | "returns"
 
+export type ActionLockStatus = {
+  ref: string
+  locked_execution_id: string
+  /**
+   * False when the locked run no longer exists, e.g. after history retention.
+   */
+  available: boolean
+}
+
 /**
  * Position update for a single action.
  */
@@ -105,6 +114,7 @@ export type ActionRead = {
   position_x?: number
   position_y?: number
   upstream_edges?: Array<ActionEdge>
+  locked_execution_id?: string | null
   readonly ref: string
 }
 
@@ -285,6 +295,10 @@ export type ActionUpdate = {
   position_x?: number | null
   position_y?: number | null
   upstream_edges?: Array<ActionEdge> | null
+  /**
+   * Lock the action to this past execution: draft runs reuse its result. Set null to unlock.
+   */
+  locked_execution_id?: string | null
 }
 
 /**
@@ -4399,6 +4413,12 @@ export type DSLRunArgs = {
    * Registry version lock for action execution. Contains origins (origin -> version) and actions (action_name -> origin) mappings.
    */
   registry_lock?: RegistryLock | null
+  /**
+   * Results reused from a previous run, keyed by action ref. Matching root-scope actions use these instead of executing.
+   */
+  fixed_action_results?: {
+    [key: string]: FixedActionResult
+  }
 }
 
 /**
@@ -4994,6 +5014,16 @@ export type FileUIPart = {
       [key: string]: unknown
     }
   }
+}
+
+/**
+ * An action result reused from a previous run of the workflow.
+ */
+export type FixedActionResult = {
+  result: TaskResult
+  source_execution_id: string
+  source_event_id: number
+  mask_output?: boolean
 }
 
 export type Float = {
@@ -12008,6 +12038,8 @@ export type WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_ = {
   while_continue?: boolean | null
   child_wf_wait_strategy?: WaitStrategy | null
   session?: Session_Any_ | null
+  fixed_from_execution_id?: string | null
+  fixed_from_event_id?: number | null
 }
 
 export type WorkflowExecutionEventStatus =
@@ -12369,6 +12401,58 @@ export type WorkflowReadMinimal = {
   latest_definition?: WorkflowDefinitionReadMinimal | null
   folder_id?: string | null
   trigger_summary?: WorkflowTriggerSummary | null
+}
+
+export type WorkflowRerunActionMatch = {
+  ref: string
+  status: WorkflowRerunActionStatus
+  source_action?: string | null
+  target_action?: string | null
+  reason?: string | null
+}
+
+export type WorkflowRerunActionStatus =
+  | "fixed"
+  | "excluded"
+  | "runs"
+  | "not_in_target"
+  | "action_changed"
+
+export type WorkflowRerunPlan = {
+  source_execution_id: string
+  workflow_id: string
+  use_draft: boolean
+  version?: number | null
+  actions: Array<WorkflowRerunActionMatch>
+  fixed_action_refs: Array<string>
+  unmatched_refs: Array<string>
+  inputs_error?: string | null
+}
+
+export type WorkflowRerunRequest = {
+  /**
+   * Rerun against the current draft. Set false to use a published version.
+   */
+  use_draft?: boolean
+  /**
+   * Published version to rerun against when use_draft is false. Null uses the current published version.
+   */
+  version?: number | null
+  /**
+   * Action refs whose results to reuse. Null reuses every matching successful action; an empty list reruns everything.
+   */
+  fixed_action_refs?: Array<string> | null
+  /**
+   * Rerun from this action: it and every action downstream of it in the target run fresh.
+   */
+  rerun_from_ref?: string | null
+}
+
+export type WorkflowRerunResponse = {
+  message: string
+  wf_id: string
+  wf_exec_id: string
+  plan: WorkflowRerunPlan
 }
 
 export type WorkflowRunReadMinimal = {
@@ -13416,6 +13500,24 @@ export type WorkflowExecutionsResetWorkflowExecutionData = {
 export type WorkflowExecutionsResetWorkflowExecutionResponse =
   WorkflowExecutionResetResponse
 
+export type WorkflowExecutionsPreviewWorkflowExecutionRerunData = {
+  executionId: string
+  requestBody: WorkflowRerunRequest
+  workspaceId: string
+}
+
+export type WorkflowExecutionsPreviewWorkflowExecutionRerunResponse =
+  WorkflowRerunPlan
+
+export type WorkflowExecutionsRerunWorkflowExecutionData = {
+  executionId: string
+  requestBody: WorkflowRerunRequest
+  workspaceId: string
+}
+
+export type WorkflowExecutionsRerunWorkflowExecutionResponse =
+  WorkflowRerunResponse
+
 export type WorkflowExecutionsBulkResetWorkflowExecutionsData = {
   requestBody: WorkflowExecutionBulkResetRequest
   workspaceId: string
@@ -13511,6 +13613,13 @@ export type ActionsCreateActionData = {
 }
 
 export type ActionsCreateActionResponse = ActionReadMinimal
+
+export type ActionsListActionLockStatusesData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type ActionsListActionLockStatusesResponse = Array<ActionLockStatus>
 
 export type ActionsGetActionData = {
   actionId: string
@@ -18558,6 +18667,36 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/workflow-executions/{execution_id}/rerun/preview": {
+    post: {
+      req: WorkflowExecutionsPreviewWorkflowExecutionRerunData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowRerunPlan
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflow-executions/{execution_id}/rerun": {
+    post: {
+      req: WorkflowExecutionsRerunWorkflowExecutionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowRerunResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/workflow-executions/reset/bulk": {
     post: {
       req: WorkflowExecutionsBulkResetWorkflowExecutionsData
@@ -18729,6 +18868,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ActionReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/actions/lock-status": {
+    get: {
+      req: ActionsListActionLockStatusesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ActionLockStatus>
         /**
          * Validation Error
          */

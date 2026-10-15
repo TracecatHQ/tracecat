@@ -12,6 +12,8 @@ import type {
   ActionsDeleteActionResponse,
   ActionsGetActionData,
   ActionsGetActionResponse,
+  ActionsListActionLockStatusesData,
+  ActionsListActionLockStatusesResponse,
   ActionsListActionsData,
   ActionsListActionsResponse,
   ActionsUpdateActionData,
@@ -1073,6 +1075,10 @@ import type {
   WorkflowExecutionsListWorkflowExecutionResetPointsResponse,
   WorkflowExecutionsListWorkflowExecutionsData,
   WorkflowExecutionsListWorkflowExecutionsResponse,
+  WorkflowExecutionsPreviewWorkflowExecutionRerunData,
+  WorkflowExecutionsPreviewWorkflowExecutionRerunResponse,
+  WorkflowExecutionsRerunWorkflowExecutionData,
+  WorkflowExecutionsRerunWorkflowExecutionResponse,
   WorkflowExecutionsResetWorkflowExecutionData,
   WorkflowExecutionsResetWorkflowExecutionResponse,
   WorkflowExecutionsSearchWorkflowExecutionsData,
@@ -2891,6 +2897,62 @@ export const workflowExecutionsResetWorkflowExecution = (
 }
 
 /**
+ * Preview Workflow Execution Rerun
+ * Match a past run's successful action results against a rerun target.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.executionId
+ * @param data.requestBody
+ * @returns WorkflowRerunPlan Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsPreviewWorkflowExecutionRerun = (
+  data: WorkflowExecutionsPreviewWorkflowExecutionRerunData
+): CancelablePromise<WorkflowExecutionsPreviewWorkflowExecutionRerunResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/workflow-executions/{execution_id}/rerun/preview",
+    path: {
+      workspace_id: data.workspaceId,
+      execution_id: data.executionId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Rerun Workflow Execution
+ * Rerun a past run, reusing results of its successful actions.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.executionId
+ * @param data.requestBody
+ * @returns WorkflowRerunResponse Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsRerunWorkflowExecution = (
+  data: WorkflowExecutionsRerunWorkflowExecutionData
+): CancelablePromise<WorkflowExecutionsRerunWorkflowExecutionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/workflow-executions/{execution_id}/rerun",
+    path: {
+      workspace_id: data.workspaceId,
+      execution_id: data.executionId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Bulk Reset Workflow Executions
  * @param data The data for the request.
  * @param data.workspaceId
@@ -3211,6 +3273,33 @@ export const actionsCreateAction = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Action Lock Statuses
+ * Whether each locked action's source run still exists.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.workflowId
+ * @returns ActionLockStatus Successful Response
+ * @throws ApiError
+ */
+export const actionsListActionLockStatuses = (
+  data: ActionsListActionLockStatusesData
+): CancelablePromise<ActionsListActionLockStatusesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/actions/lock-status",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      workflow_id: data.workflowId,
+    },
     errors: {
       422: "Validation Error",
     },

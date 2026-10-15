@@ -12,7 +12,9 @@ import {
   EyeOffIcon,
   LayoutListIcon,
   LoaderIcon,
+  PinIcon,
   Repeat2Icon,
+  RotateCcwIcon,
   ScanEyeIcon,
   SquareArrowOutUpRightIcon,
   UserIcon,
@@ -23,6 +25,7 @@ import {
 import Link from "next/link"
 import { useCallback, useState } from "react"
 import type { TriggerType, WorkflowExecutionEventStatus } from "@/client"
+import { WorkflowRerunDialog } from "@/components/builder/events/workflow-rerun-dialog"
 import {
   getAggregateWorkflowEventStatus,
   getWorkflowEventIcon,
@@ -147,10 +150,15 @@ export function WorkflowEventsHeader({
   execution: WorkflowExecutionReadCompact
   embedded?: boolean
 }) {
-  const { setSelectedNodeId } = useWorkflowBuilder()
+  const {
+    setSelectedNodeId,
+    setCurrentExecutionId,
+    expandSidebarAndFocusEvents,
+  } = useWorkflowBuilder()
   const workspaceId = useWorkspaceId()
   const parentExec = execution.parent_wf_exec_id
   const parentExecId = parentExec ? executionId(parentExec) : null
+  const [rerunOpen, setRerunOpen] = useState(false)
 
   if (embedded) {
     return <CompactWorkflowEventsHeader execution={execution} />
@@ -245,6 +253,31 @@ export function WorkflowEventsHeader({
             ? new Date(execution.close_time).toLocaleString()
             : "..."}
         </Badge>
+      </div>
+      <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          <RotateCcwIcon className="size-3" />
+          <span>Rerun</span>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="ml-auto h-6 px-2 text-xs"
+          disabled={execution.status === "RUNNING"}
+          onClick={() => setRerunOpen(true)}
+        >
+          Rerun with fixed results
+        </Button>
+        <WorkflowRerunDialog
+          executionId={execution.id}
+          workflowId={executionId(execution.id).wf}
+          open={rerunOpen}
+          onOpenChange={setRerunOpen}
+          onStarted={(wfExecId) => {
+            setCurrentExecutionId(wfExecId)
+            expandSidebarAndFocusEvents()
+          }}
+        />
       </div>
 
       {parentExecId && (
@@ -446,10 +479,25 @@ export function WorkflowEvents({
         isWorkflowResultEvent
       const canFocusAction = isActionRefValid(actionRef)
 
+      const fixedFrom = latestEvent?.fixed_from_execution_id
+      const fixedBadge = fixedFrom ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="flex items-center gap-0.5">
+              <PinIcon className="size-2.5" />
+              Fixed
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <span>Result reused from {fixedFrom}</span>
+          </TooltipContent>
+        </Tooltip>
+      ) : undefined
+
       return {
         key: actionRef,
         label: refToLabel(actionRef),
-        meta: loopBadge,
+        meta: fixedBadge ?? loopBadge,
         time: latestStartTime
           ? new Date(latestStartTime).toLocaleTimeString()
           : "-",

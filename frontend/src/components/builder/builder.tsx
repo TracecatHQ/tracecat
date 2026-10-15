@@ -3,6 +3,7 @@
 import { PanelLeft } from "lucide-react"
 import * as React from "react"
 import { WorkflowCanvas } from "@/components/builder/canvas/canvas"
+import { BuilderRerunHost } from "@/components/builder/events/builder-rerun-host"
 import { BuilderSidebarEvents } from "@/components/builder/events/events-sidebar"
 import { EventsSidebarToolbar } from "@/components/builder/events/events-sidebar-toolbar"
 import { BuilderPanel } from "@/components/builder/panel/builder-panel"
@@ -122,6 +123,7 @@ export function Builder({ defaultLayout = [0, 68, 24] }: BuilderProps) {
           </TooltipProvider>
           <ResizablePanel defaultSize={defaultLayout[1]}>
             <WorkflowCanvas ref={canvasRef} />
+            <BuilderRerunHost />
           </ResizablePanel>
           <TooltipProvider>
             <Tooltip>

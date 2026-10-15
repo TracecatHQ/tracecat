@@ -33,7 +33,10 @@ with workflow.unsafe.imports_passed_through():
         DSLInput,
         edge_components_from_dep,
     )
-    from tracecat.dsl.constants import MAX_DO_WHILE_ITERATIONS
+    from tracecat.dsl.constants import (
+        FIXED_ACTION_REFS_MEMO_KEY,
+        MAX_DO_WHILE_ITERATIONS,
+    )
     from tracecat.dsl.enums import (
         EdgeMarker,
         EdgeType,
@@ -258,9 +261,12 @@ class DSLScheduler:
         run_context: RunContext,
         logger: WorkflowRuntimeLogger | None = None,
         dependency_plan: DSLDependencyPlan | None = None,
+        fixed_action_results: dict[str, TaskResult] | None = None,
     ):
         # Static
         self.dsl = dsl
+        self.fixed_action_results = fixed_action_results or {}
+        self.applied_fixed_refs: list[str] = []
         self.dependency_plan = dependency_plan
         self.executor = executor
         if max_pending_tasks < 1:
@@ -887,6 +893,13 @@ class DSLScheduler:
             # to run regardless of dependency skip states
             if stmt.action == PlatformAction.TRANSFORM_GATHER:
                 return await self._handle_gather(task, stmt)
+
+            if (
+                task.stream_id == ROOT_STREAM
+                and (fixed := self.fixed_action_results.get(ref)) is not None
+            ):
+                self._apply_fixed_result(task, fixed)
+                return await self._handle_success_path(task)
 
             # -- Otherwise, time to execute the task!
             # NOTE: If an exception is thrown from this coroutine, it signals that
@@ -1811,6 +1824,16 @@ class DSLScheduler:
         # Emit gather action in Temporal
         await self._execute(parent_gather, stmt)
         await self._queue_tasks(parent_gather)
+
+    def _apply_fixed_result(self, task: Task, result: TaskResult) -> None:
+        """Use a result from a previous run instead of executing the action."""
+        self.logger.debug("Using fixed action result", ref=task.ref)
+        self._get_action_context(task.stream_id)[task.ref] = result
+        self.applied_fixed_refs.append(task.ref)
+        if workflow.in_workflow():
+            workflow.upsert_memo(
+                {FIXED_ACTION_REFS_MEMO_KEY: list(self.applied_fixed_refs)}
+            )
 
     def _get_action_context(self, stream_id: StreamID) -> dict[str, TaskResult]:
         context = self.get_context(stream_id)

@@ -272,6 +272,17 @@ class TaskResult(BaseModel):
         )
 
 
+class FixedActionResult(BaseModel):
+    """An action result reused from a previous run of the workflow."""
+
+    result: TaskResult
+    source_execution_id: str
+    """Workflow execution that produced the result."""
+    source_event_id: int
+    """Scheduled event ID of the action in the source execution."""
+    mask_output: bool = False
+
+
 class ActionRetryPolicy(BaseModel):
     max_attempts: int = Field(
         default=1,

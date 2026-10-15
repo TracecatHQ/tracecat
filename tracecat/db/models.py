@@ -1850,6 +1850,11 @@ class Action(WorkspaceModel):
         nullable=False,
         doc="List of incoming edges: [{'source_id': 'act-xxx', 'source_handle': 'success'}]",
     )
+    locked_execution_id: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        doc="Past execution whose result draft runs reuse instead of running",
+    )
     workflow_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),

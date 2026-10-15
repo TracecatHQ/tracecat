@@ -1,5 +1,6 @@
 "use client"
 
+import { ActionRunHistory } from "@/components/builder/panel/action-run-history"
 import "react18-json-view/src/style.css"
 
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -10,6 +11,7 @@ import {
   Database,
   ExternalLinkIcon,
   FileTextIcon,
+  HistoryIcon,
   LayoutListIcon,
   LinkIcon,
   ListIcon,
@@ -286,6 +288,7 @@ function shouldShowOptionalFieldByDefault(
 
 export type ActionPanelTabs =
   | "inputs"
+  | "history"
   | "schema"
   | "control-flow"
   | "template-inputs"
@@ -972,6 +975,13 @@ function ActionPanelContent({
                     <SplitIcon className="mr-2 size-4" />
                     <span>Control flow</span>
                   </TabsTrigger>
+                  <TabsTrigger
+                    className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    value="history"
+                  >
+                    <HistoryIcon className="mr-2 size-4" />
+                    <span>History</span>
+                  </TabsTrigger>
                   {registryAction.is_template && (
                     <TabsTrigger
                       className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
@@ -1242,6 +1252,13 @@ function ActionPanelContent({
                       )}
                     </div>
                   </SectionErrorBoundary>
+                </TabsContent>
+                <TabsContent value="history">
+                  <ActionRunHistory
+                    action={action}
+                    workflowId={workflowId}
+                    updateAction={updateAction}
+                  />
                 </TabsContent>
                 <TabsContent value="schema">
                   <SectionErrorBoundary>

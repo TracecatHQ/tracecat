@@ -25,7 +25,7 @@ from tracecat.dsl.common import (
     get_execution_type_from_search_attr,
     get_trigger_type_from_search_attr,
 )
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
     AnyWorkflowIDPath,
@@ -62,6 +62,11 @@ from tracecat.workflow.executions.enums import (
     ExecutionType,
     TemporalSearchAttr,
     TriggerType,
+)
+from tracecat.workflow.executions.rerun import (
+    WorkflowRerunPlan,
+    WorkflowRerunRequest,
+    WorkflowRerunResponse,
 )
 from tracecat.workflow.executions.schemas import (
     WorkflowExecutionBulkResetRequest,
@@ -556,6 +561,68 @@ async def reset_workflow_execution(
     return WorkflowExecutionResetResponse(
         execution_id=execution_id, new_run_id=new_run_id
     )
+
+
+async def _rerun_workflow_execution(
+    role: WorkspaceActorRouteRole,
+    execution_id: WorkflowExecutionID,
+    params: WorkflowRerunRequest,
+    *,
+    dry_run: bool,
+) -> WorkflowRerunPlan | WorkflowRerunResponse:
+    try:
+        async with WorkflowsManagementService.with_session(role=role) as service:
+            return await service.rerun_workflow_execution(
+                execution_id,
+                use_draft=params.use_draft,
+                version=params.version,
+                fixed_action_refs=params.fixed_action_refs,
+                rerun_from_ref=params.rerun_from_ref,
+                dry_run=dry_run,
+            )
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "type": "TracecatValidationError",
+                "message": str(e),
+                "detail": e.detail,
+            },
+        ) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+
+
+@router.post("/{execution_id:path}/rerun/preview")
+@require_scope("workflow:execute")
+async def preview_workflow_execution_rerun(
+    role: WorkspaceActorRouteRole,
+    execution_id: UnquotedExecutionID,
+    params: WorkflowRerunRequest,
+) -> WorkflowRerunPlan:
+    """Match a past run's successful action results against a rerun target."""
+    plan = await _rerun_workflow_execution(role, execution_id, params, dry_run=True)
+    assert isinstance(plan, WorkflowRerunPlan)
+    return plan
+
+
+@router.post("/{execution_id:path}/rerun")
+@require_scope("workflow:execute")
+async def rerun_workflow_execution(
+    role: WorkspaceActorRouteRole,
+    execution_id: UnquotedExecutionID,
+    params: WorkflowRerunRequest,
+) -> WorkflowRerunResponse:
+    """Rerun a past run, reusing results of its successful actions."""
+    response = await _rerun_workflow_execution(
+        role, execution_id, params, dry_run=False
+    )
+    assert isinstance(response, WorkflowRerunResponse)
+    return response
 
 
 @router.post("/reset/bulk")
@@ -1053,6 +1120,9 @@ async def create_draft_workflow_execution(
             )
         try:
             dsl_input = await mgmt_service.build_dsl_from_workflow(workflow)
+            fixed_action_results = await mgmt_service.locked_action_results(
+                wf_id, dsl_input
+            )
         except TracecatValidationError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1090,6 +1160,7 @@ async def create_draft_workflow_execution(
             payload=params.inputs,
             time_anchor=params.time_anchor,
             # For draft workflow executions, pass None to dynamically resolve the registry lock
+            fixed_action_results=fixed_action_results,
         )
         _annotate_execution_trace(role, response)
         return response

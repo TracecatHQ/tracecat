@@ -292,10 +292,11 @@ class UserMCPClient:
         failed_servers: dict[str, str] = {}
         loop = asyncio.get_running_loop()
         discovery_deadline = loop.time() + MCP_DISCOVERY_TIMEOUT_SECONDS
+        budget_expired = False
 
         for server_name, config in self._configs.items():
             # Never start another connection after the shared budget expires.
-            if loop.time() >= discovery_deadline:
+            if budget_expired or loop.time() >= discovery_deadline:
                 budget_error = UserMCPDiscoveryBudgetExceededError(server_name)
                 logger.error(
                     "Skipped user MCP server after the discovery budget expired",
@@ -305,18 +306,23 @@ class UserMCPClient:
                 if fail_on_error:
                     raise budget_error
                 continue
+            server_timeout = min(
+                config.get("timeout") or MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS,
+                MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS,
+            )
+            server_deadline = min(loop.time() + server_timeout, discovery_deadline)
+            timeout = asyncio.timeout_at(server_deadline)
             try:
-                server_timeout = min(
-                    config.get("timeout") or MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS,
-                    MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS,
-                )
-                server_deadline = min(loop.time() + server_timeout, discovery_deadline)
-                async with asyncio.timeout_at(server_deadline):
+                async with timeout:
                     server_tools = await self._discover_server_tools(
                         server_name, config
                     )
                 tools.update(server_tools)
             except Exception as e:
+                # The event loop can fire a timer just before its deadline, so
+                # loop.time() alone may not show that the shared budget is gone.
+                if timeout.expired() and server_deadline >= discovery_deadline:
+                    budget_expired = True
                 error_summary = _safe_discovery_error_summary(e)
                 logger.error(
                     "Failed to discover tools from user MCP server",

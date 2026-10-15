@@ -159,6 +159,7 @@ from tracecat.cases.tags.service import CaseTagsService
 from tracecat.chat.schemas import BasicChatRequest
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import (
+    Action,
     Table,
     Workflow,
     WorkflowDefinition,
@@ -229,6 +230,9 @@ from tracecat.mcp.schemas import (
     WorkflowActionDetailResponse,
     WorkflowActionIndexEntry,
     WorkflowActionListResponse,
+    WorkflowActionLockResponse,
+    WorkflowActionRunEntry,
+    WorkflowActionRunsResponse,
     WorkflowActionSummary,
     WorkflowEditDocument,
     WorkflowEditResponse,
@@ -291,6 +295,7 @@ from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerUpdate,
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
+from tracecat.workflow.executions.rerun import WorkflowRerunPlan
 from tracecat.workflow.executions.schemas import (
     WorkflowExecutionActionResultResponse,
     WorkflowExecutionDetailResponse,
@@ -1130,6 +1135,15 @@ class WorkflowRunStartedResponse(BaseModel):
     workflow_id: WorkflowUUID
     execution_id: WorkflowExecutionID
     message: str
+
+
+class WorkflowRerunToolResponse(BaseModel):
+    """Result of rerunning a past workflow execution."""
+
+    started: bool
+    execution_id: WorkflowExecutionID | None = None
+    message: str
+    plan: WorkflowRerunPlan
 
 
 class WorkflowExecutionCancelResponse(BaseModel):
@@ -3964,12 +3978,19 @@ async def list_workflow_actions(
 
     Returns JSON with `draft_revision` (usable as `base_revision` for
     `edit_workflow`), the definition `entrypoint`, and `actions`, each with
-    `index`, `ref`, `action`, `depends_on`, `has_run_if`, `has_for_each`, and
-    `environment`, in the order they appear in `draft_document.definition.actions`.
+    `index`, `ref`, `action`, `depends_on`, `has_run_if`, `has_for_each`,
+    `environment`, and `locked_execution_id`, in the order they appear in `draft_document.definition.actions`.
     """
 
     try:
         wf_id, document = await _load_workflow_edit_document(workspace_id, workflow_id)
+        locks = {
+            ref: action.locked_execution_id
+            for ref, action in (
+                await _draft_actions_by_ref(workspace_id, wf_id)
+            ).items()
+            if action.locked_execution_id
+        }
         return WorkflowActionListResponse(
             workflow_id=str(wf_id),
             draft_revision=compute_workflow_edit_revision(document),
@@ -3983,6 +4004,7 @@ async def list_workflow_actions(
                     has_run_if=action.run_if is not None,
                     has_for_each=action.for_each is not None,
                     environment=action.environment,
+                    locked_execution_id=locks.get(action.ref),
                 )
                 for index, action in enumerate(document.definition.actions)
             ],
@@ -5416,8 +5438,10 @@ async def run_workflow(
     """Run a workflow from its draft state or a published definition.
 
     By default runs the current draft (unpublished edits) so changes can be
-    tested before publishing. Set ``use_draft=False`` to run a published
-    version instead.
+    tested before publishing. Draft runs reuse the result of every locked
+    action (see `lock_workflow_action`) instead of running it. Set
+    ``use_draft=False`` to run a published version instead; published runs
+    ignore locks.
 
     Args:
         workspace_id: The workspace ID.
@@ -5475,6 +5499,169 @@ async def run_workflow(
         raise ToolError(f"Failed to run workflow: {msg}") from None
 
 
+async def _draft_actions_by_ref(
+    workspace_id: uuid.UUID, wf_id: WorkflowUUID
+) -> dict[str, Action]:
+    from tracecat.workflow.actions.service import WorkflowActionService
+
+    _, role = await _resolve_workspace_role(workspace_id)
+    async with WorkflowActionService.with_session(role=role) as svc:
+        return {action.ref: action for action in await svc.list_actions(wf_id)}
+
+
+def _event_status(event: Any) -> str:
+    status = event.status
+    return str(getattr(status, "value", status))
+
+
+@mcp.tool()
+async def list_workflow_action_runs(
+    workspace_id: uuid.UUID,
+    workflow_id: MCPWorkflowUUID,
+    ref: str,
+    limit: int = 10,
+) -> WorkflowActionRunsResponse:
+    """List an action's recent runs, to pick one for `lock_workflow_action`.
+
+    Args:
+        workspace_id: The workspace ID.
+        workflow_id: The workflow ID.
+        ref: The action `ref`.
+        limit: Number of recent workflow runs to inspect (1-25, default 10).
+
+    Returns JSON with the action's current `locked_execution_id`,
+    `locked_run_available` (false once the locked run has been deleted by
+    history retention, in which case draft runs run the action fresh), and `runs`,
+    newest first, each with `execution_id`, `execution_type`, `start_time`,
+    `run_status`, `action_status` (null when the action didn't run),
+    `lockable` (the action completed in that run), and `locked`.
+    """
+
+    try:
+        wf_id = WorkflowUUID.new(workflow_id)
+        actions = await _draft_actions_by_ref(workspace_id, wf_id)
+        if ref not in actions:
+            raise ToolError(
+                f"Action ref {ref!r} not found in workflow {wf_id}. "
+                f"Valid refs: {sorted(actions)}"
+            )
+        locked_id = actions[ref].locked_execution_id
+        _, role = await _resolve_workspace_role(workspace_id)
+        limit = _normalize_limit(limit, default=10, max_limit=25)
+        exec_service = await WorkflowExecutionsService.connect(role=role)
+        executions = await exec_service.list_executions_paginated(
+            pagination=CursorPaginationParams(limit=limit, cursor=None),
+            workflow_id=wf_id,
+        )
+        locked_run_available: bool | None = None
+        if locked_id:
+            try:
+                locked_run_available = (
+                    await exec_service.get_execution(locked_id) is not None
+                )
+            except Exception:
+                locked_run_available = None
+        runs: list[WorkflowActionRunEntry] = []
+        for execution in executions.items:
+            summary: Any = build_execution_summary(execution)
+            events = await exec_service.list_workflow_execution_events_compact(
+                summary.id
+            )
+            event = next((e for e in reversed(events) if e.action_ref == ref), None)
+            action_status = _event_status(event) if event else None
+            runs.append(
+                WorkflowActionRunEntry(
+                    execution_id=summary.id,
+                    execution_type=getattr(summary, "execution_type", None),
+                    start_time=summary.start_time,
+                    run_status=str(getattr(summary.status, "value", summary.status)),
+                    action_status=action_status,
+                    lockable=action_status == "COMPLETED",
+                    locked=summary.id == locked_id,
+                )
+            )
+        return WorkflowActionRunsResponse(
+            workflow_id=str(wf_id),
+            ref=ref,
+            locked_execution_id=locked_id,
+            locked_run_available=locked_run_available,
+            runs=runs,
+        )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list workflow action runs", error=str(e))
+        raise ToolError(f"Failed to list workflow action runs: {e}") from None
+
+
+@mcp.tool()
+async def lock_workflow_action(
+    workspace_id: uuid.UUID,
+    workflow_id: MCPWorkflowUUID,
+    ref: str,
+    execution_id: str | None,
+) -> WorkflowActionLockResponse:
+    """Lock a draft action to a past run's result, or unlock it.
+
+    While locked, every draft run (`run_workflow` with `use_draft=True`)
+    reuses the action's result from that run instead of executing it, which
+    lets you debug downstream actions against a fixed input. Published runs
+    ignore locks. Find a lockable run with `list_workflow_action_runs`.
+
+    Args:
+        workspace_id: The workspace ID.
+        workflow_id: The workflow ID.
+        ref: The action `ref`.
+        execution_id: A run of this workflow in which the action completed.
+            Pass null to unlock.
+
+    Returns JSON with `workflow_id`, `ref`, and the new `locked_execution_id`.
+    """
+
+    from tracecat.workflow.actions.schemas import ActionUpdate
+    from tracecat.workflow.actions.service import WorkflowActionService
+
+    try:
+        wf_id = WorkflowUUID.new(workflow_id)
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with WorkflowActionService.with_session(role=role) as svc:
+            actions = {a.ref: a for a in await svc.list_actions(wf_id)}
+            if ref not in actions:
+                raise ToolError(
+                    f"Action ref {ref!r} not found in workflow {wf_id}. "
+                    f"Valid refs: {sorted(actions)}"
+                )
+            if execution_id is not None:
+                _, events = await _load_execution_with_events(
+                    workspace_id, execution_id
+                )
+                event = next((e for e in reversed(events) if e.action_ref == ref), None)
+                if event is None or _event_status(event) != "COMPLETED":
+                    raise ToolError(
+                        f"Action {ref!r} did not complete in {execution_id}, "
+                        "so its result can't be locked."
+                    )
+            action = await svc.update_action(
+                actions[ref], ActionUpdate(locked_execution_id=execution_id)
+            )
+            return WorkflowActionLockResponse(
+                workflow_id=str(wf_id),
+                ref=ref,
+                locked_execution_id=action.locked_execution_id,
+            )
+    except ToolError:
+        raise
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to lock workflow action", error=str(e))
+        raise ToolError(f"Failed to lock workflow action: {e}") from None
+
+
 @mcp.tool()
 async def list_workflow_executions(
     workspace_id: uuid.UUID,
@@ -5519,6 +5706,100 @@ async def list_workflow_executions(
     except Exception as e:
         logger.error("Failed to list workflow executions", error=str(e))
         raise ToolError(f"Failed to list workflow executions: {e}") from None
+
+
+@mcp.tool()
+async def rerun_workflow_execution(
+    workspace_id: uuid.UUID,
+    execution_id: WorkflowExecutionID,
+    use_draft: bool = True,
+    version: int | None = None,
+    fixed_action_refs: list[str] | None = None,
+    rerun_from_ref: str | None = None,
+    dry_run: bool = False,
+) -> WorkflowRerunToolResponse:
+    """Rerun a past execution against the draft or a published version.
+
+    The new run reuses the past run's trigger inputs. Each action that
+    succeeded in the past run and exists in the target with the same ref and
+    action type reuses its stored result instead of running. Everything else
+    runs. Actions inside scatter or loop scopes, and control flow actions,
+    always run.
+
+    Call with ``dry_run=true`` first to see the match plan. Each entry in
+    ``plan.actions`` has a status: ``fixed`` (result reused), ``excluded``
+    (reusable but not in ``fixed_action_refs``), ``runs`` (no reusable
+    result), ``not_in_target`` (the target has no action with this ref), or
+    ``action_changed`` (the target action uses a different action type).
+    ``plan.unmatched_refs`` lists source results the target cannot use, and
+    ``plan.inputs_error`` is set when the past inputs fail the target's input
+    schema.
+
+    Args:
+        workspace_id: The workspace ID.
+        execution_id: The past workflow execution ID to rerun.
+        use_draft: When true (default), rerun against the current draft.
+            When false, rerun against a published version.
+        version: Published version when ``use_draft`` is false; null uses the
+            current published version.
+        fixed_action_refs: Refs whose results to reuse. Null reuses every
+            match; an empty list reruns everything. Refs that cannot be
+            reused are rejected.
+        rerun_from_ref: Rerun from this action. It and every action
+            downstream of it run fresh; other matches are still reused.
+        dry_run: Return the match plan without starting a run.
+
+    Returns JSON with ``started``, the new ``execution_id`` (when started),
+    a message, and the match ``plan``.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with WorkflowsManagementService.with_session(role=role) as svc:
+            result = await svc.rerun_workflow_execution(
+                execution_id,
+                use_draft=use_draft,
+                version=version,
+                fixed_action_refs=fixed_action_refs,
+                rerun_from_ref=rerun_from_ref,
+                dry_run=dry_run,
+            )
+        if isinstance(result, WorkflowRerunPlan):
+            return WorkflowRerunToolResponse(
+                started=False,
+                message="Dry run. No execution started.",
+                plan=result,
+            )
+        return WorkflowRerunToolResponse(
+            started=True,
+            execution_id=result.wf_exec_id,
+            message=result.message,
+            plan=result.plan,
+        )
+    except ToolError:
+        raise
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(
+            json.dumps(
+                {
+                    "type": "validation_error",
+                    "message": str(e),
+                    "status": "error",
+                    "detail": e.detail,
+                },
+                default=str,
+            )
+        ) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except BaseException as e:
+        msg = str(e)
+        if isinstance(e, BaseExceptionGroup):
+            msgs = [str(exc) for exc in e.exceptions]
+            msg = "; ".join(msgs)
+        logger.error("Failed to rerun workflow execution", error=msg)
+        raise ToolError(f"Failed to rerun workflow execution: {msg}") from None
 
 
 async def _load_execution_with_events(

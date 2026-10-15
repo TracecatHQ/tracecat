@@ -15,7 +15,10 @@ import {
   CopyIcon,
   CopyPlusIcon,
   LayoutListIcon,
+  LockIcon,
+  LockOpenIcon,
   PencilIcon,
+  RotateCcwIcon,
   SquareArrowOutUpRightIcon,
   Trash2Icon,
 } from "lucide-react"
@@ -57,6 +60,12 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 import { FormControl, FormField, FormItem } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -71,6 +80,7 @@ import { useActionNodeZoomBreakpoint } from "@/hooks/canvas"
 import { isExpression } from "@/lib/expressions"
 import {
   useAction,
+  useActionLockStatuses,
   useGetRegistryAction,
   useWorkflowManager,
 } from "@/lib/hooks"
@@ -113,6 +123,7 @@ export default React.memo(function ActionNode({
     sidebarRef,
     actionPanelRef,
     setSelectedActionEventRef,
+    setRerunRequest,
   } = useWorkflowBuilder()
   const { validationErrors } = useWorkflow()
 
@@ -132,6 +143,7 @@ export default React.memo(function ActionNode({
   }, [validationErrors, action])
   const { registryAction } = useGetRegistryAction(action?.type)
   const [showToolbar, setShowToolbar] = useState(false)
+  const [contextMenuOpen, setContextMenuOpen] = useState(false)
   const [isMouseOverNode, setIsMouseOverNode] = useState(false)
   const [isMouseOverToolbar, setIsMouseOverToolbar] = useState(false)
   const nodeRef = useRef<HTMLDivElement>(null)
@@ -143,6 +155,39 @@ export default React.memo(function ActionNode({
       actionPanelRef.current?.expand()
     }
   }, [actionPanelRef])
+
+  const lockedExecutionId = action?.locked_execution_id ?? null
+  const { staleLockedRefs } = useActionLockStatuses(
+    workspaceId,
+    workflowId,
+    !!lockedExecutionId
+  )
+  const lockStale =
+    !!action &&
+    !!lockedExecutionId &&
+    staleLockedRefs.has(slugifyActionRef(action.title))
+  const handleLockClick = useCallback(() => {
+    if (lockedExecutionId) {
+      void updateAction({ locked_execution_id: null })
+      return
+    }
+    reactFlow.setNodes((nodes) =>
+      nodes.map((node) => ({ ...node, selected: node.id === id }))
+    )
+    expandActionPanel()
+    // The panel resets to its first tab when the selected action changes.
+    window.setTimeout(
+      () => actionPanelRef.current?.setActiveTab("history"),
+      100
+    )
+  }, [
+    lockedExecutionId,
+    updateAction,
+    reactFlow,
+    id,
+    expandActionPanel,
+    actionPanelRef,
+  ])
 
   useEffect(() => {
     return () => {
@@ -365,51 +410,117 @@ export default React.memo(function ActionNode({
     <TooltipProvider>
       <FormProvider {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)}>
-          <Card
-            ref={nodeRef}
-            className={cn(
-              "min-w-64",
-              nodeStyles.common,
-              selected ? nodeStyles.selected : nodeStyles.hover
-            )}
-            onMouseEnter={handleNodeMouseEnter}
-            onMouseLeave={handleNodeMouseLeave}
-            onClick={expandActionPanel}
-          >
-            <ActionNodeContent
-              workspaceId={workspaceId}
-              actionType={action?.type}
-              actionInputs={actionInputsObj}
-              actionIsLoading={actionIsLoading}
-              submitHandler={form.handleSubmit(onSubmit)}
-              style={style}
-              breakpoint={breakpoint}
-              Icon={Icon}
-              childWorkflowInfo={childWorkflowInfo}
-              error={error}
-              validationErrors={actionValidationErrors}
-            />
-            <ActionTargetHandle
-              action={action}
-              indegree={incomingEdges.length}
-              showFullCondition={selected || isMouseOverNode}
-            />
-            <ActionSoruceSuccessHandle type="source" />
-            <ActionSourceErrorHandle type="source" />
-            {action && (
-              <ActionNodeToolbar
-                action={action}
-                childWorkflowInfo={childWorkflowInfo}
-                showToolbar={showToolbar}
-                selected={selected}
-                sidebarRef={sidebarRef}
-                setSelectedActionEventRef={setSelectedActionEventRef}
-                setIsMouseOverToolbar={setIsMouseOverToolbar}
-                handleDeleteNode={handleDeleteNode}
-                handleDuplicateNode={handleDuplicateNode}
-              />
-            )}
-          </Card>
+          <ContextMenu onOpenChange={setContextMenuOpen}>
+            <ContextMenuTrigger asChild>
+              <Card
+                ref={nodeRef}
+                className={cn(
+                  "min-w-64",
+                  "relative",
+                  nodeStyles.common,
+                  selected ? nodeStyles.selected : nodeStyles.hover
+                )}
+                onMouseEnter={handleNodeMouseEnter}
+                onMouseLeave={handleNodeMouseLeave}
+                onClick={expandActionPanel}
+              >
+                <ActionNodeContent
+                  workspaceId={workspaceId}
+                  actionType={action?.type}
+                  actionInputs={actionInputsObj}
+                  actionIsLoading={actionIsLoading}
+                  submitHandler={form.handleSubmit(onSubmit)}
+                  style={style}
+                  breakpoint={breakpoint}
+                  Icon={Icon}
+                  childWorkflowInfo={childWorkflowInfo}
+                  error={error}
+                  validationErrors={actionValidationErrors}
+                />
+                {action && (lockedExecutionId || isMouseOverNode) && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={
+                          lockedExecutionId ? "Unlock action" : "Lock action"
+                        }
+                        className={cn(
+                          "absolute right-2 top-2 rounded p-1 transition-colors hover:bg-muted",
+                          lockedExecutionId
+                            ? "text-amber-600 dark:text-amber-400"
+                            : "text-muted-foreground"
+                        )}
+                        onClick={handleLockClick}
+                      >
+                        {lockStale ? (
+                          <AlertTriangleIcon className="size-3.5" />
+                        ) : lockedExecutionId ? (
+                          <LockIcon className="size-3.5" />
+                        ) : (
+                          <LockOpenIcon className="size-3.5" />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">
+                      {lockStale
+                        ? "The locked run is no longer in run history, so draft runs run this action fresh. Click to unlock."
+                        : lockedExecutionId
+                          ? "Draft runs reuse this action's result from a past run. Click to unlock."
+                          : "Lock to a past run's result"}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+                <ActionTargetHandle
+                  action={action}
+                  indegree={incomingEdges.length}
+                  showFullCondition={selected || isMouseOverNode}
+                />
+                <ActionSoruceSuccessHandle type="source" />
+                <ActionSourceErrorHandle type="source" />
+                {action && (
+                  <ActionNodeToolbar
+                    action={action}
+                    childWorkflowInfo={childWorkflowInfo}
+                    showToolbar={showToolbar && !contextMenuOpen}
+                    selected={selected && !contextMenuOpen}
+                    sidebarRef={sidebarRef}
+                    setSelectedActionEventRef={setSelectedActionEventRef}
+                    setIsMouseOverToolbar={setIsMouseOverToolbar}
+                    handleDeleteNode={handleDeleteNode}
+                    handleDuplicateNode={handleDuplicateNode}
+                    locked={!!lockedExecutionId}
+                    onToggleLock={handleLockClick}
+                  />
+                )}
+              </Card>
+            </ContextMenuTrigger>
+            <ContextMenuContent>
+              <ContextMenuItem
+                className="gap-2 text-xs"
+                disabled={!action}
+                onSelect={() =>
+                  action &&
+                  setRerunRequest({ fromRef: slugifyActionRef(action.title) })
+                }
+              >
+                <RotateCcwIcon className="size-3.5" />
+                Rerun last run from here
+              </ContextMenuItem>
+              <ContextMenuItem
+                className="gap-2 text-xs"
+                disabled={!action}
+                onSelect={handleLockClick}
+              >
+                {lockedExecutionId ? (
+                  <LockOpenIcon className="size-3.5" />
+                ) : (
+                  <LockIcon className="size-3.5" />
+                )}
+                {lockedExecutionId ? "Unlock action" : "Lock to a past run…"}
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
         </form>
       </FormProvider>
     </TooltipProvider>
@@ -591,6 +702,8 @@ function ActionNodeToolbar({
   setIsMouseOverToolbar,
   handleDeleteNode,
   handleDuplicateNode,
+  locked,
+  onToggleLock,
 }: {
   action: ActionRead
   childWorkflowInfo: ChildWorkflowInfo
@@ -601,9 +714,11 @@ function ActionNodeToolbar({
   setIsMouseOverToolbar: (isMouseOver: boolean) => void
   handleDeleteNode: () => void
   handleDuplicateNode: () => void
+  locked: boolean
+  onToggleLock: () => void
 }) {
   const form = useFormContext()
-  const { workspaceId } = useWorkflowBuilder()
+  const { workspaceId, setRerunRequest } = useWorkflowBuilder()
   const {
     isChildWorkflow,
     childWorkflowAlias,
@@ -685,6 +800,22 @@ function ActionNodeToolbar({
             >
               <CircleCheckBigIcon className="mr-2 size-3" />
               <span>Last result</span>
+            </CommandItem>
+            <CommandItem
+              onSelect={() =>
+                setRerunRequest({ fromRef: slugifyActionRef(action.title) })
+              }
+            >
+              <RotateCcwIcon className="mr-2 size-3" />
+              <span>Rerun from here</span>
+            </CommandItem>
+            <CommandItem onSelect={onToggleLock}>
+              {locked ? (
+                <LockOpenIcon className="mr-2 size-3" />
+              ) : (
+                <LockIcon className="mr-2 size-3" />
+              )}
+              <span>{locked ? "Unlock" : "Lock to a run"}</span>
             </CommandItem>
 
             <CommandItem

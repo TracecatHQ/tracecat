@@ -1187,6 +1187,10 @@ async def test_run_workflow_draft_builds_and_dispatches_draft(
     monkeypatch.setattr(service, "build_dsl_from_workflow", AsyncMock(return_value=dsl))
     # No validation errors from the tiered validator.
     monkeypatch.setattr(management, "validate_dsl", AsyncMock(return_value=[]))
+    locked = {"a": object()}
+    monkeypatch.setattr(
+        service, "locked_action_results", AsyncMock(return_value=locked)
+    )
     fake_exec = _patch_exec_service(monkeypatch)
 
     resp = await service.run_workflow(wf_id, inputs={"a": 1}, use_draft=True)
@@ -1198,6 +1202,119 @@ async def test_run_workflow_draft_builds_and_dispatches_draft(
     assert kwargs["payload"] == {"a": 1}
     # Draft runs resolve the registry lock dynamically (not passed here).
     assert "registry_lock" not in kwargs
+    assert kwargs["fixed_action_results"] is locked
+
+
+def _locked_session(actions: list[Any]) -> Any:
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = actions
+    return SimpleNamespace(execute=AsyncMock(return_value=result))
+
+
+@pytest.mark.anyio
+async def test_locked_action_results_without_locks_skips_exec_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _service(_role())
+    service.session = _locked_session([])
+    fake_exec = _patch_exec_service(monkeypatch)
+
+    assert (
+        await service.locked_action_results(WorkflowUUID.new_uuid4(), _run_dsl()) == {}
+    )
+    assert fake_exec.calls == []
+
+
+@pytest.mark.anyio
+async def test_locked_action_results_skips_unusable_locks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    wf_id = WorkflowUUID.new_uuid4()
+    other_wf = WorkflowUUID.new_uuid4()
+    good = f"{wf_id.short()}/exec_good"
+    gone = f"{wf_id.short()}/exec_gone"
+    foreign = f"{other_wf.short()}/exec_other"
+    service = _service(_role())
+    service.session = _locked_session(
+        [
+            SimpleNamespace(ref="a", locked_execution_id=good),
+            SimpleNamespace(ref="b", locked_execution_id=gone),
+            SimpleNamespace(ref="c", locked_execution_id=foreign),
+        ]
+    )
+    fake_exec = _patch_exec_service(monkeypatch)
+    sources: dict[str, Any] = {good: object()}
+
+    async def _get_rerun_source(exec_id: str) -> Any:
+        if exec_id not in sources:
+            raise TracecatNotFoundError("gone")
+        return sources[exec_id]
+
+    fake_exec.get_rerun_source = _get_rerun_source  # type: ignore[attr-defined]
+    fixed = object()
+    match = MagicMock(return_value=SimpleNamespace(fixed={"a": fixed}))
+    monkeypatch.setattr(management, "match_rerun_actions", match)
+
+    dsl = _run_dsl()
+    results = await service.locked_action_results(wf_id, dsl)
+
+    assert results == {"a": fixed}
+    match.assert_called_once_with(sources[good], dsl, fixed_action_refs=["a"])
+
+
+@pytest.mark.anyio
+async def test_list_lock_statuses_flags_only_missing_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.workflow.actions.service import WorkflowActionService
+
+    wf_id = WorkflowUUID.new_uuid4()
+    ok = f"{wf_id.short()}/exec_ok"
+    gone = f"{wf_id.short()}/exec_gone"
+    flaky = f"{wf_id.short()}/exec_flaky"
+    service = WorkflowActionService(cast(Any, object()), role=_role())
+    service.session = _locked_session(
+        [
+            SimpleNamespace(ref="a", locked_execution_id=ok),
+            SimpleNamespace(ref="b", locked_execution_id=gone),
+            SimpleNamespace(ref="c", locked_execution_id=flaky),
+            SimpleNamespace(ref="d", locked_execution_id=ok),
+        ]
+    )
+    fake_exec = _patch_exec_service(monkeypatch)
+    checked: list[str] = []
+
+    async def _get_execution(exec_id: str) -> Any:
+        checked.append(exec_id)
+        if exec_id == flaky:
+            raise RuntimeError("temporal unavailable")
+        return None if exec_id == gone else object()
+
+    fake_exec.get_execution = _get_execution  # type: ignore[attr-defined]
+
+    statuses = await service.list_lock_statuses(wf_id)
+
+    assert {s.ref: s.available for s in statuses} == {
+        "a": True,
+        "b": False,
+        "c": True,
+        "d": True,
+    }
+    assert sorted(checked) == sorted({ok, gone, flaky})
+
+
+@pytest.mark.anyio
+async def test_list_lock_statuses_without_locks_skips_exec_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.workflow.actions.service import WorkflowActionService
+
+    service = WorkflowActionService(cast(Any, object()), role=_role())
+    service.session = _locked_session([])
+    fake_exec = _patch_exec_service(monkeypatch)
+
+    assert await service.list_lock_statuses(WorkflowUUID.new_uuid4()) == []
+    assert fake_exec.calls == []
 
 
 @pytest.mark.anyio
@@ -1247,7 +1364,7 @@ async def test_run_workflow_published_latest_uses_definition_lock(
         "actions": {"core.transform.reshape": "tracecat_registry"},
         "origin_fingerprints": {},
     }
-    defn = SimpleNamespace(content=dsl.model_dump(), registry_lock=lock)
+    defn = SimpleNamespace(content=dsl.model_dump(), registry_lock=lock, version=1)
 
     captured: dict[str, Any] = {}
 
@@ -1278,7 +1395,7 @@ async def test_run_workflow_published_version_is_forwarded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     dsl = _run_dsl()
-    defn = SimpleNamespace(content=dsl.model_dump(), registry_lock=None)
+    defn = SimpleNamespace(content=dsl.model_dump(), registry_lock=None, version=1)
     captured: dict[str, Any] = {}
 
     class _FakeDefnService:

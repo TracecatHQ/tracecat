@@ -142,13 +142,31 @@
 <ResponseField name="run_workflow" type="tool">
   Run a workflow from its draft state or a published definition.
 
-  By default runs the current draft (unpublished edits) so changes can be tested before publishing. Set ``use_draft=False`` to run a published version instead.
+  By default runs the current draft (unpublished edits) so changes can be tested before publishing. Draft runs reuse the result of every locked action (see `lock_workflow_action`) instead of running it. Set ``use_draft=False`` to run a published version instead; published runs ignore locks.
+</ResponseField>
+
+<ResponseField name="list_workflow_action_runs" type="tool">
+  List an action's recent runs, to pick one for `lock_workflow_action`.
+</ResponseField>
+
+<ResponseField name="lock_workflow_action" type="tool">
+  Lock a draft action to a past run's result, or unlock it.
+
+  While locked, every draft run (`run_workflow` with `use_draft=True`) reuses the action's result from that run instead of executing it, which lets you debug downstream actions against a fixed input. Published runs ignore locks. Find a lockable run with `list_workflow_action_runs`.
 </ResponseField>
 
 <ResponseField name="list_workflow_executions" type="tool">
   List recent executions for a workflow.
 
   Use this to see run history, check which runs succeeded or failed, and find execution IDs for deeper inspection with `get_workflow_execution`.
+</ResponseField>
+
+<ResponseField name="rerun_workflow_execution" type="tool">
+  Rerun a past execution against the draft or a published version.
+
+  The new run reuses the past run's trigger inputs. Each action that succeeded in the past run and exists in the target with the same ref and action type reuses its stored result instead of running. Everything else runs. Actions inside scatter or loop scopes, and control flow actions, always run.
+
+  Call with ``dry_run=true`` first to see the match plan. Each entry in ``plan.actions`` has a status: ``fixed`` (result reused), ``excluded`` (reusable but not in ``fixed_action_refs``), ``runs`` (no reusable result), ``not_in_target`` (the target has no action with this ref), or ``action_changed`` (the target action uses a different action type). ``plan.unmatched_refs`` lists source results the target cannot use, and ``plan.inputs_error`` is set when the past inputs fail the target's input schema.
 </ResponseField>
 
 <ResponseField name="get_workflow_execution" type="tool">
