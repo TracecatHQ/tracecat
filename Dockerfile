@@ -219,8 +219,8 @@ WORKDIR /app
 # ====================
 FROM base AS plugin-skills
 
-ARG TRACECAT_PLUGINS_REF=cc40117d967dec7ad8ac5df0ae3e5c55fee9f379
-ARG TRACECAT_PLUGINS_ARCHIVE_SHA256=2cd4fbccec8b2b8d7e2cad22610863e121cd279936b056db4adf8c8bb0614881
+ARG TRACECAT_PLUGINS_REF=9d8b641ba4cd747d7796252f12702608f3043b55
+ARG TRACECAT_PLUGINS_ARCHIVE_SHA256=a16ecdd6c4b8636bf5973dc834a426a482bb752c8d44d3a35fd4403b544224c9
 
 # Pinned to a tracecat-plugins commit on main. Bump both values when the
 # vendored skills change so the trusted payload is verified before extraction.
