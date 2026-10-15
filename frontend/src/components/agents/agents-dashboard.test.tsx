@@ -498,7 +498,6 @@ describe("AgentsDashboard entitlement split", () => {
 
     renderDashboard()
 
-    expect(lastOptions(mockUseAgentPresets)?.enabled).toBe(false)
     expect(lastOptions(mockUseAgentDirectoryItems)?.enabled).toBe(true)
     expect(lastOptions(mockUseAgentTagCatalog)?.enabled).toBe(true)
     expect(screen.getByText("View")).toBeInTheDocument()
@@ -736,7 +735,14 @@ describe("AgentsDashboard entitlement split", () => {
       mockHasEntitlement.mockReturnValue(true)
       mockUseAgentDirectoryItems.mockReturnValue({
         directoryItems: [
-          { type: "folder", id: "folder-1", name: "Nested", path: "/nested/" },
+          {
+            type: "folder",
+            id: "folder-1",
+            name: "Nested",
+            path: "/nested/",
+            created_at: PRESET.created_at,
+            updated_at: PRESET.updated_at,
+          },
         ],
         directoryItemsIsLoading: false,
         directoryItemsError: null,
@@ -751,8 +757,34 @@ describe("AgentsDashboard entitlement split", () => {
     it("keeps the folder listing without an active filter", () => {
       mockHasEntitlement.mockReturnValue(true)
       renderCatalog("view=folders")
-      expect(lastOptions(mockUseAgentPresets)?.enabled).toBe(false)
       expect(lastOptions(mockUseAgentDirectoryItems)?.enabled).toBe(true)
+    })
+
+    it("offers MCP servers used only in nested folders without integration access", async () => {
+      mockHasEntitlement.mockReturnValue(true)
+      mockUseScopeCheck.mockImplementation(
+        (scope) => scope !== "integration:read"
+      )
+      mockUseAgentDirectoryItems.mockReturnValue({
+        directoryItems: [
+          {
+            type: "folder",
+            id: "folder-1",
+            name: "Nested",
+            path: "/nested/",
+            created_at: PRESET.created_at,
+            updated_at: PRESET.updated_at,
+          },
+        ],
+        directoryItemsIsLoading: false,
+        directoryItemsError: null,
+      })
+      renderCatalog("view=folders")
+      expect(lastOptions(mockUseAgentPresets)?.enabled).toBe(true)
+      await userEvent.click(screen.getByRole("button", { name: /MCP servers/ }))
+      expect(
+        await screen.findByRole("option", { name: /jira/ })
+      ).toBeInTheDocument()
     })
 
     it.each([

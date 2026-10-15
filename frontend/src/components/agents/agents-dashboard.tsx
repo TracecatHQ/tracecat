@@ -2201,28 +2201,29 @@ export function AgentsDashboard() {
   // flat catalog to reach agents in nested folders.
   const flatCatalog = view === "list" || hasAgentCatalogFilters(filters)
 
-  // Data hooks
+  // Data hooks. The flat list also feeds the MCP filter options in the
+  // folder view, so agents in nested folders stay selectable.
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
-    { enabled: !entitlementsLoading && flatCatalog }
+    { enabled: !entitlementsLoading }
   )
   const { directoryItems, directoryItemsIsLoading, directoryItemsError } =
     useAgentDirectoryItems(currentPath, workspaceId, {
       enabled: organizationEnabled && !flatCatalog,
     })
 
-  // The preset summary names MCP integrations only by slug. Use unfiltered
-  // items so filtering never drops an option.
-  const usedMcpSlugs = useMemo(() => {
-    const summaries = flatCatalog
-      ? (presets ?? []).map((preset) => preset.tool_summary)
-      : (directoryItems ?? []).flatMap((item) =>
-          item.type === "preset" ? [item.tool_summary] : []
+  // The preset summary names MCP integrations only by slug. Use the unfiltered
+  // workspace-wide list so filtering never drops an option.
+  const usedMcpSlugs = useMemo(
+    () => [
+      ...new Set(
+        (presets ?? []).flatMap(
+          (preset) => preset.tool_summary?.mcp_slugs ?? []
         )
-    return [
-      ...new Set(summaries.flatMap((summary) => summary?.mcp_slugs ?? [])),
-    ]
-  }, [directoryItems, flatCatalog, presets])
+      ),
+    ],
+    [presets]
+  )
   // The list endpoint needs `integration:read`; without it the request 403s
   // and the slugs stay uncounted.
   const canReadIntegrations = useScopeCheck("integration:read") === true
