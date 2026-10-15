@@ -206,9 +206,20 @@ describe("useCases exact-first requests", () => {
       expect(result.current.totalFilteredCaseEstimate).toBe(0)
     )
     expect(result.current.cases).toEqual([])
+    act(() => result.current.setSearchQuery("pending workspace text"))
+    window.localStorage.setItem(
+      `${OTHER_WORKSPACE_ID}:cases-filters:v1`,
+      JSON.stringify({ searchQuery: "synthetic workspace search" })
+    )
     act(() => changeWorkspace(OTHER_WORKSPACE_ID))
-    act(() => result.current.setSearchQuery("CASE-0042"))
+    expect(result.current.appliedSearchQuery).toBe("synthetic workspace search")
     await waitFor(() => expect(result.current.cases).toEqual([OLD_CASE]))
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        workspaceId: OTHER_WORKSPACE_ID,
+        searchTerm: "synthetic workspace search",
+      })
+    )
     act(() => changeWorkspace(WORKSPACE_ID))
     expect(result.current.cases).toEqual([])
     await waitFor(() =>
