@@ -163,36 +163,6 @@
     color: hsl(var(--destructive));
   }
 
-  /* A highlight sweeping across text, for steps that are still running. */
-  .text-shimmer {
-    background: linear-gradient(
-        90deg,
-        transparent 0%,
-        hsl(var(--foreground)) 50%,
-        transparent 100%
-      )
-      -100% 0 / 50% 100% no-repeat,
-      currentColor;
-    background-clip: text;
-    -webkit-background-clip: text;
-    color: transparent;
-    animation: text-shimmer 2s linear infinite;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .text-shimmer {
-      animation: none;
-    }
-  }
-
-  @keyframes text-shimmer {
-    to {
-      background-position:
-        200% 0,
-        0 0;
-    }
-  }
-
   .editor-wrapper .monaco-editor {
     border-radius: 8px;
   }

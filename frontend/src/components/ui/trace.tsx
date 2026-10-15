@@ -45,7 +45,6 @@ function TraceLine({
         "[:is(a,button)>&]:cursor-pointer [:is(a,button):hover>&]:text-foreground",
         "data-[status=error]:text-destructive [:is(a,button):hover>&]:data-[status=error]:text-destructive",
         "data-[status=pending]:opacity-60",
-        "[&[data-status=running]>[data-slot=trace-title]]:text-shimmer",
         className
       )}
       {...props}
