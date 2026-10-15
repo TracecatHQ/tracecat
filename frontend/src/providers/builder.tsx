@@ -420,14 +420,8 @@ export const WorkflowBuilderProvider: React.FC<
   }, [actionPanelRef])
 
   const expandSidebarAndFocusEvents = React.useCallback(() => {
-    setIsSidebarCollapsed(() => {
-      const newState = false
-      if (sidebarRef.current) {
-        sidebarRef.current.expand()
-        // sidebarRef.current.setActiveTab("workflow-events")
-      }
-      return newState
-    })
+    setIsSidebarCollapsed(false)
+    sidebarRef.current?.expand()
   }, [sidebarRef])
 
   const value = React.useMemo(
