@@ -288,6 +288,7 @@ class CaseSearchService(BaseWorkspaceService):
                     request.case_id,
                     request.short_id,
                     request.parent_id,
+                    case_addons_enabled and request.hierarchy == "top_level",
                     linked_row,
                     exclude_case_id,
                 )
