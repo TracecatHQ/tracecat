@@ -79,7 +79,7 @@ class FormIssueCode(StrEnum):
     OPTIONS_REQUIRED = "options_required"
     OPTIONS_NOT_SUPPORTED = "options_not_supported"
     OPTION_NOT_IN_ENUM = "option_not_in_enum"
-    DEFAULT_NOT_AN_OPTION = "default_not_an_option"
+    DEFAULT_INVALID = "default_invalid"
     CONDITIONAL_FIELD_REQUIRED = "conditional_field_required"
     VISIBLE_IF_UNKNOWN_FIELD = "visible_if_unknown_field"
     VISIBLE_IF_INVALID_CONTROLLER = "visible_if_invalid_controller"

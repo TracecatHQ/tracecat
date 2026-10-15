@@ -493,14 +493,7 @@ ISSUE_CASES: list[tuple[Code, list[dict[str, Any]], dict[str, Any], list]] = [
         [0, "autofill"],
     ),
     (
-        # A browser would round it, so the page would show and send another.
-        Code.INTEGER_OUT_OF_RANGE,
-        [{"field": "a"}],
-        {"a": {"type": "int", "default": 2**53}},
-        [0],
-    ),
-    (
-        # Hidden or shown, every int default is checked.
+        # A hidden default is never an answer, but every int default is checked.
         Code.INTEGER_OUT_OF_RANGE,
         [{"field": "a", "hidden": True}],
         {"a": {"type": "int", "default": -(2**53)}},
@@ -531,65 +524,74 @@ def test_resolver_error_codes(
 
 
 def test_every_issue_code_is_covered() -> None:
-    # The warning is covered by the default-widget test, and an option default
-    # by the two tests below.
+    # The warning is covered by the default-widget test, and a field default by
+    # the test below.
     covered = {case[0] for case in ISSUE_CASES} | {
         Code.UNRENDERED_OPTIONAL_INPUT,
-        Code.DEFAULT_NOT_AN_OPTION,
+        Code.DEFAULT_INVALID,
     }
 
     assert covered == set(Code)
 
 
 SIZES = [{"value": "s"}, {"value": "m"}]
+OPTION_WIDGETS = {"select", "multi_select", "cards"}
 
 
 @pytest.mark.parametrize(
-    ("widget", "default", "valid"),
+    ("widget", "type_string", "default", "valid"),
     [
-        ("select", "m", True),
-        ("cards", "m", True),
-        ("select", None, True),
-        ("select", "xl", False),
-        ("cards", "xl", False),
+        ("select", "str | None", "m", True),
+        ("cards", "str | None", "m", True),
+        ("select", "str | None", None, True),
+        ("select", "str | None", "xl", False),
+        ("cards", "str | None", "xl", False),
         # A list is not one option, even when its items are options.
-        ("select", ["m"], False),
+        ("select", "str | None", ["m"], False),
+        ("multi_select", "list[str]", ["s", "m"], True),
+        ("multi_select", "list[str]", [], True),
+        ("cards", "list[str]", ["m"], True),
+        ("multi_select", "list[str]", ["s", "xl"], False),
+        ("cards", "list[str]", ["xl"], False),
+        ("multi_select", "list[str]", "m", False),
+        ("date", "str", "2026-02-03", True),
+        ("date", "str", "tomorrow", False),
+        # A timestamp is not a date.
+        ("date", "datetime", "2026-02-03T10:00:00", False),
+        ("datetime", "datetime", "2026-02-03T10:00:00", True),
+        ("datetime", "str", "tomorrow", False),
+        ("datetime", "str", "2026-02-03", False),
+        ("number", "int", 2**53 - 1, True),
+        # A browser would round it, so the page would show and send another.
+        ("number", "int", 2**53, False),
+        ("number", "int", "abc", False),
+        # A file field starts empty, and the server applies the default.
+        ("file", "dict | None", {"id": "x"}, True),
     ],
 )
-def test_a_select_default_must_be_one_of_its_options(
-    widget: str, default: str | list[str] | None, valid: bool
+def test_a_field_default_must_be_a_valid_answer(
+    widget: str, type_string: str, default: Any, valid: bool
 ) -> None:
-    # The page would open with an answer the server rejects as invalid_option.
-    result = _resolve(
-        [{"field": "size", "widget": widget, "options": SIZES}],
-        size={"type": "str | None", "default": default},
-    )
+    # The page starts with the default as the answer, so a default the server
+    # rejects would make an untouched form fail to submit.
+    entry: dict[str, Any] = {"field": "a", "widget": widget}
+    if widget in OPTION_WIDGETS:
+        entry["options"] = SIZES
+    result = _resolve([entry], a={"type": type_string, "default": default})
 
-    expected = [] if valid else [(Code.DEFAULT_NOT_AN_OPTION, ["layout", 0])]
+    expected = [] if valid else [(Code.DEFAULT_INVALID, ["layout", 0])]
     assert [(issue.code, issue.loc) for issue in result.issues] == expected
 
 
-@pytest.mark.parametrize(
-    ("widget", "default", "valid"),
-    [
-        ("multi_select", ["s", "m"], True),
-        ("multi_select", [], True),
-        ("cards", ["m"], True),
-        ("multi_select", ["s", "xl"], False),
-        ("cards", ["xl"], False),
-        ("multi_select", "m", False),
-    ],
-)
-def test_each_item_of_a_multi_select_default_must_be_one_of_its_options(
-    widget: str, default: str | list[str], valid: bool
-) -> None:
+def test_a_default_issue_names_the_field_the_value_and_the_reason() -> None:
     result = _resolve(
-        [{"field": "sizes", "widget": widget, "options": SIZES}],
-        sizes={"type": "list[str]", "default": default},
+        [{"field": "due", "widget": "date"}], due={"type": "str", "default": "soon"}
     )
 
-    expected = [] if valid else [(Code.DEFAULT_NOT_AN_OPTION, ["layout", 0])]
-    assert [(issue.code, issue.loc) for issue in result.issues] == expected
+    assert [issue.message for issue in result.issues] == [
+        "The default of 'due', 'soon', is not a valid answer: Enter a date as "
+        "YYYY-MM-DD"
+    ]
 
 
 @pytest.mark.parametrize(

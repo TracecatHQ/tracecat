@@ -5321,7 +5321,7 @@ export type FormIssueCode =
   | "options_required"
   | "options_not_supported"
   | "option_not_in_enum"
-  | "default_not_an_option"
+  | "default_invalid"
   | "conditional_field_required"
   | "visible_if_unknown_field"
   | "visible_if_invalid_controller"

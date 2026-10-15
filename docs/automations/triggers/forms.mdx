@@ -115,6 +115,8 @@ A field without `widget` uses the default widget for its input type. `T | None` 
 
 Input types outside the `Default for` column, such as `dict`, `duration`, `any`, or `str | int`, have no default widget. Set `widget: user` or `widget: file` on a `dict` or `list[dict]` input, or fill the input with `autofill` or its default. An input with a default and no widget stays off the form and takes its default. The `user` widget searches active members of the organization.
 
+A non-null default must be a valid answer for its field, except on `user` and `file` fields, which start empty.
+
 Integers in a form stay between -9,007,199,254,740,991 and 9,007,199,254,740,991, the range a browser holds exactly. That covers the default of an `int` input, hidden or shown, an integer `visible_if` value, and an answer to an `int` input, including one sent as text or as a whole-number float. Outside the range, a default or `visible_if` value is a config error and an answer fails with `invalid_value`. `float` inputs are unaffected, since a browser holds every float exactly.
 
 ## Options and images
@@ -123,8 +125,6 @@ Integers in a form stay between -9,007,199,254,740,991 and 9,007,199,254,740,991
 
 - For an `enum[...]` or `list[enum[...]]` input, options decorate the enum's values. Each `value` must be an enum value, and Tracecat appends the values you leave out.
 - For a `str` or `list[str]` input, options define the allowed values. `select`, `multi_select`, and `cards` require them.
-
-A non-null input default must be one of the options, or a list of them for a list input.
 
 The `cards` widget shows each choice as a card with its `image`, `label`, and `description`. An `image` is an inline data URI: `data:image/png;base64,...`, `data:image/jpeg;base64,...`, or `data:image/webp;base64,...`. Each image is at most 100 KB decoded, and the images in one form total at most 1 MB.
 

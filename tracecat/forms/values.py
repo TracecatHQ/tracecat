@@ -8,6 +8,10 @@ from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from typing import Any
 
+from pydantic import ValidationError
+
+from tracecat.dsl.validation import normalize_trigger_inputs
+from tracecat.expressions.schemas import ExpectedField
 from tracecat.forms.constants import MAX_SAFE_INTEGER
 from tracecat.forms.enums import FormFieldErrorCode, FormWidget
 from tracecat.forms.schemas import FormBlock, FormFieldBlock, FormFieldError
@@ -42,7 +46,7 @@ def is_unsafe_integer(value: Any) -> bool:
     )
 
 
-def _is_empty(value: Any) -> bool:
+def is_empty_answer(value: Any) -> bool:
     """Whether an answer counts as left empty. False is a valid toggle answer."""
     return value is None or value == "" or value == []
 
@@ -66,7 +70,9 @@ def visible_fields(
         if (controller := by_name.get(rule.field)) is None:
             continue
         answer = values.get(rule.field)
-        if _equals(controller.default if _is_empty(answer) else answer, rule.equals):
+        if _equals(
+            controller.default if is_empty_answer(answer) else answer, rule.equals
+        ):
             visible.append(field)
     return visible
 
@@ -113,6 +119,30 @@ def _check_value(
     return None
 
 
+def check_answer(
+    field: FormFieldBlock, expected: ExpectedField, value: Any
+) -> tuple[FormFieldErrorCode, str] | None:
+    """Check one non-empty answer as a submission does.
+
+    The widget's checks come first: shape, options and date format. Then the
+    value is read as its input's type, as the run reads it, and an int must
+    stay in the browser-safe range. The resolver checks each field's default
+    with this, so a form never opens with an answer it cannot submit.
+    """
+    if (problem := _check_value(field, value)) is not None:
+        return problem
+    try:
+        normalized = normalize_trigger_inputs(
+            {field.name: expected}, {field.name: value}
+        )
+    except ValidationError as e:
+        detail = e.errors(include_input=False, include_url=False)[0]
+        return FormFieldErrorCode.INVALID_VALUE, detail["msg"]
+    if is_unsafe_integer(normalized[field.name]):
+        return FormFieldErrorCode.INVALID_VALUE, UNSAFE_INTEGER_MESSAGE
+    return None
+
+
 def check_values(
     blocks: Sequence[FormBlock], values: Mapping[str, Any]
 ) -> CheckedValues:
@@ -137,7 +167,7 @@ def check_values(
     kept: dict[str, Any] = {}
     for field in visible:
         value = values.get(field.name)
-        if _is_empty(value):
+        if is_empty_answer(value):
             if field.required:
                 errors.append(
                     FormFieldError(

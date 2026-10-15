@@ -43,7 +43,7 @@ from tracecat.forms.schemas import (
     FormVisibleIf,
 )
 from tracecat.forms.types import FormInputType, ResolveResult, WidgetSpec
-from tracecat.forms.values import is_unsafe_integer
+from tracecat.forms.values import check_answer, is_empty_answer, is_unsafe_integer
 from tracecat.registry.fields import type_drop_null
 
 # ----- Widget registry -----
@@ -241,20 +241,20 @@ def _resolve_field_entry(
     expected = state.expects[name]
     kind = state.inputs[name].kind
 
-    # Every int default, hidden or shown. Float inputs are unaffected.
-    if (
-        kind is _K.INT
-        and expected.has_default()
-        and is_unsafe_integer(expected.default)
-    ):
-        state.issue(
-            FormIssueCode.INTEGER_OUT_OF_RANGE,
-            f"The default of '{name}' is outside ±{MAX_SAFE_INTEGER:,}, the "
-            "largest whole number a form holds exactly",
-            loc,
-        )
-
     if entry.hidden:
+        # A shown default is checked as an answer. A hidden one never is, but
+        # every int default stays in range. Float inputs are unaffected.
+        if (
+            kind is _K.INT
+            and expected.has_default()
+            and is_unsafe_integer(expected.default)
+        ):
+            state.issue(
+                FormIssueCode.INTEGER_OUT_OF_RANGE,
+                f"The default of '{name}' is outside ±{MAX_SAFE_INTEGER:,}, the "
+                "largest whole number a form holds exactly",
+                loc,
+            )
         if entry.autofill is not None:
             state.issue(
                 FormIssueCode.HIDDEN_WITH_AUTOFILL,
@@ -320,11 +320,6 @@ def _resolve_field_entry(
             f"Widget '{widget}' has no placeholder",
             [*loc, "placeholder"],
         )
-    options = _resolve_options(state, entry, widget, loc)
-    if options is not None and expected.has_default():
-        _check_default_is_an_option(
-            state, name, expected.default, options, multiple, loc
-        )
     block = FormFieldBlock(
         type="field",
         name=name,
@@ -335,10 +330,23 @@ def _resolve_field_entry(
         required=not expected.has_default(),
         multiple=multiple,
         default=expected.default if expected.has_default() else None,
-        options=options,
+        options=_resolve_options(state, entry, widget, loc),
         visible_if=_resolve_visible_if(state, entry, loc),
         config=_resolve_file_config(state, entry, widget, multiple, loc),
     )
+    # The page starts with the default as the answer, so it must be one the
+    # server accepts. A user or file field starts empty instead, and the
+    # server applies the default.
+    if widget not in (FormWidget.USER, FormWidget.FILE) and not is_empty_answer(
+        block.default
+    ):
+        if (problem := check_answer(block, expected, block.default)) is not None:
+            state.issue(
+                FormIssueCode.DEFAULT_INVALID,
+                f"The default of '{name}', {block.default!r}, is not a valid "
+                f"answer: {problem[1]}",
+                loc,
+            )
     state.blocks.append(block)
     state.fields[name] = block
 
@@ -393,39 +401,6 @@ def _resolve_options(
             )
     listed = {option.value for option in options}
     return options + [option for option in enum_options if option.value not in listed]
-
-
-def _check_default_is_an_option(
-    state: _Resolution,
-    name: str,
-    default: Any,
-    options: list[FormFieldOption],
-    multiple: bool,
-    loc: IssueLoc,
-) -> None:
-    """Report a default that is not one option, or a list of them for a
-    ``multiple`` field.
-
-    The page would open with an answer the server rejects. A ``None`` default
-    is no answer, so it passes.
-    """
-    if default is None:
-        return
-    allowed = {option.value for option in options}
-    if multiple:
-        valid = isinstance(default, list) and all(
-            isinstance(item, str) and item in allowed for item in default
-        )
-        expected = "a list of its options"
-    else:
-        valid = isinstance(default, str) and default in allowed
-        expected = "one of its options"
-    if not valid:
-        state.issue(
-            FormIssueCode.DEFAULT_NOT_AN_OPTION,
-            f"The default of '{name}', {default!r}, is not {expected}",
-            loc,
-        )
 
 
 def _resolve_file_config(
