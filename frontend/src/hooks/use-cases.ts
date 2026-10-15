@@ -1225,7 +1225,10 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       ? false
       : hasHydratedFilters && isCountsFetching,
     isCountsError:
-      enabled && hasHydratedFilters && !hasImpossibleEnumFilter && isCountsError,
+      enabled &&
+      hasHydratedFilters &&
+      !hasImpossibleEnumFilter &&
+      isCountsError,
     hasNextPage: hasImpossibleEnumFilter ? false : Boolean(hasNextPage),
     isFetchingNextPage: hasImpossibleEnumFilter
       ? false
