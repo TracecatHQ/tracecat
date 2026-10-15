@@ -830,6 +830,33 @@ describe("AgentsDashboard entitlement split", () => {
       }
     )
 
+    it.each([
+      [{ mcpIntegrationsIsLoading: true }, "Loading MCP servers..."],
+      [
+        { mcpIntegrationsError: new Error("boom") },
+        "Failed to load MCP servers.",
+      ],
+    ])(
+      "reflects the MCP integrations request in the empty MCP filter",
+      async (state, message) => {
+        mockUseListMcpIntegrations.mockReturnValue({
+          mcpIntegrations: undefined,
+          ...state,
+        })
+        mockSearchParams.current = new URLSearchParams()
+        mockUseAgentPresets.mockReturnValue({
+          presets: [],
+          presetsIsLoading: false,
+          presetsError: null,
+        })
+        renderDashboard()
+        await userEvent.click(
+          screen.getByRole("button", { name: /MCP servers/ })
+        )
+        expect(await screen.findByText(message)).toBeInTheDocument()
+      }
+    )
+
     it("writes selected MCP servers to the URL", async () => {
       renderCatalog("view=list&mcp=github")
       await userEvent.click(screen.getByRole("button", { name: /MCP servers/ }))

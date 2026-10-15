@@ -307,9 +307,11 @@ export default React.memo(function ActionNode({
       // Add the new node to the flow
       reactFlow.addNodes(newNode)
       // A duplicated `ai.preset_agent` node adds a workflow reference.
-      queryClient.invalidateQueries({
-        queryKey: ["agent-preset-workflow-references", workspaceId],
-      })
+      if (action.type === "ai.preset_agent") {
+        queryClient.invalidateQueries({
+          queryKey: ["agent-preset-workflow-references", workspaceId],
+        })
+      }
 
       toast({
         title: "Node duplicated",

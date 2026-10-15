@@ -1982,12 +1982,14 @@ function AgentsCatalogHeader({
   filters,
   onFiltersChange,
   mcpOptions,
+  mcpEmptyMessage,
   workflowOptions,
   workflowEmptyMessage,
 }: {
   filters: AgentCatalogFilters
   onFiltersChange: (filters: AgentCatalogFilters) => void
   mcpOptions: FilterOption[]
+  mcpEmptyMessage: string
   /** Null hides the filter, e.g. without workflow read access. */
   workflowOptions: FilterOption[] | null
   workflowEmptyMessage: string
@@ -2109,7 +2111,7 @@ function AgentsCatalogHeader({
           mode="include"
           onModeChange={() => {}}
           allowExclude={false}
-          emptyMessage="No MCP servers found."
+          emptyMessage={mcpEmptyMessage}
         />
         {workflowOptions ? (
           <FilterMultiSelect
@@ -2236,6 +2238,12 @@ export function AgentsDashboard() {
   const mcpIntegrations = canReadIntegrations
     ? mcpQuery.mcpIntegrations
     : undefined
+  let mcpEmptyMessage = "No MCP servers found."
+  if (canReadIntegrations && mcpQuery.mcpIntegrationsIsLoading) {
+    mcpEmptyMessage = "Loading MCP servers..."
+  } else if (canReadIntegrations && mcpQuery.mcpIntegrationsError) {
+    mcpEmptyMessage = "Failed to load MCP servers."
+  }
   const mcpBySlug = useMemo(
     () =>
       mcpIntegrations
@@ -2460,6 +2468,7 @@ export function AgentsDashboard() {
           filters={filters}
           onFiltersChange={setFilters}
           mcpOptions={mcpOptions}
+          mcpEmptyMessage={mcpEmptyMessage}
           workflowOptions={workflowOptions}
           workflowEmptyMessage={workflowEmptyMessage}
         />
