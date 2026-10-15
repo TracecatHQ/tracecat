@@ -21,7 +21,6 @@ from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus, CaseTas
 from tracecat.cases.exact_search import (
     MAX_CASE_NUMBER,
     SHORT_ID_PATTERN,
-    case_reference_predicate,
     prepare_exact_case_match,
 )
 from tracecat.cases.hierarchy import TOP_LEVEL, CaseHierarchyService
@@ -359,32 +358,21 @@ class CaseSearchService(BaseWorkspaceService):
         if request.match_none:
             filters.append(sa.false())
         exact_match = None
-        if (
-            request.promote_exact_match
-            and not any(
-                (
-                    request.case_id,
-                    request.short_id,
-                    request.parent_id,
-                    case_addons_enabled and request.hierarchy == "top_level",
-                    linked_row,
-                    exclude_case_id,
-                )
+        if request.promote_exact_match and not any(
+            (
+                request.case_id,
+                request.short_id,
+                request.parent_id,
+                case_addons_enabled and request.hierarchy == "top_level",
+                linked_row,
+                exclude_case_id,
             )
-            and case_reference_predicate(request.search_term) is not None
         ):
-            view_filters = await self.prepare_query(
-                request.model_copy(update={"search_term": None}),
-                case_addons_enabled=case_addons_enabled,
-                legacy_filters=legacy_filters,
-            )
-            if request.match_none:
-                view_filters.append(sa.false())
             exact_match = await prepare_exact_case_match(
                 self.session,
                 workspace_id=self.workspace_id,
                 search_term=request.search_term,
-                filters=view_filters,
+                filters=filters,
             )
         result_filters = filters
         if exact_match is not None:

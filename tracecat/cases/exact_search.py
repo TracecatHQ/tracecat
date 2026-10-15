@@ -57,7 +57,7 @@ async def prepare_exact_case_match(
 ) -> ExactCaseMatch | None:
     """Recognize complete prefixed IDs/UUIDs; leave ordinary numbers as text.
 
-    View filters determine the explanatory flag, never workspace authorization.
+    Ordinary result membership determines the flag, never workspace authorization.
     The caller retains strict filtering for relationship and explicit-ID queries.
     Recognized references keep their predicate when no case exists, so deleting
     an exact result cannot invalidate continuation cursors.

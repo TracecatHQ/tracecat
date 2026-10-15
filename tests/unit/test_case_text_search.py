@@ -86,13 +86,14 @@ def test_words_phrases_indicators_and_fuzzy_budget() -> None:
 
 
 @pytest.mark.parametrize("value", ["CASE-0001", "case-1"])
-def test_identifiers_use_exact_columns_without_a_short_literal_scan(value: str) -> None:
+def test_identifiers_match_exact_columns_and_indexed_text_mentions(value: str) -> None:
     expression = build_case_text_expressions(parse_case_text_query(value))
     statement = sa.select(Case.id).where(expression.predicate)
     sql = str(statement.compile(dialect=postgresql.dialect()))
     assert "case_number =" in sql
     assert "LIKE" not in sql
-    assert "to_tsvector" not in sql
+    assert "tracecat_case_safe_vector_v1" in sql
+    assert "@@" in sql
 
 
 def test_uuid_is_exact_and_large_case_numbers_are_rejected() -> None:
@@ -192,22 +193,13 @@ def test_excerpt_is_plain_bounded_and_near_a_match() -> None:
 
 
 @pytest.mark.anyio
-async def test_excerpt_batch_is_empty_for_identifiers_and_bounds_returned_ids() -> None:
+async def test_excerpt_batch_skips_empty_inputs_and_bounds_returned_ids() -> None:
     session = AsyncMock()
     query = parse_case_text_query("powershell")
     workspace = uuid.UUID("00000000-0000-4000-8000-000000000001")
     assert (
         await get_case_search_excerpts(
             session, workspace_id=workspace, case_ids=[], query=query
-        )
-        == {}
-    )
-    assert (
-        await get_case_search_excerpts(
-            session,
-            workspace_id=workspace,
-            case_ids=[workspace],
-            query=parse_case_text_query("CASE-0001"),
         )
         == {}
     )

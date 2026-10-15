@@ -38,19 +38,24 @@ query tokens to contain fewer than 2,047 raw and normalized bytes. This prevents
 native conversion failures, including Unicode lowercase expansion; rejected
 queries suggest literal mode. Literal mode retains the shared character bound.
 
-A complete prefixed case ID or canonical hyphenated UUID uses exact equality in
-full-text mode. Bare numbers remain ordinary word input. Explicit `short_id`
-and `case_id` remain exact constraints. Literal mode finds textual occurrences
-of identifiers rather than changing to identifier equality. The case UI defaults
-to Words, shows the existing Current view/All cases scope, and switches complete
-case references to the existing exact-ID lookup. Literal input preserves its
-characters through the same applied-query/debounce/cancellation path as rows
-and counts.
+A complete prefixed case ID or canonical hyphenated UUID matches exact identity
+and textual mentions in full-text mode. Bare numbers remain ordinary word input.
+Explicit `short_id` and `case_id` remain strict constraints. Literal mode matches
+textual occurrences, preserving input characters through the same applied-query,
+debounce and cancellation path as rows and counts.
+
+The case UI opts into `promote_exact_match`: one search request returns the
+workspace-authorized exact case before ordinary matches, even outside the view
+filters. The result is labeled when it falls outside those filters. Date, status
+and other controls remain active for ordinary results; there is no scope selector.
+Filtered totals and status counts retain their ordinary-population meaning. The
+exact priority participates in the database cursor ordering, so one-item pages,
+backward navigation and deletion of the promoted row remain safe.
 
 ## Ranking and returned details
 
 Full-text defaults to descending relevance, then descending case UUID. Explicit
-column ordering remains authoritative, including assignee/tag ordering and
+column ordering remains authoritative for ordinary matches, including assignee/tag ordering and
 opaque backward cursors. Literal mode uses column ordering. The UI remembers
 explicit column-sort intent even when the user chooses the default column.
 
