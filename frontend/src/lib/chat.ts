@@ -469,12 +469,14 @@ export type ToolDenial = {
   reason: string | null
 }
 
+type AnyToolPart = ai.ToolUIPart | ai.DynamicToolUIPart
+
 type ToolResultPart = Extract<
-  ai.ToolUIPart,
+  AnyToolPart,
   { state: "output-available" | "output-error" }
 >
 
-function isToolResultPart(part: ai.ToolUIPart): part is ToolResultPart {
+function isToolResultPart(part: AnyToolPart): part is ToolResultPart {
   return part.state === "output-available" || part.state === "output-error"
 }
 
@@ -483,7 +485,7 @@ function isToolResultPart(part: ai.ToolUIPart): part is ToolResultPart {
  * call's result with `callProviderMetadata.tracecat.approval = "rejected"`,
  * since the result itself is error text written for the model.
  */
-export function getToolDenial(part: ai.ToolUIPart): ToolDenial | null {
+export function getToolDenial(part: AnyToolPart): ToolDenial | null {
   if (!isToolResultPart(part)) {
     return null
   }

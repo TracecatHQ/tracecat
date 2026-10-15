@@ -59,8 +59,10 @@ import {
   type CompactionData,
   collectInterruptedToolCallIds,
   getCompactionData,
+  getToolDenial,
   isApprovalCardArray,
   isInterruptArtifactError,
+  type ToolDenial,
 } from "@/lib/chat"
 import { getSubagentSessionId, SUBAGENT_TOOL_NAME } from "@/lib/subagent-stream"
 import { reconstructActionType } from "@/lib/utils"
@@ -87,7 +89,8 @@ type MessagePartProps = {
    * (structured metadata from the data-cancelled part).
    */
   interruptedToolCallIds?: ReadonlySet<string>
-  onSubmitApprovals?: (decisions: ApprovalDecision[]) => Promise<void>
+  /** Resolves with the tool call IDs whose decisions it sent. */
+  onSubmitApprovals?: (decisions: ApprovalDecision[]) => Promise<string[]>
   /** How long a reloaded thought took, from history timestamps. */
   reasoningSeconds?: number
 }
@@ -96,6 +99,7 @@ type DerivedToolState = {
   state: ToolState
   errorText: unknown
   isInterrupted: boolean
+  denial: ToolDenial | null
 }
 
 /**
@@ -123,12 +127,22 @@ function deriveToolState(
       (isPendingState ||
         (typeof errorText === "string" && isInterruptArtifactError(errorText))))
   if (isInterrupted) {
-    return { state: "output-interrupted", errorText, isInterrupted }
+    return {
+      state: "output-interrupted",
+      errorText,
+      isInterrupted,
+      denial: null,
+    }
+  }
+  // A denied call's result is error text for the model; show the denial.
+  const denial = getToolDenial(part)
+  if (denial) {
+    return { state: "output-denied", errorText, isInterrupted, denial }
   }
   if (errorText) {
-    return { state: "output-error", errorText, isInterrupted }
+    return { state: "output-error", errorText, isInterrupted, denial }
   }
-  return { state: part.state, errorText, isInterrupted }
+  return { state: part.state, errorText, isInterrupted, denial }
 }
 
 export function MessagePart({
@@ -224,7 +238,7 @@ export function MessagePart({
 
   if (isToolUIPart(part)) {
     const toolName = reconstructActionType(getToolName(part))
-    const { state, errorText, isInterrupted } = deriveToolState(
+    const { state, errorText, isInterrupted, denial } = deriveToolState(
       part,
       turnCancelled,
       interruptedToolCallIds
@@ -248,6 +262,12 @@ export function MessagePart({
       content = (
         <div className="text-[11px] text-muted-foreground">
           Stopped before completion
+        </div>
+      )
+    } else if (denial) {
+      content = (
+        <div className="text-[11px] text-muted-foreground">
+          {denial.reason ?? "Denied by user"}
         </div>
       )
     } else if (display.isCommand) {
@@ -874,6 +894,7 @@ export const MemoizedMessagePart = memo(MessagePart, (prev, next) => {
       prevPart.state === nextPart.state &&
       prevPart.input === nextPart.input &&
       prevPart.output === nextPart.output &&
+      getToolDenial(prevPart)?.reason === getToolDenial(nextPart)?.reason &&
       ("errorText" in prevPart
         ? (prevPart as { errorText?: string }).errorText
         : undefined) ===

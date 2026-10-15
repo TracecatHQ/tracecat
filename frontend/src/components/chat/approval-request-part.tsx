@@ -68,13 +68,17 @@ function approvalStateKey(approval: ApprovalCard): string {
   })
 }
 
+/** The approvals being submitted were already decided on another surface. */
+export class ApprovalsAlreadyDecidedError extends Error {}
+
 export function ApprovalRequestPart({
   approvals,
   onSubmit,
   canSubmit = true,
 }: {
   approvals: ApprovalCard[]
-  onSubmit?: (decisions: ApprovalDecision[]) => Promise<void>
+  /** Resolves with the tool call IDs whose decisions it sent. */
+  onSubmit?: (decisions: ApprovalDecision[]) => Promise<string[]>
   /** False until the backend has saved the pause the decisions answer. */
   canSubmit?: boolean
 }) {
@@ -83,6 +87,7 @@ export function ApprovalRequestPart({
     Record<string, DecisionState>
   >({})
   const [submitting, setSubmitting] = useState(false)
+  const [decidedElsewhere, setDecidedElsewhere] = useState(false)
 
   const approvalsKey = useMemo(
     () => approvals.map(approvalStateKey).join(":"),
@@ -99,6 +104,7 @@ export function ApprovalRequestPart({
     }
     setDecisions({})
     setSubmittedDecisions(nextSubmittedDecisions)
+    setDecidedElsewhere(false)
   }, [approvalsKey])
 
   const hasSelectedPendingDecision =
@@ -180,11 +186,20 @@ export function ApprovalRequestPart({
 
     try {
       setSubmitting(true)
-      await onSubmit(payload)
-      setSubmittedDecisions((prev) => ({
-        ...prev,
-        ...acceptedDecisions,
-      }))
+      const sentIds = new Set(await onSubmit(payload))
+      setSubmittedDecisions((prev) => {
+        const next = { ...prev }
+        for (const [toolCallId, decision] of Object.entries(
+          acceptedDecisions
+        )) {
+          // A decision made elsewhere meanwhile was not sent, so keep its
+          // recorded outcome rather than show this tab's choice.
+          next[toolCallId] = sentIds.has(toolCallId)
+            ? decision
+            : (prev[toolCallId] ?? { action: undefined })
+        }
+        return next
+      })
       setDecisions((prev) => {
         const next = { ...prev }
         for (const toolCallId of Object.keys(acceptedDecisions)) {
@@ -193,7 +208,11 @@ export function ApprovalRequestPart({
         return next
       })
     } catch (error) {
-      console.error(error)
+      if (error instanceof ApprovalsAlreadyDecidedError) {
+        setDecidedElsewhere(true)
+      } else {
+        console.error(error)
+      }
     } finally {
       setSubmitting(false)
     }
@@ -205,7 +224,7 @@ export function ApprovalRequestPart({
     submittedDecisions,
   ])
 
-  const disabled = !onSubmit
+  const disabled = !onSubmit || decidedElsewhere
 
   if (!approvals.length) {
     return null
@@ -389,9 +408,14 @@ export function ApprovalRequestPart({
           )
         })}
       </div>
-      {disabled && (
+      {!onSubmit && (
         <p className="text-xs text-muted-foreground">
           Approval submission is not available in this context.
+        </p>
+      )}
+      {decidedElsewhere && (
+        <p className="text-xs text-muted-foreground">
+          This approval was already decided elsewhere.
         </p>
       )}
     </div>

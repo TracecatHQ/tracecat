@@ -2,6 +2,7 @@
 
 import type { DynamicToolUIPart, ToolUIPart } from "ai"
 import {
+  BanIcon,
   CircleAlertIcon,
   DownloadIcon,
   LoaderCircleIcon,
@@ -91,7 +92,8 @@ function getToolLineStatus(
     case "output-error":
       return { status: "error", verb: verbs.failed }
     case "output-denied":
-      return { status: "error", verb: "Denied" }
+      // A denial is the user's decision, not a failure.
+      return { status: undefined, verb: "Denied" }
     case "output-interrupted":
       return { status: "pending", verb: "Stopped" }
     default:
@@ -129,7 +131,10 @@ export const ToolHeader = ({
     <TraceCollapsibleTrigger className={className}>
       <TraceLine status={status}>
         <TraceIcon>
-          <ToolLineIcon status={status} icon={icon} />
+          <ToolLineIcon
+            status={status}
+            icon={state === "output-denied" ? <BanIcon /> : icon}
+          />
         </TraceIcon>
         <TraceTitle>
           {verb} {title}

@@ -14,7 +14,13 @@ import {
   type UIMessageChunk,
 } from "ai"
 import type { ReactNode } from "react"
-import type { UIMessage as ApiUIMessage } from "@/client"
+
+import {
+  type AgentSessionsGetSessionVercelResponse,
+  type UIMessage as ApiUIMessage,
+  agentSessionsGetSessionVercel,
+} from "@/client"
+
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { useGetChatVercel } from "@/hooks/use-chat"
 import { QueryClient, QueryClientProvider } from "@/lib/query"

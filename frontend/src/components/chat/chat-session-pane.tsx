@@ -56,6 +56,7 @@ import {
   SourcesTrigger,
 } from "@/components/ai-elements/sources"
 import { AgentTurn, groupThread } from "@/components/chat/agent-turn"
+import { ApprovalsAlreadyDecidedError } from "@/components/chat/approval-request-part"
 import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
 import { ChatToolsPicker } from "@/components/chat/chat-tools-picker"
 import {
@@ -85,6 +86,7 @@ import {
   getChatVerbosityPolicy,
   useChatVerbosityPreference,
 } from "@/hooks/use-chat-verbosity"
+import { useFormsAccess } from "@/hooks/use-forms-access"
 import { useMentions } from "@/hooks/use-mentions"
 import { useOverflowBadges } from "@/hooks/use-overflow-badges"
 import { SubagentStreamContext } from "@/hooks/use-subagent-stream"
@@ -93,6 +95,7 @@ import {
   CANCELLED_DATA_PART_TYPE,
   collectInterruptedToolCallIds,
   ENTITY_TO_INVALIDATION,
+  getPendingApprovalIds,
   getSessionLastError,
   type ModelInfo,
   markLiveDenials,
@@ -106,6 +109,9 @@ import { cn } from "@/lib/utils"
 import { PageContext } from "@/providers/chat-page-context"
 import type { ChatSurface } from "@/types/chat-surface"
 import { ARTIFACT_DATA_PART_TYPE } from "@/types/workspace-chat-artifacts"
+
+/** How often an idle pane checks whether a waiting approval was decided. */
+const APPROVAL_REFRESH_MS = 5_000
 
 /** Whether a message draws anything in the thread. */
 function messageHasVisibleParts(message: Pick<UIMessage, "parts">): boolean {
@@ -418,6 +424,7 @@ export function ChatSessionPane({
     messages: uiMessages,
     modelInfo,
     onData,
+    pageContext,
     resume: resume && !openedToSend.value,
   })
   const [verbosity] = useChatVerbosityPreference()

@@ -134,7 +134,8 @@ type AgentTurnProps = {
   lastMessageId?: string
   cancelledMessageIds?: ReadonlySet<string>
   interruptedToolCallIds?: ReadonlySet<string>
-  onSubmitApprovals?: (decisions: ApprovalDecision[]) => Promise<void>
+  /** Resolves with the tool call IDs whose decisions it sent. */
+  onSubmitApprovals?: (decisions: ApprovalDecision[]) => Promise<string[]>
 }
 
 /**
