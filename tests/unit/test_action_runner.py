@@ -618,6 +618,44 @@ class TestActionRunner:
         assert captured["timeout"] == 960.0
 
     @pytest.mark.anyio
+    async def test_backstop_kill_says_action_did_not_stop_at_its_timeout(
+        self,
+        temp_cache_dir: Path,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A subprocess killed by the backstop reports that it outlived its timeout."""
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        base_dir = temp_cache_dir / "base"
+        base_dir.mkdir()
+        monkeypatch.setattr(
+            action_runner.config, "TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE", 60.0
+        )
+
+        async def communicate(*_args: object, **_kwargs: object) -> tuple[bytes, bytes]:
+            raise TimeoutError
+
+        monkeypatch.setattr(action_runner, "communicate_process_group", communicate)
+        with patch("asyncio.create_subprocess_exec") as mock_subprocess:
+            mock_subprocess.return_value = AsyncMock()
+
+            result = await runner._execute_direct(
+                input=mock_run_action_input,
+                role=mock_role,
+                registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
+                timeout=5.0,
+            )
+
+        assert isinstance(result, ExecutorActionErrorInfo)
+        assert result.type == "TimeoutError"
+        assert result.message == (
+            "Action did not stop at its 5s timeout and was killed by the "
+            "executor's backstop after 65s"
+        )
+
+    @pytest.mark.anyio
     async def test_sandbox_action_times_function_call_with_jail_backstop(
         self,
         delegated_cgroup: Path,

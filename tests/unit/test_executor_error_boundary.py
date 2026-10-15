@@ -11,10 +11,16 @@ from temporalio.converter import DataConverter
 
 from tracecat.auth.types import Role
 from tracecat.dsl.common import create_default_execution_context
-from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
+from tracecat.dsl.schemas import (
+    ActionRetryPolicy,
+    ActionStatement,
+    RunActionInput,
+    RunContext,
+)
 from tracecat.exceptions import EntitlementRequired, ExecutionError, LoopExecutionError
 from tracecat.executor import service
 from tracecat.executor.error_policy import classify_execute_action_error
+from tracecat.executor.minimal_runner import ActionTimeoutError
 from tracecat.executor.registry_artifacts import (
     RegistryArtifactCacheCapacityError,
     RegistryArtifactCacheLeaseContentionError,
@@ -24,6 +30,7 @@ from tracecat.executor.schemas import (
     ActionImplementation,
     ExecutorActionErrorInfo,
     ExecutorResultFailure,
+    ExecutorResultSuccess,
     ResolvedContext,
 )
 from tracecat.expressions.policy import build_provenance
@@ -387,3 +394,108 @@ async def test_source_capture_precedes_executor_privacy_boundary(
     assert original.__traceback__ is not None
     assert caught.value.__cause__ is None
     assert caught.value.__context__ is None
+
+
+def _with_action_timeout(action_input: RunActionInput, timeout: int) -> RunActionInput:
+    task = action_input.task.model_copy(
+        update={"retry_policy": ActionRetryPolicy(timeout=timeout)}
+    )
+    return action_input.model_copy(update={"task": task})
+
+
+def _action_timeout_failure(
+    action_input: RunActionInput, timeout_seconds: float
+) -> ExecutorResultFailure:
+    return ExecutorResultFailure(
+        error=ExecutorActionErrorInfo(
+            action_name=action_input.task.action,
+            type=ActionTimeoutError.__name__,
+            message=f"Action execution timed out after {timeout_seconds:g}s",
+            filename="minimal_runner.py",
+            function="_await_with_timeout",
+        )
+    )
+
+
+@pytest.mark.parametrize(("requested", "expected"), [(900, 300.0), (30, 30.0)])
+async def test_action_timeout_is_clamped_to_deployment_cap(
+    monkeypatch: pytest.MonkeyPatch,
+    action_input: RunActionInput,
+    role: Role,
+    requested: int,
+    expected: float,
+) -> None:
+    """Each function call gets min(action timeout, TRACECAT__EXECUTOR_CLIENT_TIMEOUT)."""
+    monkeypatch.setattr(service.config, "TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 300.0)
+    backend = Mock(execute=AsyncMock(return_value=ExecutorResultSuccess(result="ok")))
+
+    await service.invoke_once(
+        backend,
+        _with_action_timeout(action_input, requested),
+        service.DispatchActionContext(role),
+    )
+
+    assert backend.execute.await_args.kwargs["timeout"] == expected
+
+
+async def test_unset_action_timeout_falls_back_to_deployment_cap(
+    monkeypatch: pytest.MonkeyPatch, action_input: RunActionInput, role: Role
+) -> None:
+    """A timeout of 0 runs each function call at TRACECAT__EXECUTOR_CLIENT_TIMEOUT."""
+    monkeypatch.setattr(service.config, "TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 300.0)
+    backend = Mock(execute=AsyncMock(return_value=ExecutorResultSuccess(result="ok")))
+
+    await service.invoke_once(
+        backend,
+        _with_action_timeout(action_input, 0),
+        service.DispatchActionContext(role),
+    )
+
+    assert backend.execute.await_args.kwargs["timeout"] == 300.0
+
+
+async def test_timeout_at_deployment_cap_names_the_cap(
+    monkeypatch: pytest.MonkeyPatch, action_input: RunActionInput, role: Role
+) -> None:
+    """A call stopped by the deployment cap says the cap, not the action's timeout, ended it."""
+    monkeypatch.setattr(service.config, "TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 300.0)
+    backend = Mock(
+        execute=AsyncMock(return_value=_action_timeout_failure(action_input, 300))
+    )
+
+    with pytest.raises(ExecutionError) as caught:
+        await service.invoke_once(
+            backend,
+            _with_action_timeout(action_input, 900),
+            service.DispatchActionContext(role),
+        )
+
+    assert caught.value.info.message == (
+        "Action execution timed out after 300s, this deployment's maximum action "
+        "timeout (TRACECAT__EXECUTOR_CLIENT_TIMEOUT). The action's own timeout "
+        "is 900s."
+    )
+    classification = classify_execute_action_error(
+        caught.value, action_name=action_input.task.action
+    )
+    assert "TRACECAT__EXECUTOR_CLIENT_TIMEOUT" in classification.message
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+async def test_timeout_below_deployment_cap_keeps_runner_message(
+    monkeypatch: pytest.MonkeyPatch, action_input: RunActionInput, role: Role
+) -> None:
+    """A call stopped by its own timeout keeps the runner's message."""
+    monkeypatch.setattr(service.config, "TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 300.0)
+    backend = Mock(
+        execute=AsyncMock(return_value=_action_timeout_failure(action_input, 30))
+    )
+
+    with pytest.raises(ExecutionError) as caught:
+        await service.invoke_once(
+            backend,
+            _with_action_timeout(action_input, 30),
+            service.DispatchActionContext(role),
+        )
+
+    assert caught.value.info.message == "Action execution timed out after 30s"

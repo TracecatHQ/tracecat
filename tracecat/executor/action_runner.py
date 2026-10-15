@@ -545,13 +545,17 @@ class ActionRunner:
             )
         except TimeoutError:
             logger.error(
-                "Action execution timed out, killing subprocess",
+                "Action subprocess outlived its timeout, killing it",
                 action=input.task.action,
                 timeout=timeout,
+                hard_timeout=hard_timeout,
             )
             return ExecutorActionErrorInfo(
                 type="TimeoutError",
-                message=f"Action execution timed out after {timeout}s",
+                message=(
+                    f"Action did not stop at its {timeout:g}s timeout and was "
+                    f"killed by the executor's backstop after {hard_timeout:g}s"
+                ),
                 action_name=input.task.action,
                 filename="<subprocess>",
                 function="execute_action",

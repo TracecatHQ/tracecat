@@ -52,6 +52,7 @@ from tracecat.exceptions import (
 from tracecat.executor import registry_resolver
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.error_policy import chained_error_classification
+from tracecat.executor.minimal_runner import ActionTimeoutError
 from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
     ExecutorResultSuccess,
@@ -655,6 +656,23 @@ async def _invoke_step(
             )
 
 
+def _action_call_timeout(requested: float) -> float:
+    """Return the per-call action timeout, capped at the deployment's maximum.
+
+    A timeout of 0 or less falls back to the maximum.
+    """
+    ceiling = config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
+    return min(requested, ceiling) if requested > 0 else ceiling
+
+
+def _capped_timeout_message(timeout: float, requested: float) -> str:
+    return (
+        f"Action execution timed out after {timeout:g}s, this deployment's maximum "
+        f"action timeout (TRACECAT__EXECUTOR_CLIENT_TIMEOUT). The action's own "
+        f"timeout is {requested:g}s."
+    )
+
+
 def _attach_loop_context(info: ExecutorActionErrorInfo, iteration: int | None) -> None:
     """Record which for_each iteration failed, when running inside one."""
     if iteration is None:
@@ -841,9 +859,8 @@ async def invoke_once(
     role = ctx.role
     action_name = input.task.action
     # Budgets each action function call; platform preparation is excluded.
-    timeout = (
-        input.task.retry_policy.timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
-    )
+    requested_timeout = input.task.retry_policy.timeout
+    timeout = _action_call_timeout(requested_timeout)
 
     # Ensure organization_id is set (workflows are always org-scoped)
     if role.organization_id is None:
@@ -891,6 +908,11 @@ async def invoke_once(
             raise
         classification = chained_error_classification(e)
         exec_result = _sanitize_error_info(e.info, classification).model_copy()
+        if (
+            timeout < requested_timeout
+            and exec_result.type == ActionTimeoutError.__name__
+        ):
+            exec_result.message = _capped_timeout_message(timeout, requested_timeout)
         _attach_loop_context(exec_result, iteration)
         safe_error = ExecutionError(
             info=exec_result,
