@@ -732,6 +732,29 @@ describe("AgentsDashboard entitlement split", () => {
       }
     })
 
+    it("searches nested folders when a filter is active in the folder view", () => {
+      mockHasEntitlement.mockReturnValue(true)
+      mockUseAgentDirectoryItems.mockReturnValue({
+        directoryItems: [
+          { type: "folder", id: "folder-1", name: "Nested", path: "/nested/" },
+        ],
+        directoryItemsIsLoading: false,
+        directoryItemsError: null,
+      })
+      renderCatalog("view=folders&mcp=jira")
+      expect(lastOptions(mockUseAgentPresets)?.enabled).toBe(true)
+      expect(lastOptions(mockUseAgentDirectoryItems)?.enabled).toBe(false)
+      expect(screen.getByText("Enrich agent")).toBeInTheDocument()
+      expect(screen.queryByText("Nested")).not.toBeInTheDocument()
+    })
+
+    it("keeps the folder listing without an active filter", () => {
+      mockHasEntitlement.mockReturnValue(true)
+      renderCatalog("view=folders")
+      expect(lastOptions(mockUseAgentPresets)?.enabled).toBe(false)
+      expect(lastOptions(mockUseAgentDirectoryItems)?.enabled).toBe(true)
+    })
+
     it("writes selected MCP servers to the URL", async () => {
       renderCatalog("view=list&mcp=github")
       await userEvent.click(screen.getByRole("button", { name: /MCP servers/ }))

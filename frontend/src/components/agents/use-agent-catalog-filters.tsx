@@ -16,22 +16,51 @@ import {
 } from "@/lib/agent-catalog-filters"
 import type { TracecatApiError } from "@/lib/errors"
 
-/** URL-backed agents catalog filters, their options, and workflow references. */
-export function useAgentCatalogFilters({
-  workspaceId,
+/** URL-backed agents catalog filters, scoped to what the viewer can read. */
+export function useAgentCatalogFilterState({
   searchParams,
   replaceParams,
+}: {
+  searchParams: URLSearchParams | null
+  replaceParams: (params: URLSearchParams) => void
+}): {
+  filters: AgentCatalogFilters
+  setFilters: (filters: AgentCatalogFilters) => void
+  canReadWorkflows: boolean
+} {
+  // The references endpoint needs both scopes.
+  const canReadAgents = useScopeCheck("agent:read") === true
+  const canReadWorkflows =
+    useScopeCheck("workflow:read") === true && canReadAgents
+
+  // Without workflow access the filter is hidden, so a URL value cannot apply.
+  const filters = useMemo(() => {
+    const parsed = parseAgentCatalogFilters(searchParams)
+    return canReadWorkflows ? parsed : { ...parsed, workflowIds: [] }
+  }, [canReadWorkflows, searchParams])
+  const setFilters = useCallback(
+    (next: AgentCatalogFilters) =>
+      replaceParams(writeAgentCatalogFilters(searchParams, next)),
+    [replaceParams, searchParams]
+  )
+
+  return { filters, setFilters, canReadWorkflows }
+}
+
+/** Filter options and the workflow references behind the workflow facet. */
+export function useAgentCatalogFilterOptions({
+  workspaceId,
+  filters,
+  canReadWorkflows,
   mcpBySlug,
   usedMcpSlugs,
 }: {
   workspaceId: string
-  searchParams: URLSearchParams | null
-  replaceParams: (params: URLSearchParams) => void
+  filters: AgentCatalogFilters
+  canReadWorkflows: boolean
   mcpBySlug: Map<string, MCPIntegrationRead>
   usedMcpSlugs: string[]
 }): {
-  filters: AgentCatalogFilters
-  setFilters: (filters: AgentCatalogFilters) => void
   workflowsByPreset: Map<string, AgentWorkflowRef[]>
   mcpOptions: FilterOption[]
   /** Null without workflow read access. */
@@ -40,10 +69,6 @@ export function useAgentCatalogFilters({
   workflowFilterIsLoading: boolean
   workflowFilterError: TracecatApiError | null
 } {
-  // The references endpoint needs both scopes.
-  const canReadAgents = useScopeCheck("agent:read") === true
-  const canReadWorkflows =
-    useScopeCheck("workflow:read") === true && canReadAgents
   const {
     workflowReferences,
     workflowReferencesIsLoading,
@@ -56,17 +81,6 @@ export function useAgentCatalogFilters({
   const workflowsByPreset = useMemo(
     () => groupWorkflowsByPreset(references ?? []),
     [references]
-  )
-
-  // Without workflow access the filter is hidden, so a URL value cannot apply.
-  const filters = useMemo(() => {
-    const parsed = parseAgentCatalogFilters(searchParams)
-    return canReadWorkflows ? parsed : { ...parsed, workflowIds: [] }
-  }, [canReadWorkflows, searchParams])
-  const setFilters = useCallback(
-    (next: AgentCatalogFilters) =>
-      replaceParams(writeAgentCatalogFilters(searchParams, next)),
-    [replaceParams, searchParams]
   )
 
   const mcpOptions = useMemo(
@@ -99,8 +113,6 @@ export function useAgentCatalogFilters({
 
   const filteringByWorkflow = filters.workflowIds.length > 0
   return {
-    filters,
-    setFilters,
     workflowsByPreset,
     mcpOptions,
     workflowOptions,

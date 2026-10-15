@@ -514,6 +514,9 @@ export function useAction(
       queryClient.invalidateQueries({
         queryKey: ["action-lock-status", workspaceId, workflowId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references"],
+      })
       // Add a small delay before clearing the saving state to show feedback
       setTimeout(() => {
         setIsSaving(false)
@@ -568,6 +571,9 @@ export function useDeleteAction() {
       const { actionId, workspaceId } = variables
       queryClient.invalidateQueries({
         queryKey: ["actions", actionId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references"],
       })
     },
     onError: toastMutationError("deleting the action"),
@@ -632,6 +638,9 @@ export function useGraphOperations(workspaceId: string, workflowId: string) {
         // Update the graph cache with the latest structural state.
         queryClient.setQueryData(["graph", workspaceId, workflowId], graph)
         queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+        queryClient.invalidateQueries({
+          queryKey: ["agent-preset-workflow-references"],
+        })
       }
     },
     onError: (error) => {
@@ -899,6 +908,9 @@ export function useWorkflowManager(
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflows"] })
       queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references"],
+      })
       toast({
         title: "Deleted workflow",
         description: "Your workflow has been deleted successfully.",

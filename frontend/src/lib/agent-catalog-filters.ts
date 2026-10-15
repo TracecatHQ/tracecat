@@ -50,7 +50,7 @@ export function writeAgentCatalogFilters(
 }
 
 /** Whether any catalog filter is selected. */
-function hasAgentCatalogFilters(filters: AgentCatalogFilters): boolean {
+export function hasAgentCatalogFilters(filters: AgentCatalogFilters): boolean {
   return filters.mcpSlugs.length > 0 || filters.workflowIds.length > 0
 }
 

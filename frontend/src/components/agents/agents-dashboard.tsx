@@ -52,7 +52,10 @@ import {
 import { AgentApprovalsDialog } from "@/components/agents/agent-approvals-dialog"
 import { AgentWorkflowBadges } from "@/components/agents/agent-workflow-badges"
 import { OverflowTooltipList } from "@/components/agents/overflow-tooltip-list"
-import { useAgentCatalogFilters } from "@/components/agents/use-agent-catalog-filters"
+import {
+  useAgentCatalogFilterOptions,
+  useAgentCatalogFilterState,
+} from "@/components/agents/use-agent-catalog-filters"
 import { WorkspaceDefaultAgentBadge } from "@/components/agents/workspace-default-agent-badge"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CollapsibleSection } from "@/components/collapsible-section"
@@ -159,6 +162,7 @@ import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import {
   type AgentCatalogFilters,
   type AgentWorkflowRef,
+  hasAgentCatalogFilters,
   matchesAgentCatalogFilters,
 } from "@/lib/agent-catalog-filters"
 import { buildDuplicateAgentPresetPayload } from "@/lib/agent-presets"
@@ -2173,15 +2177,6 @@ export function AgentsDashboard() {
     null
   )
 
-  // Data hooks
-  const { presets, presetsIsLoading, presetsError } = useAgentPresets(
-    workspaceId,
-    { enabled: !entitlementsLoading && view === "list" }
-  )
-  const { directoryItems, directoryItemsIsLoading, directoryItemsError } =
-    useAgentDirectoryItems(currentPath, workspaceId, {
-      enabled: organizationEnabled && view === "folders",
-    })
   const baseRoute = `/workspaces/${workspaceId}/agents`
 
   const buildRoute = useCallback(
@@ -2196,20 +2191,36 @@ export function AgentsDashboard() {
     (params: URLSearchParams) => router.replace(buildRoute(params)),
     [buildRoute, router]
   )
+  const { filters, setFilters, canReadWorkflows } = useAgentCatalogFilterState({
+    searchParams,
+    replaceParams,
+  })
+  // A folder only lists its own children, so an active filter searches the
+  // flat catalog to reach agents in nested folders.
+  const flatCatalog = view === "list" || hasAgentCatalogFilters(filters)
+
+  // Data hooks
+  const { presets, presetsIsLoading, presetsError } = useAgentPresets(
+    workspaceId,
+    { enabled: !entitlementsLoading && flatCatalog }
+  )
+  const { directoryItems, directoryItemsIsLoading, directoryItemsError } =
+    useAgentDirectoryItems(currentPath, workspaceId, {
+      enabled: organizationEnabled && !flatCatalog,
+    })
 
   // The preset summary names MCP integrations only by slug. Use unfiltered
   // items so filtering never drops an option.
   const usedMcpSlugs = useMemo(() => {
-    const summaries =
-      view === "folders"
-        ? (directoryItems ?? []).flatMap((item) =>
-            item.type === "preset" ? [item.tool_summary] : []
-          )
-        : (presets ?? []).map((preset) => preset.tool_summary)
+    const summaries = flatCatalog
+      ? (presets ?? []).map((preset) => preset.tool_summary)
+      : (directoryItems ?? []).flatMap((item) =>
+          item.type === "preset" ? [item.tool_summary] : []
+        )
     return [
       ...new Set(summaries.flatMap((summary) => summary?.mcp_slugs ?? [])),
     ]
-  }, [directoryItems, presets, view])
+  }, [directoryItems, flatCatalog, presets])
   // The list endpoint needs `integration:read`; without it the request 403s
   // and the slugs stay uncounted.
   const canReadIntegrations = useScopeCheck("integration:read") === true
@@ -2233,17 +2244,15 @@ export function AgentsDashboard() {
     [mcpIntegrations]
   )
   const {
-    filters,
-    setFilters,
     workflowsByPreset,
     mcpOptions,
     workflowOptions,
     workflowFilterIsLoading,
     workflowFilterError,
-  } = useAgentCatalogFilters({
+  } = useAgentCatalogFilterOptions({
     workspaceId,
-    searchParams,
-    replaceParams,
+    filters,
+    canReadWorkflows,
     mcpBySlug,
     usedMcpSlugs,
   })
@@ -2255,7 +2264,7 @@ export function AgentsDashboard() {
     useCreateAgentPreset(workspaceId)
   const { moveAgentPreset } = useMoveAgentPreset(workspaceId)
   const { folders, foldersIsLoading } = useAgentFolders(workspaceId, {
-    enabled: organizationEnabled && view === "list",
+    enabled: organizationEnabled && flatCatalog,
   })
   const folderPathById = useMemo(
     () => new Map((folders ?? []).map((folder) => [folder.id, folder.path])),
@@ -2293,7 +2302,7 @@ export function AgentsDashboard() {
         const created = await createAgentPreset(payload)
         if (organizationEnabled) {
           let targetFolderPath: string | undefined = "/"
-          if (view === "folders") {
+          if (!flatCatalog) {
             targetFolderPath = currentPath
           } else if (item.folder_id) {
             targetFolderPath = folderPathById.get(item.folder_id)
@@ -2325,13 +2334,13 @@ export function AgentsDashboard() {
     [
       createAgentPreset,
       currentPath,
+      flatCatalog,
       folderPathById,
       moveAgentPreset,
       organizationEnabled,
       presets,
       queryClient,
       router,
-      view,
       workspaceId,
     ]
   )
@@ -2421,15 +2430,13 @@ export function AgentsDashboard() {
     return [...filtered].sort((a, b) => compareAgentItemsBySort(a, b, sortBy))
   }, [presets, matchesQuery, sortBy])
 
-  const visibleItems =
-    view === "folders" ? sortedDirectoryItems : sortedListItems
+  const visibleItems = flatCatalog ? sortedListItems : sortedDirectoryItems
   const isLoading =
     entitlementsLoading ||
     workflowFilterIsLoading ||
-    (view === "folders" ? directoryItemsIsLoading : presetsIsLoading)
+    (flatCatalog ? presetsIsLoading : directoryItemsIsLoading)
   const error =
-    (view === "folders" ? directoryItemsError : presetsError) ??
-    workflowFilterError
+    (flatCatalog ? presetsError : directoryItemsError) ?? workflowFilterError
 
   return (
     <TooltipProvider>
@@ -2496,7 +2503,7 @@ export function AgentsDashboard() {
                     createAgentPresetIsPending ||
                     (organizationEnabled &&
                       item.type === "preset" &&
-                      view === "list" &&
+                      flatCatalog &&
                       item.folder_id != null &&
                       (foldersIsLoading || !folderPathById.has(item.folder_id)))
                   }

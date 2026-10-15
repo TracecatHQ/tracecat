@@ -418,6 +418,10 @@ export function useUpdateAgentPreset(workspaceId: string) {
       queryClient.invalidateQueries({
         queryKey: ["agent-directory-items", workspaceId],
       })
+      // A slug change re-resolves which workflows run the preset.
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references", workspaceId],
+      })
       queryClient.invalidateQueries({
         queryKey: ["agent-preset-versions", workspaceId, preset.id],
       })
