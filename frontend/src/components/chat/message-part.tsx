@@ -514,6 +514,8 @@ export function getRunningLineLabel(
       lastPart.state === "input-available" &&
       (policy.showInternalTools || !isInternalTool(lastPart))
     if (isRunningToolInView) return null
+    // A sent approval's row already shows the call running.
+    if (lastPart?.type === "data-approval-request") return null
     // A hidden tool draws nothing, even while its input streams.
     const isHiddenToolLast =
       status === "streaming" &&

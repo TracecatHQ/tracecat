@@ -982,26 +982,24 @@ describe("ChatSessionPane", () => {
       </QueryClientProvider>
     )
 
-    expect(screen.getByText("core.cases.list_cases")).toBeInTheDocument()
-    expect(screen.getByText("Approval required")).toBeInTheDocument()
-    const approvalSubmit = screen
-      .getAllByRole("button", { name: "Submit" })
-      .find((button) => button.textContent?.trim() === "Submit")
-    if (!approvalSubmit) {
-      throw new Error("Approval submit button not found")
-    }
-    expect(approvalSubmit).toBeDisabled()
+    expect(
+      screen.getByText("Waiting for approval to run core.cases.list_cases")
+    ).toBeInTheDocument()
+    // A lone call sends on click, with no separate submit step.
+    expect(
+      screen
+        .queryAllByRole("button", { name: "Submit" })
+        .find((button) => button.textContent?.trim() === "Submit")
+    ).toBeUndefined()
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit + approve" }))
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
     const overrideEditor = screen.getByTestId("mock-code-editor")
     expect((overrideEditor as HTMLTextAreaElement).value).toContain(
       '"limit": 100'
     )
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }))
 
     fireEvent.click(screen.getByRole("button", { name: "Approve" }))
-    expect(approvalSubmit).toBeEnabled()
-
-    fireEvent.click(approvalSubmit)
 
     await waitFor(() => {
       expect(clearError).toHaveBeenCalled()
@@ -1113,24 +1111,20 @@ describe("ChatSessionPane", () => {
       })
     )
 
+    await waitFor(() =>
+      expect(
+        within(firstCard).queryByRole("button", { name: "Approve" })
+      ).not.toBeInTheDocument()
+    )
     expect(
-      within(firstCard).queryByLabelText("Decision: Approved")
-    ).not.toBeInTheDocument()
-    expect(firstCard).toHaveClass("bg-muted/10")
-    expect(firstCard).not.toHaveClass("opacity-75")
-    const submittedApproveButton = within(firstCard).getByRole("button", {
-      name: "Approve",
-    })
-    expect(submittedApproveButton).toBeDisabled()
-    expect(submittedApproveButton).toHaveClass("border-success/55")
-    expect(submittedApproveButton).toHaveClass("text-success")
-    expect(submittedApproveButton).toHaveClass("disabled:opacity-100")
+      within(firstCard).getByText("Running core.http_request")
+    ).toBeInTheDocument()
     expect(
-      within(secondCard).queryByLabelText("Decision: Approved")
-    ).not.toBeInTheDocument()
+      within(secondCard).getByRole("button", { name: "Approve" })
+    ).toBeEnabled()
   })
 
-  it("mounts previously submitted approval cards as disabled", () => {
+  it("mounts previously submitted approval cards without actions", () => {
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
       setMessages: jest.fn(),
@@ -1183,24 +1177,22 @@ describe("ChatSessionPane", () => {
 
     const firstCard = screen.getByTestId("approval-card-tc-1")
     const secondCard = screen.getByTestId("approval-card-tc-2")
-    const approvalSubmit = screen
-      .getAllByRole("button", { name: "Submit" })
-      .find((button) => button.textContent?.trim() === "Submit")
-    if (!approvalSubmit) {
-      throw new Error("Approval submit button not found")
-    }
 
-    expect(firstCard).toHaveClass("bg-muted/10")
     expect(
-      within(firstCard).getByRole("button", { name: "Approve" })
-    ).toBeDisabled()
+      within(firstCard).queryByRole("button", { name: "Approve" })
+    ).not.toBeInTheDocument()
     expect(
-      within(firstCard).getByRole("button", { name: "Approve" })
-    ).toHaveClass("border-success/55")
+      within(firstCard).getByText("Running core.http_request")
+    ).toBeInTheDocument()
     expect(
       within(secondCard).getByRole("button", { name: "Approve" })
     ).toBeEnabled()
-    expect(approvalSubmit).toBeDisabled()
+    // One call still waits, so it sends on click.
+    expect(
+      screen
+        .queryAllByRole("button", { name: "Submit" })
+        .find((button) => button.textContent?.trim() === "Submit")
+    ).toBeUndefined()
   })
 
   it("passes tools picked in draft mode with the first send", async () => {

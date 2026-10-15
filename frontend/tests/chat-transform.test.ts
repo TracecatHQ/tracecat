@@ -130,14 +130,9 @@ describe("transformMessages", () => {
 
     const transformed = transformMessages(messages)
 
+    // The card draws the waiting call, so its input part stays hidden.
     expect(transformed).toHaveLength(1)
     expect(transformed[0]?.parts).toEqual([
-      {
-        type: "tool-core__http_request",
-        toolCallId: "toolu_01http",
-        state: "input-available",
-        input: { url: "https://google.com" },
-      },
       {
         type: "data-approval-request",
         data: [

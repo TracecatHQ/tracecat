@@ -476,6 +476,8 @@ type ToolCallTrace = {
   closePos?: string
   /** Position of the most recent approval-request part naming this call. */
   lastApprovalPos?: string
+  /** Whether this chat already sent a decision for the call. */
+  isDecided?: boolean
 }
 
 /** Validate the custom approval data-part payload at the generated `unknown` boundary. */
@@ -557,6 +559,22 @@ export function getToolDenial(part: AnyToolPart): ToolDenial | null {
   return { reason: reason || null }
 }
 
+/** The decisions an approval submission sent, as loose records. */
+function getSubmittedDecisions(
+  part: ai.UIMessage["parts"][number]
+): Record<string, unknown>[] {
+  if (part.type !== "data-continue") {
+    return []
+  }
+  const decisions = (part as { data?: { decisions?: unknown } }).data?.decisions
+  return Array.isArray(decisions)
+    ? decisions.filter(
+        (decision): decision is Record<string, unknown> =>
+          Boolean(decision) && typeof decision === "object"
+      )
+    : []
+}
+
 /**
  * Tag the results of calls this chat denied, as reloaded history does.
  *
@@ -568,19 +586,8 @@ export function markLiveDenials(messages: ai.UIMessage[]): ai.UIMessage[] {
   const reasons = new Map<string, string>()
   for (const message of messages) {
     for (const part of message.parts) {
-      if (part.type !== "data-continue") {
-        continue
-      }
-      const decisions = (part as { data?: { decisions?: unknown } }).data
-        ?.decisions
-      for (const decision of Array.isArray(decisions) ? decisions : []) {
-        if (!decision || typeof decision !== "object") {
-          continue
-        }
-        const { action, tool_call_id, reason } = decision as Record<
-          string,
-          unknown
-        >
+      for (const decision of getSubmittedDecisions(part)) {
+        const { action, tool_call_id, reason } = decision
         if (action === "deny" && typeof tool_call_id === "string") {
           reasons.set(tool_call_id, typeof reason === "string" ? reason : "")
         }
@@ -688,7 +695,7 @@ export function isUserPrompt(
  * Visibility rules:
  * - Streaming tool inputs remain visible
  * - Completed tool calls collapse their input and approval parts
- * - Pending approvals (without output) remain visible
+ * - Pending approvals (without output) remain visible, and draw their call
  * - Duplicate DB/stream seam copies render once: latest output wins, otherwise
  *   the latest occurrence wins
  * - A call renders in the card that opened it, even when its output arrives in
@@ -787,6 +794,14 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
             trace.approvalPos = posKey
           }
         }
+      } else if (part.type === "data-continue") {
+        for (const { tool_call_id: toolCallId } of getSubmittedDecisions(
+          part
+        )) {
+          if (typeof toolCallId === "string") {
+            getTrace(toolCallId).isDecided = true
+          }
+        }
       } else if (part.type === "data-compaction") {
         const { phase } = getCompactionData(part.data)
 
@@ -810,6 +825,19 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
   for (const { openPos, closePos } of traces.values()) {
     if (openPos && closePos) {
       closedAt.set(openPos, closePos)
+    }
+  }
+
+  // Calls still waiting on a card; the card draws them until they are decided.
+  const awaitingCard = new Set<string>()
+  for (const [toolCallId, trace] of traces) {
+    if (
+      !trace.hasOutput &&
+      !trace.isDecided &&
+      trace.lastApprovalPos &&
+      !ignorePos.has(trace.lastApprovalPos)
+    ) {
+      awaitingCard.add(toolCallId)
     }
   }
 
@@ -838,6 +866,7 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
         continue
       }
       if (ignorePos.has(posKey)) continue
+      if (ai.isToolUIPart(part) && awaitingCard.has(part.toolCallId)) continue
       if (
         part.type === "data-approval-request" &&
         isApprovalCardArray(part.data)
@@ -845,6 +874,7 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
         const remaining = part.data.filter(
           ({ tool_call_id: toolCallId }) =>
             !traces.get(toolCallId)?.hasOutput &&
+            !traces.get(toolCallId)?.isDecided &&
             traces.get(toolCallId)?.lastApprovalPos === posKey
         )
         if (remaining.length === 0) {

@@ -418,8 +418,7 @@ describe("approval submit", () => {
 
   it("waits for the paused stream to close before submitting", () => {
     const { rerender } = renderCard("streaming")
-    fireEvent.click(screen.getByRole("button", { name: /^Approve$/ }))
-    expect(screen.getByRole("button", { name: /^Submit/ })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled()
 
     rerender(
       <MessageParts
@@ -429,6 +428,6 @@ describe("approval submit", () => {
         onSubmitApprovals={jest.fn()}
       />
     )
-    expect(screen.getByRole("button", { name: /^Submit/ })).toBeEnabled()
+    expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled()
   })
 })

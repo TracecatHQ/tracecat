@@ -349,7 +349,11 @@ const SUBMITTED: UIMessage = {
   parts: [
     {
       type: "data-continue",
-      data: { kind: "continue", source: "chat", decisions: [] },
+      data: {
+        kind: "continue",
+        source: "chat",
+        decisions: CALLS.map((id) => ({ tool_call_id: id, action: "approve" })),
+      },
     },
   ],
 }
@@ -1013,6 +1017,17 @@ function renderServerBackedPane() {
   )
 }
 
+/** The approval batch's Submit, not the composer's icon button of that name. */
+function approvalSubmit(): HTMLElement {
+  const button = screen
+    .getAllByRole("button", { name: "Submit" })
+    .find((candidate) => candidate.textContent?.trim() === "Submit")
+  if (!button) {
+    throw new Error("Approval submit button not found")
+  }
+  return button
+}
+
 describe("ChatSessionPane approvals decided elsewhere", () => {
   const fetchSession = jest.mocked(agentSessionsGetSessionVercel)
 
@@ -1059,11 +1074,7 @@ describe("ChatSessionPane approvals decided elsewhere", () => {
     // The Inbox decided the batch before this tab refreshed.
     fetchSession.mockResolvedValue(serverChat(RESOLVED))
     fireEvent.click(first.getByRole("button", { name: "Approve" }))
-    fireEvent.click(
-      within(screen.getByTestId("approval-card-third")).getByRole("button", {
-        name: "Submit",
-      })
-    )
+    fireEvent.click(approvalSubmit())
 
     await waitFor(() =>
       expect(
@@ -1115,7 +1126,15 @@ describe("ChatSessionPane approvals decided elsewhere", () => {
       await jest.advanceTimersByTimeAsync(5_000)
     })
 
-    await waitFor(() => expect(approveButton("first")).toBeDisabled())
+    // The decided call drops its actions; the others still wait.
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("approval-card-first")).queryByRole(
+          "button",
+          { name: "Approve" }
+        )
+      ).not.toBeInTheDocument()
+    )
     expect(approveButton("second")).toBeEnabled()
   })
 
@@ -1161,7 +1180,7 @@ describe("ChatSessionPane approvals decided elsewhere", () => {
     fetchSession.mockResolvedValue(
       serverChat(pausedWith((id) => (id === "first" ? "approved" : "pending")))
     )
-    fireEvent.click(card("third").getByRole("button", { name: "Submit" }))
+    fireEvent.click(approvalSubmit())
 
     await waitFor(() =>
       expect(mockUseVercelChatResult.sendMessage).toHaveBeenCalledTimes(1)
@@ -1177,7 +1196,7 @@ describe("ChatSessionPane approvals decided elsewhere", () => {
       ).not.toBeInTheDocument()
     )
     expect(
-      card("second").getByRole("button", { name: "Approve" })
-    ).toBeDisabled()
+      card("second").queryByRole("button", { name: "Approve" })
+    ).not.toBeInTheDocument()
   })
 })
