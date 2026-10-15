@@ -1,6 +1,7 @@
 "use client"
 
 import { WorkflowIcon } from "lucide-react"
+import { OverflowTooltipList } from "@/components/agents/overflow-tooltip-list"
 import { Badge } from "@/components/ui/badge"
 import {
   Tooltip,
@@ -48,7 +49,12 @@ export function AgentWorkflowBadges({
             </Badge>
           </TooltipTrigger>
           <TooltipContent>
-            {overflow.map((workflow) => workflow.title).join(", ")}
+            <OverflowTooltipList
+              items={overflow.map(({ id, title }) => ({
+                key: id,
+                label: title,
+              }))}
+            />
           </TooltipContent>
         </Tooltip>
       ) : null}

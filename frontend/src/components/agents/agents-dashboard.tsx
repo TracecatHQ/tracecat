@@ -51,6 +51,7 @@ import {
 } from "@/client"
 import { AgentApprovalsDialog } from "@/components/agents/agent-approvals-dialog"
 import { AgentWorkflowBadges } from "@/components/agents/agent-workflow-badges"
+import { OverflowTooltipList } from "@/components/agents/overflow-tooltip-list"
 import { useAgentCatalogFilters } from "@/components/agents/use-agent-catalog-filters"
 import { WorkspaceDefaultAgentBadge } from "@/components/agents/workspace-default-agent-badge"
 import { useScopeCheck } from "@/components/auth/scope-guard"
@@ -1635,7 +1636,12 @@ function ToolSourceTiles({
             </span>
           </TooltipTrigger>
           <TooltipContent>
-            {groups.slice(TOOL_SOURCE_TILE_CAP).flat().join(", ")}
+            <OverflowTooltipList
+              items={groups
+                .slice(TOOL_SOURCE_TILE_CAP)
+                .flat()
+                .map((name) => ({ key: name, label: name }))}
+            />
           </TooltipContent>
         </Tooltip>
       )}

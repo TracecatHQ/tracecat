@@ -431,19 +431,20 @@ describe("AgentsDashboard entitlement split", () => {
       }
     })
 
-    it("caps MCP integrations at eight without merging shared icons", async () => {
+    it("caps MCP integrations at eight and the overflow tooltip at ten", async () => {
       const slugs = Array.from(
-        { length: 9 },
-        (_, index) => `synthetic-mcp-${index}`
+        { length: 20 },
+        (_, index) => `synthetic-mcp-${String(index).padStart(2, "0")}`
       )
       renderPreset({ tool_count: 0, namespaces: [], mcp_slugs: slugs })
       const sources = within(screen.getByTestId("tool-sources"))
       expect(sources.getAllByRole("img")).toHaveLength(8)
       expect(sources.queryByLabelText(slugs[8])).not.toBeInTheDocument()
-      await userEvent.hover(sources.getByText("+1"))
-      expect(
-        await screen.findByRole("tooltip", {}, { timeout: 2000 })
-      ).toHaveTextContent(slugs[8])
+      await userEvent.hover(sources.getByText("+12"))
+      const tooltip = await screen.findByRole("tooltip", {}, { timeout: 2000 })
+      expect(within(tooltip).getAllByRole("listitem")).toHaveLength(10)
+      expect(tooltip).toHaveTextContent(slugs[8])
+      expect(tooltip).toHaveTextContent("and 2 more")
     })
 
     it("caps registry tiles at eight after deduplication", () => {
@@ -699,6 +700,20 @@ describe("AgentsDashboard entitlement split", () => {
       await userEvent.hover(badges.getByText("+1"))
       expect(await screen.findByRole("tooltip")).toHaveTextContent("Gamma")
       expect(screen.getAllByTestId("workflow-badges")).toHaveLength(1)
+    })
+
+    it("caps the workflow overflow tooltip at ten names", async () => {
+      renderCatalog("", {
+        workflowReferences: Array.from({ length: 15 }, (_, index) => ({
+          preset_id: "triage",
+          workflow_id: `wf_${index}`,
+          workflow_title: `Workflow ${String(index).padStart(2, "0")}`,
+        })),
+      })
+      await userEvent.hover(screen.getByText("+13"))
+      const tooltip = await screen.findByRole("tooltip")
+      expect(within(tooltip).getAllByRole("listitem")).toHaveLength(10)
+      expect(tooltip).toHaveTextContent("and 3 more")
     })
 
     it.each([
