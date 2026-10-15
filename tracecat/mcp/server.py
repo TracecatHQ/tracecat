@@ -4816,6 +4816,9 @@ async def list_actions(
     - **Browse all**: omit both to list all available actions.
 
     Common `namespaces`: `core`, `tools`, `ai`.
+    Exact namespace/name matches appear before prefix and description matches.
+    A missing first-page match does not mean the action is absent: continue with
+    `next_cursor` while `has_more` is true.
 
     Args:
         workspace_id: The workspace ID (from list_workspaces).
@@ -4838,12 +4841,12 @@ async def list_actions(
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         limit = _normalize_limit(limit, default=50, max_limit=200)
+        workspace_inventory = await load_secret_inventory(role)
+        oauth_inventory = await load_oauth_inventory(role)
         async with RegistryActionsService.with_session(role=role) as svc:
             page = await list_action_entry_page(
                 svc, query=query, namespace=namespace, limit=limit, cursor=cursor
             )
-            workspace_inventory = await load_secret_inventory(role)
-            oauth_inventory = await load_oauth_inventory(role)
             items: list[ActionDiscoveryResponse] = []
             for entry, _ in page.entries:
                 action_name = f"{entry.namespace}.{entry.name}"
