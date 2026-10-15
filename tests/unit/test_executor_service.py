@@ -15,7 +15,12 @@ from tracecat_registry import (
 
 from tracecat.auth.types import Role
 from tracecat.dsl.common import create_default_execution_context
-from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
+from tracecat.dsl.schemas import (
+    ActionRetryPolicy,
+    ActionStatement,
+    RunActionInput,
+    RunContext,
+)
 from tracecat.exceptions import ExecutionError, TracecatCredentialsError
 from tracecat.executor import service as executor_service
 from tracecat.executor.schemas import (
@@ -354,6 +359,7 @@ async def test_invoke_once_offloads_root_secret_masking(mocker):
     )
     action_input = mocker.Mock()
     action_input.task.action = "core.transform.reshape"
+    action_input.task.retry_policy = ActionRetryPolicy()
     action_input.registry_lock = {}
     action_input.exec_context = {}
     action_result = {"value": "secret"}

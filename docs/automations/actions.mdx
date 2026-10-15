@@ -165,8 +165,16 @@ Use `start_delay` to wait a fixed number of seconds before an action starts.
 
 ### Timeout
 
-Use `timeout` to cap how long Tracecat waits for an action attempt to finish.
-Defaults to 300 seconds.
+Use `timeout` to cap how long the action's function call may run in each attempt.
+Defaults to 300 seconds. Tracecat also caps each function call at `TRACECAT__EXECUTOR_CLIENT_TIMEOUT`, which defaults to 300 seconds (see [Environment variables](/self-hosting/environment-variables)).
+
+The timeout covers only the function call. Platform work such as resolving secrets, loading the action's registry code, and starting the sandbox doesn't count toward it. An attempt that hits the timeout fails with `Action execution timed out after <timeout>s` and is retried if `max_attempts` allows it.
+
+A template action counts as one action: all its steps, including nested templates, share one timeout, which starts when the template starts running. Time between steps, such as starting each step's sandbox, counts toward it. When the timeout runs out, Tracecat stops the running step, skips the remaining steps, and fails the attempt. The `TRACECAT__EXECUTOR_CLIENT_TIMEOUT` cap applies to each step's function call, not to the template as a whole.
+
+For `core.script.run_python`, the shorter of `timeout` and the script's `timeout_seconds` applies. The `TRACECAT__EXECUTOR_CLIENT_TIMEOUT` cap doesn't apply.
+
+Each `for_each` iteration gets the full timeout, but all iterations share one attempt that Tracecat caps at the timeout plus 600 seconds. A loop whose iterations run longer than that fails the attempt, and a retry runs every iteration again.
 
 For `ai.agent`, `ai.action`, and `ai.preset_agent`, `timeout` caps the agent's active runtime in seconds. Unset means 1800 seconds (30 minutes).
 

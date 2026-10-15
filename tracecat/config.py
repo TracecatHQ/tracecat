@@ -905,7 +905,28 @@ TRACECAT__EXECUTOR_BACKEND = ExecutorBackendType.from_config(
 TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
     os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT") or 300
 )
-"""Default timeout in seconds for executor client operations (default: 300s)."""
+"""Maximum seconds one action function call may run (default: 300s).
+
+The executor caps each UDF subprocess call at this value and uses it as the
+action timeout when the timeout is 0. Template totals and run_python follow the
+action's own timeout. Agent services also use it to bound executor tool calls."""
+
+TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT = float(
+    os.environ.get("TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT") or 600
+)
+"""Seconds added to an action's timeout for the executor activity's start-to-close timeout.
+
+The action timeout budgets only the action function call. This allowance covers
+platform work in the same activity (context materialization, secret resolution,
+registry artifacts, sandbox startup, and result storage)."""
+
+TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE = float(
+    os.environ.get("TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE") or 60
+)
+"""Seconds an action subprocess may run beyond the action timeout before it is killed.
+
+Covers sandbox startup, imports, and result serialization around the timed
+function call, which the action runner enforces itself."""
 
 # === Action Gateway === #
 TRACECAT__ACTION_GATEWAY_SOCKET = (
