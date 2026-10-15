@@ -1257,6 +1257,11 @@ async def test_list_workflow_actions_returns_index_map(monkeypatch):
     workflow_id = uuid.uuid4()
     workflow = _chained_workflow_stub(workflow_id)
     _patch_workflow_read(monkeypatch, workflow)
+
+    async def _actions(_ws, _wf):
+        return {"classify": SimpleNamespace(locked_execution_id="wf_example/exec_1")}
+
+    monkeypatch.setattr(mcp_server, "_draft_actions_by_ref", _actions)
     expected_revision = draft.compute_workflow_edit_revision(
         draft.build_workflow_edit_document(
             cast(draft._WorkflowEditDocumentSource, workflow)
@@ -1281,6 +1286,7 @@ async def test_list_workflow_actions_returns_index_map(monkeypatch):
             "has_run_if": False,
             "has_for_each": True,
             "environment": None,
+            "locked_execution_id": None,
         },
         {
             "index": 1,
@@ -1290,6 +1296,7 @@ async def test_list_workflow_actions_returns_index_map(monkeypatch):
             "has_run_if": True,
             "has_for_each": False,
             "environment": "staging",
+            "locked_execution_id": "wf_example/exec_1",
         },
         {
             "index": 2,
@@ -1299,6 +1306,7 @@ async def test_list_workflow_actions_returns_index_map(monkeypatch):
             "has_run_if": False,
             "has_for_each": False,
             "environment": None,
+            "locked_execution_id": None,
         },
     ]
     assert "args" not in json.dumps(payload)
@@ -13046,3 +13054,155 @@ async def test_form_tool_reports_config_issues(
         "The form config has errors: "
         "layout.0.field: The workflow has no input named 'laptop'"
     )
+
+
+@pytest.mark.anyio
+async def test_list_workflow_action_runs_marks_lockable_and_locked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    workflow_id = mcp_server.WorkflowUUID.new_uuid4()
+    events = {
+        "wf_example/exec_ok": [SimpleNamespace(action_ref="a", status="COMPLETED")],
+        "wf_example/exec_failed": [SimpleNamespace(action_ref="a", status="FAILED")],
+        "wf_example/exec_absent": [SimpleNamespace(action_ref="b", status="COMPLETED")],
+    }
+
+    async def _resolve(_workspace_id: Any) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    async def _actions(_ws: Any, _wf: Any) -> dict[str, Any]:
+        return {"a": SimpleNamespace(locked_execution_id="wf_example/exec_ok")}
+
+    class _ExecutionService:
+        async def list_executions_paginated(self, **_: Any) -> SimpleNamespace:
+            return SimpleNamespace(
+                items=[
+                    SimpleNamespace(
+                        id=exec_id,
+                        run_id="run",
+                        status=WorkflowExecutionStatus.COMPLETED,
+                        start_time=datetime.now(UTC),
+                        close_time=None,
+                        typed_search_attributes=None,
+                    )
+                    for exec_id in events
+                ]
+            )
+
+        async def list_workflow_execution_events_compact(self, exec_id: str) -> Any:
+            return events[exec_id]
+
+    async def _connect(*, role: Any) -> _ExecutionService:
+        return _ExecutionService()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "_draft_actions_by_ref", _actions)
+    monkeypatch.setattr(mcp_server.WorkflowExecutionsService, "connect", _connect)
+
+    payload = _payload(
+        await _tool(mcp_server.list_workflow_action_runs)(
+            workspace_id=workspace_id, workflow_id=str(workflow_id), ref="a"
+        )
+    )
+    assert payload["locked_execution_id"] == "wf_example/exec_ok"
+    runs = {run["execution_id"]: run for run in payload["runs"]}
+    assert (
+        runs["wf_example/exec_ok"]["lockable"] and runs["wf_example/exec_ok"]["locked"]
+    )
+    assert runs["wf_example/exec_failed"]["action_status"] == "FAILED"
+    assert not runs["wf_example/exec_failed"]["lockable"]
+    assert runs["wf_example/exec_absent"]["action_status"] is None
+    assert not runs["wf_example/exec_absent"]["lockable"]
+
+
+def _patch_action_service(monkeypatch: pytest.MonkeyPatch, updates: list[Any]) -> None:
+    from tracecat.workflow.actions.service import WorkflowActionService
+
+    action = SimpleNamespace(ref="a", locked_execution_id="wf_example/exec_old")
+
+    class _Service:
+        async def list_actions(self, _wf: Any) -> list[Any]:
+            return [action]
+
+        async def update_action(self, target: Any, params: Any) -> Any:
+            updates.append(params.model_dump(exclude_unset=True))
+            target.locked_execution_id = params.locked_execution_id
+            return target
+
+    monkeypatch.setattr(
+        WorkflowActionService, "with_session", lambda role: _AsyncContext(_Service())
+    )
+
+
+@pytest.mark.anyio
+async def test_lock_workflow_action_locks_and_unlocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    workflow_id = mcp_server.WorkflowUUID.new_uuid4()
+    updates: list[Any] = []
+
+    async def _resolve(_workspace_id: Any) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, SimpleNamespace(workspace_id=workspace_id)
+
+    async def _load(_ws: Any, _exec_id: str) -> tuple[Any, list[Any]]:
+        return None, [SimpleNamespace(action_ref="a", status="COMPLETED")]
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "_load_execution_with_events", _load)
+    _patch_action_service(monkeypatch, updates)
+
+    locked = _payload(
+        await _tool(mcp_server.lock_workflow_action)(
+            workspace_id=workspace_id,
+            workflow_id=str(workflow_id),
+            ref="a",
+            execution_id="wf_example/exec_new",
+        )
+    )
+    unlocked = _payload(
+        await _tool(mcp_server.lock_workflow_action)(
+            workspace_id=workspace_id,
+            workflow_id=str(workflow_id),
+            ref="a",
+            execution_id=None,
+        )
+    )
+    assert locked["locked_execution_id"] == "wf_example/exec_new"
+    assert unlocked["locked_execution_id"] is None
+    assert updates == [
+        {"locked_execution_id": "wf_example/exec_new"},
+        {"locked_execution_id": None},
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status", ["FAILED", None])
+async def test_lock_workflow_action_rejects_unusable_run(
+    monkeypatch: pytest.MonkeyPatch, status: str | None
+) -> None:
+    workspace_id = uuid.uuid4()
+    updates: list[Any] = []
+
+    async def _resolve(_workspace_id: Any) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, SimpleNamespace(workspace_id=workspace_id)
+
+    async def _load(_ws: Any, _exec_id: str) -> tuple[Any, list[Any]]:
+        if status is None:
+            return None, []
+        return None, [SimpleNamespace(action_ref="a", status=status)]
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "_load_execution_with_events", _load)
+    _patch_action_service(monkeypatch, updates)
+
+    with pytest.raises(ToolError, match="did not complete"):
+        await _tool(mcp_server.lock_workflow_action)(
+            workspace_id=workspace_id,
+            workflow_id=str(mcp_server.WorkflowUUID.new_uuid4()),
+            ref="a",
+            execution_id="wf_example/exec_bad",
+        )
+    assert updates == []

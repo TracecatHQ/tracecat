@@ -142,7 +142,17 @@
 <ResponseField name="run_workflow" type="tool">
   Run a workflow from its draft state or a published definition.
 
-  By default runs the current draft (unpublished edits) so changes can be tested before publishing. Set ``use_draft=False`` to run a published version instead.
+  By default runs the current draft (unpublished edits) so changes can be tested before publishing. Draft runs reuse the result of every locked action (see `lock_workflow_action`) instead of running it. Set ``use_draft=False`` to run a published version instead; published runs ignore locks.
+</ResponseField>
+
+<ResponseField name="list_workflow_action_runs" type="tool">
+  List an action's recent runs, to pick one for `lock_workflow_action`.
+</ResponseField>
+
+<ResponseField name="lock_workflow_action" type="tool">
+  Lock a draft action to a past run's result, or unlock it.
+
+  While locked, every draft run (`run_workflow` with `use_draft=True`) reuses the action's result from that run instead of executing it, which lets you debug downstream actions against a fixed input. Published runs ignore locks. Find a lockable run with `list_workflow_action_runs`.
 </ResponseField>
 
 <ResponseField name="list_workflow_executions" type="tool">

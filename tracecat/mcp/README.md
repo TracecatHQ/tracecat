@@ -24,6 +24,8 @@ own embedded collection truncation behavior below.
 - `publish_workflow(workspace_id, workflow_id)`
 - `run_workflow(workspace_id, workflow_id, inputs=None, use_draft=True, version=None)`
 - `rerun_workflow_execution(workspace_id, execution_id, use_draft=True, version=None, fixed_action_refs=None, rerun_from_ref=None, dry_run=False)`
+- `list_workflow_action_runs(workspace_id, workflow_id, ref, limit=10)`
+- `lock_workflow_action(workspace_id, workflow_id, ref, execution_id)`
 - `list_workflow_executions(workspace_id, workflow_id, limit=20, cursor=None)`
 - `get_workflow_execution(workspace_id, execution_id, action_refs=None, include_results=True)`
 - `get_execution_action_result(workspace_id, execution_id, action_ref, stream_id=None, max_bytes=65536, offset=0)`

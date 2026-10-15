@@ -290,6 +290,7 @@ class WorkflowActionSummary(WorkflowActionIndexEntry):
     has_run_if: bool = False
     has_for_each: bool = False
     environment: str | None = None
+    locked_execution_id: str | None = None
 
 
 class WorkflowActionListResponse(BaseModel):
@@ -422,3 +423,26 @@ class MCPTruncationInfo(BaseModel):
 
 class MCPTruncationSummary(BaseModel):
     collections: dict[str, MCPTruncationInfo] = Field(default_factory=dict)
+
+
+class WorkflowActionLockResponse(BaseModel):
+    workflow_id: str
+    ref: str
+    locked_execution_id: str | None = None
+
+
+class WorkflowActionRunEntry(BaseModel):
+    execution_id: str
+    execution_type: str | None = None
+    start_time: Any = None
+    run_status: str
+    action_status: str | None = None
+    lockable: bool = False
+    locked: bool = False
+
+
+class WorkflowActionRunsResponse(BaseModel):
+    workflow_id: str
+    ref: str
+    locked_execution_id: str | None = None
+    runs: list[WorkflowActionRunEntry] = Field(default_factory=list)
