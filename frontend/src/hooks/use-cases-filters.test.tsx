@@ -217,25 +217,27 @@ describe("useCases exact-first requests", () => {
   })
 
   it("returns to the default date and hierarchy scope after clearing lookup", async () => {
+    const promoted = {
+      ...OLD_CASE,
+      is_exact_match: true,
+      is_outside_filters: true,
+    }
+    jest.mocked(casesSearchCases).mockImplementation((request) => {
+      const items = request.searchTerm ? [promoted] : []
+      return new CancelablePromise((resolve) =>
+        resolve({ items, has_more: false, total_estimate: 0 })
+      )
+    })
     const { result } = setup()
     act(() => result.current.setSearchQuery("CASE-0042"))
-    await waitFor(() =>
-      expect(casesSearchCases).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          searchTerm: "CASE-0042",
-          promoteExactMatch: true,
-        })
-      )
-    )
+    await waitFor(() => expect(result.current.cases).toEqual([promoted]))
     act(() => result.current.setSearchQuery(""))
-    await waitFor(() =>
-      expect(casesSearchCases).toHaveBeenCalledWith(
-        expect.objectContaining({
-          searchTerm: undefined,
-          startTime: expect.any(String),
-          hierarchy: "top_level",
-        })
-      )
-    )
+    await waitFor(() => expect(result.current.cases).toEqual([]))
+    expect(result.current.appliedSearchQuery).toBe("")
+    expect(result.current.effectiveHierarchy).toBe("top_level")
+    expect(result.current.filters.createdAfter).toEqual({
+      type: "preset",
+      value: "1m",
+    })
   })
 })
