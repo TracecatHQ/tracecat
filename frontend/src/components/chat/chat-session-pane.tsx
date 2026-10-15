@@ -1447,7 +1447,10 @@ export function ChatSessionPane({
                   message.parts.filter((part) => part.type === "source-url")
                 )
                 return (
-                  <div key={block.messages[0].id} className="group relative">
+                  <div
+                    key={`turn-${block.startIndex}`}
+                    className="group relative"
+                  >
                     {verbosityPolicy.showSources &&
                       sourceUrlParts.length > 0 && (
                         <Sources className="py-1">
