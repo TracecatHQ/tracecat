@@ -121,11 +121,16 @@ describe("InboxDetail", () => {
       loading: false,
       reason: "default_not_enabled",
     })
+    // No pending approvals, so only the missing model disables the composer.
     render(
       <InboxDetail
         sessionId="session-1"
         parentSessionId="session-1"
-        session={inboxSession()}
+        session={inboxSession({
+          derivedStatus: "COMPLETED",
+          statusLabel: "Completed",
+          pendingApprovalCount: 0,
+        })}
       />
     )
 

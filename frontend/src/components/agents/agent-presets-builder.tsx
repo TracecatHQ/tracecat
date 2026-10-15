@@ -755,7 +755,8 @@ function AgentPresetChatPane({
 
   // New chats run the latest version; older chats may still be pinned.
   const handleUseLatest = async () => {
-    if (!activeChatId) return
+    // Unpinning updates the session, which needs agent:execute.
+    if (!activeChatId || canExecuteAgents !== true) return
     try {
       await updateChat({
         chatId: activeChatId,
@@ -905,7 +906,7 @@ function AgentPresetChatPane({
                 size="sm"
                 variant="ghost"
                 className="h-7 px-2 text-xs"
-                disabled={isUpdating}
+                disabled={isUpdating || canExecuteAgents !== true}
                 onClick={() => void handleUseLatest()}
               >
                 Use latest

@@ -1524,10 +1524,12 @@ export function ChatSessionPane({
                         }
                       />
                     ))}
+                    {/* Retry starts a run, so it follows the composer's gate. */}
                     {role === "assistant" &&
                       !isWaitingForResponse &&
                       !isReadonly &&
-                      !cannotExecuteAgents && (
+                      !cannotExecuteAgents &&
+                      !inputDisabled && (
                         // Render response actions for assistant messages and reveal them on hover for older messages.
                         <Actions
                           className={cn(

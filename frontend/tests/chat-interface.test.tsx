@@ -9,10 +9,12 @@ import { QueryClient, QueryClientProvider } from "@/lib/query"
 jest.mock("@/components/chat/chat-session-pane", () => ({
   AGENT_EXECUTE_REQUIRED_MESSAGE: "agent:execute required",
   ChatSessionPane: ({
+    chat,
     mcpEnabled,
     onBeforeSend,
     inputDisabled,
   }: {
+    chat?: { id: string }
     mcpEnabled: boolean
     onBeforeSend?: (message: string) => Promise<string | null>
     inputDisabled?: boolean
@@ -22,6 +24,7 @@ jest.mock("@/components/chat/chat-session-pane", () => ({
       data-input-disabled={String(Boolean(inputDisabled))}
       data-testid="chat-session-pane"
     >
+      {chat && <p>Transcript of {chat.id}</p>}
       {onBeforeSend && (
         <button type="button" onClick={() => void onBeforeSend("Hello")}>
           Send first message
@@ -598,6 +601,7 @@ describe("ChatInterface model readiness", () => {
     mockGetChat.mockReturnValue({ id: "chat-1", backend_id: "oss" })
     renderChat({ surface: "regular" })
 
+    expect(screen.getByText("Transcript of chat-1")).toBeInTheDocument()
     expect(screen.getByTestId("chat-session-pane")).toHaveAttribute(
       "data-input-disabled",
       "true"

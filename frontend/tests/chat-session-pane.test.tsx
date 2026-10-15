@@ -1059,6 +1059,31 @@ describe("ChatSessionPane", () => {
     expect(updateChat).not.toHaveBeenCalled()
   })
 
+  it("hides Retry while the composer is disabled", () => {
+    // Retry starts a run; with no usable model it would fail and hide the reply.
+    mockApprovalThenReply(jest.fn().mockResolvedValue(undefined))
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture()}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            inputDisabled
+            inputDisabledPlaceholder="No usable model"
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    expect(screen.getByText("There are no open cases.")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Retry" })
+    ).not.toBeInTheDocument()
+  })
+
   it("lets a role with agent:execute send, retry and approve", () => {
     // Editors and admins run the agent.
     const sendMessage = jest.fn().mockResolvedValue(undefined)
