@@ -70,14 +70,16 @@ async def lock_forms_for_deletion(
 async def purge_expired_files(session: AsyncSession) -> int:
     """Delete a bounded batch of the files nobody claimed in time.
 
-    Covers every workspace, so the session must bypass RLS. Commits the row
-    deletion, then deletes the blobs. Returns how many files it deleted.
+    Covers every workspace, so the session must bypass RLS. Deletes the blobs
+    while the batch is locked, then the rows of the blobs that are gone. A
+    blob that storage failed to delete keeps its row, so the next purge
+    retries it. Returns how many files it deleted.
     """
     # Lock the batch first, in a statement of its own. As a subquery of the
     # DELETE, Postgres may run the limited select once per file row, and each
     # run skips the rows already deleted, so the DELETE passes the limit.
     expired = (
-        select(FormFile.id)
+        select(FormFile.workspace_id, FormFile.form_id, FormFile.id)
         .where(
             FormFile.submission_id.is_(None),
             FormFile.created_at < datetime.now(UTC) - PENDING_FILE_TTL,
@@ -85,17 +87,20 @@ async def purge_expired_files(session: AsyncSession) -> int:
         .limit(EXPIRED_FILE_PURGE_BATCH)
         .with_for_update(skip_locked=True)
     )
-    if not (file_ids := (await session.execute(expired)).scalars().all()):
+    if not (rows := (await session.execute(expired)).tuples().all()):
         return 0
-    statement = (
-        delete(FormFile)
-        .where(FormFile.id.in_(file_ids))
-        .returning(FormFile.workspace_id, FormFile.form_id, FormFile.id)
-    )
-    rows = (await session.execute(statement)).tuples().all()
+    file_ids_by_key = {
+        file_blob_key(workspace_id, form_id, file_id): file_id
+        for workspace_id, form_id, file_id in rows
+    }
+    failed = await delete_file_blobs(list(file_ids_by_key))
+    file_ids = [
+        file_id for key, file_id in file_ids_by_key.items() if key not in failed
+    ]
+    if file_ids:
+        await session.execute(delete(FormFile).where(FormFile.id.in_(file_ids)))
     await session.commit()
-    await delete_file_blobs([file_blob_key(*row) for row in rows])
-    return len(rows)
+    return len(file_ids)
 
 
 async def run_file_expiry(stop_event: asyncio.Event) -> None:
@@ -122,19 +127,23 @@ async def run_file_expiry(stop_event: asyncio.Event) -> None:
             )
 
 
-async def delete_file_blobs(keys: Sequence[str]) -> None:
-    """Delete blobs whose rows are already gone. Best effort.
+async def delete_file_blobs(keys: Sequence[str]) -> set[str]:
+    """Delete blobs. Best effort. Returns the keys it failed to delete.
 
-    Deletes every key, ``BLOB_DELETE_BATCH`` at a time. Nothing retries a
-    delete that fails: the blob stays in storage with no row, and the warning
-    names its key.
+    Deletes every key, ``BLOB_DELETE_BATCH`` at a time, and logs a warning
+    that names each key it failed to delete. Only the expiry purge keeps the
+    row of a failed key to retry it. Every other caller has deleted the rows
+    already, so the blob stays in storage with no row.
     """
+    failed: set[str] = set()
     for start in range(0, len(keys), BLOB_DELETE_BATCH):
         batch = keys[start : start + BLOB_DELETE_BATCH]
-        await asyncio.gather(*(_delete_file_blob(key) for key in batch))
+        deleted = await asyncio.gather(*(_delete_file_blob(key) for key in batch))
+        failed.update(key for key, ok in zip(batch, deleted, strict=True) if not ok)
+    return failed
 
 
-async def _delete_file_blob(key: str) -> None:
+async def _delete_file_blob(key: str) -> bool:
     try:
         await blob.delete_file(
             key=key,
@@ -148,3 +157,5 @@ async def _delete_file_blob(key: str) -> None:
             key=key,
             error_type=type(e).__name__,
         )
+        return False
+    return True

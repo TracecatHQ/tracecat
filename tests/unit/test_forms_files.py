@@ -496,6 +496,28 @@ async def test_purge_removes_a_bounded_batch(
     assert set(blob_store.objects) == {_key(form, file_id) for file_id in remaining}
 
 
+async def test_purge_keeps_the_row_of_a_blob_storage_failed_to_delete(
+    session: AsyncSession,
+    files: FormFilesService,
+    blob_store: FakeBlobStore,
+    form: Form,
+) -> None:
+    """A storage failure leaves the file's row, so the next purge retries it."""
+    uploaded = await _upload(files, form)
+    await _age(session, uploaded.id, EXPIRED)
+
+    blob_store.fail_deletes = True
+    assert await purge_expired_files(session) == 0
+    assert set(await _rows(session)) == {uploaded.id}
+    assert set(blob_store.objects) == {_key(form, uploaded.id)}
+
+    blob_store.fail_deletes = False
+    assert await purge_expired_files(session) == 1
+    assert await _rows(session) == {}
+    assert blob_store.objects == {}
+    assert blob_store.deleted == [_key(form, uploaded.id)] * 2
+
+
 # ----- Claiming on submit -----
 
 
@@ -910,9 +932,9 @@ async def test_blob_deletion_is_best_effort_and_covers_every_key(
     # More keys than one batch, with a failure early on.
     keys = ["forms/w/f/fail", *(f"forms/w/f/{i}" for i in range(501))]
 
-    await storage.delete_file_blobs(keys)
-
-    # A failure does not stop the rest, and no key is left behind.
+    # A failure does not stop the rest, no key is left behind, and the
+    # caller learns which keys failed.
+    assert await storage.delete_file_blobs(keys) == {"forms/w/f/fail"}
     assert sorted(blob_store.deleted) == sorted(keys)
 
 

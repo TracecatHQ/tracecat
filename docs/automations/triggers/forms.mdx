@@ -109,13 +109,13 @@ A field without `widget` uses the default widget for its input type. `T | None` 
 | `cards` | `enum[...]`, `str`, `list[enum[...]]`, `list[str]` | | String, or list of strings for a list input |
 | `tags` | `list[str]` | `list[str]` | List of strings the requester types |
 | `date` | `str`, `datetime` | | `YYYY-MM-DD` |
-| `datetime` | `datetime`, `str` | `datetime` | ISO 8601 date and time |
+| `datetime` | `datetime`, `str` | `datetime` | `YYYY-MM-DDTHH:MM`, with optional seconds and a `Z` or `±HH:MM` offset |
 | `user` | `dict`, `list[dict]` | | `{user_id, email, first_name, last_name}`, or a list of them |
 | `file` | `dict`, `list[dict]` | | `{id, name, content_type, size, sha256}`, or a list of them |
 
 Input types outside the `Default for` column, such as `dict`, `duration`, `any`, or `str | int`, have no default widget. Set `widget: user` or `widget: file` on a `dict` or `list[dict]` input, or fill the input with `autofill` or its default. An input with a default and no widget stays off the form and takes its default. The `user` widget searches active members of the organization.
 
-A non-null default must be a valid answer for its field, except on `user` and `file` fields, which start empty.
+A shown field starts with its input's default, so a non-null default must be a valid answer for the field. `user` and `file` fields start empty instead, and Tracecat applies their default on submission. Tracecat doesn't check the defaults of hidden and autofill inputs, or of inputs with no widget, as answers.
 
 Integers in a form stay between -9,007,199,254,740,991 and 9,007,199,254,740,991, the range a browser holds exactly. That covers the default of an `int` input, hidden or shown, an integer `visible_if` value, and an answer to an `int` input, including one sent as text or as a whole-number float. Outside the range, a default or `visible_if` value is a config error and an answer fails with `invalid_value`. `float` inputs are unaffected, since a browser holds every float exactly.
 
@@ -247,6 +247,8 @@ form:
 | Pull, block present | Creates or replaces the form with the block's config and `status`. `status` defaults to `offline`. |
 | Pull, block absent | Sets the workflow's existing form offline and clears its config. The form keeps its ID and submissions. |
 | Pull, block no longer matches the inputs | The pull succeeds and stores the block as written. The form stops accepting submissions until you fix its config. |
+
+A pull that carries a `form:` block needs `form:create` and `form:update`. A pull that sets a form offline or clears its config needs `form:update`.
 
 A Tracecat instance on a version without Forms writes `definition.yml` without the `form:` block, so the next pull on a newer instance takes that form offline and clears its config. Upgrade every instance that pushes to the repository before you build forms in it.
 

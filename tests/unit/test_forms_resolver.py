@@ -583,6 +583,40 @@ def test_a_field_default_must_be_a_valid_answer(
     assert [(issue.code, issue.loc) for issue in result.issues] == expected
 
 
+@pytest.mark.parametrize(
+    ("value", "valid"),
+    [
+        ("2026-02-03T10:00", True),
+        ("2026-02-03T10:00:00Z", True),
+        # What the widget sends.
+        ("2026-02-03T10:00:00.000Z", True),
+        ("2026-02-03T10:00:00.123456+08:00", True),
+        # Python parses these; a browser shows Invalid Date.
+        ("2026-W06-2T10:00:00", False),
+        ("20260203T100000", False),
+        ("2026-02-03T10", False),
+        ("2026-02-03 10:00:00", False),
+        ("2026-02-03T10:00:00+0800", False),
+        # Shaped right, but not a real date or time.
+        ("2026-02-30T10:00:00", False),
+        ("2026-02-03T10:00:60", False),
+    ],
+)
+def test_a_datetime_answer_or_default_must_be_one_every_browser_parses(
+    value: str, valid: bool
+) -> None:
+    """Datetime answers and defaults take only the ISO form ``new Date()`` reads."""
+    answered = check_values(
+        _resolve(None, at={"type": "datetime"}).blocks, {"at": value}
+    )
+    defaulted = _resolve(None, at={"type": "datetime", "default": value})
+
+    assert [error.code for error in answered.errors] == (
+        [] if valid else [FormFieldErrorCode.INVALID_DATE]
+    )
+    assert _codes(defaulted) == ([] if valid else [Code.DEFAULT_INVALID])
+
+
 def test_a_default_issue_names_the_field_the_value_and_the_reason() -> None:
     result = _resolve(
         [{"field": "due", "widget": "date"}], due={"type": "str", "default": "soon"}

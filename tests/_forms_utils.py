@@ -232,6 +232,7 @@ class FakeBlobStore:
     presigned: list[dict[str, Any]] = field(default_factory=list)
     deleted: list[str] = field(default_factory=list)
     fail_uploads: bool = False
+    fail_deletes: bool = False
 
     async def upload_file(
         self,
@@ -259,7 +260,7 @@ class FakeBlobStore:
     ) -> None:
         """A key holding ``fail`` raises, after it is recorded."""
         self.deleted.append(key)
-        if "fail" in key:
+        if self.fail_deletes or "fail" in key:
             raise blob.StorageDeleteError(error_code="SlowDown")
         self.objects.pop(key, None)
 
