@@ -23,6 +23,7 @@ import resource
 import signal
 import sys
 import threading
+import time
 import warnings
 from collections.abc import Callable, Coroutine, Mapping
 from pathlib import Path
@@ -179,15 +180,21 @@ def _call_sync_with_timeout(
     def _on_alarm(_signum: int, _frame: Any) -> None:
         raise ActionTimeoutError(_timeout_message(timeout_seconds))
 
+    deadline = time.monotonic() + timeout_seconds
     previous = signal.signal(signal.SIGALRM, _on_alarm)
     signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
     try:
-        return fn(**args)
+        result = fn(**args)
     finally:
         try:
             signal.setitimer(signal.ITIMER_REAL, 0)
         finally:
             signal.signal(signal.SIGALRM, previous)
+    # The action can catch the alarm's exception and carry on. A result that
+    # arrives late is still a timeout.
+    if time.monotonic() >= deadline:
+        raise ActionTimeoutError(_timeout_message(timeout_seconds))
+    return result
 
 
 class _CappedTextBuffer:
