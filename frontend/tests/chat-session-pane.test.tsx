@@ -332,7 +332,7 @@ describe("ChatSessionPane", () => {
       </TooltipProvider>
     )
 
-    expect(screen.getByText("Agent: case-management")).toBeInTheDocument()
+    expect(screen.getByText("Ran Agent: case-management")).toBeInTheDocument()
   })
 
   it("renders the stop divider for a cancelled turn marker", () => {
@@ -380,8 +380,10 @@ describe("ChatSessionPane", () => {
       </TooltipProvider>
     )
 
-    expect(screen.getByText("Interrupted")).toBeInTheDocument()
-    expect(screen.queryByText("In progress")).not.toBeInTheDocument()
+    expect(
+      screen.getByText("Stopped core.table.list_tables")
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/^Running/)).not.toBeInTheDocument()
   })
 
   it("renders SDK abort errors as interrupted instead of leaking them", () => {
@@ -407,8 +409,10 @@ describe("ChatSessionPane", () => {
       </TooltipProvider>
     )
 
-    expect(screen.getByText("Interrupted")).toBeInTheDocument()
-    expect(screen.queryByText("Error")).not.toBeInTheDocument()
+    expect(
+      screen.getByText("Stopped core.table.list_tables")
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/^Failed to run/)).not.toBeInTheDocument()
   })
 
   it("marks tool calls listed in the structured interrupt metadata as interrupted", () => {
@@ -437,8 +441,10 @@ describe("ChatSessionPane", () => {
       </TooltipProvider>
     )
 
-    expect(screen.getByText("Interrupted")).toBeInTheDocument()
-    expect(screen.queryByText("Error")).not.toBeInTheDocument()
+    expect(
+      screen.getByText("Stopped core.table.list_tables")
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/^Failed to run/)).not.toBeInTheDocument()
   })
 
   it("marks structurally interrupted tool calls even without the turn flag", () => {
@@ -467,8 +473,10 @@ describe("ChatSessionPane", () => {
       </TooltipProvider>
     )
 
-    expect(screen.getByText("Interrupted")).toBeInTheDocument()
-    expect(screen.queryByText("Error")).not.toBeInTheDocument()
+    expect(
+      screen.getByText("Stopped core.table.list_tables")
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/^Failed to run/)).not.toBeInTheDocument()
   })
 
   it("keeps genuine tool errors as errors in a cancelled turn", () => {
@@ -494,8 +502,10 @@ describe("ChatSessionPane", () => {
       </TooltipProvider>
     )
 
-    expect(screen.getByText("Error")).toBeInTheDocument()
-    expect(screen.queryByText("Interrupted")).not.toBeInTheDocument()
+    expect(
+      screen.getByText("Failed to run core.table.list_tables")
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/^Stopped/)).not.toBeInTheDocument()
   })
 
   function mockUseVercelChatStatus(status: "ready" | "submitted") {
@@ -2792,7 +2802,9 @@ describe("ChatSessionPane", () => {
   // backend reconcile). The pane must render each toolCallId once — keep the
   // last copy (the stream one carries the live output) at the display layer.
   describe("tool call dedupe across the DB/stream seam", () => {
-    const TOOL_LABEL = "core.cases.list_cases"
+    // Matches the tool line ("Ran core.cases.list_cases") and the approval
+    // card label alike.
+    const TOOL_LABEL = /core\.cases\.list_cases$/
 
     function toolPart(
       toolCallId: string,

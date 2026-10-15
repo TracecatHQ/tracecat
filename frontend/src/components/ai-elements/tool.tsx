@@ -2,12 +2,12 @@
 
 import type { DynamicToolUIPart, ToolUIPart } from "ai"
 import {
-  BanIcon,
-  ChevronDownIcon,
+  CircleAlertIcon,
   CircleCheckIcon,
   CircleSlashIcon,
   ClockIcon,
   DownloadIcon,
+  LoaderCircleIcon,
   WrenchIcon,
   XCircleIcon,
 } from "lucide-react"
@@ -22,31 +22,33 @@ import {
 } from "react"
 import { Button } from "@/components/ui/button"
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import {
+  Trace,
+  TraceCollapsible,
+  TraceCollapsibleContent,
+  TraceCollapsibleTrigger,
+  TraceIcon,
+  TraceLine,
+  type TraceStatus,
+  TraceTitle,
+} from "@/components/ui/trace"
 import { cn } from "@/lib/utils"
 import { CodeBlock, CodeBlockCopyButton } from "./code-block"
 
 const MAX_INLINE_PAYLOAD_CHARS = 12_000
 
-export type ToolProps = ComponentProps<typeof Collapsible>
+export type ToolProps = ComponentProps<typeof TraceCollapsible>
 
+/** A tool call as a Trace line that expands into its input and output. */
 export const Tool = ({ className, ...props }: ToolProps) => (
-  <Collapsible
-    className={cn(
-      "group not-prose mb-2 w-full rounded-md border-[0.5px]",
-      className
-    )}
-    {...props}
-  />
+  <Trace className={cn("not-prose", className)}>
+    <TraceCollapsible {...props} />
+  </Trace>
 )
 
 export type ToolPart = ToolUIPart | DynamicToolUIPart
@@ -59,7 +61,10 @@ type LegacyToolState =
  * stopped the turn. Derived at render time; never sent to or by the server.
  */
 type InterruptedToolState = "output-interrupted"
-type ToolState = ToolPart["state"] | LegacyToolState | InterruptedToolState
+export type ToolState =
+  | ToolPart["state"]
+  | LegacyToolState
+  | InterruptedToolState
 
 export type ToolHeaderProps = {
   title?: string
@@ -124,6 +129,45 @@ export const getStatusBadge = (status: ToolState) => (
   </TooltipProvider>
 )
 
+/** How a tool state reads on its Trace line. */
+export function getToolLineStatus(state: ToolState): {
+  status: TraceStatus | undefined
+  verb: string
+} {
+  switch (state) {
+    case "input-streaming":
+    case "input-available":
+      return { status: "running", verb: "Running" }
+    case "approval-requested":
+      return { status: "pending", verb: "Waiting for approval to run" }
+    case "output-error":
+      return { status: "error", verb: "Failed to run" }
+    case "output-denied":
+      return { status: "error", verb: "Denied" }
+    case "output-interrupted":
+      return { status: "pending", verb: "Stopped" }
+    default:
+      return { status: undefined, verb: "Ran" }
+  }
+}
+
+/** The leading icon for a tool line: a spinner or alert overrides the tool's own. */
+export function ToolLineIcon({
+  status,
+  icon,
+}: {
+  status: TraceStatus | undefined
+  icon?: ReactNode
+}) {
+  if (status === "running") {
+    return <LoaderCircleIcon className="animate-spin" />
+  }
+  if (status === "error") {
+    return <CircleAlertIcon />
+  }
+  return icon ?? <WrenchIcon />
+}
+
 export const ToolHeader = ({
   className,
   title,
@@ -131,41 +175,31 @@ export const ToolHeader = ({
   state,
   toolName,
   icon,
-  ...props
 }: ToolHeaderProps) => {
   const derivedName =
     type === "dynamic-tool"
       ? (toolName ?? "dynamic-tool")
       : type.split("-").slice(1).join("-")
+  const { status, verb } = getToolLineStatus(state)
 
   return (
-    <CollapsibleTrigger
-      className={cn(
-        "flex w-full items-center justify-between gap-3 px-2.5 py-1.5",
-        className
-      )}
-      {...props}
-    >
-      <div className="flex items-center gap-2">
-        {icon ?? <WrenchIcon className="size-4 text-muted-foreground" />}
-        <span className="font-medium text-sm">{title ?? derivedName}</span>
-        {getStatusBadge(state)}
-      </div>
-      <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
-    </CollapsibleTrigger>
+    <TraceCollapsibleTrigger className={className}>
+      <TraceLine status={status}>
+        <TraceIcon>
+          <ToolLineIcon status={status} icon={icon} />
+        </TraceIcon>
+        <TraceTitle>
+          {verb} {title ?? derivedName}
+        </TraceTitle>
+      </TraceLine>
+    </TraceCollapsibleTrigger>
   )
 }
 
-export type ToolContentProps = ComponentProps<typeof CollapsibleContent>
+export type ToolContentProps = ComponentProps<typeof TraceCollapsibleContent>
 
 export const ToolContent = ({ className, ...props }: ToolContentProps) => (
-  <CollapsibleContent
-    className={cn(
-      "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 space-y-3 px-2.5 pb-3 pt-2.5 text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
-      className
-    )}
-    {...props}
-  />
+  <TraceCollapsibleContent className={cn("space-y-3", className)} {...props} />
 )
 
 type SerializedPayload = {
@@ -389,8 +423,8 @@ export type ToolInputProps = ComponentProps<"div"> & {
 export const ToolInput = memo(
   ({ className, input, ...props }: ToolInputProps) => (
     <div className={cn("space-y-2 overflow-hidden", className)} {...props}>
-      <h4 className="font-medium text-[11px] text-muted-foreground tracking-wide">
-        PARAMETERS
+      <h4 className="font-medium text-[11px] text-muted-foreground">
+        Parameters
       </h4>
       <ToolPayload payload={input} downloadName="tool-parameters" />
     </div>
@@ -412,8 +446,8 @@ export const ToolOutput = memo(
 
     return (
       <div className={cn("space-y-2", className)} {...props}>
-        <h4 className="font-medium text-[11px] text-muted-foreground tracking-wide">
-          {errorText ? "Error" : "RESULT"}
+        <h4 className="font-medium text-[11px] text-muted-foreground">
+          {errorText ? "Error" : "Result"}
         </h4>
         {errorText && (
           <div className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive">
