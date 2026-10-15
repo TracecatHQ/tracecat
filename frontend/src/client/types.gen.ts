@@ -601,14 +601,15 @@ export type AgentModelAccessRead = {
 }
 
 /**
- * Organization-scoped Claude Code OTel configuration.
+ * Organization-scoped OTel configuration for agent runs.
  *
- * See https://code.claude.com/docs/en/monitoring-usage for the env vars
- * these fields map onto.
+ * Claude Code and the Pi harness both use it. For Claude Code, see
+ * https://code.claude.com/docs/en/monitoring-usage for the env vars these
+ * fields map onto.
  */
 export type AgentOtelConfig = {
   /**
-   * Whether Claude Code telemetry is enabled for agent runs.
+   * Whether telemetry is enabled for agent runs.
    */
   enabled?: boolean
   /**
@@ -624,7 +625,7 @@ export type AgentOtelConfig = {
    */
   logs_enabled?: boolean
   /**
-   * Whether traces are exported. Enables Claude Code beta tracing.
+   * Whether traces are exported. Enables beta tracing on Claude Code.
    */
   traces_enabled?: boolean
   /**
@@ -640,15 +641,15 @@ export type AgentOtelConfig = {
    */
   logs_export_interval_ms?: number | null
   /**
-   * Whether metrics include the Claude Code session identifier.
+   * Whether metrics include the agent session identifier.
    */
   metrics_include_session_id?: boolean | null
   /**
-   * Whether metrics include the Claude Code version.
+   * Whether metrics include the agent runtime version.
    */
   metrics_include_version?: boolean | null
   /**
-   * Whether metrics include the authenticated account identifier.
+   * Whether metrics include the authenticated account identifier. Claude Code only.
    */
   metrics_include_account_uuid?: boolean | null
   /**
@@ -677,11 +678,11 @@ export type AgentOtelSettingsRead = {
 
 export type AgentOtelSettingsUpdate = {
   /**
-   * Claude Code OTel telemetry configuration for agent runs.
+   * OTel telemetry configuration for agent runs.
    */
   agent_otel_config?: AgentOtelConfig
   /**
-   * Encrypted headers for the Claude Code OTLP exporter. Omitted values leave existing headers unchanged.
+   * Encrypted headers for the agent OTLP exporter. Omitted values leave existing headers unchanged.
    */
   agent_otel_headers?: {
     [key: string]: string

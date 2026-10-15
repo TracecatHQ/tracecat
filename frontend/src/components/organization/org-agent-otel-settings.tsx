@@ -47,7 +47,10 @@ const SIGNAL_LABELS: { key: keyof AgentOtelSignals; label: string }[] = [
 const PRIVACY_FLAG_LABELS: { key: AgentOtelPrivacyFlagKey; label: string }[] = [
   { key: "metricsIncludeSessionId", label: "Include session ID in metrics" },
   { key: "metricsIncludeVersion", label: "Include version in metrics" },
-  { key: "metricsIncludeAccountUuid", label: "Include account ID in metrics" },
+  {
+    key: "metricsIncludeAccountUuid",
+    label: "Include account ID in metrics (Claude Code)",
+  },
   { key: "logUserPrompts", label: "Log user prompts" },
   { key: "logToolDetails", label: "Log tool details" },
   { key: "logToolContent", label: "Log tool content" },
@@ -289,7 +292,7 @@ export function OrgAgentOtelSettings() {
         <div className="space-y-0.5">
           <p className="text-sm font-medium">Enable agent telemetry</p>
           <p className="text-xs text-muted-foreground">
-            When off, no OTel env vars are passed to agent runs.
+            When off, agent runs export no telemetry.
           </p>
         </div>
         <Switch
@@ -538,7 +541,8 @@ export function OrgAgentOtelSettings() {
             <div className="space-y-1">
               <p className="text-sm font-medium">Resource attributes</p>
               <p className="text-xs text-muted-foreground">
-                Attached to every exported signal, for example service.name.
+                Attached to every exported signal, for example
+                deployment.environment.
               </p>
             </div>
             {form.resourceAttributes.length > 0 && (

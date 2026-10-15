@@ -2063,7 +2063,7 @@ export const $AgentOtelConfig = {
     enabled: {
       type: "boolean",
       title: "Enabled",
-      description: "Whether Claude Code telemetry is enabled for agent runs.",
+      description: "Whether telemetry is enabled for agent runs.",
       default: false,
     },
     endpoint: {
@@ -2097,7 +2097,7 @@ export const $AgentOtelConfig = {
       type: "boolean",
       title: "Traces Enabled",
       description:
-        "Whether traces are exported. Enables Claude Code beta tracing.",
+        "Whether traces are exported. Enables beta tracing on Claude Code.",
       default: false,
     },
     metrics_temporality: {
@@ -2149,8 +2149,7 @@ export const $AgentOtelConfig = {
         },
       ],
       title: "Metrics Include Session Id",
-      description:
-        "Whether metrics include the Claude Code session identifier.",
+      description: "Whether metrics include the agent session identifier.",
     },
     metrics_include_version: {
       anyOf: [
@@ -2162,7 +2161,7 @@ export const $AgentOtelConfig = {
         },
       ],
       title: "Metrics Include Version",
-      description: "Whether metrics include the Claude Code version.",
+      description: "Whether metrics include the agent runtime version.",
     },
     metrics_include_account_uuid: {
       anyOf: [
@@ -2175,7 +2174,7 @@ export const $AgentOtelConfig = {
       ],
       title: "Metrics Include Account Uuid",
       description:
-        "Whether metrics include the authenticated account identifier.",
+        "Whether metrics include the authenticated account identifier. Claude Code only.",
     },
     log_user_prompts: {
       anyOf: [
@@ -2226,10 +2225,11 @@ export const $AgentOtelConfig = {
   additionalProperties: false,
   type: "object",
   title: "AgentOtelConfig",
-  description: `Organization-scoped Claude Code OTel configuration.
+  description: `Organization-scoped OTel configuration for agent runs.
 
-See https://code.claude.com/docs/en/monitoring-usage for the env vars
-these fields map onto.`,
+Claude Code and the Pi harness both use it. For Claude Code, see
+https://code.claude.com/docs/en/monitoring-usage for the env vars these
+fields map onto.`,
 } as const
 
 export const $AgentOtelSettingsRead = {
@@ -2246,7 +2246,7 @@ export const $AgentOtelSettingsUpdate = {
   properties: {
     agent_otel_config: {
       $ref: "#/components/schemas/AgentOtelConfig",
-      description: "Claude Code OTel telemetry configuration for agent runs.",
+      description: "OTel telemetry configuration for agent runs.",
     },
     agent_otel_headers: {
       anyOf: [
@@ -2262,7 +2262,7 @@ export const $AgentOtelSettingsUpdate = {
       ],
       title: "Agent Otel Headers",
       description:
-        "Encrypted headers for the Claude Code OTLP exporter. Omitted values leave existing headers unchanged.",
+        "Encrypted headers for the agent OTLP exporter. Omitted values leave existing headers unchanged.",
     },
   },
   type: "object",

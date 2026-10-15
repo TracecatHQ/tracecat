@@ -367,12 +367,12 @@ class AgentOtelSettingsRead(BaseSettingsGroup):
 class AgentOtelSettingsUpdate(BaseSettingsGroup):
     agent_otel_config: AgentOtelConfig = Field(
         default_factory=AgentOtelConfig,
-        description="Claude Code OTel telemetry configuration for agent runs.",
+        description="OTel telemetry configuration for agent runs.",
     )
     agent_otel_headers: dict[str, str] | None = Field(
         default=None,
         description=(
-            "Encrypted headers for the Claude Code OTLP exporter. Omitted values "
+            "Encrypted headers for the agent OTLP exporter. Omitted values "
             "leave existing headers unchanged."
         ),
     )

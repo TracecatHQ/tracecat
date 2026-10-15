@@ -1,15 +1,16 @@
 ---
 title: "Organization agent logs"
 description: "Export OpenTelemetry metrics, log events, and traces for agent runs to your observability backend."
-keywords: ["agent telemetry", "OpenTelemetry", "OTLP", "Claude Code"]
+keywords: ["agent telemetry", "OpenTelemetry", "OTLP", "Claude Code", "Pi", "GenAI semantic conventions"]
 ---
 
-Agent runs emit Claude Code OpenTelemetry signals. Point them at your own OTLP collector to track token usage, cost, tool activity, and session outcomes alongside the rest of your observability data.
+Agent runs emit OpenTelemetry metrics, log events, and traces. Point them at your own OTLP collector to track token usage, cost, tool activity, and session outcomes alongside the rest of your observability data.
 
-Tracecat exports metrics, log events, and traces over OTLP/HTTP with protobuf. Traces are off by default while Claude Code tracing is in beta; when you turn them on, Tracecat sets the beta tracing flag for the agent run.
+One organization configuration drives both agent runtimes, Claude Code and the Pi harness, and each runtime emits its own signals. Which agent runs use Pi depends on the agent runtime your deployment enables. Where Pi is enabled, interactive chats run on it.
+
+Tracecat exports metrics, log events, and traces over OTLP/HTTP with protobuf. Traces are off by default, and `traces_enabled` turns them on for both runtimes. Claude Code tracing is in beta, so Tracecat sets the beta tracing flag for Claude Code runs. Pi exports traces without a beta flag.
 
 Telemetry is off until an organization administrator enables it, and each organization configures its own exporter.
-See [Claude Code monitoring](https://code.claude.com/docs/en/monitoring-usage) for the metrics and events each signal carries.
 
 ## Configure the exporter
 
@@ -34,20 +35,68 @@ Tracecat rejects a configuration that enables telemetry with a signal turned on 
 
 ### Exporter headers
 
-Supply `agent_otel_headers` as a name-to-value map, such as an `Authorization` header for your collector. Tracecat encrypts headers at rest and attaches them to outbound telemetry in the OTLP gateway, outside the agent sandbox, so sandboxed agent code never reads a collector credential.
+Supply `agent_otel_headers` as a name-to-value map, such as an `Authorization` header for your collector. Tracecat encrypts headers at rest and attaches them to outbound telemetry in a gateway outside the agent sandbox, so sandboxed agent code never reads a collector credential.
 
 Omitting `agent_otel_headers` from an update leaves the stored headers unchanged; send an empty object to clear them.
 
+## Claude Code
+
+Claude Code runs emit Claude Code's own `claude_code.*` metrics, events, and spans. See [Claude Code monitoring](https://code.claude.com/docs/en/monitoring-usage) for the metrics and events each signal carries.
+
+## Pi harness
+
+Pi runs follow the OpenTelemetry GenAI semantic conventions, pinned at semantic-conventions v1.41.1, and use `pi.*` names where GenAI defines none. The conventions' status is Development, so names can change in later versions.
+
+Pi emits no `claude_code.*` records, so dashboards built on Claude Code's names don't show Pi runs. Filter Pi telemetry on the resource attributes `service.name=tracecat-agent` and `tracecat.agent.harness=pi`.
+
+### Spans
+
+- `invoke_agent pi`: One agent run, with `gen_ai.agent.id` set to the session and `pi.run.outcome`.
+- `chat {model}`: One model request, with the requested and response models, token usage, `gen_ai.response.finish_reasons`, and `pi.cost.usd`.
+- `execute_tool {tool}`: One tool call that ran, with `gen_ai.tool.name` and `gen_ai.tool.call.id`.
+- `pi.approval.wait`: A human's approval wait, with `pi.approval.decision` and `pi.approval.wait_ms`. An approved call's wait nests under its `execute_tool` span.
+
+### Metrics and events
+
+| Name | Signal | Records |
+| :--- | :----- | :------ |
+| `gen_ai.client.token.usage` | Metric | Input and output tokens per model request, by `gen_ai.token.type`. Input tokens include cached tokens. |
+| `gen_ai.client.operation.duration` | Metric | Model request duration in seconds. |
+| `gen_ai.client.operation.time_to_first_chunk` | Metric | Seconds until the provider's first stream event. |
+| `pi.model.cache.tokens` | Metric | Cache read and creation tokens, by `type`. |
+| `pi.cost.usage` | Metric | Estimated cost in USD. |
+| `pi.session.count` | Metric | Session starts, by `start_type` (`fresh` or `resume`). |
+| `pi.agent.active_time` | Metric | Agent run time in seconds. |
+| `pi.tool.decisions` | Metric | Tool decisions, by `pi.tool.decision` and `pi.tool.decision.source`. |
+| `pi.tool.executions` | Metric | Tool calls that ran, by `gen_ai.tool.name` and `pi.tool.outcome`. |
+| `pi.user_prompt` | Event | A prompt and its `pi.prompt.length`. |
+| `pi.model_request` | Event | A model request's tokens, `pi.cost.usd`, and `pi.duration_ms`. |
+| `pi.model_error` | Event | A failed model request, with `error.type` and `http.response.status_code`. |
+| `pi.tool_decision` | Event | A tool decision, with `gen_ai.tool.name`, `pi.tool.decision`, and `pi.tool.decision.source`. |
+| `pi.tool_result` | Event | A tool call that ran, with `pi.tool.success`, input and result sizes in bytes, and `pi.duration_ms`. |
+
+`pi.tool.decision.source` is `config` for your configured tool policy and `user` for a human decision.
+
+Every span and event carries `gen_ai.conversation.id`, set to the Tracecat session, and these identity attributes: `tracecat.organization.id`, `tracecat.workspace.id`, `tracecat.agent.session.id`, `tracecat.agent.run.id`, and, for a subagent, `tracecat.agent.parent_session.id`. Metrics carry the organization and workspace IDs, and the session ID and version only when the privacy controls allow them.
+
+Pi never emits GenAI's opt-in message content, such as `gen_ai.input.messages` and `gen_ai.output.messages`; no Tracecat control covers it.
+
+`pi.cost.usage` and `pi.cost.usd` are Pi's catalog estimates. They read 0 for models Pi doesn't price, so a 0 doesn't mean a request was free.
+
 ## Privacy controls
 
-Telemetry can carry prompt and tool content, so decide what leaves your deployment before you enable it. Each control below follows Claude Code's own default when you leave it unset:
+Telemetry can carry prompt and tool content, so decide what leaves your deployment before you enable it. An unset control takes the default below on both runtimes:
 
-- `log_user_prompts` includes user prompt content in log events.
-- `log_tool_details` includes tool parameters and input arguments.
-- `log_tool_content` includes tool input and output content.
-- `metrics_include_session_id` attaches the Claude Code session identifier to metrics.
-- `metrics_include_version` attaches the Claude Code version to metrics.
-- `metrics_include_account_uuid` attaches the authenticated account identifier to metrics.
+| Control | Default | Claude Code | Pi harness |
+| :------ | :------ | :---------- | :--------- |
+| `log_user_prompts` | Off | Adds user prompt content to log events. | Adds `pi.prompt.text` to `pi.user_prompt` events. |
+| `log_tool_details` | Off | Adds tool parameters and input arguments. | Adds tool arguments, tool and model error messages, and full MCP tool names. With it off, every MCP tool is named `mcp`. |
+| `log_tool_content` | Off | Adds tool input and output content. | Adds results of successful tool calls. An `edit` or `write` result also needs `log_tool_details`. |
+| `metrics_include_session_id` | On | Adds the Claude Code session identifier to metrics. | Adds the Tracecat session ID to metrics as `session.id`. |
+| `metrics_include_version` | Off | Adds the Claude Code version to metrics. | Adds the Pi harness version to metrics as `app.version`. |
+| `metrics_include_account_uuid` | On | Adds the authenticated account identifier to metrics. | Ignored. Pi emits no account identifier. |
+
+When a control is off, Pi omits its attribute entirely; it never sends a redacted placeholder.
 
 Turn on the content controls only when your collector is a trusted destination, because a credential pasted into a prompt reaches any telemetry that captures prompts.
 
@@ -62,17 +111,17 @@ Set `resource_attributes` to a string map that Tracecat attaches to every export
 }
 ```
 
-Attribute names and values must both be non-empty.
+Attribute names and values must both be non-empty. On Pi runs, your attributes can't override `service.*` or `tracecat.*` attributes, which Pi sets itself.
 
-The remaining fields tune transport and export cadence:
+The remaining fields tune transport and export cadence, and both runtimes honor them:
 
-| Field | Values | Description |
-| :---- | :----- | :---------- |
-| `metrics_temporality` | `delta`, `cumulative` | Metrics aggregation temporality. |
-| `metric_export_interval_ms` | Positive integer | Metrics export interval in milliseconds. |
-| `logs_export_interval_ms` | Positive integer | Logs export interval in milliseconds. |
+| Field | Values | Default | Description |
+| :---- | :----- | :------ | :---------- |
+| `metrics_temporality` | `delta`, `cumulative` | `delta` | Metrics aggregation temporality. |
+| `metric_export_interval_ms` | Positive integer | `60000` | Metrics export interval in milliseconds. |
+| `logs_export_interval_ms` | Positive integer | `5000` | Logs export interval in milliseconds. |
 
-Leave a field unset to keep the Claude Code default.
+Pi clamps both intervals to between 1 second and 1 hour.
 
 ## Related pages
 

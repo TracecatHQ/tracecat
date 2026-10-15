@@ -40,17 +40,18 @@ OtlpEndpoint = Annotated[HttpUrl, AfterValidator(_reject_endpoint_credentials)]
 
 
 class AgentOtelConfig(BaseModel):
-    """Organization-scoped Claude Code OTel configuration.
+    """Organization-scoped OTel configuration for agent runs.
 
-    See https://code.claude.com/docs/en/monitoring-usage for the env vars
-    these fields map onto.
+    Claude Code and the Pi harness both use it. For Claude Code, see
+    https://code.claude.com/docs/en/monitoring-usage for the env vars these
+    fields map onto.
     """
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     enabled: bool = Field(
         default=False,
-        description="Whether Claude Code telemetry is enabled for agent runs.",
+        description="Whether telemetry is enabled for agent runs.",
     )
     endpoint: OtlpEndpoint | None = Field(
         default=None, description="OTLP collector endpoint for all signals."
@@ -65,7 +66,9 @@ class AgentOtelConfig(BaseModel):
     )
     traces_enabled: bool = Field(
         default=False,
-        description="Whether traces are exported. Enables Claude Code beta tracing.",
+        description=(
+            "Whether traces are exported. Enables beta tracing on Claude Code."
+        ),
     )
     metrics_temporality: MetricsTemporality | None = Field(
         default=None, description="Metrics aggregation temporality."
@@ -80,14 +83,17 @@ class AgentOtelConfig(BaseModel):
     # Privacy and metric cardinality
     metrics_include_session_id: bool | None = Field(
         default=None,
-        description="Whether metrics include the Claude Code session identifier.",
+        description="Whether metrics include the agent session identifier.",
     )
     metrics_include_version: bool | None = Field(
-        default=None, description="Whether metrics include the Claude Code version."
+        default=None, description="Whether metrics include the agent runtime version."
     )
     metrics_include_account_uuid: bool | None = Field(
         default=None,
-        description="Whether metrics include the authenticated account identifier.",
+        description=(
+            "Whether metrics include the authenticated account identifier. "
+            "Claude Code only."
+        ),
     )
     log_user_prompts: bool | None = Field(
         default=None, description="Whether telemetry includes user prompt content."
