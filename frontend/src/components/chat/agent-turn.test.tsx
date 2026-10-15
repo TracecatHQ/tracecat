@@ -6,6 +6,7 @@ import {
   type ChatVerbosity,
   ChatVerbosityContext,
 } from "@/hooks/use-chat-verbosity"
+import { transformMessages } from "@/lib/chat"
 
 jest.mock("@/components/ai-elements/code-block", () => ({
   CodeBlock: ({ code }: { code: string }) => <pre>{code}</pre>,
@@ -142,6 +143,85 @@ describe("AgentTurn", () => {
     fireEvent.click(screen.getByText("Worked for 38s"))
 
     expect(screen.getByText("Thought for 1 second")).toBeInTheDocument()
+  })
+
+  it("ends a turn at its tool's result when nothing timed follows", () => {
+    const slowTool: UIMessage = {
+      ...TOOL_CALL,
+      parts: [
+        {
+          type: "dynamic-tool",
+          toolName: "core__table__list_tables",
+          toolCallId: "call-1",
+          state: "output-available",
+          input: {},
+          output: [],
+          callProviderMetadata: {
+            tracecat: { completed_at: at(35).created_at },
+          },
+        },
+      ],
+    }
+    const cancelled: UIMessage = {
+      id: "cancelled",
+      role: "assistant",
+      parts: [{ type: "data-cancelled", data: {} }],
+    }
+    renderTurn([PROMPT, THOUGHT, slowTool, cancelled])
+
+    expect(screen.getByText("Worked for 35s")).toBeInTheDocument()
+  })
+
+  it("keeps an approval continuation in the turn it answers", () => {
+    const opened: UIMessage = {
+      id: "opened",
+      role: "assistant",
+      parts: [
+        {
+          type: "dynamic-tool",
+          toolName: "core__table__list_tables",
+          toolCallId: "call-1",
+          state: "input-available",
+          input: {},
+        },
+        {
+          type: "data-approval-request",
+          data: [
+            { tool_call_id: "call-1", tool_name: "core.table.list_tables" },
+          ],
+        },
+      ],
+    }
+    const submitted: UIMessage = {
+      id: "submitted",
+      role: "user",
+      parts: [
+        {
+          type: "data-continue",
+          data: { kind: "continue", source: "chat", decisions: [] },
+        },
+      ],
+    }
+    const continued: UIMessage = {
+      id: "continued",
+      role: "assistant",
+      parts: [
+        {
+          type: "dynamic-tool",
+          toolName: "core__table__list_tables",
+          toolCallId: "call-1",
+          state: "output-available",
+          input: {},
+          output: [],
+        },
+        { type: "text", text: ANSWER },
+      ],
+    }
+    const blocks = groupThread(
+      transformMessages([PROMPT, opened, submitted, continued])
+    )
+
+    expect(blocks.map(({ kind }) => kind)).toEqual(["prompt", "turn"])
   })
 
   it("shows a turn that only thought as its thought", () => {

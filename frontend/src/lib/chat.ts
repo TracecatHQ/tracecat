@@ -665,6 +665,19 @@ export function getAssistantText(parts: UIMessage["parts"]): string {
   }, "")
 }
 /**
+ * Whether a message is a prompt that starts a turn. An approval submission is
+ * a user message too, but it continues the turn it answers.
+ */
+export function isUserPrompt(
+  message: Pick<ai.UIMessage, "role" | "parts">
+): boolean {
+  return (
+    message.role === "user" &&
+    message.parts.some((part) => part.type === "text")
+  )
+}
+
+/**
  * Transforms UI messages by managing tool call state visibility.
  *
  * Implements a state machine that tracks tool call lifecycle:

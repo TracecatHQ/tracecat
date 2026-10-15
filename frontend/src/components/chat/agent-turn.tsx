@@ -16,6 +16,7 @@ import {
   TraceTitle,
 } from "@/components/ui/trace"
 import { useChatVerbosityPolicy } from "@/hooks/use-chat-verbosity"
+import { isUserPrompt } from "@/lib/chat"
 
 type ThreadMessage = Pick<UIMessage, "id" | "role" | "parts" | "metadata">
 
@@ -66,12 +67,12 @@ function getToolsCompletedAt(message: ThreadMessage): number | null {
   return latest
 }
 
-/** Group consecutive non-user messages into one agent turn per prompt. */
+/** Group the messages after each prompt into one agent turn. */
 export function groupThread(messages: ThreadMessage[]): ThreadBlock[] {
   const blocks: ThreadBlock[] = []
   let startedAt: number | null = null
   for (const [index, message] of messages.entries()) {
-    if (message.role === "user") {
+    if (isUserPrompt(message)) {
       blocks.push({ kind: "prompt", message, index })
       startedAt = getRecordedAt(message)
       continue
@@ -222,9 +223,15 @@ export function AgentTurn({
     return renderMessages(messages, "all")
   }
 
-  // Cancel and compaction markers carry no timestamp.
-  const endedAt =
-    messages.map(getRecordedAt).findLast((time) => time !== null) ?? null
+  // Cancel and compaction markers carry no timestamp, and a tool's result can
+  // land after every recorded row.
+  const times = messages
+    .flatMap((message) => [
+      getRecordedAt(message),
+      getToolsCompletedAt(message),
+    ])
+    .filter((time): time is number => time !== null)
+  const endedAt = times.length > 0 ? Math.max(...times) : null
   const title =
     startedAt !== null && endedAt !== null && endedAt > startedAt
       ? `Worked for ${formatDuration(endedAt - startedAt)}`
