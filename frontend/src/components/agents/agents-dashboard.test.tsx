@@ -760,6 +760,30 @@ describe("AgentsDashboard entitlement split", () => {
       expect(lastOptions(mockUseAgentDirectoryItems)?.enabled).toBe(true)
     })
 
+    it("offers current-folder MCP servers while the workspace list loads", async () => {
+      mockHasEntitlement.mockReturnValue(true)
+      mockUseScopeCheck.mockImplementation(
+        (scope) => scope !== "integration:read"
+      )
+      mockUseAgentDirectoryItems.mockReturnValue({
+        directoryItems: [{ ...ENRICH, type: "preset" }],
+        directoryItemsIsLoading: false,
+        directoryItemsError: null,
+      })
+      mockSearchParams.current = new URLSearchParams("view=folders")
+      mockUseAgentPresets.mockReturnValue({
+        presets: undefined,
+        presetsIsLoading: true,
+        presetsError: null,
+      })
+      mockUseWorkflowReferences.mockReturnValue({ workflowReferences: [] })
+      renderDashboard()
+      await userEvent.click(screen.getByRole("button", { name: /MCP servers/ }))
+      expect(
+        await screen.findByRole("option", { name: /jira/ })
+      ).toBeInTheDocument()
+    })
+
     it("offers MCP servers used only in nested folders without integration access", async () => {
       mockHasEntitlement.mockReturnValue(true)
       mockUseScopeCheck.mockImplementation(

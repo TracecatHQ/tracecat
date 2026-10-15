@@ -2213,17 +2213,19 @@ export function AgentsDashboard() {
     })
 
   // The preset summary names MCP integrations only by slug. Use the unfiltered
-  // workspace-wide list so filtering never drops an option.
-  const usedMcpSlugs = useMemo(
-    () => [
-      ...new Set(
-        (presets ?? []).flatMap(
-          (preset) => preset.tool_summary?.mcp_slugs ?? []
-        )
+  // workspace-wide list so filtering never drops an option, plus the current
+  // folder while that list loads.
+  const usedMcpSlugs = useMemo(() => {
+    const summaries = [
+      ...(presets ?? []).map((preset) => preset.tool_summary),
+      ...(directoryItems ?? []).flatMap((item) =>
+        item.type === "preset" ? [item.tool_summary] : []
       ),
-    ],
-    [presets]
-  )
+    ]
+    return [
+      ...new Set(summaries.flatMap((summary) => summary?.mcp_slugs ?? [])),
+    ]
+  }, [directoryItems, presets])
   // The list endpoint needs `integration:read`; without it the request 403s
   // and the slugs stay uncounted.
   const canReadIntegrations = useScopeCheck("integration:read") === true
