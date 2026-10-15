@@ -1,0 +1,61 @@
+frontend/src/components/chat/chat-tools-picker.tsx
+  s_3fab07a328f4d4::t_4928f25be33e0c 93-96
+  s_3fab07a328f4d4::t_66a0901fb5e200 92
+packages/tracecat-registry/tracecat_registry/core/registry.py
+  s_3fab07a328f4d4::t_f3e01695ace688 1-43
+tests/unit/test_chat_tools.py
+  s_3fab07a328f4d4::t_2d01028aa79db2 31
+tests/unit/test_action_discovery.py
+  s_3fab07a328f4d4::t_5f10f8fe546682 1-33,36-55,58-66,68-74,77-78,80-87
+  s_3fab07a328f4d4::t_13349adea29ff2 34-35,56-57,75-76,79
+  s_3fab07a328f4d4::t_775d1653796aa3 67
+Dockerfile
+  s_3fab07a328f4d4::t_4f9eeea9e7ace3 222-223
+tracecat/chat/tools.py
+  s_3fab07a328f4d4::t_2d01028aa79db2 15
+packages/tracecat-registry/tracecat_registry/ctx.pyi
+  s_3fab07a328f4d4::t_2d01028aa79db2 1325,1425
+tests/unit/test_authoring_context.py
+  s_3fab07a328f4d4::t_2d01028aa79db2 418,456,459,461,464
+  s_3fab07a328f4d4::t_b00c84cbdf0047 475-477
+  s_3fab07a328f4d4::t_e293f9e9bf31df 430
+tracecat/agent/action_discovery.py
+  s_3fab07a328f4d4::t_5bb67b0b7a0956 8,10,14-18,47-52,56-58,71-75,77-82,101-106,109-136,138-140,143
+tracecat/registry/actions/service.py
+  s_3fab07a328f4d4::t_29a1a134d76f57 206-207,209-210,214-230,232-233,463-464,1225-1229
+  s_3fab07a328f4d4::t_775d1653796aa3 211-213
+  s_3fab07a328f4d4::t_9e582d213fe1d2 205,208,231
+tracecat/mcp/schemas.py
+  s_3fab07a328f4d4::t_2d01028aa79db2 355,364
+packages/tracecat-registry/tracecat_registry/sdk/workflows.py
+  s_3fab07a328f4d4::t_2d01028aa79db2 268
+tests/unit/test_mcp_server.py
+  s_3fab07a328f4d4::t_0abda4690cbf02 7668,7714
+  s_3fab07a328f4d4::t_e293f9e9bf31df 7414,7482,7541,7610,7663,7738
+tests/registry/test_workflow_sdk.py
+  s_3fab07a328f4d4::t_2d01028aa79db2 428,436
+frontend/src/components/icons.tsx
+  s_3fab07a328f4d4::t_4928f25be33e0c 403-406
+frontend/src/components/chat/chat-tools-picker.test.tsx
+  s_3fab07a328f4d4::t_4928f25be33e0c 77-78
+tracecat/workflow/executions/internal_router.py
+  s_3fab07a328f4d4::t_2d01028aa79db2 52-53,777,781-782,803
+frontend/src/components/icons.test.tsx
+  s_3fab07a328f4d4::t_4928f25be33e0c 350
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3af9f86e80e4fea25d73a06cafeae5f6743b4476",
+  "prompts": {},
+  "sessions": {
+    "s_3fab07a328f4d4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a140d1-98e7-7b53-9710-5c426d6d882a",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
