@@ -2,6 +2,7 @@
 
 import {
   type ChatStatus,
+  type DynamicToolUIPart,
   getToolName,
   isToolUIPart,
   type ToolUIPart,
@@ -278,7 +279,7 @@ function SubagentToolPart({
   state,
   errorText,
 }: {
-  part: ToolUIPart
+  part: ToolUIPart | DynamicToolUIPart
   state: ToolHeaderProps["state"]
   errorText?: unknown
 }) {

@@ -11,6 +11,7 @@ import { StrictMode } from "react"
 import type {
   AgentPresetReadMinimal,
   AgentSessionReadVercel,
+  UIMessage as ApiUIMessage,
   MCPIntegrationRead,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
@@ -2647,7 +2648,7 @@ describe("ChatSessionPane", () => {
       } as any)
     }
 
-    const renderSubject = (serverMessages: UIMessage[]) => (
+    const renderSubject = (serverMessages: ApiUIMessage[]) => (
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <ChatSessionPane

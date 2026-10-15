@@ -14,10 +14,7 @@ import {
   type UIMessageChunk,
 } from "ai"
 import type { ReactNode } from "react"
-import {
-  type AgentSessionsGetSessionVercelResponse,
-  agentSessionsGetSessionVercel,
-} from "@/client"
+import type { UIMessage as ApiUIMessage } from "@/client"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { useGetChatVercel } from "@/hooks/use-chat"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
@@ -196,7 +193,7 @@ describe("ChatSessionPane optimistic first send", () => {
   it("adopts persisted child history and disables direct messages", async () => {
     const description =
       "This subagent conversation is read-only. Message the parent conversation instead."
-    const message: UIMessage = {
+    const message: ApiUIMessage = {
       id: "child-message",
       role: "assistant",
       parts: [{ type: "text", text: "Child result" }],
