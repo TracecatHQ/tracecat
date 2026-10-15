@@ -5,11 +5,6 @@ import {
   DEFAULT_CAPABILITY_GROUPS,
 } from "@/components/chat/chat-tools-picker"
 
-const mockHasScope = jest.fn((_scope: string) => true)
-jest.mock("@/providers/scopes", () => ({
-  useScopes: () => ({ hasScope: mockHasScope, isLoading: false }),
-}))
-
 jest.mock("@/components/ui/popover", () => ({
   Popover: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
@@ -79,8 +74,6 @@ describe("DEFAULT_CAPABILITY_GROUPS", () => {
         "ai.agent.get_preset",
         "ai.agent.list_presets",
         "ai.agent.update_preset",
-        // core.registry.*
-        "core.registry.search_actions",
         // core.cases.*
         "core.cases.aggregate_cases",
         "core.cases.create_case",
@@ -141,28 +134,6 @@ describe("DEFAULT_CAPABILITY_GROUPS", () => {
 describe("ChatToolsPicker", () => {
   beforeEach(() => {
     mockToast.mockClear()
-    mockHasScope.mockImplementation(() => true)
-  })
-
-  it("shows only default capabilities the user can execute", () => {
-    mockHasScope.mockImplementation(
-      (scope) => scope !== "action:core.registry.search_actions:execute"
-    )
-
-    render(
-      <ChatToolsPicker
-        registryActions={[registryAction("core.registry.search_actions")]}
-        selectedTools={[]}
-        onToolsChange={jest.fn()}
-        mcpIntegrations={[]}
-        selectedMcpIntegrations={[]}
-        onMcpChange={jest.fn()}
-        surface="workspace-chat"
-      />
-    )
-
-    expect(screen.queryByText("Action catalog")).not.toBeInTheDocument()
-    expect(screen.getByText("Cases")).toBeInTheDocument()
   })
 
   it.each(["core.cases.aggregate_cases", "core.table.aggregate_rows"])(

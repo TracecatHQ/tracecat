@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from tracecat.agent.action_discovery import list_action_entry_page
+from tracecat.mcp.action_discovery import list_action_entry_page
 
 
 def _entry(namespace: str, name: str, *, visible: bool = True) -> tuple[Any, str]:

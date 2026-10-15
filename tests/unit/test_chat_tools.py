@@ -28,7 +28,6 @@ def test_workspace_chat_default_tools_include_authoring_actions() -> None:
         "ai.agent.get_preset",
         "ai.agent.list_presets",
         "ai.agent.update_preset",
-        "core.registry.search_actions",
         "core.table.list_tables",
         "core.table.get_table_metadata",
         "core.table.create_table",

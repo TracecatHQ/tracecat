@@ -425,30 +425,6 @@ class TestWorkflowsClientCaseTrigger:
         )
 
 
-class TestWorkflowsClientSearchActions:
-    @pytest.mark.anyio
-    async def test_forwards_search_filters_and_cursor(
-        self, workflows_client: WorkflowsClient, mock_tracecat_client: MagicMock
-    ) -> None:
-        response = {"items": [], "next_cursor": None, "has_more": False}
-        mock_tracecat_client.post.return_value = response
-
-        result = await workflows_client.search_actions(
-            query="example", namespace="tools.example", limit=25, cursor="page-2"
-        )
-
-        assert result == response
-        mock_tracecat_client.post.assert_awaited_once_with(
-            "/workflows/actions/search",
-            json={
-                "query": "example",
-                "namespace": "tools.example",
-                "limit": 25,
-                "cursor": "page-2",
-            },
-        )
-
-
 class TestWorkflowsClientGetAuthoringContext:
     """Tests for WorkflowsClient.get_authoring_context()."""
 

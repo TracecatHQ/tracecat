@@ -1,4 +1,4 @@
-"""Compact, paginated registry action discovery shared by authoring surfaces."""
+"""Compact, paginated registry action discovery for the external MCP server."""
 
 from __future__ import annotations
 

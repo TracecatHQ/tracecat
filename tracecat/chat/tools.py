@@ -12,7 +12,6 @@ WORKSPACE_CHAT_AGENT_DEFAULT_TOOLS = [
 ]
 
 WORKSPACE_CHAT_BASE_DEFAULT_TOOLS = [
-    "core.registry.search_actions",
     "core.table.list_tables",
     "core.table.get_table_metadata",
     "core.table.create_table",

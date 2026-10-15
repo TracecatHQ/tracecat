@@ -51,7 +51,6 @@ from sqlalchemy.exc import NoResultFound
 
 from tracecat import config
 from tracecat.agent.access.service import AgentModelAccessService
-from tracecat.agent.action_discovery import list_action_entry_page
 from tracecat.agent.authoring_context import (
     ActionContextResponse,
     ActionDiscoveryResponse,
@@ -196,6 +195,7 @@ from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.integrations.providers import all_providers
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
+from tracecat.mcp.action_discovery import list_action_entry_page
 from tracecat.mcp.auth import (
     create_mcp_auth,
     get_token_identity,
@@ -2876,8 +2876,8 @@ actions:
         model_name: claude-sonnet-4-6
         model_provider: anthropic
       actions:
-        - core.http_request
-        - core.script.run_python
+        - core.cases.get_case
+        - core.table.search_rows
       instructions: "You are a SOC analyst. Be thorough."
       max_tool_calls: 10
 ```
