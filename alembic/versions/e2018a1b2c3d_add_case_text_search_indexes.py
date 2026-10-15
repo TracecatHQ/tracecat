@@ -1,7 +1,7 @@
 """Add native case text search and trigram expression indexes.
 
 Revision ID: e2018a1b2c3d
-Revises: 3e54217aadda
+Revises: 7e666328c9a6
 Create Date: 2026-10-12 12:00:00.000000
 
 Expression indexes cover existing rows and every legacy INSERT/UPDATE/DELETE
@@ -26,7 +26,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "e2018a1b2c3d"
-down_revision: str | None = "3e54217aadda"
+down_revision: str | None = "7e666328c9a6"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
