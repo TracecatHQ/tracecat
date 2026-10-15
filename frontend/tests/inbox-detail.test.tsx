@@ -155,7 +155,7 @@ describe("InboxDetail model badge", () => {
       chatError: null,
     }))
     // The workspace default, unless the caller passes the session's model.
-    mockUseChatReadiness.mockImplementation((options) => ({
+    mockUseChatReadiness.mockImplementation((_workspaceId, options) => ({
       ready: true,
       loading: false,
       modelInfo: options?.modelOverride ?? {

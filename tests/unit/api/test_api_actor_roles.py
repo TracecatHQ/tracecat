@@ -13,7 +13,10 @@ from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent import router as agent_router
 from tracecat.agent.catalog import router as agent_catalog_router
-from tracecat.agent.catalog.schemas import AgentCatalogRead
+from tracecat.agent.catalog.schemas import (
+    WorkspaceAgentModelListResponse,
+    WorkspaceAgentModelRead,
+)
 from tracecat.auth.dependencies import (
     WorkspaceActorRouteRole,
     WorkspaceUserRouteRole,
@@ -580,7 +583,7 @@ async def test_workspace_service_account_can_list_workspace_agent_models(
     workspace_id = role.workspace_id
     assert workspace_id is not None
     catalog_id = uuid.uuid4()
-    model = AgentCatalogRead(
+    model = WorkspaceAgentModelRead(
         id=catalog_id,
         organization_id=role.organization_id,
         custom_provider_id=None,
@@ -593,7 +596,9 @@ async def test_workspace_service_account_can_list_workspace_agent_models(
         agent_catalog_router, "AgentModelAccessService"
     ) as mock_service_cls:
         mock_svc = AsyncMock()
-        mock_svc.get_workspace_models.return_value = [model]
+        mock_svc.list_workspace_models.return_value = WorkspaceAgentModelListResponse(
+            items=[model], default_catalog_id=catalog_id, has_org_default=True
+        )
         mock_service_cls.return_value = mock_svc
 
         token = ctx_role.set(role)
@@ -604,10 +609,10 @@ async def test_workspace_service_account_can_list_workspace_agent_models(
 
     assert response.status_code == status.HTTP_200_OK
     payload = response.json()
-    assert payload["next_cursor"] is None
+    assert payload["default_catalog_id"] == str(catalog_id)
     assert [item["id"] for item in payload["items"]] == [str(catalog_id)]
     assert payload["items"][0]["model_provider"] == "anthropic"
-    mock_svc.get_workspace_models.assert_awaited_once_with(workspace_id=workspace_id)
+    mock_svc.list_workspace_models.assert_awaited_once_with(workspace_id=workspace_id)
 
 
 @pytest.mark.anyio

@@ -74,6 +74,7 @@ export function InboxDetail({
     loading: chatReadyLoading,
     modelInfo,
   } = useChatReadiness(
+    workspaceId,
     presetModel
       ? {
           modelOverride: {

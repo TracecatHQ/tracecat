@@ -26,6 +26,27 @@ class AgentCatalogListResponse(BaseModel):
     next_cursor: str | None = None
 
 
+class WorkspaceAgentModelRead(AgentCatalogRead):
+    """Catalog entry seen from a workspace, labelled with its custom provider."""
+
+    custom_provider_name: str | None = None
+    custom_provider_base_url: str | None = None
+
+
+class WorkspaceAgentModelListResponse(BaseModel):
+    """Models a workspace can use, and its default model."""
+
+    items: list[WorkspaceAgentModelRead]
+    default_catalog_id: UUID | None = Field(
+        default=None,
+        description="The organization's default model, if it is enabled for this workspace.",
+    )
+    has_org_default: bool = Field(
+        default=False,
+        description="Whether the organization has a default model, enabled here or not.",
+    )
+
+
 class CloudCatalogModelBase(BaseModel):
     """Shared, user-supplied fields for a cloud catalog entry.
 

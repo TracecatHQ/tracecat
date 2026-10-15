@@ -22,7 +22,10 @@ import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
 import type { ChatHistoryScope } from "@/components/chat/chat-history-dropdown"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
-import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+import {
+  AGENT_EXECUTE_REQUIRED_MESSAGE,
+  ChatSessionPane,
+} from "@/components/chat/chat-session-pane"
 import { NoMessages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -202,6 +205,8 @@ export function ChatInterface({
   // and the picker would offer to connect a server on a page the role cannot
   // open.
   const canReadIntegrations = useScopeCheck("integration:read")
+  // `undefined` while scopes load: creation waits, nothing is disabled.
+  const canExecuteAgents = useScopeCheck("agent:execute")
   const sessionMcpEnabled =
     canReadIntegrations === true && entityType === "copilot"
   const inWorkspaceChat = surface === "workspace-chat"
@@ -275,6 +280,7 @@ export function ChatInterface({
       setSelectedChatId(firstChatId)
       onChatSelect?.(firstChatId)
     } else if (
+      canExecuteAgents === true &&
       !deferSessionCreation &&
       backendSelectionReady &&
       chats.length === 0 &&
@@ -309,6 +315,7 @@ export function ChatInterface({
     autoCreateAttempted,
     backendOverride,
     backendSelectionReady,
+    canExecuteAgents,
     isDraftChat,
     inWorkspaceChat,
     deferSessionCreation,
@@ -316,6 +323,7 @@ export function ChatInterface({
 
   const handleCreateChat = async () => {
     if (!backendSelectionReady || createChatPending) return
+    if (canExecuteAgents !== true) return
     setNewChatDialogOpen(false)
 
     if (deferSessionCreation) {
@@ -506,7 +514,11 @@ export function ChatInterface({
                         size="sm"
                         variant="ghost"
                         className="size-6 p-0"
-                        disabled={createChatPending || !backendSelectionReady}
+                        disabled={
+                          createChatPending ||
+                          !backendSelectionReady ||
+                          canExecuteAgents === false
+                        }
                       >
                         <Plus className="h-4 w-4" />
                       </Button>
@@ -534,7 +546,11 @@ export function ChatInterface({
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                   <AlertDialogAction
-                    disabled={createChatPending || !backendSelectionReady}
+                    disabled={
+                      createChatPending ||
+                      !backendSelectionReady ||
+                      canExecuteAgents === false
+                    }
                     onClick={() => void handleCreateChat()}
                   >
                     Start new chat
@@ -705,6 +721,7 @@ function ChatBody({
     loading: chatReadyLoading,
     modelInfo,
   } = useChatReadiness(
+    workspaceId,
     selectedPreset
       ? {
           modelOverride: {
@@ -715,6 +732,7 @@ function ChatBody({
         }
       : undefined
   )
+  const cannotExecuteAgents = useScopeCheck("agent:execute") === false
 
   if (chatError) {
     return (
@@ -784,6 +802,16 @@ function ChatBody({
 
   if (!chatId) {
     if (!draftMode || !onCreateSessionBeforeSend) {
+      // No session exists and this role cannot create one.
+      if (cannotExecuteAgents) {
+        return (
+          <div className="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground">
+            <p className="max-w-xs text-pretty">
+              {AGENT_EXECUTE_REQUIRED_MESSAGE}
+            </p>
+          </div>
+        )
+      }
       return (
         <div className="flex h-full items-center justify-center">
           <CenteredSpinner />

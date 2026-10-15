@@ -6,19 +6,12 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type {
-  AgentCatalogRead,
-  AgentCustomProviderRead,
-  AgentModelAccessRead,
   ApiError,
+  WorkspaceAgentModelAccessRead,
+  WorkspaceAgentModelRead,
   WorkspaceRead,
 } from "@/client"
-import {
-  disableModel,
-  enableModel,
-  listCatalog,
-  listCustomProviders,
-  listEnabledModels,
-} from "@/client"
+import { getWorkspaceModelAccess, updateWorkspaceModelAccess } from "@/client"
 import { ProviderIcon } from "@/components/icons"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -38,8 +31,6 @@ import { toast } from "@/components/ui/use-toast"
 import { getApiErrorDetail, retryHandler } from "@/lib/errors"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 import { cn } from "@/lib/utils"
-
-const CURSOR_PAGE_SIZE = 100
 
 const workspaceModelSettingsSchema = z
   .object({
@@ -110,60 +101,9 @@ function getProviderDisplayLabel(provider: string): string {
   }
 }
 
-async function fetchAllCatalogEntries(): Promise<AgentCatalogRead[]> {
-  const items: AgentCatalogRead[] = []
-  let cursor: string | undefined
-
-  do {
-    const response = await listCatalog({
-      cursor,
-      limit: CURSOR_PAGE_SIZE,
-    })
-    items.push(...response.items)
-    cursor = response.next_cursor ?? undefined
-  } while (cursor)
-
-  return items
-}
-
-async function fetchAllEnabledAccessRows(): Promise<AgentModelAccessRead[]> {
-  const items: AgentModelAccessRead[] = []
-  let cursor: string | undefined
-
-  do {
-    const response = await listEnabledModels({
-      cursor,
-      limit: CURSOR_PAGE_SIZE,
-    })
-    items.push(...response.items)
-    cursor = response.next_cursor ?? undefined
-  } while (cursor)
-
-  return items
-}
-
-async function fetchAllProviders(): Promise<AgentCustomProviderRead[]> {
-  const items: AgentCustomProviderRead[] = []
-  let cursor: string | undefined
-
-  do {
-    const response = await listCustomProviders({
-      cursor,
-      limit: CURSOR_PAGE_SIZE,
-    })
-    items.push(...response.items)
-    cursor = response.next_cursor ?? undefined
-  } while (cursor)
-
-  return items
-}
-
-function getModelSourceLabel(
-  entry: AgentCatalogRead,
-  providersById: Map<string, AgentCustomProviderRead>
-): string {
+function getModelSourceLabel(entry: WorkspaceAgentModelRead): string {
   if (entry.custom_provider_id) {
-    return providersById.get(entry.custom_provider_id)?.display_name ?? "Custom"
+    return entry.custom_provider_name ?? "Custom"
   }
   return getProviderDisplayLabel(entry.model_provider)
 }
@@ -191,69 +131,26 @@ export function WorkspaceModelSettings({
   const isFormDirty = form.formState.isDirty
 
   const {
-    data: catalogEntries,
-    isLoading: catalogEntriesLoading,
-    error: catalogEntriesError,
-  } = useQuery<AgentCatalogRead[], ApiError>({
-    queryKey: ["organization", "agent-catalog"],
-    queryFn: fetchAllCatalogEntries,
+    data: modelAccess,
+    isLoading: modelAccessLoading,
+    error: modelAccessError,
+  } = useQuery<WorkspaceAgentModelAccessRead, ApiError>({
+    queryKey: ["workspace", workspace.id, "agent-model-access"],
+    queryFn: async () =>
+      await getWorkspaceModelAccess({ workspaceId: workspace.id }),
     retry: retryHandler,
   })
 
-  const {
-    data: enabledAccessRows,
-    isLoading: enabledAccessRowsLoading,
-    error: enabledAccessRowsError,
-  } = useQuery<AgentModelAccessRead[], ApiError>({
-    queryKey: ["organization", "agent-model-access"],
-    queryFn: fetchAllEnabledAccessRows,
-    retry: retryHandler,
-  })
-
-  const {
-    data: customProviders,
-    isLoading: customProvidersLoading,
-    error: customProvidersError,
-  } = useQuery<AgentCustomProviderRead[], ApiError>({
-    queryKey: ["organization", "agent-providers"],
-    queryFn: fetchAllProviders,
-    retry: retryHandler,
-  })
-
-  const providersById = useMemo(
-    () =>
-      new Map(
-        (customProviders ?? []).map((provider) => [provider.id, provider])
-      ),
-    [customProviders]
-  )
-  const orgEnabledAccessRows = useMemo(
-    () => (enabledAccessRows ?? []).filter((row) => row.workspace_id === null),
-    [enabledAccessRows]
-  )
-  const workspaceAccessRows = useMemo(
-    () =>
-      (enabledAccessRows ?? []).filter(
-        (row) => row.workspace_id === workspace.id
-      ),
-    [enabledAccessRows, workspace.id]
-  )
-  const orgEnabledCatalogIds = useMemo(
-    () => new Set(orgEnabledAccessRows.map((row) => row.catalog_id)),
-    [orgEnabledAccessRows]
-  )
-  const workspaceAccessByCatalogId = useMemo(
-    () => new Map(workspaceAccessRows.map((row) => [row.catalog_id, row])),
-    [workspaceAccessRows]
+  const workspaceCatalogIds = useMemo(
+    () => new Set(modelAccess?.catalog_ids ?? []),
+    [modelAccess]
   )
   const organizationEnabledEntries = useMemo(() => {
-    const entries = (catalogEntries ?? []).filter((entry) =>
-      orgEnabledCatalogIds.has(entry.id)
-    )
+    const entries = [...(modelAccess?.candidates ?? [])]
 
     return entries.sort((left, right) => {
-      const leftSource = getModelSourceLabel(left, providersById)
-      const rightSource = getModelSourceLabel(right, providersById)
+      const leftSource = getModelSourceLabel(left)
+      const rightSource = getModelSourceLabel(right)
       const sourceComparison = leftSource.localeCompare(rightSource)
       if (sourceComparison !== 0) {
         return sourceComparison
@@ -266,25 +163,27 @@ export function WorkspaceModelSettings({
       }
       return left.model_name.localeCompare(right.model_name)
     })
-  }, [catalogEntries, orgEnabledCatalogIds, providersById])
+  }, [modelAccess])
 
   useEffect(() => {
-    if (!catalogEntries || !enabledAccessRows) {
+    if (!modelAccess) {
       return
     }
+    const orgEnabledCatalogIds = new Set(
+      modelAccess.candidates.map((entry) => entry.id)
+    )
     const selectedCatalogIds = organizationEnabledEntries
-      .filter((entry) => workspaceAccessByCatalogId.has(entry.id))
+      .filter((entry) => workspaceCatalogIds.has(entry.id))
       .map((entry) => entry.id)
-    const hasWorkspaceOverride = workspaceAccessRows.length > 0
     const matchesAllOrganizationModels =
       organizationEnabledEntries.every((entry) =>
-        workspaceAccessByCatalogId.has(entry.id)
+        workspaceCatalogIds.has(entry.id)
       ) &&
-      workspaceAccessRows.every((row) =>
-        orgEnabledCatalogIds.has(row.catalog_id)
+      modelAccess.catalog_ids.every((catalogId) =>
+        orgEnabledCatalogIds.has(catalogId)
       )
     const nextValues = {
-      inherit_all: !hasWorkspaceOverride || matchesAllOrganizationModels,
+      inherit_all: modelAccess.inherit_all || matchesAllOrganizationModels,
       catalog_ids: selectedCatalogIds,
     }
     const nextValuesSignature = JSON.stringify(nextValues)
@@ -299,14 +198,11 @@ export function WorkspaceModelSettings({
     form.reset(nextValues)
     lastSyncedFormValuesRef.current = nextValuesSignature
   }, [
-    catalogEntries,
-    enabledAccessRows,
     form,
     isFormDirty,
+    modelAccess,
     organizationEnabledEntries,
-    orgEnabledCatalogIds,
-    workspaceAccessByCatalogId,
-    workspaceAccessRows,
+    workspaceCatalogIds,
   ])
 
   const inheritAll = form.watch("inherit_all")
@@ -322,53 +218,31 @@ export function WorkspaceModelSettings({
     }
 
     return organizationEnabledEntries.filter((entry) => {
-      const sourceLabel = getModelSourceLabel(
-        entry,
-        providersById
-      ).toLowerCase()
+      const sourceLabel = getModelSourceLabel(entry).toLowerCase()
       return (
         entry.model_name.toLowerCase().includes(query) ||
         entry.model_provider.toLowerCase().includes(query) ||
         sourceLabel.includes(query)
       )
     })
-  }, [modelQuery, organizationEnabledEntries, providersById])
+  }, [modelQuery, organizationEnabledEntries])
 
   const updateWorkspaceModelSubset = useMutation({
-    mutationFn: async (values: WorkspaceModelSettingsForm) => {
-      const desiredCatalogIds = new Set(values.catalog_ids)
-      const accessRowsToDisable = values.inherit_all
-        ? workspaceAccessRows
-        : workspaceAccessRows.filter(
-            (row) =>
-              !desiredCatalogIds.has(row.catalog_id) ||
-              !orgEnabledCatalogIds.has(row.catalog_id)
-          )
-      const catalogIdsToEnable = values.inherit_all
-        ? []
-        : [...desiredCatalogIds].filter(
-            (catalogId) => !workspaceAccessByCatalogId.has(catalogId)
-          )
-
-      for (const row of accessRowsToDisable) {
-        await disableModel({ accessId: row.id })
-      }
-      for (const catalogId of catalogIdsToEnable) {
-        await enableModel({
-          requestBody: {
-            catalog_id: catalogId,
-            workspace_id: workspace.id,
-          },
-        })
-      }
-    },
+    mutationFn: async (values: WorkspaceModelSettingsForm) =>
+      await updateWorkspaceModelAccess({
+        workspaceId: workspace.id,
+        requestBody: {
+          inherit_all: values.inherit_all,
+          catalog_ids: values.inherit_all ? [] : values.catalog_ids,
+        },
+      }),
     onSuccess: (_data, values) => {
       form.reset(values)
       void queryClient.invalidateQueries({
-        queryKey: ["organization", "agent-model-access"],
+        queryKey: ["workspace", workspace.id, "agent-model-access"],
       })
       void queryClient.invalidateQueries({
-        queryKey: ["workspace", workspace.id, "agent-model-access"],
+        queryKey: ["workspace", workspace.id, "agent-models"],
       })
       toast({
         title: "Workspace models updated",
@@ -390,11 +264,7 @@ export function WorkspaceModelSettings({
     await updateWorkspaceModelSubset.mutateAsync(values)
   }
 
-  if (
-    catalogEntriesLoading ||
-    enabledAccessRowsLoading ||
-    customProvidersLoading
-  ) {
+  if (modelAccessLoading) {
     return (
       <div className="flex items-center justify-center py-10">
         <Loader2 className="size-5 animate-spin text-muted-foreground" />
@@ -402,16 +272,12 @@ export function WorkspaceModelSettings({
     )
   }
 
-  if (catalogEntriesError || enabledAccessRowsError || customProvidersError) {
+  if (modelAccessError) {
     return (
       <Alert variant="destructive">
         <AlertTitle>Unable to load workspace model access</AlertTitle>
         <AlertDescription>
-          {getApiErrorDetail(
-            catalogEntriesError ??
-              enabledAccessRowsError ??
-              customProvidersError
-          ) ?? "Something went wrong."}
+          {getApiErrorDetail(modelAccessError) ?? "Something went wrong."}
         </AlertDescription>
       </Alert>
     )
@@ -480,10 +346,7 @@ export function WorkspaceModelSettings({
                           const checked = inheritAll
                             ? true
                             : selectedCatalogIdSet.has(entry.id)
-                          const sourceName = getModelSourceLabel(
-                            entry,
-                            providersById
-                          )
+                          const sourceName = getModelSourceLabel(entry)
 
                           return (
                             <label

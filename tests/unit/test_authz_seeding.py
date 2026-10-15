@@ -3,7 +3,7 @@
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from tracecat.authz.enums import ScopeSource
 from tracecat.authz.seeding import (
@@ -11,6 +11,7 @@ from tracecat.authz.seeding import (
     SYSTEM_SCOPE_DEFINITIONS,
     seed_registry_scopes,
     seed_system_roles_for_all_orgs,
+    seed_system_roles_for_org,
     seed_system_scopes,
 )
 from tracecat.db.models import Organization, Role, RoleScope, Scope
@@ -191,6 +192,94 @@ async def test_seed_system_roles_for_all_orgs_idempotent(session):
     )
     role_count = role_count_result.scalar_one()
     assert role_count == org_count * len(PRESET_ROLE_DEFINITIONS)
+
+
+@pytest.mark.anyio
+async def test_seeding_reconciles_preset_role_links_to_their_definitions(session):
+    """Reseeding adds missing preset links, removes extra ones, and leaves custom roles alone.
+
+    An older app version re-seeds links a newer definition dropped, such as
+    agent scopes on organization-member, so each startup must remove them.
+    """
+    await seed_system_scopes(session)
+    org = Organization(
+        id=uuid4(),
+        name="Reconcile org",
+        slug=f"reconcile-org-{uuid4().hex[:8]}",
+        is_active=True,
+    )
+    session.add(org)
+    await session.flush()
+    await seed_system_roles_for_org(session, org.id)
+
+    scope_ids = dict(
+        (
+            await session.execute(
+                select(Scope.name, Scope.id).where(Scope.organization_id.is_(None))
+            )
+        )
+        .tuples()
+        .all()
+    )
+    role_ids = dict(
+        (
+            await session.execute(
+                select(Role.slug, Role.id).where(Role.organization_id == org.id)
+            )
+        )
+        .tuples()
+        .all()
+    )
+    custom_role = Role(id=uuid4(), name="Agent runner", organization_id=org.id)
+    session.add(custom_role)
+    await session.flush()
+    session.add_all(
+        [
+            # Stale links an older definition carried.
+            RoleScope(
+                role_id=role_ids["organization-member"],
+                scope_id=scope_ids["agent:read"],
+            ),
+            RoleScope(
+                role_id=role_ids["organization-member"],
+                scope_id=scope_ids["agent:execute"],
+            ),
+            RoleScope(
+                role_id=role_ids["workspace-viewer"],
+                scope_id=scope_ids["agent:delete"],
+            ),
+            RoleScope(role_id=custom_role.id, scope_id=scope_ids["agent:execute"]),
+        ]
+    )
+    await session.execute(
+        delete(RoleScope).where(
+            RoleScope.role_id == role_ids["workspace-editor"],
+            RoleScope.scope_id == scope_ids["agent:execute"],
+        )
+    )
+    await session.flush()
+
+    await seed_system_roles_for_org(session, org.id)
+
+    links = (
+        await session.execute(
+            select(Role.slug, Role.id, Scope.name)
+            .join(RoleScope, RoleScope.role_id == Role.id)
+            .join(Scope, Scope.id == RoleScope.scope_id)
+            .where(Role.organization_id == org.id)
+        )
+    ).tuples()
+    preset_links: dict[str, set[str]] = {}
+    custom_links: set[str] = set()
+    for slug, role_id, scope_name in links:
+        if role_id == custom_role.id:
+            custom_links.add(scope_name)
+        else:
+            preset_links.setdefault(slug, set()).add(scope_name)
+    assert preset_links == {
+        slug: set(role_def.scopes) for slug, role_def in PRESET_ROLE_DEFINITIONS.items()
+    }
+    assert custom_links == {"agent:execute"}
 
 
 @pytest.mark.anyio

@@ -34,11 +34,7 @@ import {
 } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { uniqueAgentPresetName } from "@/lib/agent-preset-name"
-import {
-  useAgentDefaultModel,
-  useUserScopes,
-  useWorkspaceAgentModels,
-} from "@/lib/hooks"
+import { useUserScopes, useWorkspaceAgentModels } from "@/lib/hooks"
 import { hasGrantedScope } from "@/lib/scopes"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -116,17 +112,11 @@ function CreateAgentDialogContent({
   )
   const {
     models,
-    providers,
-    catalogLoading,
-    catalogError,
-    providersLoading,
-    providersError,
+    defaultCatalogId,
+    hasOrgDefault,
+    modelsLoading,
+    modelsError,
   } = useWorkspaceAgentModels(workspaceId)
-  const {
-    defaultModelSelection,
-    defaultModelSelectionLoading: defaultModelLoading,
-    defaultModelSelectionError: defaultModelError,
-  } = useAgentDefaultModel()
   const { createAgentPreset, createAgentPresetIsPending } =
     useCreateAgentPreset(workspaceId)
   const { moveAgentPreset, moveAgentPresetIsPending } =
@@ -135,27 +125,10 @@ function CreateAgentDialogContent({
   const foldersEnabled = hasEntitlement("agent_addons")
 
   const initialAgentModel = useMemo(() => {
-    // The canonical endpoint also resolves legacy settings; null means no usable default.
-    if (!models || !defaultModelSelection) return null
-    return (
-      models.find((model) => model.id === defaultModelSelection.catalog_id) ??
-      null
-    )
-  }, [defaultModelSelection, models])
-
-  const needsCustomProvider = Boolean(initialAgentModel?.custom_provider_id)
-  const modelsLoading =
-    catalogLoading || (needsCustomProvider && providersLoading)
-  const modelsError = catalogError || (needsCustomProvider && providersError)
-
-  const initialAgentModelBaseUrl = useMemo(() => {
-    if (!initialAgentModel?.custom_provider_id) return null
-    return (
-      providers?.find(
-        (provider) => provider.id === initialAgentModel.custom_provider_id
-      )?.base_url ?? null
-    )
-  }, [initialAgentModel, providers])
+    // The server resolves legacy settings and workspace access; null means no usable default.
+    if (!models || !defaultCatalogId) return null
+    return models.find((model) => model.id === defaultCatalogId) ?? null
+  }, [defaultCatalogId, models])
 
   const methods = useForm<CreateAgentFormValues>({
     resolver: zodResolver(createAgentSchema),
@@ -178,7 +151,7 @@ function CreateAgentDialogContent({
         model_provider: initialAgentModel.model_provider,
         model_name: initialAgentModel.model_name,
         catalog_id: initialAgentModel.id,
-        base_url: initialAgentModelBaseUrl ?? undefined,
+        base_url: initialAgentModel.custom_provider_base_url ?? undefined,
         description: values.description || undefined,
         library_skills: librarySkills?.length ? librarySkills : undefined,
       })
@@ -204,7 +177,7 @@ function CreateAgentDialogContent({
     }
   }
 
-  if (modelsError || defaultModelError) {
+  if (modelsError) {
     return (
       <DialogContent size="sm" className="sm:max-w-lg">
         <DialogHeader>
@@ -218,7 +191,7 @@ function CreateAgentDialogContent({
     )
   }
 
-  if (modelsLoading || defaultModelLoading || !models) {
+  if (modelsLoading || !models) {
     return (
       <DialogContent size="sm" className="sm:max-w-lg">
         <DialogHeader>
@@ -238,9 +211,8 @@ function CreateAgentDialogContent({
 
   if (!initialAgentModel) {
     // A legacy name may remain after its model is disabled organization-wide.
-    const hasDefaultModel = Boolean(defaultModelSelection)
     let description: string
-    if (hasDefaultModel) {
+    if (hasOrgDefault) {
       description = canAdministerWorkspace
         ? "The organization default model is not enabled for this workspace. Enable it in workspace AI model settings before creating an agent."
         : "The organization default model is not enabled for this workspace. Ask a workspace administrator to enable it before creating an agent."
@@ -254,13 +226,13 @@ function CreateAgentDialogContent({
       <DialogContent size="sm" className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {hasDefaultModel
+            {hasOrgDefault
               ? "Enable the default model"
               : "Set up model provider"}
           </DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        {hasDefaultModel && canAdministerWorkspace ? (
+        {hasOrgDefault && canAdministerWorkspace ? (
           <DialogFooter>
             <Button
               variant="outline"
@@ -274,7 +246,7 @@ function CreateAgentDialogContent({
             </Button>
           </DialogFooter>
         ) : null}
-        {!hasDefaultModel && canAdministerOrg ? (
+        {!hasOrgDefault && canAdministerOrg ? (
           <DialogFooter>
             <Button asChild variant="outline">
               <Link
@@ -353,8 +325,7 @@ function CreateAgentDialogContent({
               disabled={
                 createAgentPresetIsPending ||
                 moveAgentPresetIsPending ||
-                modelsLoading ||
-                defaultModelLoading
+                modelsLoading
               }
             >
               Create agent

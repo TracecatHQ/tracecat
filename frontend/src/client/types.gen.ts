@@ -12513,6 +12513,63 @@ export type WorkflowUpdate = {
   error_handler?: string | null
 }
 
+/**
+ * A workspace's model subset and the organization models it can pick from.
+ */
+export type WorkspaceAgentModelAccessRead = {
+  /**
+   * True when the workspace has no subset and uses every organization-enabled model.
+   */
+  inherit_all: boolean
+  /**
+   * Catalog IDs in the workspace's subset. Empty when inherit_all is true.
+   */
+  catalog_ids: Array<string>
+  /**
+   * Models enabled for the organization.
+   */
+  candidates: Array<WorkspaceAgentModelRead>
+}
+
+/**
+ * Replace a workspace's model subset, or clear it to inherit every org model.
+ */
+export type WorkspaceAgentModelAccessUpdate = {
+  inherit_all: boolean
+  catalog_ids?: Array<string>
+}
+
+/**
+ * Models a workspace can use, and its default model.
+ */
+export type WorkspaceAgentModelListResponse = {
+  items: Array<WorkspaceAgentModelRead>
+  /**
+   * The organization's default model, if it is enabled for this workspace.
+   */
+  default_catalog_id?: string | null
+  /**
+   * Whether the organization has a default model, enabled here or not.
+   */
+  has_org_default?: boolean
+}
+
+/**
+ * Catalog entry seen from a workspace, labelled with its custom provider.
+ */
+export type WorkspaceAgentModelRead = {
+  id: string
+  custom_provider_id: string | null
+  organization_id: string | null
+  model_provider: string
+  model_name: string
+  model_metadata: {
+    [key: string]: unknown
+  } | null
+  custom_provider_name?: string | null
+  custom_provider_base_url?: string | null
+}
+
 export type WorkspaceCreate = {
   name: string
   settings?: WorkspaceSettingsUpdate | null
@@ -14193,7 +14250,20 @@ export type GetWorkspaceModelsData = {
   workspaceId: string
 }
 
-export type GetWorkspaceModelsResponse = AgentCatalogListResponse
+export type GetWorkspaceModelsResponse = WorkspaceAgentModelListResponse
+
+export type GetWorkspaceModelAccessData = {
+  workspaceId: string
+}
+
+export type GetWorkspaceModelAccessResponse = WorkspaceAgentModelAccessRead
+
+export type UpdateWorkspaceModelAccessData = {
+  requestBody: WorkspaceAgentModelAccessUpdate
+  workspaceId: string
+}
+
+export type UpdateWorkspaceModelAccessResponse = WorkspaceAgentModelAccessRead
 
 export type EnableModelData = {
   requestBody: AgentModelAccessCreate
@@ -20097,7 +20167,35 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: AgentCatalogListResponse
+        200: WorkspaceAgentModelListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent-model-access": {
+    get: {
+      req: GetWorkspaceModelAccessData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceAgentModelAccessRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: UpdateWorkspaceModelAccessData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceAgentModelAccessRead
         /**
          * Validation Error
          */
