@@ -3064,9 +3064,19 @@ async def test_run_agent_activity_reproduces_mcp_compression_initialize_timeout_
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("make_input", "enable_internet_access"),
+    [
+        pytest.param(_make_executor_input, True, id="internet"),
+        pytest.param(_make_executor_input, False, id="isolated"),
+        pytest.param(_make_passthrough_executor_input, True, id="passthrough-internet"),
+    ],
+)
 async def test_executor_always_starts_llm_socket_proxy(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    make_input: Callable[..., AgentExecutorInput],
+    enable_internet_access: bool,
 ) -> None:
     """The executor always creates the LLM socket proxy, even with internet access enabled."""
     (
@@ -3075,7 +3085,7 @@ async def test_executor_always_starts_llm_socket_proxy(
         fake_proxy,
         fake_broker,
     ) = await _run_executor_with_fake_broker(
-        executor_input=_make_executor_input(enable_internet_access=True),
+        executor_input=make_input(enable_internet_access=enable_internet_access),
         monkeypatch=monkeypatch,
         tmp_path=tmp_path,
     )
@@ -3088,34 +3098,7 @@ async def test_executor_always_starts_llm_socket_proxy(
     assert fake_broker.requests[0].llm_socket_path == (
         tmp_path / "sockets" / LLM_SOCKET_NAME
     )
-    assert fake_broker.requests[0].enable_internet_access is True
-
-
-@pytest.mark.anyio
-async def test_executor_starts_llm_socket_proxy_for_isolated_passthrough_runs(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    (
-        result,
-        created_socket_paths,
-        fake_proxy,
-        fake_broker,
-    ) = await _run_executor_with_fake_broker(
-        executor_input=_make_executor_input(enable_internet_access=False),
-        monkeypatch=monkeypatch,
-        tmp_path=tmp_path,
-    )
-
-    assert result.success is True
-    assert created_socket_paths == [tmp_path / "sockets" / LLM_SOCKET_NAME]
-    assert fake_proxy.started is True
-    assert fake_proxy.stopped is True
-    assert len(fake_broker.requests) == 1
-    assert fake_broker.requests[0].llm_socket_path == (
-        tmp_path / "sockets" / LLM_SOCKET_NAME
-    )
-    assert fake_broker.requests[0].enable_internet_access is False
+    assert fake_broker.requests[0].enable_internet_access is enable_internet_access
 
 
 @pytest.mark.anyio
@@ -3160,33 +3143,6 @@ async def test_executor_enables_runtime_network_when_subagent_has_stdio_mcp(
     assert result.success is True
     assert len(fake_broker.requests) == 1
     assert fake_broker.requests[0].init_payload.config.enable_internet_access is True
-    assert fake_broker.requests[0].enable_internet_access is True
-
-
-@pytest.mark.anyio
-async def test_executor_starts_llm_socket_proxy_for_passthrough_provider_with_internet_enabled(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    (
-        result,
-        created_socket_paths,
-        fake_proxy,
-        fake_broker,
-    ) = await _run_executor_with_fake_broker(
-        executor_input=_make_passthrough_executor_input(enable_internet_access=True),
-        monkeypatch=monkeypatch,
-        tmp_path=tmp_path,
-    )
-
-    assert result.success is True
-    assert created_socket_paths == [tmp_path / "sockets" / LLM_SOCKET_NAME]
-    assert fake_proxy.started is True
-    assert fake_proxy.stopped is True
-    assert len(fake_broker.requests) == 1
-    assert fake_broker.requests[0].llm_socket_path == (
-        tmp_path / "sockets" / LLM_SOCKET_NAME
-    )
     assert fake_broker.requests[0].enable_internet_access is True
 
 

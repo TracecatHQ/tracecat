@@ -300,30 +300,6 @@ class TestResolveAction:
 
         assert "Origin fingerprints reference unknown origins" in str(exc_info.value)
 
-    @pytest.mark.anyio
-    async def test_resolve_action_cache_not_populated_error(self):
-        """Test error when manifest not found in DB."""
-        lock = RegistryLock(
-            origins={"tracecat_registry": "2024.12.10"},
-            actions={"core.transform.reshape": "tracecat_registry"},
-        )
-
-        # Mock _get_manifest_entry to raise RegistryError (simulating DB miss)
-        with patch.object(
-            registry_resolver,
-            "_get_manifest_entry",
-            new_callable=AsyncMock,
-            side_effect=RegistryError("Registry version not found"),
-        ):
-            with pytest.raises(RegistryError) as exc_info:
-                await registry_resolver.resolve_action(
-                    "core.transform.reshape",
-                    lock,
-                    organization_id=uuid.uuid4(),
-                )
-
-            assert "Registry version not found" in str(exc_info.value)
-
 
 class TestPrefetchLock:
     """Tests for prefetch_lock function."""

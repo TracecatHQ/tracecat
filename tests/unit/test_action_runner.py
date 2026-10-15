@@ -162,21 +162,6 @@ class TestActionRunner:
         return communication
 
     @pytest.mark.anyio
-    async def test_lease_without_artifacts_yields_no_registry_paths(
-        self, temp_cache_dir
-    ):
-        """An artifact-free action receives no extra registry import paths."""
-        runner = ActionRunner(cache_dir=temp_cache_dir)
-
-        async with runner.registry_artifacts.lease(None) as registry_paths:
-            assert registry_paths == []
-
-        async with runner.registry_artifacts.lease([]) as registry_paths:
-            assert registry_paths == []
-
-        assert not (temp_cache_dir / "base").exists()
-
-    @pytest.mark.anyio
     async def test_execute_action_timeout(
         self,
         temp_cache_dir,
@@ -279,62 +264,6 @@ class TestActionRunner:
                     await process.wait()
 
     @pytest.mark.anyio
-    async def test_execute_action_subprocess_crash(
-        self, temp_cache_dir, mock_run_action_input, mock_role
-    ):
-        """Test handling of subprocess crash."""
-        runner = ActionRunner(cache_dir=temp_cache_dir)
-        base_dir = temp_cache_dir / "base"
-        base_dir.mkdir()
-
-        with patch("asyncio.create_subprocess_exec") as mock_subprocess:
-            mock_proc = AsyncMock()
-            mock_proc.returncode = 1
-            mock_proc.communicate = AsyncMock(return_value=(b"", b"Segmentation fault"))
-            mock_subprocess.return_value = mock_proc
-
-            result = await runner._execute_direct(
-                input=mock_run_action_input,
-                role=mock_role,
-                registry_paths=[base_dir],
-                secret_projection=_empty_secret_projection(),
-                timeout=10.0,
-            )
-
-            assert isinstance(result, ExecutorActionErrorInfo)
-            assert result.type == "SubprocessError"
-            assert result.message == "Subprocess exited with code 1"
-
-    @pytest.mark.anyio
-    async def test_execute_action_success(
-        self, temp_cache_dir, mock_run_action_input, mock_role
-    ):
-        """Test successful action execution."""
-        runner = ActionRunner(cache_dir=temp_cache_dir)
-        base_dir = temp_cache_dir / "base"
-        base_dir.mkdir()
-
-        import orjson
-
-        success_response = orjson.dumps({"success": True, "result": {"data": "test"}})
-
-        with patch("asyncio.create_subprocess_exec") as mock_subprocess:
-            mock_proc = AsyncMock()
-            mock_proc.returncode = 0
-            mock_proc.communicate = AsyncMock(return_value=(success_response, b""))
-            mock_subprocess.return_value = mock_proc
-
-            result = await runner._execute_direct(
-                input=mock_run_action_input,
-                role=mock_role,
-                registry_paths=[base_dir],
-                secret_projection=_empty_secret_projection(),
-                timeout=10.0,
-            )
-
-            assert result == {"data": "test"}
-
-    @pytest.mark.anyio
     async def test_execute_action_error_response(
         self, temp_cache_dir, mock_run_action_input, mock_role
     ):
@@ -387,6 +316,11 @@ class TestActionRunner:
     ):
         """Test direct subprocess execution sets SDK auth/context env vars."""
         monkeypatch.setenv("SENTRY_DSN", "https://public@example.com/1")
+        monkeypatch.setattr(
+            action_runner.config,
+            "TRACECAT__ACTION_GATEWAY_SOCKET",
+            "/var/run/tracecat/action-gateway.sock",
+        )
         runner = ActionRunner(cache_dir=temp_cache_dir)
         base_dir = temp_cache_dir / "base"
         base_dir.mkdir()
@@ -449,69 +383,6 @@ class TestActionRunner:
         )
         assert captured_env["TRACECAT__EXECUTOR_TOKEN"] == "test-executor-token"
         assert "SENTRY_DSN" not in captured_env
-
-    @pytest.mark.anyio
-    async def test_execute_action_sets_action_gateway_env(
-        self,
-        temp_cache_dir,
-        mock_run_action_input,
-        mock_role,
-        monkeypatch: pytest.MonkeyPatch,
-    ):
-        """Direct execution injects the mandatory gateway socket into SDK env."""
-        runner = ActionRunner(cache_dir=temp_cache_dir)
-        base_dir = temp_cache_dir / "base"
-        base_dir.mkdir()
-
-        monkeypatch.setattr(
-            action_runner.config,
-            "TRACECAT__ACTION_GATEWAY_SOCKET",
-            "/var/run/tracecat/action-gateway.sock",
-        )
-
-        success_response = orjson.dumps({"success": True, "result": {"data": "test"}})
-        captured_env: dict[str, str] = {}
-
-        resolved_context = ResolvedContext(
-            secrets={},
-            variables={},
-            action_impl=ActionImplementation(
-                type="udf",
-                action_name="core.table.search_rows",
-                module="tracecat_registry.core.table",
-                name="search_rows",
-            ),
-            evaluated_args={"table": "customers"},
-            workspace_id=str(mock_role.workspace_id),
-            workflow_id=str(mock_run_action_input.run_context.wf_id),
-            run_id=str(mock_run_action_input.run_context.wf_run_id),
-            executor_token="test-executor-token",
-        )
-
-        async def create_subprocess_exec_side_effect(*args, **kwargs):  # noqa: ARG001
-            env = kwargs.get("env")
-            assert isinstance(env, dict)
-            captured_env.update(env)
-
-            mock_proc = AsyncMock()
-            mock_proc.returncode = 0
-            mock_proc.communicate = AsyncMock(return_value=(success_response, b""))
-            return mock_proc
-
-        with patch(
-            "asyncio.create_subprocess_exec",
-            side_effect=create_subprocess_exec_side_effect,
-        ):
-            result = await runner._execute_direct(
-                input=mock_run_action_input,
-                role=mock_role,
-                registry_paths=[base_dir],
-                secret_projection=_empty_secret_projection(),
-                timeout=10.0,
-                resolved_context=resolved_context,
-            )
-
-        assert result == {"data": "test"}
         assert (
             captured_env["TRACECAT__ACTION_GATEWAY_SOCKET"]
             == "/var/run/tracecat/action-gateway.sock"

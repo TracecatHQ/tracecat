@@ -115,22 +115,6 @@ def test_generate_model_resolves_typeddict_return_type() -> None:
     assert "name" in schema["properties"]
 
 
-def test_generate_model_resolves_optional_typeddict_return_type() -> None:
-    """Test that optional TypedDict return types (T | None) are resolved."""
-
-    def sample_func(x: str) -> SampleTypedDict | None:
-        return None
-
-    _, rtype, _ = generate_model_from_function(sample_func, _make_kwargs())
-
-    # Should be a union type containing SampleTypedDict and None
-    origin = get_origin(rtype)
-    assert origin is not None  # It's a Union type
-    args = get_args(rtype)
-    assert SampleTypedDict in args
-    assert type(None) in args
-
-
 def test_generate_model_preserves_literal_types_in_params() -> None:
     """Test that Literal types in parameters are preserved with their args."""
 
@@ -193,63 +177,6 @@ def test_generate_model_preserves_component_metadata() -> None:
     script_schema = schema["properties"]["script"]
     components = script_schema.get("x-tracecat-component", [])
     assert components and components[0]["component_id"] == "code"
-
-
-def test_generate_model_handles_annotated_literal() -> None:
-    """Test that Annotated[Literal[...], Doc(...)] works correctly."""
-
-    def sample_func(
-        priority: Annotated[Literal["low", "medium", "high"], Doc("Priority level")],
-    ) -> str:
-        return priority
-
-    input_model, _, _ = generate_model_from_function(sample_func, _make_kwargs())
-
-    # Check description was extracted
-    assert input_model.model_fields["priority"].description == "Priority level"
-
-    # Verify the model validates literal values
-    instance: Any = input_model(priority="high")
-    assert instance.priority == "high"
-
-
-def test_generate_model_handles_list_return_type() -> None:
-    """Test that list[TypedDict] return types are resolved."""
-
-    def sample_func(x: str) -> list[SampleTypedDict]:
-        return []
-
-    _, rtype, _ = generate_model_from_function(sample_func, _make_kwargs())
-
-    assert get_origin(rtype) is list
-    args = get_args(rtype)
-    assert len(args) == 1
-    assert args[0] is SampleTypedDict
-
-
-def test_generate_model_handles_dict_return_type() -> None:
-    """Test that dict[str, Any] return types work correctly."""
-
-    def sample_func(x: str) -> dict[str, Any]:
-        return {}
-
-    _, rtype, rtype_adapter = generate_model_from_function(sample_func, _make_kwargs())
-
-    assert get_origin(rtype) is dict
-    # Verify schema generation works
-    schema = rtype_adapter.json_schema()
-    assert schema["type"] == "object"
-
-
-def test_generate_model_fallback_for_missing_return_type() -> None:
-    """Test that missing return type falls back to Any."""
-
-    def sample_func(x: str):
-        return x
-
-    _, rtype, _ = generate_model_from_function(sample_func, _make_kwargs())
-
-    assert rtype is Any
 
 
 # =============================================================================

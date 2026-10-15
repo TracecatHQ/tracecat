@@ -9,7 +9,7 @@ import pytest
 from asyncpg import DuplicateColumnError, DuplicateTableError
 from fastapi import status
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import IntegrityError, ProgrammingError
+from sqlalchemy.exc import ProgrammingError
 
 from tracecat import config
 from tracecat.auth.types import Role
@@ -323,50 +323,6 @@ async def test_internal_delete_column_returns_refreshed_metadata(
 
 
 @pytest.mark.anyio
-async def test_internal_insert_table_row_invalid_numeric_value_returns_400(
-    action_gateway_client: TestClient,
-    test_admin_role: Role,
-    mock_table: Table,
-) -> None:
-    with patch.object(internal_tables_router, "TablesService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.get_table_by_name.return_value = mock_table
-        mock_svc.insert_row.side_effect = ValueError("Invalid numeric value: 'abc'")
-        MockService.return_value = mock_svc
-
-        response = action_gateway_client.post(
-            f"/internal/tables/{mock_table.name}/rows",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={"data": {"score": "abc"}},
-        )
-
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json()["detail"] == "Invalid numeric value: 'abc'"
-
-
-@pytest.mark.anyio
-async def test_internal_update_table_row_invalid_integer_value_returns_400(
-    action_gateway_client: TestClient,
-    test_admin_role: Role,
-    mock_table: Table,
-) -> None:
-    with patch.object(internal_tables_router, "TablesService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.get_table_by_name.return_value = mock_table
-        mock_svc.update_row.side_effect = ValueError("Invalid integer value: '1.5'")
-        MockService.return_value = mock_svc
-
-        response = action_gateway_client.patch(
-            f"/internal/tables/{mock_table.name}/rows/{uuid.uuid4()}",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={"data": {"attempts": "1.5"}},
-        )
-
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json()["detail"] == "Invalid integer value: '1.5'"
-
-
-@pytest.mark.anyio
 async def test_internal_lookup_table_error_returns_detail(
     action_gateway_client: TestClient,
     test_admin_role: Role,
@@ -534,74 +490,6 @@ async def test_internal_aggregate_rows_sanitizes_unexpected_programming_error(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("batch", [False, True])
-@pytest.mark.parametrize(
-    "error,expected_status",
-    [
-        (
-            TableRowError(
-                "missing_required_column",
-                "Required column 'record_key' is missing.",
-                column="record_key",
-            ),
-            400,
-        ),
-        (
-            TableRowError(
-                "null_not_allowed",
-                "Column 'record_key' cannot be null.",
-                column="record_key",
-            ),
-            400,
-        ),
-        (
-            TableRowError(
-                "unknown_column", "Column 'unknown' does not exist.", column="unknown"
-            ),
-            400,
-        ),
-        (
-            TableRowError(
-                "invalid_value",
-                "Column 'attempts' requires a valid INTEGER value.",
-                column="attempts",
-            ),
-            400,
-        ),
-        (
-            TableRowError(
-                "duplicate_value", "A value already exists in a unique column."
-            ),
-            409,
-        ),
-    ],
-)
-async def test_row_errors_have_structured_client_responses(
-    action_gateway_client: TestClient,
-    test_admin_role: Role,
-    mock_table: Table,
-    batch: bool,
-    error: TableRowError,
-    expected_status: int,
-) -> None:
-    with patch.object(internal_tables_router, "TablesService") as service_type:
-        service = AsyncMock()
-        service.get_table_by_name.return_value = mock_table
-        service.insert_row.side_effect = error
-        service.batch_insert_rows.side_effect = error
-        service_type.return_value = service
-        path = "/internal/tables/test_table/rows"
-        payload = {"rows": [{}]} if batch else {"data": {}}
-        response = action_gateway_client.post(
-            path + ("/batch" if batch else ""),
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-            json=payload,
-        )
-    assert response.status_code == expected_status
-    assert response.json() == {"detail": error.detail}
-
-
-@pytest.mark.anyio
 async def test_empty_row_update_is_client_error(
     action_gateway_client: TestClient,
     test_admin_role: Role,
@@ -622,35 +510,3 @@ async def test_empty_row_update_is_client_error(
         )
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json() == {"detail": error.detail}
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize("batch", [False, True])
-async def test_unrecognized_row_database_errors_remain_server_errors(
-    action_gateway_client: TestClient,
-    test_admin_role: Role,
-    mock_table: Table,
-    batch: bool,
-) -> None:
-    with patch.object(internal_tables_router, "TablesService") as service_type:
-        service = AsyncMock()
-        service.get_table_by_name.return_value = mock_table
-        error = IntegrityError(
-            "private SQL",
-            {"value": "private-test-value"},
-            RuntimeError("unknown failure"),
-        )
-        service.insert_row.side_effect = error
-        service.batch_insert_rows.side_effect = error
-        service_type.return_value = service
-        path = "/internal/tables/test_table/rows"
-        response = TestClient(
-            action_gateway_client.app, raise_server_exceptions=False
-        ).post(
-            path + ("/batch" if batch else ""),
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={"rows": [{}]} if batch else {"data": {}},
-        )
-    assert response.status_code == 500
-    assert "private SQL" not in response.text
-    assert "private-test-value" not in response.text

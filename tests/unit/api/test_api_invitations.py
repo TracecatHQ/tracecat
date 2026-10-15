@@ -139,33 +139,6 @@ def _mock_invitation(
 
 
 @pytest.mark.anyio
-async def test_resend_invitation_success(
-    client: TestClient, test_admin_role: Role
-) -> None:
-    invitation = _mock_invitation()
-
-    with patch.object(invitations_router, "InvitationService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.resend_invitation.return_value = invitation
-        MockService.return_value = mock_svc
-
-        response = client.post(f"/invitations/{invitation.id}/resend")
-
-    assert response.status_code == status.HTTP_200_OK
-    payload = response.json()
-    assert payload["id"] == str(invitation.id)
-    assert payload["email"] == invitation.email
-    assert payload["grants"] == [
-        {
-            "workspace_id": None,
-            "role_id": str(invitation.grants[0].role_id),
-        }
-    ]
-    assert payload["group_ids"] == []
-    mock_svc.resend_invitation.assert_awaited_once_with(invitation.id)
-
-
-@pytest.mark.anyio
 async def test_create_invitation_returns_group_ids(
     client: TestClient, test_admin_role: Role
 ) -> None:

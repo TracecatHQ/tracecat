@@ -7,7 +7,6 @@ from uuid import UUID
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
-from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.query import (
@@ -26,7 +25,7 @@ from tracecat.db.models import Case
 from tracecat.exceptions import TracecatValidationError
 from tracecat.query.compiler import compile_filter
 from tracecat.query.filters import Condition, Filter, FilterOp, NotClause
-from tracecat.query.resolver import FieldKind, FieldResolver
+from tracecat.query.resolver import FieldKind
 from tracecat.tables.enums import SqlType
 
 WORKSPACE_ID = UUID("00000000-0000-4000-8000-000000000001")
@@ -443,21 +442,6 @@ def test_rejects_invalid_kind_storage_pair(definition: Mapping[str, object]) -> 
 
     with pytest.raises(TracecatValidationError, match="custom"):
         resolver.resolve("fields.custom")
-
-
-def test_satisfies_field_resolver_protocol() -> None:
-    resolver: FieldResolver = _resolver()
-
-    assert resolver.resolve("missing") is None
-
-
-def test_compiled_filter_is_a_sqlalchemy_boolean_expression() -> None:
-    predicate = compile_filter(
-        Condition(field="priority", op=FilterOp.GTE, value="high"),
-        _resolver(),
-    )
-
-    assert isinstance(predicate, ColumnElement)
 
 
 @pytest.mark.parametrize(

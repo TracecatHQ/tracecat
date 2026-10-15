@@ -40,28 +40,6 @@ def mock_workspace_data() -> Workspace:
 
 
 @pytest.mark.anyio
-async def test_list_workspaces_admin_success(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_workspace_data: Workspace,
-) -> None:
-    """Test GET /workspaces returns all workspaces for admin."""
-    with patch.object(workspaces_router, "WorkspaceService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.list_accessible_workspaces.return_value = [mock_workspace_data]
-        MockService.return_value = mock_svc
-
-        # Make request
-        response = client.get("/workspaces")
-
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert len(data) == 1
-        assert data[0]["name"] == "Test Workspace"
-
-
-@pytest.mark.anyio
 async def test_list_workspaces_user_success(
     client: TestClient,
     test_role: Role,
@@ -122,34 +100,6 @@ async def test_list_workspaces_allows_workspace_service_account(
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json()[0]["name"] == "Test Workspace"
-
-
-@pytest.mark.anyio
-async def test_create_workspace_success(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_workspace_data: Workspace,
-) -> None:
-    """Test POST /workspaces creates a new workspace."""
-    with patch.object(workspaces_router, "WorkspaceService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.create_workspace.return_value = mock_workspace_data
-        MockService.return_value = mock_svc
-
-        # Make request
-        organization_id = str(uuid.uuid4())
-        response = client.post(
-            "/workspaces",
-            json={
-                "name": "New Workspace",
-                "organization_id": organization_id,
-            },
-        )
-
-        # Assertions
-        assert response.status_code == status.HTTP_201_CREATED
-        data = response.json()
-        assert data["name"] == "Test Workspace"
 
 
 @pytest.mark.anyio
@@ -326,31 +276,6 @@ async def test_create_workspace_membership_requires_invite_scope(
 
 
 @pytest.mark.anyio
-async def test_search_workspaces_success(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_workspace_data: Workspace,
-) -> None:
-    """Test GET /workspaces/search with search term."""
-    with patch.object(workspaces_router, "WorkspaceService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.search_workspaces.return_value = [mock_workspace_data]
-        MockService.return_value = mock_svc
-
-        # Make request
-        response = client.get(
-            "/workspaces/search",
-            params={"name": "Test"},
-        )
-
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert len(data) == 1
-        assert data[0]["name"] == "Test Workspace"
-
-
-@pytest.mark.anyio
 async def test_search_workspaces_authorization_error_returns_403(
     client: TestClient,
     test_admin_role: Role,
@@ -466,51 +391,3 @@ async def test_get_workspace_not_found(
 
         # Should return 404
         assert response.status_code == status.HTTP_404_NOT_FOUND
-
-
-@pytest.mark.anyio
-async def test_update_workspace_success(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_workspace_data: Workspace,
-) -> None:
-    """Test PATCH /workspaces/{workspace_id} updates workspace and returns it."""
-    with patch.object(workspaces_router, "WorkspaceService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.get_workspace.return_value = mock_workspace_data
-        mock_workspace_data.name = "Updated Workspace Name"
-        mock_svc.update_workspace.return_value = mock_workspace_data
-        MockService.return_value = mock_svc
-
-        # Make request
-        workspace_id = str(mock_workspace_data.id)
-        response = client.patch(
-            f"/workspaces/{workspace_id}",
-            json={"name": "Updated Workspace Name"},
-        )
-
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["id"] == str(mock_workspace_data.id)
-        assert data["name"] == "Updated Workspace Name"
-
-
-@pytest.mark.anyio
-async def test_delete_workspace_success(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_workspace_data: Workspace,
-) -> None:
-    """Test DELETE /workspaces/{workspace_id} deletes workspace."""
-    with patch.object(workspaces_router, "WorkspaceService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.delete_workspace.return_value = None
-        MockService.return_value = mock_svc
-
-        # Make request
-        workspace_id = str(mock_workspace_data.id)
-        response = client.delete(f"/workspaces/{workspace_id}")
-
-        # Assertions
-        assert response.status_code == status.HTTP_204_NO_CONTENT

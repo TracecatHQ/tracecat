@@ -19,135 +19,69 @@ from tracecat.sandbox.types import (
 from tracecat.sandbox.wrapper import INSTALL_SCRIPT
 
 
-class TestValidateEnvKey:
-    """Tests for _validate_env_key function."""
-
-    def test_valid_simple_key(self):
-        """Simple alphanumeric keys should pass."""
-        _validate_env_key("MY_VAR")
-        _validate_env_key("API_KEY")
-        _validate_env_key("SECRET123")
-
-    def test_valid_underscore_prefix(self):
-        """Keys starting with underscore should pass."""
-        _validate_env_key("_private")
-        _validate_env_key("_INTERNAL_VAR")
-
-    def test_valid_single_letter(self):
-        """Single letter keys should pass."""
-        _validate_env_key("A")
-        _validate_env_key("_")
-
-    def test_valid_long_key(self):
-        """Long keys should pass."""
-        _validate_env_key("VERY_LONG_ENVIRONMENT_VARIABLE_NAME_123")
-
-    def test_invalid_starts_with_number(self):
-        """Keys starting with number should fail."""
-        with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_env_key("123VAR")
-        assert "Invalid environment variable key" in str(exc_info.value)
-
-    def test_invalid_hyphen(self):
-        """Keys with hyphens should fail."""
-        with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_env_key("MY-VAR")
-        assert "Invalid environment variable key" in str(exc_info.value)
-
-    def test_invalid_newline(self):
-        """Keys with newlines should fail (injection attempt)."""
-        with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_env_key("VAR\nINJECT")
-        assert "Invalid environment variable key" in str(exc_info.value)
-
-    def test_invalid_quote(self):
-        """Keys with quotes should fail (injection attempt)."""
-        with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_env_key('VAR"INJECT')
-        assert "Invalid environment variable key" in str(exc_info.value)
-
-    def test_invalid_space(self):
-        """Keys with spaces should fail."""
-        with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_env_key("MY VAR")
-        assert "Invalid environment variable key" in str(exc_info.value)
-
-    def test_invalid_empty(self):
-        """Empty keys should fail."""
-        with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_env_key("")
-        assert "Invalid environment variable key" in str(exc_info.value)
-
-    def test_invalid_special_characters(self):
-        """Keys with special characters should fail."""
-        for char in ["=", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")"]:
-            with pytest.raises(SandboxValidationError):
-                _validate_env_key(f"VAR{char}NAME")
+@pytest.mark.parametrize(
+    ("key", "valid"),
+    [
+        ("MY_VAR", True),
+        ("API_KEY", True),
+        ("SECRET123", True),
+        ("_private", True),
+        ("_INTERNAL_VAR", True),
+        ("A", True),
+        ("_", True),
+        ("VERY_LONG_ENVIRONMENT_VARIABLE_NAME_123", True),
+        ("123VAR", False),
+        ("MY-VAR", False),
+        ("VAR\nINJECT", False),
+        ('VAR"INJECT', False),
+        ("MY VAR", False),
+        ("", False),
+        *[
+            (f"VAR{char}NAME", False)
+            for char in ["=", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")"]
+        ],
+    ],
+)
+def test_validate_env_key(key: str, valid: bool) -> None:
+    if valid:
+        _validate_env_key(key)
+    else:
+        with pytest.raises(
+            SandboxValidationError, match="Invalid environment variable key"
+        ):
+            _validate_env_key(key)
 
 
-class TestValidatePath:
-    """Tests for _validate_path function."""
+@pytest.mark.parametrize(
+    ("path", "valid"),
+    [
+        ("/tmp/job-123", True),
+        ("/var/lib/sandbox", True),
+        ("/tmp/job.123", True),
+        ("/home/user/.config", True),
+        ("/usr/local/bin", True),
+        ("./local/cache", True),
+        ("cache/packages", True),
+        ('/tmp/job"inject', False),
+        ("/tmp/job'inject", False),
+        ("/tmp/job\ninject", False),
+        ("/tmp/job\rinject", False),
+        ("/tmp/job\\inject", False),
+        ("/tmp/job{inject}", False),
+    ],
+)
+def test_validate_path(path: str, valid: bool) -> None:
+    if valid:
+        _validate_path(Path(path), "job_dir")
+    else:
+        with pytest.raises(SandboxValidationError, match="dangerous characters"):
+            _validate_path(Path(path), "job_dir")
 
-    def test_valid_simple_path(self):
-        """Simple paths should pass."""
-        _validate_path(Path("/tmp/job-123"), "job_dir")
-        _validate_path(Path("/var/lib/sandbox"), "rootfs")
 
-    def test_valid_path_with_dots(self):
-        """Paths with dots in filenames should pass."""
-        _validate_path(Path("/tmp/job.123"), "job_dir")
-        _validate_path(Path("/home/user/.config"), "config")
-
-    def test_valid_absolute_path(self):
-        """Absolute paths should pass."""
-        _validate_path(Path("/usr/local/bin"), "bin_dir")
-
-    def test_valid_relative_path(self):
-        """Relative paths should pass."""
-        _validate_path(Path("./local/cache"), "cache")
-        _validate_path(Path("cache/packages"), "packages")
-
-    def test_invalid_double_quote(self):
-        """Paths with double quotes should fail (injection)."""
-        with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_path(Path('/tmp/job"inject'), "job_dir")
-        assert "dangerous characters" in str(exc_info.value)
-
-    def test_invalid_single_quote(self):
-        """Paths with single quotes should fail."""
-        with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_path(Path("/tmp/job'inject"), "job_dir")
-        assert "dangerous characters" in str(exc_info.value)
-
-    def test_invalid_newline(self):
-        """Paths with newlines should fail (injection)."""
-        with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_path(Path("/tmp/job\ninject"), "job_dir")
-        assert "dangerous characters" in str(exc_info.value)
-
-    def test_invalid_carriage_return(self):
-        """Paths with carriage returns should fail."""
-        with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_path(Path("/tmp/job\rinject"), "job_dir")
-        assert "dangerous characters" in str(exc_info.value)
-
-    def test_invalid_backslash(self):
-        """Paths with backslashes should fail (Windows-style)."""
-        with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_path(Path("/tmp/job\\inject"), "job_dir")
-        assert "dangerous characters" in str(exc_info.value)
-
-    def test_invalid_curly_braces(self):
-        """Paths with curly braces should fail (protobuf syntax)."""
-        with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_path(Path("/tmp/job{inject}"), "job_dir")
-        assert "dangerous characters" in str(exc_info.value)
-
-    def test_error_includes_path_name(self):
-        """Error message should include the path name for context."""
-        with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_path(Path('/tmp/bad"path'), "my_special_path")
-        assert "my_special_path" in str(exc_info.value)
+def test_validate_path_error_includes_path_name() -> None:
+    with pytest.raises(SandboxValidationError) as exc_info:
+        _validate_path(Path('/tmp/bad"path'), "my_special_path")
+    assert "my_special_path" in str(exc_info.value)
 
 
 class TestBindMountValidation:
@@ -360,71 +294,29 @@ class TestInstallScript:
         assert env_map["SAFE_USER_VAR"] == "user-value"
 
 
-class TestValidateCacheKey:
-    """Tests for _validate_cache_key function."""
-
-    def test_valid_short_hex(self):
-        """Short hex strings should pass."""
-        _validate_cache_key("abc123")
-        _validate_cache_key("deadbeef")
-
-    def test_valid_sha256_hex(self):
-        """SHA256-length hex strings should pass."""
-        _validate_cache_key("a" * 64)
-        _validate_cache_key("0123456789abcdef" * 4)
-
-    def test_valid_all_digits(self):
-        """All-digit hex strings should pass."""
-        _validate_cache_key("1234567890")
-
-    def test_valid_all_letters(self):
-        """All lowercase letter hex should pass."""
-        _validate_cache_key("abcdef")
-
-    def test_invalid_uppercase(self):
-        """Uppercase hex should fail (we require lowercase)."""
+@pytest.mark.parametrize(
+    ("cache_key", "error"),
+    [
+        ("abc123", None),
+        ("deadbeef", None),
+        ("a" * 64, None),
+        ("0123456789abcdef" * 4, None),
+        ("1234567890", None),
+        ("abcdef", None),
+        ("ABCDEF", "lowercase hex"),
+        ("AbCdEf", "lowercase hex"),
+        ("ghijkl", "Invalid cache_key"),
+        ('abc"123', "Invalid cache_key"),
+        ("../../../etc/passwd", "Invalid cache_key"),
+        ("", "Invalid cache_key"),
+        ("abc 123", "Invalid cache_key"),
+        ("abc\n123", "Invalid cache_key"),
+    ],
+)
+def test_validate_cache_key(cache_key: str, error: str | None) -> None:
+    if error is None:
+        _validate_cache_key(cache_key)
+    else:
         with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_cache_key("ABCDEF")
-        assert "lowercase hex" in str(exc_info.value)
-
-    def test_invalid_mixed_case(self):
-        """Mixed case should fail."""
-        with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_cache_key("AbCdEf")
-        assert "lowercase hex" in str(exc_info.value)
-
-    def test_invalid_non_hex_letters(self):
-        """Non-hex letters should fail."""
-        with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_cache_key("ghijkl")
-        assert "Invalid cache_key" in str(exc_info.value)
-
-    def test_invalid_special_characters(self):
-        """Special characters should fail (injection attempt)."""
-        with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_cache_key('abc"123')
-        assert "Invalid cache_key" in str(exc_info.value)
-
-    def test_invalid_path_traversal(self):
-        """Path traversal attempts should fail."""
-        with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_cache_key("../../../etc/passwd")
-        assert "Invalid cache_key" in str(exc_info.value)
-
-    def test_invalid_empty(self):
-        """Empty cache key should fail."""
-        with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_cache_key("")
-        assert "Invalid cache_key" in str(exc_info.value)
-
-    def test_invalid_whitespace(self):
-        """Whitespace should fail."""
-        with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_cache_key("abc 123")
-        assert "Invalid cache_key" in str(exc_info.value)
-
-    def test_invalid_newline(self):
-        """Newlines should fail (injection attempt)."""
-        with pytest.raises(SandboxValidationError) as exc_info:
-            _validate_cache_key("abc\n123")
-        assert "Invalid cache_key" in str(exc_info.value)
+            _validate_cache_key(cache_key)
+        assert error in str(exc_info.value)

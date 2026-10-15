@@ -1096,52 +1096,7 @@ async def test_token_refresh_grant_returns_new_tokens_without_id_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ctx = _make_refresh_context()
-    monkeypatch.setattr(
-        "tracecat.mcp.oidc.endpoints.check_token_rate_limit",
-        AsyncMock(return_value=True),
-    )
-    monkeypatch.setattr(
-        "tracecat.mcp.oidc.endpoints.rotate_refresh_token",
-        AsyncMock(return_value=(ctx, "new-rotated-refresh-token")),
-    )
-    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_jti", AsyncMock())
-    secret = oidc_config.get_internal_client_secret()
-
-    response = client.post(
-        "/token",
-        data={
-            "grant_type": "refresh_token",
-            "refresh_token": "old-refresh-token",
-            "client_id": oidc_config.INTERNAL_CLIENT_ID,
-            "client_secret": secret,
-        },
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert "access_token" in body
-    assert body["token_type"] == "Bearer"
-    assert body["expires_in"] == 3600
-    assert body["refresh_token"] == "new-rotated-refresh-token"
-    assert body["scope"] == ctx.metadata.scope
-    # Per OIDC spec, id_token is only issued at initial authorization.
-    assert "id_token" not in body
-
-    # Access token claims should match the original session context.
-    decoded = signing.verify_jwt(body["access_token"])
-    assert decoded["sub"] == str(ctx.user_id)
-    assert decoded["organization_id"] == str(ctx.organization_id)
-    assert decoded["email"] == ctx.metadata.email
-    assert decoded["scope"] == ctx.metadata.scope
-
-
-@pytest.mark.anyio
-async def test_token_refresh_grant_passes_token_and_client_to_rotation_helper(
-    client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    ctx = _make_refresh_context()
-    rotated = AsyncMock(return_value=(ctx, "rotated-token"))
+    rotated = AsyncMock(return_value=(ctx, "new-rotated-refresh-token"))
     monkeypatch.setattr(
         "tracecat.mcp.oidc.endpoints.check_token_rate_limit",
         AsyncMock(return_value=True),
@@ -1157,7 +1112,7 @@ async def test_token_refresh_grant_passes_token_and_client_to_rotation_helper(
         "/token",
         data={
             "grant_type": "refresh_token",
-            "refresh_token": "any",
+            "refresh_token": "old-refresh-token",
             "client_id": oidc_config.INTERNAL_CLIENT_ID,
             "client_secret": secret,
         },
@@ -1166,9 +1121,23 @@ async def test_token_refresh_grant_passes_token_and_client_to_rotation_helper(
     assert response.status_code == 200
     rotated.assert_awaited_once()
     assert rotated.await_args is not None
-    call_kwargs = rotated.await_args.kwargs
-    assert call_kwargs["token"] == "any"
-    assert call_kwargs["client_id"] == oidc_config.INTERNAL_CLIENT_ID
+    assert rotated.await_args.kwargs["token"] == "old-refresh-token"
+    assert rotated.await_args.kwargs["client_id"] == oidc_config.INTERNAL_CLIENT_ID
+    body = response.json()
+    assert "access_token" in body
+    assert body["token_type"] == "Bearer"
+    assert body["expires_in"] == 3600
+    assert body["refresh_token"] == "new-rotated-refresh-token"
+    assert body["scope"] == ctx.metadata.scope
+    # Per OIDC spec, id_token is only issued at initial authorization.
+    assert "id_token" not in body
+
+    # Access token claims should match the original session context.
+    decoded = signing.verify_jwt(body["access_token"])
+    assert decoded["sub"] == str(ctx.user_id)
+    assert decoded["organization_id"] == str(ctx.organization_id)
+    assert decoded["email"] == ctx.metadata.email
+    assert decoded["scope"] == ctx.metadata.scope
 
 
 @pytest.mark.anyio
@@ -1525,33 +1494,27 @@ async def test_authorize_resume_redirects_access_denied_to_client_callback(
 # ---------------------------------------------------------------------------
 
 
-def test_get_internal_discovery_url_uses_api_url(
+@pytest.mark.parametrize(
+    ("api_url", "expected_base"),
+    [
+        pytest.param("http://api:8000", "http://api:8000", id="uses-api-url"),
+        pytest.param(None, _TEST_API_URL, id="falls-back-when-unset"),
+        pytest.param("", _TEST_API_URL, id="falls-back-when-empty"),
+    ],
+)
+def test_get_internal_discovery_url(
     monkeypatch: pytest.MonkeyPatch,
+    api_url: str | None,
+    expected_base: str,
 ) -> None:
-    """When TRACECAT__API_URL is set, it is used as the base."""
-    monkeypatch.setenv("TRACECAT__API_URL", "http://api:8000")
-    url = oidc_config.get_internal_discovery_url()
-    assert url == "http://api:8000/oauth/mcp/.well-known/openid-configuration"
-
-
-def test_get_internal_discovery_url_falls_back_when_unset(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """When TRACECAT__API_URL is not set, falls back to PUBLIC_API_URL."""
-    monkeypatch.delenv("TRACECAT__API_URL", raising=False)
+    """TRACECAT__API_URL is the base when set; unset or empty falls back to PUBLIC_API_URL."""
+    if api_url is None:
+        monkeypatch.delenv("TRACECAT__API_URL", raising=False)
+    else:
+        monkeypatch.setenv("TRACECAT__API_URL", api_url)
     monkeypatch.setattr(oidc_config, "TRACECAT__PUBLIC_API_URL", _TEST_API_URL)
     url = oidc_config.get_internal_discovery_url()
-    assert url == f"{_TEST_API_URL}/oauth/mcp/.well-known/openid-configuration"
-
-
-def test_get_internal_discovery_url_falls_back_when_empty(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """When TRACECAT__API_URL is empty string, falls back to PUBLIC_API_URL."""
-    monkeypatch.setenv("TRACECAT__API_URL", "")
-    monkeypatch.setattr(oidc_config, "TRACECAT__PUBLIC_API_URL", _TEST_API_URL)
-    url = oidc_config.get_internal_discovery_url()
-    assert url == f"{_TEST_API_URL}/oauth/mcp/.well-known/openid-configuration"
+    assert url == f"{expected_base}/oauth/mcp/.well-known/openid-configuration"
 
 
 # ---------------------------------------------------------------------------

@@ -57,84 +57,33 @@ class TestRFGraphNormalizeActionIds:
     compatibility scenarios where raw JSON graphs might have non-standard IDs.
     """
 
-    def test_normalize_preserves_uuid_ids(self) -> None:
-        """Test that UUID IDs are preserved unchanged."""
-        action_uuid = uuid.uuid4()
-
-        trigger = _make_trigger_node()
-        node = _make_udf_node(action_uuid)
-
-        graph = RFGraph(
-            nodes=[trigger, node],
-            edges=[RFEdge(source=trigger.id, target=node.id)],
-        )
-
-        normalized_graph = graph.normalize_action_ids()
-
-        # Should be unchanged
-        action_nodes = normalized_graph.action_nodes()
-        assert len(action_nodes) == 1
-        assert action_nodes[0].id == action_uuid
-
-    def test_normalize_preserves_trigger_node(self) -> None:
-        """Test that trigger nodes are not affected by normalization."""
-        action_uuid = uuid.uuid4()
+    def test_normalize_is_noop_for_uuid_ids(self) -> None:
+        """UUID action IDs and the trigger node are preserved, and the same
+        graph instance is returned when no normalization is needed."""
+        action1_uuid = uuid.uuid4()
+        action2_uuid = uuid.uuid4()
         trigger_id = f"trigger-{uuid.uuid4()}"
 
         trigger = _make_trigger_node(trigger_id)
-        node = _make_udf_node(action_uuid)
-
-        graph = RFGraph(
-            nodes=[trigger, node],
-            edges=[RFEdge(source=trigger_id, target=node.id)],
-        )
-
-        normalized_graph = graph.normalize_action_ids()
-
-        # Trigger node should be unchanged
-        assert normalized_graph.trigger.id == trigger_id
-
-    def test_normalize_returns_same_graph_when_no_changes_needed(self) -> None:
-        """Test that normalize returns self when no normalization is needed."""
-        action_uuid = uuid.uuid4()
-
-        trigger = _make_trigger_node()
-        node = _make_udf_node(action_uuid)
-
-        graph = RFGraph(
-            nodes=[trigger, node],
-            edges=[RFEdge(source=trigger.id, target=node.id)],
-        )
-
-        normalized_graph = graph.normalize_action_ids()
-
-        # Should return the same instance when no changes needed
-        assert normalized_graph is graph
-
-    def test_normalize_with_multiple_nodes(self) -> None:
-        """Test normalize_action_ids with multiple action nodes."""
-        action1_uuid = uuid.uuid4()
-        action2_uuid = uuid.uuid4()
-
-        trigger = _make_trigger_node()
         node1 = _make_udf_node(action1_uuid)
         node2 = _make_udf_node(action2_uuid)
 
         graph = RFGraph(
             nodes=[trigger, node1, node2],
             edges=[
-                RFEdge(source=trigger.id, target=node1.id),
+                RFEdge(source=trigger_id, target=node1.id),
                 RFEdge(source=node1.id, target=node2.id),
             ],
         )
 
         normalized_graph = graph.normalize_action_ids()
 
-        # All nodes should be preserved
-        action_nodes = normalized_graph.action_nodes()
-        assert len(action_nodes) == 2
-        node_ids = {n.id for n in action_nodes}
-        assert node_ids == {action1_uuid, action2_uuid}
+        assert normalized_graph is graph
+        assert normalized_graph.trigger.id == trigger_id
+        assert [n.id for n in normalized_graph.action_nodes()] == [
+            action1_uuid,
+            action2_uuid,
+        ]
 
 
 def test_build_action_statements_preserves_date_like_string_input() -> None:

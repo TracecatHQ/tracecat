@@ -625,7 +625,23 @@ def test_validates_integer_bounds(
             )
 
 
-def test_normalizes_large_numeric_integer_to_decimal() -> None:
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param(10**100, Decimal(str(10**100)), id="large-integer"),
+        pytest.param(
+            "0.1234567890123456789",
+            Decimal("0.1234567890123456789"),
+            id="lossless-string",
+        ),
+        pytest.param("0e-1000000", Decimal(0), id="zero-negative-exponent"),
+        pytest.param("0e1000000", Decimal(0), id="zero-positive-exponent"),
+        pytest.param("-0e1000000", Decimal(0), id="negative-zero"),
+    ],
+)
+def test_normalizes_numeric_values_to_decimal(
+    value: int | str, expected: Decimal
+) -> None:
     resolver = StubResolver(
         {
             "value": ResolvedField(
@@ -635,35 +651,16 @@ def test_normalizes_large_numeric_integer_to_decimal() -> None:
             )
         }
     )
-    value = 10**100
 
     expression = compile_filter(
         Condition(field="value", op=FilterOp.EQ, value=value), resolver
     )
     _, params = _compile_sql(expression)
 
-    assert list(params.values()) == [Decimal(str(value))]
+    [normalized] = params.values()
+    assert normalized == expected
+    assert normalized.as_tuple().exponent == expected.as_tuple().exponent
     assert isinstance(expression.right.type, sa.Numeric)
-
-
-def test_normalizes_lossless_numeric_string_to_decimal() -> None:
-    resolver = StubResolver(
-        {
-            "value": ResolvedField(
-                expr=sa.column("value", sa.Numeric()),
-                kind=FieldKind.NUMBER,
-                allowed_ops=ALL_OPS,
-            )
-        }
-    )
-    value = "0.1234567890123456789"
-
-    expression = compile_filter(
-        Condition(field="value", op=FilterOp.EQ, value=value), resolver
-    )
-    _, params = _compile_sql(expression)
-
-    assert list(params.values()) == [Decimal(value)]
 
 
 @pytest.mark.parametrize("value", ["not-a-number", "NaN", "Infinity"])
@@ -714,70 +711,19 @@ def test_validates_postgresql_numeric_extent(value: str, should_pass: bool) -> N
             compile_filter(condition, resolver)
 
 
-@pytest.mark.parametrize("value", ["0e-1000000", "0e1000000", "-0e1000000"])
-def test_canonicalizes_extreme_numeric_zero(value: str) -> None:
-    resolver = StubResolver(
-        {
-            "value": ResolvedField(
-                expr=sa.column("value", sa.Numeric()),
-                kind=FieldKind.NUMBER,
-                allowed_ops=ALL_OPS,
-            )
-        }
-    )
-
-    _, params = _compile_sql(
-        compile_filter(Condition(field="value", op=FilterOp.EQ, value=value), resolver)
-    )
-
-    normalized = next(iter(params.values()))
-    assert normalized == Decimal(0)
-    assert normalized.as_tuple().exponent == 0
-
-
-def test_rejects_extreme_exponent_before_integer_conversion() -> None:
-    resolver = StubResolver(
-        {
-            "value": ResolvedField(
-                expr=sa.column("value", sa.BigInteger()),
-                kind=FieldKind.NUMBER,
-                allowed_ops=ALL_OPS,
-            )
-        }
-    )
-
-    with pytest.raises(TracecatValidationError, match="field 'value'"):
-        compile_filter(
-            Condition(field="value", op=FilterOp.EQ, value="1e1000000"), resolver
-        )
-
-
-@pytest.mark.parametrize("value", [10**309, Decimal("1e10000")])
-def test_rejects_values_that_overflow_float(value: int | Decimal) -> None:
-    resolver = StubResolver(
-        {
-            "value": ResolvedField(
-                expr=sa.column("value", sa.Float()),
-                kind=FieldKind.NUMBER,
-                allowed_ops=ALL_OPS,
-            )
-        }
-    )
-
-    with pytest.raises(TracecatValidationError, match="field 'value'"):
-        compile_filter(Condition(field="value", op=FilterOp.EQ, value=value), resolver)
-
-
 @pytest.mark.parametrize(
     ("sql_type", "value"),
     [
-        (sa.Float(), "1e-400"),
-        (sa.REAL(), "1e100"),
-        (sa.Float(precision=24), "1e100"),
+        pytest.param(sa.BigInteger(), "1e1000000", id="integer-extreme-exponent"),
+        pytest.param(sa.Float(), 10**309, id="float-int-overflow"),
+        pytest.param(sa.Float(), Decimal("1e10000"), id="float-decimal-overflow"),
+        pytest.param(sa.Float(), "1e-400", id="float-underflow"),
+        pytest.param(sa.REAL(), "1e100", id="real-overflow"),
+        pytest.param(sa.Float(precision=24), "1e100", id="float24-overflow"),
     ],
 )
-def test_rejects_float_underflow_and_type_overflow(
-    sql_type: sa.Float, value: str
+def test_rejects_values_outside_column_type_range(
+    sql_type: sa.types.TypeEngine[Any], value: int | str | Decimal
 ) -> None:
     resolver = StubResolver(
         {

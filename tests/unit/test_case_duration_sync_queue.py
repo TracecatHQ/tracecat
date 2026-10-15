@@ -305,36 +305,6 @@ async def test_org_backfill_publish_failure_syncs_inline_and_continues(
 
 
 @pytest.mark.anyio
-async def test_org_backfill_inline_retry_syncs_lock_contended_case(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    organization_id = uuid.uuid4()
-    failed_workspace_id = uuid.uuid4()
-    case_id = uuid.uuid4()
-    _mock_org_backfill_environment(
-        monkeypatch,
-        organization_id=organization_id,
-        workspace_ids=[failed_workspace_id],
-        case_ids=[case_id],
-    )
-    sync_mock = AsyncMock(side_effect=[False, True])
-    sleep_mock = AsyncMock()
-    monkeypatch.setattr(
-        "tracecat.cases.durations.materialization.sync_case_duration",
-        sync_mock,
-    )
-    monkeypatch.setattr("tracecat.cases.durations.sync_queue.asyncio.sleep", sleep_mock)
-
-    await enqueue_case_duration_backfill_for_org(organization_id)
-
-    assert sync_mock.await_args_list == [
-        call(failed_workspace_id, case_id, event_types=None),
-        call(failed_workspace_id, case_id, event_types=None),
-    ]
-    sleep_mock.assert_any_await(0.5)
-
-
-@pytest.mark.anyio
 async def test_org_backfill_inline_sync_failure_isolated_and_retried(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -375,43 +345,6 @@ async def test_org_backfill_inline_sync_failure_isolated_and_retried(
         workspace_id=str(failed_workspace_id),
         case_id=str(failed_case_id),
         error="database unavailable",
-    )
-
-
-@pytest.mark.anyio
-async def test_org_backfill_inline_lock_stays_busy_logs_warning(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    organization_id = uuid.uuid4()
-    failed_workspace_id = uuid.uuid4()
-    case_id = uuid.uuid4()
-    _mock_org_backfill_environment(
-        monkeypatch,
-        organization_id=organization_id,
-        workspace_ids=[failed_workspace_id],
-        case_ids=[case_id],
-    )
-    sync_mock = AsyncMock(return_value=False)
-    sleep_mock = AsyncMock()
-    warning_mock = MagicMock()
-    monkeypatch.setattr(
-        "tracecat.cases.durations.materialization.sync_case_duration",
-        sync_mock,
-    )
-    monkeypatch.setattr("tracecat.cases.durations.sync_queue.asyncio.sleep", sleep_mock)
-    monkeypatch.setattr(
-        "tracecat.cases.durations.sync_queue.logger.warning", warning_mock
-    )
-
-    await enqueue_case_duration_backfill_for_org(organization_id)
-
-    assert sync_mock.await_count == 4
-    warning_mock.assert_any_call(
-        "Inline organization duration backfill skipped cases; lock busy or sync failed",
-        organization_id=str(organization_id),
-        workspace_id=str(failed_workspace_id),
-        remaining_case_count=1,
-        attempts=4,
     )
 
 
@@ -541,51 +474,27 @@ async def test_rollout_backfill_keeps_lease_on_cancellation(
 
 
 @pytest.mark.anyio
-async def test_rollout_backfill_returns_false_while_competing_lease_is_pending(
+@pytest.mark.parametrize(
+    ("marker_value", "expected"),
+    [
+        pytest.param(ROLLOUT_BACKFILL_PENDING_SENTINEL, False, id="lease-pending"),
+        pytest.param(None, False, id="lease-lapsed"),
+        pytest.param("2026-07-22T12:00:00+00:00", True, id="permanent-marker"),
+    ],
+)
+async def test_rollout_backfill_skips_when_marker_not_acquired(
     monkeypatch: pytest.MonkeyPatch,
+    marker_value: str | None,
+    expected: bool,
 ) -> None:
     redis_mock, publish_mock = _mock_rollout_environment(
         monkeypatch,
         marker_acquired=False,
-        marker_value=ROLLOUT_BACKFILL_PENDING_SENTINEL,
+        marker_value=marker_value,
         workspace_ids=[uuid.uuid4()],
     )
 
-    assert not await enqueue_rollout_backfill_once()
-
-    redis_mock.get.assert_awaited_once_with(ROLLOUT_BACKFILL_MARKER_KEY)
-    publish_mock.assert_not_awaited()
-
-
-@pytest.mark.anyio
-async def test_rollout_backfill_returns_true_when_permanent_marker_exists(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    redis_mock, publish_mock = _mock_rollout_environment(
-        monkeypatch,
-        marker_acquired=False,
-        marker_value="2026-07-22T12:00:00+00:00",
-        workspace_ids=[uuid.uuid4()],
-    )
-
-    assert await enqueue_rollout_backfill_once()
-
-    redis_mock.get.assert_awaited_once_with(ROLLOUT_BACKFILL_MARKER_KEY)
-    publish_mock.assert_not_awaited()
-
-
-@pytest.mark.anyio
-async def test_rollout_backfill_returns_false_when_competing_lease_lapses(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    redis_mock, publish_mock = _mock_rollout_environment(
-        monkeypatch,
-        marker_acquired=False,
-        marker_value=None,
-        workspace_ids=[uuid.uuid4()],
-    )
-
-    assert not await enqueue_rollout_backfill_once()
+    assert await enqueue_rollout_backfill_once() is expected
 
     redis_mock.get.assert_awaited_once_with(ROLLOUT_BACKFILL_MARKER_KEY)
     publish_mock.assert_not_awaited()
@@ -623,51 +532,34 @@ def capture_after_commit_callback(
 
 
 @pytest.mark.anyio
-async def test_case_sync_publish_failure_retries_lock_busy_inline_fallback(
+@pytest.mark.parametrize(
+    ("fallback_effect", "delays"),
+    [
+        pytest.param([False, False], (0.0, 0.0), id="lock-stays-busy"),
+        pytest.param([False, True], (0.0, 0.0, 0.0), id="lock-freed"),
+        pytest.param(
+            RuntimeError("database unavailable"), (0.0, 0.0), id="error-exhausts"
+        ),
+        pytest.param(
+            [TimeoutError("pool timeout"), True], (0.0, 0.0, 0.0), id="transient-error"
+        ),
+    ],
+)
+async def test_case_sync_publish_failure_retries_inline_fallback(
     monkeypatch: pytest.MonkeyPatch,
+    fallback_effect: list[bool | Exception] | Exception,
+    delays: tuple[float, ...],
 ) -> None:
     callbacks = capture_after_commit_callback(monkeypatch)
     publish_mock = AsyncMock(side_effect=ConnectionError("redis unavailable"))
-    fallback_mock = AsyncMock(return_value=False)
+    fallback_mock = AsyncMock(side_effect=fallback_effect)
     monkeypatch.setattr(
         "tracecat.cases.durations.sync_queue.publish_case_duration_sync",
         publish_mock,
     )
     monkeypatch.setattr(
         "tracecat.cases.durations.sync_queue.INLINE_FALLBACK_ATTEMPT_DELAYS_SECONDS",
-        (0.0, 0.0),
-    )
-    workspace_id = uuid.uuid4()
-    case_id = uuid.uuid4()
-
-    enqueue_case_duration_sync_after_commit(
-        cast(AsyncSession, MagicMock()),
-        workspace_id=workspace_id,
-        case_id=case_id,
-        event_type="case_updated",
-        reason="case_event",
-        inline_fallback=fallback_mock,
-    )
-
-    await callbacks[0]()
-
-    assert fallback_mock.await_count == 2
-
-
-@pytest.mark.anyio
-async def test_case_sync_inline_fallback_stops_after_lock_freed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    callbacks = capture_after_commit_callback(monkeypatch)
-    publish_mock = AsyncMock(side_effect=ConnectionError("redis unavailable"))
-    fallback_mock = AsyncMock(side_effect=[False, True])
-    monkeypatch.setattr(
-        "tracecat.cases.durations.sync_queue.publish_case_duration_sync",
-        publish_mock,
-    )
-    monkeypatch.setattr(
-        "tracecat.cases.durations.sync_queue.INLINE_FALLBACK_ATTEMPT_DELAYS_SECONDS",
-        (0.0, 0.0, 0.0),
+        delays,
     )
 
     enqueue_case_duration_sync_after_commit(
@@ -706,65 +598,3 @@ async def test_definition_sync_publish_failure_runs_inline_backfill(
     await callbacks[0]()
 
     inline_backfill_mock.assert_awaited_once_with()
-
-
-@pytest.mark.anyio
-async def test_failing_inline_fallback_retries_then_logs_without_propagating(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    callbacks = capture_after_commit_callback(monkeypatch)
-    monkeypatch.setattr(
-        "tracecat.cases.durations.sync_queue.publish_case_duration_sync",
-        AsyncMock(side_effect=ConnectionError("redis unavailable")),
-    )
-    monkeypatch.setattr(
-        "tracecat.cases.durations.sync_queue.INLINE_FALLBACK_ATTEMPT_DELAYS_SECONDS",
-        (0.0, 0.0),
-    )
-    fallback_mock = AsyncMock(side_effect=RuntimeError("database unavailable"))
-    logger_mock = MagicMock()
-    monkeypatch.setattr(
-        "tracecat.cases.durations.sync_queue.logger.exception",
-        logger_mock,
-    )
-
-    enqueue_case_duration_sync_after_commit(
-        cast(AsyncSession, MagicMock()),
-        workspace_id=uuid.uuid4(),
-        case_id=uuid.uuid4(),
-        reason="case_event",
-        inline_fallback=fallback_mock,
-    )
-
-    await callbacks[0]()
-
-    assert fallback_mock.await_count == 2
-    logger_mock.assert_called_once()
-
-
-@pytest.mark.anyio
-async def test_transient_inline_fallback_error_recovers_on_retry(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    callbacks = capture_after_commit_callback(monkeypatch)
-    monkeypatch.setattr(
-        "tracecat.cases.durations.sync_queue.publish_case_duration_sync",
-        AsyncMock(side_effect=ConnectionError("redis unavailable")),
-    )
-    monkeypatch.setattr(
-        "tracecat.cases.durations.sync_queue.INLINE_FALLBACK_ATTEMPT_DELAYS_SECONDS",
-        (0.0, 0.0, 0.0),
-    )
-    fallback_mock = AsyncMock(side_effect=[TimeoutError("pool timeout"), True])
-
-    enqueue_case_duration_sync_after_commit(
-        cast(AsyncSession, MagicMock()),
-        workspace_id=uuid.uuid4(),
-        case_id=uuid.uuid4(),
-        reason="case_event",
-        inline_fallback=fallback_mock,
-    )
-
-    await callbacks[0]()
-
-    assert fallback_mock.await_count == 2

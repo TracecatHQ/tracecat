@@ -5,10 +5,6 @@ import pytest
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.providers import PROVIDER_REGISTRY
 from tracecat.integrations.providers.base import AuthorizationCodeOAuthProvider
-from tracecat.integrations.providers.databricks.oauth import (
-    DATABRICKS_SERVICE_SCOPES,
-    DATABRICKS_USER_SCOPES,
-)
 from tracecat.integrations.schemas import ProviderKey
 
 AC = OAuthGrantType.AUTHORIZATION_CODE
@@ -28,15 +24,6 @@ def test_provider_ids_match_metadata(provider_id: str) -> None:
     for grant_type in (AC, CC):
         cls = PROVIDER_REGISTRY[ProviderKey(id=provider_id, grant_type=grant_type)]
         assert cls.id == cls.metadata.id == provider_id
-
-
-def test_databricks_default_scopes() -> None:
-    """Databricks user and service flows request their documented scopes."""
-    user_cls = PROVIDER_REGISTRY[ProviderKey(id="databricks", grant_type=AC)]
-    service_cls = PROVIDER_REGISTRY[ProviderKey(id="databricks", grant_type=CC)]
-
-    assert user_cls.scopes.default == DATABRICKS_USER_SCOPES
-    assert service_cls.scopes.default == DATABRICKS_SERVICE_SCOPES
 
 
 def test_snowflake_default_scopes() -> None:

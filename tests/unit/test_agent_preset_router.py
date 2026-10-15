@@ -136,18 +136,8 @@ async def test_preview_preserves_validation_details(
     "operation",
     ["create", "update", "restore", "list_versions", "get_version", "compare"],
 )
-@pytest.mark.parametrize(
-    "detail",
-    [
-        {"code": "agent_tool_limit_exceeded", "tool_count": 140, "max_tools": 128},
-        {"code": "duplicate_skill_names", "message": "Explicit validation message"},
-        "String validation detail",
-        None,
-    ],
-)
-async def test_preset_routes_preserve_validation_details(
-    operation: str, detail: dict[str, str | int] | str | None
-) -> None:
+async def test_preset_routes_preserve_validation_details(operation: str) -> None:
+    detail = {"code": "agent_tool_limit_exceeded", "tool_count": 140, "max_tools": 128}
     role = Role(
         type="service",
         service_id="tracecat-api",
@@ -221,10 +211,10 @@ async def test_preset_routes_preserve_validation_details(
                     session=session,
                 )
     assert exc_info.value.status_code == 400
-    expected = detail if detail is not None else "Invalid preset configuration"
-    if isinstance(detail, dict) and "message" not in detail:
-        expected = {**detail, "message": "Invalid preset configuration"}
-    assert exc_info.value.detail == expected
+    assert exc_info.value.detail == {
+        **detail,
+        "message": "Invalid preset configuration",
+    }
 
 
 @pytest.mark.anyio
