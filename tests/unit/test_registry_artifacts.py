@@ -947,6 +947,12 @@ class TestRegistryArtifactCache:
             await holder_admission.ensure_capacity(7 * MIB)
             with pytest.raises(RegistryArtifactCacheLeaseContentionError):
                 await blocked_admission.ensure_capacity(4 * MIB)
+            # A charge larger than the cache fails now, even beside a holder.
+            with pytest.raises(RegistryArtifactCacheCapacityError) as too_big:
+                await blocked_admission.ensure_capacity(11 * MIB)
+            assert not isinstance(
+                too_big.value, RegistryArtifactCacheLeaseContentionError
+            )
             cache._release_reservation(holder)
             cache._release_reservation(blocked)
 
@@ -1103,8 +1109,9 @@ class TestRegistryArtifactCache:
                 asyncio.ensure_future(stage_then_grow(key))
                 for key in ("a" * 16, "b" * 16)
             ]
-            while cache._reserved_bytes < 2 * 3 * MIB:
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(1):
+                while cache._reserved_bytes < 2 * 3 * MIB:
+                    await asyncio.sleep(0.01)
             both_staged.set()
             results = await asyncio.wait_for(
                 asyncio.gather(*writers, return_exceptions=True), timeout=1
@@ -1162,8 +1169,9 @@ class TestRegistryArtifactCache:
                 asyncio.ensure_future(stage_then_extract(key))
                 for key in ("a" * 16, "b" * 16)
             ]
-            while len(staged) < 2:
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(1):
+                while len(staged) < 2:
+                    await asyncio.sleep(0.01)
             both_staged.set()
             results = await asyncio.wait_for(
                 asyncio.gather(*writers, return_exceptions=True), timeout=1
@@ -1173,6 +1181,74 @@ class TestRegistryArtifactCache:
         assert [type(result) for result in results].count(
             RegistryArtifactCacheLeaseContentionError
         ) == 1
+        assert cache._reserved_bytes == 0
+
+    @pytest.mark.anyio
+    async def test_write_blocked_by_fixed_bytes_fails_beside_holder(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Draining other writers cannot free bytes this attempt pins itself."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        pinned_key = "d" * 16
+        pinned_paths = cache._paths_for(pinned_key)
+        pinned_paths.entry_dir.mkdir(parents=True)
+        pinned_paths.squashfs_image_path.write_bytes(b"\0" * (6 * MIB))
+        cache._acquire_lease(pinned_key)
+        holder = RegistryArtifactByteReservation()
+        blocked = RegistryArtifactByteReservation()
+        with (
+            patch(MAX_BYTES_CONFIG, 10 * MIB),
+            patch(RESERVATION_WAIT_CONFIG, 5),
+        ):
+            holder_admission = cache._admission_for("a" * 16, holder)
+            blocked_admission = cache._admission_for(
+                "b" * 16, blocked, attempt_cache_keys={pinned_key, "b" * 16}
+            )
+            assert holder_admission is not None and blocked_admission is not None
+            await holder_admission.ensure_capacity(1 * MIB)
+            # 6 pinned by this attempt + 5 overflows 10 whatever the holder does.
+            async with asyncio.timeout(1):
+                with pytest.raises(RegistryArtifactCacheCapacityError) as raised:
+                    await blocked_admission.ensure_capacity(5 * MIB)
+            for reservation in (holder, blocked):
+                cache._release_reservation(reservation)
+
+        assert not isinstance(raised.value, RegistryArtifactCacheLeaseContentionError)
+        assert cache._reserved_bytes == 0
+
+    @pytest.mark.anyio
+    async def test_write_blocked_by_pending_cleanup_fails_beside_holder(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Bytes awaiting failed cleanup are a floor no other writer can lower."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        idle_paths = cache._paths_for("d" * 16)
+        idle_paths.entry_dir.mkdir(parents=True)
+        idle_paths.squashfs_image_path.write_bytes(b"\0" * (8 * MIB))
+        holder = RegistryArtifactByteReservation()
+        blocked = RegistryArtifactByteReservation()
+        with (
+            patch(MAX_BYTES_CONFIG, 10 * MIB),
+            patch(RESERVATION_WAIT_CONFIG, 5),
+            patch.object(
+                cache,
+                "_reclaim_pending_work",
+                AsyncMock(return_value=(False, True)),
+            ),
+        ):
+            holder_admission = cache._admission_for("a" * 16, holder)
+            blocked_admission = cache._admission_for("b" * 16, blocked)
+            assert holder_admission is not None and blocked_admission is not None
+            await holder_admission.ensure_capacity(1 * MIB)
+            async with asyncio.timeout(1):
+                with pytest.raises(RegistryArtifactCacheCapacityError) as raised:
+                    await blocked_admission.ensure_capacity(3 * MIB)
+            for reservation in (holder, blocked):
+                cache._release_reservation(reservation)
+
+        assert not isinstance(raised.value, RegistryArtifactCacheLeaseContentionError)
         assert cache._reserved_bytes == 0
 
     @pytest.mark.anyio
@@ -1334,8 +1410,9 @@ class TestRegistryArtifactCache:
                 asyncio.ensure_future(stage_then_extract(key))
                 for key in ("a" * 16, "b" * 16)
             ]
-            while len(staged) < 2:
-                await asyncio.sleep(0.01)
+            async with asyncio.timeout(1):
+                while len(staged) < 2:
+                    await asyncio.sleep(0.01)
             await asyncio.sleep(0.05)
             assert admitted == []
             assert cache._release_lease(workflow_key)

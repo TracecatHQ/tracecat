@@ -95,6 +95,7 @@ class RegistryArtifactCacheCapacityError(RuntimeError):
         current_bytes: int,
         additional_bytes: int,
         max_bytes: int,
+        releasable_bytes: int | None = None,
     ) -> None:
         super().__init__(
             "Registry artifact admission exceeds the cache byte budget: "
@@ -104,6 +105,8 @@ class RegistryArtifactCacheCapacityError(RuntimeError):
         self.current_bytes = current_bytes
         self.additional_bytes = additional_bytes
         self.max_bytes = max_bytes
+        # Part of current_bytes other attempts' leases hold; None when unmeasured.
+        self.releasable_bytes = releasable_bytes
 
 
 class RegistryArtifactCacheLeaseContentionError(RegistryArtifactCacheCapacityError):
@@ -118,6 +121,7 @@ def _contention_error(
         current_bytes=blocked.current_bytes,
         additional_bytes=blocked.additional_bytes,
         max_bytes=blocked.max_bytes,
+        releasable_bytes=blocked.releasable_bytes,
     )
 
 
@@ -865,8 +869,15 @@ class RegistryArtifactCacheStorage:
                         lease_blocked = isinstance(
                             error, RegistryArtifactCacheLeaseContentionError
                         )
-                        # Permanent only when no lease or reservation can free space.
-                        if not lease_blocked and others == 0:
+                        # Permanent when bytes no lease or reservation frees leave no room.
+                        releasable = error.releasable_bytes
+                        floor = (
+                            0
+                            if releasable is None
+                            else error.current_bytes - releasable
+                        )
+                        never_fits = floor + need + carried > max_bytes
+                        if never_fits or (not lease_blocked and others == 0):
                             raise
                         blocked = error
                         # Writer-blocked if it fits once other reservations drain.
@@ -1137,6 +1148,7 @@ class RegistryArtifactCacheStorage:
             current_bytes: int,
             *,
             lease_contention: bool = False,
+            releasable_bytes: int | None = None,
         ) -> RegistryArtifactCacheCapacityError:
             error_type = (
                 RegistryArtifactCacheLeaseContentionError
@@ -1147,6 +1159,7 @@ class RegistryArtifactCacheStorage:
                 current_bytes=current_bytes,
                 additional_bytes=additional_bytes,
                 max_bytes=max_bytes,
+                releasable_bytes=releasable_bytes,
             )
 
         step_started = time.monotonic()
@@ -1189,12 +1202,14 @@ class RegistryArtifactCacheStorage:
             raise capacity_error(
                 non_evictable_bytes,
                 lease_contention=fits_after_busy_entries_release,
+                releasable_bytes=retryable_busy_bytes,
             )
         if (
             not (trash_clean and startup_clean)
             and total_bytes + additional_bytes > max_bytes
         ):
-            raise capacity_error(total_bytes)
+            # Eviction waits on cleanup, so no on-disk byte is releasable yet.
+            raise capacity_error(total_bytes, releasable_bytes=0)
         eviction_pass = await self._evict_until_fits(
             entries,
             total_bytes=total_bytes,
@@ -1223,6 +1238,7 @@ class RegistryArtifactCacheStorage:
             raise capacity_error(
                 eviction_pass.total_bytes,
                 lease_contention=fits_after_busy_entries_release,
+                releasable_bytes=retryable_busy_bytes,
             )
 
     def _cache_entry_is_busy(self, cache_key: str) -> bool:
