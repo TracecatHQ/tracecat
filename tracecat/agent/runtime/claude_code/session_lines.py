@@ -91,6 +91,17 @@ def is_approval_continuation_prompt_line(line_data: Mapping[str, object]) -> boo
             return False
 
 
+def opens_hidden_continuation(line_data: Mapping[str, object]) -> bool:
+    """Return True for rows that start a hidden approval-continuation chain.
+
+    Other internal rows, such as attachments and skill loads, are ordinary turn
+    context, so the reasoning that follows them is shown.
+    """
+    return is_synthetic_session_line(line_data) or (
+        is_approval_continuation_prompt_line(line_data)
+    )
+
+
 def is_continuation_control_artifact(
     line_data: Mapping[str, object],
     internal_uuids: set[str],

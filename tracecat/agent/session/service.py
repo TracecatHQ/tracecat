@@ -71,6 +71,7 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     is_continuation_control_artifact,
     is_display_only_session_line,
     is_model_context_session_line,
+    opens_hidden_continuation,
     session_line_uuid,
 )
 from tracecat.agent.service import AgentManagementService
@@ -3039,7 +3040,12 @@ class AgentSessionService(BaseWorkspaceService):
                 continue
 
             if entry.kind == MessageKind.INTERNAL.value:
-                if line_uuid := session_line_uuid(content):
+                line_uuid = session_line_uuid(content)
+                # Only a continuation chain hides the thinking that follows it.
+                if line_uuid and (
+                    opens_hidden_continuation(content)
+                    or content.get("parentUuid") in internal_uuids
+                ):
                     internal_uuids.add(line_uuid)
                 continue
 

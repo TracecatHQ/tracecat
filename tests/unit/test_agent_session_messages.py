@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import orjson
 import pytest
-from claude_agent_sdk.types import UserMessage
+from claude_agent_sdk.types import AssistantMessage, ThinkingBlock, UserMessage
 
 from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_CONTINUATION_PROMPT,
@@ -482,3 +482,61 @@ async def test_list_messages_skips_misclassified_continuation_artifacts() -> Non
 
     assert len(messages) == 1
     assert messages[0].message is not None
+
+
+@pytest.mark.anyio
+async def test_list_messages_keeps_thinking_after_internal_context_rows() -> None:
+    # Claude Code parents each step to internal attachment and skill-load rows;
+    # the reasoning that follows them is part of the turn, not a continuation.
+    service, agent_session = _build_service()
+    entries = [
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.INTERNAL.value,
+            content={
+                "type": "user",
+                "uuid": "skill-uuid",
+                "isMeta": True,
+                "message": {"role": "user", "content": "Base directory for skill"},
+            },
+        ),
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.INTERNAL.value,
+            content={
+                "type": "attachment",
+                "uuid": "attachment-uuid",
+                "parentUuid": "skill-uuid",
+            },
+        ),
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.CHAT_MESSAGE.value,
+            content={
+                "type": "assistant",
+                "uuid": "thinking-uuid",
+                "parentUuid": "attachment-uuid",
+                "message": {
+                    "role": "assistant",
+                    "model": "claude-sonnet",
+                    "content": [
+                        {"type": "thinking", "thinking": "Check the cases first."}
+                    ],
+                },
+            },
+        ),
+    ]
+
+    service.get_session = AsyncMock(return_value=agent_session)
+    service.session.execute = AsyncMock(
+        side_effect=[
+            _mock_scalar_result([]),
+            _mock_scalar_result(entries),
+        ]
+    )
+
+    messages = await service.list_messages(agent_session.id)
+
+    assert len(messages) == 1
+    assert isinstance(messages[0].message, AssistantMessage)
+    assert isinstance(messages[0].message.content[0], ThinkingBlock)
