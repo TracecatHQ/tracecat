@@ -85,6 +85,13 @@ class EntitlementsDict(TypedDict, total=False):
             " is enabled",
         ),
     ]
+    forms: Annotated[
+        bool,
+        Field(
+            title="Forms",
+            description="Whether workflow forms are enabled",
+        ),
+    ]
     tunnels: Annotated[
         bool,
         Field(

@@ -1,3 +1,6 @@
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 from fastapi import HTTPException, Request, Response, status
 from fastapi.exception_handlers import http_exception_handler as default_http_handler
 from fastapi.responses import ORJSONResponse
@@ -40,6 +43,20 @@ _SEARCH_ATTRIBUTE_TYPES: dict[str, IndexedValueType.ValueType] = {
     attr.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD
     for attr in TemporalSearchAttr
 }
+
+
+def without_inputs(errors: Sequence[Any]) -> list[Any]:
+    """Request validation errors without the rejected input.
+
+    The input can be large or sensitive, such as an inline image, so it is
+    never logged.
+    """
+    return [
+        {key: value for key, value in error.items() if key != "input"}
+        if isinstance(error, Mapping)
+        else error
+        for error in errors
+    ]
 
 
 async def generic_exception_handler(request: Request, exc: Exception) -> Response:

@@ -115,6 +115,7 @@ from tracecat.chat.schemas import (
     ApprovalRead,
     BasicChatRequest,
     ChatMessage,
+    ChatPageContext,
     ChatReadMinimal,
     ChatRequest,
     ChatResponse,
@@ -123,6 +124,7 @@ from tracecat.chat.schemas import (
 )
 from tracecat.chat.service import ChatService
 from tracecat.chat.tools import (
+    WORKSPACE_CHAT_FORMS_TOOLS,
     filter_workspace_chat_tools_for_scopes,
     get_default_tools,
 )
@@ -142,12 +144,14 @@ from tracecat.exceptions import (
     TracecatServiceError,
     TracecatValidationError,
 )
+from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 from tracecat.service import BaseWorkspaceService
+from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
-from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
+from tracecat.workspaces.prompts import WorkspaceCopilotPrompts, form_page_context
 
 if TYPE_CHECKING:
     from tracecat_ee.agent.approvals.service import ApprovalMap, ApprovalResult
@@ -426,6 +430,30 @@ class AgentSessionService(BaseWorkspaceService):
             return None
         return list(BUILTIN_WORKSPACE_CHAT_SKILLS)
 
+    async def _forms_enabled(self) -> bool:
+        """Whether this organization has the forms flag and entitlement."""
+        if not is_feature_enabled(FeatureFlag.FORMS):
+            return False
+        return await is_org_entitled(
+            self.session, self.organization_id, Entitlement.FORMS
+        )
+
+    async def _page_context_prompt(
+        self, agent_session: AgentSession, page_context: ChatPageContext | None
+    ) -> str | None:
+        """Build the context line for the page a Workspace chat is docked on.
+
+        The line only echoes the ID the caller sent; the form tools still check
+        access. Only ``form`` pages exist, so forms must be enabled.
+        """
+        if (
+            page_context is None
+            or agent_session.entity_type != AgentSessionEntity.WORKSPACE_CHAT
+            or not await self._forms_enabled()
+        ):
+            return None
+        return form_page_context(page_context.id)
+
     async def _resolve_workspace_chat_actions(
         self,
         agent_session: AgentSession,
@@ -438,6 +466,11 @@ class AgentSessionService(BaseWorkspaceService):
         """
         defaults = await self._get_default_tools(AgentSessionEntity.WORKSPACE_CHAT)
         extras = agent_session.tools or []
+        if await self._forms_enabled():
+            defaults = [*defaults, *WORKSPACE_CHAT_FORMS_TOOLS]
+        else:
+            # Extras saved while forms were enabled would fail every turn.
+            extras = [tool for tool in extras if not tool.startswith("core.forms.")]
         merged = list(dict.fromkeys([*defaults, *extras]))
         # Chat tools execute under the executor service principal, which the
         # internal API routes authorize against the service allowlist rather than
@@ -2082,12 +2115,14 @@ class AgentSessionService(BaseWorkspaceService):
         # Parse request to extract user prompt
         user_prompt: str | None = None
         request_instructions: str | None = None
+        page_context: ChatPageContext | None = None
         is_continuation = False
 
         match request:
             case ContinueRunRequest():
                 is_continuation = True
             case VercelChatRequest(message=ui_message):
+                page_context = request.page_context
                 user_prompt = _extract_vercel_user_prompt(ui_message)
                 if user_prompt is None:
                     raise ValueError(
@@ -2117,13 +2152,20 @@ class AgentSessionService(BaseWorkspaceService):
         expected_title = agent_session.title
 
         # Build agent config and spawn workflow for new turn
+        page_context_prompt = await self._page_context_prompt(
+            agent_session, page_context
+        )
         async with self._build_agent_config(agent_session) as agent_config:
-            if request_instructions:
+            if request_instructions or page_context_prompt:
                 agent_config = replace(
                     agent_config,
                     instructions="\n\n".join(
                         part
-                        for part in (agent_config.instructions, request_instructions)
+                        for part in (
+                            agent_config.instructions,
+                            request_instructions,
+                            page_context_prompt,
+                        )
                         if part
                     ),
                 )

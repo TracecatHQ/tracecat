@@ -73,6 +73,7 @@ from tracecat.validation.schemas import (
 )
 from tracecat.workflow.executions.constants import WF_COMPLETED_REF, WF_TRIGGER_REF
 from tracecat.workflow.executions.enums import (
+    TriggerType,
     WorkflowEventType,
     WorkflowExecutionEventStatus,
 )
@@ -177,6 +178,7 @@ def _workflow_stub(**overrides: Any) -> SimpleNamespace:
         "entrypoint": None,
         "error_handler": None,
         "expects": {},
+        "expects_order": None,
         "returns": None,
         "config": {},
         "actions": [],
@@ -255,6 +257,12 @@ def _edit_role() -> Role:
         service_id="tracecat-api",
         scopes=frozenset({"*"}),
     )
+
+
+def test_domain_reference_lists_every_trigger_type():
+    expected = ", ".join(member.value for member in TriggerType)
+
+    assert f"### Trigger Type\n{expected}\n" in mcp_server._DOMAIN_REFERENCE_RENDERED
 
 
 @pytest.mark.anyio
@@ -1627,6 +1635,7 @@ async def test_replace_workflow_definition_from_dsl_uses_existing_workflow() -> 
         description="Original description",
         entrypoint="start",
         expects={},
+        expects_order=None,
         config={},
         returns=None,
         actions=[],
@@ -1708,6 +1717,7 @@ async def test_edit_workflow_updates_metadata(monkeypatch):
         entrypoint=None,
         error_handler=None,
         expects={},
+        expects_order=None,
         returns=None,
         config={},
         actions=[],
@@ -1855,6 +1865,7 @@ async def test_edit_workflow_validate_only_does_not_persist(monkeypatch):
         entrypoint=None,
         error_handler=None,
         expects={},
+        expects_order=None,
         returns=None,
         config={},
         actions=[],
@@ -2645,6 +2656,7 @@ async def test_edit_workflow_rejects_stale_revision(monkeypatch):
         entrypoint=None,
         error_handler=None,
         expects={},
+        expects_order=None,
         returns=None,
         config={},
         actions=[],
@@ -2904,6 +2916,7 @@ async def test_edit_workflow_rejects_unknown_nested_fields(monkeypatch):
         entrypoint=None,
         error_handler=None,
         expects={},
+        expects_order=None,
         returns=None,
         config={},
         actions=[],
@@ -12180,7 +12193,8 @@ def test_mcp_instruction_named_placeholders_are_all_rendered() -> None:
 
 
 def test_dsl_reference_text_stays_within_context_budget() -> None:
-    assert len(mcp_server._DSL_REFERENCE_TEXT) <= 15500
+    # Raised from 15500 for the "Form Trigger" section.
+    assert len(mcp_server._DSL_REFERENCE_TEXT) <= 17900
 
 
 @pytest.mark.anyio
@@ -12839,3 +12853,196 @@ async def test_get_execution_action_result_dereferences_external_result(
     assert loaded == [external]
     assert payload["truncated"] is False
     assert json.loads(payload["result"]) == stored_payload
+
+
+# ---------------------------------------------------------------------------
+# Form tools
+# ---------------------------------------------------------------------------
+
+_FORM_BUILDER_SCOPES = frozenset(
+    {"form:read", "form:create", "form:update", "form:submission:read"}
+)
+_FORM_TOOL_ARGUMENTS: dict[str, dict[str, Any]] = {
+    "list_forms": {},
+    "get_form": {"form_id": str(uuid.uuid4())},
+    "update_form": {"workflow_id": str(uuid.uuid4())},
+}
+
+
+def _patch_forms(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    scopes: frozenset[str] = _FORM_BUILDER_SCOPES,
+    flag: bool = True,
+    entitled: bool = True,
+    **methods: Any,
+) -> SimpleNamespace:
+    """Stand in for the forms service behind the MCP form tools."""
+    role = Role(
+        type="user",
+        service_id="tracecat-mcp",
+        organization_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=scopes,
+    )
+
+    async def _resolve(workspace_id):
+        return workspace_id, role
+
+    async def _has_entitlement(entitlement):
+        return entitled and entitlement is mcp_server.Entitlement.FORMS
+
+    service = SimpleNamespace(
+        role=role, has_entitlement=_has_entitlement, opened=False, **methods
+    )
+
+    def _with_session(role):
+        service.opened = True
+        return _AsyncContext(service)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server.FormsService, "with_session", _with_session)
+    monkeypatch.setattr(
+        mcp_server.config,
+        "TRACECAT__FEATURE_FLAGS",
+        {mcp_server.FeatureFlag.FORMS} if flag else set(),
+    )
+    return service
+
+
+async def _call_form_tool(name: str, **arguments: Any) -> Any:
+    return await _tool(getattr(mcp_server, name))(
+        workspace_id=str(uuid.uuid4()), **(_FORM_TOOL_ARGUMENTS[name] | arguments)
+    )
+
+
+@pytest.mark.anyio
+async def test_form_tools_are_registered_without_submission_tools() -> None:
+    tools = {tool.name for tool in await mcp_server.mcp.list_tools()}
+
+    assert set(_FORM_TOOL_ARGUMENTS) <= tools
+    # Submissions stay off the external MCP server.
+    assert not [name for name in tools if "submission" in name]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("tool_name", list(_FORM_TOOL_ARGUMENTS))
+@pytest.mark.parametrize(
+    ("gate", "error"),
+    [
+        ({"flag": False}, "not enabled"),
+        ({"entitled": False}, "Feature 'forms' requires"),
+        # Scope order in the message is not stable.
+        (
+            {"scopes": frozenset({"workflow:read"})},
+            "Missing required scope: .*form:read",
+        ),
+    ],
+    ids=["flag-off", "no-entitlement", "no-scope"],
+)
+async def test_form_tools_are_gated(
+    monkeypatch: pytest.MonkeyPatch, tool_name: str, gate: dict[str, Any], error: str
+) -> None:
+    # The stand-in service has no methods: a call that got past the gate
+    # would fail with a different message.
+    service = _patch_forms(monkeypatch, **gate)
+
+    with pytest.raises(ToolError, match=error):
+        await _call_form_tool(tool_name)
+
+    assert service.opened is ("flag" not in gate)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("scopes", "found"),
+    [(_FORM_BUILDER_SCOPES, True), (frozenset({"form:read", "form:submit"}), False)],
+    ids=["builder", "intake-only"],
+)
+async def test_get_form_returns_the_config_only_to_a_builder(
+    monkeypatch: pytest.MonkeyPatch, scopes: frozenset[str], found: bool
+) -> None:
+    form, read = object(), object()
+    get_form = AsyncMock(return_value=form)
+    read_form = AsyncMock(return_value=read)
+    _patch_forms(monkeypatch, scopes=scopes, get_form=get_form, read_form=read_form)
+
+    if found:
+        assert await _call_form_tool("get_form") is read
+        read_form.assert_awaited_once_with(form)
+    else:
+        # Same answer as for no form: the caller learns nothing.
+        with pytest.raises(ToolError, match="not found"):
+            await _call_form_tool("get_form")
+        get_form.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("exists", "scopes"),
+    [
+        (True, {"form:read", "form:update"}),
+        (False, {"form:read", "form:update"}),
+        (False, {"form:read", "form:update", "form:create"}),
+    ],
+    ids=["update", "create-without-form-create", "create"],
+)
+async def test_update_form_upserts_and_needs_form_create_only_to_create(
+    monkeypatch: pytest.MonkeyPatch, exists: bool, scopes: set[str]
+) -> None:
+    workflow_id, form, read = uuid.uuid4(), object(), object()
+    upsert_form = AsyncMock(return_value=form)
+    _patch_forms(
+        monkeypatch,
+        scopes=frozenset(scopes),
+        get_form_by_workflow_id=AsyncMock(return_value=form if exists else None),
+        upsert_form=upsert_form,
+        read_form=AsyncMock(return_value=read),
+    )
+    config = mcp_server.FormConfig(title="Laptop request")
+    call = _call_form_tool(
+        "update_form", workflow_id=str(workflow_id), status="online", config=config
+    )
+
+    if not exists and "form:create" not in scopes:
+        with pytest.raises(ToolError, match="Missing required scope: form:create"):
+            await call
+        upsert_form.assert_not_awaited()
+        return
+    assert await call is read
+    upsert_form.assert_awaited_once_with(
+        workflow_id,
+        mcp_server.FormUpdate(status=mcp_server.FormStatus.ONLINE, config=config),
+    )
+
+
+@pytest.mark.anyio
+async def test_form_tool_reports_config_issues(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.forms.enums import FormErrorCode, FormIssueCode, FormIssueSeverity
+    from tracecat.forms.schemas import FormIssue
+
+    issue = FormIssue(
+        severity=FormIssueSeverity.ERROR,
+        code=FormIssueCode.UNKNOWN_FIELD,
+        message="The workflow has no input named 'laptop'",
+        loc=["layout", 0, "field"],
+    )
+    error = mcp_server.FormError(
+        FormErrorCode.FORM_CONFIG_INVALID, "The form config has errors", issues=[issue]
+    )
+    _patch_forms(
+        monkeypatch,
+        get_form_by_workflow_id=AsyncMock(return_value=object()),
+        upsert_form=AsyncMock(side_effect=error),
+    )
+
+    with pytest.raises(ToolError) as exc_info:
+        await _call_form_tool("update_form")
+
+    assert str(exc_info.value) == (
+        "The form config has errors: "
+        "layout.0.field: The workflow has no input named 'laptop'"
+    )

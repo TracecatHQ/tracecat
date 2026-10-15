@@ -435,6 +435,121 @@ export function isToolDeniedDecision(
   )
 }
 
+/** A tool call the user denied when asked to approve it. */
+export type ToolDenial = {
+  /** The user's reason, when one was recorded. */
+  reason: string | null
+}
+
+type ToolResultPart = Extract<
+  ai.ToolUIPart,
+  { state: "output-available" | "output-error" }
+>
+
+function isToolResultPart(part: ai.ToolUIPart): part is ToolResultPart {
+  return part.state === "output-available" || part.state === "output-error"
+}
+
+/**
+ * The denial recorded on a tool call's result, or null. Tracecat tags a denied
+ * call's result with `callProviderMetadata.tracecat.approval = "rejected"`,
+ * since the result itself is error text written for the model.
+ */
+export function getToolDenial(part: ai.ToolUIPart): ToolDenial | null {
+  if (!isToolResultPart(part)) {
+    return null
+  }
+  const tracecat = part.callProviderMetadata?.tracecat
+  if (!tracecat || tracecat.approval !== "rejected") {
+    return null
+  }
+  const reason =
+    typeof tracecat.reason === "string" ? tracecat.reason.trim() : ""
+  return { reason: reason || null }
+}
+
+/**
+ * Tag the results of calls this chat denied, as reloaded history does.
+ *
+ * A live continuation streams the denied call's result as an error before the
+ * session's saved history, which carries the tag, replaces it. The user's
+ * decision is in the approval submission, so it tags the result meanwhile.
+ */
+export function markLiveDenials(messages: ai.UIMessage[]): ai.UIMessage[] {
+  const reasons = new Map<string, string>()
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (part.type !== "data-continue") {
+        continue
+      }
+      const decisions = (part as { data?: { decisions?: unknown } }).data
+        ?.decisions
+      for (const decision of Array.isArray(decisions) ? decisions : []) {
+        if (!decision || typeof decision !== "object") {
+          continue
+        }
+        const { action, tool_call_id, reason } = decision as Record<
+          string,
+          unknown
+        >
+        if (action === "deny" && typeof tool_call_id === "string") {
+          reasons.set(tool_call_id, typeof reason === "string" ? reason : "")
+        }
+      }
+    }
+  }
+  if (reasons.size === 0) {
+    return messages
+  }
+  return messages.map((message) => {
+    let tagged = false
+    const parts = message.parts.map((part) => {
+      if (
+        !ai.isToolUIPart(part) ||
+        !isToolResultPart(part) ||
+        !reasons.has(part.toolCallId) ||
+        getToolDenial(part)
+      ) {
+        return part
+      }
+      tagged = true
+      return {
+        ...part,
+        callProviderMetadata: {
+          ...part.callProviderMetadata,
+          tracecat: {
+            approval: "rejected",
+            reason: reasons.get(part.toolCallId) ?? "",
+          },
+        },
+      }
+    })
+    return tagged ? { ...message, parts } : message
+  })
+}
+
+/** Tool call IDs whose approval card still waits for a decision. */
+export function getPendingApprovalIds(messages: ai.UIMessage[]): Set<string> {
+  const toolCallIds = new Set<string>()
+  // Cards whose calls already have a result no longer wait.
+  for (const message of transformMessages(messages)) {
+    for (const part of message.parts) {
+      if (
+        part.type !== "data-approval-request" ||
+        !isApprovalCardArray(part.data)
+      ) {
+        continue
+      }
+      for (const approval of part.data) {
+        if ((approval.status ?? "pending") === "pending") {
+          toolCallIds.add(approval.tool_call_id)
+        }
+      }
+    }
+  }
+  return toolCallIds
+}
+
 /**
  * Concatenates all text parts from a message into a single string.
  * Skips non-text parts and preserves paragraph breaks between multiple parts.

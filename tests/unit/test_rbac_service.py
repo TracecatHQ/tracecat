@@ -35,6 +35,7 @@ from tracecat.authz.seeding import seed_system_roles_for_org, seed_system_scopes
 from tracecat.authz.service import (
     MembershipService,
     query_effective_scopes,
+    query_effective_scopes_by_workspace,
     workspace_membership_exists,
 )
 from tracecat.db.models import (
@@ -1784,6 +1785,50 @@ class TestMembershipScopeFloor:
 
         scopes = await query_effective_scopes(session, member.id, org.id, workspace.id)
         assert ORG_MEMBER_FLOOR_SCOPES.issubset(scopes)
+
+
+@pytest.mark.anyio
+async def test_scopes_by_workspace_match_each_workspaces_scopes(
+    session: AsyncSession,
+    org: Organization,
+    workspace: Workspace,
+    user: User,
+    seeded_scopes: list[Scope],
+) -> None:
+    await seed_system_roles_for_org(session, org.id)
+    direct = Workspace(name="direct", organization_id=org.id)
+    floor_only = Workspace(name="floor only", organization_id=org.id)
+    session.add_all([direct, floor_only])
+    await session.flush()
+    viewer_id = await session.scalar(
+        select(DBRole.id).where(
+            DBRole.organization_id == org.id, DBRole.slug == "workspace-viewer"
+        )
+    )
+    session.add(
+        UserRoleAssignment(
+            organization_id=org.id,
+            user_id=user.id,
+            workspace_id=direct.id,
+            role_id=viewer_id,
+        )
+    )
+    await session.commit()
+    # A group grant in one workspace, a direct grant in another, and the floor.
+    await _workspace_group(session, org, workspace, user)
+    workspace_ids = [workspace.id, direct.id, floor_only.id]
+
+    by_workspace = await query_effective_scopes_by_workspace(
+        session, user.id, org.id, workspace_ids
+    )
+
+    assert by_workspace == {
+        workspace_id: await query_effective_scopes(
+            session, user.id, org.id, workspace_id
+        )
+        for workspace_id in workspace_ids
+    }
+    assert len(set(by_workspace.values())) == 3
 
 
 @pytest.mark.anyio

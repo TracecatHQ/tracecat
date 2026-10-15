@@ -7,6 +7,7 @@ import type { Extension } from "@codemirror/state"
 import { EditorView } from "@codemirror/view"
 import ReactCodeMirror from "@uiw/react-codemirror"
 import { useTheme } from "next-themes"
+import { useMemo } from "react"
 
 import { cn } from "@/lib/utils"
 
@@ -19,7 +20,11 @@ interface CodeEditorProps {
   placeholder?: string
   extensions?: Extension[]
   className?: string
+  /** Called once with the editor view, for callers that drive it directly. */
+  onCreateEditor?: (view: EditorView) => void
 }
+
+const NO_EXTENSIONS: Extension[] = []
 
 function getLanguageExtension(language: string): Extension | null {
   switch (language) {
@@ -42,17 +47,22 @@ export function CodeEditor({
   readOnly = false,
   wrapLongLines = false,
   placeholder,
-  extensions: customExtensions = [],
+  extensions: customExtensions = NO_EXTENSIONS,
   className,
+  onCreateEditor,
 }: CodeEditorProps) {
   const { resolvedTheme } = useTheme()
   const codeMirrorTheme = resolvedTheme === "dark" ? "dark" : "light"
-  const languageExtension = getLanguageExtension(language)
-  const extensions = [
-    ...(languageExtension ? [languageExtension] : []),
-    ...(wrapLongLines ? [EditorView.lineWrapping] : []),
-    ...customExtensions,
-  ]
+  // A new array reconfigures the editor, so keep it stable for callers that
+  // pass stable extensions.
+  const extensions = useMemo(() => {
+    const languageExtension = getLanguageExtension(language)
+    return [
+      ...(languageExtension ? [languageExtension] : []),
+      ...(wrapLongLines ? [EditorView.lineWrapping] : []),
+      ...customExtensions,
+    ]
+  }, [language, wrapLongLines, customExtensions])
 
   return (
     <ReactCodeMirror
@@ -62,6 +72,7 @@ export function CodeEditor({
       theme={codeMirrorTheme}
       readOnly={readOnly}
       placeholder={placeholder}
+      onCreateEditor={onCreateEditor}
       className={cn(
         // Ensure the editor and all its tooltips/autocomplete popups are fully rounded and do not stick out
         "max-w-full min-w-0 rounded-md text-xs focus-visible:outline-none",

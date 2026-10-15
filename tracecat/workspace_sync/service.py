@@ -23,6 +23,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import get_missing_scopes, has_any_scope
 from tracecat.db.models import (
     CaseTag,
+    Form,
     Workflow,
     Workspace,
     WorkspaceSyncResourceMapping,
@@ -499,6 +500,17 @@ class WorkspaceSyncService(SyncMappingService):
         specs: dict[str, WorkflowResourceSpec] = {}
         source_workflow_ids: dict[WorkflowUUID, str] = {}
 
+        # ``Workflow`` has no form relationship: load the forms in one query.
+        forms_by_workflow_id = {
+            form.workflow_id: form
+            for form in await self.session.scalars(
+                select(Form).where(
+                    Form.workspace_id == self.workspace_id,
+                    Form.workflow_id.in_([workflow.id for workflow in workflows]),
+                )
+            )
+        }
+
         # Project each workflow to a spec keyed by its (stable) source id.
         for workflow in workflows:
             await self.session.refresh(
@@ -523,6 +535,7 @@ class WorkspaceSyncService(SyncMappingService):
                 dsl=dsl,
                 source_id=source_id,
                 include_schedules=include_schedules,
+                form=forms_by_workflow_id.get(workflow.id),
             )
             source_workflow_ids[WorkflowUUID.new(workflow.id)] = source_id
         specs = {

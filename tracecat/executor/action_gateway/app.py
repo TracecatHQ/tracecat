@@ -21,6 +21,7 @@ from tracecat.api.common import (
     query_overflow_exception_handler,
     query_timeout_exception_handler,
     table_row_exception_handler,
+    without_inputs,
 )
 from tracecat.contexts import ctx_role
 from tracecat.executor.action_gateway.policy import (
@@ -68,9 +69,13 @@ async def request_logging_middleware(
 
 
 def validation_exception_handler(request: Request, exc: Exception) -> Response:
-    """Handle validation errors for action gateway-served internal routes."""
+    """Handle validation errors for action gateway-served internal routes.
+
+    The rejected input is left out: the executor turns this response into an
+    action error that is kept with the run.
+    """
     errors = (
-        to_jsonable_python(exc.errors(), fallback=str)
+        to_jsonable_python(without_inputs(exc.errors()), fallback=str)
         if isinstance(exc, RequestValidationError)
         else str(exc)
     )
@@ -155,6 +160,7 @@ def _include_internal_routers(app: FastAPI) -> None:
     from tracecat.deduplicate.internal_router import (
         router as internal_deduplicate_router,
     )
+    from tracecat.forms.internal_router import router as internal_forms_router
     from tracecat.tables.internal_router import router as internal_tables_router
     from tracecat.variables.internal_router import router as internal_variables_router
     from tracecat.workflow.executions.internal_router import (
@@ -172,6 +178,7 @@ def _include_internal_routers(app: FastAPI) -> None:
     app.include_router(internal_comments_router)
     app.include_router(internal_case_tags_router)
     app.include_router(internal_case_tag_definitions_router)
+    app.include_router(internal_forms_router)
     app.include_router(internal_tables_router)
     app.include_router(internal_variables_router)
     app.include_router(internal_workflows_router)
@@ -193,6 +200,7 @@ def _add_exception_handlers(app: FastAPI) -> None:
         ScopeDeniedError,
         TracecatException,
     )
+    from tracecat.forms.exceptions import FormError, form_error_handler
 
     app.add_exception_handler(Exception, generic_exception_handler)
     app.add_exception_handler(
@@ -201,6 +209,7 @@ def _add_exception_handlers(app: FastAPI) -> None:
     )
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(TableRowError, table_row_exception_handler)
+    app.add_exception_handler(FormError, form_error_handler)
     app.add_exception_handler(
         TracecatQueryTimeoutError,
         query_timeout_exception_handler,

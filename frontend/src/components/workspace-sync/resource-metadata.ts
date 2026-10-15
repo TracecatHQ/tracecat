@@ -21,7 +21,7 @@ export const WORKSPACE_SYNC_RESOURCE_TYPE_META: Record<
     label: "Workflows",
     abbr: "WF",
     root: "workflows",
-    summary: "Definition, tags, webhook and case triggers",
+    summary: "Definition, tags, form, webhook and case triggers",
   },
   agent_preset: {
     label: "Agent presets",

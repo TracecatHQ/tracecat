@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from claude_agent_sdk.types import Message as ClaudeSDKMessage
-from pydantic import UUID4, BaseModel, Discriminator, Field, ValidationError
+from pydantic import UUID4, BaseModel, ConfigDict, Discriminator, Field, ValidationError
 
 from tracecat.agent.adapter import vercel
 from tracecat.agent.approvals.enums import ApprovalStatus
@@ -54,6 +54,19 @@ class BasicChatRequest(BaseModel):
     )
 
 
+class ChatPageContext(BaseModel):
+    """The page a docked chat is open on.
+
+    ``kind`` is a closed set and ``id`` is a UUID, so nothing the client sends
+    here can carry free text into the prompt.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["form"] = Field(..., description="What the page shows.")
+    id: uuid.UUID = Field(..., description="ID of the object the page shows.")
+
+
 class VercelChatRequest(BaseModel):
     """Vercel AI SDK format request with structured UI messages."""
 
@@ -69,6 +82,10 @@ class VercelChatRequest(BaseModel):
         default=None,
         description="Optional base URL for the model provider",
         max_length=500,
+    )
+    page_context: ChatPageContext | None = Field(
+        default=None,
+        description="The page the chat is docked on. Only Workspace chat uses it.",
     )
 
 

@@ -12,6 +12,8 @@ from tracecat.db.models import Webhook, Workflow, WorkflowTag, WorkflowTagLink
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.forms.enums import FormStatus
+from tracecat.forms.service import FormsService
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
@@ -28,6 +30,7 @@ from tracecat.workflow.schedules.schemas import ScheduleCreate
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workflow.store.schemas import (
     RemoteCaseTrigger,
+    RemoteForm,
     RemoteWebhook,
     RemoteWorkflowDefinition,
     RemoteWorkflowSchedule,
@@ -461,6 +464,7 @@ class WorkflowImportService(BaseWorkspaceService):
             await self._update_schedules(existing_workflow, remote_workflow.schedules)
         await self._update_webhook(existing_workflow.webhook, remote_workflow.webhook)
         await self._update_case_trigger(existing_workflow, remote_workflow.case_trigger)
+        await self._update_form(existing_workflow, remote_workflow.form)
         await self._update_tags(existing_workflow, remote_workflow.tags)
 
     async def _create_new_workflow(
@@ -504,6 +508,7 @@ class WorkflowImportService(BaseWorkspaceService):
             await self._create_schedules(workflow, remote_defn.schedules)
         await self._update_webhook(workflow.webhook, remote_defn.webhook)
         await self._update_case_trigger(workflow, remote_defn.case_trigger)
+        await self._update_form(workflow, remote_defn.form)
         await self._create_tags(workflow, remote_defn.tags)
 
     async def _update_schedules(
@@ -604,6 +609,21 @@ class WorkflowImportService(BaseWorkspaceService):
         case_trigger.tag_filters = []
         self.session.add(case_trigger)
         await self.session.flush()
+
+    async def _update_form(
+        self, workflow: Workflow, remote_form: RemoteForm | None
+    ) -> None:
+        """Apply the ``form:`` block of a workflow file.
+
+        A file with no block takes the form offline and clears its config, as
+        for a case trigger; the row and its submissions are kept. The block is
+        stored as written, even if it no longer matches the inputs (a push
+        never checks it) or the organization lacks the forms entitlement.
+        """
+        status = remote_form.status if remote_form else FormStatus.OFFLINE
+        await FormsService(session=self.session, role=self.role).sync_form(
+            workflow.id, remote_form, status
+        )
 
     async def _update_tags(
         self, workflow: Workflow, remote_tags: list[RemoteWorkflowTag] | None = None

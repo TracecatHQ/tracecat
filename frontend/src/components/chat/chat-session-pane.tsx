@@ -27,6 +27,7 @@ import {
   memo,
   type ReactNode,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -100,9 +101,11 @@ import {
   parseChatError,
   useAdoptServerTranscript,
   useCancelChatTurn,
+  useGetChatVercel,
   useUpdateChat,
   useVercelChat,
 } from "@/hooks/use-chat"
+import { useFormsAccess } from "@/hooks/use-forms-access"
 import { useMentions } from "@/hooks/use-mentions"
 import { useOverflowBadges } from "@/hooks/use-overflow-badges"
 import {
@@ -116,12 +119,15 @@ import {
   type CompactionData,
   ENTITY_TO_INVALIDATION,
   getCancelledPartToolCallIds,
+  getPendingApprovalIds,
   getSessionLastError,
+  getToolDenial,
   isApprovalCardArray,
   isInterruptArtifactError,
   isToolApprovedDecision,
   isToolDeniedDecision,
   type ModelInfo,
+  markLiveDenials,
   toUIMessage,
   transformMessages,
 } from "@/lib/chat"
@@ -130,6 +136,7 @@ import { findAgentMention, type MentionRange } from "@/lib/mentions"
 import { useQueryClient } from "@/lib/query"
 import { getSubagentSessionId, SUBAGENT_TOOL_NAME } from "@/lib/subagent-stream"
 import { cn } from "@/lib/utils"
+import { PageContext } from "@/providers/chat-page-context"
 import type { ChatSurface } from "@/types/chat-surface"
 import { ARTIFACT_DATA_PART_TYPE } from "@/types/workspace-chat-artifacts"
 
@@ -138,6 +145,12 @@ const AGENT_TOOL_TARGET_KEYS = ["subagent_type", "agent_type", "type", "name"]
 const AGENT_TOOL_NESTED_INPUT_KEYS = ["args", "input", "tool_input"]
 
 const TOOL_ICON_PROPS = { className: "size-5 p-[3px]" } as const
+
+/** How often an idle pane checks whether a waiting approval was decided. */
+const APPROVAL_REFRESH_MS = 5_000
+
+/** The approvals being submitted were already decided on another surface. */
+class ApprovalsAlreadyDecidedError extends Error {}
 
 function messageHasVisibleParts(message: UIMessage): boolean {
   return message.parts.some((part) => part.type !== ARTIFACT_DATA_PART_TYPE)
@@ -343,6 +356,8 @@ export function ChatSessionPane({
   resume = true,
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
+  const pageContext = useContext(PageContext)
+  const formsAccess = useFormsAccess()
   const promptInputContainerRef = useRef<HTMLDivElement>(null)
   const promptTextareaFocusedRef = useRef(false)
   const shouldRestoreInputFocusRef = useRef(false)
@@ -433,6 +448,7 @@ export function ChatSessionPane({
     messages: uiMessages,
     modelInfo,
     onData,
+    pageContext,
     resume,
   })
   const subagentStreamContext = useMemo(
@@ -462,6 +478,20 @@ export function ChatSessionPane({
     serverMessages: uiMessages,
     liveMessages: messages,
     setMessages,
+  })
+
+  // Another tab or the Inbox can decide an approval this pane shows as
+  // waiting. Poll the session while one waits and the pane is idle, so the
+  // decision replaces the stale card through the adoption above.
+  const awaitingApproval = useMemo(
+    () => status === "ready" && getPendingApprovalIds(messages).size > 0,
+    [status, messages]
+  )
+  useGetChatVercel({
+    chatId: chat?.id,
+    workspaceId,
+    enabled: awaitingApproval,
+    refetchInterval: awaitingApproval ? APPROVAL_REFRESH_MS : false,
   })
 
   useEffect(() => {
@@ -624,12 +654,53 @@ export function ChatSessionPane({
     }
   }, [isInputDisabled])
 
+  /**
+   * Approval IDs the session still waits on, read fresh from the server, or
+   * null when it cannot be read. A waiting approval's card is always in the
+   * session's history, so a missing card means it was decided.
+   */
+  const fetchPendingApprovalIds = useCallback(async () => {
+    if (!chat?.id) return null
+    const queryKey = ["chat", chat.id, workspaceId, "vercel"]
+    try {
+      await queryClient.refetchQueries(
+        { queryKey, exact: true },
+        { throwOnError: true }
+      )
+    } catch {
+      return null
+    }
+    const fresh = queryClient.getQueryData<
+      AgentSessionReadVercel | ChatReadVercel
+    >(queryKey)
+    return fresh
+      ? getPendingApprovalIds((fresh.messages ?? []).map(toUIMessage))
+      : null
+  }, [chat?.id, queryClient, workspaceId])
+
   const handleSubmitApprovals = useCallback(
-    async (decisionPayload: ApprovalDecision[]) => {
-      if (isReadonly || !decisionPayload.length) return
+    async (decisionPayload: ApprovalDecision[]): Promise<string[]> => {
+      if (isReadonly || !decisionPayload.length) return []
+      // Another tab or the Inbox may have decided these since this pane last
+      // refreshed, so submit only the decisions the session still waits on.
+      const pendingIds = await fetchPendingApprovalIds()
+      const decisions = pendingIds
+        ? decisionPayload.filter(({ tool_call_id }) =>
+            pendingIds.has(tool_call_id)
+          )
+        : decisionPayload
+      if (decisions.length === 0) {
+        toast({
+          title: "Already decided",
+          description:
+            "This approval was decided elsewhere. The chat now shows the outcome.",
+        })
+        throw new ApprovalsAlreadyDecidedError()
+      }
       try {
         clearError()
-        await sendMessage(makeContinueMessage(decisionPayload))
+        await sendMessage(makeContinueMessage(decisions))
+        return decisions.map(({ tool_call_id }) => tool_call_id)
       } catch (error) {
         console.error("Failed to submit approvals", error)
         toast({
@@ -641,7 +712,7 @@ export function ChatSessionPane({
         throw error
       }
     },
-    [clearError, isReadonly, sendMessage]
+    [clearError, fetchPendingApprovalIds, isReadonly, sendMessage]
   )
 
   useEffect(() => {
@@ -925,7 +996,7 @@ export function ChatSessionPane({
   )
 
   const transformedMessages = useMemo(
-    () => transformMessages(messages),
+    () => transformMessages(markLiveDenials(messages)),
     [messages]
   )
 
@@ -1284,6 +1355,7 @@ export function ChatSessionPane({
                   mcpEnabled={sessionMcpEnabled}
                   disabled={inputDisabled || isUpdatingTools}
                   surface={surface}
+                  formsEnabled={formsAccess === "enabled"}
                   mcpIntegrationsHref={`/workspaces/${workspaceId}/mcp-servers`}
                 />
               )}
@@ -1742,7 +1814,8 @@ export function MessagePart({
    * (structured metadata from the data-cancelled part).
    */
   interruptedToolCallIds?: ReadonlySet<string>
-  onSubmitApprovals?: (decisions: ApprovalDecision[]) => Promise<void>
+  /** Resolves with the tool call IDs whose decisions it sent. */
+  onSubmitApprovals?: (decisions: ApprovalDecision[]) => Promise<string[]>
 }) {
   if (part.type === CANCELLED_DATA_PART_TYPE) {
     return (
@@ -1841,9 +1914,13 @@ export function MessagePart({
         (isPendingState ||
           (typeof derivedErrorText === "string" &&
             isInterruptArtifactError(derivedErrorText))))
+    // A denied call's result is error text for the model; show the denial.
+    const denial = isInterrupted ? null : getToolDenial(part)
     let derivedState: ToolHeaderProps["state"]
     if (isInterrupted) {
       derivedState = "output-interrupted"
+    } else if (denial) {
+      derivedState = "output-denied"
     } else if (derivedErrorText) {
       derivedState = "output-error"
     } else {
@@ -1869,11 +1946,17 @@ export function MessagePart({
         />
         <ToolContent>
           <ToolInput input={part.input} />
-          {isInterrupted ? (
+          {isInterrupted && (
             <div className="text-[11px] text-muted-foreground">
               Stopped before completion
             </div>
-          ) : (
+          )}
+          {denial && (
+            <div className="text-[11px] text-muted-foreground">
+              {denial.reason ?? "Denied by user"}
+            </div>
+          )}
+          {!isInterrupted && !denial && (
             <ToolOutput
               output={part.output}
               errorText={
@@ -2183,6 +2266,7 @@ const MemoizedMessagePart = memo(MessagePart, (prev, next) => {
       prevPart.state === nextPart.state &&
       prevPart.input === nextPart.input &&
       prevPart.output === nextPart.output &&
+      getToolDenial(prevPart)?.reason === getToolDenial(nextPart)?.reason &&
       ("errorText" in prevPart
         ? (prevPart as { errorText?: string }).errorText
         : undefined) ===
@@ -2245,13 +2329,15 @@ function ApprovalRequestPart({
   onSubmit,
 }: {
   approvals: ApprovalCard[]
-  onSubmit?: (decisions: ApprovalDecision[]) => Promise<void>
+  /** Resolves with the tool call IDs whose decisions it sent. */
+  onSubmit?: (decisions: ApprovalDecision[]) => Promise<string[]>
 }) {
   const [decisions, setDecisions] = useState<Record<string, DecisionState>>({})
   const [submittedDecisions, setSubmittedDecisions] = useState<
     Record<string, DecisionState>
   >({})
   const [submitting, setSubmitting] = useState(false)
+  const [decidedElsewhere, setDecidedElsewhere] = useState(false)
 
   const approvalsKey = useMemo(
     () => approvals.map(approvalStateKey).join(":"),
@@ -2268,6 +2354,7 @@ function ApprovalRequestPart({
     }
     setDecisions({})
     setSubmittedDecisions(nextSubmittedDecisions)
+    setDecidedElsewhere(false)
   }, [approvalsKey])
 
   const hasSelectedPendingDecision =
@@ -2352,11 +2439,20 @@ function ApprovalRequestPart({
 
     try {
       setSubmitting(true)
-      await onSubmit(payload)
-      setSubmittedDecisions((prev) => ({
-        ...prev,
-        ...acceptedDecisions,
-      }))
+      const sentIds = new Set(await onSubmit(payload))
+      setSubmittedDecisions((prev) => {
+        const next = { ...prev }
+        for (const [toolCallId, decision] of Object.entries(
+          acceptedDecisions
+        )) {
+          // A decision made elsewhere meanwhile was not sent, so keep its
+          // recorded outcome rather than show this tab's choice.
+          next[toolCallId] = sentIds.has(toolCallId)
+            ? decision
+            : (prev[toolCallId] ?? { action: undefined })
+        }
+        return next
+      })
       setDecisions((prev) => {
         const next = { ...prev }
         for (const toolCallId of Object.keys(acceptedDecisions)) {
@@ -2365,7 +2461,11 @@ function ApprovalRequestPart({
         return next
       })
     } catch (error) {
-      console.error(error)
+      if (error instanceof ApprovalsAlreadyDecidedError) {
+        setDecidedElsewhere(true)
+      } else {
+        console.error(error)
+      }
     } finally {
       setSubmitting(false)
     }
@@ -2377,7 +2477,7 @@ function ApprovalRequestPart({
     submittedDecisions,
   ])
 
-  const disabled = !onSubmit
+  const disabled = !onSubmit || decidedElsewhere
 
   if (!approvals.length) {
     return null
@@ -2560,9 +2660,14 @@ function ApprovalRequestPart({
           )
         })}
       </div>
-      {disabled && (
+      {!onSubmit && (
         <p className="text-xs text-muted-foreground">
           Approval submission is not available in this context.
+        </p>
+      )}
+      {decidedElsewhere && (
+        <p className="text-xs text-muted-foreground">
+          This approval was already decided elsewhere.
         </p>
       )}
     </div>

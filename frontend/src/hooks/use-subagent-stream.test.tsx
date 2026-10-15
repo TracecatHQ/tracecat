@@ -51,6 +51,7 @@ function setup() {
     defaultOptions: { queries: { retry: 2 } },
   })
   let status: ChatStatus = "streaming"
+  let finished = false
   function wrapper({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={queryClient}>
@@ -63,7 +64,7 @@ function setup() {
     )
   }
   const view = renderHook(
-    () => useSubagentTranscript({ sessionId: CHILD_ID, finished: false }),
+    () => useSubagentTranscript({ sessionId: CHILD_ID, finished }),
     { wrapper }
   )
   function replay() {
@@ -78,6 +79,11 @@ function setup() {
     replay,
     setStatus(nextStatus: ChatStatus) {
       status = nextStatus
+      view.rerender()
+    },
+    /** The parent's `subagent` call returned: the child settled. */
+    finish() {
+      finished = true
       view.rerender()
     },
     cleanup() {
@@ -240,6 +246,119 @@ describe("interrupted child transcript recovery", () => {
       )
     )
     expect(view.result.current.isRecoveryPaused).toBe(false)
+    view.cleanup()
+  })
+})
+
+const CHILD_PROMPT = {
+  id: "child-prompt",
+  role: "user",
+  parts: [{ type: "text", text: "Do the task" }],
+}
+
+/** The child's history before its run settles: only its task prompt shows. */
+function unsettledHistory(): AgentSessionsGetSessionVercelResponse {
+  return {
+    id: CHILD_ID,
+    messages: [CHILD_PROMPT],
+  } as AgentSessionsGetSessionVercelResponse
+}
+
+describe("finished child transcript", () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+    jest.mocked(agentSessionsGetSessionVercel).mockReset()
+  })
+
+  afterEach(() => {
+    jest.clearAllTimers()
+    jest.useRealTimers()
+  })
+
+  it("keeps the live transcript until the settled history is saved", async () => {
+    // The parent's result can reach the browser before the runtime saves the
+    // child's history, so the first read sees only the task prompt.
+    const fetchHistory = jest.mocked(agentSessionsGetSessionVercel)
+    fetchHistory.mockResolvedValue(unsettledHistory())
+    const view = setup()
+    act(view.replay)
+    await waitFor(() => expect(view.result.current.isLive).toBe(true))
+
+    view.finish()
+    await waitFor(() => expect(fetchHistory).toHaveBeenCalledTimes(1))
+    expect(view.result.current.messages[0]?.parts).toContainEqual(
+      expect.objectContaining({ text: "Partial reply" })
+    )
+    expect(view.store.getMessage(CHILD_ID)).toBeDefined()
+
+    fetchHistory.mockResolvedValue(savedHistory("Complete reply"))
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000)
+    })
+    await waitFor(() =>
+      expect(view.result.current.messages[0]?.parts).toContainEqual(
+        expect.objectContaining({ text: "Complete reply" })
+      )
+    )
+    expect(view.store.getMessage(CHILD_ID)).toBeUndefined()
+    const requestCount = fetchHistory.mock.calls.length
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(9_000)
+    })
+    expect(fetchHistory).toHaveBeenCalledTimes(requestCount)
+    view.cleanup()
+  })
+
+  it("loads a reloaded child's history once it is saved", async () => {
+    const fetchHistory = jest.mocked(agentSessionsGetSessionVercel)
+    fetchHistory.mockResolvedValue(unsettledHistory())
+    const view = setup()
+    view.finish()
+    await waitFor(() => expect(fetchHistory).toHaveBeenCalledTimes(1))
+    expect(view.result.current.messages).toEqual([])
+    expect(view.result.current.isLoading).toBe(true)
+
+    fetchHistory.mockResolvedValue(savedHistory("Complete reply"))
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000)
+    })
+    await waitFor(() =>
+      expect(view.result.current.messages[0]?.parts).toContainEqual(
+        expect.objectContaining({ text: "Complete reply" })
+      )
+    )
+    expect(view.result.current.isLoading).toBe(false)
+    view.cleanup()
+  })
+
+  it("adopts a cancelled child's saved marker without an assistant reply", async () => {
+    // A child stopped before replying saves only its cancelled marker, which
+    // lists the calls the stop cut short.
+    const fetchHistory = jest.mocked(agentSessionsGetSessionVercel)
+    fetchHistory.mockResolvedValue(unsettledHistory())
+    const view = setup()
+    act(view.replay)
+    view.finish()
+    await waitFor(() => expect(fetchHistory).toHaveBeenCalledTimes(1))
+
+    const marker = {
+      type: "data-cancelled",
+      data: { reason: "user_cancel", tool_call_ids: ["call-1"] },
+    }
+    fetchHistory.mockResolvedValue({
+      id: CHILD_ID,
+      messages: [
+        CHILD_PROMPT,
+        { id: "child-cancelled", role: "system", parts: [marker] },
+      ],
+    } as AgentSessionsGetSessionVercelResponse)
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000)
+    })
+    await waitFor(() =>
+      expect(view.result.current.messages[0]?.parts).toEqual([marker])
+    )
+    expect(view.store.getMessage(CHILD_ID)).toBeUndefined()
     view.cleanup()
   })
 })

@@ -8,6 +8,7 @@ import {
   CircleCheckBigIcon,
   CircleDot,
   CirclePlayIcon,
+  ClipboardListIcon,
   EyeOffIcon,
   LayoutListIcon,
   LoaderIcon,
@@ -632,6 +633,15 @@ export function getTriggerTypeIcon(
       return (
         <div className="relative rounded-full bg-emerald-500">
           <BriefcaseBusinessIcon
+            className={cn("size-3 scale-[0.7] stroke-white", className)}
+            strokeWidth={2.5}
+          />
+        </div>
+      )
+    case "form":
+      return (
+        <div className="relative rounded-full bg-sky-500">
+          <ClipboardListIcon
             className={cn("size-3 scale-[0.7] stroke-white", className)}
             strokeWidth={2.5}
           />

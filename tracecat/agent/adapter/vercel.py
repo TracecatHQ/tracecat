@@ -1086,7 +1086,10 @@ class MutableToolPart:
             output=content,
         )
 
-    def to_ui_part(self) -> ToolUIPart:
+    def to_ui_part(
+        self, *, result_metadata: ProviderMetadata | None = None
+    ) -> ToolUIPart:
+        """Build the UI part, attaching ``result_metadata`` to a recorded result."""
         if self.state == "input-available":
             return ToolUIPartInputAvailable(
                 type=self.type,
@@ -1095,20 +1098,26 @@ class MutableToolPart:
                 input=self.input,
             )
         if self.state == "output-available":
-            return ToolUIPartOutputAvailable(
+            available = ToolUIPartOutputAvailable(
                 type=self.type,
                 toolCallId=self.tool_call_id,
                 state="output-available",
                 input=self.input,
                 output=self.output,
             )
-        return ToolUIPartOutputError(
+            if result_metadata is not None:
+                available["callProviderMetadata"] = result_metadata
+            return available
+        error = ToolUIPartOutputError(
             type=self.type,
             toolCallId=self.tool_call_id,
             state="output-error",
             input=self.input,
             errorText=self.error_text or "",
         )
+        if result_metadata is not None:
+            error["callProviderMetadata"] = result_metadata
+        return error
 
 
 @dataclasses.dataclass
@@ -1247,6 +1256,17 @@ def convert_chat_messages_to_ui(
         and message.approval.status == ApprovalStatus.PENDING
         for message in messages
     )
+    # Denied calls record an error result for the model. Tag it so the UI shows
+    # the denial rather than a tool error, even after the approval card is gone.
+    denied_results: dict[str, ProviderMetadata] = {
+        message.approval.tool_call_id: {
+            "tracecat": {"approval": "rejected", "reason": message.approval.reason}
+        }
+        for message in messages
+        if message.kind == MessageKind.APPROVAL_REQUEST
+        and message.approval is not None
+        and message.approval.status == ApprovalStatus.REJECTED
+    }
 
     for chat_message in messages:
         # Handle compaction status badges from DB (kind=COMPACTION)
@@ -1422,7 +1442,11 @@ def convert_chat_messages_to_ui(
         parts: list[UIMessagePart] = []
         for part in message.parts:
             if isinstance(part, MutableToolPart):
-                parts.append(part.to_ui_part())
+                parts.append(
+                    part.to_ui_part(
+                        result_metadata=denied_results.get(part.tool_call_id)
+                    )
+                )
             else:
                 parts.append(part)
         raw_messages.append(
