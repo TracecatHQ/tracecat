@@ -24,20 +24,8 @@ class ExactCaseMatch:
     outside_filters: bool
 
 
-async def prepare_exact_case_match(
-    session: AsyncSession,
-    *,
-    workspace_id: uuid.UUID,
-    search_term: str | None,
-    filters: Sequence[ColumnElement[bool]],
-) -> ExactCaseMatch | None:
-    """Recognize complete prefixed IDs/UUIDs; leave ordinary numbers as text.
-
-    View filters determine the explanatory flag, never workspace authorization.
-    The caller retains strict filtering for relationship and explicit-ID queries.
-    Recognized references keep their predicate when no case exists, so deleting
-    an exact result cannot invalidate continuation cursors.
-    """
+def case_reference_predicate(search_term: str | None) -> ColumnElement[bool] | None:
+    """Recognize a complete prefixed reference without a database lookup."""
     if not search_term:
         return None
     value = search_term.strip()
@@ -56,6 +44,26 @@ async def prepare_exact_case_match(
     ):
         identity = Case.id == uuid.UUID(value)
     else:
+        return None
+    return identity
+
+
+async def prepare_exact_case_match(
+    session: AsyncSession,
+    *,
+    workspace_id: uuid.UUID,
+    search_term: str | None,
+    filters: Sequence[ColumnElement[bool]],
+) -> ExactCaseMatch | None:
+    """Recognize complete prefixed IDs/UUIDs; leave ordinary numbers as text.
+
+    View filters determine the explanatory flag, never workspace authorization.
+    The caller retains strict filtering for relationship and explicit-ID queries.
+    Recognized references keep their predicate when no case exists, so deleting
+    an exact result cannot invalidate continuation cursors.
+    """
+    identity = case_reference_predicate(search_term)
+    if identity is None:
         return None
     row = (
         await session.execute(

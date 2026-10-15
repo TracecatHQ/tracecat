@@ -91,3 +91,10 @@ class CaseSearchRequest(CaseQuery, CursorPaginationParams):
     payload_fields: list[str] | None = Field(default=None)
     payload_paths: list[list[str]] | None = Field(default=None)
     include_count: bool = Field(default=True)
+    promote_exact_match: bool = Field(
+        default=False,
+        description="Place complete case references before filtered text matches within the authorized workspace.",
+    )
+    match_none: bool = Field(
+        default=False, description="The ordinary filter population matches no cases."
+    )

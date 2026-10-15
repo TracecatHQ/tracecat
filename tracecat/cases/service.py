@@ -414,6 +414,8 @@ class CasesService(BaseWorkspaceService):
             if payload_paths is not None
             else None,
             include_count=include_count,
+            promote_exact_match=promote_exact_match,
+            match_none=match_none,
         )
         return await executor.query_cases(
             request,

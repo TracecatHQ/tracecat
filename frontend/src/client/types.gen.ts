@@ -2939,6 +2939,14 @@ export type CaseSearchRequest = {
   include_durations?: boolean
   include_payload?: boolean
   include_count?: boolean
+  /**
+   * Place complete case references before filtered text matches within the authorized workspace.
+   */
+  promote_exact_match?: boolean
+  /**
+   * The ordinary filter population matches no cases.
+   */
+  match_none?: boolean
 }
 
 /**
