@@ -180,8 +180,8 @@ class RegistryArtifact(ABC):
         suffix: str,
     ) -> Path:
         path = unique_work_path(ctx.staging_dir, self.cache_key, suffix=suffix)
-        if ctx.staging_paths is not None:
-            ctx.staging_paths.append(path)
+        if ctx.admission is not None:
+            ctx.admission.reservation.staging_paths.append(path)
         return path
 
 
@@ -1202,9 +1202,14 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
 
     async def _finish_lease_cleanup(self, idle_keys: list[str]) -> None:
         """Unmount every newly idle entry and converge the cache budget."""
-        for cache_key in idle_keys:
-            await self._unmount_idle_entry(cache_key)
-            await self._discard_idle_squashfs_extraction(cache_key)
+        try:
+            for cache_key in idle_keys:
+                await self._unmount_idle_entry(cache_key)
+                await self._discard_idle_squashfs_extraction(cache_key)
+        finally:
+            if idle_keys:
+                # Idle entries are evictable once unmount frees their key.
+                self._signal_capacity_changed()
         await self._converge_cache_budget()
 
     async def _discard_idle_squashfs_extraction(self, cache_key: str) -> None:
@@ -1278,9 +1283,7 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
             else:
                 remount_failed = False
 
-        # Cold path: each write reserves its bytes under a short admission-lock
-        # hold, and download/extract slots bound the work, so distinct keys
-        # prepare concurrently.
+        # Writes reserve bytes; slots bound the work, so distinct keys run concurrently.
         reservation = RegistryArtifactByteReservation()
         async with self._runtime_lock(cache_key):
             if cached_paths := self._locally_cached_path(ctx, artifact_uri):
@@ -1292,7 +1295,6 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
                     reservation,
                     attempt_cache_keys=lease.attempt.cache_keys,
                 ),
-                staging_paths=reservation.staging_paths,
             )
             ctx.squashfs_remount_failed = remount_failed
             try:
@@ -1413,9 +1415,15 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
                         if not materialized:
                             self._remove_unpublished_entry(ctx)
                 return registry_paths
+            except RegistryArtifactCacheLeaseContentionError:
+                # A fallback would contend for the same space; retry the lease.
+                raise
             except Exception as e:
                 if index == len(candidates) - 1:
                     raise
+                if ctx.admission is not None:
+                    # Drop the failed candidate's charge before the next one waits.
+                    await ctx.admission.settle()
                 logger.warning(
                     "Failed to materialize registry artifact candidate, trying fallback",
                     cache_key=cache_key,

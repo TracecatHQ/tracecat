@@ -65,6 +65,10 @@ SQUASHFS_ENABLED_CONFIG = (
     "tracecat.executor.registry_artifacts.config"
     ".TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED"
 )
+RESERVATION_WAIT_CONFIG = (
+    "tracecat.executor.registry_artifact_storage.RESERVATION_WAIT_SECONDS"
+)
+MIB = 1024 * 1024
 MOUNT_CHECK = "tracecat.executor.registry_artifact_mounts.is_mount"
 
 
@@ -855,7 +859,6 @@ class TestRegistryArtifactCache:
         self, temp_cache_dir: Path
     ) -> None:
         """A writer's partial staging file counts against its reservation, not twice."""
-        mib = 1024 * 1024
         cache = RegistryArtifactCache(temp_cache_dir)
         await cache.ensure_swept()
         first_key, second_key, third_key = "a" * 16, "b" * 16, "c" * 16
@@ -863,18 +866,18 @@ class TestRegistryArtifactCache:
         second = RegistryArtifactByteReservation()
         third = RegistryArtifactByteReservation()
 
-        with patch(MAX_BYTES_CONFIG, 10 * mib):
+        with patch(MAX_BYTES_CONFIG, 10 * MIB):
             first_admission = cache._admission_for(first_key, first)
             assert first_admission is not None
             partial = unique_work_path(cache.staging_dir, first_key, suffix=".squashfs")
             first.staging_paths.append(partial)
-            await first_admission.ensure_capacity(4 * mib)
-            partial.write_bytes(b"\0" * (3 * mib))
+            await first_admission.ensure_capacity(4 * MIB)
+            partial.write_bytes(b"\0" * (3 * MIB))
 
             # 4 + 4 fits in 10; charging the partial file again (3 + 4 + 4) would not.
             second_admission = cache._admission_for(second_key, second)
             assert second_admission is not None
-            await second_admission.ensure_capacity(4 * mib)
+            await second_admission.ensure_capacity(4 * MIB)
             cache._release_reservation(first)
             cache._release_reservation(second)
 
@@ -882,7 +885,7 @@ class TestRegistryArtifactCache:
             third_admission = cache._admission_for(third_key, third)
             assert third_admission is not None
             with pytest.raises(RegistryArtifactCacheCapacityError):
-                await third_admission.ensure_capacity(8 * mib)
+                await third_admission.ensure_capacity(8 * MIB)
             cache._release_reservation(third)
 
         assert cache._reserved_bytes == 0
@@ -892,25 +895,24 @@ class TestRegistryArtifactCache:
         self, temp_cache_dir: Path
     ) -> None:
         """Space held only by another reservation is temporary: wait, then admit."""
-        mib = 1024 * 1024
         cache = RegistryArtifactCache(temp_cache_dir)
         await cache.ensure_swept()
         holder = RegistryArtifactByteReservation()
         waiter = RegistryArtifactByteReservation()
 
-        with patch(MAX_BYTES_CONFIG, 10 * mib):
+        with patch(MAX_BYTES_CONFIG, 10 * MIB):
             holder_admission = cache._admission_for("a" * 16, holder)
             waiter_admission = cache._admission_for("b" * 16, waiter)
             assert holder_admission is not None and waiter_admission is not None
-            await holder_admission.ensure_capacity(7 * mib)
+            await holder_admission.ensure_capacity(7 * MIB)
 
-            waiting = asyncio.ensure_future(waiter_admission.ensure_capacity(4 * mib))
+            waiting = asyncio.ensure_future(waiter_admission.ensure_capacity(4 * MIB))
             await asyncio.sleep(0.05)
             assert not waiting.done()
 
             cache._release_reservation(holder)
             await asyncio.wait_for(waiting, timeout=1)
-            assert waiter.bytes >= 4 * mib
+            assert waiter.bytes >= 4 * MIB
             cache._release_reservation(waiter)
 
         assert cache._reserved_bytes == 0
@@ -920,7 +922,6 @@ class TestRegistryArtifactCache:
         self, temp_cache_dir: Path
     ) -> None:
         """Nothing in flight is permanent; an expired wait stays retryable."""
-        mib = 1024 * 1024
         cache = RegistryArtifactCache(temp_cache_dir)
         await cache.ensure_swept()
         holder = RegistryArtifactByteReservation()
@@ -928,16 +929,13 @@ class TestRegistryArtifactCache:
         blocked = RegistryArtifactByteReservation()
 
         with (
-            patch(MAX_BYTES_CONFIG, 10 * mib),
-            patch(
-                "tracecat.executor.registry_artifact_storage.RESERVATION_WAIT_SECONDS",
-                0.05,
-            ),
+            patch(MAX_BYTES_CONFIG, 10 * MIB),
+            patch(RESERVATION_WAIT_CONFIG, 0.05),
         ):
             oversized_admission = cache._admission_for("c" * 16, oversized)
             assert oversized_admission is not None
             with pytest.raises(RegistryArtifactCacheCapacityError) as permanent:
-                await oversized_admission.ensure_capacity(11 * mib)
+                await oversized_admission.ensure_capacity(11 * MIB)
             assert not isinstance(
                 permanent.value, RegistryArtifactCacheLeaseContentionError
             )
@@ -946,9 +944,9 @@ class TestRegistryArtifactCache:
             holder_admission = cache._admission_for("a" * 16, holder)
             blocked_admission = cache._admission_for("b" * 16, blocked)
             assert holder_admission is not None and blocked_admission is not None
-            await holder_admission.ensure_capacity(7 * mib)
+            await holder_admission.ensure_capacity(7 * MIB)
             with pytest.raises(RegistryArtifactCacheLeaseContentionError):
-                await blocked_admission.ensure_capacity(4 * mib)
+                await blocked_admission.ensure_capacity(4 * MIB)
             cache._release_reservation(holder)
             cache._release_reservation(blocked)
 
@@ -959,17 +957,13 @@ class TestRegistryArtifactCache:
         self, temp_cache_dir: Path
     ) -> None:
         """A writer waiting to grow its reservation still charges its staged bytes."""
-        mib = 1024 * 1024
         cache = RegistryArtifactCache(temp_cache_dir)
         await cache.ensure_swept()
         staged, holder, newcomer = (RegistryArtifactByteReservation() for _ in range(3))
 
         with (
-            patch(MAX_BYTES_CONFIG, 10 * mib),
-            patch(
-                "tracecat.executor.registry_artifact_storage.RESERVATION_WAIT_SECONDS",
-                0.2,
-            ),
+            patch(MAX_BYTES_CONFIG, 10 * MIB),
+            patch(RESERVATION_WAIT_CONFIG, 0.2),
         ):
             staged_admission = cache._admission_for("a" * 16, staged)
             holder_admission = cache._admission_for("b" * 16, holder)
@@ -977,19 +971,19 @@ class TestRegistryArtifactCache:
             assert staged_admission and holder_admission and newcomer_admission
             tarball = unique_work_path(cache.staging_dir, "a" * 16, suffix=".tar.gz")
             staged.staging_paths.append(tarball)
-            await staged_admission.ensure_capacity(3 * mib)
-            tarball.write_bytes(b"\0" * (3 * mib))
-            await holder_admission.ensure_capacity(1 * mib)
+            await staged_admission.ensure_capacity(3 * MIB)
+            tarball.write_bytes(b"\0" * (3 * MIB))
+            await holder_admission.ensure_capacity(1 * MIB)
 
-            # 7 more for extraction + 3 staged + 1 held exceeds 10: it waits.
-            growing = asyncio.ensure_future(staged_admission.ensure_capacity(7 * mib))
+            # 6 more for extraction + 3 staged + 1 held exceeds 10: it waits.
+            growing = asyncio.ensure_future(staged_admission.ensure_capacity(6 * MIB))
             await asyncio.sleep(0.05)
             assert not growing.done()
-            assert staged.bytes >= 3 * mib
+            assert staged.bytes >= 3 * MIB
 
             # The staged 3 stay visible, so 7 more can't be admitted beside them.
             with pytest.raises(RegistryArtifactCacheLeaseContentionError):
-                await newcomer_admission.ensure_capacity(7 * mib)
+                await newcomer_admission.ensure_capacity(7 * MIB)
             with pytest.raises(RegistryArtifactCacheLeaseContentionError):
                 await growing
             for reservation in (staged, holder, newcomer):
@@ -1002,7 +996,6 @@ class TestRegistryArtifactCache:
         self, temp_cache_dir: Path
     ) -> None:
         """Bytes published into the entry are not charged again while waiting."""
-        mib = 1024 * 1024
         cache = RegistryArtifactCache(temp_cache_dir)
         await cache.ensure_swept()
         published, holder, newcomer = (
@@ -1011,33 +1004,30 @@ class TestRegistryArtifactCache:
         published_key = "a" * 16
 
         with (
-            patch(MAX_BYTES_CONFIG, 10 * mib),
-            patch(
-                "tracecat.executor.registry_artifact_storage.RESERVATION_WAIT_SECONDS",
-                0.2,
-            ),
+            patch(MAX_BYTES_CONFIG, 10 * MIB),
+            patch(RESERVATION_WAIT_CONFIG, 0.2),
         ):
             published_admission = cache._admission_for(published_key, published)
             holder_admission = cache._admission_for("b" * 16, holder)
             newcomer_admission = cache._admission_for("c" * 16, newcomer)
             assert published_admission and holder_admission and newcomer_admission
-            await published_admission.ensure_capacity(4 * mib)
-            await holder_admission.ensure_capacity(3 * mib)
+            await published_admission.ensure_capacity(4 * MIB)
+            await holder_admission.ensure_capacity(3 * MIB)
             paths = cache._paths_for(published_key)
             paths.entry_dir.mkdir(parents=True)
-            paths.squashfs_image_path.write_bytes(b"\0" * (4 * mib))
+            paths.squashfs_image_path.write_bytes(b"\0" * (4 * MIB))
             cache._acquire_lease(published_key)
 
             # 4 on disk + 4 more + 3 held exceeds 10: it waits holding nothing.
             growing = asyncio.ensure_future(
-                published_admission.ensure_capacity(4 * mib)
+                published_admission.ensure_capacity(4 * MIB)
             )
             await asyncio.sleep(0.05)
             assert not growing.done()
             assert published.bytes == 0
 
             # 4 on disk + 3 held + 1 fits; charging the image twice would not.
-            await newcomer_admission.ensure_capacity(1 * mib)
+            await newcomer_admission.ensure_capacity(1 * MIB)
             cache._release_reservation(holder)
             await asyncio.wait_for(growing, timeout=1)
             for reservation in (published, holder, newcomer):
@@ -1050,35 +1040,29 @@ class TestRegistryArtifactCache:
         self, temp_cache_dir: Path
     ) -> None:
         """After a publish, the entry on disk carries the bytes, not the charge."""
-        mib = 1024 * 1024
         cache = RegistryArtifactCache(temp_cache_dir)
         await cache.ensure_swept()
-        published, newcomer = (
-            RegistryArtifactByteReservation(),
-            (RegistryArtifactByteReservation()),
-        )
+        published = RegistryArtifactByteReservation()
+        newcomer = RegistryArtifactByteReservation()
         published_key = "a" * 16
 
         with (
-            patch(MAX_BYTES_CONFIG, 10 * mib),
-            patch(
-                "tracecat.executor.registry_artifact_storage.RESERVATION_WAIT_SECONDS",
-                0.05,
-            ),
+            patch(MAX_BYTES_CONFIG, 10 * MIB),
+            patch(RESERVATION_WAIT_CONFIG, 0.05),
         ):
             published_admission = cache._admission_for(published_key, published)
             newcomer_admission = cache._admission_for("b" * 16, newcomer)
             assert published_admission and newcomer_admission
-            await published_admission.ensure_capacity(4 * mib)
+            await published_admission.ensure_capacity(4 * MIB)
             paths = cache._paths_for(published_key)
             paths.entry_dir.mkdir(parents=True)
-            paths.squashfs_image_path.write_bytes(b"\0" * (4 * mib))
+            paths.squashfs_image_path.write_bytes(b"\0" * (4 * MIB))
             cache._acquire_lease(published_key)
 
             await published_admission.settle()
             assert published.bytes == 0
             # 4 on disk + 4 fits; 4 on disk + 4 charged + 4 would not.
-            await newcomer_admission.ensure_capacity(4 * mib)
+            await newcomer_admission.ensure_capacity(4 * MIB)
             cache._release_reservation(published)
             cache._release_reservation(newcomer)
 
@@ -1089,7 +1073,6 @@ class TestRegistryArtifactCache:
         self, temp_cache_dir: Path
     ) -> None:
         """When each writer waits on another's staged bytes, one backs off at once."""
-        mib = 1024 * 1024
         cache = RegistryArtifactCache(temp_cache_dir)
         await cache.ensure_swept()
 
@@ -1100,11 +1083,11 @@ class TestRegistryArtifactCache:
             tarball = unique_work_path(cache.staging_dir, cache_key, suffix=".tar.gz")
             reservation.staging_paths.append(tarball)
             try:
-                await admission.ensure_capacity(3 * mib)
-                tarball.write_bytes(b"\0" * (3 * mib))
+                await admission.ensure_capacity(3 * MIB)
+                tarball.write_bytes(b"\0" * (3 * MIB))
                 await both_staged.wait()
                 # Alone, 5 + 3 staged fits in 10; beside the other's 3 it does not.
-                await admission.ensure_capacity(5 * mib)
+                await admission.ensure_capacity(5 * MIB)
                 admitted.append(cache_key)
             finally:
                 tarball.unlink(missing_ok=True)
@@ -1113,17 +1096,14 @@ class TestRegistryArtifactCache:
         admitted: list[str] = []
         both_staged = asyncio.Event()
         with (
-            patch(MAX_BYTES_CONFIG, 10 * mib),
-            patch(
-                "tracecat.executor.registry_artifact_storage.RESERVATION_WAIT_SECONDS",
-                5,
-            ),
+            patch(MAX_BYTES_CONFIG, 10 * MIB),
+            patch(RESERVATION_WAIT_CONFIG, 5),
         ):
             writers = [
                 asyncio.ensure_future(stage_then_grow(key))
                 for key in ("a" * 16, "b" * 16)
             ]
-            while cache._reserved_bytes < 2 * 3 * mib:
+            while cache._reserved_bytes < 2 * 3 * MIB:
                 await asyncio.sleep(0.01)
             both_staged.set()
             results = await asyncio.wait_for(
@@ -1141,11 +1121,235 @@ class TestRegistryArtifactCache:
         assert cache._reserved_bytes == 0
 
     @pytest.mark.anyio
+    async def test_standoff_beside_workflow_lease_backs_off(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """A lease that is not the real blocker does not hide a writer standoff."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        workflow_key = "c" * 16
+        workflow_paths = cache._paths_for(workflow_key)
+        workflow_paths.entry_dir.mkdir(parents=True)
+        workflow_paths.squashfs_image_path.write_bytes(b"\0" * (2 * MIB))
+        cache._acquire_lease(workflow_key)
+
+        async def stage_then_extract(cache_key: str) -> None:
+            reservation = RegistryArtifactByteReservation()
+            admission = cache._admission_for(cache_key, reservation)
+            assert admission is not None
+            tarball = unique_work_path(cache.staging_dir, cache_key, suffix=".tar.gz")
+            reservation.staging_paths.append(tarball)
+            try:
+                await admission.ensure_capacity(3 * MIB)
+                tarball.write_bytes(b"\0" * (3 * MIB))
+                staged.append(cache_key)
+                await both_staged.wait()
+                # Alone, 2 pinned + 3 staged + 3 fits; beside the other's 3 it does not.
+                await admission.ensure_capacity(3 * MIB)
+                admitted.append(cache_key)
+            finally:
+                tarball.unlink(missing_ok=True)
+                cache._release_reservation(reservation)
+
+        staged: list[str] = []
+        admitted: list[str] = []
+        both_staged = asyncio.Event()
+        with (
+            patch(MAX_BYTES_CONFIG, 10 * MIB + MIB // 2),
+            patch(RESERVATION_WAIT_CONFIG, 5),
+        ):
+            writers = [
+                asyncio.ensure_future(stage_then_extract(key))
+                for key in ("a" * 16, "b" * 16)
+            ]
+            while len(staged) < 2:
+                await asyncio.sleep(0.01)
+            both_staged.set()
+            results = await asyncio.wait_for(
+                asyncio.gather(*writers, return_exceptions=True), timeout=1
+            )
+
+        assert len(admitted) == 1
+        assert [type(result) for result in results].count(
+            RegistryArtifactCacheLeaseContentionError
+        ) == 1
+        assert cache._reserved_bytes == 0
+
+    @pytest.mark.anyio
+    async def test_failed_candidate_releases_charge_before_fallback(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """The fallback does not keep charging for a candidate that failed."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        cache_key = compute_registry_artifact_cache_key("s3://bucket/fallback.tar.gz")
+        reservation = RegistryArtifactByteReservation()
+        with patch(MAX_BYTES_CONFIG, 10 * MIB):
+            ctx = cache._context_for(
+                cache_key, admission=cache._admission_for(cache_key, reservation)
+            )
+            assert ctx.admission is not None
+            charged_at_fallback: list[int] = []
+
+            async def fail_after_reserving(
+                ctx: RegistryArtifactMaterializationContext,
+            ) -> list[Path]:
+                assert ctx.admission is not None
+                await ctx.admission.ensure_capacity(4 * MIB)
+                raise RegistryArtifactExtractionError()
+
+            async def record_charge(
+                ctx: RegistryArtifactMaterializationContext,
+            ) -> list[Path]:
+                charged_at_fallback.append(reservation.bytes)
+                return [temp_cache_dir]
+
+            with (
+                patch.object(
+                    SquashfsArtifact,
+                    "materialize",
+                    AsyncMock(side_effect=fail_after_reserving),
+                ),
+                patch.object(
+                    TarballArtifact,
+                    "materialize",
+                    AsyncMock(side_effect=record_charge),
+                ),
+            ):
+                await cache._materialize_candidates(
+                    ctx,
+                    [
+                        SquashfsArtifact(
+                            uri="s3://bucket/fallback.squashfs", cache_key=cache_key
+                        ),
+                        TarballArtifact(
+                            uri="s3://bucket/fallback.tar.gz", cache_key=cache_key
+                        ),
+                    ],
+                )
+            cache._release_reservation(reservation)
+
+        assert charged_at_fallback == [0]
+
+    @pytest.mark.anyio
+    async def test_contention_skips_candidate_fallback(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Contention retries the lease instead of contending again as a fallback."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        cache_key = compute_registry_artifact_cache_key("s3://bucket/fallback.tar.gz")
+        candidates = [
+            SquashfsArtifact(uri="s3://bucket/fallback.squashfs", cache_key=cache_key),
+            TarballArtifact(uri="s3://bucket/fallback.tar.gz", cache_key=cache_key),
+        ]
+        contention = RegistryArtifactCacheLeaseContentionError(
+            current_bytes=1, additional_bytes=1, max_bytes=1
+        )
+
+        with (
+            patch.object(
+                SquashfsArtifact, "materialize", AsyncMock(side_effect=contention)
+            ),
+            patch.object(
+                TarballArtifact, "materialize", new_callable=AsyncMock
+            ) as tarball_materialize,
+            pytest.raises(RegistryArtifactCacheLeaseContentionError),
+        ):
+            await cache._materialize_candidates(
+                cache._context_for(cache_key), candidates
+            )
+        tarball_materialize.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_idle_cleanup_wakes_capacity_waiters(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Waiters recheck once unmount frees the key, before the budget pass."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        cache_key = "a" * 16
+        cache._acquire_lease(cache_key)
+        changed = cache._capacity_changed
+
+        def assert_not_signaled(*_: object) -> None:
+            assert not changed.is_set()
+
+        def assert_signaled() -> None:
+            assert changed.is_set()
+
+        with (
+            patch.object(
+                cache, "_unmount_idle_entry", AsyncMock(side_effect=assert_not_signaled)
+            ),
+            patch.object(
+                cache, "_discard_idle_squashfs_extraction", new_callable=AsyncMock
+            ),
+            patch.object(
+                cache, "_converge_cache_budget", AsyncMock(side_effect=assert_signaled)
+            ),
+        ):
+            assert cache._release_lease(cache_key)
+            assert not changed.is_set()
+            await cache._finish_lease_cleanup([cache_key])
+
+        assert changed.is_set()
+
+    @pytest.mark.anyio
+    async def test_writers_behind_workflow_lease_wait_instead_of_backing_off(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Only a lease release frees this space, so neither writer backs off."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        workflow_key = "c" * 16
+        workflow_paths = cache._paths_for(workflow_key)
+        workflow_paths.entry_dir.mkdir(parents=True)
+        workflow_paths.squashfs_image_path.write_bytes(b"\0" * (6 * MIB))
+        cache._acquire_lease(workflow_key)
+
+        async def stage_then_extract(cache_key: str) -> None:
+            reservation = RegistryArtifactByteReservation()
+            admission = cache._admission_for(cache_key, reservation)
+            assert admission is not None
+            tarball = unique_work_path(cache.staging_dir, cache_key, suffix=".tar.gz")
+            reservation.staging_paths.append(tarball)
+            try:
+                await admission.ensure_capacity(1 * MIB)
+                tarball.write_bytes(b"\0" * (1 * MIB))
+                staged.append(cache_key)
+                # 6 pinned + 1 staged + 3.5 never fits; releasing the pin frees both.
+                await admission.ensure_capacity(3 * MIB + MIB // 2)
+                admitted.append(cache_key)
+            finally:
+                tarball.unlink(missing_ok=True)
+                cache._release_reservation(reservation)
+
+        staged: list[str] = []
+        admitted: list[str] = []
+        with (
+            patch(MAX_BYTES_CONFIG, 10 * MIB),
+            patch(RESERVATION_WAIT_CONFIG, 5),
+            patch.object(cache, "_converge_cache_budget", new_callable=AsyncMock),
+        ):
+            writers = [
+                asyncio.ensure_future(stage_then_extract(key))
+                for key in ("a" * 16, "b" * 16)
+            ]
+            while len(staged) < 2:
+                await asyncio.sleep(0.01)
+            await asyncio.sleep(0.05)
+            assert admitted == []
+            assert cache._release_lease(workflow_key)
+            await cache._finish_lease_cleanup([workflow_key])
+            await asyncio.wait_for(asyncio.gather(*writers), timeout=1)
+
+        assert sorted(admitted) == ["a" * 16, "b" * 16]
+        assert cache._reserved_bytes == 0
+
+    @pytest.mark.anyio
     async def test_capacity_wait_does_not_hold_extract_slot(
         self, temp_cache_dir: Path
     ) -> None:
         """A writer waiting for space lets the writer it waits on extract and finish."""
-        mib = 1024 * 1024
         cache = RegistryArtifactCache(temp_cache_dir)
         await cache.ensure_swept()
         big_uri, small_uri = "s3://bucket/big.tar.gz", "s3://bucket/small.tar.gz"
@@ -1163,8 +1367,8 @@ class TestRegistryArtifactCache:
             assert ensure_capacity is not None
             if key == "big.tar.gz":
                 await small_reserved.wait()
-            await ensure_capacity(3 * mib)
-            output_path.write_bytes(b"\0" * (3 * mib))
+            await ensure_capacity(3 * MIB)
+            output_path.write_bytes(b"\0" * (3 * MIB))
             if key == "small.tar.gz":
                 small_reserved.set()
                 # Small extracts only after big has probed and started waiting.
@@ -1174,16 +1378,13 @@ class TestRegistryArtifactCache:
             del allocation_unit
             if big_key in tarball.name:
                 big_probed.set()
-                return 6 * mib
-            return 4 * mib
+                return 6 * MIB
+            return 4 * MIB
 
         with (
-            patch(MAX_BYTES_CONFIG, 11 * mib),
+            patch(MAX_BYTES_CONFIG, 11 * MIB),
             patch(SQUASHFS_ENABLED_CONFIG, False),
-            patch(
-                "tracecat.executor.registry_artifact_storage.RESERVATION_WAIT_SECONDS",
-                5,
-            ),
+            patch(RESERVATION_WAIT_CONFIG, 5),
             patch(
                 "tracecat.executor.registry_artifacts.blob.download_file_to_path",
                 fake_download,

@@ -107,7 +107,18 @@ class RegistryArtifactCacheCapacityError(RuntimeError):
 
 
 class RegistryArtifactCacheLeaseContentionError(RegistryArtifactCacheCapacityError):
-    """Active leases temporarily pin bytes needed by a cold artifact."""
+    """Leases or in-flight reservations temporarily hold bytes a cold artifact needs."""
+
+
+def _contention_error(
+    blocked: RegistryArtifactCacheCapacityError,
+) -> RegistryArtifactCacheLeaseContentionError:
+    """Return a retryable error for a writer that stops waiting for capacity."""
+    return RegistryArtifactCacheLeaseContentionError(
+        current_bytes=blocked.current_bytes,
+        additional_bytes=blocked.additional_bytes,
+        max_bytes=blocked.max_bytes,
+    )
 
 
 _METER = metrics.get_meter("tracecat.executor.registry_cache")
@@ -299,9 +310,10 @@ class RegistryArtifactAdmission:
 
     max_bytes: int
     allocation_unit: int
+    reservation: RegistryArtifactByteReservation
     ensure_capacity: Callable[[int], Awaitable[None]]
     settle: Callable[[], Awaitable[None]]
-    """Shrink the charge to owned staging bytes after a publish."""
+    """Shrink the charge to owned staging bytes after a publish or failed write."""
 
 
 @dataclass(slots=True, eq=False)
@@ -314,8 +326,8 @@ class RegistryArtifactByteReservation:
 
     bytes: int = 0
     staging_paths: list[Path] = field(default_factory=list)
-    blocked_epoch: int | None = None
-    """Capacity epoch in which this writer was blocked only by reservations."""
+    blocked_on: asyncio.Event | None = None
+    """Capacity event current when this writer was blocked only by reservations."""
 
 
 @dataclass(slots=True)
@@ -331,7 +343,6 @@ class RegistryArtifactMaterializationContext:
     extract_slots: MeteredSlots
     mount_slots: MeteredSlots
     admission: RegistryArtifactAdmission | None = None
-    staging_paths: list[Path] | None = None
     squashfs_remount_failed: bool = False
     """This lease's warm remount already exhausted its mount attempts."""
 
@@ -627,7 +638,6 @@ class RegistryArtifactCacheStorage:
         self._reserved_bytes = 0
         self._live_reservations: set[RegistryArtifactByteReservation] = set()
         self._capacity_changed = asyncio.Event()
-        self._capacity_epoch = 0
         self._swept = False
         self._sweep_task: asyncio.Task[None] | None = None
         self._sweep_lock = asyncio.Lock()
@@ -758,7 +768,6 @@ class RegistryArtifactCacheStorage:
         cache_key: str,
         *,
         admission: RegistryArtifactAdmission | None = None,
-        staging_paths: list[Path] | None = None,
     ) -> RegistryArtifactMaterializationContext:
         """Return materialization state for one cache key."""
         return RegistryArtifactMaterializationContext(
@@ -771,7 +780,6 @@ class RegistryArtifactCacheStorage:
             extract_slots=self._extract_slots,
             mount_slots=self._mount_slots,
             admission=admission,
-            staging_paths=staging_paths,
         )
 
     def _new_entry_lease(
@@ -806,103 +814,120 @@ class RegistryArtifactCacheStorage:
         if max_bytes <= 0:
             return None
         allocation_unit = _filesystem_allocation_unit(self.cache_dir)
-
-        async def staged_bytes() -> int:
-            return await asyncio.to_thread(
-                self._owned_staging_footprint,
-                frozenset(path.name for path in reservation.staging_paths),
-                allocation_unit,
-            )
-
-        async def settle() -> None:
-            self._set_reserved_bytes(reservation, await staged_bytes())
-
-        async def ensure_capacity(additional_bytes: int) -> None:
-            need = allocated_size_bound(
-                additional_bytes,
+        return RegistryArtifactAdmission(
+            max_bytes=max_bytes,
+            allocation_unit=allocation_unit,
+            reservation=reservation,
+            ensure_capacity=functools.partial(
+                self._reserve,
+                reservation,
+                cache_key=cache_key,
+                max_bytes=max_bytes,
                 allocation_unit=allocation_unit,
-            )
-            self._live_reservations.add(reservation)
-            started = time.monotonic()
-            deadline = started + RESERVATION_WAIT_SECONDS
+                attempt_cache_keys=attempt_cache_keys,
+            ),
+            settle=functools.partial(
+                self._settle_reservation, reservation, allocation_unit
+            ),
+        )
 
-            def contention(
-                blocked: RegistryArtifactCacheCapacityError,
-            ) -> RegistryArtifactCacheLeaseContentionError:
-                _CAPACITY_WAIT_MS.record((time.monotonic() - started) * 1000)
-                return RegistryArtifactCacheLeaseContentionError(
-                    current_bytes=blocked.current_bytes,
-                    additional_bytes=blocked.additional_bytes,
-                    max_bytes=blocked.max_bytes,
-                )
-
+    async def _reserve(
+        self,
+        reservation: RegistryArtifactByteReservation,
+        additional_bytes: int,
+        *,
+        cache_key: str,
+        max_bytes: int,
+        allocation_unit: int,
+        attempt_cache_keys: Collection[str],
+    ) -> None:
+        """Charge a writer's next write, waiting while in-flight work can free space."""
+        need = allocated_size_bound(additional_bytes, allocation_unit=allocation_unit)
+        self._live_reservations.add(reservation)
+        started = time.monotonic()
+        deadline = started + RESERVATION_WAIT_SECONDS
+        try:
             while True:
                 async with self._admission_lock:
                     # Taken before checking, so a release after the check wakes us.
                     changed = self._capacity_changed
-                    epoch = self._capacity_epoch
-                    carried = await staged_bytes()
-                    charge = need + carried
+                    carried = await self._staged_bytes(reservation, allocation_unit)
                     others = self._reserved_bytes - reservation.bytes
                     try:
                         await self._ensure_cache_capacity(
-                            additional_bytes=charge + others,
+                            additional_bytes=need + carried + others,
                             protected_key=cache_key,
                             max_bytes=max_bytes,
                             attempt_cache_keys=attempt_cache_keys,
                             owned_staging_names=self._owned_staging_names(),
                         )
-                    except RegistryArtifactCacheLeaseContentionError as error:
-                        blocked = error
-                        reservation.blocked_epoch = None
                     except RegistryArtifactCacheCapacityError as error:
-                        # Only in-flight reservations can still free this space.
-                        if others == 0:
+                        lease_blocked = isinstance(
+                            error, RegistryArtifactCacheLeaseContentionError
+                        )
+                        # Permanent only when no lease or reservation can free space.
+                        if not lease_blocked and others == 0:
                             raise
                         blocked = error
-                        reservation.blocked_epoch = epoch
+                        # Writer-blocked if it fits once other reservations drain.
+                        fits = error.current_bytes + need + carried <= max_bytes
+                        reservation.blocked_on = changed if others and fits else None
                     else:
-                        reservation.blocked_epoch = None
-                        self._set_reserved_bytes(reservation, charge)
-                        _CAPACITY_WAIT_MS.record((time.monotonic() - started) * 1000)
+                        self._set_reserved_bytes(reservation, need + carried)
                         return
-                    # While waiting, hold only bytes still in staging.
+                    # Published bytes are measured on disk; hold only staged ones.
                     self._set_reserved_bytes(reservation, carried)
-                    if self._reservations_deadlocked(reservation, epoch):
-                        reservation.blocked_epoch = None
-                        raise contention(blocked) from None
+                    if self._reservations_deadlocked(reservation):
+                        raise _contention_error(blocked) from blocked
                 try:
                     await asyncio.wait_for(
                         changed.wait(), max(deadline - time.monotonic(), 0)
                     )
                 except TimeoutError:
-                    raise contention(blocked) from None
+                    raise _contention_error(blocked) from blocked
+        finally:
+            reservation.blocked_on = None
+            _CAPACITY_WAIT_MS.record((time.monotonic() - started) * 1000)
 
-        return RegistryArtifactAdmission(
-            max_bytes=max_bytes,
-            allocation_unit=allocation_unit,
-            ensure_capacity=ensure_capacity,
-            settle=settle,
+    async def _staged_bytes(
+        self,
+        reservation: RegistryArtifactByteReservation,
+        allocation_unit: int,
+    ) -> int:
+        """Measure the staging paths one reservation owns."""
+        return await asyncio.to_thread(
+            self._owned_staging_footprint,
+            frozenset(path.name for path in reservation.staging_paths),
+            allocation_unit,
         )
+
+    async def _settle_reservation(
+        self,
+        reservation: RegistryArtifactByteReservation,
+        allocation_unit: int,
+    ) -> None:
+        """Shrink a charge to owned staging bytes once its writes land or fail."""
+        staged = await self._staged_bytes(reservation, allocation_unit)
+        self._set_reserved_bytes(reservation, staged)
 
     def _reservations_deadlocked(
         self,
         reservation: RegistryArtifactByteReservation,
-        epoch: int,
     ) -> bool:
         """Return whether every other byte holder waits on reservations too.
 
-        Only a timeout would free space then, so the last writer to see it backs
+        Only a timeout would free space then, so the last holder to block backs
         off and releases its staged bytes.
         """
-        if epoch != self._capacity_epoch or reservation.bytes == 0:
+        current = self._capacity_changed
+        if reservation.blocked_on is not current or reservation.bytes == 0:
             return False
         holders = [
             other
             for other in self._live_reservations
             if other is not reservation and other.bytes > 0
         ]
-        return bool(holders) and all(other.blocked_epoch == epoch for other in holders)
+        return bool(holders) and all(other.blocked_on is current for other in holders)
 
     def _set_reserved_bytes(
         self,
@@ -940,7 +965,6 @@ class RegistryArtifactCacheStorage:
 
     def _signal_capacity_changed(self) -> None:
         """Wake every capacity waiter; later waiters take a fresh event."""
-        self._capacity_epoch += 1
         self._capacity_changed.set()
         self._capacity_changed = asyncio.Event()
 
@@ -961,8 +985,6 @@ class RegistryArtifactCacheStorage:
         became_idle = runtime.refcount == 0
         if became_idle:
             self._touch_entry(cache_key)
-            # An idle entry is evictable again, which may unblock a waiter.
-            self._signal_capacity_changed()
         return became_idle
 
     async def _unmount_idle_entry(self, cache_key: str) -> None:
