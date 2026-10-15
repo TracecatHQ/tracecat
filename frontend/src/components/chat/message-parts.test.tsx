@@ -89,10 +89,10 @@ async function streamTurn(
 }
 
 describe("MessageParts", () => {
-  it("draws each step as a collapsed line at milestones", async () => {
-    await streamTurn("milestones")
+  it("draws each step as a collapsed line at default", async () => {
+    await streamTurn("default")
 
-    expect(screen.getByText("Thought")).toBeInTheDocument()
+    expect(screen.getByText(/^Thought/)).toBeInTheDocument()
     expect(screen.getByText("Ran core.cases.list_cases")).toBeInTheDocument()
     expect(
       screen.getByText("Failed to run core.http_request")
@@ -104,7 +104,7 @@ describe("MessageParts", () => {
   })
 
   it("expands a line when the person opens it", async () => {
-    await streamTurn("milestones")
+    await streamTurn("default")
 
     fireEvent.click(screen.getByText("Ran core.cases.list_cases"))
 
@@ -115,7 +115,7 @@ describe("MessageParts", () => {
   it("keeps only the answer and failures at minimal", async () => {
     await streamTurn("minimal")
 
-    expect(screen.queryByText("Thought")).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Thought/)).not.toBeInTheDocument()
     expect(
       screen.queryByText("Ran core.cases.list_cases")
     ).not.toBeInTheDocument()
@@ -146,7 +146,7 @@ describe("MessageParts", () => {
 
   it("marks a running tool line while it waits for output", async () => {
     render(
-      <Thread chat={scriptTurn({ toolDelayMs: 300 })} verbosity="milestones" />
+      <Thread chat={scriptTurn({ toolDelayMs: 300 })} verbosity="default" />
     )
     fireEvent.click(screen.getByRole("button", { name: "Send" }))
 
@@ -161,8 +161,8 @@ describe("MessageParts", () => {
     ).toBeInTheDocument()
   })
 
-  it("expands every step at full", async () => {
-    await streamTurn("full")
+  it("expands every step at verbose", async () => {
+    await streamTurn("verbose")
 
     expect(screen.getByText("limit")).toBeInTheDocument()
     expect(screen.getByText("https://example.com")).toBeInTheDocument()
@@ -187,7 +187,7 @@ describe("MessageParts", () => {
           .output("export default function Page() {}")
         writer.text(ANSWER)
       })
-    await streamTurn("milestones", chat)
+    await streamTurn("default", chat)
 
     expect(screen.getByText("Ran rg -l ThemeProvider app")).toBeInTheDocument()
     expect(screen.getByText("Read app/page.tsx")).toBeInTheDocument()
@@ -199,8 +199,8 @@ describe("MessageParts", () => {
   })
 
   it.each([
-    ["milestones", false],
-    ["full", true],
+    ["default", false],
+    ["verbose", true],
   ] as const)("draws tool search at %s: %s", async (verbosity, shown) => {
     const chat = createChat()
       .user(QUESTION)

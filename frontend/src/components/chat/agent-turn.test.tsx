@@ -65,7 +65,7 @@ const ANSWER_MESSAGE: UIMessage = {
 function renderTurn(
   thread: UIMessage[],
   {
-    verbosity = "milestones",
+    verbosity = "default",
     isLive = false,
   }: { verbosity?: ChatVerbosity; isLive?: boolean } = {}
 ) {
@@ -99,16 +99,14 @@ describe("AgentTurn", () => {
     fireEvent.click(screen.getByText("Worked for 16s"))
 
     expect(screen.getByText("Ran core.table.list_tables")).toBeInTheDocument()
-    expect(screen.getByText("Thought")).toBeInTheDocument()
-    expect(screen.getByText("3s")).toBeInTheDocument()
+    expect(screen.getByText("Thought for 3 seconds")).toBeInTheDocument()
   })
 
   it("shows a turn that only thought as its thought", () => {
     renderTurn([PROMPT, THOUGHT, ANSWER_MESSAGE])
 
     expect(screen.queryByText(/^Worked/)).not.toBeInTheDocument()
-    expect(screen.getByText("Thought")).toBeInTheDocument()
-    expect(screen.getByText("3s")).toBeInTheDocument()
+    expect(screen.getByText("Thought for 3 seconds")).toBeInTheDocument()
   })
 
   it("draws every step while the turn streams", () => {
@@ -118,13 +116,15 @@ describe("AgentTurn", () => {
     expect(screen.getByText("Ran core.table.list_tables")).toBeInTheDocument()
   })
 
-  it("opens the worked line at full", () => {
+  it("keeps the whole transcript inline at verbose", () => {
     renderTurn([PROMPT, THOUGHT, TOOL_CALL, ANSWER_MESSAGE], {
-      verbosity: "full",
+      verbosity: "verbose",
     })
 
-    expect(screen.getByText("Worked for 16s")).toBeInTheDocument()
+    expect(screen.queryByText(/^Worked/)).not.toBeInTheDocument()
     expect(screen.getByText("Ran core.table.list_tables")).toBeInTheDocument()
+    expect(screen.getByText("Use the tables tool.")).toBeInTheDocument()
+    expect(screen.getByText(ANSWER)).toBeInTheDocument()
   })
 
   it("says worked without a time when history has none", () => {

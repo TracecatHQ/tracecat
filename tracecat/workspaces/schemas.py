@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Literal, NotRequired, Self, TypedDict
+from typing import NotRequired, Self, TypedDict
 
 from pydantic import EmailStr, Field, computed_field, field_validator, model_validator
 
@@ -14,10 +14,6 @@ from tracecat.workspace_sync.enums import VcsProvider
 # === Workspace === #
 
 
-ChatVerbosity = Literal["minimal", "milestones", "full"]
-"""How much of an agent's work the workspace's chats draw. Display only."""
-
-
 # DTO
 class WorkspaceSettings(TypedDict):
     git_provider: NotRequired[VcsProvider | None]
@@ -27,7 +23,6 @@ class WorkspaceSettings(TypedDict):
     allowed_attachment_extensions: NotRequired[list[str] | None]
     allowed_attachment_mime_types: NotRequired[list[str] | None]
     validate_attachment_magic_number: NotRequired[bool | None]
-    chat_verbosity: NotRequired[ChatVerbosity | None]
 
 
 # Schema
@@ -39,7 +34,6 @@ class WorkspaceSettingsRead(Schema):
     allowed_attachment_extensions: list[str] | None = None
     allowed_attachment_mime_types: list[str] | None = None
     validate_attachment_magic_number: bool | None = None
-    chat_verbosity: ChatVerbosity | None = None
 
     @computed_field
     @property
@@ -81,10 +75,6 @@ class WorkspaceSettingsUpdate(Schema):
     validate_attachment_magic_number: bool | None = Field(
         default=None,
         description="Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
-    )
-    chat_verbosity: ChatVerbosity | None = Field(
-        default=None,
-        description="How much of an agent's work chats in this workspace draw. Unset means milestones.",
     )
 
     @model_validator(mode="after")

@@ -142,7 +142,7 @@ export function MessagePart({
   reasoningSeconds,
 }: MessagePartProps) {
   const verbosity = useChatVerbosity()
-  const expanded = verbosity === "full"
+  const expanded = verbosity === "verbose"
 
   if (part.type === CANCELLED_DATA_PART_TYPE) {
     return (
@@ -346,7 +346,7 @@ function isNotableActivity(
   return false
 }
 
-/** Harness plumbing that only the full level draws. */
+/** Harness plumbing that only the verbose level draws. */
 const INTERNAL_TOOL_NAMES = new Set(["ToolSearch"])
 
 function isInternalTool(part: UIMessage["parts"][number]): boolean {
@@ -360,9 +360,9 @@ function visibleActivity(
   interruptedToolCallIds: ReadonlySet<string>
 ): IndexedPart[] {
   switch (verbosity) {
-    case "full":
+    case "verbose":
       return parts
-    case "milestones":
+    case "default":
       return parts.filter(({ part }) => !isInternalTool(part))
     case "minimal":
       return parts.filter(({ part }) =>
@@ -374,7 +374,7 @@ function visibleActivity(
 /**
  * One message's parts. Text, approvals, and markers render in place; the
  * agent's steps between them fold into a Trace whose detail follows the
- * workspace's chat verbosity.
+ * agent verbosity preference.
  */
 export function MessageParts({
   message,

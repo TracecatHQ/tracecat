@@ -42046,18 +42046,6 @@ export const $WorkspaceSettingsRead = {
       ],
       title: "Validate Attachment Magic Number",
     },
-    chat_verbosity: {
-      anyOf: [
-        {
-          type: "string",
-          enum: ["minimal", "milestones", "full"],
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Chat Verbosity",
-    },
     effective_allowed_attachment_extensions: {
       items: {
         type: "string",
@@ -42181,20 +42169,6 @@ export const $WorkspaceSettingsUpdate = {
       title: "Validate Attachment Magic Number",
       description:
         "Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
-    },
-    chat_verbosity: {
-      anyOf: [
-        {
-          type: "string",
-          enum: ["minimal", "milestones", "full"],
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Chat Verbosity",
-      description:
-        "How much of an agent's work chats in this workspace draw. Unset means milestones.",
     },
   },
   type: "object",

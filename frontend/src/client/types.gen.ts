@@ -12586,7 +12586,6 @@ export type WorkspaceSettingsRead = {
   allowed_attachment_extensions?: Array<string> | null
   allowed_attachment_mime_types?: Array<string> | null
   validate_attachment_magic_number?: boolean | null
-  chat_verbosity?: "minimal" | "milestones" | "full" | null
   /**
    * Returns workspace-specific extensions if set, otherwise system defaults.
    */
@@ -12620,10 +12619,6 @@ export type WorkspaceSettingsUpdate = {
    * Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.
    */
   validate_attachment_magic_number?: boolean | null
-  /**
-   * How much of an agent's work chats in this workspace draw. Unset means milestones.
-   */
-  chat_verbosity?: "minimal" | "milestones" | "full" | null
 }
 
 /**

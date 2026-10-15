@@ -34,11 +34,11 @@ const mockUseVercelChatResult = {
   status: "ready" as ChatStatus,
 }
 
-// These tests read every step of finished turns, which only the full level
+// These tests read every step of finished turns, which only the verbose level
 // draws without expanding the turn first.
 jest.mock("@/hooks/use-chat-verbosity", () => ({
   ...jest.requireActual("@/hooks/use-chat-verbosity"),
-  useWorkspaceChatVerbosity: () => "full",
+  useChatVerbosityPreference: () => ["verbose", jest.fn()],
 }))
 
 jest.mock("@/components/chat/chat-empty-hero", () => ({

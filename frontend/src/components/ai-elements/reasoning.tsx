@@ -16,7 +16,6 @@ import {
   TraceCollapsible,
   TraceCollapsibleContent,
   TraceCollapsibleTrigger,
-  TraceDescription,
   TraceLine,
   TraceTitle,
 } from "@/components/ui/trace"
@@ -144,6 +143,16 @@ export type ReasoningTriggerProps = ComponentProps<
   typeof TraceCollapsibleTrigger
 >
 
+function getThoughtTitle(isStreaming: boolean, duration?: number): string {
+  if (isStreaming) {
+    return "Thinking"
+  }
+  if (!duration) {
+    return "Thought"
+  }
+  return `Thought for ${duration} ${duration === 1 ? "second" : "seconds"}`
+}
+
 export const ReasoningTrigger = memo(
   ({ className, children, ...props }: ReasoningTriggerProps) => {
     const { isStreaming, duration } = useReasoning()
@@ -152,10 +161,7 @@ export const ReasoningTrigger = memo(
       <TraceCollapsibleTrigger className={className} {...props}>
         {children ?? (
           <TraceLine status={isStreaming ? "running" : undefined}>
-            <TraceTitle>{isStreaming ? "Thinking" : "Thought"}</TraceTitle>
-            {!isStreaming && duration ? (
-              <TraceDescription>{duration}s</TraceDescription>
-            ) : null}
+            <TraceTitle>{getThoughtTitle(isStreaming, duration)}</TraceTitle>
           </TraceLine>
         )}
       </TraceCollapsibleTrigger>

@@ -147,8 +147,9 @@ export function AgentTurn({
   onSubmitApprovals,
 }: AgentTurnProps) {
   const verbosity = useChatVerbosity()
+  // Only the default level folds; verbose keeps the whole transcript inline.
   const split =
-    isLive || verbosity === "minimal" ? null : splitFinishedTurn(messages)
+    isLive || verbosity !== "default" ? null : splitFinishedTurn(messages)
 
   // Each thought is its own history row, so it took as long as the gap since
   // the row before it.
@@ -198,7 +199,7 @@ export function AgentTurn({
   return (
     <>
       <Trace>
-        <TraceCollapsible defaultOpen={verbosity === "full"}>
+        <TraceCollapsible>
           <div className="border-b pb-2">
             <TraceCollapsibleTrigger>
               <TraceLine>

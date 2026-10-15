@@ -24,11 +24,12 @@ import { useEntitlements } from "@/hooks/use-entitlements"
 import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
-// These tests read every step of finished turns, which only the full level
+// These tests read every step of finished turns, which only the verbose level
 // draws without expanding the turn first.
+const mockVerbosity = jest.fn(() => "verbose")
 jest.mock("@/hooks/use-chat-verbosity", () => ({
   ...jest.requireActual("@/hooks/use-chat-verbosity"),
-  useWorkspaceChatVerbosity: () => "full",
+  useChatVerbosityPreference: () => [mockVerbosity(), jest.fn()],
 }))
 
 jest.mock("@/hooks/use-chat", () => ({

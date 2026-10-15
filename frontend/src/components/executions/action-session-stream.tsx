@@ -17,7 +17,7 @@ import { toast } from "@/components/ui/use-toast"
 import { parseChatError } from "@/hooks/use-chat"
 import {
   ChatVerbosityContext,
-  useWorkspaceChatVerbosity,
+  useChatVerbosityPreference,
 } from "@/hooks/use-chat-verbosity"
 import { isUIMessageArray } from "@/lib/agents"
 import { getBaseUrl } from "@/lib/api"
@@ -121,8 +121,7 @@ function ActionSessionShell({
   status?: string
   children: ReactNode
 }) {
-  const workspaceId = useWorkspaceId()
-  const verbosity = useWorkspaceChatVerbosity(workspaceId)
+  const [verbosity] = useChatVerbosityPreference()
   return (
     <ChatVerbosityContext.Provider value={verbosity}>
       <div className="flex h-full flex-col overflow-hidden rounded-md border bg-card">

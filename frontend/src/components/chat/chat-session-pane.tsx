@@ -81,7 +81,7 @@ import {
 } from "@/hooks/use-chat"
 import {
   ChatVerbosityContext,
-  useWorkspaceChatVerbosity,
+  useChatVerbosityPreference,
 } from "@/hooks/use-chat-verbosity"
 import { useMentions } from "@/hooks/use-mentions"
 import { useOverflowBadges } from "@/hooks/use-overflow-badges"
@@ -422,7 +422,7 @@ export function ChatSessionPane({
     onData,
     resume: resumeDecision.resume,
   })
-  const verbosity = useWorkspaceChatVerbosity(workspaceId)
+  const [verbosity] = useChatVerbosityPreference()
   const subagentStreamContext = useMemo(
     () =>
       subagentStore ? { store: subagentStore, workspaceId, status } : null,

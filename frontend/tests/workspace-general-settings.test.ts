@@ -4,7 +4,6 @@ describe("workspace general settings", () => {
   it("trims the workspace name during validation", () => {
     const result = generalSettingsSchema.safeParse({
       name: "  Incident Response  ",
-      chat_verbosity: "milestones",
     })
 
     expect(result.success).toBe(true)
@@ -15,19 +14,7 @@ describe("workspace general settings", () => {
   })
 
   it("rejects a workspace name that is empty after trimming", () => {
-    const result = generalSettingsSchema.safeParse({
-      name: "   ",
-      chat_verbosity: "milestones",
-    })
-
-    expect(result.success).toBe(false)
-  })
-
-  it("rejects an unknown chat verbosity", () => {
-    const result = generalSettingsSchema.safeParse({
-      name: "Incident Response",
-      chat_verbosity: "verbose",
-    })
+    const result = generalSettingsSchema.safeParse({ name: "   " })
 
     expect(result.success).toBe(false)
   })

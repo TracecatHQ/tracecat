@@ -18,40 +18,12 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import { DEFAULT_CHAT_VERBOSITY } from "@/hooks/use-chat-verbosity"
 import { useWorkspaceSettings } from "@/lib/hooks"
 import { OrgWorkspaceDeleteDialog } from "../organization/org-workspace-delete-dialog"
 
-const CHAT_VERBOSITY_OPTIONS = [
-  {
-    value: "minimal",
-    label: "Responses only",
-    description: "Answers, approvals, and errors.",
-  },
-  {
-    value: "milestones",
-    label: "Milestones",
-    description: "Each step as one line, with details collapsed.",
-  },
-  {
-    value: "full",
-    label: "Everything",
-    description:
-      "Each step expanded, with reasoning and tool inputs and outputs.",
-  },
-] as const
-
 export const generalSettingsSchema = z.object({
   name: z.string().trim().min(1, "Workspace name is required"),
-  chat_verbosity: z.enum(["minimal", "milestones", "full"]),
 })
 
 type GeneralSettingsForm = z.infer<typeof generalSettingsSchema>
@@ -78,16 +50,11 @@ export function WorkspaceGeneralSettings({
     mode: "onChange",
     defaultValues: {
       name: workspace.name,
-      chat_verbosity:
-        workspace.settings?.chat_verbosity ?? DEFAULT_CHAT_VERBOSITY,
     },
   })
 
   async function onSubmit(values: GeneralSettingsForm) {
-    await updateWorkspace({
-      name: values.name,
-      settings: { chat_verbosity: values.chat_verbosity },
-    })
+    await updateWorkspace({ name: values.name })
   }
 
   async function handleDeleteWorkspace() {
@@ -114,38 +81,6 @@ export function WorkspaceGeneralSettings({
                 </FormControl>
                 <FormDescription>
                   Change the name of this workspace.
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="chat_verbosity"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Agent activity in chat</FormLabel>
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <FormControl>
-                    <SelectTrigger className="max-w-md">
-                      <SelectValue />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {CHAT_VERBOSITY_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormDescription>
-                  {
-                    CHAT_VERBOSITY_OPTIONS.find(
-                      (option) => option.value === field.value
-                    )?.description
-                  }{" "}
-                  Applies to every chat in this workspace.
                 </FormDescription>
                 <FormMessage />
               </FormItem>
