@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -575,6 +575,27 @@ class TestWorkspaceService:
             "workflow_unlimited_timeout_enabled": True,
         }
 
+    async def test_update_workspace_sets_chat_verbosity(
+        self,
+        session: AsyncSession,
+        service: WorkspaceService,
+        svc_workspace: Workspace,
+    ) -> None:
+        """Chat verbosity merges into settings like any other key."""
+        svc_workspace.settings = {"validate_attachment_magic_number": True}
+        session.add(svc_workspace)
+        await session.commit()
+
+        updated = await service.update_workspace(
+            svc_workspace,
+            WorkspaceUpdate(settings=WorkspaceSettingsUpdate(chat_verbosity="full")),
+        )
+
+        assert updated.settings == {
+            "validate_attachment_magic_number": True,
+            "chat_verbosity": "full",
+        }
+
     async def test_update_workspace_preserves_other_settings_when_clearing_one_key(
         self,
         session: AsyncSession,
@@ -698,3 +719,8 @@ def test_workspace_settings_update_accepts_bitbucket() -> None:
         WorkspaceSettingsUpdate(git_provider=VcsProvider.BITBUCKET).git_provider
         is VcsProvider.BITBUCKET
     )
+
+
+def test_chat_verbosity_rejects_unknown_levels() -> None:
+    with pytest.raises(ValidationError):
+        WorkspaceSettingsUpdate.model_validate({"chat_verbosity": "verbose"})
