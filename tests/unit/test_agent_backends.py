@@ -33,6 +33,7 @@ from tracecat.agent.backends.schemas import (
     WorkflowApprovalSubmission,
     WorkflowCancelRequest,
 )
+from tracecat.agent.backends.selection import select_session_backend
 from tracecat.agent.backends.types import (
     AgentControlRejected,
     AgentControlUncertain,
@@ -121,6 +122,23 @@ def test_disabled_plugins_cannot_be_selected():
         pytest.raises(TracecatValidationError, match="unavailable"),
     ):
         registry.get_agent_backend("external")
+
+
+@pytest.mark.anyio
+async def test_selection_defaults_to_builtin_backend():
+    """Surfaces create new sessions on the built-in backend until a setting exists."""
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        organization_id=uuid4(),
+        workspace_id=uuid4(),
+    )
+
+    for preset_id in (None, uuid4()):
+        backend_id = await select_session_backend(
+            AsyncMock(), role, agent_preset_id=preset_id
+        )
+        assert backend_id == registry.DEFAULT_AGENT_BACKEND
 
 
 def test_subagent_approvals_need_an_enabled_backend_that_runs_them():
