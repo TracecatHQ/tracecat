@@ -11,11 +11,17 @@ jest.mock("@/components/chat/chat-session-pane", () => ({
   ChatSessionPane: ({
     mcpEnabled,
     onBeforeSend,
+    inputDisabled,
   }: {
     mcpEnabled: boolean
     onBeforeSend?: (message: string) => Promise<string | null>
+    inputDisabled?: boolean
   }) => (
-    <div data-mcp-enabled={String(mcpEnabled)} data-testid="chat-session-pane">
+    <div
+      data-mcp-enabled={String(mcpEnabled)}
+      data-input-disabled={String(Boolean(inputDisabled))}
+      data-testid="chat-session-pane"
+    >
       {onBeforeSend && (
         <button type="button" onClick={() => void onBeforeSend("Hello")}>
           Send first message
@@ -571,8 +577,50 @@ describe("ChatInterface model readiness", () => {
 
     expect(screen.getByText("Workspace models disabled")).toBeInTheDocument()
     expect(
-      screen.getByText(/organization disabled every model enabled/)
+      screen.getByText(/organization admin can enable more models/)
     ).toBeInTheDocument()
+  })
+
+  it("keeps an existing chat's transcript when no model is usable", () => {
+    // Only starting or continuing a chat needs a model; history stays readable.
+    mockUseChatReadiness.mockReturnValue({
+      ready: false,
+      loading: false,
+      reason: "default_not_enabled",
+    })
+    mockListChats.mockReturnValue([
+      {
+        id: "chat-1",
+        title: "Existing chat",
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ])
+    mockGetChat.mockReturnValue({ id: "chat-1", backend_id: "oss" })
+    renderChat({ surface: "regular" })
+
+    expect(screen.getByTestId("chat-session-pane")).toHaveAttribute(
+      "data-input-disabled",
+      "true"
+    )
+    expect(
+      screen.queryByText("Default model not enabled")
+    ).not.toBeInTheDocument()
+  })
+
+  it("shows the role denial instead of model setup without agent:execute", () => {
+    // Model setup is not the viewer's to fix.
+    setScopeResult("agent:execute", false)
+    mockUseChatReadiness.mockReturnValue({
+      ready: false,
+      loading: false,
+      reason: "no_model",
+    })
+    renderChat({ surface: "regular" })
+
+    expect(screen.getByText("agent:execute required")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: /No default model/ })
+    ).not.toBeInTheDocument()
   })
 
   it("links to agent settings when the org has no default model", () => {

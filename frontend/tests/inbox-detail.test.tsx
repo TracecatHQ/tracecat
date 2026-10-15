@@ -9,14 +9,20 @@ jest.mock("@/components/chat/chat-session-pane", () => ({
   ChatSessionPane: ({
     resume,
     modelInfo,
+    inputDisabled,
+    inputDisabledPlaceholder,
   }: {
     resume?: boolean
     modelInfo?: { name: string; provider: string }
+    inputDisabled?: boolean
+    inputDisabledPlaceholder?: string
   }) => (
     <div
       data-testid="chat-session-pane"
       data-resume={String(resume)}
       data-model={modelInfo ? `${modelInfo.name} ${modelInfo.provider}` : ""}
+      data-input-disabled={String(Boolean(inputDisabled))}
+      data-placeholder={inputDisabledPlaceholder ?? ""}
     />
   ),
 }))
@@ -106,6 +112,28 @@ describe("InboxDetail", () => {
 
   afterEach(() => {
     jest.clearAllMocks()
+  })
+
+  it("keeps the session and its approvals visible when no model is usable", () => {
+    // The workspace subset excludes the default; history stays readable.
+    mockUseChatReadiness.mockReturnValue({
+      ready: false,
+      loading: false,
+      reason: "default_not_enabled",
+    })
+    render(
+      <InboxDetail
+        sessionId="session-1"
+        parentSessionId="session-1"
+        session={inboxSession()}
+      />
+    )
+
+    const pane = screen.getByTestId("chat-session-pane")
+    expect(pane).toHaveAttribute("data-input-disabled", "true")
+    expect(pane.getAttribute("data-placeholder")).toMatch(
+      /default model is not enabled for this workspace/
+    )
   })
 
   it("re-arms stream resume when an approval leaves pending", () => {

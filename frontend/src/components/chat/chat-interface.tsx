@@ -68,6 +68,12 @@ import {
 } from "@/hooks/use-chat"
 import { useChatPresetManager } from "@/hooks/use-chat-preset-manager"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import {
+  type ChatModelNotice,
+  getModelUnavailableMessage,
+  getWorkspaceModelNotice,
+  NO_DEFAULT_MODEL_MESSAGE,
+} from "@/lib/chat-readiness"
 import { getApiErrorDetail } from "@/lib/errors"
 import { useChatReadiness } from "@/lib/hooks"
 import { useQueryClient } from "@/lib/query"
@@ -773,10 +779,12 @@ function ChatBody({
     )
   }
 
-  // Render active chat session when ready
-  if ((!chatReady || !modelInfo) && !chat?.is_readonly) {
-    // Render configuration required state
-    const workspaceReason = getWorkspaceModelReason(chatReadyReason)
+  // Model setup only blocks starting a chat. A role that cannot run agents
+  // sees that denial instead, and an existing chat keeps its transcript with
+  // the composer disabled.
+  const modelUnavailable = (!chatReady || !modelInfo) && !chat?.is_readonly
+  if (modelUnavailable && !chatId && !cannotExecuteAgents) {
+    const workspaceReason = getWorkspaceModelNotice(chatReadyReason)
     if (surface === "workspace-chat") {
       return (
         <ChatEmptyHero>
@@ -814,7 +822,7 @@ function ChatBody({
                 No default model
               </h4>
               <p className="text-xs text-muted-foreground">
-                Select a default model in agent settings to enable chat.
+                {NO_DEFAULT_MODEL_MESSAGE}
               </p>
             </div>
             <ChevronDown className="size-4 rotate-[-90deg] text-muted-foreground" />
@@ -890,6 +898,8 @@ function ChatBody({
       presetSelector={presetSelector}
       pendingMessage={pendingMessage ?? undefined}
       onPendingMessageSent={onPendingMessageSent}
+      inputDisabled={modelUnavailable}
+      inputDisabledPlaceholder={getModelUnavailableMessage(chatReadyReason)}
       surface={surface}
       onMessagesChange={onMessagesChange}
       onData={onData}
@@ -903,40 +913,10 @@ function ChatBody({
  * real prompt input but is non-interactive, with a CTA linking to agent
  * settings where a default model can be selected.
  */
-interface WorkspaceModelReason {
-  title: string
-  message: string
-}
-
-/**
- * Explain a chat that cannot start because of the workspace's model subset,
- * which org agent settings cannot fix. Other reasons return null.
- */
-function getWorkspaceModelReason(
-  reason: string | undefined
-): WorkspaceModelReason | null {
-  switch (reason) {
-    case "subset_disabled":
-      return {
-        title: "Workspace models disabled",
-        message:
-          "The organization disabled every model enabled for this workspace. A workspace admin can choose new ones in workspace AI model settings.",
-      }
-    case "default_not_enabled":
-      return {
-        title: "Default model not enabled",
-        message:
-          "The organization default model is not enabled for this workspace. A workspace admin can enable it in workspace AI model settings.",
-      }
-    default:
-      return null
-  }
-}
-
 function NoDefaultModelComposer({
   workspaceReason,
 }: {
-  workspaceReason: WorkspaceModelReason | null
+  workspaceReason: ChatModelNotice | null
 }) {
   return (
     <div className="space-y-3">
