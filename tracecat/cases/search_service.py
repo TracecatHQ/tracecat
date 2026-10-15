@@ -696,6 +696,8 @@ class CaseSearchService(BaseWorkspaceService):
                     )
                     if matched
                 )
+                if not columns:
+                    continue
                 bounded = SearchMatchMetadata(
                     score=float(score)
                     if lexical.mode == SearchMode.FULL_TEXT
