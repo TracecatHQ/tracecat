@@ -630,7 +630,7 @@ class CasesService(BaseWorkspaceService):
 
         exact_match = None
         if promote_exact_match and not any(
-            (case_id, short_id, parent_id, linked_row, exclude_case_id)
+            (case_id, short_id, parent_id, top_level_only, linked_row, exclude_case_id)
         ):
             exact_match = await prepare_exact_case_match(
                 self.session,

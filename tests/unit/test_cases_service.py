@@ -2414,6 +2414,15 @@ class TestCasesService:
         assert date_filtered.items == []
         assert status_filtered.items == []
         assert hierarchy_filtered.items == []
+        promoted_top_level = await cases_service.search_cases(
+            params,
+            search_term=str(target.id) if case_id else target.short_id,
+            promote_exact_match=True,
+            hierarchy="top_level",
+        )
+        assert [item.id for item in promoted_top_level.items] == [newer_match.id]
+        assert promoted_top_level.total_estimate == 1
+        assert not promoted_top_level.items[0].is_exact_match
         events_after = list((await session.scalars(select(CaseEvent.id))).all())
         assert events_after == events_before
 
