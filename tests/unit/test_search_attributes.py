@@ -609,6 +609,7 @@ class TestSearchAttributeEnumMethods:
         )
 
 
+@pytest.mark.anyio
 class TestCaseTaskCorrelation:
     """Runs started from a case task carry a queryable correlation ID."""
 
