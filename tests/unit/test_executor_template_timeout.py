@@ -4,8 +4,8 @@ A template is one action whose steps share its unclamped timeout, each UDF call
 is capped at the deployment maximum, and run_python keeps the action timeout.
 """
 
+import asyncio
 from datetime import UTC, datetime
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 from uuid import UUID
@@ -38,8 +38,6 @@ from tracecat.runtime.errors import RetryDisposition
 
 pytestmark = pytest.mark.anyio
 
-STEP_SECONDS = 120.0
-
 
 @pytest.fixture
 def role() -> Role:
@@ -54,13 +52,6 @@ def role() -> Role:
 @pytest.fixture(autouse=True)
 def deployment_cap(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(service.config, "TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 300.0)
-
-
-@pytest.fixture
-def clock(monkeypatch: pytest.MonkeyPatch) -> dict[str, float]:
-    now = {"t": 1000.0}
-    monkeypatch.setattr(service, "time", SimpleNamespace(monotonic=lambda: now["t"]))
-    return now
 
 
 def _template_input(timeout: int) -> RunActionInput:
@@ -142,15 +133,14 @@ def _use_action(
     )
 
 
-def _timed_backend(
-    clock: dict[str, float],
+def _backend(
     timeouts: list[float],
     results: list[Any] | None = None,
-    step_seconds: float = STEP_SECONDS,
+    step_seconds: float = 0.0,
 ) -> Mock:
     async def execute(**kwargs: Any) -> Any:
         timeouts.append(kwargs["timeout"])
-        clock["t"] += step_seconds
+        await asyncio.sleep(step_seconds)
         if results:
             return results.pop(0)
         return ExecutorResultSuccess(result="ok")
@@ -158,118 +148,83 @@ def _timed_backend(
     return Mock(execute=AsyncMock(side_effect=execute))
 
 
-async def test_each_template_step_gets_the_remaining_budget(
-    monkeypatch: pytest.MonkeyPatch, role: Role, clock: dict[str, float]
+async def test_template_step_running_at_the_timeout_is_cancelled(
+    monkeypatch: pytest.MonkeyPatch, role: Role
 ) -> None:
-    """Each step runs with the template's timeout minus what earlier steps used."""
-    action_input = _template_input(timeout=300)
-    _use_template(monkeypatch, role, action_input, steps=2)
+    """The step running at the template's timeout is cancelled and later steps never start."""
+    action_input = _template_input(timeout=1)
+    _use_template(monkeypatch, role, action_input, steps=3)
     timeouts: list[float] = []
+    cancelled = asyncio.Event()
 
-    result = await service.invoke_once(
-        _timed_backend(clock, timeouts),
-        action_input,
-        service.DispatchActionContext(role),
-    )
-
-    assert result == "done"
-    assert timeouts == [300.0, 180.0]
-
-
-async def test_template_fails_before_a_step_once_its_budget_runs_out(
-    monkeypatch: pytest.MonkeyPatch, role: Role, clock: dict[str, float]
-) -> None:
-    """A step that would start after the shared budget is spent fails the template."""
-    action_input = _template_input(timeout=300)
-    _use_template(monkeypatch, role, action_input, steps=4)
-    timeouts: list[float] = []
+    async def execute(**kwargs: Any) -> Any:
+        timeouts.append(kwargs["timeout"])
+        if len(timeouts) == 1:
+            return ExecutorResultSuccess(result="ok")
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
 
     with pytest.raises(ExecutionError) as caught:
         await service.invoke_once(
-            _timed_backend(clock, timeouts),
+            Mock(execute=AsyncMock(side_effect=execute)),
             action_input,
             service.DispatchActionContext(role),
         )
 
-    assert timeouts == [300.0, 180.0, 60.0]
+    assert timeouts == [1.0, 1.0]
+    assert cancelled.is_set()
     assert caught.value.info.type == ActionTimeoutError.__name__
-    assert caught.value.info.message == "Action execution timed out after 300s"
+    assert caught.value.info.message == "Action execution timed out after 1s"
     classification = classify_execute_action_error(
         caught.value, action_name=action_input.task.action
     )
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
-async def test_template_whose_last_step_ends_after_its_budget_times_out(
-    monkeypatch: pytest.MonkeyPatch, role: Role, clock: dict[str, float]
+async def test_template_timeout_error_from_platform_work_is_not_the_action_timeout(
+    monkeypatch: pytest.MonkeyPatch, role: Role
 ) -> None:
-    """A template that finishes after its shared budget fails instead of succeeding late."""
+    """A TimeoutError raised inside the template before its deadline keeps its type."""
     action_input = _template_input(timeout=300)
-    _use_template(monkeypatch, role, action_input, steps=3)
-    timeouts: list[float] = []
-
-    with pytest.raises(ExecutionError) as caught:
-        await service.invoke_once(
-            _timed_backend(clock, timeouts),
-            action_input,
-            service.DispatchActionContext(role),
-        )
-
-    assert timeouts == [300.0, 180.0, 60.0]
-    assert caught.value.info.type == ActionTimeoutError.__name__
-    assert caught.value.info.message == "Action execution timed out after 300s"
-
-
-async def test_step_timeout_reports_the_template_budget(
-    monkeypatch: pytest.MonkeyPatch, role: Role, clock: dict[str, float]
-) -> None:
-    """A step stopped by its share of the budget reports the template's timeout."""
-    action_input = _template_input(timeout=300)
-    _use_template(monkeypatch, role, action_input, steps=2)
-    step_timeout = ExecutorResultFailure(
-        error=ExecutorActionErrorInfo(
-            action_name="testing.step",
-            type=ActionTimeoutError.__name__,
-            message="Action execution timed out after 180s",
-            filename="minimal_runner.py",
-            function="_await_with_timeout",
-        )
+    _use_template(monkeypatch, role, action_input, steps=1)
+    monkeypatch.setattr(
+        service.registry_resolver,
+        "resolve_action",
+        AsyncMock(side_effect=TimeoutError("registry lookup timed out")),
     )
-    timeouts: list[float] = []
 
     with pytest.raises(ExecutionError) as caught:
         await service.invoke_once(
-            _timed_backend(
-                clock, timeouts, [ExecutorResultSuccess(result="ok"), step_timeout]
-            ),
-            action_input,
-            service.DispatchActionContext(role),
+            _backend([]), action_input, service.DispatchActionContext(role)
         )
 
-    assert timeouts == [300.0, 180.0]
-    assert caught.value.info.message == "Action execution timed out after 300s"
+    assert caught.value.info.type == TimeoutError.__name__
 
 
 async def test_template_steps_are_capped_but_share_the_unclamped_timeout(
-    monkeypatch: pytest.MonkeyPatch, role: Role, clock: dict[str, float]
+    monkeypatch: pytest.MonkeyPatch, role: Role
 ) -> None:
-    """Each step call is capped, but the template may run for its own full timeout."""
-    action_input = _template_input(timeout=900)
+    """Each step call is capped, but the template runs up to its own timeout."""
+    monkeypatch.setattr(service.config, "TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 0.1)
+    action_input = _template_input(timeout=1)
     _use_template(monkeypatch, role, action_input, steps=3)
     timeouts: list[float] = []
 
     result = await service.invoke_once(
-        _timed_backend(clock, timeouts, step_seconds=250),
+        _backend(timeouts, step_seconds=0.15),
         action_input,
         service.DispatchActionContext(role),
     )
 
     assert result == "done"
-    assert timeouts == [300.0, 300.0, 300.0]
+    assert timeouts == [0.1, 0.1, 0.1]
 
 
 async def test_capped_template_step_timeout_names_the_cap(
-    monkeypatch: pytest.MonkeyPatch, role: Role, clock: dict[str, float]
+    monkeypatch: pytest.MonkeyPatch, role: Role
 ) -> None:
     """A step stopped by the deployment cap says the cap ended it."""
     action_input = _template_input(timeout=900)
@@ -287,7 +242,7 @@ async def test_capped_template_step_timeout_names_the_cap(
 
     with pytest.raises(ExecutionError) as caught:
         await service.invoke_once(
-            _timed_backend(clock, timeouts, [step_timeout]),
+            _backend(timeouts, [step_timeout]),
             action_input,
             service.DispatchActionContext(role),
         )
@@ -301,7 +256,7 @@ async def test_capped_template_step_timeout_names_the_cap(
 
 
 async def test_run_python_keeps_the_unclamped_action_timeout(
-    monkeypatch: pytest.MonkeyPatch, role: Role, clock: dict[str, float]
+    monkeypatch: pytest.MonkeyPatch, role: Role
 ) -> None:
     """run_python gets the action's own timeout, not the deployment cap."""
     action_input = _template_input(timeout=900)
@@ -314,7 +269,7 @@ async def test_run_python_keeps_the_unclamped_action_timeout(
     timeouts: list[float] = []
 
     await service.invoke_once(
-        _timed_backend(clock, timeouts),
+        _backend(timeouts),
         action_input,
         service.DispatchActionContext(role),
     )

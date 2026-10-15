@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import itertools
-import time
 from collections.abc import Iterator, Mapping, MutableMapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -460,14 +459,12 @@ async def _execute_template_action(
         input: The original RunActionInput
         ctx: Dispatch context containing the role
         resolved_context: Pre-resolved context with secrets and template definition
-        timeout: Unclamped budget shared by all of the template's steps
+        timeout: The action's own timeout, unclamped. invoke_once enforces it
+            across all of the template's steps.
         provenance: Authored input-source and secret-path mapping for this invocation
 
     Returns:
         The evaluated returns expression result
-
-    Raises:
-        ActionTimeoutError: If the budget runs out before a step starts
     """
     role = ctx.role
 
@@ -535,9 +532,6 @@ async def _execute_template_action(
         steps=len(template_def.steps),
     )
 
-    # A template is one action, so its steps share one timeout budget.
-    deadline = time.monotonic() + timeout
-
     # Execute each step
     for step in template_def.steps:
         logger.trace(
@@ -569,17 +563,13 @@ async def _execute_template_action(
             else {}
         )
 
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise ActionTimeoutError(_timeout_message(_action_timeout(input)))
-
         # Execute step via _invoke_step (handles nested templates)
         step_result = await _invoke_template_step(
             backend=backend,
             resolved_context=step_resolved,
             input=input,
             ctx=ctx,
-            timeout=remaining,
+            timeout=timeout,
             provenance=child_provenance,
             step_ref=step.ref,
             step_action=step.action,
@@ -590,11 +580,6 @@ async def _execute_template_action(
             step_result
         ).to_materialized_dict()
         logger.trace("Template step completed", step_ref=step.ref)
-
-    # Step timers exclude subprocess startup, so the last step can finish
-    # after the deadline. A late template is still a timeout.
-    if time.monotonic() >= deadline:
-        raise ActionTimeoutError(_timeout_message(_action_timeout(input)))
 
     # Evaluate returns expression with final template context
     return eval_templated_object(
@@ -621,8 +606,8 @@ async def _invoke_step(
         resolved_context: Pre-resolved context for the step
         input: The original RunActionInput
         ctx: Dispatch context containing the role
-        timeout: Unclamped budget for this step. Each UDF subprocess call is
-            capped at the deployment's maximum.
+        timeout: The action's own timeout, unclamped. Each UDF subprocess call
+            is capped at the deployment's maximum.
         provenance: Authored input-source and secret-path mapping for this invocation
 
     Returns:
@@ -667,11 +652,13 @@ async def _invoke_step(
                 # Error response from backend
                 error_data = result.error
                 exec_result = ExecutorActionErrorInfo.model_validate(error_data)
-                if exec_result.type == ActionTimeoutError.__name__:
-                    # Name the action's own timeout, not a template step's share.
+                if (
+                    exec_result.type == ActionTimeoutError.__name__
+                    and call_timeout < timeout
+                ):
+                    # The deployment cap, not the action's timeout, ended the call.
                     exec_result.message = _timeout_message(
-                        _action_timeout(input),
-                        capped_at=call_timeout if call_timeout < timeout else None,
+                        timeout, capped_at=call_timeout
                     )
                 raise ExecutionError(info=exec_result)
         case _:
@@ -927,16 +914,30 @@ async def invoke_once(
         # Sandboxed backends set this in their subprocess from resolved_context.logical_time
         ctx_logical_time.set(resolved_context.logical_time)
 
-        # Delegate execution to _invoke_step (shared logic for template/udf)
-        # This handles both template orchestration and UDF execution
-        action_result = await _invoke_step(
-            backend=backend,
-            resolved_context=resolved_context,
-            input=input,
-            ctx=ctx,
-            timeout=timeout,
-            provenance=prepared.provenance or {},
+        # A template is one action, so all its steps share the action's
+        # timeout; cancelling the running step terminates its subprocess. A
+        # single UDF call is timed inside the runner instead, so subprocess
+        # startup doesn't count toward it.
+        template_scope = asyncio.timeout(
+            timeout if resolved_context.action_impl.type == "template" else None
         )
+        try:
+            async with template_scope:
+                # Delegate execution to _invoke_step (shared logic for template/udf)
+                # This handles both template orchestration and UDF execution
+                action_result = await _invoke_step(
+                    backend=backend,
+                    resolved_context=resolved_context,
+                    input=input,
+                    ctx=ctx,
+                    timeout=timeout,
+                    provenance=prepared.provenance or {},
+                )
+        except TimeoutError:
+            # A TimeoutError raised by a step itself propagates unchanged.
+            if template_scope.expired():
+                raise ActionTimeoutError(_timeout_message(timeout)) from None
+            raise
 
     except ExecutionError as e:
         # ExecutionError already has proper error info, just add loop context if needed

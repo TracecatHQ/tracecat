@@ -435,10 +435,7 @@ async def test_action_timeout_is_clamped_to_deployment_cap(
         service.DispatchActionContext(role),
     )
 
-    # Nested template steps get the remaining wall-clock budget.
-    assert backend.execute.await_args.kwargs["timeout"] == pytest.approx(
-        expected, abs=1
-    )
+    assert backend.execute.await_args.kwargs["timeout"] == expected
 
 
 async def test_unset_action_timeout_falls_back_to_deployment_cap(
@@ -454,7 +451,7 @@ async def test_unset_action_timeout_falls_back_to_deployment_cap(
         service.DispatchActionContext(role),
     )
 
-    assert backend.execute.await_args.kwargs["timeout"] == pytest.approx(300, abs=1)
+    assert backend.execute.await_args.kwargs["timeout"] == 300
 
 
 async def test_timeout_at_deployment_cap_names_the_cap(
