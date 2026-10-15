@@ -193,6 +193,7 @@ async def get_action(
         position_x=action.position_x,
         position_y=action.position_y,
         upstream_edges=cast(list[ActionEdge], action.upstream_edges),
+        locked_execution_id=action.locked_execution_id,
     )
 
 
@@ -214,7 +215,12 @@ async def update_action(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         )
     _clamp_agent_timeout(action.type, params.control_flow)
-    action = await svc.update_action(action, params)
+    try:
+        action = await svc.update_action(action, params)
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
     return ActionRead.model_validate(action)
 
 

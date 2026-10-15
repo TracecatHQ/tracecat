@@ -105,6 +105,7 @@ export type ActionRead = {
   position_x?: number
   position_y?: number
   upstream_edges?: Array<ActionEdge>
+  locked_execution_id?: string | null
   readonly ref: string
 }
 
@@ -285,6 +286,10 @@ export type ActionUpdate = {
   position_x?: number | null
   position_y?: number | null
   upstream_edges?: Array<ActionEdge> | null
+  /**
+   * Lock the action to this past execution: draft runs reuse its result. Set null to unlock.
+   */
+  locked_execution_id?: string | null
 }
 
 /**

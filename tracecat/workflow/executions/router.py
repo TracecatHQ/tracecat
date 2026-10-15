@@ -1120,6 +1120,9 @@ async def create_draft_workflow_execution(
             )
         try:
             dsl_input = await mgmt_service.build_dsl_from_workflow(workflow)
+            fixed_action_results = await mgmt_service.locked_action_results(
+                wf_id, dsl_input
+            )
         except TracecatValidationError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1157,6 +1160,7 @@ async def create_draft_workflow_execution(
             payload=params.inputs,
             time_anchor=params.time_anchor,
             # For draft workflow executions, pass None to dynamically resolve the registry lock
+            fixed_action_results=fixed_action_results,
         )
         _annotate_execution_trace(role, response)
         return response

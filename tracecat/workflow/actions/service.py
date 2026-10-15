@@ -8,7 +8,9 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.models import Action, Workflow
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.view import Position
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import ActionID, WorkflowID, WorkflowUUID
+from tracecat.identifiers.workflow import exec_id_to_parts
 from tracecat.service import BaseWorkspaceService
 from tracecat.workflow.actions.schemas import (
     ActionControlFlow,
@@ -71,6 +73,15 @@ class WorkflowActionService(BaseWorkspaceService):
     @require_scope("workflow:update")
     async def update_action(self, action: Action, params: ActionUpdate) -> Action:
         set_fields = params.model_dump(exclude_unset=True)
+        if locked := set_fields.get("locked_execution_id"):
+            try:
+                locked_wf_id = exec_id_to_parts(locked)[0]
+            except ValueError as e:
+                raise TracecatValidationError(str(e)) from e
+            if locked_wf_id != action.workflow_id:
+                raise TracecatValidationError(
+                    "An action can only be locked to a run of its own workflow."
+                )
         for field, value in set_fields.items():
             setattr(action, field, value)
         self.session.add(action)

@@ -343,6 +343,17 @@ export const $ActionRead = {
       type: "array",
       title: "Upstream Edges",
     },
+    locked_execution_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Locked Execution Id",
+    },
     ref: {
       type: "string",
       title: "Ref",
@@ -849,6 +860,20 @@ export const $ActionUpdate = {
         },
       ],
       title: "Upstream Edges",
+    },
+    locked_execution_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Locked Execution Id",
+      description:
+        "Lock the action to this past execution: draft runs reuse its result. Set null to unlock.",
     },
   },
   type: "object",

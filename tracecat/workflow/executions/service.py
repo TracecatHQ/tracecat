@@ -1612,6 +1612,7 @@ class WorkflowExecutionsService:
         trigger_type: TriggerType = TriggerType.MANUAL,
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
+        fixed_action_results: dict[str, FixedActionResult] | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a new draft workflow execution.
 
@@ -1628,6 +1629,7 @@ class WorkflowExecutionsService:
             registry_lock=registry_lock,
             trigger_inputs=payload,
             execution_type=ExecutionType.DRAFT,
+            fixed_action_results=fixed_action_results,
         )
         task = asyncio.ensure_future(coro)
         task.add_done_callback(self._handle_background_task_exception)

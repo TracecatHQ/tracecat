@@ -38,7 +38,12 @@ from tracecat.dsl.common import (
     expects_key_order,
 )
 from tracecat.dsl.enums import PlatformAction
-from tracecat.dsl.schemas import DSLConfig, ExecutionContext, RunContext
+from tracecat.dsl.schemas import (
+    DSLConfig,
+    ExecutionContext,
+    FixedActionResult,
+    RunContext,
+)
 from tracecat.dsl.validation import normalize_trigger_inputs
 from tracecat.dsl.view import RFGraph
 from tracecat.exceptions import (
@@ -1088,6 +1093,48 @@ class WorkflowsManagementService(BaseWorkspaceService):
             error_handler=workflow.error_handler,
         )
 
+    async def locked_action_results(
+        self, workflow_id: WorkflowID, dsl: DSLInput
+    ) -> dict[str, FixedActionResult]:
+        """Results of the draft's locked actions, for a draft run to reuse.
+
+        A lock that can't be reused (its source run is gone, the action failed
+        there, or its type changed) is skipped, so that action runs fresh.
+        """
+        stmt = select(Action).where(
+            Action.workflow_id == WorkflowUUID.new(workflow_id),
+            Action.locked_execution_id.is_not(None),
+        )
+        locked = (await self.session.execute(stmt)).scalars().all()
+        refs_by_exec: dict[str, list[str]] = {}
+        for action in locked:
+            if action.locked_execution_id:
+                refs_by_exec.setdefault(action.locked_execution_id, []).append(
+                    action.ref
+                )
+        if not refs_by_exec:
+            return {}
+
+        from tracecat.workflow.executions.service import WorkflowExecutionsService
+
+        exec_service = await WorkflowExecutionsService.connect(role=self.role)
+        results: dict[str, FixedActionResult] = {}
+        for exec_id, refs in refs_by_exec.items():
+            try:
+                if exec_id_to_parts(exec_id)[0] != WorkflowUUID.new(workflow_id):
+                    raise ValueError("Locked run belongs to another workflow.")
+                source = await exec_service.get_rerun_source(exec_id)
+            except Exception as e:
+                self.logger.warning(
+                    "Skipping unusable action lock",
+                    execution_id=exec_id,
+                    error_type=type(e).__name__,
+                )
+                continue
+            match = match_rerun_actions(source, dsl, fixed_action_refs=refs)
+            results.update(match.fixed)
+        return results
+
     @require_scope("workflow:execute")
     async def run_workflow(
         self,
@@ -1140,6 +1187,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 wf_id=wf_id,
                 payload=inputs,
                 trigger_type=TriggerType.MANUAL,
+                fixed_action_results=await self.locked_action_results(wf_id, dsl),
             )
         return await exec_service.create_workflow_execution_wait_for_start(
             dsl=dsl,

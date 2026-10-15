@@ -9,6 +9,7 @@ import {
   GitBranchIcon,
   GitPullRequestIcon,
   LayersPlusIcon,
+  LockIcon,
   MoreHorizontal,
   PencilIcon,
   PlayIcon,
@@ -613,6 +614,10 @@ export function WorkflowManualTrigger({
 }) {
   const { expandSidebarAndFocusEvents, setCurrentExecutionId, triggerPayload } =
     useWorkflowBuilder()
+  const { workflow } = useWorkflow()
+  const lockedCount = Object.values(workflow?.actions ?? {}).filter(
+    (action) => action.locked_execution_id
+  ).length
   // Always use draft execution endpoint - runs the current draft workflow graph
   const { createDraftExecution, createDraftExecutionIsPending } =
     useCreateDraftWorkflowExecution(workflowId)
@@ -682,7 +687,9 @@ export function WorkflowManualTrigger({
             ? "Cannot run workflow."
             : executionPending
               ? "Starting workflow execution..."
-              : "Run the current draft workflow with the trigger payload from the trigger node."}
+              : lockedCount > 0
+                ? `Run the current draft workflow. ${lockedCount} locked ${lockedCount === 1 ? "action reuses its" : "actions reuse their"} past result.`
+                : "Run the current draft workflow with the trigger payload from the trigger node."}
         </span>
       }
     >
@@ -701,6 +708,12 @@ export function WorkflowManualTrigger({
           <PlayIcon className="size-3.5" />
         )}
         <span>Run</span>
+        {lockedCount > 0 && (
+          <span className="flex items-center gap-0.5 rounded bg-primary-foreground/20 px-1 text-[10px]">
+            <LockIcon className="size-2.5" />
+            {lockedCount}
+          </span>
+        )}
       </Button>
     </ValidationErrorView>
   )
