@@ -1048,7 +1048,7 @@ class RegistryActionsService(BaseOrgService):
         *,
         limit: int | None = None,
     ) -> list[tuple[IndexEntry, str]]:
-        """Search actions by name or description using ilike.
+        """Search actions by literal, case-insensitive name or description text.
 
         Searches both org-scoped and platform registries.
 
@@ -1061,8 +1061,6 @@ class RegistryActionsService(BaseOrgService):
         """
         if not query:
             return []
-
-        search_pattern = f"%{query}%"
 
         # Org-scoped query - select explicit columns for UNION ALL compatibility
         org_statement = (
@@ -1093,10 +1091,12 @@ class RegistryActionsService(BaseOrgService):
                 RegistryRepository.organization_id == self.organization_id,
                 RegistryRepository.current_version_id == RegistryVersion.id,
                 or_(
-                    func.concat(RegistryIndex.namespace, ".", RegistryIndex.name).ilike(
-                        search_pattern
+                    func.concat(
+                        RegistryIndex.namespace, ".", RegistryIndex.name
+                    ).icontains(query, autoescape=True, escape="\\"),
+                    RegistryIndex.description.icontains(
+                        query, autoescape=True, escape="\\"
                     ),
-                    RegistryIndex.description.ilike(search_pattern),
                 ),
             )
         )
@@ -1132,8 +1132,10 @@ class RegistryActionsService(BaseOrgService):
                 or_(
                     func.concat(
                         PlatformRegistryIndex.namespace, ".", PlatformRegistryIndex.name
-                    ).ilike(search_pattern),
-                    PlatformRegistryIndex.description.ilike(search_pattern),
+                    ).icontains(query, autoescape=True, escape="\\"),
+                    PlatformRegistryIndex.description.icontains(
+                        query, autoescape=True, escape="\\"
+                    ),
                 ),
             )
         )

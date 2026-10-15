@@ -2365,7 +2365,9 @@ inside workflow YAML under `definition.actions[*].action`.
 MCP tool argument reference. MCP tool schemas and tool docstrings are the source \
 of truth for tool calls.
 - Action priority: integration action > core action > Python. Before writing \
-any API call, search `list_actions` for the product and task. Use its \
+any API call, search `list_actions` with a short product or action-name \
+substring, and follow `next_cursor` until a suitable action is found or \
+`has_more` is false. Use its \
 `tools.<integration_slug>.*` action when one exists; otherwise use \
 `core.http_request`, `core.http_paginate`, or `core.transform.*`. Use \
 `core.script.run_python` only for a self-contained step no action covers, and \
@@ -2791,24 +2793,17 @@ Use this structure for integration actions in workflow YAML:
 action: tools.<integration_slug>.<action_name>
 ```
 
-Examples of valid shapes (syntax only):
-
-```yaml
-action: tools.<integration_slug>.lookup
-action: tools.<integration_slug>.create_record
-action: tools.<integration_slug>.search
-```
-
 ### Action Priority
-1. `tools.<integration_slug>.*` actions for the product. Search `list_actions`
-   (e.g. `query="crowdstrike list alerts"`) before any API call.
-2. Core actions: `core.http_request` / `core.http_paginate` when no integration
-   action fits, `core.transform.*` for shaping, `core.table.*`/`core.cases.*`.
-3. `core.script.run_python` only for a self-contained step no action covers.
-   Never call an API from Python when an action can.
+1. Prefer matching `tools.*`. Search `list_actions` with a short literal
+   product/action substring (`query="crowdstrike"`) or namespace; follow
+   `next_cursor` until a fit appears or `has_more` is false; inspect its
+   schema and credentials.
+2. Otherwise use `core.http_request` / `core.http_paginate`; use
+   `core.transform.*`, `core.table.*`, and `core.cases.*` as needed.
+3. Use `core.script.run_python` only when no action covers the step. Never
+   call APIs from Python when an action can.
 
-Never invent `tools.*` names. If a generic request (e.g. "enrich this threat")
-fits several integrations, show candidates first.
+Never invent `tools.*`; show candidates when ambiguous.
 
 ## Common Workflow Patterns
 
@@ -4812,8 +4807,9 @@ async def list_actions(
     """Search or browse available actions and return compact context metadata.
 
     Supports three usage modes:
-    - **Search**: provide `query` to search by name/description across all `namespaces`.
-      Example: list_actions(workspace_id, query="send message")
+    - **Search**: provide a literal substring `query` to search by name/description
+      across all `namespaces`; this is not a multi-word keyword search.
+      Example: list_actions(workspace_id, query="message")
     - **Browse by `namespace`**: provide `namespace` without `query` to list all actions
       in a `namespace`. Example: list_actions(workspace_id, namespace="core")
     - **Browse all**: omit both to list all available actions.
@@ -4825,8 +4821,10 @@ async def list_actions(
         query: Optional search string to match against action names and descriptions.
         namespace: Optional namespace prefix filter (e.g. "core").
         limit: Maximum number of results (1-200, default 50).
+        cursor: Pass `next_cursor` to continue when `has_more` is true. Keep
+            the same query, namespace, and limit across pages.
 
-    Returns JSON array of objects with fields:
+    Returns a paginated `items` array of objects with fields:
     - action_name: Fully qualified name (e.g. "core.http_request")
     - description: One-line description of the action
     - configured: Whether required secrets are present in the workspace
