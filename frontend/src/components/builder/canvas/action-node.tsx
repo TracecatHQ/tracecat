@@ -84,6 +84,7 @@ import {
   useGetRegistryAction,
   useWorkflowManager,
 } from "@/lib/hooks"
+import { useQueryClient } from "@/lib/query"
 import { cn, slugifyActionRef } from "@/lib/utils"
 import { CHILD_WORKFLOW_ACTION_TYPE } from "@/lib/workflow"
 import { useWorkflowBuilder } from "@/providers/builder"
@@ -128,6 +129,7 @@ export default React.memo(function ActionNode({
   const { validationErrors } = useWorkflow()
 
   const { toast } = useToast()
+  const queryClient = useQueryClient()
   // SAFETY: Node only exists if it's in the workflow
   const { action, actionIsLoading, updateAction } = useAction(
     id,
@@ -304,6 +306,10 @@ export default React.memo(function ActionNode({
 
       // Add the new node to the flow
       reactFlow.addNodes(newNode)
+      // A duplicated `ai.preset_agent` node adds a workflow reference.
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references", workspaceId],
+      })
 
       toast({
         title: "Node duplicated",
@@ -317,7 +323,16 @@ export default React.memo(function ActionNode({
         variant: "destructive",
       })
     }
-  }, [id, action, toast, workflowId, getNode, reactFlow])
+  }, [
+    id,
+    action,
+    toast,
+    workflowId,
+    workspaceId,
+    getNode,
+    reactFlow,
+    queryClient,
+  ])
 
   // Add this to track incoming edges
   const edges = useEdges()

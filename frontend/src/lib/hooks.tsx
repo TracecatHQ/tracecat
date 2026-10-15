@@ -998,6 +998,9 @@ export function useWorkflowManager(
         queryClient.invalidateQueries({ queryKey: ["directory-items"] })
         // Keep an already-loaded builder view in step with a dashboard rename.
         queryClient.invalidateQueries({ queryKey: ["workflow"] })
+        queryClient.invalidateQueries({
+          queryKey: ["agent-preset-workflow-references", workspaceId],
+        })
       },
       onError: (error: TracecatApiError) => {
         // Transport failures rethrow a raw error with no `body`, so read the
