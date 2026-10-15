@@ -2364,11 +2364,14 @@ inside workflow YAML under `definition.actions[*].action`.
 - `tracecat://platform/dsl-reference` is a workflow YAML/DSL reference, not an \
 MCP tool argument reference. MCP tool schemas and tool docstrings are the source \
 of truth for tool calls.
-- Do not invent `tools.*` action names. Add third-party actions only after the \
-user explicitly names or confirms the integration/tool. For generic requests, \
-show candidate integrations first.
-- Prefer tool-agnostic scaffolding with `core.http_request` and \
-`core.script.run_python` unless a specific integration is requested.
+- Action priority: integration action > core action > Python. Before writing \
+any API call, search `list_actions` for the product and task. Use its \
+`tools.<integration_slug>.*` action when one exists; otherwise use \
+`core.http_request`, `core.http_paginate`, or `core.transform.*`. Use \
+`core.script.run_python` only for a self-contained step no action covers, and \
+never call an API from Python when an action can make the call.
+- Do not invent `tools.*` action names; use names from `list_actions`. If a \
+generic request fits several integrations, show the candidates first.
 - For `ai.agent`, prefer the `model` object. Use legacy top-level \
 `model_name`/`model_provider` only when requested.
 - For `ai.preset_agent`, tools come from the preset and its skills; the \
@@ -2392,8 +2395,8 @@ casting to `int`, `float`, `str`, or `bool`
 do not parse — `${{ TRIGGER.x || false }}` is a parse error. \
 Use `${{ TRIGGER.x || False }}`, `${{ TRIGGER.x || 0 }}`, or `${{ TRIGGER.x || "" }}`.
 - There is NO inline `for` comprehension syntax in expressions. \
-Use `core.script.run_python` for list transformations; see loop guidance below \
-for workflow fan-out.
+Use `core.transform.map` or `core.transform.filter` for list transformations; \
+see loop guidance below for workflow fan-out.
 
 ### OAuth tokens in expressions
 Integration OAuth tokens resolve through a secret named `<provider_id>_oauth` \
@@ -2796,11 +2799,16 @@ action: tools.<integration_slug>.create_record
 action: tools.<integration_slug>.search
 ```
 
-### Tool Selection Rules for `tools.*`
-- Add `tools.<integration_slug>.*` actions only when the user explicitly asks for that integration.
-- For generic requests (for example, "enrich this threat"), present available integration options first.
-- Do not include a third-party integration action in the workflow until the user confirms the specific integration.
-- When no integration is explicitly requested, prefer `core.http_request` and `core.script.run_python`.
+### Action Priority
+1. `tools.<integration_slug>.*` actions for the product. Search `list_actions`
+   (e.g. `query="crowdstrike list alerts"`) before any API call.
+2. Core actions: `core.http_request` / `core.http_paginate` when no integration
+   action fits, `core.transform.*` for shaping, `core.table.*`/`core.cases.*`.
+3. `core.script.run_python` only for a self-contained step no action covers.
+   Never call an API from Python when an action can.
+
+Never invent `tools.*` names. If a generic request (e.g. "enrich this threat")
+fits several integrations, show candidates first.
 
 ## Common Workflow Patterns
 
@@ -2824,8 +2832,8 @@ step needs combined results; omit gather otherwise. Avoid high-fanout scatter fo
 DB-backed table/case writes; >10 concurrent branches can exhaust Postgres
 connection slots. Scatter can stagger work with `interval`, but it does not batch
 DB writes. Use one `core.table.insert_rows` action for row-shaped table batches,
-or `core.script.run_python` for shaping, joins, dedupe, chunked table writes,
-batch table uploads, or bounded async HTTP loops.
+or `core.script.run_python` for joins, dedupe, chunked table writes, or batch
+table uploads.
 ```yaml
 actions:
   - ref: scatter_alerts
@@ -3187,7 +3195,8 @@ Take the cheapest rung that does the job:
    `core.transform.deduplicate`, or `core.transform.drop_nulls` for list work,
    and `core.transform.eval_jsonpaths` to pull fields out of a nested response.
 4. `core.script.run_python` when the work is genuinely data-heavy — joins,
-   grouping, batching, chunked writes, or bounded async HTTP loops.
+   grouping, batching, or chunked writes. API calls belong in integration or
+   `core.http_*` actions, not Python (see Action Priority in the DSL reference).
 
 Repeating a one-line `run_if` across sibling branches that genuinely need the
 same guard is fine. Do not introduce a `core.script.run_python` router action
@@ -3201,10 +3210,10 @@ expression for an extra scheduled action and a serialization hop.
   `ai.preset_agent` per item, branch enrichment, or call
   `core.workflow.execute`. Add `core.transform.gather` only when downstream
   steps need combined results.
-- Use `core.script.run_python` for data-heavy in-process work such as list
-  transforms, batching, joins, dedupe, sorting, grouping, chunked table writes,
-  batch table uploads, and bounded async HTTP loops. Run-python scripts can
-  import Tracecat modules for platform-native helpers.
+- Use `core.script.run_python` for data-heavy in-process work such as
+  batching, joins, dedupe, sorting, grouping, chunked table writes, and batch
+  table uploads. Run-python scripts can import Tracecat modules for
+  platform-native helpers.
 - For bulk table writes, prefer one native `core.table.insert_rows` action when
   rows are already shaped (up to 1000 rows per batch). Do not scatter one insert
   per row. If shaping, chunking, or mixed table/case side effects are needed,
