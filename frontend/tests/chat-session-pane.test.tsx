@@ -710,6 +710,32 @@ describe("ChatSessionPane", () => {
     }
   })
 
+  it("re-arms the resume when an approval is resolved elsewhere", () => {
+    mockUseVercelChatStatus("ready")
+    const chat = createChatFixture()
+    const tree = (resume: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={chat}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            resume={resume}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    const { rerender } = render(tree(false))
+    rerender(tree(true))
+
+    expect(mockUseVercelChat.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ resume: true })
+    )
+  })
+
   it("skips resuming a new session it opens to send the first message", () => {
     // A resume that finds no stream resets the send's status to ready, which
     // would hide the thinking line until the first part arrives.

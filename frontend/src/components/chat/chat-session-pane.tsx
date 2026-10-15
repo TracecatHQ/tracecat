@@ -399,13 +399,14 @@ export function ChatSessionPane({
     ? "[&_[data-slot=input-group]]:rounded-2xl [&_[data-slot=input-group]]:border-muted-foreground/25 [&_[data-slot=input-group]]:shadow-none"
     : undefined
   // A session opened to send its first message has no stream to resume, and a
-  // resume that finds none resets the send's status. Decided once per chat.
-  const [resumeDecision, setResumeDecision] = useState(() => ({
+  // resume that finds none resets the send's status. Only that is frozen per
+  // chat; later resume changes still re-arm the reconnect.
+  const [openedToSend, setOpenedToSend] = useState(() => ({
     chatId: chat?.id,
-    resume: resume && !pendingMessage,
+    value: Boolean(pendingMessage),
   }))
-  if (resumeDecision.chatId !== chat?.id) {
-    setResumeDecision({ chatId: chat?.id, resume: resume && !pendingMessage })
+  if (openedToSend.chatId !== chat?.id) {
+    setOpenedToSend({ chatId: chat?.id, value: Boolean(pendingMessage) })
   }
   const {
     sendMessage,
@@ -422,7 +423,7 @@ export function ChatSessionPane({
     messages: uiMessages,
     modelInfo,
     onData,
-    resume: resumeDecision.resume,
+    resume: resume && !openedToSend.value,
   })
   const [verbosity] = useChatVerbosityPreference()
   const subagentStreamContext = useMemo(
