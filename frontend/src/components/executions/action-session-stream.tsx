@@ -22,19 +22,23 @@ import {
 } from "@/hooks/use-chat-verbosity"
 import { isUIMessageArray } from "@/lib/agents"
 import { getBaseUrl } from "@/lib/api"
-import { transformMessages } from "@/lib/chat"
+import { collectCancelledTurns, transformMessages } from "@/lib/chat"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 /** Render a completed agent transcript or reconnect to its live stream. */
 export function ActionSessionStream({ session }: { session: Session_Any_ }) {
   const messages = isUIMessageArray(session.events) ? session.events : undefined
+  const thread = useMemo(
+    () => (messages ? transformMessages(messages) : []),
+    [messages]
+  )
 
   if (messages && messages.length > 0) {
     return (
       <ActionSessionShell>
         <Conversation className="flex-1">
           <ConversationContent>
-            <ActionSessionThread messages={messages} />
+            <ActionSessionThread messages={thread} />
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>
@@ -76,6 +80,7 @@ function ActionSessionLiveStream({ sessionId }: { sessionId: string }) {
     },
   })
 
+  const thread = useMemo(() => transformMessages(messages), [messages])
   const headerStatus = status === "streaming" ? "streaming" : undefined
 
   return (
@@ -88,8 +93,8 @@ function ActionSessionLiveStream({ sessionId }: { sessionId: string }) {
       ) : (
         <Conversation className="flex-1">
           <ConversationContent>
-            <ActionSessionThread messages={messages} status={status} />
-            <AgentRunningLine status={status} messages={messages} />
+            <ActionSessionThread messages={thread} status={status} />
+            <AgentRunningLine status={status} messages={thread} />
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>
@@ -98,7 +103,10 @@ function ActionSessionLiveStream({ sessionId }: { sessionId: string }) {
   )
 }
 
-/** A session's messages, each agent turn folded once it finishes, as in chat. */
+/**
+ * A session's transformed messages, each agent turn folded once it finishes,
+ * as in chat.
+ */
 function ActionSessionThread({
   messages,
   status,
@@ -106,8 +114,9 @@ function ActionSessionThread({
   messages: UIMessage[]
   status?: ChatStatus
 }) {
-  const blocks = useMemo(
-    () => groupThread(transformMessages(messages)),
+  const blocks = useMemo(() => groupThread(messages), [messages])
+  const { cancelledTurnMessageIds, interruptedToolCallIds } = useMemo(
+    () => collectCancelledTurns(messages),
     [messages]
   )
   const lastMessageId = messages.at(-1)?.id
@@ -120,6 +129,8 @@ function ActionSessionThread({
             message={block.message}
             status={status}
             isLastMessage={block.message.id === lastMessageId}
+            turnCancelled={cancelledTurnMessageIds.has(block.message.id)}
+            interruptedToolCallIds={interruptedToolCallIds}
           />
         </div>
       )
@@ -132,6 +143,8 @@ function ActionSessionThread({
           status={status}
           isLive={isRunning && blockIndex === blocks.length - 1}
           lastMessageId={lastMessageId}
+          cancelledMessageIds={cancelledTurnMessageIds}
+          interruptedToolCallIds={interruptedToolCallIds}
         />
       </div>
     )

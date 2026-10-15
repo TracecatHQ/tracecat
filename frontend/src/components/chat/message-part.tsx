@@ -520,7 +520,12 @@ export function getRunningLineLabel(
   const lastPart = messages.at(-1)?.parts.at(-1)
   if (lastPart?.type === "data-approval-request") return null
   if (lastPart?.type === "text" && lastPart.text.length > 0) return null
-  const turnStart = messages.findLastIndex(({ role }) => role === "user") + 1
+  // An approval submission is a user message too, but it continues the turn.
+  const turnStart =
+    messages.findLastIndex(
+      ({ role, parts }) =>
+        role === "user" && parts.some((part) => part.type === "text")
+    ) + 1
   const turnHasSteps = messages
     .slice(turnStart)
     .some(({ parts }) => parts.some(isActivityPart))

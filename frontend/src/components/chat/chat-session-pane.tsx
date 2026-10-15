@@ -93,7 +93,7 @@ import { SubagentStreamContext } from "@/hooks/use-subagent-stream"
 import { isAgentToolSelectable } from "@/lib/agent-tools"
 import {
   CANCELLED_DATA_PART_TYPE,
-  collectInterruptedToolCallIds,
+  collectCancelledTurns,
   ENTITY_TO_INVALIDATION,
   getPendingApprovalIds,
   getSessionLastError,
@@ -147,25 +147,6 @@ class SubmitAbandonedError extends Error {
     super(reason)
     this.name = "SubmitAbandonedError"
   }
-}
-
-/**
- * Whether a part counts as assistant content when attributing a cancelled
- * marker to the message the user stopped. Structural parts (step-start) and
- * data-* markers can share a message with the live-streamed cancelled marker,
- * and must not stop the marker from tagging the preceding content message
- * that holds the interrupted tool calls.
- */
-function isCancelAttributionContentPart(
-  part: UIMessage["parts"][number]
-): boolean {
-  if (part.type === "step-start" || part.type.startsWith("data-")) {
-    return false
-  }
-  if (part.type === "text" || part.type === "reasoning") {
-    return typeof part.text === "string" && part.text.trim().length > 0
-  }
-  return true
 }
 
 function matchingUserTextPartKeys(
@@ -994,44 +975,10 @@ export function ChatSessionPane({
     [messages]
   )
 
-  // Messages whose turn the user stopped, plus the tool calls those
-  // interrupts aborted. The live stream appends the data-cancelled part to
-  // the assistant message itself, while reloaded history renders the
-  // persisted marker as a standalone system message that follows the
-  // assistant content — cover both so interrupted tool calls in the
-  // preceding message render accurately. The marker's `tool_call_ids`
-  // payload is the structured signal recorded by the backend at interrupt
-  // time; tool call IDs are globally unique, so one session-wide set works.
-  const { cancelledTurnMessageIds, interruptedToolCallIds } = useMemo(() => {
-    const ids = new Set<string>()
-    let lastContentMessageId: string | null = null
-    for (const message of transformedMessages) {
-      const parts = message.parts ?? []
-      let hasCancelledPart = false
-      let hasContentParts = false
-      for (const part of parts) {
-        if (part.type === CANCELLED_DATA_PART_TYPE) {
-          hasCancelledPart = true
-        } else if (isCancelAttributionContentPart(part)) {
-          hasContentParts = true
-        }
-      }
-      if (hasCancelledPart) {
-        ids.add(message.id)
-        if (!hasContentParts && lastContentMessageId) {
-          ids.add(lastContentMessageId)
-        }
-      }
-      if (hasContentParts) {
-        lastContentMessageId = message.id
-      }
-    }
-    return {
-      cancelledTurnMessageIds: ids,
-      interruptedToolCallIds:
-        collectInterruptedToolCallIds(transformedMessages),
-    }
-  }, [transformedMessages])
+  const { cancelledTurnMessageIds, interruptedToolCallIds } = useMemo(
+    () => collectCancelledTurns(transformedMessages),
+    [transformedMessages]
+  )
 
   const invalidateEntityQueries = useCallback(
     (toolNames: string[]) => {

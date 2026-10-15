@@ -392,6 +392,7 @@ function PlainOutput({
       </pre>
       <CodeBlockCopyButton
         code={text}
+        aria-label="Copy output"
         className="absolute right-1.5 top-1.5 z-10 size-5 [&_svg]:size-3"
       />
     </div>

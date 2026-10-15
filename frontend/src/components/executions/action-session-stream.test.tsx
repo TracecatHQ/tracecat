@@ -75,4 +75,48 @@ describe("ActionSessionStream", () => {
 
     expect(screen.getByText("Ran core.table.list_tables")).toBeInTheDocument()
   })
+
+  it("shows a tool a cancelled run aborted as stopped", () => {
+    render(
+      <ActionSessionStream
+        session={{
+          id: "session-2",
+          events: [
+            {
+              id: "prompt",
+              role: "user",
+              parts: [{ type: "text", text: "List the tables" }],
+            },
+            {
+              id: "tool",
+              role: "assistant",
+              parts: [
+                {
+                  type: "dynamic-tool",
+                  toolName: "core__table__list_tables",
+                  toolCallId: "call-1",
+                  state: "output-error",
+                  input: {},
+                  errorText: "Request was aborted",
+                },
+              ],
+            },
+            {
+              id: "cancelled",
+              role: "assistant",
+              parts: [
+                { type: "data-cancelled", data: { tool_call_ids: ["call-1"] } },
+              ],
+            },
+          ],
+        }}
+      />
+    )
+
+    fireEvent.click(screen.getByText("Worked"))
+
+    expect(
+      screen.getByText("Stopped core.table.list_tables")
+    ).toBeInTheDocument()
+  })
 })

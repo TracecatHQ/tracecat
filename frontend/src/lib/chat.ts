@@ -95,6 +95,65 @@ export function collectInterruptedToolCallIds(
 }
 
 /**
+ * Whether a part counts as assistant content when attributing a cancelled
+ * marker to the message the user stopped. Structural parts (step-start) and
+ * data-* markers can share a message with the live-streamed cancelled marker,
+ * and must not stop the marker from tagging the preceding content message
+ * that holds the interrupted tool calls.
+ */
+function isCancelAttributionContentPart(
+  part: ai.UIMessage["parts"][number]
+): boolean {
+  if (part.type === "step-start" || part.type.startsWith("data-")) {
+    return false
+  }
+  if (part.type === "text" || part.type === "reasoning") {
+    return typeof part.text === "string" && part.text.trim().length > 0
+  }
+  return true
+}
+
+/**
+ * Messages whose turn the user stopped, plus the tool calls those interrupts
+ * aborted. The live stream appends the cancelled marker to the assistant
+ * message itself, while reloaded history keeps it as a standalone message
+ * after the content, so both tag the stopped content message.
+ */
+export function collectCancelledTurns(
+  messages: readonly Pick<ai.UIMessage, "id" | "parts">[]
+): {
+  cancelledTurnMessageIds: ReadonlySet<string>
+  interruptedToolCallIds: ReadonlySet<string>
+} {
+  const ids = new Set<string>()
+  let lastContentMessageId: string | null = null
+  for (const message of messages) {
+    let hasCancelledPart = false
+    let hasContentParts = false
+    for (const part of message.parts ?? []) {
+      if (part.type === CANCELLED_DATA_PART_TYPE) {
+        hasCancelledPart = true
+      } else if (isCancelAttributionContentPart(part)) {
+        hasContentParts = true
+      }
+    }
+    if (hasCancelledPart) {
+      ids.add(message.id)
+      if (!hasContentParts && lastContentMessageId) {
+        ids.add(lastContentMessageId)
+      }
+    }
+    if (hasContentParts) {
+      lastContentMessageId = message.id
+    }
+  }
+  return {
+    cancelledTurnMessageIds: ids,
+    interruptedToolCallIds: collectInterruptedToolCallIds(messages),
+  }
+}
+
+/**
  * Error strings the Claude SDK records for tool calls that were aborted by a
  * user interrupt rather than failing on their own.
  *

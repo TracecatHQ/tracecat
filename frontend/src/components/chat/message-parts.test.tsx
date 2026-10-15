@@ -347,6 +347,21 @@ describe("getRunningLineLabel", () => {
     )
   })
 
+  it("keeps a working line at minimal after an in-chat approval", () => {
+    const submitted: UIMessage = {
+      id: "c1",
+      role: "user",
+      parts: [
+        {
+          type: "data-continue",
+          data: { kind: "continue", source: "chat", decisions: [] },
+        },
+      ],
+    }
+    const thread = transformMessages([prompt, opened, submitted, continued])
+    expect(getRunningLineLabel("streaming", thread, minimal)).toBe("Working...")
+  })
+
   it("draws nothing while an approval waits", () => {
     expect(getRunningLineLabel("streaming", [prompt, opened], minimal)).toBe(
       null
