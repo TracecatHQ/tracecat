@@ -276,7 +276,10 @@ describe("MessageParts", () => {
 describe("getRunningLineLabel", () => {
   const minimal = getChatVerbosityPolicy("minimal")
   const defaults = getChatVerbosityPolicy("default")
-  function running(toolName: string): UIMessage {
+  function running(
+    toolName: string,
+    state: "input-streaming" | "input-available" = "input-available"
+  ): UIMessage {
     return {
       id: "a0",
       role: "assistant",
@@ -285,7 +288,7 @@ describe("getRunningLineLabel", () => {
           type: "dynamic-tool",
           toolName,
           toolCallId: "call-0",
-          state: "input-available",
+          state,
           input: {},
         },
       ],
@@ -342,6 +345,13 @@ describe("getRunningLineLabel", () => {
 
   it("thinks while a hidden tool runs at default", () => {
     const thread = [prompt, running("ToolSearch")]
+    expect(getRunningLineLabel("streaming", thread, defaults)).toBe(
+      "Thinking..."
+    )
+  })
+
+  it("thinks while a hidden tool streams its input at default", () => {
+    const thread = [prompt, running("ToolSearch", "input-streaming")]
     expect(getRunningLineLabel("streaming", thread, defaults)).toBe(
       "Thinking..."
     )
