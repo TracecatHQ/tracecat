@@ -658,6 +658,58 @@ describe("ChatSessionPane", () => {
     )
   })
 
+  it("draws one working line at minimal while a tool runs", () => {
+    mockVerbosity.mockReturnValue("minimal")
+    mockUseVercelChat.mockReturnValue({
+      sendMessage: jest.fn(),
+      setMessages: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [
+        { id: "u1", role: "user", parts: [{ type: "text", text: "Go" }] },
+        {
+          id: "a1",
+          role: "assistant",
+          parts: [
+            {
+              type: "dynamic-tool",
+              toolName: "core__table__list_tables",
+              toolCallId: "call-1",
+              state: "input-available",
+              input: {},
+            },
+          ],
+        },
+      ],
+      status: "streaming",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    try {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <ChatSessionPane
+              chat={createChatFixture()}
+              workspaceId="workspace-1"
+              entityType="case"
+              entityId="case-1"
+              modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            />
+          </TooltipProvider>
+        </QueryClientProvider>
+      )
+
+      const lines = screen.getAllByTestId("agent-running-line")
+      expect(lines).toHaveLength(1)
+      expect(lines[0]).toHaveTextContent("Working...")
+      expect(screen.queryByLabelText("Retry")).not.toBeInTheDocument()
+    } finally {
+      mockVerbosity.mockReturnValue("verbose")
+    }
+  })
+
   it("skips resuming a new session it opens to send the first message", () => {
     // A resume that finds no stream resets the send's status to ready, which
     // would hide the thinking line until the first part arrives.

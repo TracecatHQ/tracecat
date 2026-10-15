@@ -60,6 +60,8 @@ import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
 import { ChatToolsPicker } from "@/components/chat/chat-tools-picker"
 import {
   getCompactionData,
+  isActivityPart,
+  isHiddenPart,
   MessageParts,
   RunningLine,
 } from "@/components/chat/message-part"
@@ -540,6 +542,16 @@ export function ChatSessionPane({
     }
     return false
   }, [status, messages])
+
+  // At minimal the last message draws its own working line over its steps.
+  const showThinkingLine = useMemo(() => {
+    if (!isWaitingForResponse) return false
+    if (verbosity !== "minimal") return true
+    const lastShownPart = messages
+      .at(-1)
+      ?.parts.findLast((part) => !isHiddenPart(part))
+    return !(lastShownPart && isActivityPart(lastShownPart))
+  }, [isWaitingForResponse, verbosity, messages])
 
   const isOptimisticBeforeSendPending = optimisticMessageText !== null
   const isInputDisabled =
@@ -1491,7 +1503,7 @@ export function ChatSessionPane({
                   </div>
                 )
               })}
-              {isWaitingForResponse && (
+              {showThinkingLine && (
                 <motion.div
                   className="mt-5"
                   initial={{ opacity: 0 }}
