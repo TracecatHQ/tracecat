@@ -1,0 +1,24 @@
+tests/unit/test_registry_actions_custom_entitlement.py
+  s_3fab07a328f4d4::t_5f3b953994e99c 447-472,479-489
+  s_3fab07a328f4d4::t_4d83cd8f71765f 473-478
+  s_3fab07a328f4d4::t_fb654ae2304f49 446
+tracecat/registry/actions/service.py
+  s_3fab07a328f4d4::t_f5c658f1d5aac4 1094-1096
+  s_3fab07a328f4d4::t_13e2db561ce0ab 1051,1097-1098,1135-1138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f3dcf62445ab3272476943b453eeee5756729120",
+  "prompts": {},
+  "sessions": {
+    "s_3fab07a328f4d4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a140d1-98e7-7b53-9710-5c426d6d882a",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
