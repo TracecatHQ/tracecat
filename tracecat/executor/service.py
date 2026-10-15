@@ -460,7 +460,7 @@ async def _execute_template_action(
         input: The original RunActionInput
         ctx: Dispatch context containing the role
         resolved_context: Pre-resolved context with secrets and template definition
-        timeout: Budget shared by all of the template's step calls
+        timeout: Unclamped budget shared by all of the template's steps
         provenance: Authored input-source and secret-path mapping for this invocation
 
     Returns:
@@ -571,7 +571,7 @@ async def _execute_template_action(
 
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise ActionTimeoutError(f"Action execution timed out after {timeout:g}s")
+            raise ActionTimeoutError(_timeout_message(_action_timeout(input)))
 
         # Execute step via _invoke_step (handles nested templates)
         step_result = await _invoke_template_step(
@@ -594,7 +594,7 @@ async def _execute_template_action(
     # Step timers exclude subprocess startup, so the last step can finish
     # after the deadline. A late template is still a timeout.
     if time.monotonic() >= deadline:
-        raise ActionTimeoutError(f"Action execution timed out after {timeout:g}s")
+        raise ActionTimeoutError(_timeout_message(_action_timeout(input)))
 
     # Evaluate returns expression with final template context
     return eval_templated_object(
@@ -621,7 +621,8 @@ async def _invoke_step(
         resolved_context: Pre-resolved context for the step
         input: The original RunActionInput
         ctx: Dispatch context containing the role
-        timeout: Execution timeout
+        timeout: Unclamped budget for this step. Each UDF subprocess call is
+            capped at the deployment's maximum.
         provenance: Authored input-source and secret-path mapping for this invocation
 
     Returns:
@@ -640,11 +641,12 @@ async def _invoke_step(
             )
         case "udf":
             # Leaf node - execute via backend
+            call_timeout = _udf_call_timeout(resolved_context, timeout)
             result = await backend.execute(
                 input=input,
                 role=ctx.role,
                 resolved_context=resolved_context,
-                timeout=timeout,
+                timeout=call_timeout,
             )
             if isinstance(result, ExecutorResultSuccess):
                 # Opaque code can transform credentials without an AST observer.
@@ -665,6 +667,12 @@ async def _invoke_step(
                 # Error response from backend
                 error_data = result.error
                 exec_result = ExecutorActionErrorInfo.model_validate(error_data)
+                if exec_result.type == ActionTimeoutError.__name__:
+                    # Name the action's own timeout, not a template step's share.
+                    exec_result.message = _timeout_message(
+                        _action_timeout(input),
+                        capped_at=call_timeout if call_timeout < timeout else None,
+                    )
                 raise ExecutionError(info=exec_result)
         case _:
             raise ValueError(
@@ -672,25 +680,34 @@ async def _invoke_step(
             )
 
 
-def _action_call_timeout(requested: float) -> float:
-    """Return the per-call action timeout, capped at the deployment's maximum.
+def _action_timeout(input: RunActionInput) -> float:
+    """Return the action's own timeout, unclamped.
 
-    A timeout of 0 or less falls back to the maximum.
+    A timeout of 0 or less falls back to the deployment's maximum.
     """
-    ceiling = config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
-    return min(requested, ceiling) if requested > 0 else ceiling
+    requested = input.task.retry_policy.timeout
+    return requested if requested > 0 else config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
 
-def _timeout_message(timeout: float, requested: float) -> str:
-    """Describe an action timeout by the action's budget, naming the cap if it applied."""
-    message = f"Action execution timed out after {timeout:g}s"
-    if timeout < requested:
-        return (
-            f"{message}, this deployment's maximum action timeout "
-            f"(TRACECAT__EXECUTOR_CLIENT_TIMEOUT). The action's own timeout is "
-            f"{requested:g}s."
-        )
-    return message
+def _udf_call_timeout(resolved_context: ResolvedContext, timeout: float) -> float:
+    """Cap one UDF subprocess call at the deployment's maximum.
+
+    run_python runs in its own sandbox and keeps the action's own timeout.
+    """
+    if resolved_context.action_impl.action_name == PlatformAction.RUN_PYTHON:
+        return timeout
+    return min(timeout, config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT)
+
+
+def _timeout_message(action_timeout: float, *, capped_at: float | None = None) -> str:
+    """Describe an action timeout by the action's own timeout, or the cap that hit."""
+    if capped_at is None:
+        return f"Action execution timed out after {action_timeout:g}s"
+    return (
+        f"Action execution timed out after {capped_at:g}s, this deployment's maximum "
+        "action timeout (TRACECAT__EXECUTOR_CLIENT_TIMEOUT). The action's own timeout "
+        f"is {action_timeout:g}s."
+    )
 
 
 def _attach_loop_context(info: ExecutorActionErrorInfo, iteration: int | None) -> None:
@@ -878,9 +895,8 @@ async def invoke_once(
     """
     role = ctx.role
     action_name = input.task.action
-    # Budgets each action function call; platform preparation is excluded.
-    requested_timeout = input.task.retry_policy.timeout
-    timeout = _action_call_timeout(requested_timeout)
+    # Budgets the action's function calls; platform preparation is excluded.
+    timeout = _action_timeout(input)
 
     # Ensure organization_id is set (workflows are always org-scoped)
     if role.organization_id is None:
@@ -928,9 +944,6 @@ async def invoke_once(
             raise
         classification = chained_error_classification(e)
         exec_result = _sanitize_error_info(e.info, classification).model_copy()
-        # A template step reports its share of the budget; name the action's.
-        if exec_result.type == ActionTimeoutError.__name__:
-            exec_result.message = _timeout_message(timeout, requested_timeout)
         _attach_loop_context(exec_result, iteration)
         safe_error = ExecutionError(
             info=exec_result,
@@ -943,8 +956,6 @@ async def invoke_once(
         classification = chained_error_classification(e)
         _attach_loop_context(exec_result, iteration)
         exec_result = _sanitize_error_info(exec_result, classification)
-        if exec_result.type == ActionTimeoutError.__name__:
-            exec_result.message = _timeout_message(timeout, requested_timeout)
         # Log only the safe diagnostic when secrets may be in scope.
         logger.error(
             "Backend execution failed",

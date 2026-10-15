@@ -905,10 +905,11 @@ TRACECAT__EXECUTOR_BACKEND = ExecutorBackendType.from_config(
 TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
     os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT") or 300
 )
-"""Maximum seconds an action function call may run per attempt (default: 300s).
+"""Maximum seconds one action function call may run (default: 300s).
 
-The executor clamps each action's timeout to this value and uses it when the
-timeout is 0. Agent services also use it to bound executor tool calls."""
+The executor caps each UDF subprocess call at this value and uses it as the
+action timeout when the timeout is 0. Template totals and run_python follow the
+action's own timeout. Agent services also use it to bound executor tool calls."""
 
 TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT = float(
     os.environ.get("TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT") or 600
