@@ -1098,7 +1098,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   })
 
   const visibleRowsData = hasHydratedFilters ? rowsData : undefined
-  const visibleAggregateData = hasHydratedFilters ? aggregateData : undefined
+  const visibleAggregateData =
+    hasHydratedFilters && !isCountsError ? aggregateData : undefined
 
   const flattenedCases = useMemo(() => {
     const pages = visibleRowsData?.pages ?? []
