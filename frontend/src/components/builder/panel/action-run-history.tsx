@@ -1,6 +1,6 @@
 "use client"
 
-import { LockIcon, LockOpenIcon } from "lucide-react"
+import { InfoIcon, LockIcon, LockOpenIcon } from "lucide-react"
 import { useMemo } from "react"
 import type {
   ActionRead,
@@ -10,6 +10,11 @@ import type {
 import { getExecutionStatusIcon } from "@/components/executions/nav"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useCompactWorkflowExecution, useWorkflowExecutions } from "@/lib/hooks"
 import { slugifyActionRef } from "@/lib/utils"
 
@@ -39,11 +44,19 @@ export function ActionRunHistory({
 
   return (
     <div className="flex flex-col gap-3 p-4">
-      <div className="flex items-start justify-between gap-4">
-        <p className="text-xs text-muted-foreground">
-          Lock this action to a past run. Draft runs then reuse that run&apos;s
-          result instead of running the action. Published runs ignore locks.
-        </p>
+      <div className="flex h-7 items-center justify-between gap-4">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              Recent runs
+              <InfoIcon className="size-3.5" />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-64">
+            Lock to a run and draft runs reuse its result. Published runs ignore
+            locks.
+          </TooltipContent>
+        </Tooltip>
         {lockedId && (
           <Button
             type="button"
