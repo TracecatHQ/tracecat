@@ -10,7 +10,7 @@ One organization configuration drives both agent runtimes, Claude Code and the P
 
 Tracecat exports metrics, log events, and traces over OTLP/HTTP with protobuf. Traces are off by default, and `traces_enabled` turns them on for both runtimes. Claude Code tracing is in beta, so Tracecat sets the beta tracing flag for Claude Code runs. Pi exports traces without a beta flag.
 
-Telemetry is off until an organization administrator enables it, and each organization configures its own exporter.
+Tracecat sends nothing to your collector until an organization administrator enables telemetry, and each organization configures its own exporter.
 
 ## Configure the exporter
 

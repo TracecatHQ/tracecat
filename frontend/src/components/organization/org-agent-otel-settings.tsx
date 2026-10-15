@@ -292,7 +292,7 @@ export function OrgAgentOtelSettings() {
         <div className="space-y-0.5">
           <p className="text-sm font-medium">Enable agent telemetry</p>
           <p className="text-xs text-muted-foreground">
-            When off, agent runs export no telemetry.
+            When off, agent runs stop sending telemetry to your collector.
           </p>
         </div>
         <Switch
