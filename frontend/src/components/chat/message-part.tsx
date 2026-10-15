@@ -781,7 +781,8 @@ export const MemoizedMessagePart = memo(MessagePart, (prev, next) => {
     prev.isLastMessage !== next.isLastMessage ||
     prev.turnCancelled !== next.turnCancelled ||
     prev.interruptedToolCallIds !== next.interruptedToolCallIds ||
-    prev.onSubmitApprovals !== next.onSubmitApprovals
+    prev.onSubmitApprovals !== next.onSubmitApprovals ||
+    prev.reasoningSeconds !== next.reasoningSeconds
   ) {
     return false
   }
@@ -794,7 +795,9 @@ export const MemoizedMessagePart = memo(MessagePart, (prev, next) => {
   }
 
   if (prevPart.type === "text" || prevPart.type === "reasoning") {
-    return prevPart.text === (nextPart as typeof prevPart).text
+    // A reasoning part's state ends its thinking line.
+    const sameState = prevPart.state === (nextPart as typeof prevPart).state
+    return prevPart.text === (nextPart as typeof prevPart).text && sameState
   }
 
   if (isToolUIPart(prevPart) && isToolUIPart(nextPart)) {
