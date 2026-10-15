@@ -555,23 +555,27 @@ export function CasesLayout({
                   {exactMatch.is_outside_filters &&
                     " · Outside current filters"}
                 </p>
-                <CaseItem
-                  caseData={exactMatch}
-                  isSelected={(sidePanelCaseId ?? selectedId) === exactMatch.id}
-                  isChecked={selectedCaseIdsSet.has(exactMatch.id)}
-                  onCheckChange={(checked) =>
-                    handleCheckChange(exactMatch.id, checked)
-                  }
-                  onClick={() => handleSelectCase(exactMatch.id)}
-                  onDeleteRequest={handleDeleteRequest}
-                  onOpenInSidePanel={handleOpenInSidePanel}
-                  tags={tags}
-                  members={members}
-                  dropdownDefinitions={dropdownDefinitions}
-                  fieldMetadataById={fieldMetadataById}
-                  durationNamesById={durationNamesById}
-                  visibleColumnIds={visibleColumnIds}
-                />
+                <div className="ml-[18px]">
+                  <CaseItem
+                    caseData={exactMatch}
+                    isSelected={
+                      (sidePanelCaseId ?? selectedId) === exactMatch.id
+                    }
+                    isChecked={selectedCaseIdsSet.has(exactMatch.id)}
+                    onCheckChange={(checked) =>
+                      handleCheckChange(exactMatch.id, checked)
+                    }
+                    onClick={() => handleSelectCase(exactMatch.id)}
+                    onDeleteRequest={handleDeleteRequest}
+                    onOpenInSidePanel={handleOpenInSidePanel}
+                    tags={tags}
+                    members={members}
+                    dropdownDefinitions={dropdownDefinitions}
+                    fieldMetadataById={fieldMetadataById}
+                    durationNamesById={durationNamesById}
+                    visibleColumnIds={visibleColumnIds}
+                  />
+                </div>
               </section>
             )}
             <CasesAccordion
