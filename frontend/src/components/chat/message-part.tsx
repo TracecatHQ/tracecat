@@ -442,9 +442,6 @@ export function MessageParts({
 export function RunningLine({ label }: { label: string }) {
   return (
     <TraceLine status="running" data-testid="agent-running-line">
-      <TraceIcon>
-        <LoaderCircleIcon className="animate-spin" />
-      </TraceIcon>
       <TraceTitle>{label}</TraceTitle>
     </TraceLine>
   )

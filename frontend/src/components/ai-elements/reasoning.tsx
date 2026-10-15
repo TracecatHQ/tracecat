@@ -1,7 +1,6 @@
 "use client"
 
 import { useControllableState } from "@radix-ui/react-use-controllable-state"
-import { LoaderCircleIcon } from "lucide-react"
 import type { ComponentProps } from "react"
 import {
   createContext,
@@ -18,7 +17,6 @@ import {
   TraceCollapsibleContent,
   TraceCollapsibleTrigger,
   TraceDescription,
-  TraceIcon,
   TraceLine,
   TraceTitle,
 } from "@/components/ui/trace"
@@ -154,11 +152,6 @@ export const ReasoningTrigger = memo(
       <TraceCollapsibleTrigger className={className} {...props}>
         {children ?? (
           <TraceLine status={isStreaming ? "running" : undefined}>
-            {isStreaming ? (
-              <TraceIcon>
-                <LoaderCircleIcon className="animate-spin" />
-              </TraceIcon>
-            ) : null}
             <TraceTitle>{isStreaming ? "Thinking" : "Thought"}</TraceTitle>
             {!isStreaming && duration ? (
               <TraceDescription>{duration}s</TraceDescription>
