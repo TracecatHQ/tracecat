@@ -127,6 +127,58 @@ describe("AgentTurn", () => {
     expect(screen.getByText(ANSWER)).toBeInTheDocument()
   })
 
+  it("keeps a turn with an approval card unfolded", () => {
+    const approval: UIMessage = {
+      id: "approval",
+      role: "assistant",
+      metadata: at(6),
+      parts: [
+        {
+          type: "data-approval-request",
+          data: [
+            { tool_call_id: "call-1", tool_name: "core.table.list_tables" },
+          ],
+        },
+      ],
+    }
+    renderTurn([PROMPT, THOUGHT, TOOL_CALL, approval, TOOL_CALL])
+
+    expect(screen.queryByText(/^Worked/)).not.toBeInTheDocument()
+  })
+
+  it("ends the thinking line when the thought finishes mid-turn", () => {
+    // A live turn streams the thought and the next tool call as one message.
+    function thought(state: "streaming" | "done"): UIMessage {
+      return {
+        id: "live",
+        role: "assistant",
+        parts: [
+          { type: "reasoning", text: "Use the tables tool.", state },
+          ...TOOL_CALL.parts,
+        ],
+      }
+    }
+    function tree(message: UIMessage) {
+      return (
+        <ChatVerbosityContext.Provider value="default">
+          <AgentTurn
+            messages={[message]}
+            startedAt={null}
+            isLive
+            status="streaming"
+            lastMessageId={message.id}
+          />
+        </ChatVerbosityContext.Provider>
+      )
+    }
+    const { rerender } = render(tree(thought("streaming")))
+    expect(screen.getByText("Thinking")).toBeInTheDocument()
+
+    rerender(tree(thought("done")))
+    expect(screen.queryByText("Thinking")).not.toBeInTheDocument()
+    expect(screen.getByText(/^Thought/)).toBeInTheDocument()
+  })
+
   it("says worked without a time when history has none", () => {
     const strip = ({ metadata: _, ...message }: UIMessage): UIMessage => message
     renderTurn([PROMPT, THOUGHT, TOOL_CALL, ANSWER_MESSAGE].map(strip))

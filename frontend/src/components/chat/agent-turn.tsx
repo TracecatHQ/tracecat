@@ -89,7 +89,8 @@ type TurnSplit = { work: ThreadMessage[]; answer: ThreadMessage[] }
 /**
  * Split a finished turn at its last step: the steps and any interim text go
  * in the work, and what follows (the answer, approvals, markers) stays out.
- * Returns null when the turn ran no tools, so its thinking shows as is.
+ * Returns null when the turn ran no tools or asked for approval, so it shows
+ * as is.
  */
 function splitFinishedTurn(messages: ThreadMessage[]): TurnSplit | null {
   const entries = messages.flatMap((message) =>
@@ -97,6 +98,10 @@ function splitFinishedTurn(messages: ThreadMessage[]): TurnSplit | null {
       .filter((part) => !isHiddenPart(part))
       .map((part) => ({ message, part }))
   )
+  // An approval card must stay in view, and the wait would inflate the time.
+  if (entries.some(({ part }) => part.type === "data-approval-request")) {
+    return null
+  }
   const lastStep = entries.findLastIndex(({ part }) => isActivityPart(part))
   const workEntries = entries.slice(0, lastStep + 1)
   if (!workEntries.some(({ part }) => isToolUIPart(part))) {
