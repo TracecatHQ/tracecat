@@ -170,7 +170,9 @@ Defaults to 300 seconds. Tracecat clamps the value to `TRACECAT__EXECUTOR_CLIENT
 
 The timeout covers only the function call. Platform work such as resolving secrets, loading the action's registry code, and starting the sandbox doesn't count toward it. An attempt that hits the timeout fails with `Action execution timed out after <timeout>s` and is retried if `max_attempts` allows it.
 
-Each `for_each` iteration and each template step gets the full timeout for its own function call, but they share one attempt that Tracecat caps at the timeout plus 600 seconds. A loop or template whose calls run longer than that fails the attempt, and a retry runs every iteration or step again.
+A template action counts as one action: its steps share one timeout, which starts when the first step starts. A step that would start after the timeout has run out fails the attempt instead.
+
+Each `for_each` iteration gets the full timeout, but all iterations share one attempt that Tracecat caps at the timeout plus 600 seconds. A loop whose iterations run longer than that fails the attempt, and a retry runs every iteration again.
 
 For `ai.agent`, `ai.action`, and `ai.preset_agent`, `timeout` caps the agent's active runtime in seconds. Unset means 1800 seconds (30 minutes).
 

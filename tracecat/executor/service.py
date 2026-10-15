@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import time
 from collections.abc import Iterator, Mapping, MutableMapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -459,11 +460,14 @@ async def _execute_template_action(
         input: The original RunActionInput
         ctx: Dispatch context containing the role
         resolved_context: Pre-resolved context with secrets and template definition
-        timeout: Execution timeout
+        timeout: Budget shared by all of the template's step calls
         provenance: Authored input-source and secret-path mapping for this invocation
 
     Returns:
         The evaluated returns expression result
+
+    Raises:
+        ActionTimeoutError: If the budget runs out before a step starts
     """
     role = ctx.role
 
@@ -531,6 +535,9 @@ async def _execute_template_action(
         steps=len(template_def.steps),
     )
 
+    # A template is one action, so its steps share one timeout budget.
+    deadline = time.monotonic() + timeout
+
     # Execute each step
     for step in template_def.steps:
         logger.trace(
@@ -562,13 +569,17 @@ async def _execute_template_action(
             else {}
         )
 
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ActionTimeoutError(f"Action execution timed out after {timeout:g}s")
+
         # Execute step via _invoke_step (handles nested templates)
         step_result = await _invoke_template_step(
             backend=backend,
             resolved_context=step_resolved,
             input=input,
             ctx=ctx,
-            timeout=timeout,
+            timeout=remaining,
             provenance=child_provenance,
             step_ref=step.ref,
             step_action=step.action,
@@ -665,12 +676,16 @@ def _action_call_timeout(requested: float) -> float:
     return min(requested, ceiling) if requested > 0 else ceiling
 
 
-def _capped_timeout_message(timeout: float, requested: float) -> str:
-    return (
-        f"Action execution timed out after {timeout:g}s, this deployment's maximum "
-        f"action timeout (TRACECAT__EXECUTOR_CLIENT_TIMEOUT). The action's own "
-        f"timeout is {requested:g}s."
-    )
+def _timeout_message(timeout: float, requested: float) -> str:
+    """Describe an action timeout by the action's budget, naming the cap if it applied."""
+    message = f"Action execution timed out after {timeout:g}s"
+    if timeout < requested:
+        return (
+            f"{message}, this deployment's maximum action timeout "
+            f"(TRACECAT__EXECUTOR_CLIENT_TIMEOUT). The action's own timeout is "
+            f"{requested:g}s."
+        )
+    return message
 
 
 def _attach_loop_context(info: ExecutorActionErrorInfo, iteration: int | None) -> None:
@@ -908,11 +923,9 @@ async def invoke_once(
             raise
         classification = chained_error_classification(e)
         exec_result = _sanitize_error_info(e.info, classification).model_copy()
-        if (
-            timeout < requested_timeout
-            and exec_result.type == ActionTimeoutError.__name__
-        ):
-            exec_result.message = _capped_timeout_message(timeout, requested_timeout)
+        # A template step reports its share of the budget; name the action's.
+        if exec_result.type == ActionTimeoutError.__name__:
+            exec_result.message = _timeout_message(timeout, requested_timeout)
         _attach_loop_context(exec_result, iteration)
         safe_error = ExecutionError(
             info=exec_result,
@@ -925,6 +938,8 @@ async def invoke_once(
         classification = chained_error_classification(e)
         _attach_loop_context(exec_result, iteration)
         exec_result = _sanitize_error_info(exec_result, classification)
+        if exec_result.type == ActionTimeoutError.__name__:
+            exec_result.message = _timeout_message(timeout, requested_timeout)
         # Log only the safe diagnostic when secrets may be in scope.
         logger.error(
             "Backend execution failed",
