@@ -573,7 +573,11 @@ export function CasesHeader({
     : "Top-level cases only"
   const createdLabel = getDateScopeLabel(createdAfter, "Created")
   const updatedLabel = getDateScopeLabel(updatedAfter, "Updated")
-  const scopeDescription = `${createdLabel} · ${updatedLabel} · ${hierarchyLabel}`
+  const scopeDescription = [
+    createdLabel,
+    updatedLabel,
+    ...(onIncludeSubCasesChange ? [hierarchyLabel] : []),
+  ].join(" · ")
 
   const hasFilters =
     searchQuery.trim().length > 0 ||

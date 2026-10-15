@@ -99,7 +99,7 @@ const CASE: CaseReadMinimal = {
   num_sub_cases: 0,
 }
 
-function Harness() {
+function Harness({ hierarchyEnabled = true }: { hierarchyEnabled?: boolean }) {
   const search = useCases({ autoRefresh: false })
   return (
     <CasesLayout
@@ -128,7 +128,9 @@ function Harness() {
       onTagSortDirectionChange={search.setTagSortDirection}
       onUpdatedAfterChange={search.setUpdatedAfter}
       onCreatedAfterChange={search.setCreatedAfter}
-      onIncludeSubCasesChange={search.setIncludeSubCases}
+      onIncludeSubCasesChange={
+        hierarchyEnabled ? search.setIncludeSubCases : undefined
+      }
       onDropdownFilterChange={search.setDropdownFilter}
       onDropdownModeChange={search.setDropdownMode}
       onDropdownSortDirectionChange={search.setDropdownSortDirection}
@@ -143,14 +145,14 @@ function Harness() {
   )
 }
 
-function setup() {
+function setup(hierarchyEnabled = true) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   })
   return render(
     <QueryClientProvider client={queryClient}>
       <WorkspaceIdProvider workspaceId={WORKSPACE_ID}>
-        <Harness />
+        <Harness hierarchyEnabled={hierarchyEnabled} />
       </WorkspaceIdProvider>
     </QueryClientProvider>
   )
@@ -200,6 +202,17 @@ describe("exact-first case search UI", () => {
     expect(
       screen.getByRole("group", { name: "Current view filters" })
     ).not.toBeDisabled()
+  })
+
+  it("shows dates without unsupported hierarchy labels or controls", async () => {
+    setup(false)
+    await waitFor(() => expect(casesSearchCases).toHaveBeenCalledTimes(1))
+    const scope = screen.getByRole("status")
+    expect(scope).toHaveTextContent("Created in last 30 days")
+    expect(scope).toHaveTextContent("Updated: any time")
+    expect(scope).not.toHaveTextContent("Top-level cases only")
+    expect(scope).not.toHaveTextContent("Includes sub-cases")
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument()
   })
 
   it("uses one search request for a complete ID and keeps the view constraints", async () => {
