@@ -290,6 +290,7 @@ from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerUpdate,
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
+from tracecat.workflow.executions.rerun import WorkflowRerunPlan
 from tracecat.workflow.executions.schemas import (
     WorkflowExecutionActionResultResponse,
     WorkflowExecutionDetailResponse,
@@ -1129,6 +1130,15 @@ class WorkflowRunStartedResponse(BaseModel):
     workflow_id: WorkflowUUID
     execution_id: WorkflowExecutionID
     message: str
+
+
+class WorkflowRerunToolResponse(BaseModel):
+    """Result of rerunning a past workflow execution."""
+
+    started: bool
+    execution_id: WorkflowExecutionID | None = None
+    message: str
+    plan: WorkflowRerunPlan
 
 
 class WorkflowExecutionCancelResponse(BaseModel):
@@ -5512,6 +5522,96 @@ async def list_workflow_executions(
     except Exception as e:
         logger.error("Failed to list workflow executions", error=str(e))
         raise ToolError(f"Failed to list workflow executions: {e}") from None
+
+
+@mcp.tool()
+async def rerun_workflow_execution(
+    workspace_id: uuid.UUID,
+    execution_id: WorkflowExecutionID,
+    use_draft: bool = True,
+    version: int | None = None,
+    fixed_action_refs: list[str] | None = None,
+    dry_run: bool = False,
+) -> WorkflowRerunToolResponse:
+    """Rerun a past execution against the draft or a published version.
+
+    The new run reuses the past run's trigger inputs. Each action that
+    succeeded in the past run and exists in the target with the same ref and
+    action type reuses its stored result instead of running. Everything else
+    runs. Actions inside scatter or loop scopes, and control flow actions,
+    always run.
+
+    Call with ``dry_run=true`` first to see the match plan. Each entry in
+    ``plan.actions`` has a status: ``fixed`` (result reused), ``excluded``
+    (reusable but not in ``fixed_action_refs``), ``runs`` (no reusable
+    result), ``not_in_target`` (the target has no action with this ref), or
+    ``action_changed`` (the target action uses a different action type).
+    ``plan.unmatched_refs`` lists source results the target cannot use, and
+    ``plan.inputs_error`` is set when the past inputs fail the target's input
+    schema.
+
+    Args:
+        workspace_id: The workspace ID.
+        execution_id: The past workflow execution ID to rerun.
+        use_draft: When true (default), rerun against the current draft.
+            When false, rerun against a published version.
+        version: Published version when ``use_draft`` is false; null uses the
+            current published version.
+        fixed_action_refs: Refs whose results to reuse. Null reuses every
+            match; an empty list reruns everything. Refs that cannot be
+            reused are rejected.
+        dry_run: Return the match plan without starting a run.
+
+    Returns JSON with ``started``, the new ``execution_id`` (when started),
+    a message, and the match ``plan``.
+    """
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with WorkflowsManagementService.with_session(role=role) as svc:
+            result = await svc.rerun_workflow_execution(
+                execution_id,
+                use_draft=use_draft,
+                version=version,
+                fixed_action_refs=fixed_action_refs,
+                dry_run=dry_run,
+            )
+        if isinstance(result, WorkflowRerunPlan):
+            return WorkflowRerunToolResponse(
+                started=False,
+                message="Dry run. No execution started.",
+                plan=result,
+            )
+        return WorkflowRerunToolResponse(
+            started=True,
+            execution_id=result.wf_exec_id,
+            message=result.message,
+            plan=result.plan,
+        )
+    except ToolError:
+        raise
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(
+            json.dumps(
+                {
+                    "type": "validation_error",
+                    "message": str(e),
+                    "status": "error",
+                    "detail": e.detail,
+                },
+                default=str,
+            )
+        ) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except BaseException as e:
+        msg = str(e)
+        if isinstance(e, BaseExceptionGroup):
+            msgs = [str(exc) for exc in e.exceptions]
+            msg = "; ".join(msgs)
+        logger.error("Failed to rerun workflow execution", error=msg)
+        raise ToolError(f"Failed to rerun workflow execution: {msg}") from None
 
 
 async def _load_execution_with_events(

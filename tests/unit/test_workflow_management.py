@@ -1247,7 +1247,7 @@ async def test_run_workflow_published_latest_uses_definition_lock(
         "actions": {"core.transform.reshape": "tracecat_registry"},
         "origin_fingerprints": {},
     }
-    defn = SimpleNamespace(content=dsl.model_dump(), registry_lock=lock)
+    defn = SimpleNamespace(content=dsl.model_dump(), registry_lock=lock, version=1)
 
     captured: dict[str, Any] = {}
 
@@ -1278,7 +1278,7 @@ async def test_run_workflow_published_version_is_forwarded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     dsl = _run_dsl()
-    defn = SimpleNamespace(content=dsl.model_dump(), registry_lock=None)
+    defn = SimpleNamespace(content=dsl.model_dump(), registry_lock=None, version=1)
     captured: dict[str, Any] = {}
 
     class _FakeDefnService:

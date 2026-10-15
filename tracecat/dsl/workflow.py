@@ -649,6 +649,9 @@ class DSLWorkflow:
             role=self.role,
             run_context=self.run_context,
             logger=self.logger.bind(unit="dsl-scheduler"),
+            fixed_action_results={
+                ref: fixed.result for ref, fixed in args.fixed_action_results.items()
+            },
         )
         try:
             task_exceptions = await self.scheduler.start()
