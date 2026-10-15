@@ -363,6 +363,9 @@ export function useCreateAgentPreset(workspaceId: string) {
         queryKey: ["agent-directory-items", workspaceId],
       })
       queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references", workspaceId],
+      })
+      queryClient.invalidateQueries({
         queryKey: ["agent-preset-versions", workspaceId, preset.id],
       })
       toast({
@@ -479,6 +482,9 @@ export function useDeleteAgentPreset(workspaceId: string) {
       })
       queryClient.invalidateQueries({
         queryKey: ["agent-directory-items", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references", workspaceId],
       })
       const label = variables.presetName ?? variables.presetId
       toast({

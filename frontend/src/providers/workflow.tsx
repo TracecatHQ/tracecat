@@ -250,7 +250,7 @@ export function WorkflowProvider({
       queryClient.invalidateQueries({ queryKey: ["workflows"] })
       queryClient.invalidateQueries({ queryKey: ["directory-items"] })
       queryClient.invalidateQueries({
-        queryKey: ["agent-preset-workflow-references"],
+        queryKey: ["agent-preset-workflow-references", workspaceId],
       })
     },
     onError: (error: TracecatApiError) => {

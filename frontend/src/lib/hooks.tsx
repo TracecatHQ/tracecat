@@ -515,7 +515,7 @@ export function useAction(
         queryKey: ["action-lock-status", workspaceId, workflowId],
       })
       queryClient.invalidateQueries({
-        queryKey: ["agent-preset-workflow-references"],
+        queryKey: ["agent-preset-workflow-references", workspaceId],
       })
       // Add a small delay before clearing the saving state to show feedback
       setTimeout(() => {
@@ -573,7 +573,7 @@ export function useDeleteAction() {
         queryKey: ["actions", actionId, workspaceId],
       })
       queryClient.invalidateQueries({
-        queryKey: ["agent-preset-workflow-references"],
+        queryKey: ["agent-preset-workflow-references", workspaceId],
       })
     },
     onError: toastMutationError("deleting the action"),
@@ -639,7 +639,7 @@ export function useGraphOperations(workspaceId: string, workflowId: string) {
         queryClient.setQueryData(["graph", workspaceId, workflowId], graph)
         queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
         queryClient.invalidateQueries({
-          queryKey: ["agent-preset-workflow-references"],
+          queryKey: ["agent-preset-workflow-references", workspaceId],
         })
       }
     },
@@ -870,7 +870,7 @@ export function useWorkflowManager(
       queryClient.invalidateQueries({ queryKey: ["workflows"] })
       // An imported or duplicated workflow can run a preset.
       queryClient.invalidateQueries({
-        queryKey: ["agent-preset-workflow-references"],
+        queryKey: ["agent-preset-workflow-references", workspaceId],
       })
       toast({
         title: "Created workflow",
@@ -913,7 +913,7 @@ export function useWorkflowManager(
       queryClient.invalidateQueries({ queryKey: ["workflows"] })
       queryClient.invalidateQueries({ queryKey: ["directory-items"] })
       queryClient.invalidateQueries({
-        queryKey: ["agent-preset-workflow-references"],
+        queryKey: ["agent-preset-workflow-references", workspaceId],
       })
       toast({
         title: "Deleted workflow",
