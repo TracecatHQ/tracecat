@@ -1,0 +1,22 @@
+tracecat/mcp/server.py
+  s_3fab07a328f4d4::t_9d908dd7913aba 2797-2801
+  s_3fab07a328f4d4::t_ed003c89f239e3 2802-2803
+  s_3fab07a328f4d4::t_33499edd357169 2805
+  s_3fab07a328f4d4::t_893e135731d507 2804
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6374565296b7dba85794ba715f550bd5224d0be8",
+  "prompts": {},
+  "sessions": {
+    "s_3fab07a328f4d4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a140d1-98e7-7b53-9710-5c426d6d882a",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
