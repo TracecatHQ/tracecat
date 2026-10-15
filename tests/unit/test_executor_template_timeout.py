@@ -5,6 +5,7 @@ is capped at the deployment maximum, and run_python keeps the action timeout.
 """
 
 import asyncio
+import time
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, Mock
@@ -182,6 +183,28 @@ async def test_template_step_running_at_the_timeout_is_cancelled(
         caught.value, action_name=action_input.task.action
     )
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
+
+
+async def test_template_that_finishes_after_its_timeout_fails(
+    monkeypatch: pytest.MonkeyPatch, role: Role
+) -> None:
+    """A template whose last step returns past the deadline without yielding times out."""
+    action_input = _template_input(timeout=1)
+    _use_template(monkeypatch, role, action_input, steps=1)
+
+    async def blocking_execute(**_kwargs: Any) -> Any:
+        time.sleep(1.1)
+        return ExecutorResultSuccess(result="ok")
+
+    with pytest.raises(ExecutionError) as caught:
+        await service.invoke_once(
+            Mock(execute=AsyncMock(side_effect=blocking_execute)),
+            action_input,
+            service.DispatchActionContext(role),
+        )
+
+    assert caught.value.info.type == ActionTimeoutError.__name__
+    assert caught.value.info.message == "Action execution timed out after 1s"
 
 
 async def test_template_timeout_error_from_platform_work_is_not_the_action_timeout(

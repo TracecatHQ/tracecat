@@ -938,6 +938,11 @@ async def invoke_once(
             if template_scope.expired():
                 raise ActionTimeoutError(_timeout_message(timeout)) from None
             raise
+        # Synchronous work after the last await can cross the deadline before
+        # the scope fires. A template that finishes late is still a timeout.
+        deadline = template_scope.when()
+        if deadline is not None and asyncio.get_running_loop().time() >= deadline:
+            raise ActionTimeoutError(_timeout_message(timeout))
 
     except ExecutionError as e:
         # ExecutionError already has proper error info, just add loop context if needed
