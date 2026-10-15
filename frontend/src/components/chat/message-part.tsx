@@ -308,15 +308,6 @@ export function isHiddenPart(part: UIMessage["parts"][number]): boolean {
   )
 }
 
-/**
- * Whether the last part a message draws is a step. Without visible steps, such
- * a message draws its own working line.
- */
-export function endsWithActivity(parts: UIMessage["parts"]): boolean {
-  const lastShownPart = parts.findLast((part) => !isHiddenPart(part))
-  return lastShownPart !== undefined && isActivityPart(lastShownPart)
-}
-
 /** Fold consecutive activity parts into runs, keeping content parts apart. */
 function groupParts(parts: UIMessage["parts"]): PartGroup[] {
   const groups: PartGroup[] = []
@@ -399,7 +390,6 @@ export function MessageParts({
 }: MessagePartsProps) {
   const policy = useChatVerbosityPolicy()
   const groups = useMemo(() => groupParts(message.parts), [message.parts])
-  const isLive = status === "streaming" && isLastMessage
 
   function renderPart({ part, partIdx }: IndexedPart) {
     return (
@@ -419,7 +409,7 @@ export function MessageParts({
     )
   }
 
-  return groups.map((group, groupIdx) => {
+  return groups.map((group) => {
     if (group.kind === "content") {
       return renderPart(group.part)
     }
@@ -429,10 +419,7 @@ export function MessageParts({
       turnCancelled,
       interruptedToolCallIds
     )
-    // Hidden steps leave the run still in progress one line.
-    const showWorking =
-      !policy.showSteps && isLive && groupIdx === groups.length - 1
-    if (shown.length === 0 && !showWorking) {
+    if (shown.length === 0) {
       return null
     }
     return (
@@ -441,7 +428,6 @@ export function MessageParts({
         className="py-1"
       >
         {shown.map(renderPart)}
-        {showWorking ? <RunningLine label="Working..." /> : null}
       </Trace>
     )
   })
@@ -453,6 +439,77 @@ export function RunningLine({ label }: { label: string }) {
     <TraceLine status="running" data-testid="agent-running-line">
       <TraceTitle>{label}</TraceTitle>
     </TraceLine>
+  )
+}
+
+type ThreadParts = readonly Pick<UIMessage, "role" | "parts">[]
+
+/**
+ * Whether a turn in progress has nothing streaming in view: no text,
+ * thinking, tool input, or compaction drawing, and no approval to answer.
+ */
+export function isAwaitingOutput(
+  status: ChatStatus | undefined,
+  messages: ThreadParts
+): boolean {
+  if (status === "submitted") return true
+  if (status !== "streaming") return false
+  const lastMessage = messages.at(-1)
+  if (!lastMessage || lastMessage.role !== "assistant") return true
+  const lastPart = lastMessage.parts.at(-1)
+  if (!lastPart) return true
+  if (lastPart.type === "data-approval-request") return false
+  const isStreamingVisual =
+    (lastPart.type === "text" && lastPart.text.length > 0) ||
+    (lastPart.type === "reasoning" && lastPart.text.length > 0) ||
+    (isToolUIPart(lastPart) && lastPart.state === "input-streaming") ||
+    // A finished compaction has no spinner, so the line returns after it.
+    (lastPart.type === "data-compaction" &&
+      getCompactionData(lastPart.data).phase === "started")
+  return !isStreamingVisual
+}
+
+/**
+ * The line a turn in progress draws below the thread: "Thinking..." until
+ * something shows, or "Working..." while steps run that the level hides.
+ * Reads the whole thread, so merged continuation messages still count.
+ */
+export function getRunningLineLabel(
+  status: ChatStatus | undefined,
+  messages: ThreadParts,
+  policy: ChatVerbosityPolicy
+): string | null {
+  if (policy.showSteps) {
+    return isAwaitingOutput(status, messages) ? "Thinking..." : null
+  }
+  if (status === "submitted") return "Thinking..."
+  if (status !== "streaming") return null
+  const lastPart = messages.at(-1)?.parts.at(-1)
+  if (lastPart?.type === "data-approval-request") return null
+  if (lastPart?.type === "text" && lastPart.text.length > 0) return null
+  const turnStart = messages.findLastIndex(({ role }) => role === "user") + 1
+  const turnHasSteps = messages
+    .slice(turnStart)
+    .some(({ parts }) => parts.some(isActivityPart))
+  return turnHasSteps ? "Working..." : "Thinking..."
+}
+
+/** The running line for a live thread, at the surrounding verbosity. */
+export function AgentRunningLine({
+  status,
+  messages,
+}: {
+  status: ChatStatus | undefined
+  messages: ThreadParts
+}) {
+  const label = getRunningLineLabel(status, messages, useChatVerbosityPolicy())
+  if (!label) {
+    return null
+  }
+  return (
+    <Trace>
+      <RunningLine label={label} />
+    </Trace>
   )
 }
 
@@ -629,6 +686,7 @@ function SubagentTranscript({
           />
         </div>
       ))}
+      <AgentRunningLine status={status} messages={messages} />
       {recoveryNotice}
     </div>
   )

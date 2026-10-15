@@ -1,12 +1,19 @@
 import { useChat } from "@ai-sdk/react"
 import { createChat } from "@shadcn/helpers/ai-sdk"
 import { fireEvent, render, screen } from "@testing-library/react"
+import type { UIMessage } from "ai"
 import type { ReactNode } from "react"
-import { MessageParts } from "@/components/chat/message-part"
+import {
+  AgentRunningLine,
+  getRunningLineLabel,
+  MessageParts,
+} from "@/components/chat/message-part"
 import {
   type ChatVerbosity,
   ChatVerbosityContext,
+  getChatVerbosityPolicy,
 } from "@/hooks/use-chat-verbosity"
+import { transformMessages } from "@/lib/chat"
 
 jest.mock("@/components/ai-elements/code-block", () => ({
   CodeBlock: ({ code }: { code: string }) => <pre>{code}</pre>,
@@ -75,6 +82,7 @@ function Thread({
           isLastMessage={message.id === messages.at(-1)?.id}
         />
       ))}
+      <AgentRunningLine status={status} messages={messages} />
     </ChatVerbosityContext.Provider>
   )
 }
@@ -230,5 +238,72 @@ describe("MessageParts", () => {
     await streamTurn(verbosity, chat)
 
     expect(Boolean(screen.queryByText(/ToolSearch/))).toBe(shown)
+  })
+})
+
+describe("getRunningLineLabel", () => {
+  const minimal = getChatVerbosityPolicy("minimal")
+  const prompt: UIMessage = {
+    id: "u1",
+    role: "user",
+    parts: [{ type: "text", text: QUESTION }],
+  }
+  const opened: UIMessage = {
+    id: "a1",
+    role: "assistant",
+    parts: [
+      {
+        type: "dynamic-tool",
+        toolName: "core__cases__list_cases",
+        toolCallId: "call-1",
+        state: "input-available",
+        input: {},
+      },
+      {
+        type: "data-approval-request",
+        data: [{ tool_call_id: "call-1", tool_name: "core.cases.list_cases" }],
+      },
+    ],
+  }
+  // The continuation after approval streams only the call's output.
+  const continued: UIMessage = {
+    id: "a2",
+    role: "assistant",
+    parts: [
+      {
+        type: "dynamic-tool",
+        toolName: "core__cases__list_cases",
+        toolCallId: "call-1",
+        state: "output-available",
+        input: {},
+        output: [],
+      },
+    ],
+  }
+
+  it("keeps a working line at minimal once a continuation merges away", () => {
+    const thread = transformMessages([prompt, opened, continued])
+    expect(thread.map(({ id }) => id)).toEqual(["u1", "a1"])
+    expect(getRunningLineLabel("streaming", thread, minimal)).toBe("Working...")
+  })
+
+  it("draws nothing while an approval waits", () => {
+    expect(getRunningLineLabel("streaming", [prompt, opened], minimal)).toBe(
+      null
+    )
+  })
+
+  it("thinks until the first step at minimal", () => {
+    expect(getRunningLineLabel("submitted", [prompt], minimal)).toBe(
+      "Thinking..."
+    )
+    const answering: UIMessage = {
+      id: "a3",
+      role: "assistant",
+      parts: [{ type: "text", text: ANSWER }],
+    }
+    expect(getRunningLineLabel("streaming", [prompt, answering], minimal)).toBe(
+      null
+    )
   })
 })

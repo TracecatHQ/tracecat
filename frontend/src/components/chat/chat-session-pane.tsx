@@ -59,7 +59,8 @@ import { AgentTurn, groupThread } from "@/components/chat/agent-turn"
 import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
 import { ChatToolsPicker } from "@/components/chat/chat-tools-picker"
 import {
-  endsWithActivity,
+  getRunningLineLabel,
+  isAwaitingOutput,
   MessageParts,
   RunningLine,
 } from "@/components/chat/message-part"
@@ -92,7 +93,6 @@ import {
   CANCELLED_DATA_PART_TYPE,
   collectInterruptedToolCallIds,
   ENTITY_TO_INVALIDATION,
-  getCompactionData,
   getSessionLastError,
   type ModelInfo,
   markLiveDenials,
@@ -515,39 +515,10 @@ export function ChatSessionPane({
   // Allow input when ready OR in error state (so user can retry after transient failures)
   const canSubmit = status === "ready" || status === "error"
 
-  const isWaitingForResponse = useMemo(() => {
-    if (status === "submitted") return true
-    if (status === "streaming") {
-      const lastMessage = messages[messages.length - 1]
-      if (!lastMessage || lastMessage.role !== "assistant") return true
-
-      const lastPart = lastMessage.parts[lastMessage.parts.length - 1]
-      if (!lastPart) return true
-
-      const isStreamingVisual =
-        (lastPart.type === "text" && lastPart.text.length > 0) ||
-        (lastPart.type === "reasoning" && lastPart.text.length > 0) ||
-        (isToolUIPart(lastPart) && lastPart.state === "input-streaming") ||
-        // The in-progress compaction badge shows its own spinner. A finished
-        // compaction doesn't, so the loader returns while the turn continues.
-        (lastPart.type === "data-compaction" &&
-          getCompactionData(lastPart.data).phase === "started")
-
-      if (lastPart.type === "data-approval-request") return false
-
-      return !isStreamingVisual
-    }
-    return false
-  }, [status, messages])
-
-  // Without visible steps, a message ending in steps draws its own working line.
-  const showThinkingLine = useMemo(() => {
-    if (!isWaitingForResponse) return false
-    if (verbosityPolicy.showSteps) return true
-    const lastMessage = messages.at(-1)
-    return !(lastMessage && endsWithActivity(lastMessage.parts))
-  }, [isWaitingForResponse, verbosityPolicy, messages])
-
+  const isWaitingForResponse = useMemo(
+    () => isAwaitingOutput(status, messages),
+    [status, messages]
+  )
   const isOptimisticBeforeSendPending = optimisticMessageText !== null
   const isInputDisabled =
     isReadonly || inputDisabled || isOptimisticBeforeSendPending || !canSubmit
@@ -977,6 +948,13 @@ export function ChatSessionPane({
   const transformedMessages = useMemo(
     () => transformMessages(markLiveDenials(messages)),
     [messages]
+  )
+
+  // Reads the merged thread so a continuation folded into an earlier card
+  // still keeps its working line.
+  const runningLineLabel = useMemo(
+    () => getRunningLineLabel(status, transformedMessages, verbosityPolicy),
+    [status, transformedMessages, verbosityPolicy]
   )
   const threadBlocks = useMemo(
     () => groupThread(transformedMessages),
@@ -1500,7 +1478,7 @@ export function ChatSessionPane({
                   </div>
                 )
               })}
-              {showThinkingLine && <ThinkingLine />}
+              {runningLineLabel && <ThinkingLine label={runningLineLabel} />}
             </ConversationContent>
             <ConversationScrollButton />
           </Conversation>
@@ -1647,13 +1625,13 @@ function OptimisticPendingMessage({ text }: { text: string }) {
           <Response>{text}</Response>
         </MessageContent>
       </Message>
-      <ThinkingLine />
+      <ThinkingLine label="Thinking..." />
     </>
   )
 }
 
-/** The line an agent draws before its first step or text. */
-function ThinkingLine() {
+/** The running line below the thread, faded in. */
+function ThinkingLine({ label }: { label: string }) {
   return (
     <motion.div
       className="mt-5"
@@ -1663,7 +1641,7 @@ function ThinkingLine() {
       transition={{ duration: 0.3, ease: "easeInOut" }}
     >
       <Trace>
-        <RunningLine label="Thinking..." />
+        <RunningLine label={label} />
       </Trace>
     </motion.div>
   )
