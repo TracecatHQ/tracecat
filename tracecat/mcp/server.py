@@ -2796,7 +2796,8 @@ action: tools.<integration_slug>.<action_name>
 ### Action Priority
 1. Prefer matching `tools.*`. Search `list_actions` with a short literal
    product/action substring (`query="crowdstrike"`) or namespace; follow
-   `next_cursor` while `has_more`, then inspect schema and credentials.
+   `next_cursor` until a fit appears or `has_more` is false; inspect its
+   schema and credentials.
 2. Otherwise use `core.http_request` / `core.http_paginate`; use
    `core.transform.*`, `core.table.*`, and `core.cases.*` as needed.
 3. Use `core.script.run_python` only when no action covers the step. Never
