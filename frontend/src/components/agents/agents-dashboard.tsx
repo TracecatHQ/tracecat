@@ -1983,12 +1983,14 @@ function AgentsCatalogHeader({
   onFiltersChange,
   mcpOptions,
   workflowOptions,
+  workflowEmptyMessage,
 }: {
   filters: AgentCatalogFilters
   onFiltersChange: (filters: AgentCatalogFilters) => void
   mcpOptions: FilterOption[]
   /** Null hides the filter, e.g. without workflow read access. */
   workflowOptions: FilterOption[] | null
+  workflowEmptyMessage: string
   searchQuery: string
   onSearchChange: (query: string) => void
   sortBy: AgentsSortValue
@@ -2121,7 +2123,7 @@ function AgentsCatalogHeader({
             mode="include"
             onModeChange={() => {}}
             allowExclude={false}
-            emptyMessage="No workflows run an agent."
+            emptyMessage={workflowEmptyMessage}
           />
         ) : null}
         {defaultAgentId ? (
@@ -2247,6 +2249,7 @@ export function AgentsDashboard() {
     workflowsByPreset,
     mcpOptions,
     workflowOptions,
+    workflowEmptyMessage,
     workflowFilterIsLoading,
     workflowFilterError,
   } = useAgentCatalogFilterOptions({
@@ -2455,6 +2458,7 @@ export function AgentsDashboard() {
           onFiltersChange={setFilters}
           mcpOptions={mcpOptions}
           workflowOptions={workflowOptions}
+          workflowEmptyMessage={workflowEmptyMessage}
         />
 
         <div className="min-h-0 flex-1 overflow-auto">

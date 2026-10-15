@@ -65,6 +65,8 @@ export function useAgentCatalogFilterOptions({
   mcpOptions: FilterOption[]
   /** Null without workflow read access. */
   workflowOptions: FilterOption[] | null
+  /** Shown when there are no workflow options, reflecting the request state. */
+  workflowEmptyMessage: string
   /** An active workflow filter is waiting on references. */
   workflowFilterIsLoading: boolean
   workflowFilterError: TracecatApiError | null
@@ -111,11 +113,19 @@ export function useAgentCatalogFilterOptions({
     [canReadWorkflows, workflowsByPreset]
   )
 
+  let workflowEmptyMessage = "No workflows run an agent."
+  if (workflowReferencesIsLoading) {
+    workflowEmptyMessage = "Loading workflows..."
+  } else if (workflowReferencesError) {
+    workflowEmptyMessage = "Failed to load workflows."
+  }
+
   const filteringByWorkflow = filters.workflowIds.length > 0
   return {
     workflowsByPreset,
     mcpOptions,
     workflowOptions,
+    workflowEmptyMessage,
     workflowFilterIsLoading: filteringByWorkflow && workflowReferencesIsLoading,
     workflowFilterError: filteringByWorkflow ? workflowReferencesError : null,
   }

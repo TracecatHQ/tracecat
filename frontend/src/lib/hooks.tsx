@@ -868,6 +868,10 @@ export function useWorkflowManager(
       await workflowsCreateWorkflow(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflows"] })
+      // An imported or duplicated workflow can run a preset.
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references"],
+      })
       toast({
         title: "Created workflow",
         description: "Your workflow has been created successfully.",

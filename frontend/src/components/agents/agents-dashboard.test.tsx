@@ -755,6 +755,25 @@ describe("AgentsDashboard entitlement split", () => {
       expect(lastOptions(mockUseAgentDirectoryItems)?.enabled).toBe(true)
     })
 
+    it.each([
+      [REFERENCES_LOADING, "Loading workflows..."],
+      [
+        {
+          workflowReferences: undefined,
+          workflowReferencesIsLoading: false,
+          workflowReferencesError: new Error("boom"),
+        },
+        "Failed to load workflows.",
+      ],
+    ])(
+      "reflects the references request in the empty workflow filter",
+      async (references, message) => {
+        renderCatalog("", references)
+        await userEvent.click(screen.getByRole("button", { name: /Workflows/ }))
+        expect(await screen.findByText(message)).toBeInTheDocument()
+      }
+    )
+
     it("writes selected MCP servers to the URL", async () => {
       renderCatalog("view=list&mcp=github")
       await userEvent.click(screen.getByRole("button", { name: /MCP servers/ }))
