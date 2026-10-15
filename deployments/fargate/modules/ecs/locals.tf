@@ -193,6 +193,7 @@ locals {
         TRACECAT__SERVICE_NAME                        = "executor"
         TRACECAT__EXECUTOR_BACKEND                    = "direct"
         TRACECAT__EXECUTOR_QUEUE                      = var.executor_queue
+        TRACECAT__EXECUTOR_CLIENT_TIMEOUT             = var.executor_client_timeout
         TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = var.executor_registry_cache_max_entries
         TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES   = var.executor_registry_cache_max_bytes
         # Executor concurrency tuning (see tracecat/executor/worker.py and tracecat/executor/service.py)
