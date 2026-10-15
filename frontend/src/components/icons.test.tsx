@@ -347,6 +347,7 @@ describe("Core and AI action icon mappings", () => {
     ["trigger", "zap", "bg-yellow-500/10"],
     ["core.http_poll", "timer", "bg-emerald-500/10"],
     ["core.require", "list-checks", "bg-amber-500/10"],
+    ["core.registry.search_actions", "scan-search", "bg-indigo-500/10"],
     ["core.grpc.request", "network", "bg-cyan-500/10"],
     ["core.ssh.execute_command", "square-terminal", "bg-slate-500/10"],
     ["core.loop.start", "iteration-cw", "bg-orange-500/10"],

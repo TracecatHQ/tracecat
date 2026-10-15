@@ -49,8 +49,8 @@ from tracecat.logger import logger
 from tracecat.mcp.json_patch import apply_json_patch_operations
 from tracecat.mcp.schemas import (
     JsonPatchOperation,
-    WorkflowActionDiscoveryItem,
-    WorkflowActionDiscoveryRequest,
+    RegistryActionSearchItem,
+    RegistryActionSearchRequest,
     WorkflowAuthoringContextRequest,
     WorkflowEditDocument,
     WorkflowEditResponse,
@@ -774,12 +774,12 @@ async def list_workflow_executions(
 
 @router.post("/actions/search", status_code=HTTP_200_OK)
 @require_scope("workflow:read")
-async def list_actions(
+async def search_actions(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    params: WorkflowActionDiscoveryRequest,
-) -> CursorPaginatedResponse[WorkflowActionDiscoveryItem]:
+    params: RegistryActionSearchRequest,
+) -> CursorPaginatedResponse[RegistryActionSearchItem]:
     """Discover action names in pages before requesting full authoring context."""
     user_scopes = await compute_attributed_user_scopes(role)
     context_role = (
@@ -800,7 +800,7 @@ async def list_actions(
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(e)) from e
     return CursorPaginatedResponse(
         items=[
-            WorkflowActionDiscoveryItem(
+            RegistryActionSearchItem(
                 action_name=f"{entry.namespace}.{entry.name}",
                 description=entry.description,
             )

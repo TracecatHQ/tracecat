@@ -12,6 +12,7 @@ WORKSPACE_CHAT_AGENT_DEFAULT_TOOLS = [
 ]
 
 WORKSPACE_CHAT_BASE_DEFAULT_TOOLS = [
+    "core.registry.search_actions",
     "core.table.list_tables",
     "core.table.get_table_metadata",
     "core.table.create_table",
@@ -39,7 +40,6 @@ WORKSPACE_CHAT_BASE_DEFAULT_TOOLS = [
     "core.workflow.create_workflow",
     "core.workflow.get_workflow",
     "core.workflow.edit_workflow",
-    "core.workflow.list_actions",
     "core.workflow.get_authoring_context",
     "core.workflow.get_webhook",
     "core.workflow.update_webhook",

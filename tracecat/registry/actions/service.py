@@ -202,6 +202,35 @@ class SecretAggregate(TypedDict):
     secret_type: str | None
 
 
+def action_browse_sort_key(action_name: str) -> tuple[int, str, str, str, str]:
+    """Stable ordering for browsing action names and seek cursors."""
+    namespace, name = action_name.rsplit(".", 1)
+    return 0, namespace.casefold(), name.casefold(), namespace, name
+
+
+def action_search_sort_key(
+    action_name: str, query: str
+) -> tuple[int, str, str, str, str]:
+    """Put exact and prefix matches ahead of broader substring matches."""
+    namespace, name = action_name.rsplit(".", 1)
+    normalized_query = query.casefold()
+    name_parts = (
+        action_name.casefold(),
+        namespace.casefold(),
+        namespace.rsplit(".", 1)[-1].casefold(),
+        name.casefold(),
+    )
+    if normalized_query in name_parts:
+        rank = 0
+    elif any(part.startswith(normalized_query) for part in name_parts):
+        rank = 1
+    elif normalized_query in action_name.casefold():
+        rank = 2
+    else:
+        rank = 3
+    return rank, action_name.casefold(), action_name, "", ""
+
+
 def _infer_secret_type_from_keys(keys: list[str]) -> str:
     """Infer registry secret_type from key shape.
 
@@ -431,11 +460,8 @@ class RegistryActionsService(BaseOrgService):
         # retain precedence while browsing has a stable order across pages.
         return sorted(
             filtered,
-            key=lambda item: (
-                item[0].namespace.casefold(),
-                item[0].name.casefold(),
-                item[0].namespace,
-                item[0].name,
+            key=lambda item: action_browse_sort_key(
+                f"{item[0].namespace}.{item[0].name}"
             ),
         )
 
@@ -1194,31 +1220,13 @@ class RegistryActionsService(BaseOrgService):
             )
 
         filtered = await self._filter_index_entries_by_entitlements(entries)
-        normalized_query = query.casefold()
-
-        def search_order(item: tuple[IndexEntry, str]) -> tuple[int, str, str]:
-            entry = item[0]
-            action_name = f"{entry.namespace}.{entry.name}"
-            namespace_slug = entry.namespace.rsplit(".", 1)[-1]
-            name_parts = (
-                action_name.casefold(),
-                entry.namespace.casefold(),
-                namespace_slug.casefold(),
-                entry.name.casefold(),
-            )
-            if normalized_query in name_parts:
-                rank = 0
-            elif any(part.startswith(normalized_query) for part in name_parts):
-                rank = 1
-            elif normalized_query in action_name.casefold():
-                rank = 2
-            else:
-                rank = 3
-            return rank, action_name.casefold(), action_name
-
         # Rank only visible, deduplicated actions so the limit selects the most
         # relevant available results rather than whichever rows SQL returned first.
-        filtered.sort(key=search_order)
+        filtered.sort(
+            key=lambda item: action_search_sort_key(
+                f"{item[0].namespace}.{item[0].name}", query
+            )
+        )
         return filtered[:limit] if limit is not None else filtered
 
     async def get_aggregated_secrets(self) -> list[SecretDefinition]:

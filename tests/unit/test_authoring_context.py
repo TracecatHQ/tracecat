@@ -415,7 +415,7 @@ async def test_workspace_action_discovery_pages_and_uses_attributed_scopes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from tracecat.contexts import ctx_role
-    from tracecat.mcp.schemas import WorkflowActionDiscoveryRequest
+    from tracecat.mcp.schemas import RegistryActionSearchRequest
     from tracecat.workflow.executions import internal_router
 
     role = TestAuthoringContextRouteCallerScoping._executor_role()
@@ -427,6 +427,7 @@ async def test_workspace_action_discovery_pages_and_uses_attributed_scopes(
                 namespace="tools.example",
                 name=f"event_{index:03d}",
                 description="Search events",
+                options={"include_in_schema": True},
             ),
             "platform",
         )
@@ -452,15 +453,15 @@ async def test_workspace_action_discovery_pages_and_uses_attributed_scopes(
     monkeypatch.setattr(internal_router, "RegistryActionsService", _RegistryService)
     token = ctx_role.set(role)
     try:
-        first_page = await internal_router.list_actions(
+        first_page = await internal_router.search_actions(
             role=role,
             session=None,  # type: ignore[arg-type]
-            params=WorkflowActionDiscoveryRequest(query="example", limit=50),
+            params=RegistryActionSearchRequest(query="example", limit=50),
         )
-        second_page = await internal_router.list_actions(
+        second_page = await internal_router.search_actions(
             role=role,
             session=None,  # type: ignore[arg-type]
-            params=WorkflowActionDiscoveryRequest(
+            params=RegistryActionSearchRequest(
                 query="example", limit=50, cursor=first_page.next_cursor
             ),
         )
@@ -471,5 +472,7 @@ async def test_workspace_action_discovery_pages_and_uses_attributed_scopes(
     assert len(first_page.items) == 50
     assert first_page.has_more is True
     assert first_page.items[0].action_name == "tools.example.event_000"
-    assert len(second_page.items) == 10
+    assert [item.action_name for item in second_page.items] == [
+        f"tools.example.event_{index:03d}" for index in range(50, 60)
+    ]
     assert second_page.has_more is False

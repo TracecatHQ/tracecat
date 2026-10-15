@@ -265,7 +265,7 @@ class WorkflowsClient:
             "status": "STARTED",
         }
 
-    async def list_actions(
+    async def search_actions(
         self,
         *,
         query: str | None = None,

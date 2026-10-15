@@ -74,6 +74,8 @@ describe("DEFAULT_CAPABILITY_GROUPS", () => {
         "ai.agent.get_preset",
         "ai.agent.list_presets",
         "ai.agent.update_preset",
+        // core.registry.*
+        "core.registry.search_actions",
         // core.cases.*
         "core.cases.aggregate_cases",
         "core.cases.create_case",

@@ -90,6 +90,11 @@ export const MAX_SELECTABLE_TOOLS = 50
  */
 export const DEFAULT_CAPABILITY_GROUPS: CapabilityGroup[] = [
   {
+    id: "action-catalog",
+    label: "Action catalog",
+    tools: ["core.registry.search_actions"],
+  },
+  {
     id: "cases",
     label: "Cases",
     tools: [

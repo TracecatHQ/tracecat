@@ -425,7 +425,7 @@ class TestWorkflowsClientCaseTrigger:
         )
 
 
-class TestWorkflowsClientListActions:
+class TestWorkflowsClientSearchActions:
     @pytest.mark.anyio
     async def test_forwards_search_filters_and_cursor(
         self, workflows_client: WorkflowsClient, mock_tracecat_client: MagicMock
@@ -433,7 +433,7 @@ class TestWorkflowsClientListActions:
         response = {"items": [], "next_cursor": None, "has_more": False}
         mock_tracecat_client.post.return_value = response
 
-        result = await workflows_client.list_actions(
+        result = await workflows_client.search_actions(
             query="example", namespace="tools.example", limit=25, cursor="page-2"
         )
 

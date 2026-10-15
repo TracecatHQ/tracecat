@@ -1322,7 +1322,7 @@ class _WorkflowsAsync:
         patch_ops: Sequence[JsonPatchOperation | dict[str, Any]],
         validate_only: bool = ...,
     ) -> dict[str, Any]: ...
-    async def list_actions(
+    async def search_actions(
         self,
         *,
         query: str | None = ...,
@@ -1422,7 +1422,7 @@ class _Workflows:
         patch_ops: Sequence[JsonPatchOperation | dict[str, Any]],
         validate_only: bool = ...,
     ) -> dict[str, Any]: ...
-    def list_actions(
+    def search_actions(
         self,
         *,
         query: str | None = ...,

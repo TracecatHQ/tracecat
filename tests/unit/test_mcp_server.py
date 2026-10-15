@@ -7411,6 +7411,7 @@ async def test_action_catalog_resource(monkeypatch):
             self.namespace = namespace
             self.name = name
             self.description = description
+            self.options = {"include_in_schema": True}
 
     entries = [
         (_IndexEntry("core", "http_request", "Make an HTTP request"), "platform"),
@@ -7478,6 +7479,7 @@ async def test_list_actions_browse_without_query(monkeypatch):
             self.namespace = namespace
             self.name = name
             self.description = description
+            self.options = {"include_in_schema": True}
 
     entries = [
         (_IndexEntry("core", "http_request", "Make an HTTP request"), "platform"),
@@ -7536,6 +7538,7 @@ async def test_list_actions_surfaces_optional_secrets(monkeypatch):
             self.namespace = namespace
             self.name = name
             self.description = description
+            self.options = {"include_in_schema": True}
 
     entries = [
         (_IndexEntry("tools.urlscan", "lookup_url", "Lookup a URL"), "platform"),
@@ -7604,6 +7607,7 @@ async def test_list_actions_browse_with_namespace(monkeypatch):
             self.namespace = namespace
             self.name = name
             self.description = description
+            self.options = {"include_in_schema": True}
 
     entries = [
         (_IndexEntry("tools.slack", "post_message", "Post a message"), "platform"),
@@ -7656,11 +7660,12 @@ async def test_list_actions_paginates_and_rejects_mismatched_cursor(monkeypatch)
             self.namespace = namespace
             self.name = name
             self.description = description
+            self.options = {"include_in_schema": True}
 
     entries = [
         (_IndexEntry("core", "one", "One"), "platform"),
         (_IndexEntry("core", "two", "Two"), "platform"),
-        (_IndexEntry("core", "three", "Three"), "platform"),
+        (_IndexEntry("core", "zthree", "Three"), "platform"),
     ]
     indexed_action = SimpleNamespace(
         manifest=SimpleNamespace(),
@@ -7706,7 +7711,7 @@ async def test_list_actions_paginates_and_rejects_mismatched_cursor(monkeypatch)
             cursor=first_page["next_cursor"],
         )
     )
-    assert [item["action_name"] for item in second_page["items"]] == ["core.three"]
+    assert [item["action_name"] for item in second_page["items"]] == ["core.zthree"]
 
     with pytest.raises(ToolError, match="Cursor no longer matches current filters"):
         await _tool(mcp_server.list_actions)(
@@ -7730,6 +7735,7 @@ async def test_list_actions_enriches_only_requested_page(monkeypatch):
                 namespace="tools.example",
                 name=f"event_{index:03d}",
                 description="Search events",
+                options={"include_in_schema": True},
             ),
             "platform",
         )

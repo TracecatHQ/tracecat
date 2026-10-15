@@ -352,7 +352,7 @@ class WorkflowAuthoringContextRequest(BaseModel):
     query: str | None = None
 
 
-class WorkflowActionDiscoveryRequest(BaseModel):
+class RegistryActionSearchRequest(BaseModel):
     """Filters and cursor for compact workflow action discovery."""
 
     query: str | None = None
@@ -361,7 +361,7 @@ class WorkflowActionDiscoveryRequest(BaseModel):
     cursor: str | None = None
 
 
-class WorkflowActionDiscoveryItem(BaseModel):
+class RegistryActionSearchItem(BaseModel):
     action_name: str
     description: str | None = None
 

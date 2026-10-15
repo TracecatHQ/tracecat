@@ -5,11 +5,17 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
+from typing import Literal
 
 import orjson
 
-from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.actions.service import (
+    RegistryActionsService,
+    action_browse_sort_key,
+    action_search_sort_key,
+)
 from tracecat.registry.actions.types import IndexEntry
 
 
@@ -38,12 +44,18 @@ def _cursor_fingerprint(*, query: str | None, namespace: str | None, limit: int)
     return hashlib.sha256(serialized).hexdigest()
 
 
-def _encode_cursor(offset: int, fingerprint: str) -> str:
-    payload = orjson.dumps({"offset": offset, "fingerprint": fingerprint})
+def _encode_cursor(
+    direction: Literal["after", "before"], action_name: str, fingerprint: str
+) -> str:
+    payload = orjson.dumps(
+        {"direction": direction, "action_name": action_name, "fingerprint": fingerprint}
+    )
     return base64.urlsafe_b64encode(payload).decode("ascii")
 
 
-def _decode_cursor(cursor: str, fingerprint: str) -> int:
+def _decode_cursor(
+    cursor: str, fingerprint: str
+) -> tuple[Literal["after", "before"], str]:
     if len(cursor) > 8192:
         raise ValueError("Invalid cursor format")
     try:
@@ -56,10 +68,18 @@ def _decode_cursor(cursor: str, fingerprint: str) -> int:
         raise ValueError(
             "Cursor no longer matches current filters. Retry without cursor."
         )
-    offset = payload.get("offset")
-    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+    direction = payload.get("direction")
+    action_name = payload.get("action_name")
+    if direction not in ("after", "before") or not isinstance(action_name, str):
         raise ValueError("Invalid cursor format")
-    return offset
+    if "." not in action_name:
+        raise ValueError("Invalid cursor format")
+    return direction, action_name
+
+
+def _action_name(item: tuple[IndexEntry, str]) -> str:
+    entry = item[0]
+    return f"{entry.namespace}.{entry.name}"
 
 
 async def list_action_entry_page(
@@ -76,22 +96,51 @@ async def list_action_entry_page(
 
     if query:
         entries = await service.search_actions_from_index(query, limit=None)
-        if namespace:
-            entries = [
-                item for item in entries if item[0].namespace.startswith(namespace)
-            ]
     else:
         entries = await service.list_actions_from_index(namespace=namespace)
+    entries = [
+        item
+        for item in entries
+        if item[0].options.get("include_in_schema") is True
+        and (namespace is None or item[0].namespace.startswith(namespace))
+    ]
 
     fingerprint = _cursor_fingerprint(query=query, namespace=namespace, limit=limit)
-    start = _decode_cursor(cursor, fingerprint) if cursor is not None else 0
-    end = start + limit
-    next_cursor = _encode_cursor(end, fingerprint) if end < len(entries) else None
+    keys = [
+        action_search_sort_key(_action_name(item), query)
+        if query
+        else action_browse_sort_key(_action_name(item))
+        for item in entries
+    ]
+    if cursor is None:
+        start, end = 0, min(limit, len(entries))
+    else:
+        direction, anchor_name = _decode_cursor(cursor, fingerprint)
+        anchor_key = (
+            action_search_sort_key(anchor_name, query)
+            if query
+            else action_browse_sort_key(anchor_name)
+        )
+        if direction == "after":
+            start = bisect_right(keys, anchor_key)
+            end = min(start + limit, len(entries))
+        else:
+            end = bisect_left(keys, anchor_key)
+            start = max(0, end - limit)
+
+    selected = entries[start:end]
+    next_cursor = (
+        _encode_cursor("after", _action_name(selected[-1]), fingerprint)
+        if selected and end < len(entries)
+        else None
+    )
     prev_cursor = (
-        _encode_cursor(max(0, start - limit), fingerprint) if start > 0 else None
+        _encode_cursor("before", _action_name(selected[0]), fingerprint)
+        if selected and start > 0
+        else None
     )
     return ActionEntryPage(
-        entries=entries[start:end],
+        entries=selected,
         next_cursor=next_cursor,
         prev_cursor=prev_cursor,
     )

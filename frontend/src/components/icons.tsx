@@ -400,6 +400,10 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       ListChecks,
       "bg-amber-500/10 text-amber-600 dark:text-amber-400"
     ),
+    "core.registry": createColoredLucideRenderer(
+      ScanSearch,
+      "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"
+    ),
     "core.transform": ({ className, ...rest }) => (
       <div
         className={cn(
