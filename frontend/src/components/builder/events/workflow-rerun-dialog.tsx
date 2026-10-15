@@ -351,6 +351,7 @@ function RerunBody({
         <Button
           type="button"
           size="sm"
+          className="min-w-36"
           onClick={handleRun}
           disabled={runDisabled}
         >
