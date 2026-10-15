@@ -88,7 +88,7 @@
   -> **Browse by `namespace`**: provide `namespace` without `query` to list all actions in a `namespace`. Example: list_actions(workspace_id, namespace="core")
   -> **Browse all**: omit both to list all available actions.
 
-  Common `namespaces`: `core`, `tools`, `ai`.
+  Common `namespaces`: `core`, `tools`, `ai`. Exact namespace/name matches appear before prefix and description matches. A missing first-page match does not mean the action is absent: continue with `next_cursor` while `has_more` is true.
 </ResponseField>
 
 <ResponseField name="sync_custom_registry" type="tool">

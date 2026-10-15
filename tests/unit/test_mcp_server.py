@@ -7411,6 +7411,7 @@ async def test_action_catalog_resource(monkeypatch):
             self.namespace = namespace
             self.name = name
             self.description = description
+            self.options = {"include_in_schema": True}
 
     entries = [
         (_IndexEntry("core", "http_request", "Make an HTTP request"), "platform"),
@@ -7478,6 +7479,7 @@ async def test_list_actions_browse_without_query(monkeypatch):
             self.namespace = namespace
             self.name = name
             self.description = description
+            self.options = {"include_in_schema": True}
 
     entries = [
         (_IndexEntry("core", "http_request", "Make an HTTP request"), "platform"),
@@ -7536,6 +7538,7 @@ async def test_list_actions_surfaces_optional_secrets(monkeypatch):
             self.namespace = namespace
             self.name = name
             self.description = description
+            self.options = {"include_in_schema": True}
 
     entries = [
         (_IndexEntry("tools.urlscan", "lookup_url", "Lookup a URL"), "platform"),
@@ -7604,6 +7607,7 @@ async def test_list_actions_browse_with_namespace(monkeypatch):
             self.namespace = namespace
             self.name = name
             self.description = description
+            self.options = {"include_in_schema": True}
 
     entries = [
         (_IndexEntry("tools.slack", "post_message", "Post a message"), "platform"),
@@ -7656,11 +7660,12 @@ async def test_list_actions_paginates_and_rejects_mismatched_cursor(monkeypatch)
             self.namespace = namespace
             self.name = name
             self.description = description
+            self.options = {"include_in_schema": True}
 
     entries = [
         (_IndexEntry("core", "one", "One"), "platform"),
         (_IndexEntry("core", "two", "Two"), "platform"),
-        (_IndexEntry("core", "three", "Three"), "platform"),
+        (_IndexEntry("core", "zthree", "Three"), "platform"),
     ]
     indexed_action = SimpleNamespace(
         manifest=SimpleNamespace(),
@@ -7706,7 +7711,7 @@ async def test_list_actions_paginates_and_rejects_mismatched_cursor(monkeypatch)
             cursor=first_page["next_cursor"],
         )
     )
-    assert [item["action_name"] for item in second_page["items"]] == ["core.three"]
+    assert [item["action_name"] for item in second_page["items"]] == ["core.zthree"]
 
     with pytest.raises(ToolError, match="Cursor no longer matches current filters"):
         await _tool(mcp_server.list_actions)(
@@ -7714,6 +7719,76 @@ async def test_list_actions_paginates_and_rejects_mismatched_cursor(monkeypatch)
             query="two",
             cursor=first_page["next_cursor"],
         )
+
+
+@pytest.mark.anyio
+async def test_list_actions_enriches_only_requested_page(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    async def _secret_inventory(_role):
+        return {"primary": {"TOKEN"}}
+
+    entries = [
+        (
+            SimpleNamespace(
+                namespace="tools.example",
+                name=f"event_{index:03d}",
+                description="Search events",
+                options={"include_in_schema": True},
+            ),
+            "platform",
+        )
+        for index in range(60)
+    ]
+    fetched: list[str] = []
+
+    class _RegistryService:
+        async def search_actions_from_index(self, _query, *, limit=None):
+            assert limit is None
+            return entries
+
+        async def get_action_from_index(self, action_name):
+            fetched.append(action_name)
+            return SimpleNamespace(manifest=SimpleNamespace())
+
+        def aggregate_secrets_from_manifest(self, _manifest, action_name):
+            secret_name = (
+                "primary" if action_name.endswith("event_000") else "secondary"
+            )
+            return [RegistrySecret(name=secret_name, keys=["TOKEN"])]
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(mcp_server, "load_oauth_inventory", _empty_oauth_inventory)
+    monkeypatch.setattr(
+        "tracecat.registry.actions.service.RegistryActionsService.with_session",
+        lambda role: _AsyncContext(_RegistryService()),
+    )
+
+    first_page = _payload(
+        await _tool(mcp_server.list_actions)(
+            workspace_id=str(uuid.uuid4()), query="example", limit=1
+        )
+    )
+    assert len(fetched) == 1
+    assert first_page["items"][0]["configured"] is True
+    assert first_page["has_more"] is True
+
+    second_page = _payload(
+        await _tool(mcp_server.list_actions)(
+            workspace_id=str(uuid.uuid4()),
+            query="example",
+            limit=1,
+            cursor=first_page["next_cursor"],
+        )
+    )
+    assert len(fetched) == 2
+    assert second_page["items"][0]["action_name"] == "tools.example.event_001"
+    assert second_page["items"][0]["configured"] is False
+    assert second_page["items"][0]["missing_requirements"] == [
+        "missing secret: secondary"
+    ]
 
 
 @pytest.mark.anyio

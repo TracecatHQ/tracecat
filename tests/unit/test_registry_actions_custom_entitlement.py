@@ -488,6 +488,41 @@ async def test_search_actions_from_index_treats_like_wildcards_as_literal_text(
 
 
 @pytest.mark.anyio
+async def test_search_actions_ranks_exact_namespace_before_large_related_catalog(
+    session: AsyncSession,
+) -> None:
+    related_actions = [
+        f"tools.example_security.event_{index:03d}" for index in range(60)
+    ]
+    exact_action = "tools.example.search_events"
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="ranked-search-1.0",
+        action_names=[*related_actions, exact_action],
+    )
+    service = RegistryActionsService(
+        session,
+        role=Role(
+            type="service",
+            organization_id=uuid.uuid4(),
+            service_id="tracecat-api",
+        ),
+    )
+
+    first_page = await service.search_actions_from_index("example", limit=20)
+    all_matches = await service.search_actions_from_index("example")
+
+    assert f"{first_page[0][0].namespace}.{first_page[0][0].name}" == exact_action
+    assert len(first_page) == 20
+    assert len(all_matches) == 61
+    assert [f"{entry.namespace}.{entry.name}" for entry, _ in all_matches] == [
+        exact_action,
+        *related_actions,
+    ]
+
+
+@pytest.mark.anyio
 async def test_classify_missing_actions_separates_entitlement_gaps(
     svc_role: Role,
     session: AsyncSession,

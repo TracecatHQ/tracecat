@@ -195,6 +195,7 @@ from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.integrations.providers import all_providers
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
+from tracecat.mcp.action_discovery import list_action_entry_page
 from tracecat.mcp.auth import (
     create_mcp_auth,
     get_token_identity,
@@ -2875,8 +2876,8 @@ actions:
         model_name: claude-sonnet-4-6
         model_provider: anthropic
       actions:
-        - core.http_request
-        - core.script.run_python
+        - core.cases.get_case
+        - core.table.search_rows
       instructions: "You are a SOC analyst. Be thorough."
       max_tool_calls: 10
 ```
@@ -4815,6 +4816,9 @@ async def list_actions(
     - **Browse all**: omit both to list all available actions.
 
     Common `namespaces`: `core`, `tools`, `ai`.
+    Exact namespace/name matches appear before prefix and description matches.
+    A missing first-page match does not mean the action is absent: continue with
+    `next_cursor` while `has_more` is true.
 
     Args:
         workspace_id: The workspace ID (from list_workspaces).
@@ -4840,15 +4844,12 @@ async def list_actions(
         workspace_inventory = await load_secret_inventory(role)
         oauth_inventory = await load_oauth_inventory(role)
         async with RegistryActionsService.with_session(role=role) as svc:
-            if query:
-                entries = await svc.search_actions_from_index(query, limit=None)
-            else:
-                entries = await svc.list_actions_from_index(namespace=namespace)
+            page = await list_action_entry_page(
+                svc, query=query, namespace=namespace, limit=limit, cursor=cursor
+            )
             items: list[ActionDiscoveryResponse] = []
-            for entry, _ in entries:
+            for entry, _ in page.entries:
                 action_name = f"{entry.namespace}.{entry.name}"
-                if query and namespace and not entry.namespace.startswith(namespace):
-                    continue
                 indexed = await svc.get_action_from_index(action_name)
                 if indexed is None:
                     continue
@@ -4868,14 +4869,13 @@ async def list_actions(
                         optional_secrets=optional_secret_names(requirements),
                     )
                 )
-            page = _paginate_items(
-                items,
-                tool_name="list_actions",
-                limit=limit,
-                cursor=cursor,
-                filters={"query": query, "namespace": namespace},
+            return MCPPaginatedResponse(
+                items=items,
+                next_cursor=page.next_cursor,
+                prev_cursor=page.prev_cursor,
+                has_more=page.has_more,
+                has_previous=page.has_previous,
             )
-            return page
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
