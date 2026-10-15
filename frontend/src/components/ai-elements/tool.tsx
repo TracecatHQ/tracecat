@@ -2,6 +2,7 @@
 
 import type { DynamicToolUIPart, ToolUIPart } from "ai"
 import {
+  BanIcon,
   ChevronDownIcon,
   CircleCheckIcon,
   CircleSlashIcon,
@@ -75,7 +76,7 @@ const statusLabels: Record<ToolState, string> = {
   "input-available": "In progress",
   "input-streaming": "In progress",
   "output-available": "Completed",
-  "output-denied": "Error",
+  "output-denied": "Denied",
   "output-error": "Error",
   "output-interrupted": "Interrupted",
 }
@@ -96,9 +97,7 @@ const statusIcons: Record<ToolState, ReactNode> = {
   "output-available": (
     <CircleCheckIcon className="size-4 fill-emerald-500 stroke-background" />
   ),
-  "output-denied": (
-    <XCircleIcon className="size-4 fill-rose-500 stroke-background" />
-  ),
+  "output-denied": <BanIcon className="size-3.5 text-muted-foreground" />,
   "output-error": (
     <XCircleIcon className="size-4 fill-rose-500 stroke-background" />
   ),

@@ -1,5 +1,6 @@
 import { Chat } from "@ai-sdk/react"
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -13,7 +14,12 @@ import {
   type UIMessageChunk,
 } from "ai"
 import type { ReactNode } from "react"
+import {
+  type AgentSessionsGetSessionVercelResponse,
+  agentSessionsGetSessionVercel,
+} from "@/client"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+import { useGetChatVercel } from "@/hooks/use-chat"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 // jsdom lacks structuredClone, which readUIMessageStream uses per update.
@@ -75,11 +81,21 @@ jest.mock("@/components/json-viewer", () => ({
   ),
 }))
 
+jest.mock("@/client", () => ({
+  ...jest.requireActual<typeof import("@/client")>("@/client"),
+  agentSessionsGetSessionVercel: jest.fn(),
+}))
+
 jest.mock("@/hooks/use-chat", () => ({
-  makeContinueMessage: jest.fn(),
+  makeContinueMessage:
+    jest.requireActual<typeof import("@/hooks/use-chat")>("@/hooks/use-chat")
+      .makeContinueMessage,
   useAdoptServerTranscript:
     jest.requireActual<typeof import("@/hooks/use-chat")>("@/hooks/use-chat")
       .useAdoptServerTranscript,
+  useGetChatVercel:
+    jest.requireActual<typeof import("@/hooks/use-chat")>("@/hooks/use-chat")
+      .useGetChatVercel,
   parseChatError: (error: unknown) =>
     error instanceof Error ? error.message : "Chat error",
   useUpdateChat: () => ({
@@ -830,5 +846,330 @@ describe("ChatSessionPane compaction badge", () => {
     expect(
       screen.queryByText("Conversation compacted.")
     ).not.toBeInTheDocument()
+  })
+})
+
+const DENIED_RESULT_TEXT =
+  "Tool denied by user: Not this one\n\nDo not retry it, and wait for the user."
+
+describe("ChatSessionPane denied calls", () => {
+  beforeEach(() => {
+    mockUseVercelChatResult.messages = []
+    mockUseVercelChatResult.status = "ready"
+  })
+
+  it("shows a reloaded denied call as denied with the user's reason", () => {
+    mockUseVercelChatResult.messages = [
+      PROMPT,
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [
+          {
+            type: `tool-${TOOL}`,
+            toolCallId: "first",
+            state: "output-error",
+            input: { operation: "first" },
+            errorText: DENIED_RESULT_TEXT,
+            callProviderMetadata: {
+              tracecat: { approval: "rejected", reason: "Not this one" },
+            },
+          } as UIMessage["parts"][number],
+        ],
+      },
+    ]
+    renderChatSessionPane()
+
+    expect(screen.getByTestId("tool-state")).toHaveTextContent("output-denied")
+    expect(screen.getByText("Not this one")).toBeInTheDocument()
+    // The model-facing result text is not a tool error to show.
+    expect(screen.queryByTestId("tool-output")).not.toBeInTheDocument()
+  })
+
+  it("shows a call denied in this chat as denied while the turn streams", async () => {
+    const denial: UIMessage = {
+      id: "continue-1",
+      role: "user",
+      parts: [
+        {
+          type: "data-continue",
+          data: {
+            kind: "continue",
+            source: "inbox",
+            decisions: [
+              { tool_call_id: "first", action: "deny", reason: "Not this one" },
+            ],
+          },
+        },
+      ],
+    }
+    const continuation = await streamed([
+      { type: "start", messageId: BUBBLE },
+      {
+        type: "tool-input-available",
+        toolCallId: "first",
+        toolName: TOOL,
+        input: {},
+      },
+      {
+        type: "tool-output-error",
+        toolCallId: "first",
+        errorText: DENIED_RESULT_TEXT,
+      },
+    ])
+    mockUseVercelChatResult.status = "streaming"
+    mockUseVercelChatResult.messages = [
+      PROMPT,
+      await livePaused(),
+      denial,
+      continuation,
+    ]
+    renderChatSessionPane()
+
+    const first = within(screen.getAllByTestId("tool")[0])
+    expect(first.getByTestId("tool-input")).toHaveTextContent("first")
+    expect(first.getByTestId("tool-state")).toHaveTextContent("output-denied")
+    expect(first.getByText("Not this one")).toBeInTheDocument()
+    expect(first.queryByTestId("tool-output")).not.toBeInTheDocument()
+  })
+})
+
+const SESSION_ID = "session-1"
+
+/** The paused turn's results and answer once an approval was decided. */
+const RESOLVED: UIMessage[] = [
+  PROMPT,
+  {
+    id: "assistant-1",
+    role: "assistant",
+    parts: [
+      { type: "text", text: "Running three calls." },
+      ...CALLS.map(storedResult),
+    ],
+  },
+  {
+    id: "answer-1",
+    role: "assistant",
+    parts: [{ type: "text", text: "All three calls ran." }],
+  },
+]
+
+/** The session as the server returns it. */
+function serverChat(
+  messages: UIMessage[]
+): AgentSessionsGetSessionVercelResponse {
+  return {
+    id: SESSION_ID,
+    workspace_id: "workspace-1",
+    title: "Chat",
+    created_by: "user-1",
+    entity_type: "copilot",
+    entity_id: "entity-1",
+    channel_context: null,
+    tools: [],
+    mcp_integrations: [],
+    agent_preset_id: null,
+    agent_preset_version_id: null,
+    harness_type: "claude_code",
+    created_at: "2026-09-25T00:00:00Z",
+    updated_at: "2026-09-25T00:00:00Z",
+    messages,
+  } as AgentSessionsGetSessionVercelResponse
+}
+
+/** Render the pane fed by the session query, as the chat page does. */
+function renderServerBackedPane() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  function ServerBackedPane() {
+    const { chat } = useGetChatVercel({
+      chatId: SESSION_ID,
+      workspaceId: "workspace-1",
+    })
+    return chat ? (
+      <ChatSessionPane
+        chat={chat}
+        workspaceId="workspace-1"
+        modelInfo={{ name: "gpt-test", provider: "openai" }}
+        placeholder="Ask Tracecat..."
+        surface="workspace-chat"
+        toolsEnabled={false}
+      />
+    ) : null
+  }
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <ServerBackedPane />
+    </QueryClientProvider>
+  )
+}
+
+describe("ChatSessionPane approvals decided elsewhere", () => {
+  const fetchSession = jest.mocked(agentSessionsGetSessionVercel)
+
+  beforeEach(() => {
+    fetchSession.mockReset()
+    mockUseVercelChatResult.sendMessage.mockReset()
+    mockUseVercelChatResult.status = "ready"
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it("replaces a waiting approval decided elsewhere without a reload", async () => {
+    mockUseVercelChatResult.messages = [PROMPT, await livePaused()]
+    jest.useFakeTimers()
+    fetchSession.mockResolvedValue(serverChat([PROMPT, ...STORED_PAUSED]))
+    renderServerBackedPane()
+    expect(await screen.findByTestId("approval-card-first")).toBeInTheDocument()
+
+    // Another tab approves the batch and the run finishes.
+    fetchSession.mockResolvedValue(serverChat(RESOLVED))
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(5_000)
+    })
+
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("approval-card-first")
+      ).not.toBeInTheDocument()
+    )
+    expect(timeline()).toEqual(
+      CALLS.map((id) => `${id}: output-available ({"executed":"${id}"})`)
+    )
+  })
+
+  it("does not submit a stale decision for an approval decided elsewhere", async () => {
+    // The tab already adopted the paused turn from the session.
+    mockUseVercelChatResult.messages = [PROMPT, ...STORED_PAUSED]
+    fetchSession.mockResolvedValue(serverChat([PROMPT, ...STORED_PAUSED]))
+    renderServerBackedPane()
+    const first = within(await screen.findByTestId("approval-card-first"))
+
+    // The Inbox decided the batch before this tab refreshed.
+    fetchSession.mockResolvedValue(serverChat(RESOLVED))
+    fireEvent.click(first.getByRole("button", { name: "Approve" }))
+    fireEvent.click(
+      within(screen.getByTestId("approval-card-third")).getByRole("button", {
+        name: "Submit",
+      })
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("approval-card-first")
+      ).not.toBeInTheDocument()
+    )
+    expect(mockUseVercelChatResult.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it("refreshes a batch in which another surface decided one approval", async () => {
+    /** The paused turn with each call's approval status. */
+    function pausedWith(status: (id: string) => string): UIMessage[] {
+      return [
+        PROMPT,
+        STORED_PAUSED[0],
+        {
+          ...STORED_PAUSED[1],
+          parts: [
+            {
+              type: "data-approval-request",
+              data: CALLS.map((id) => ({
+                tool_call_id: id,
+                tool_name: TOOL,
+                status: status(id),
+              })),
+            },
+          ],
+        },
+      ]
+    }
+    function approveButton(id: string): HTMLElement {
+      return within(screen.getByTestId(`approval-card-${id}`)).getByRole(
+        "button",
+        { name: "Approve" }
+      )
+    }
+    mockUseVercelChatResult.messages = pausedWith(() => "pending")
+    jest.useFakeTimers()
+    fetchSession.mockResolvedValue(serverChat(pausedWith(() => "pending")))
+    renderServerBackedPane()
+    await waitFor(() => expect(approveButton("first")).toBeEnabled())
+
+    // The Inbox approves only the first call; the others still wait. Only the
+    // approval payload changes, so the transcript's shape is the same.
+    fetchSession.mockResolvedValue(
+      serverChat(pausedWith((id) => (id === "first" ? "approved" : "pending")))
+    )
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(5_000)
+    })
+
+    await waitFor(() => expect(approveButton("first")).toBeDisabled())
+    expect(approveButton("second")).toBeEnabled()
+  })
+
+  it("marks only the decisions it sent when another surface decided one", async () => {
+    /** The paused turn with each call's approval status. */
+    function pausedWith(status: (id: string) => string): UIMessage[] {
+      return [
+        PROMPT,
+        STORED_PAUSED[0],
+        {
+          ...STORED_PAUSED[1],
+          parts: [
+            {
+              type: "data-approval-request",
+              data: CALLS.map((id) => ({
+                tool_call_id: id,
+                tool_name: TOOL,
+                status: status(id),
+              })),
+            },
+          ],
+        },
+      ]
+    }
+    function card(id: string) {
+      return within(screen.getByTestId(`approval-card-${id}`))
+    }
+    mockUseVercelChatResult.messages = pausedWith(() => "pending")
+    // Sending starts the continuation, as the SDK does.
+    mockUseVercelChatResult.sendMessage.mockImplementation(async () => {
+      mockUseVercelChatResult.status = "submitted"
+    })
+    fetchSession.mockResolvedValue(serverChat(pausedWith(() => "pending")))
+    renderServerBackedPane()
+    await waitFor(() =>
+      expect(card("first").getByRole("button", { name: "Deny" })).toBeEnabled()
+    )
+
+    // This tab denies the first call and approves the second, but the Inbox
+    // already approved the first.
+    fireEvent.click(card("first").getByRole("button", { name: "Deny" }))
+    fireEvent.click(card("second").getByRole("button", { name: "Approve" }))
+    fetchSession.mockResolvedValue(
+      serverChat(pausedWith((id) => (id === "first" ? "approved" : "pending")))
+    )
+    fireEvent.click(card("third").getByRole("button", { name: "Submit" }))
+
+    await waitFor(() =>
+      expect(mockUseVercelChatResult.sendMessage).toHaveBeenCalledTimes(1)
+    )
+    const [sent] = mockUseVercelChatResult.sendMessage.mock.calls[0]
+    expect(sent.parts[0].data.decisions).toEqual([
+      { tool_call_id: "second", action: "approve" },
+    ])
+    // The first card never shows this tab's unsent denial as its decision.
+    await waitFor(() =>
+      expect(
+        card("first").queryByPlaceholderText("Share a short reason")
+      ).not.toBeInTheDocument()
+    )
+    expect(
+      card("second").getByRole("button", { name: "Approve" })
+    ).toBeDisabled()
   })
 })

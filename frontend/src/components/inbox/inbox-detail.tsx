@@ -8,6 +8,10 @@ import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { NoMessages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"
+import {
+  useAgentPreset,
+  useAgentPresetVersion,
+} from "@/hooks/use-agent-presets"
 import { useGetChatVercel } from "@/hooks/use-chat"
 import { type InboxSessionItem, isLiveAgentStatus } from "@/lib/agents"
 import { useChatReadiness } from "@/lib/hooks"
@@ -43,11 +47,43 @@ export function InboxDetail({
     workspaceId,
   })
 
+  // Show the model the session runs on: its preset's, where a fork uses its
+  // source session's preset, as the backend does. Otherwise the default.
+  const forkSourceId =
+    chat && "forked_from_session_id" in chat
+      ? (chat.forked_from_session_id ?? undefined)
+      : undefined
+  const { chat: forkSource, chatLoading: forkSourceLoading } = useGetChatVercel(
+    { chatId: forkSourceId, workspaceId }
+  )
+  const presetSession = forkSourceId ? forkSource : chat
+  const presetId = presetSession?.agent_preset_id ?? null
+  const presetVersionId = presetSession?.agent_preset_version_id ?? null
+  const { preset, presetIsLoading } = useAgentPreset(workspaceId, presetId, {
+    enabled: Boolean(presetId) && !presetVersionId,
+  })
+  const { presetVersion, presetVersionIsLoading } = useAgentPresetVersion(
+    workspaceId,
+    presetId,
+    presetVersionId
+  )
+  const presetModel = presetVersionId ? presetVersion : preset
+
   const {
     ready: chatReady,
     loading: chatReadyLoading,
     modelInfo,
-  } = useChatReadiness()
+  } = useChatReadiness(
+    presetModel
+      ? {
+          modelOverride: {
+            name: presetModel.model_name,
+            provider: presetModel.model_provider,
+            baseUrl: presetModel.base_url ?? null,
+          },
+        }
+      : undefined
+  )
 
   // Check if the current session is already a forked session
   // (sessionId differs from parentSessionId when viewing a fork)
@@ -100,7 +136,13 @@ export function InboxDetail({
     [isForkedSession, parentSessionId, workspaceId, onForked]
   )
 
-  if (chatLoading || chatReadyLoading) {
+  if (
+    chatLoading ||
+    chatReadyLoading ||
+    forkSourceLoading ||
+    presetIsLoading ||
+    presetVersionIsLoading
+  ) {
     return (
       <div className="flex h-full items-center justify-center">
         <CenteredSpinner />

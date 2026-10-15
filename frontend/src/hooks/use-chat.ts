@@ -630,7 +630,8 @@ export function useVercelChat({
   // a Last-Event-ID cursor.
   const chat = aiSdk.useChat({
     id: chatId,
-    resume: !!chatId && resume,
+    // Reconnects are started below so sends can wait for them.
+    resume: false,
     messages,
     transport: new DefaultChatTransport({
       api: apiEndpoint,
@@ -709,8 +710,57 @@ export function useVercelChat({
     },
   })
 
+  // The SDK runs one request per chat at a time. Overlapping requests share
+  // its active-response slot: the first to settle clears the slot after
+  // running onFinish early for the other's turn, and the second then throws
+  // reading it ("Cannot read properties of undefined (reading 'state')") and
+  // skips its own onFinish. A send on mount, such as a new chat's pending
+  // first message, would overlap the mount reconnect, so sends wait for it.
+  const { resumeStream, sendMessage, regenerate, status } = chat
+  const pendingResumeRef = useRef<{
+    chatId: string
+    done: Promise<void>
+  } | null>(null)
+  const statusRef = useRef(status)
+  statusRef.current = status
+  const shouldResume = Boolean(chatId) && resume
+  useEffect(() => {
+    if (!shouldResume || !chatId) return
+    // A strict-mode re-run reuses the reconnect already in flight, and a
+    // request already in flight owns the turn it would reconnect to.
+    if (pendingResumeRef.current?.chatId === chatId) return
+    if (statusRef.current === "submitted" || statusRef.current === "streaming")
+      return
+    const done = resumeStream().finally(() => {
+      if (pendingResumeRef.current?.done === done) {
+        pendingResumeRef.current = null
+      }
+    })
+    pendingResumeRef.current = { chatId, done }
+  }, [chatId, shouldResume, resumeStream])
+  const waitForResume = useCallback(async () => {
+    const pending = pendingResumeRef.current
+    if (pending && pending.chatId === chatId) await pending.done
+  }, [chatId])
+  const sendMessageAfterResume = useCallback<typeof sendMessage>(
+    async (...args) => {
+      await waitForResume()
+      await sendMessage(...args)
+    },
+    [sendMessage, waitForResume]
+  )
+  const regenerateAfterResume = useCallback<typeof regenerate>(
+    async (...args) => {
+      await waitForResume()
+      await regenerate(...args)
+    },
+    [regenerate, waitForResume]
+  )
+
   return {
     ...chat,
+    sendMessage: sendMessageAfterResume,
+    regenerate: regenerateAfterResume,
     subagentStore,
     lastError:
       lastError && lastError.chatId === chatId ? lastError.message : null,
@@ -720,8 +770,9 @@ export function useVercelChat({
 
 /**
  * Identity signature of a transcript: message ids plus the id, type, state, and
- * text of each part. Two transcripts with the same signature carry the same
- * rendered content, so an unchanged signature means there is nothing to adopt.
+ * text of each part, and approval card payloads. Two transcripts with the same
+ * signature carry the same rendered content, so an unchanged signature means
+ * there is nothing to adopt.
  */
 function transcriptSignature(messages: UIMessage[]): string {
   return JSON.stringify(
@@ -731,6 +782,8 @@ function transcriptSignature(messages: UIMessage[]): string {
         p.type,
         "state" in p ? p.state : undefined,
         "text" in p ? p.text : undefined,
+        // A decision made elsewhere changes only the card's payload.
+        p.type === "data-approval-request" && "data" in p ? p.data : undefined,
       ]),
     ])
   )
