@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -18,10 +18,13 @@ from tracecat.dsl.schemas import (
     TaskResult,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.storage.object import ExternalObject, ObjectRef
 from tracecat.workflow.executions.rerun import (
+    MAX_FIXED_RESULTS_BYTES,
     RerunSource,
     RerunSourceAction,
     WorkflowRerunActionStatus,
+    expire_stored_results,
     invalid_requested_refs,
     match_rerun_actions,
 )
@@ -157,6 +160,70 @@ def test_match_reruns_from_ref_and_downstream() -> None:
     assert statuses["c"] == WorkflowRerunActionStatus.EXCLUDED
     with pytest.raises(ValueError):
         match_rerun_actions(source, dsl, rerun_from_ref="missing")
+
+
+def test_match_runs_fixed_results_over_the_payload_budget_fresh() -> None:
+    big = "x" * (MAX_FIXED_RESULTS_BYTES // 2 + 1)
+    source = _source(
+        a=RerunSourceAction(
+            ref="a", action="core.transform.reshape", fixed=_fixed(big)
+        ),
+        b=RerunSourceAction(
+            ref="b", action="core.transform.reshape", fixed=_fixed(big)
+        ),
+        c=RerunSourceAction(ref="c", action="core.transform.reshape", fixed=_fixed(1)),
+    )
+    dsl = _dsl(
+        ActionStatement(ref="a", action="core.transform.reshape"),
+        ActionStatement(ref="b", action="core.transform.reshape"),
+        ActionStatement(ref="c", action="core.transform.reshape"),
+    )
+    match = match_rerun_actions(source, dsl)
+    assert set(match.fixed) == {"a", "c"}
+    b = next(a for a in match.actions if a.ref == "b")
+    assert b.status == WorkflowRerunActionStatus.RUNS
+    assert b.reason == "Too much result data to reuse in one run."
+    assert invalid_requested_refs(
+        match_rerun_actions(source, dsl, fixed_action_refs=["a", "b"]), ["a", "b"]
+    ) == ["b"]
+
+
+def test_expire_stored_results_drops_blob_backed_results_past_retention() -> None:
+    external = FixedActionResult(
+        result=TaskResult(
+            result=ExternalObject(
+                ref=ObjectRef(
+                    backend="s3", bucket="b", key="k", size_bytes=1, sha256="0" * 64
+                )
+            ),
+            result_typename="dict",
+        ),
+        source_execution_id=SOURCE_EXEC_ID,
+        source_event_id=1,
+    )
+    now = datetime.now(UTC)
+
+    def _src() -> RerunSource:
+        return _source(
+            inline=RerunSourceAction(ref="inline", action="x", fixed=_fixed(1)),
+            external=RerunSourceAction(ref="external", action="x", fixed=external),
+        )
+
+    recent = _src()
+    expire_stored_results(recent, now - timedelta(days=29), now=now, retention_days=30)
+    assert recent.actions["external"].fixed is external
+
+    old = _src()
+    expire_stored_results(old, now - timedelta(days=31), now=now, retention_days=30)
+    assert old.actions["external"].fixed is None
+    assert old.actions["external"].reason == "Its stored result expired after 30 days."
+    assert old.actions["inline"].fixed is not None
+
+    disabled = _src()
+    expire_stored_results(
+        disabled, now - timedelta(days=365), now=now, retention_days=0
+    )
+    assert disabled.actions["external"].fixed is external
 
 
 def _scheduler(

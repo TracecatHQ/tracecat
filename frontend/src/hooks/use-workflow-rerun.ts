@@ -21,7 +21,7 @@ export function useWorkflowRerunPreview(
   >,
   { enabled = true }: { enabled?: boolean } = {}
 ) {
-  const { data, isLoading, error } = useQuery<
+  const { data, isLoading, isPlaceholderData, error } = useQuery<
     WorkflowRerunPlan,
     TracecatApiError
   >({
@@ -52,6 +52,7 @@ export function useWorkflowRerunPreview(
   return {
     rerunPlan: data,
     rerunPlanIsLoading: isLoading,
+    rerunPlanIsStale: isPlaceholderData,
     rerunPlanError: error,
   }
 }

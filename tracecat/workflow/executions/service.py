@@ -94,7 +94,11 @@ from tracecat.workflow.executions.enums import (
     WorkflowEventType,
     WorkflowExecutionEventStatus,
 )
-from tracecat.workflow.executions.rerun import RerunSource, RerunSourceAction
+from tracecat.workflow.executions.rerun import (
+    RerunSource,
+    RerunSourceAction,
+    expire_stored_results,
+)
 from tracecat.workflow.executions.schemas import (
     EventFailure,
     EventGroup,
@@ -938,10 +942,12 @@ class WorkflowExecutionsService:
         action_names: dict[str, str] = {}
         inherited: dict[str, FixedActionResult] = {}
         trigger_inputs: Any | None = None
+        started_at: datetime.datetime | None = None
 
         async for event in handle.fetch_history_events():
             if event.event_type is EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
                 attrs = event.workflow_execution_started_event_attributes
+                started_at = event.event_time.ToDatetime(datetime.UTC)
                 run_args_data = await extract_first(attrs.input)
                 if is_unreadable_temporal_payload(run_args_data):
                     raise ValueError("The source run's inputs cannot be read.")
@@ -1007,12 +1013,19 @@ class WorkflowExecutionsService:
                 actions[ref] = RerunSourceAction(
                     ref=ref, action=action_names.get(ref, ref), fixed=fixed
                 )
-        return RerunSource(
+        source = RerunSource(
             execution_id=wf_exec_id,
             workflow_id=wf_id,
             trigger_inputs=trigger_inputs,
             actions=actions,
         )
+        expire_stored_results(
+            source,
+            started_at,
+            now=datetime.datetime.now(datetime.UTC),
+            retention_days=config.TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS,
+        )
+        return source
 
     async def get_external_action_result(
         self,

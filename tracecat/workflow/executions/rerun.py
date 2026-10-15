@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
@@ -16,8 +17,12 @@ from tracecat.identifiers.workflow import (
     WorkflowID,
     WorkflowIDShort,
 )
+from tracecat.storage.object import CollectionObject, ExternalObject
 
 ROOT_SCOPE = "<root>"
+# Fixed results travel in the run's start input, so they share Temporal's
+# ~2 MB payload limit with the definition and trigger inputs.
+MAX_FIXED_RESULTS_BYTES = 1024 * 1024
 CONTROL_FLOW_ACTIONS = frozenset(
     {
         PlatformAction.TRANSFORM_SCATTER,
@@ -255,6 +260,18 @@ def match_rerun_actions(
             )
         )
 
+    budget = MAX_FIXED_RESULTS_BYTES
+    for match in actions:
+        if match.status is not WorkflowRerunActionStatus.FIXED:
+            continue
+        size = len(fixed[match.ref].result.model_dump_json())
+        if size > budget:
+            del fixed[match.ref]
+            match.status = WorkflowRerunActionStatus.RUNS
+            match.reason = "Too much result data to reuse in one run."
+        else:
+            budget -= size
+
     unmatched_refs = [
         a.ref
         for a in actions
@@ -265,6 +282,28 @@ def match_rerun_actions(
         )
     ]
     return RerunMatch(actions=actions, fixed=fixed, unmatched_refs=unmatched_refs)
+
+
+def expire_stored_results(
+    source: RerunSource,
+    started_at: datetime | None,
+    *,
+    now: datetime,
+    retention_days: int,
+) -> None:
+    """Stop reusing blob-backed results that retention has deleted."""
+    if (
+        retention_days <= 0
+        or started_at is None
+        or now - started_at < timedelta(days=retention_days)
+    ):
+        return
+    for action in source.actions.values():
+        if action.fixed is not None and isinstance(
+            action.fixed.result.result, ExternalObject | CollectionObject
+        ):
+            action.fixed = None
+            action.reason = f"Its stored result expired after {retention_days} days."
 
 
 def invalid_requested_refs(

@@ -125,7 +125,7 @@ function RerunBody({
   const version = useDraft ? null : Number(target)
 
   const { definitions } = useWorkflowDefinitions(workspaceId, workflowId)
-  const { rerunPlan, rerunPlanIsLoading, rerunPlanError } =
+  const { rerunPlan, rerunPlanIsLoading, rerunPlanIsStale, rerunPlanError } =
     useWorkflowRerunPreview(workspaceId, executionId, {
       use_draft: useDraft,
       version,
@@ -202,6 +202,7 @@ function RerunBody({
   const runDisabled =
     !rerunPlan ||
     rerunPlanIsLoading ||
+    rerunPlanIsStale ||
     Boolean(rerunPlan.inputs_error) ||
     rerunExecutionIsPending
 
