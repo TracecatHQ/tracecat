@@ -292,10 +292,11 @@ class UserMCPClient:
         failed_servers: dict[str, str] = {}
         loop = asyncio.get_running_loop()
         discovery_deadline = loop.time() + MCP_DISCOVERY_TIMEOUT_SECONDS
+        budget_exhausted = False
 
         for server_name, config in self._configs.items():
             # Never start another connection after the shared budget expires.
-            if loop.time() >= discovery_deadline:
+            if budget_exhausted or loop.time() >= discovery_deadline:
                 budget_error = UserMCPDiscoveryBudgetExceededError(server_name)
                 logger.error(
                     "Skipped user MCP server after the discovery budget expired",
@@ -305,13 +306,16 @@ class UserMCPClient:
                 if fail_on_error:
                     raise budget_error
                 continue
+            timeout: asyncio.Timeout | None = None
+            server_deadline: float | None = None
             try:
                 server_timeout = min(
                     config.get("timeout") or MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS,
                     MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS,
                 )
                 server_deadline = min(loop.time() + server_timeout, discovery_deadline)
-                async with asyncio.timeout_at(server_deadline):
+                timeout = asyncio.timeout_at(server_deadline)
+                async with timeout:
                     server_tools = await self._discover_server_tools(
                         server_name, config
                     )
@@ -326,6 +330,16 @@ class UserMCPClient:
                 failed_servers[server_name] = error_summary
                 if fail_on_error:
                     raise _typed_discovery_error(server_name, e) from e
+            finally:
+                # Timer callbacks can fire slightly before the clock reaches
+                # their deadline. Once the shared timeout fired, never start
+                # another server even if the next clock read is still earlier.
+                if (
+                    timeout is not None
+                    and server_deadline == discovery_deadline
+                    and timeout.expired()
+                ):
+                    budget_exhausted = True
 
         logger.info(
             "Discovered user MCP tools",
