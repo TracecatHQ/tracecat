@@ -305,4 +305,31 @@ describe("case search aggregate counts", () => {
     await advance(300)
     expect(result.current).toMatchObject({ isCountsError: false })
   })
+
+  it("discards stale totals after a successful count refresh fails", async () => {
+    jest.mocked(casesSearchCaseAggregates).mockImplementation(() =>
+      resolved<CasesSearchCaseAggregatesResponse>({
+        total: 12,
+        status_groups: { new: 12 },
+      })
+    )
+    const { result } = setup()
+    await advance()
+    expect(result.current.totalFilteredCaseEstimate).toBe(12)
+    jest.mocked(casesSearchCaseAggregates).mockImplementation(
+      () =>
+        new CancelablePromise((_resolve, reject) =>
+          reject(
+            Object.assign(new Error("Synthetic count refresh failure"), {
+              status: 500,
+            })
+          )
+        )
+    )
+    act(() => result.current.refetch())
+    await advance(8000)
+    expect(result.current.isCountsError).toBe(true)
+    expect(result.current.totalFilteredCaseEstimate).toBeNull()
+    expect(result.current.stageCounts).toBeNull()
+  })
 })
