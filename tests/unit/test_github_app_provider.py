@@ -226,7 +226,7 @@ def test_github_template_credential_priority(path: Path) -> None:
     )
     if gist:
         expected = (
-            "Bearer ${{ SECRETS.github.GITHUB_PAT_TOKEN"
+            "Bearer ${{ SECRETS.github_pat.GITHUB_PAT_TOKEN"
             " || SECRETS.github_app_oauth.GITHUB_APP_USER_TOKEN"
             " || SECRETS.github_oauth.GITHUB_USER_TOKEN"
             " || SECRETS.github_app_oauth.GITHUB_APP_SERVICE_TOKEN }}"
