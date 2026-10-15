@@ -524,7 +524,8 @@ class SkillAdapter(DirectoryManifestAdapter):
     ) -> dict[str, SkillFileBlobRef]:
         """Materialize a Git-owned Skill head's declared file blobs."""
 
-        file_refs: dict[str, SkillFileBlobRef] = {}
+        reused: dict[str, SkillFileBlobRef] = {}
+        new_contents: dict[str, bytes] = {}
         for file_spec in spec.files:
             content_text = spec.file_contents.get(file_spec.path)
             if content_text is None:
@@ -545,13 +546,28 @@ class SkillAdapter(DirectoryManifestAdapter):
                 else None
             )
             if prior_ref is not None and prior_ref.blob.sha256 == file_spec.sha256:
-                file_refs[file_spec.path] = prior_ref
+                reused[file_spec.path] = prior_ref
                 continue
-            blob_row = await skill_service._get_or_create_blob(content=content)
-            file_refs[file_spec.path] = SkillFileBlobRef(
-                blob=blob_row,
-                content_type=skill_service._guess_content_type(file_spec.path),
+            new_contents[file_spec.path] = content
+
+        new_blobs = dict(
+            zip(
+                new_contents,
+                await skill_service._get_or_create_blobs(list(new_contents.values())),
+                strict=True,
             )
+        )
+        # Keep the spec's file order; callers publish and validate in it.
+        file_refs: dict[str, SkillFileBlobRef] = {}
+        for file_spec in spec.files:
+            path = file_spec.path
+            if path in reused:
+                file_refs[path] = reused[path]
+            else:
+                file_refs[path] = SkillFileBlobRef(
+                    blob=new_blobs[path],
+                    content_type=skill_service._guess_content_type(path),
+                )
         return file_refs
 
     async def _skill_for_import(
