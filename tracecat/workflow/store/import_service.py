@@ -11,11 +11,15 @@ from sqlalchemy import select
 from tracecat.db.models import Webhook, Workflow, WorkflowTag, WorkflowTagLink
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
-from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.exceptions import (
+    RegistryLockActionNotFoundError,
+    TracecatAuthorizationError,
+)
 from tracecat.forms.enums import FormStatus
 from tracecat.forms.service import FormsService
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
+from tracecat.registry.lock.service import RegistryLockService
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic, PullResult
 from tracecat.workflow.case_triggers.schemas import (
@@ -36,6 +40,25 @@ from tracecat.workflow.store.schemas import (
     RemoteWorkflowSchedule,
     RemoteWorkflowTag,
 )
+
+
+class WorkflowImportError(Exception):
+    """A single workflow failed to import.
+
+    Carries which workflow failed so a caller that rolls back the whole batch
+    can name it. The message is the underlying error's.
+    """
+
+    def __init__(
+        self,
+        cause: Exception,
+        *,
+        workflow_id: WorkflowUUID,
+        workflow_title: str,
+    ) -> None:
+        super().__init__(str(cause))
+        self.workflow_id = workflow_id
+        self.workflow_title = workflow_title
 
 
 class WorkflowImportService(BaseWorkspaceService):
@@ -163,10 +186,17 @@ class WorkflowImportService(BaseWorkspaceService):
         """Import workflows without committing the active transaction."""
         await self._release_changing_workflow_aliases(remote_workflows)
         for remote_workflow in remote_workflows:
-            await self._import_single_workflow(
-                remote_workflow,
-                sync_schedules=sync_schedules,
-            )
+            try:
+                await self._import_single_workflow(
+                    remote_workflow,
+                    sync_schedules=sync_schedules,
+                )
+            except Exception as e:
+                raise WorkflowImportError(
+                    e,
+                    workflow_id=WorkflowUUID.new(remote_workflow.id),
+                    workflow_title=remote_workflow.definition.title,
+                ) from e
 
     async def _validate_single_workflow(
         self,
@@ -195,8 +225,33 @@ class WorkflowImportService(BaseWorkspaceService):
 
             # Check for conflicts
             wf_id = WorkflowUUID.new(remote_workflow.id)
-            await self.wf_mgmt.get_workflow(wf_id, normalize=normalize_existing)
+            existing_workflow = await self.wf_mgmt.get_workflow(
+                wf_id, normalize=normalize_existing
+            )
+            # Creating a workflow resolves a registry lock against the current
+            # registries, so resolve it the same way here and fail before any
+            # write. Updates keep the workflow's existing lock.
+            if existing_workflow is None:
+                await RegistryLockService(
+                    self.session, self.role
+                ).resolve_lock_with_bindings(
+                    {action.action for action in dsl_input.actions}
+                )
 
+        except RegistryLockActionNotFoundError as e:
+            title = remote_workflow.definition.title
+            diagnostics.append(
+                PullDiagnostic(
+                    workflow_path=workflow_path,
+                    workflow_title=title,
+                    error_type="dependency",
+                    message=(
+                        f"Workflow {title!r} uses action {e.action_name!r}, "
+                        "which is in no registry"
+                    ),
+                    details={"action_name": e.action_name, "registries": e.origins},
+                )
+            )
         except ValidationError as e:
             diagnostics.append(
                 PullDiagnostic(
