@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import io
 import os
 import signal
 import tarfile
 import tempfile
 import threading
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from unittest.mock import ANY, AsyncMock, call, patch
@@ -19,6 +20,7 @@ import pytest
 import tracecat_registry
 
 from tracecat.executor.registry_artifact_storage import (
+    MeteredAdmissionLock,
     RegistryArtifactMaterializationContext,
     _allocated_stat_size,
     _delete_cache_path,
@@ -59,6 +61,56 @@ SQUASHFS_ENABLED_CONFIG = (
     ".TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED"
 )
 MOUNT_CHECK = "tracecat.executor.registry_artifact_mounts.is_mount"
+
+
+def _seed_squashfs_images(cache: RegistryArtifactCache, uris: list[str]) -> None:
+    """Leave images and empty mount points on disk, as an idle unmount does."""
+    for uri in uris:
+        paths = cache._paths_for(compute_registry_artifact_cache_key(uri))
+        paths.entry_dir.mkdir(parents=True)
+        paths.squashfs_image_path.write_bytes(b"squashfs")
+        paths.squashfs_mount_dir.mkdir()
+
+
+@contextlib.contextmanager
+def _fake_squashfs_mounts(
+    cache: RegistryArtifactCache,
+    mounted: set[Path],
+    *,
+    mount: Callable[[Path, Path], Awaitable[None]] | None = None,
+) -> Iterator[None]:
+    """Track SquashFS mounts in ``mounted`` instead of calling ``mount``."""
+
+    async def record_mount(image_path: Path, target_dir: Path) -> None:
+        del image_path
+        mounted.add(target_dir)
+
+    async def record_unmount(mount_dir: Path) -> bool:
+        mounted.discard(mount_dir)
+        return True
+
+    def is_mounted(path: Path) -> bool:
+        return path in mounted
+
+    with (
+        patch(SQUASHFS_ENABLED_CONFIG, True),
+        patch(
+            "tracecat.executor.registry_artifacts.registry_artifact_mounts"
+            ".mount_squashfs",
+            mount or record_mount,
+        ),
+        patch(
+            "tracecat.executor.registry_artifacts.registry_artifact_mounts.is_mount",
+            is_mounted,
+        ),
+        patch(
+            "tracecat.executor.registry_artifact_storage.registry_artifact_mounts"
+            ".is_mount",
+            is_mounted,
+        ),
+        patch.object(cache, "_unmount", record_unmount),
+    ):
+        yield
 
 
 def _write_tarball_entry(cache_dir: Path, cache_key: str) -> Path:
@@ -545,6 +597,254 @@ class TestRegistryArtifactCache:
         assert results == [expected_paths] * 5
         sidecar_exists.assert_awaited_once()
         enforce_cache_budget.assert_awaited_once_with(protected_key=cache_key)
+
+    @pytest.mark.anyio
+    async def test_try_lock_treats_key_mid_handoff_as_busy(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """A released lock promised to a waiter still reads busy, so try-locks never queue."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        cache_key = compute_registry_artifact_cache_key("s3://bucket/handoff.tar.gz")
+        waiter_holds_key = asyncio.Event()
+
+        async def waiter() -> None:
+            async with cache._runtime_lock(cache_key):
+                waiter_holds_key.set()
+
+        async with cache._runtime_lock(cache_key):
+            waiter_task = asyncio.create_task(waiter())
+            await asyncio.sleep(0)
+
+        # Released and handed to the waiter, which has not resumed yet.
+        assert not waiter_holds_key.is_set()
+        assert cache._cache_entry_is_busy(cache_key)
+        async with cache._runtime_lock(cache_key, wait=False) as runtime:
+            assert runtime is None
+        await waiter_task
+        assert waiter_holds_key.is_set()
+
+    @pytest.mark.anyio
+    async def test_warm_remount_skips_admission_held_by_cold_download(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """An image already on disk mounts while a cold download holds admission."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        warm_uri = "s3://bucket/warm.squashfs"
+        _seed_squashfs_images(cache, [warm_uri])
+        cold_started = asyncio.Event()
+        release_cold = asyncio.Event()
+        mounted: set[Path] = set()
+
+        async def blocked_cold_materialize(
+            self: TarballArtifact,
+            ctx: RegistryArtifactMaterializationContext,
+        ) -> list[Path]:
+            del self
+            cold_started.set()
+            await release_cold.wait()
+            ctx.paths.tarball_target_dir.mkdir(parents=True)
+            return [ctx.paths.tarball_target_dir]
+
+        async def take_lease(uri: str) -> list[Path]:
+            async with cache.lease([uri]) as paths:
+                return paths
+
+        with (
+            _fake_squashfs_mounts(cache, mounted),
+            patch.object(cache, "_sidecar_exists", AsyncMock(return_value=False)),
+            patch.object(TarballArtifact, "materialize", blocked_cold_materialize),
+            patch.object(cache, "_enforce_cache_budget", new_callable=AsyncMock),
+        ):
+            cold = asyncio.create_task(take_lease("s3://bucket/cold.tar.gz"))
+            await cold_started.wait()
+            assert cache._admission_lock.locked()
+
+            warm_paths = await asyncio.wait_for(take_lease(warm_uri), timeout=1)
+
+            assert cache._admission_lock.locked()
+            release_cold.set()
+            await cold
+
+        warm_key = compute_registry_artifact_cache_key(warm_uri)
+        assert warm_paths == [cache._paths_for(warm_key).squashfs_mount_dir]
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "mount_error",
+        [
+            SquashfsMountCommandError("no free loop device"),
+            SquashfsMountUnavailableError("mount is unavailable"),
+        ],
+    )
+    async def test_failed_warm_remount_falls_back_to_cold_extraction(
+        self, temp_cache_dir: Path, mount_error: Exception
+    ) -> None:
+        """A failed remount releases the key, then the cold path extracts under admission."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        uri = "s3://bucket/fallback.squashfs"
+        _seed_squashfs_images(cache, [uri])
+        cache_key = compute_registry_artifact_cache_key(uri)
+        extract_held_admission: list[bool] = []
+        mount_squashfs = AsyncMock(side_effect=mount_error)
+
+        async def fake_extract(
+            self: SquashfsArtifact,
+            ctx: RegistryArtifactMaterializationContext,
+            image_path: Path,
+        ) -> Path:
+            del self, image_path
+            extract_held_admission.append(cache._admission_lock.locked())
+            ctx.paths.squashfs_extract_dir.mkdir(parents=True)
+            return ctx.paths.squashfs_extract_dir
+
+        with (
+            patch(SQUASHFS_ENABLED_CONFIG, True),
+            patch(
+                "tracecat.executor.registry_artifacts.registry_artifact_mounts"
+                ".mount_squashfs",
+                mount_squashfs,
+            ),
+            patch.object(SquashfsArtifact, "extract", fake_extract),
+            patch.object(cache, "_enforce_cache_budget", new_callable=AsyncMock),
+        ):
+            async with asyncio.timeout(1):
+                async with cache.lease([uri]) as paths:
+                    assert paths == [cache._paths_for(cache_key).squashfs_extract_dir]
+
+        assert extract_held_admission == [True]
+        mount_squashfs.assert_awaited_once()
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("mount_dir_exists", [True, False])
+    async def test_warm_remount_needs_existing_mount_point(
+        self, temp_cache_dir: Path, mount_dir_exists: bool
+    ) -> None:
+        """Recreating a removed mount point writes bytes, so it takes cold admission."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        uri = "s3://bucket/no-mount-point.squashfs"
+        _seed_squashfs_images(cache, [uri])
+        paths = cache._paths_for(compute_registry_artifact_cache_key(uri))
+        if not mount_dir_exists:
+            # A failed cold attempt removes the empty mount point.
+            paths.squashfs_mount_dir.rmdir()
+        max_bytes = cache._scan_cache_snapshot().total_bytes
+        cache._budget_dirty = False
+        mounted: set[Path] = set()
+
+        with (
+            patch(MAX_BYTES_CONFIG, max_bytes),
+            _fake_squashfs_mounts(cache, mounted),
+            patch.object(
+                cache, "_admission_for", wraps=cache._admission_for
+            ) as admission_for,
+        ):
+            async with cache.lease([uri]):
+                pass
+
+        assert cache._scan_cache_snapshot().total_bytes <= max_bytes
+        assert admission_for.called is not mount_dir_exists
+
+    @pytest.mark.anyio
+    async def test_warm_remounts_run_one_mount_at_a_time(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Warm remounts skip admission but never overlap loop-device setup."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        uris = [f"s3://bucket/warm-{index}.squashfs" for index in range(4)]
+        _seed_squashfs_images(cache, uris)
+        mounted: set[Path] = set()
+        in_flight = 0
+        peak_in_flight = 0
+
+        async def slow_mount(image_path: Path, target_dir: Path) -> None:
+            nonlocal in_flight, peak_in_flight
+            del image_path
+            in_flight += 1
+            peak_in_flight = max(peak_in_flight, in_flight)
+            await asyncio.sleep(0.02)
+            in_flight -= 1
+            mounted.add(target_dir)
+
+        async def take_lease(uri: str) -> None:
+            async with cache.lease([uri]):
+                await asyncio.sleep(0.01)
+
+        with _fake_squashfs_mounts(cache, mounted, mount=slow_mount):
+            await asyncio.gather(*(take_lease(uri) for uri in uris))
+
+        assert peak_in_flight == 1
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("dirty", [True, False])
+    async def test_warm_remount_converges_only_a_dirty_budget(
+        self, temp_cache_dir: Path, dirty: bool
+    ) -> None:
+        """A warm remount writes nothing, yet its release still converges a dirty cache."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        uris = [f"s3://bucket/budget-{index}.squashfs" for index in range(3)]
+        _seed_squashfs_images(cache, uris)
+        # Simulate a cold write whose own budget pass could not finish.
+        cache._budget_dirty = dirty
+        mounted: set[Path] = set()
+
+        enforce = AsyncMock(wraps=cache._enforce_cache_budget)
+        with (
+            patch(MAX_ENTRIES_CONFIG, 2),
+            _fake_squashfs_mounts(cache, mounted),
+            patch.object(cache, "_enforce_cache_budget", enforce),
+        ):
+            async with cache.lease([uris[0]]):
+                pass
+
+        entries = cache._scan_cache_entries()
+        if dirty:
+            assert len(entries) == 2
+            assert not cache._budget_dirty
+        else:
+            enforce.assert_not_awaited()
+            assert len(entries) == 3
+
+    def test_entry_measurement_never_counts_mount_point_contents(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """A mount landing mid-scan is not charged as cache bytes."""
+        cache = RegistryArtifactCache(temp_cache_dir)
+        cache_key = compute_registry_artifact_cache_key("s3://bucket/scan.squashfs")
+        paths = cache._paths_for(cache_key)
+        paths.squashfs_mount_dir.mkdir(parents=True)
+        paths.squashfs_image_path.write_bytes(b"squashfs")
+        # Contents appear under the mount point, but the pre-walk check saw no mount.
+        (paths.squashfs_mount_dir / "mounted.bin").write_bytes(b"\0" * (1024 * 1024))
+        with patch(
+            "tracecat.executor.registry_artifact_storage.registry_artifact_mounts"
+            ".is_mount",
+            return_value=False,
+        ):
+            entry = cache._measure_entry(cache_key)
+        assert entry.size_bytes < 1024 * 1024
+
+    @pytest.mark.anyio
+    async def test_admission_lock_records_wait_and_hold_time(self) -> None:
+        """Hold time is measured per acquisition, not just wait time."""
+        lock = MeteredAdmissionLock()
+        with (
+            patch(
+                "tracecat.executor.registry_artifact_storage._ADMISSION_WAIT_MS"
+            ) as wait_ms,
+            patch(
+                "tracecat.executor.registry_artifact_storage._ADMISSION_HOLD_MS"
+            ) as hold_ms,
+        ):
+            async with lock:
+                await asyncio.sleep(0.05)
+        wait_ms.record.assert_called_once()
+        hold_ms.record.assert_called_once()
+        assert hold_ms.record.call_args.args[0] >= 40
 
     @pytest.mark.anyio
     async def test_different_cold_keys_serialize_materialization(

@@ -20,6 +20,9 @@ from collections.abc import (
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
+
+from opentelemetry import metrics
 
 from tracecat import config
 from tracecat.concurrency import (
@@ -105,6 +108,55 @@ class RegistryArtifactCacheCapacityError(RuntimeError):
 
 class RegistryArtifactCacheLeaseContentionError(RegistryArtifactCacheCapacityError):
     """Active leases temporarily pin bytes needed by a cold artifact."""
+
+
+_METER = metrics.get_meter("tracecat.executor.registry_cache")
+_ADMISSION_WAIT_MS = _METER.create_histogram(
+    "registry_cache.admission_lock.wait_ms",
+    unit="ms",
+    description="Time spent waiting to acquire the registry cache admission lock.",
+)
+_ADMISSION_HOLD_MS = _METER.create_histogram(
+    "registry_cache.admission_lock.hold_ms",
+    unit="ms",
+    description="Time the registry cache admission lock was held per acquisition.",
+)
+_CAPACITY_STEP_MS = _METER.create_histogram(
+    "registry_cache.capacity_check.step_ms",
+    unit="ms",
+    description="Duration of each capacity-check step run under the admission lock.",
+)
+
+SQUASHFS_MOUNT_SLOTS = 1
+"""In-flight SquashFS mounts per pod; loop-device setup races across pods."""
+
+
+class MeteredAdmissionLock(asyncio.Lock):
+    """asyncio.Lock that records wait and hold time for the admission lock."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._acquired_at: float | None = None
+
+    async def acquire(self) -> Literal[True]:
+        started = time.monotonic()
+        await super().acquire()
+        self._acquired_at = time.monotonic()
+        _ADMISSION_WAIT_MS.record((self._acquired_at - started) * 1000)
+        return True
+
+    def release(self) -> None:
+        if (acquired_at := self._acquired_at) is not None:
+            self._acquired_at = None
+            _ADMISSION_HOLD_MS.record((time.monotonic() - acquired_at) * 1000)
+        super().release()
+
+
+def _record_capacity_step(step: str, started: float) -> float:
+    """Record one capacity-check step and return the next step's start."""
+    now = time.monotonic()
+    _CAPACITY_STEP_MS.record((now - started) * 1000, {"step": step})
+    return now
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,11 +267,15 @@ class RegistryArtifactMaterializationContext:
     defer_cleanup: Callable[[Path], None]
     squashfs_mount_policy: registry_artifact_mounts.SquashfsMountPolicy
     admission: RegistryArtifactAdmission | None = None
+    mount_slots: asyncio.Semaphore | None = None
+    squashfs_remount_failed: bool = False
+    """This lease's warm remount already exhausted its mount attempts."""
 
     def can_mount_squashfs(self) -> bool:
         """Return whether SquashFS mounting is enabled and worth attempting."""
         return (
-            config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED
+            not self.squashfs_remount_failed
+            and config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED
             and self.squashfs_mount_policy.should_attempt_mount()
         )
 
@@ -491,7 +547,8 @@ class RegistryArtifactCacheStorage:
         self._owner_binding_lock = threading.Lock()
         self._owner_loop: asyncio.AbstractEventLoop | None = None
         self._owner_thread_id: int | None = None
-        self._admission_lock = asyncio.Lock()
+        self._admission_lock = MeteredAdmissionLock()
+        self._mount_slots = asyncio.Semaphore(SQUASHFS_MOUNT_SLOTS)
         self._swept = False
         self._sweep_task: asyncio.Task[None] | None = None
         self._sweep_lock = asyncio.Lock()
@@ -574,7 +631,9 @@ class RegistryArtifactCacheStorage:
         runtime = self._runtime_for(cache_key)
         runtime.lock_users += 1
         try:
-            if not wait and runtime.lock.locked():
+            # locked() reads False while a released lock is handed to a waiter,
+            # so also refuse when another task holds or waits on this key.
+            if not wait and (runtime.lock.locked() or runtime.lock_users > 1):
                 yield None
                 return
             async with runtime.lock:
@@ -629,6 +688,7 @@ class RegistryArtifactCacheStorage:
             defer_cleanup=self._defer_cleanup,
             squashfs_mount_policy=self._squashfs_mount_policy,
             admission=admission,
+            mount_slots=self._mount_slots,
         )
 
     def _new_entry_lease(
@@ -854,8 +914,11 @@ class RegistryArtifactCacheStorage:
                 max_bytes=max_bytes,
             )
 
+        step_started = time.monotonic()
         trash_clean, startup_clean = await self._reclaim_pending_work()
+        step_started = _record_capacity_step("reclaim", step_started)
         snapshot = await asyncio.to_thread(self._scan_cache_snapshot)
+        step_started = _record_capacity_step("scan", step_started)
         entries = snapshot.entries
         total_bytes = snapshot.total_bytes
         fixed_bytes = (
@@ -904,6 +967,7 @@ class RegistryArtifactCacheStorage:
                 additional_bytes=additional_bytes,
             ),
         )
+        _record_capacity_step("evict", step_started)
         if not eviction_pass.fits:
             retryable_busy_bytes = sum(
                 entry.size_bytes
@@ -928,7 +992,7 @@ class RegistryArtifactCacheStorage:
         if self._refcount(cache_key) > 0:
             return True
         runtime = self._runtime.get(cache_key)
-        return runtime is not None and runtime.lock.locked()
+        return runtime is not None and (runtime.lock.locked() or runtime.lock_users > 0)
 
     async def _evict_until_fits(
         self,
@@ -1175,18 +1239,16 @@ class RegistryArtifactCacheStorage:
         *,
         allocation_unit: int | None = None,
     ) -> RegistryArtifactCacheEntry:
-        """Measure all entry-owned inodes, pruning active mount contents."""
+        """Measure all entry-owned inodes, never descending into the mount point.
+
+        The mount point only holds a mounted image, already charged through the
+        image file. Warm mounts land outside the admission lock, mid-scan.
+        """
         paths = self._paths_for(cache_key)
         validate_cache_entry_path(paths)
         if allocation_unit is None:
             allocation_unit = _filesystem_allocation_unit(self.cache_dir)
-        try:
-            mount_is_active = registry_artifact_mounts.is_mount(
-                paths.squashfs_mount_dir
-            )
-        except FileNotFoundError:
-            mount_is_active = False
-        pruned_directories = (paths.squashfs_mount_dir,) if mount_is_active else ()
+        pruned_directories = (paths.squashfs_mount_dir,)
         size_bytes = _directory_footprint(
             paths.entry_dir,
             allocation_unit=allocation_unit,

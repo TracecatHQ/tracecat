@@ -731,6 +731,9 @@ async def _run_mount_lifecycle_child() -> None:
                 str(fourth_paths.squashfs_mount_dir)
             ]
             config.TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = 2
+            # A warm remount writes nothing, so a budget shrunk outside any
+            # write must mark the cache dirty itself.
+            cache._budget_dirty = True
         mounts_after_converge = _squashfs_mounts(cache_dir)
         payload["converged_lease_unmounted"] = (
             str(fourth_paths.squashfs_mount_dir) not in mounts_after_converge
