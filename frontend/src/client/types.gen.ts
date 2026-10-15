@@ -2776,6 +2776,14 @@ export type CaseRead = {
 }
 
 export type CaseReadMinimal = {
+  /**
+   * This row is the promoted exact case reference.
+   */
+  is_exact_match?: boolean
+  /**
+   * The promoted reference falls outside the filtered results.
+   */
+  is_outside_filters?: boolean
   id: string
   short_id: string
   created_at: string
@@ -16121,6 +16129,10 @@ export type CasesSearchCasesData = {
    */
   assigneeId?: Array<string> | null
   /**
+   * Filter by exact case UUID
+   */
+  caseId?: string | null
+  /**
    * Cursor for pagination
    */
   cursor?: string | null
@@ -16157,6 +16169,10 @@ export type CasesSearchCasesData = {
    */
   limit?: number
   /**
+   * The ordinary filter population is empty; exact promotion may still match.
+   */
+  matchNone?: boolean
+  /**
    * Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
    */
   orderBy?:
@@ -16175,6 +16191,10 @@ export type CasesSearchCasesData = {
    * Filter by case priority
    */
   priority?: Array<CasePriority> | null
+  /**
+   * Place a complete case reference first, even outside view filters. Workspace authorization and explicit identity/relationship constraints remain strict. Filtered counts exclude cases outside the view.
+   */
+  promoteExactMatch?: boolean
   /**
    * Reverse pagination direction
    */

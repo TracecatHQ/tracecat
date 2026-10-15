@@ -195,6 +195,7 @@ from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.integrations.providers import all_providers
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
+from tracecat.mcp.action_discovery import list_action_entry_page
 from tracecat.mcp.auth import (
     create_mcp_auth,
     get_token_identity,
@@ -2364,11 +2365,16 @@ inside workflow YAML under `definition.actions[*].action`.
 - `tracecat://platform/dsl-reference` is a workflow YAML/DSL reference, not an \
 MCP tool argument reference. MCP tool schemas and tool docstrings are the source \
 of truth for tool calls.
-- Do not invent `tools.*` action names. Add third-party actions only after the \
-user explicitly names or confirms the integration/tool. For generic requests, \
-show candidate integrations first.
-- Prefer tool-agnostic scaffolding with `core.http_request` and \
-`core.script.run_python` unless a specific integration is requested.
+- Action priority: integration action > core action > Python. Before writing \
+any API call, search `list_actions` with a short product or action-name \
+substring, and follow `next_cursor` until a suitable action is found or \
+`has_more` is false. Use its \
+`tools.<integration_slug>.*` action when one exists; otherwise use \
+`core.http_request`, `core.http_paginate`, or `core.transform.*`. Use \
+`core.script.run_python` only for a self-contained step no action covers, and \
+never call an API from Python when an action can make the call.
+- Do not invent `tools.*` action names; use names from `list_actions`. If a \
+generic request fits several integrations, show the candidates first.
 - For `ai.agent`, prefer the `model` object. Use legacy top-level \
 `model_name`/`model_provider` only when requested.
 - For `ai.preset_agent`, tools come from the preset and its skills; the \
@@ -2392,8 +2398,8 @@ casting to `int`, `float`, `str`, or `bool`
 do not parse — `${{ TRIGGER.x || false }}` is a parse error. \
 Use `${{ TRIGGER.x || False }}`, `${{ TRIGGER.x || 0 }}`, or `${{ TRIGGER.x || "" }}`.
 - There is NO inline `for` comprehension syntax in expressions. \
-Use `core.script.run_python` for list transformations; see loop guidance below \
-for workflow fan-out.
+Use `core.transform.map` or `core.transform.filter` for list transformations; \
+see loop guidance below for workflow fan-out.
 
 ### OAuth tokens in expressions
 Integration OAuth tokens resolve through a secret named `<provider_id>_oauth` \
@@ -2788,19 +2794,17 @@ Use this structure for integration actions in workflow YAML:
 action: tools.<integration_slug>.<action_name>
 ```
 
-Examples of valid shapes (syntax only):
+### Action Priority
+1. Prefer matching `tools.*`. Search `list_actions` with a short literal
+   product/action substring (`query="crowdstrike"`) or namespace; follow
+   `next_cursor` until a fit appears or `has_more` is false; inspect its
+   schema and credentials.
+2. Otherwise use `core.http_request` / `core.http_paginate`; use
+   `core.transform.*`, `core.table.*`, and `core.cases.*` as needed.
+3. Use `core.script.run_python` only when no action covers the step. Never
+   call APIs from Python when an action can.
 
-```yaml
-action: tools.<integration_slug>.lookup
-action: tools.<integration_slug>.create_record
-action: tools.<integration_slug>.search
-```
-
-### Tool Selection Rules for `tools.*`
-- Add `tools.<integration_slug>.*` actions only when the user explicitly asks for that integration.
-- For generic requests (for example, "enrich this threat"), present available integration options first.
-- Do not include a third-party integration action in the workflow until the user confirms the specific integration.
-- When no integration is explicitly requested, prefer `core.http_request` and `core.script.run_python`.
+Never invent `tools.*`; show candidates when ambiguous.
 
 ## Common Workflow Patterns
 
@@ -2824,8 +2828,8 @@ step needs combined results; omit gather otherwise. Avoid high-fanout scatter fo
 DB-backed table/case writes; >10 concurrent branches can exhaust Postgres
 connection slots. Scatter can stagger work with `interval`, but it does not batch
 DB writes. Use one `core.table.insert_rows` action for row-shaped table batches,
-or `core.script.run_python` for shaping, joins, dedupe, chunked table writes,
-batch table uploads, or bounded async HTTP loops.
+or `core.script.run_python` for joins, dedupe, chunked table writes, or batch
+table uploads.
 ```yaml
 actions:
   - ref: scatter_alerts
@@ -2872,8 +2876,8 @@ actions:
         model_name: claude-sonnet-4-6
         model_provider: anthropic
       actions:
-        - core.http_request
-        - core.script.run_python
+        - core.cases.get_case
+        - core.table.search_rows
       instructions: "You are a SOC analyst. Be thorough."
       max_tool_calls: 10
 ```
@@ -3187,7 +3191,8 @@ Take the cheapest rung that does the job:
    `core.transform.deduplicate`, or `core.transform.drop_nulls` for list work,
    and `core.transform.eval_jsonpaths` to pull fields out of a nested response.
 4. `core.script.run_python` when the work is genuinely data-heavy — joins,
-   grouping, batching, chunked writes, or bounded async HTTP loops.
+   grouping, batching, or chunked writes. API calls belong in integration or
+   `core.http_*` actions, not Python (see Action Priority in the DSL reference).
 
 Repeating a one-line `run_if` across sibling branches that genuinely need the
 same guard is fine. Do not introduce a `core.script.run_python` router action
@@ -3201,10 +3206,10 @@ expression for an extra scheduled action and a serialization hop.
   `ai.preset_agent` per item, branch enrichment, or call
   `core.workflow.execute`. Add `core.transform.gather` only when downstream
   steps need combined results.
-- Use `core.script.run_python` for data-heavy in-process work such as list
-  transforms, batching, joins, dedupe, sorting, grouping, chunked table writes,
-  batch table uploads, and bounded async HTTP loops. Run-python scripts can
-  import Tracecat modules for platform-native helpers.
+- Use `core.script.run_python` for data-heavy in-process work such as
+  batching, joins, dedupe, sorting, grouping, chunked table writes, and batch
+  table uploads. Run-python scripts can import Tracecat modules for
+  platform-native helpers.
 - For bulk table writes, prefer one native `core.table.insert_rows` action when
   rows are already shaped (up to 1000 rows per batch). Do not scatter one insert
   per row. If shaping, chunking, or mixed table/case side effects are needed,
@@ -4803,21 +4808,27 @@ async def list_actions(
     """Search or browse available actions and return compact context metadata.
 
     Supports three usage modes:
-    - **Search**: provide `query` to search by name/description across all `namespaces`.
-      Example: list_actions(workspace_id, query="send message")
+    - **Search**: provide a literal substring `query` to search by name/description
+      across all `namespaces`; this is not a multi-word keyword search.
+      Example: list_actions(workspace_id, query="message")
     - **Browse by `namespace`**: provide `namespace` without `query` to list all actions
       in a `namespace`. Example: list_actions(workspace_id, namespace="core")
     - **Browse all**: omit both to list all available actions.
 
     Common `namespaces`: `core`, `tools`, `ai`.
+    Exact namespace/name matches appear before prefix and description matches.
+    A missing first-page match does not mean the action is absent: continue with
+    `next_cursor` while `has_more` is true.
 
     Args:
         workspace_id: The workspace ID (from list_workspaces).
         query: Optional search string to match against action names and descriptions.
         namespace: Optional namespace prefix filter (e.g. "core").
         limit: Maximum number of results (1-200, default 50).
+        cursor: Pass `next_cursor` to continue when `has_more` is true. Keep
+            the same query, namespace, and limit across pages.
 
-    Returns JSON array of objects with fields:
+    Returns a paginated `items` array of objects with fields:
     - action_name: Fully qualified name (e.g. "core.http_request")
     - description: One-line description of the action
     - configured: Whether required secrets are present in the workspace
@@ -4833,15 +4844,12 @@ async def list_actions(
         workspace_inventory = await load_secret_inventory(role)
         oauth_inventory = await load_oauth_inventory(role)
         async with RegistryActionsService.with_session(role=role) as svc:
-            if query:
-                entries = await svc.search_actions_from_index(query, limit=None)
-            else:
-                entries = await svc.list_actions_from_index(namespace=namespace)
+            page = await list_action_entry_page(
+                svc, query=query, namespace=namespace, limit=limit, cursor=cursor
+            )
             items: list[ActionDiscoveryResponse] = []
-            for entry, _ in entries:
+            for entry, _ in page.entries:
                 action_name = f"{entry.namespace}.{entry.name}"
-                if query and namespace and not entry.namespace.startswith(namespace):
-                    continue
                 indexed = await svc.get_action_from_index(action_name)
                 if indexed is None:
                     continue
@@ -4861,14 +4869,13 @@ async def list_actions(
                         optional_secrets=optional_secret_names(requirements),
                     )
                 )
-            page = _paginate_items(
-                items,
-                tool_name="list_actions",
-                limit=limit,
-                cursor=cursor,
-                filters={"query": query, "namespace": namespace},
+            return MCPPaginatedResponse(
+                items=items,
+                next_cursor=page.next_cursor,
+                prev_cursor=page.prev_cursor,
+                has_more=page.has_more,
+                has_previous=page.has_previous,
             )
-            return page
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:

@@ -57,7 +57,7 @@ it("debounces search requests while typing", async () => {
   await advance(1)
   expect(searchTerms(searchCases)).toEqual([undefined])
 
-  for (const query of ["C", "CA", "CASE", "CASE-1"]) {
+  for (const query of ["p", "po", "pow", "powershell"]) {
     act(() => result.current.setSearchQuery(query))
     await advance(100)
   }
@@ -65,9 +65,9 @@ it("debounces search requests while typing", async () => {
   expect(searchTerms(searchAggregates)).toEqual([undefined])
 
   await advance(300)
-  expect(searchTerms(searchCases)).toEqual([undefined, "CASE-1"])
-  expect(searchTerms(searchAggregates)).toEqual([undefined, "CASE-1"])
-  expect(result.current.filters.searchQuery).toBe("CASE-1")
+  expect(searchTerms(searchCases)).toEqual([undefined, "powershell"])
+  expect(searchTerms(searchAggregates)).toEqual([undefined, "powershell"])
+  expect(result.current.filters.searchQuery).toBe("powershell")
 })
 
 it("applies a cleared search immediately", async () => {
