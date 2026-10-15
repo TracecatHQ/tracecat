@@ -1,0 +1,55 @@
+packages/tracecat-registry/tracecat_registry/sdk/workflows.py
+  s_3fab07a328f4d4::t_5ec5fa3d1e4ae7 268-286
+tests/unit/test_chat_tools.py
+  s_3fab07a328f4d4::t_130a547a3d27d9 58
+tracecat/agent/action_discovery.py
+  s_3fab07a328f4d4::t_c14ac55f27fb3f 6,51
+  s_3fab07a328f4d4::t_574442b8344eea 33,86
+  s_3fab07a328f4d4::t_da840171b08672 1-5,7-32,34-50,52-85,87-97
+tracecat/mcp/server.py
+  s_3fab07a328f4d4::t_70d45014344de2 54,4842-4846,4848,4869-4874
+tracecat/mcp/schemas.py
+  s_3fab07a328f4d4::t_c3a01feb678683 355-368
+tests/unit/test_authoring_context.py
+  s_3fab07a328f4d4::t_d8daf0a40c01bb 411-475
+packages/tracecat-registry/tracecat_registry/ctx.pyi
+  s_3fab07a328f4d4::t_434de00448394c 1325-1332,1425-1432
+tracecat/registry/actions/service.py
+  s_3fab07a328f4d4::t_ed7a4cab924cfb 427,430-440,1154-1158,1196-1218,1221-1222
+  s_3fab07a328f4d4::t_c923eb68c39c87 1219-1220
+tests/unit/test_registry_actions_custom_entitlement.py
+  s_3fab07a328f4d4::t_8c3f2fb8f87277 491-524
+  s_3fab07a328f4d4::t_5140b8e4f8db47 490
+packages/tracecat-registry/tracecat_registry/core/workflow.py
+  s_3fab07a328f4d4::t_08af8f913d0d37 253-286
+  s_3fab07a328f4d4::t_7de17c4cf4f4c5 250-252
+tracecat/workflow/executions/internal_router.py
+  s_3fab07a328f4d4::t_95022943235d2e 24
+  s_3fab07a328f4d4::t_a22f42cdb432b5 52-53,59,770-808
+  s_3fab07a328f4d4::t_ea4dcf79783914 809-810
+tests/unit/test_mcp_server.py
+  s_3fab07a328f4d4::t_3c808f4c144e1d 7720-7749,7753-7782,7786-7787
+  s_3fab07a328f4d4::t_574442b8344eea 7750-7752
+  s_3fab07a328f4d4::t_a52e2fc0647416 7783-7785
+  s_3fab07a328f4d4::t_bc8f2ecd7987bf 7719
+tracecat/chat/tools.py
+  s_3fab07a328f4d4::t_130a547a3d27d9 42
+tests/registry/test_workflow_sdk.py
+  s_3fab07a328f4d4::t_84799200a138a4 428-451
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a9a07d30a5365a5d288f84da2c4c906d1e61ac96",
+  "prompts": {},
+  "sessions": {
+    "s_3fab07a328f4d4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a140d1-98e7-7b53-9710-5c426d6d882a",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
