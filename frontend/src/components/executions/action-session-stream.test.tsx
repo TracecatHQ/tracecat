@@ -97,7 +97,7 @@ describe("ActionSessionStream", () => {
                   toolCallId: "call-1",
                   state: "output-error",
                   input: {},
-                  errorText: "Request was aborted",
+                  errorText: "Unrelated tool failure",
                 },
               ],
             },
