@@ -23,26 +23,9 @@ on:
       - env.sh
       - .github/workflows/test-python.yml
   pull_request:
+    # These jobs are required by the main branch ruleset. Path filters would
+    # leave frontend-only or docs-only PRs waiting for checks that never start.
     branches: ["main", "staging"]
-    paths:
-      - tracecat/**
-      - alembic/**
-      - registry/**
-      - tests/**
-      - packages/tracecat-ee/**
-      - packages/tracecat-registry/**
-      - pyproject.toml
-      - uv.lock
-      - docker-compose.yml
-      - docker-compose.local.yml
-      - docker-compose.dev.yml
-      - deployments/postgres/**
-      - scripts/postgres/**
-      - scripts/tests/test_pgvector*.sh
-      - scripts/tests/test_pg_trgm.sh
-      - .env.example
-      - env.sh
-      - .github/workflows/test-python.yml
 
 permissions:
   contents: read
