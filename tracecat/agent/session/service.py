@@ -398,6 +398,18 @@ class _DecisionRow(NamedTuple):
     approved_at: datetime
 
 
+def _session_line_time(content: Mapping[str, Any]) -> datetime | None:
+    """When the runtime wrote a session line; rows are inserted in batches later."""
+    match content.get("timestamp"):
+        case str(raw):
+            try:
+                return datetime.fromisoformat(raw)
+            except ValueError:
+                return None
+        case _:
+            return None
+
+
 class AgentSessionService(BaseWorkspaceService):
     """Service for managing agent sessions and history."""
 
@@ -3112,7 +3124,13 @@ class AgentSessionService(BaseWorkspaceService):
             inner_message = content.get("message") or content
             sanitized_message = sanitize_message_tool_inputs(inner_message)
             message = ClaudeSDKMessageTA.validate_python(sanitized_message)
-            messages.append(ChatMessage(id=str(entry.id), message=message))
+            messages.append(
+                ChatMessage(
+                    id=str(entry.id),
+                    message=message,
+                    created_at=_session_line_time(content),
+                )
+            )
 
             if msg_type != "assistant":
                 continue

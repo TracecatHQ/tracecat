@@ -3,12 +3,7 @@ from typing import cast
 from uuid import uuid4
 
 import pytest
-from claude_agent_sdk.types import (
-    AssistantMessage,
-    ToolResultBlock,
-    ToolUseBlock,
-    UserMessage,
-)
+from claude_agent_sdk.types import AssistantMessage, TextBlock, ToolUseBlock
 
 from tracecat.agent.adapter.vercel import (
     DataEventPayload,
@@ -46,43 +41,17 @@ def _approval_message(
     )
 
 
-def _decided_call(
-    status: ApprovalStatus,
-    *,
-    result: str,
-    is_error: bool,
-    reason: str | None = None,
-) -> list[ChatMessage]:
-    """A tool call that needed approval, its decision, and its recorded result."""
-    tool_call_id = "toolu_gated"
-    return [
-        ChatMessage(
-            id=str(uuid4()),
-            message=AssistantMessage(
-                content=[
-                    ToolUseBlock(
-                        id=tool_call_id,
-                        name="core__cases__list_cases",
-                        input={"limit": 100},
-                    )
-                ],
-                model="model",
-            ),
-        ),
-        _approval_message(status, tool_call_id=tool_call_id, reason=reason),
-        ChatMessage(
-            id=str(uuid4()),
-            message=UserMessage(
-                content=[
-                    ToolResultBlock(
-                        tool_use_id=tool_call_id,
-                        content=result,
-                        is_error=is_error,
-                    )
-                ]
-            ),
-        ),
-    ]
+def test_convert_chat_messages_to_ui_carries_message_time() -> None:
+    recorded = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+    message = ChatMessage(
+        id=str(uuid4()),
+        message=AssistantMessage(content=[TextBlock(text="Done.")], model="claude"),
+        created_at=recorded,
+    )
+
+    [ui_message] = convert_chat_messages_to_ui([message])
+
+    assert ui_message.metadata == {"created_at": recorded.isoformat()}
 
 
 def test_convert_chat_messages_to_ui_emits_pending_approval_request() -> None:
