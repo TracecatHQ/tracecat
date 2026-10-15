@@ -150,7 +150,11 @@ export function WorkflowEventsHeader({
   execution: WorkflowExecutionReadCompact
   embedded?: boolean
 }) {
-  const { setSelectedNodeId } = useWorkflowBuilder()
+  const {
+    setSelectedNodeId,
+    setCurrentExecutionId,
+    expandSidebarAndFocusEvents,
+  } = useWorkflowBuilder()
   const workspaceId = useWorkspaceId()
   const parentExec = execution.parent_wf_exec_id
   const parentExecId = parentExec ? executionId(parentExec) : null
@@ -269,6 +273,10 @@ export function WorkflowEventsHeader({
           workflowId={executionId(execution.id).wf}
           open={rerunOpen}
           onOpenChange={setRerunOpen}
+          onStarted={(wfExecId) => {
+            setCurrentExecutionId(wfExecId)
+            expandSidebarAndFocusEvents()
+          }}
         />
       </div>
 

@@ -36,7 +36,6 @@ import {
   useRerunWorkflowExecution,
   useWorkflowRerunPreview,
 } from "@/hooks/use-workflow-rerun"
-import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const DRAFT_TARGET = "draft"
@@ -47,11 +46,13 @@ export function WorkflowRerunDialog({
   workflowId,
   open,
   onOpenChange,
+  onStarted,
 }: {
   executionId: string
   workflowId: string
   open: boolean
   onOpenChange: (open: boolean) => void
+  onStarted: (wfExecId: string) => void
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -67,7 +68,10 @@ export function WorkflowRerunDialog({
           <WorkflowRerunDialogContent
             executionId={executionId}
             workflowId={workflowId}
-            onDone={() => onOpenChange(false)}
+            onStarted={(wfExecId) => {
+              onStarted(wfExecId)
+              onOpenChange(false)
+            }}
           />
         )}
       </DialogContent>
@@ -78,15 +82,13 @@ export function WorkflowRerunDialog({
 function WorkflowRerunDialogContent({
   executionId,
   workflowId,
-  onDone,
+  onStarted,
 }: {
   executionId: string
   workflowId: string
-  onDone: () => void
+  onStarted: (wfExecId: string) => void
 }) {
   const workspaceId = useWorkspaceId()
-  const { setCurrentExecutionId, expandSidebarAndFocusEvents } =
-    useWorkflowBuilder()
   const [target, setTarget] = useState<string>(DRAFT_TARGET)
   const useDraft = target === DRAFT_TARGET
   const version = useDraft ? null : Number(target)
@@ -118,9 +120,7 @@ function WorkflowRerunDialogContent({
       version,
       fixed_action_refs: [...selected].sort(),
     })
-    setCurrentExecutionId(result.wf_exec_id)
-    expandSidebarAndFocusEvents()
-    onDone()
+    onStarted(result.wf_exec_id)
   }
 
   return (
