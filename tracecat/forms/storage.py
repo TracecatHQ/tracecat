@@ -67,13 +67,14 @@ async def lock_forms_for_deletion(
     return await file_blob_keys(session, workspace_id, condition)
 
 
-async def purge_expired_files(session: AsyncSession) -> int:
+async def purge_expired_files(session: AsyncSession, failed: set[uuid.UUID]) -> int:
     """Delete a bounded batch of the files nobody claimed in time.
 
     Covers every workspace, so the session must bypass RLS. Deletes the blobs
     while the batch is locked, then the rows of the blobs that are gone. A
-    blob that storage failed to delete keeps its row, so the next purge
-    retries it. Returns how many files it deleted.
+    blob that storage failed to delete keeps its row for the next pass to
+    retry, and its file joins ``failed``, which the batch skips. Returns how
+    many files the batch held.
     """
     # Lock the batch first, in a statement of its own. As a subquery of the
     # DELETE, Postgres may run the limited select once per file row, and each
@@ -83,6 +84,7 @@ async def purge_expired_files(session: AsyncSession) -> int:
         .where(
             FormFile.submission_id.is_(None),
             FormFile.created_at < datetime.now(UTC) - PENDING_FILE_TTL,
+            FormFile.id.not_in(failed),
         )
         .limit(EXPIRED_FILE_PURGE_BATCH)
         .with_for_update(skip_locked=True)
@@ -93,14 +95,14 @@ async def purge_expired_files(session: AsyncSession) -> int:
         file_blob_key(workspace_id, form_id, file_id): file_id
         for workspace_id, form_id, file_id in rows
     }
-    failed = await delete_file_blobs(list(file_ids_by_key))
-    file_ids = [
-        file_id for key, file_id in file_ids_by_key.items() if key not in failed
-    ]
-    if file_ids:
-        await session.execute(delete(FormFile).where(FormFile.id.in_(file_ids)))
+    failed_keys = await delete_file_blobs(list(file_ids_by_key))
+    failed.update(file_ids_by_key[key] for key in failed_keys)
+    if deleted := [
+        file_id for key, file_id in file_ids_by_key.items() if key not in failed_keys
+    ]:
+        await session.execute(delete(FormFile).where(FormFile.id.in_(deleted)))
     await session.commit()
-    return len(file_ids)
+    return len(rows)
 
 
 async def run_file_expiry(stop_event: asyncio.Event) -> None:
@@ -108,13 +110,17 @@ async def run_file_expiry(stop_event: asyncio.Event) -> None:
 
     Runs in every API process until ``stop_event`` is set. Batches skip the
     rows another process has locked, so processes never purge the same file.
+    A pass skips the files it failed to delete, so it reaches every expired
+    file once, and the next pass retries them.
     """
     while not stop_event.is_set():
         try:
             async with get_async_session_bypass_rls_context_manager() as session:
+                failed: set[uuid.UUID] = set()
                 while (
                     not stop_event.is_set()
-                    and await purge_expired_files(session) == EXPIRED_FILE_PURGE_BATCH
+                    and await purge_expired_files(session, failed)
+                    == EXPIRED_FILE_PURGE_BATCH
                 ):
                     pass
         except Exception as e:

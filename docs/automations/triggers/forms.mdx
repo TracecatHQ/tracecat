@@ -109,7 +109,7 @@ A field without `widget` uses the default widget for its input type. `T | None` 
 | `cards` | `enum[...]`, `str`, `list[enum[...]]`, `list[str]` | | String, or list of strings for a list input |
 | `tags` | `list[str]` | `list[str]` | List of strings the requester types |
 | `date` | `str`, `datetime` | | `YYYY-MM-DD` |
-| `datetime` | `datetime`, `str` | `datetime` | `YYYY-MM-DDTHH:MM`, with optional seconds and a `Z` or `±HH:MM` offset |
+| `datetime` | `datetime`, `str` | `datetime` | `YYYY-MM-DDTHH:MM`, with optional seconds and an optional `Z` or `±HH:MM` offset |
 | `user` | `dict`, `list[dict]` | | `{user_id, email, first_name, last_name}`, or a list of them |
 | `file` | `dict`, `list[dict]` | | `{id, name, content_type, size, sha256}`, or a list of them |
 
@@ -248,7 +248,7 @@ form:
 | Pull, block absent | Sets the workflow's existing form offline and clears its config. The form keeps its ID and submissions. |
 | Pull, block no longer matches the inputs | The pull succeeds and stores the block as written. The form stops accepting submissions until you fix its config. |
 
-A pull that carries a `form:` block needs `form:create` and `form:update`. A pull that sets a form offline or clears its config needs `form:update`.
+Applying a pull that carries a `form:` block needs `form:create` and `form:update`. Applying a pull that sets a form offline or clears its config needs `form:update`. A dry run needs neither.
 
 A Tracecat instance on a version without Forms writes `definition.yml` without the `form:` block, so the next pull on a newer instance takes that form offline and clears its config. Upgrade every instance that pushes to the repository before you build forms in it.
 

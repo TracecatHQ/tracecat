@@ -600,6 +600,8 @@ def test_a_field_default_must_be_a_valid_answer(
         # Shaped right, but not a real date or time.
         ("2026-02-30T10:00:00", False),
         ("2026-02-03T10:00:60", False),
+        # Python reads this as +02:00; a browser rejects it.
+        ("2026-02-03T10:00:00+01:60", False),
     ],
 )
 def test_a_datetime_answer_or_default_must_be_one_every_browser_parses(

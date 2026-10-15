@@ -10086,8 +10086,13 @@ async def test_pull_needs_form_scopes_to_create_replace_or_clear_a_form(
         "form:create",
         "form:update",
     ]
-    # A file without the block would take the online form offline.
-    assert await refused(None) == ["form:update"]
+    # A file without the block would take the online form offline. The import
+    # decides on the row it would clear, so the whole pull rolls back.
+    _, offline = await _pull_form_tree(session, workflow_only, None)
+    assert offline.success is False
+    [diagnostic] = offline.diagnostics
+    assert diagnostic.error_type == "transaction"
+    assert "needs form:update" in diagnostic.message
     session.expire_all()
     form = await _only_form(session, svc_role)
     assert form is not None

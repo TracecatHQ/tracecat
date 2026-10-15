@@ -232,7 +232,7 @@ class FakeBlobStore:
     presigned: list[dict[str, Any]] = field(default_factory=list)
     deleted: list[str] = field(default_factory=list)
     fail_uploads: bool = False
-    fail_deletes: bool = False
+    undeletable: set[str] = field(default_factory=set)
 
     async def upload_file(
         self,
@@ -258,9 +258,9 @@ class FakeBlobStore:
     async def delete_file(
         self, key: str, bucket: str, *, redact_log_identifiers: bool = False
     ) -> None:
-        """A key holding ``fail`` raises, after it is recorded."""
+        """A key holding ``fail`` or in ``undeletable`` raises, after it is recorded."""
         self.deleted.append(key)
-        if self.fail_deletes or "fail" in key:
+        if key in self.undeletable or "fail" in key:
             raise blob.StorageDeleteError(error_code="SlowDown")
         self.objects.pop(key, None)
 

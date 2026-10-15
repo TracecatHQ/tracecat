@@ -35,6 +35,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.dsl.common import DSLInput, apply_expects_order
+from tracecat.exceptions import ScopeDeniedError
 from tracecat.expressions.schemas import ExpectedField
 from tracecat.forms.access import (
     can_edit_forms,
@@ -109,6 +110,13 @@ def stored_form_config(form: Form) -> FormConfig:
             "success_message": form.success_message,
             "layout": form.layout,
         }
+    )
+
+
+def is_configured(form: Form) -> bool:
+    """Whether a form is online or has any config. Git sync writes only these."""
+    return form.status == FormStatus.ONLINE or bool(
+        stored_form_config(form).model_dump()
     )
 
 
@@ -490,15 +498,23 @@ class FormsService(BaseWorkspaceService):
     ) -> None:
         """Write a workflow's form from a git pull, in the caller's transaction.
 
-        Flushes without committing, checks nothing and writes no audit event:
+        Flushes without committing, checks no config and writes no audit event:
         a pulled config that no longer resolves is stored and shows its issues.
-        With no config, an existing form goes offline with an empty config and
-        keeps its submissions; a workflow without a form is left alone.
+        The caller checks the scopes a pulled config needs. With no config, a
+        configured form goes offline with an empty config and keeps its
+        submissions, which needs ``form:update``. A workflow without a
+        configured form is left alone.
         """
         form = await self.get_form_by_workflow_id(workflow_id)
         if form_config is None:
-            if form is None:
+            if form is None or not is_configured(form):
                 return
+            if not has_scope(self.role.scopes or frozenset(), "form:update"):
+                raise ScopeDeniedError(
+                    required_scopes=["form:update"],
+                    missing_scopes=["form:update"],
+                    message="Taking a form offline and clearing it needs form:update",
+                )
             form_config, status = FormConfig(), FormStatus.OFFLINE
         if form is None:
             form = Form(workspace_id=self.workspace_id, workflow_id=workflow_id)

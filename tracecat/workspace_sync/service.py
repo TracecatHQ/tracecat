@@ -11,7 +11,7 @@ from difflib import unified_diff
 from typing import Any, cast
 
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.skill.library.catalog import load_library
@@ -37,7 +37,6 @@ from tracecat.exceptions import (
     TracecatSettingsError,
     TracecatValidationError,
 )
-from tracecat.forms.enums import FormStatus
 from tracecat.git.types import GitUrl
 from tracecat.git.utils import parse_git_url
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -822,42 +821,6 @@ class WorkspaceSyncService(SyncMappingService):
             sorted(_pull_scopes_for_spec(spec, dry_run=dry_run))
         )
 
-    async def _require_scope_to_clear_forms(
-        self, spec: WorkspaceSpec, local_ids: Mapping[str, WorkflowUUID]
-    ) -> None:
-        """Require ``form:update`` when a pull takes a configured form offline.
-
-        A workflow pulled without a ``form:`` block takes its form offline and
-        clears its config. That changes the form only if it is configured,
-        which is the rule export uses to write the block: online, or with any
-        config.
-        """
-        workflow_ids = [
-            local_ids[source_id]
-            for source_id, workflow in spec.workflows.items()
-            if workflow.form is None
-        ]
-        if not workflow_ids:
-            return
-        configured = await self.session.scalar(
-            select(Form.id)
-            .where(
-                Form.workspace_id == self.workspace_id,
-                Form.workflow_id.in_(workflow_ids),
-                or_(
-                    Form.status == FormStatus.ONLINE.value,
-                    Form.title.is_not(None),
-                    Form.description.is_not(None),
-                    Form.success_message.is_not(None),
-                    # A cleared layout is stored as JSON null, not SQL NULL.
-                    func.jsonb_typeof(Form.layout) != "null",
-                ),
-            )
-            .limit(1)
-        )
-        if configured is not None:
-            self._enforce_required_scopes(["form:update"])
-
     async def _entitled_non_workflow_types(
         self,
         *,
@@ -1084,7 +1047,6 @@ class WorkspaceSyncService(SyncMappingService):
             )
 
         remote_workflows, local_ids = await self._remote_workflows(snapshot)
-        await self._require_scope_to_clear_forms(snapshot.spec, local_ids)
 
         # Validate before writing anything; bail out on the first set of errors.
         workflow_importer = WorkflowImportService(

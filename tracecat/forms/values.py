@@ -83,7 +83,7 @@ def visible_fields(
 # or ±HH:MM offset.
 _BROWSER_DATETIME = re.compile(
     r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}"
-    r"(?::[0-9]{2}(?:\.[0-9]+)?)?(?:Z|[+-][0-9]{2}:[0-9]{2})?"
+    r"(?::[0-9]{2}(?:\.[0-9]+)?)?(?:Z|[+-][0-9]{2}:[0-5][0-9])?"
 )
 
 
@@ -126,7 +126,7 @@ def _check_value(
         return (
             FormFieldErrorCode.INVALID_DATE,
             "Enter a date and time as YYYY-MM-DDTHH:MM, with optional seconds "
-            "and a Z or ±HH:MM offset",
+            "and an optional Z or ±HH:MM offset",
         )
     return None
 
