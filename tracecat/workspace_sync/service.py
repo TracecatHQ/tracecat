@@ -816,7 +816,7 @@ class WorkspaceSyncService(SyncMappingService):
         self._enforce_required_scopes(sorted(_export_read_scopes_for_spec(spec)))
 
     def _require_pull_scopes(self, spec: WorkspaceSpec, *, dry_run: bool) -> None:
-        """Enforce scopes required by non-workflow resources in a parsed pull spec."""
+        """Enforce scopes required by the resources in a parsed pull spec."""
         self._enforce_required_scopes(
             sorted(_pull_scopes_for_spec(spec, dry_run=dry_run))
         )
@@ -2242,6 +2242,11 @@ def _pull_scopes_for_spec(spec: WorkspaceSpec, *, dry_run: bool) -> set[str]:
         for preset in spec.agent_presets.values()
     ):
         scopes.add("workspace:update")
+    # A workflow's ``form:`` block creates or replaces its form.
+    if not dry_run and any(
+        workflow.form is not None for workflow in spec.workflows.values()
+    ):
+        scopes.update(("form:create", "form:update"))
     for adapter in WORKSPACE_RESOURCE_ADAPTERS:
         if not adapter.specs(spec):
             continue

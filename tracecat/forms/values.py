@@ -4,6 +4,7 @@ The server re-evaluates everything a client is expected to do: which fields
 are visible, which are required and which choices are allowed.
 """
 
+import re
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from typing import Any
@@ -77,6 +78,15 @@ def visible_fields(
     return visible
 
 
+# The ECMAScript date time string format, which ``new Date()`` parses in every
+# browser: YYYY-MM-DDTHH:MM, optional seconds and fraction, and an optional Z
+# or ±HH:MM offset.
+_BROWSER_DATETIME = re.compile(
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}"
+    r"(?::[0-9]{2}(?:\.[0-9]+)?)?(?:Z|[+-][0-9]{2}:[0-5][0-9])?"
+)
+
+
 def _is_iso_date(value: Any) -> bool:
     if not isinstance(value, str):
         return False
@@ -88,14 +98,15 @@ def _is_iso_date(value: Any) -> bool:
 
 
 def _is_iso_datetime(value: Any) -> bool:
-    if not isinstance(value, str):
+    # Other ISO forms parse too, such as 2026-W06-2T10:00:00 and
+    # 20260203T100000, but a browser shows them as Invalid Date.
+    if not isinstance(value, str) or not _BROWSER_DATETIME.fullmatch(value):
         return False
     try:
         datetime.fromisoformat(value)
     except ValueError:
         return False
-    # A date alone parses as midnight; it is not a date and time.
-    return len(value) > len("YYYY-MM-DD")
+    return True
 
 
 def _check_value(
@@ -114,7 +125,8 @@ def _check_value(
     if field.widget is FormWidget.DATETIME and not all(map(_is_iso_datetime, items)):
         return (
             FormFieldErrorCode.INVALID_DATE,
-            "Enter a date and time in ISO 8601 format",
+            "Enter a date and time as YYYY-MM-DDTHH:MM, with optional seconds "
+            "and an optional Z or ±HH:MM offset",
         )
     return None
 

@@ -26,8 +26,7 @@ from tracecat.cases.enums import CaseEventType
 from tracecat.db.models import Form, Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
-from tracecat.forms.enums import FormStatus
-from tracecat.forms.service import stored_form_config
+from tracecat.forms.service import is_configured, stored_form_config
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import PullDiagnostic, serializable_validation_errors
 from tracecat.workflow.case_triggers.schemas import is_case_trigger_configured
@@ -126,11 +125,10 @@ def workflow_spec_from_orm(
         )
 
     remote_form = None
-    if form is not None:
-        config = stored_form_config(form).model_dump()
-        # Only a configured form is emitted: one that is online or has config.
-        if form.status == FormStatus.ONLINE or config:
-            remote_form = RemoteForm.model_validate({**config, "status": form.status})
+    if form is not None and is_configured(form):
+        remote_form = RemoteForm.model_validate(
+            {**stored_form_config(form).model_dump(), "status": form.status}
+        )
 
     schedules = None
     if include_schedules:

@@ -29,7 +29,7 @@ from tracecat_ee.secrets.references.service import SecretReferencesService
 from tests.support.fake_vcs import FakeVcsServer
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.authz.scopes import ADMIN_SCOPES, SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
     Action,
     AgentCatalog,
@@ -64,6 +64,7 @@ from tracecat.db.models import (
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
     EntitlementRequired,
+    ScopeDeniedError,
     TracecatCredentialsError,
     TracecatValidationError,
 )
@@ -10056,3 +10057,50 @@ async def test_pull_without_form_block_clears_the_form_and_keeps_its_submissions
     # Deleting the block in git removes it: the next push does not write it
     # back, so the workflow no longer shows as modified.
     assert "form" not in await _exported_workflow(service)
+
+
+@pytest.mark.anyio
+async def test_pull_needs_form_scopes_to_create_replace_or_clear_a_form(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A role without form write scopes cannot change a form through a pull."""
+    workflow_only = svc_role.model_copy(
+        update={"scopes": ADMIN_SCOPES - {"form:create", "form:update"}}
+    )
+
+    async def refused(form: dict[str, Any] | None) -> list[str]:
+        with pytest.raises(ScopeDeniedError) as exc_info:
+            await _pull_form_tree(session, workflow_only, form)
+        return exc_info.value.missing_scopes
+
+    # Creating a form is refused, but the workflow alone still pulls.
+    assert await refused(_FORM_BLOCK) == ["form:create", "form:update"]
+    _, plain = await _pull_form_tree(session, workflow_only, None)
+    assert plain.success is True
+    assert await _only_form(session, svc_role) is None
+
+    _, created = await _pull_form_tree(session, svc_role, _FORM_BLOCK)
+    assert created.success is True
+    assert await refused({**_FORM_BLOCK, "title": "Replaced"}) == [
+        "form:create",
+        "form:update",
+    ]
+    # A file without the block would take the online form offline. The import
+    # decides on the row it would clear, so the whole pull rolls back.
+    _, offline = await _pull_form_tree(session, workflow_only, None)
+    assert offline.success is False
+    [diagnostic] = offline.diagnostics
+    assert diagnostic.error_type == "transaction"
+    assert "needs form:update" in diagnostic.message
+    session.expire_all()
+    form = await _only_form(session, svc_role)
+    assert form is not None
+    assert (form.status, form.title) == (FormStatus.ONLINE, "Laptop request")
+
+    # Once cleared, the form has nothing left for a pull without the block
+    # to change, so the workflow pulls again.
+    _, cleared = await _pull_form_tree(session, svc_role, None)
+    assert cleared.success is True
+    _, again = await _pull_form_tree(session, workflow_only, None)
+    assert again.success is True
