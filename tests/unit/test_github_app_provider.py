@@ -205,18 +205,20 @@ async def test_multiple_installations_require_explicit_endpoint(
 def test_github_template_credential_priority(path: Path) -> None:
     definition = TemplateAction.from_yaml(path).definition
     secrets = definition.secrets or []
-    # App installation tokens can't read gists, so gist templates try a PAT first.
+    # App installation tokens can't read gists, so gist templates use a PAT or user tokens.
     gist = path.parent.name == "gists"
-    assert len(secrets) == (4 if gist else 3)
+    assert len(secrets) == 3
+    expected_oauth = [
+        ("github_app", "authorization_code", True),
+        ("github", "authorization_code", True),
+    ]
+    if not gist:
+        expected_oauth.insert(0, ("github_app", "client_credentials", True))
     assert [
         (s.provider_id, s.grant_type, s.optional)
         for s in secrets
         if isinstance(s, RegistryOAuthSecret)
-    ] == [
-        ("github_app", "client_credentials", True),
-        ("github_app", "authorization_code", True),
-        ("github", "authorization_code", True),
-    ]
+    ] == expected_oauth
 
     raw = path.read_text()
     expected = (
@@ -228,8 +230,7 @@ def test_github_template_credential_priority(path: Path) -> None:
         expected = (
             "Bearer ${{ SECRETS.github_pat.GITHUB_PAT_TOKEN"
             " || SECRETS.github_app_oauth.GITHUB_APP_USER_TOKEN"
-            " || SECRETS.github_oauth.GITHUB_USER_TOKEN"
-            " || SECRETS.github_app_oauth.GITHUB_APP_SERVICE_TOKEN }}"
+            " || SECRETS.github_oauth.GITHUB_USER_TOKEN }}"
         )
     assert expected in raw
-    assert raw.count("SECRETS.") == (4 if gist else 3)
+    assert raw.count("SECRETS.") == 3
