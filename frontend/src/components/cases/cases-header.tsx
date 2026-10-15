@@ -29,6 +29,7 @@ import type {
   CasePriority,
   CaseSeverity,
   CaseStatus,
+  CasesSearchCasesData,
   CaseTagRead,
   WorkspaceMember,
 } from "@/client"
@@ -110,6 +111,21 @@ function isDateFilterActive(filter: CaseDateFilterValue): boolean {
     return filter.value !== null
   }
   return filter.value.from !== undefined
+}
+
+function getDateScopeLabel(filter: CaseDateFilterValue, label: string): string {
+  if (filter.type === "preset") {
+    if (!filter.value) return `${label}: any time`
+    const days = { "1d": 1, "3d": 3, "1w": 7, "1m": 30 }[filter.value]
+    return `${label} in last ${days} ${days === 1 ? "day" : "days"}`
+  }
+  const { from, to } = filter.value
+  if (from && to) {
+    return `${label} from ${format(from, "MMM d, yyyy")} to ${format(to, "MMM d, yyyy")}`
+  }
+  if (from) return `${label} from ${format(from, "MMM d, yyyy")}`
+  if (to) return `${label} through ${format(to, "MMM d, yyyy")}`
+  return `${label}: any time`
 }
 
 interface DateFilterSelectProps {
@@ -352,6 +368,9 @@ function CaseSortSelect({ value, onChange }: CaseSortSelectProps) {
 
 interface CasesHeaderProps {
   searchQuery: string
+  appliedSearchQuery: string
+  effectiveHierarchy: NonNullable<CasesSearchCasesData["hierarchy"]>
+  isSearchPending: boolean
   onSearchChange: (query: string) => void
   sortBy: CaseSortValue
   onSortByChange: (value: CaseSortValue) => void
@@ -408,8 +427,12 @@ interface CasesHeaderProps {
   onDeselectAll?: () => void
 }
 
+/** Case search, visible scope, and the current view's filter controls. */
 export function CasesHeader({
   searchQuery,
+  appliedSearchQuery,
+  effectiveHierarchy,
+  isSearchPending,
   onSearchChange,
   sortBy,
   onSortByChange,
@@ -544,6 +567,18 @@ export function CasesHeader({
     createdAfter.type === "preset" &&
     createdAfter.value === DEFAULT_CREATED_PRESET
 
+  const includesSubCases = effectiveHierarchy === "all"
+  const hierarchyLabel = includesSubCases
+    ? "Includes sub-cases"
+    : "Top-level cases only"
+  const createdLabel = getDateScopeLabel(createdAfter, "Created")
+  const updatedLabel = getDateScopeLabel(updatedAfter, "Updated")
+  const scopeDescription = [
+    createdLabel,
+    updatedLabel,
+    ...(onIncludeSubCasesChange ? [hierarchyLabel] : []),
+  ].join(" · ")
+
   const hasFilters =
     searchQuery.trim().length > 0 ||
     !isDefaultCaseSort(sortBy) ||
@@ -601,6 +636,8 @@ export function CasesHeader({
           </div>
           <Input
             type="text"
+            aria-label="Search cases"
+            aria-describedby="case-search-scope"
             placeholder="Search by summary or ID..."
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
@@ -609,7 +646,7 @@ export function CasesHeader({
               "text-sm",
               "shadow-none outline-none",
               "placeholder:text-muted-foreground",
-              "focus-visible:ring-0 focus-visible:ring-offset-0"
+              "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
             )}
           />
         </div>
@@ -626,11 +663,21 @@ export function CasesHeader({
           )}
           {(displayCaseCount ?? totalCaseCount) > 0 && (
             <span className="text-xs text-muted-foreground">
-              {displayCaseCount ?? totalCaseCount} cases
+              {displayCaseCount ?? totalCaseCount}{" "}
+              {(displayCaseCount ?? totalCaseCount) === 1 ? "case" : "cases"}
             </span>
           )}
         </div>
       </header>
+
+      <p
+        id="case-search-scope"
+        role="status"
+        className="px-4 pt-2 text-xs text-muted-foreground"
+      >
+        {scopeDescription}
+        {isSearchPending && <span> · Updating search…</span>}
+      </p>
 
       {/* Row 2: Filter dropdowns */}
       <div className="flex flex-wrap items-center gap-2 py-2 pl-3 pr-4">
@@ -664,179 +711,185 @@ export function CasesHeader({
           </button>
         )}
 
-        <FilterMultiSelect
-          placeholder="Status"
-          icon={SignalIcon}
-          value={statusFilter}
-          onChange={onStatusChange}
-          options={statusOptions}
-          mode={statusMode}
-          onModeChange={onStatusModeChange}
-        />
+        <fieldset className={cn("flex min-w-0 flex-wrap items-center gap-2")}>
+          <legend className="sr-only">Current view filters</legend>
+          <FilterMultiSelect
+            placeholder="Status"
+            icon={SignalIcon}
+            value={statusFilter}
+            onChange={onStatusChange}
+            options={statusOptions}
+            mode={statusMode}
+            onModeChange={onStatusModeChange}
+          />
 
-        <FilterMultiSelect
-          placeholder="Priority"
-          icon={SignalHighIcon}
-          value={priorityFilter}
-          onChange={onPriorityChange}
-          options={priorityOptions}
-          mode={priorityMode}
-          onModeChange={onPriorityModeChange}
-          showSort
-          sortDirection={prioritySortDirection}
-          onSortDirectionChange={onPrioritySortDirectionChange}
-        />
+          <FilterMultiSelect
+            placeholder="Priority"
+            icon={SignalHighIcon}
+            value={priorityFilter}
+            onChange={onPriorityChange}
+            options={priorityOptions}
+            mode={priorityMode}
+            onModeChange={onPriorityModeChange}
+            showSort
+            sortDirection={prioritySortDirection}
+            onSortDirectionChange={onPrioritySortDirectionChange}
+          />
 
-        <FilterMultiSelect
-          placeholder="Severity"
-          icon={ShieldAlertIcon}
-          value={severityFilter}
-          onChange={onSeverityChange}
-          options={severityOptions}
-          mode={severityMode}
-          onModeChange={onSeverityModeChange}
-          showSort
-          sortDirection={severitySortDirection}
-          onSortDirectionChange={onSeveritySortDirectionChange}
-        />
+          <FilterMultiSelect
+            placeholder="Severity"
+            icon={ShieldAlertIcon}
+            value={severityFilter}
+            onChange={onSeverityChange}
+            options={severityOptions}
+            mode={severityMode}
+            onModeChange={onSeverityModeChange}
+            showSort
+            sortDirection={severitySortDirection}
+            onSortDirectionChange={onSeveritySortDirectionChange}
+          />
 
-        <FilterMultiSelect
-          placeholder="Assignee"
-          icon={UserIcon}
-          value={assigneeFilter}
-          onChange={onAssigneeChange}
-          options={assigneeOptions}
-          mode={assigneeMode}
-          onModeChange={onAssigneeModeChange}
-          allowExclude={false}
-          showSort
-          sortDirection={assigneeSortDirection}
-          onSortDirectionChange={onAssigneeSortDirectionChange}
-          emptyMessage={
-            members && members.length > 0
-              ? "No matching assignees."
-              : "No assignees found."
-          }
-        />
+          <FilterMultiSelect
+            placeholder="Assignee"
+            icon={UserIcon}
+            value={assigneeFilter}
+            onChange={onAssigneeChange}
+            options={assigneeOptions}
+            mode={assigneeMode}
+            onModeChange={onAssigneeModeChange}
+            allowExclude={false}
+            showSort
+            sortDirection={assigneeSortDirection}
+            onSortDirectionChange={onAssigneeSortDirectionChange}
+            emptyMessage={
+              members && members.length > 0
+                ? "No matching assignees."
+                : "No assignees found."
+            }
+          />
 
-        <FilterMultiSelect
-          placeholder="Tags"
-          icon={TagIcon}
-          value={tagFilter}
-          onChange={onTagChange}
-          options={tagOptions}
-          mode={tagMode}
-          onModeChange={onTagModeChange}
-          allowExclude={false}
-          showSort
-          sortDirection={tagSortDirection}
-          onSortDirectionChange={onTagSortDirectionChange}
-          emptyMessage={
-            tags && tags.length > 0 ? "No matching tags." : "No tags found."
-          }
-        />
+          <FilterMultiSelect
+            placeholder="Tags"
+            icon={TagIcon}
+            value={tagFilter}
+            onChange={onTagChange}
+            options={tagOptions}
+            mode={tagMode}
+            onModeChange={onTagModeChange}
+            allowExclude={false}
+            showSort
+            sortDirection={tagSortDirection}
+            onSortDirectionChange={onTagSortDirectionChange}
+            emptyMessage={
+              tags && tags.length > 0 ? "No matching tags." : "No tags found."
+            }
+          />
 
-        {dropdownDefinitions?.map((def) => {
-          const state = dropdownFilters[def.ref] ?? {
-            values: [],
-            mode: "include" as FilterMode,
-            sortDirection: null as SortDirection,
-          }
-          const defIconName = def.icon_name ?? undefined
-          const options: FilterOption<string>[] =
-            def.options?.map((opt) => {
-              const optionColorStyle = opt.color
-                ? ({ color: opt.color } as React.CSSProperties)
-                : undefined
-              const fallbackIcon = opt.color ? (
-                <CircleIcon
-                  className="size-3.5 shrink-0"
-                  style={optionColorStyle}
-                />
-              ) : (
-                <CircleIcon className="size-3.5 shrink-0 text-muted-foreground" />
-              )
-
-              return {
-                value: opt.ref,
-                label: opt.label,
-                renderIcon: () =>
-                  opt.icon_name ? (
-                    <DynamicLucideIcon
-                      name={opt.icon_name}
-                      className="size-3.5 shrink-0"
-                      style={optionColorStyle}
-                      fallback={fallbackIcon}
-                    />
-                  ) : (
-                    fallbackIcon
-                  ),
-                labelStyle: optionColorStyle,
-              }
-            }) ?? []
-          return (
-            <FilterMultiSelect
-              key={def.id}
-              placeholder={def.name}
-              renderTriggerIcon={
-                defIconName
-                  ? () => (
-                      <DynamicLucideIcon
-                        name={defIconName}
-                        className="size-3.5 text-muted-foreground"
-                        fallback={
-                          <ListIcon className="size-3.5 text-muted-foreground" />
-                        }
-                      />
-                    )
+          {dropdownDefinitions?.map((def) => {
+            const state = dropdownFilters[def.ref] ?? {
+              values: [],
+              mode: "include" as FilterMode,
+              sortDirection: null as SortDirection,
+            }
+            const defIconName = def.icon_name ?? undefined
+            const options: FilterOption<string>[] =
+              def.options?.map((opt) => {
+                const optionColorStyle = opt.color
+                  ? ({ color: opt.color } as React.CSSProperties)
                   : undefined
-              }
-              value={state.values}
-              onChange={(values) => onDropdownFilterChange(def.ref, values)}
-              options={options}
-              mode={state.mode}
-              onModeChange={(mode) => onDropdownModeChange(def.ref, mode)}
-              allowExclude={false}
-              showSort={def.is_ordered}
-              sortDirection={state.sortDirection}
-              onSortDirectionChange={(dir) =>
-                onDropdownSortDirectionChange(def.ref, dir)
-              }
-            />
-          )
-        })}
+                const fallbackIcon = opt.color ? (
+                  <CircleIcon
+                    className="size-3.5 shrink-0"
+                    style={optionColorStyle}
+                  />
+                ) : (
+                  <CircleIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                )
 
-        <DateFilterSelect
-          placeholder="Updated"
-          icon={ClockIcon}
-          value={updatedAfter}
-          onChange={onUpdatedAfterChange}
-        />
+                return {
+                  value: opt.ref,
+                  label: opt.label,
+                  renderIcon: () =>
+                    opt.icon_name ? (
+                      <DynamicLucideIcon
+                        name={opt.icon_name}
+                        className="size-3.5 shrink-0"
+                        style={optionColorStyle}
+                        fallback={fallbackIcon}
+                      />
+                    ) : (
+                      fallbackIcon
+                    ),
+                  labelStyle: optionColorStyle,
+                }
+              }) ?? []
+            return (
+              <FilterMultiSelect
+                key={def.id}
+                placeholder={def.name}
+                renderTriggerIcon={
+                  defIconName
+                    ? () => (
+                        <DynamicLucideIcon
+                          name={defIconName}
+                          className="size-3.5 text-muted-foreground"
+                          fallback={
+                            <ListIcon className="size-3.5 text-muted-foreground" />
+                          }
+                        />
+                      )
+                    : undefined
+                }
+                value={state.values}
+                onChange={(values) => onDropdownFilterChange(def.ref, values)}
+                options={options}
+                mode={state.mode}
+                onModeChange={(mode) => onDropdownModeChange(def.ref, mode)}
+                allowExclude={false}
+                showSort={def.is_ordered}
+                sortDirection={state.sortDirection}
+                onSortDirectionChange={(dir) =>
+                  onDropdownSortDirectionChange(def.ref, dir)
+                }
+              />
+            )
+          })}
 
-        <DateFilterSelect
-          placeholder="Created"
-          icon={CalendarIcon}
-          value={createdAfter}
-          onChange={onCreatedAfterChange}
-        />
+          <DateFilterSelect
+            placeholder="Updated"
+            icon={ClockIcon}
+            value={updatedAfter}
+            onChange={onUpdatedAfterChange}
+          />
 
-        {onIncludeSubCasesChange && (
-          <button
-            type="button"
-            role="switch"
-            aria-checked={includeSubCases}
-            onClick={() => onIncludeSubCasesChange(!includeSubCases)}
-            className={cn(
-              "flex h-6 items-center gap-1.5 rounded-md border border-dashed px-2 text-xs transition-colors",
-              includeSubCases
-                ? "border-solid bg-muted text-foreground"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
-            )}
-          >
-            <ListTreeIcon className="size-3.5" />
-            {includeSubCases ? "Showing sub-cases" : "Show sub-cases"}
-          </button>
-        )}
+          <DateFilterSelect
+            placeholder="Created"
+            icon={CalendarIcon}
+            value={createdAfter}
+            onChange={onCreatedAfterChange}
+          />
+
+          {onIncludeSubCasesChange && (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={includesSubCases}
+              disabled={Boolean(appliedSearchQuery)}
+              onClick={() => onIncludeSubCasesChange(!includeSubCases)}
+              className={cn(
+                "flex h-6 items-center gap-1.5 rounded-md border border-dashed px-2 text-xs transition-colors",
+                includesSubCases
+                  ? "border-solid bg-muted text-foreground"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              )}
+            >
+              <ListTreeIcon className="size-3.5" />
+              {includesSubCases
+                ? "Including sub-cases"
+                : "Top-level cases only"}
+            </button>
+          )}
+        </fieldset>
 
         <CaseSortSelect value={sortBy} onChange={onSortByChange} />
 

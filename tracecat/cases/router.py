@@ -359,6 +359,15 @@ async def search_cases(
         None,
         description="Search by exact case short ID (e.g. 42 or CASE-0042)",
     ),
+    case_id: uuid.UUID | None = Query(None, description="Filter by exact case UUID"),
+    promote_exact_match: bool = Query(
+        False,
+        description="Place a complete case reference first, even outside view filters. Workspace authorization and explicit identity/relationship constraints remain strict. Filtered counts exclude cases outside the view.",
+    ),
+    match_none: bool = Query(
+        False,
+        description="The ordinary filter population is empty; exact promotion may still match.",
+    ),
     status: list[CaseStatus] | None = Query(None, description="Filter by case status"),
     priority: list[CasePriority] | None = Query(
         None, description="Filter by case priority"
@@ -434,6 +443,9 @@ async def search_cases(
             pagination_params,
             search_term=search_term,
             short_id=short_id,
+            case_id=case_id,
+            promote_exact_match=promote_exact_match,
+            match_none=match_none,
             status=status,
             priority=priority,
             severity=severity,
