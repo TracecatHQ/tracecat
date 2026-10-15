@@ -998,6 +998,149 @@ class TestRegistryArtifactCache:
         assert cache._reserved_bytes == 0
 
     @pytest.mark.anyio
+    async def test_waiting_writer_holds_only_staged_bytes(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """Bytes published into the entry are not charged again while waiting."""
+        mib = 1024 * 1024
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        published, holder, newcomer = (
+            RegistryArtifactByteReservation() for _ in range(3)
+        )
+        published_key = "a" * 16
+
+        with (
+            patch(MAX_BYTES_CONFIG, 10 * mib),
+            patch(
+                "tracecat.executor.registry_artifact_storage.RESERVATION_WAIT_SECONDS",
+                0.2,
+            ),
+        ):
+            published_admission = cache._admission_for(published_key, published)
+            holder_admission = cache._admission_for("b" * 16, holder)
+            newcomer_admission = cache._admission_for("c" * 16, newcomer)
+            assert published_admission and holder_admission and newcomer_admission
+            await published_admission.ensure_capacity(4 * mib)
+            await holder_admission.ensure_capacity(3 * mib)
+            paths = cache._paths_for(published_key)
+            paths.entry_dir.mkdir(parents=True)
+            paths.squashfs_image_path.write_bytes(b"\0" * (4 * mib))
+            cache._acquire_lease(published_key)
+
+            # 4 on disk + 4 more + 3 held exceeds 10: it waits holding nothing.
+            growing = asyncio.ensure_future(
+                published_admission.ensure_capacity(4 * mib)
+            )
+            await asyncio.sleep(0.05)
+            assert not growing.done()
+            assert published.bytes == 0
+
+            # 4 on disk + 3 held + 1 fits; charging the image twice would not.
+            await newcomer_admission.ensure_capacity(1 * mib)
+            cache._release_reservation(holder)
+            await asyncio.wait_for(growing, timeout=1)
+            for reservation in (published, holder, newcomer):
+                cache._release_reservation(reservation)
+
+        assert cache._reserved_bytes == 0
+
+    @pytest.mark.anyio
+    async def test_settle_stops_charging_published_bytes(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """After a publish, the entry on disk carries the bytes, not the charge."""
+        mib = 1024 * 1024
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+        published, newcomer = (
+            RegistryArtifactByteReservation(),
+            (RegistryArtifactByteReservation()),
+        )
+        published_key = "a" * 16
+
+        with (
+            patch(MAX_BYTES_CONFIG, 10 * mib),
+            patch(
+                "tracecat.executor.registry_artifact_storage.RESERVATION_WAIT_SECONDS",
+                0.05,
+            ),
+        ):
+            published_admission = cache._admission_for(published_key, published)
+            newcomer_admission = cache._admission_for("b" * 16, newcomer)
+            assert published_admission and newcomer_admission
+            await published_admission.ensure_capacity(4 * mib)
+            paths = cache._paths_for(published_key)
+            paths.entry_dir.mkdir(parents=True)
+            paths.squashfs_image_path.write_bytes(b"\0" * (4 * mib))
+            cache._acquire_lease(published_key)
+
+            await published_admission.settle()
+            assert published.bytes == 0
+            # 4 on disk + 4 fits; 4 on disk + 4 charged + 4 would not.
+            await newcomer_admission.ensure_capacity(4 * mib)
+            cache._release_reservation(published)
+            cache._release_reservation(newcomer)
+
+        assert cache._reserved_bytes == 0
+
+    @pytest.mark.anyio
+    async def test_writers_waiting_on_each_other_back_off(
+        self, temp_cache_dir: Path
+    ) -> None:
+        """When each writer waits on another's staged bytes, one backs off at once."""
+        mib = 1024 * 1024
+        cache = RegistryArtifactCache(temp_cache_dir)
+        await cache.ensure_swept()
+
+        async def stage_then_grow(cache_key: str) -> None:
+            reservation = RegistryArtifactByteReservation()
+            admission = cache._admission_for(cache_key, reservation)
+            assert admission is not None
+            tarball = unique_work_path(cache.staging_dir, cache_key, suffix=".tar.gz")
+            reservation.staging_paths.append(tarball)
+            try:
+                await admission.ensure_capacity(3 * mib)
+                tarball.write_bytes(b"\0" * (3 * mib))
+                await both_staged.wait()
+                # Alone, 5 + 3 staged fits in 10; beside the other's 3 it does not.
+                await admission.ensure_capacity(5 * mib)
+                admitted.append(cache_key)
+            finally:
+                tarball.unlink(missing_ok=True)
+                cache._release_reservation(reservation)
+
+        admitted: list[str] = []
+        both_staged = asyncio.Event()
+        with (
+            patch(MAX_BYTES_CONFIG, 10 * mib),
+            patch(
+                "tracecat.executor.registry_artifact_storage.RESERVATION_WAIT_SECONDS",
+                5,
+            ),
+        ):
+            writers = [
+                asyncio.ensure_future(stage_then_grow(key))
+                for key in ("a" * 16, "b" * 16)
+            ]
+            while cache._reserved_bytes < 2 * 3 * mib:
+                await asyncio.sleep(0.01)
+            both_staged.set()
+            results = await asyncio.wait_for(
+                asyncio.gather(*writers, return_exceptions=True), timeout=1
+            )
+
+        assert len(admitted) == 1
+        assert (
+            sum(
+                isinstance(result, RegistryArtifactCacheLeaseContentionError)
+                for result in results
+            )
+            == 1
+        )
+        assert cache._reserved_bytes == 0
+
+    @pytest.mark.anyio
     async def test_capacity_wait_does_not_hold_extract_slot(
         self, temp_cache_dir: Path
     ) -> None:

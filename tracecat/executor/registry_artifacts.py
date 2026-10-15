@@ -311,6 +311,9 @@ class SquashfsArtifact(RegistryArtifact):
             except OSError:
                 if not image_path.exists():
                     raise
+            if ctx.admission is not None:
+                # The published image is measured on disk from here on.
+                await ctx.admission.settle()
             return (time.monotonic() - download_start) * 1000
         finally:
             remove_file_or_defer(
