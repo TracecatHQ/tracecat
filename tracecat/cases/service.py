@@ -1,4 +1,3 @@
-import re
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
@@ -76,7 +75,11 @@ from tracecat.cases.event_schemas import (
     UpdatedEvent,
 )
 from tracecat.cases.events import CaseEventsService
-from tracecat.cases.exact_search import find_exact_case_match
+from tracecat.cases.exact_search import (
+    MAX_CASE_NUMBER,
+    SHORT_ID_PATTERN,
+    prepare_exact_case_match,
+)
 from tracecat.cases.hierarchy import TOP_LEVEL, CaseHierarchyService
 from tracecat.cases.mentions import MentionToken, parse_mentions
 from tracecat.cases.query import CaseFieldResolver, referenced_dropdown_refs
@@ -174,6 +177,37 @@ from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.enums import SyncResourceType
 
 
+def case_text_predicate(search_term: str) -> ColumnElement[bool]:
+    """Build literal text and ID matching independently of view filters."""
+    if len(search_term) > 1000:
+        raise ValueError("Search term cannot exceed 1000 characters")
+    if "\x00" in search_term:
+        raise ValueError("Search term cannot contain null bytes")
+
+    case_number_text = cast(Case.case_number, sa.String)
+    short_id_expr = func.concat(
+        "CASE-",
+        func.lpad(
+            case_number_text,
+            func.greatest(4, func.length(case_number_text)),
+            "0",
+        ),
+    )
+    search_conditions: list[Any] = [
+        Case.summary.icontains(search_term, autoescape=True, escape="\\"),
+        Case.description.icontains(search_term, autoescape=True, escape="\\"),
+        short_id_expr.icontains(search_term, autoescape=True, escape="\\"),
+    ]
+    case_number = parse_case_short_id(search_term)
+    if case_number is not None and case_number <= MAX_CASE_NUMBER:
+        search_conditions.append(Case.case_number == case_number)
+    try:
+        search_conditions.append(Case.id == uuid.UUID(search_term.strip()))
+    except ValueError:
+        pass
+    return or_(*search_conditions)
+
+
 def _normalize_filter_values(values: Any) -> list[Any]:
     """Ensure filter inputs are lists of unique values."""
     if values is None:
@@ -211,8 +245,6 @@ def _is_field_value_empty(value: Any) -> bool:
 CASE_PRIORITY_SORT_ORDER = tuple(priority.value for priority in CasePriority)
 CASE_SEVERITY_SORT_ORDER = tuple(severity.value for severity in CaseSeverity)
 CASE_STATUS_SORT_ORDER = tuple(status.value for status in CaseStatus)
-MAX_CASE_NUMBER = 2**31 - 1
-SHORT_ID_PATTERN = re.compile(r"^(?:CASE-)?(\d{1,10})$", re.IGNORECASE)
 
 
 def parse_case_short_id(value: str) -> int | None:
@@ -419,33 +451,7 @@ class CasesService(BaseWorkspaceService):
             filters.append(Case.parent_id.is_(None))
 
         if search_term:
-            if len(search_term) > 1000:
-                raise ValueError("Search term cannot exceed 1000 characters")
-            if "\x00" in search_term:
-                raise ValueError("Search term cannot contain null bytes")
-
-            case_number_text = cast(Case.case_number, sa.String)
-            short_id_expr = func.concat(
-                "CASE-",
-                func.lpad(
-                    case_number_text,
-                    func.greatest(4, func.length(case_number_text)),
-                    "0",
-                ),
-            )
-            search_conditions: list[Any] = [
-                Case.summary.icontains(search_term, autoescape=True, escape="\\"),
-                Case.description.icontains(search_term, autoescape=True, escape="\\"),
-                short_id_expr.icontains(search_term, autoescape=True, escape="\\"),
-            ]
-            case_number = parse_case_short_id(search_term)
-            if case_number is not None and case_number <= MAX_CASE_NUMBER:
-                search_conditions.append(Case.case_number == case_number)
-            try:
-                search_conditions.append(Case.id == uuid.UUID(search_term.strip()))
-            except ValueError:
-                pass
-            filters.append(or_(*search_conditions))
+            filters.append(case_text_predicate(search_term))
 
         if short_id:
             normalized_short_id = short_id.strip().upper()
@@ -620,13 +626,13 @@ class CasesService(BaseWorkspaceService):
 
         view_filters = list(filters)
         if search_term:
-            filters.extend(self._build_search_filters(search_term=search_term)[1:])
+            filters.append(case_text_predicate(search_term))
 
         exact_match = None
         if promote_exact_match and not any(
             (case_id, short_id, parent_id, linked_row, exclude_case_id)
         ):
-            exact_match = await find_exact_case_match(
+            exact_match = await prepare_exact_case_match(
                 self.session,
                 workspace_id=self.workspace_id,
                 search_term=search_term,
@@ -654,7 +660,7 @@ class CasesService(BaseWorkspaceService):
             stmt = stmt.options(selectinload(Case.durations))
 
         if exact_match is not None:
-            stmt = stmt.where(sa.or_(sa.and_(*filters), Case.id == exact_match.id))
+            stmt = stmt.where(sa.or_(sa.and_(*filters), exact_match.predicate))
         else:
             stmt = stmt.where(*filters)
 
@@ -720,7 +726,7 @@ class CasesService(BaseWorkspaceService):
 
         if exact_match is not None:
             ordering = (
-                sa.case((Case.id == exact_match.id, 0), else_=1).asc(),
+                sa.case((exact_match.predicate, 0), else_=1).asc(),
                 *ordering,
             )
 

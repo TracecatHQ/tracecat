@@ -2914,3 +2914,28 @@ async def test_numeric_text_does_not_promote_an_old_case(
     )
     assert exact.id not in {item.id for item in result.items}
     assert all(not item.is_exact_match for item in result.items)
+
+
+@pytest.mark.anyio
+async def test_promoted_cursor_survives_exact_case_deletion(
+    cases_service: CasesService,
+    session: AsyncSession,
+    exact_search_cases: tuple[Case, Case, Case],
+) -> None:
+    """Deleting the promoted anchor leaves continuation query identity stable."""
+    exact, first, second = exact_search_cases
+    page = await cases_service.search_cases(
+        CursorPaginationParams(limit=1),
+        search_term="CASE-0042",
+        promote_exact_match=True,
+    )
+    assert [item.id for item in page.items] == [exact.id]
+    await session.delete(exact)
+    await session.commit()
+    following = await cases_service.search_cases(
+        CursorPaginationParams(limit=2, cursor=page.next_cursor),
+        search_term="CASE-0042",
+        promote_exact_match=True,
+    )
+    assert [item.id for item in following.items] == [first.id, second.id]
+    assert following.has_more is False
