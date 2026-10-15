@@ -263,6 +263,11 @@ export function MessagePart({
           icon={display.icon}
         />
         <ToolContent>
+          {display.fullCommand ? (
+            <pre className="whitespace-pre-wrap break-words font-mono text-xs text-muted-foreground">
+              {display.fullCommand}
+            </pre>
+          ) : null}
           {display.isCommand ? null : <ToolInput input={part.input} />}
           {content}
         </ToolContent>
@@ -681,12 +686,17 @@ const TARGETED_TOOLS: Record<string, { targetKey: string; verbs: ToolVerbs }> =
     },
   }
 
+/** Past this length the line truncates, so the command shows whole below. */
+const COMMAND_TITLE_CHARS = 80
+
 type ToolDisplay = {
   title: string
   icon: ReactNode
   verbs?: ToolVerbs
   /** Shell commands show the command as the title and only its output. */
   isCommand?: boolean
+  /** A command the title cuts short, shown whole above its output. */
+  fullCommand?: string
 }
 
 /** How a tool line reads: commands and file tools name what they act on. */
@@ -696,10 +706,12 @@ function getToolDisplay(toolName: string, input: unknown): ToolDisplay {
     toolName === "Bash" ? getNonEmptyString(record?.command) : null
   if (command) {
     const [firstLine, ...rest] = command.split("\n")
+    const isCut = rest.length > 0 || firstLine.length > COMMAND_TITLE_CHARS
     return {
       title: rest.length > 0 ? `${firstLine} …` : firstLine,
       icon: <TerminalIcon />,
       isCommand: true,
+      fullCommand: isCut ? command : undefined,
     }
   }
   const icon = getIcon(toolName, TOOL_ICON_PROPS)

@@ -198,6 +198,23 @@ describe("MessageParts", () => {
     expect(screen.queryByText("description")).not.toBeInTheDocument()
   })
 
+  it("shows a multi-line command whole once opened", async () => {
+    const command = "cat <<'EOF' > run.sh\necho hi\nEOF"
+    const chat = createChat()
+      .user(QUESTION)
+      .assistant(({ writer }) => {
+        writer.tool("Bash", { dynamic: true, input: { command } }).output("")
+        writer.text(ANSWER)
+      })
+    await streamTurn("default", chat)
+
+    fireEvent.click(screen.getByText("Ran cat <<'EOF' > run.sh …"))
+
+    expect(
+      screen.getByText((_, node) => node?.textContent === command)
+    ).toBeInTheDocument()
+  })
+
   it.each([
     ["default", false],
     ["verbose", true],
