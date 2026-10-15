@@ -1,0 +1,19 @@
+Dockerfile
+  s_3fab07a328f4d4::t_ed62b9b6c97718 222-223,225
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b074ee07a2404f9837c07608f771d0c5c011c1d6",
+  "prompts": {},
+  "sessions": {
+    "s_3fab07a328f4d4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a140d1-98e7-7b53-9710-5c426d6d882a",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
