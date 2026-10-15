@@ -142,6 +142,7 @@ export default React.memo(function ActionNode({
   }, [validationErrors, action])
   const { registryAction } = useGetRegistryAction(action?.type)
   const [showToolbar, setShowToolbar] = useState(false)
+  const [contextMenuOpen, setContextMenuOpen] = useState(false)
   const [isMouseOverNode, setIsMouseOverNode] = useState(false)
   const [isMouseOverToolbar, setIsMouseOverToolbar] = useState(false)
   const nodeRef = useRef<HTMLDivElement>(null)
@@ -399,7 +400,7 @@ export default React.memo(function ActionNode({
     <TooltipProvider>
       <FormProvider {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)}>
-          <ContextMenu>
+          <ContextMenu onOpenChange={setContextMenuOpen}>
             <ContextMenuTrigger asChild>
               <Card
                 ref={nodeRef}
@@ -467,8 +468,8 @@ export default React.memo(function ActionNode({
                   <ActionNodeToolbar
                     action={action}
                     childWorkflowInfo={childWorkflowInfo}
-                    showToolbar={showToolbar}
-                    selected={selected}
+                    showToolbar={showToolbar && !contextMenuOpen}
+                    selected={selected && !contextMenuOpen}
                     sidebarRef={sidebarRef}
                     setSelectedActionEventRef={setSelectedActionEventRef}
                     setIsMouseOverToolbar={setIsMouseOverToolbar}
