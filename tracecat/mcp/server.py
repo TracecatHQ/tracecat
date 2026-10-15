@@ -2793,27 +2793,16 @@ Use this structure for integration actions in workflow YAML:
 action: tools.<integration_slug>.<action_name>
 ```
 
-Examples of valid shapes (syntax only):
-
-```yaml
-action: tools.<integration_slug>.lookup
-action: tools.<integration_slug>.create_record
-action: tools.<integration_slug>.search
-```
-
 ### Action Priority
-1. `tools.<integration_slug>.*` actions for the product. `list_actions` uses
-   literal substring matching: search a short product or action fragment
-   (e.g. `query="crowdstrike"`) or browse a known namespace. Follow
-   `next_cursor` until matched or `has_more` is false. Inspect the action's
-   schema and required credentials before choosing it.
-2. Core actions: `core.http_request` / `core.http_paginate` when no integration
-   action fits, `core.transform.*` for shaping, `core.table.*`/`core.cases.*`.
-3. `core.script.run_python` only for a self-contained step no action covers.
-   Never call an API from Python when an action can.
+1. Prefer matching `tools.*`. Search `list_actions` with a short literal
+   product/action substring (`query="crowdstrike"`) or namespace; follow
+   `next_cursor` while `has_more`, then inspect schema and credentials.
+2. Otherwise use `core.http_request` / `core.http_paginate`; use
+   `core.transform.*`, `core.table.*`, and `core.cases.*` as needed.
+3. Use `core.script.run_python` only when no action covers the step. Never
+   call APIs from Python when an action can.
 
-Never invent `tools.*` names. If a generic request (e.g. "enrich this threat")
-fits several integrations, show candidates first.
+Never invent `tools.*`; show candidates when ambiguous.
 
 ## Common Workflow Patterns
 
