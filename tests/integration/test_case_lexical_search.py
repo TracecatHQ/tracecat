@@ -737,3 +737,49 @@ async def test_literal_promotion_reports_ordinary_membership_for_group_counts(
     )
     assert counts.total == 1
     assert counts.status_groups.new == 1
+
+
+@pytest.mark.parametrize("mode", [SearchMode.FULL_TEXT, SearchMode.LITERAL])
+@pytest.mark.parametrize("case_addons_enabled", [False, True])
+async def test_promoted_reference_preserves_explicit_hierarchy(
+    lexical_service: CasesService,
+    lexical_client: httpx.AsyncClient,
+    mode: SearchMode,
+    case_addons_enabled: bool,
+) -> None:
+    """Explicit top-level scope stays strict; disabled addons retain flat lists."""
+    parent = await text_case(lexical_service, "Synthetic parent")
+    exact = await text_case(lexical_service, "Synthetic sub-case")
+    exact.parent_id = parent.id
+    mention = await text_case(
+        lexical_service, "Synthetic follow-up", f"Follow up on {exact.id}"
+    )
+    await lexical_service.session.flush()
+    with patch.object(
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(
+            update={"case_addons": case_addons_enabled}
+        ),
+    ):
+        for hierarchy in ("all", "top_level"):
+            response = await lexical_client.post(
+                "/cases/search",
+                json={
+                    "search_term": str(exact.id),
+                    "search_mode": mode.value,
+                    "promote_exact_match": True,
+                    "hierarchy": hierarchy,
+                },
+            )
+            assert response.status_code == 200, response.text
+            body = response.json()
+            strict = case_addons_enabled and hierarchy == "top_level"
+            expected = [mention.id] if strict else [exact.id, mention.id]
+            assert [row["id"] for row in body["items"]] == [
+                str(case_id) for case_id in expected
+            ]
+            assert body["items"][0]["is_exact_match"] is (not strict)
+            assert body["total_estimate"] == (
+                1 if strict or mode == SearchMode.LITERAL else 2
+            )
