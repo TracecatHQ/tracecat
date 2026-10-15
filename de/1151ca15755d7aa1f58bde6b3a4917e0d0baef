@@ -1,0 +1,25 @@
+frontend/src/components/chat/chat-tools-picker.tsx
+  s_3fab07a328f4d4::t_b379ab8291b1a0 230
+  s_3fab07a328f4d4::t_7f8c6b02a68999 24,214,216-222,224,227-229,231-233,235-241
+  s_3fab07a328f4d4::t_aaf9c9c5600a39 515
+packages/tracecat-registry/tracecat_registry/core/registry.py
+  s_3fab07a328f4d4::t_7f8c6b02a68999 16-18
+frontend/src/components/chat/chat-tools-picker.test.tsx
+  s_3fab07a328f4d4::t_3ed881eb4a0c21 8-12,144-165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "de1151ca15755d7aa1f58bde6b3a4917e0d0baef",
+  "prompts": {},
+  "sessions": {
+    "s_3fab07a328f4d4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a140d1-98e7-7b53-9710-5c426d6d882a",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
