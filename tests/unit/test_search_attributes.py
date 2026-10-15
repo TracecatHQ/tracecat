@@ -26,6 +26,7 @@ from tracecat.identifiers import UserID, WorkflowID
 from tracecat.workflow.executions.common import build_query
 from tracecat.workflow.executions.correlation import (
     build_agent_session_correlation_id,
+    build_case_task_correlation_id,
     build_tracecat_correlation_id,
 )
 from tracecat.workflow.executions.enums import (
@@ -606,3 +607,91 @@ class TestSearchAttributeEnumMethods:
             build_agent_session_correlation_id(session_id)
             == "agent-session:00000000-0000-0000-0000-000000000123"
         )
+
+
+class TestCaseTaskCorrelation:
+    """Runs started from a case task carry a queryable correlation ID."""
+
+    async def test_case_task_correlation_id(self) -> None:
+        task_id = uuid.UUID("00000000-0000-0000-0000-000000000456")
+        assert (
+            build_case_task_correlation_id(task_id)
+            == "case-task:00000000-0000-0000-0000-000000000456"
+        )
+
+    async def test_wait_for_start_sets_correlation_search_attr(
+        self,
+        mock_client: Mock,
+        mock_role_with_workspace: Role,
+        mock_dsl: DSLInput,
+        test_workflow_id: WorkflowID,
+    ) -> None:
+        service = WorkflowExecutionsService(
+            client=mock_client, role=mock_role_with_workspace
+        )
+        mock_client.start_workflow = AsyncMock(return_value=Mock())
+        correlation_id = build_case_task_correlation_id(uuid.uuid4())
+
+        with patch.object(service, "_resolve_execution_timeout", return_value=None):
+            await service.create_workflow_execution_wait_for_start(
+                dsl=mock_dsl,
+                wf_id=test_workflow_id,
+                correlation_id=correlation_id,
+            )
+
+        await_args = mock_client.start_workflow.await_args
+        assert await_args is not None
+        search_attrs = await_args.kwargs["search_attributes"]
+        pairs = [
+            pair
+            for pair in search_attrs.search_attributes
+            if pair.key == TemporalSearchAttr.CORRELATION_ID.key
+        ]
+        assert [pair.value for pair in pairs] == [correlation_id]
+
+    async def test_no_correlation_search_attr_by_default(
+        self,
+        mock_client: Mock,
+        mock_role_with_workspace: Role,
+        mock_dsl: DSLInput,
+        test_workflow_id: WorkflowID,
+    ) -> None:
+        service = WorkflowExecutionsService(
+            client=mock_client, role=mock_role_with_workspace
+        )
+        mock_client.start_workflow = AsyncMock(return_value=Mock())
+
+        with patch.object(service, "_resolve_execution_timeout", return_value=None):
+            await service.create_workflow_execution_wait_for_start(
+                dsl=mock_dsl, wf_id=test_workflow_id
+            )
+
+        await_args = mock_client.start_workflow.await_args
+        assert await_args is not None
+        search_attrs = await_args.kwargs["search_attributes"]
+        assert all(
+            pair.key != TemporalSearchAttr.CORRELATION_ID.key
+            for pair in search_attrs.search_attributes
+        )
+
+    async def test_build_query_filters_by_correlation_id(
+        self, mock_role_with_workspace: Role
+    ) -> None:
+        assert mock_role_with_workspace.workspace_id is not None
+        correlation_id = build_case_task_correlation_id(uuid.uuid4())
+        query = build_query(
+            workspace_id=mock_role_with_workspace.workspace_id,
+            correlation_id=correlation_id,
+        )
+        assert f"TracecatCorrelationId = '{correlation_id}'" in query
+        assert str(mock_role_with_workspace.workspace_id) in query
+
+    async def test_build_query_rejects_quoted_correlation_id(
+        self, mock_role_with_workspace: Role
+    ) -> None:
+        assert mock_role_with_workspace.workspace_id is not None
+        with pytest.raises(ValueError, match="Invalid correlation ID"):
+            build_query(
+                workspace_id=mock_role_with_workspace.workspace_id,
+                correlation_id="case-task:x' OR '1'='1",
+            )

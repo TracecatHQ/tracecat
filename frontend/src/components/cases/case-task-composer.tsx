@@ -26,13 +26,11 @@ import { CaseTaskFieldMenu } from "@/components/cases/case-task-field-menu"
 import { CaseTaskFieldPicker } from "@/components/cases/case-task-field-picker"
 import {
   buildAssigneeItems,
-  buildWorkflowItems,
   CASE_TASK_ROW_CLASS,
   type CaseTaskAssigneeDisplay,
   hasPrioritySignal,
   isCasePriority,
   isCaseTaskStatus,
-  NO_WORKFLOW,
   PRIORITY_MENU_ITEMS,
   STATUS_MENU_ITEMS,
   TASK_ICON_TRIGGER_CLASS,
@@ -44,6 +42,7 @@ import {
   CaseTaskStatusIcon,
   priorityIconTone,
 } from "@/components/cases/case-task-status"
+import { CaseTaskWorkflowPicker } from "@/components/cases/case-task-workflow-picker"
 import { Button } from "@/components/ui/button"
 import UserAvatar from "@/components/user-avatar"
 import {
@@ -186,10 +185,6 @@ export function CaseTaskComposer({
   }, [assigneeId, members, task])
 
   const assigneeItems = useMemo(() => buildAssigneeItems(members), [members])
-  const workflowItems = useMemo(
-    () => buildWorkflowItems(workflows),
-    [workflows]
-  )
 
   const statusDefinition = CASE_TASK_STATUSES[status]
   const priorityDefinition = PRIORITIES[priority]
@@ -336,13 +331,10 @@ export function CaseTaskComposer({
               pill in the same slot — right of the assignee — and it stays
               visible while unset because this is the surface where a workflow
               gets attached. */}
-          <CaseTaskFieldPicker
-            items={workflowItems}
+          <CaseTaskWorkflowPicker
+            workflows={workflows}
             value={workflowId}
-            emptyValue={NO_WORKFLOW}
             onSelect={(value) => form.setValue("workflow_id", value)}
-            placeholder="Set workflow…"
-            ariaLabel="Set workflow"
           >
             <button
               type="button"
@@ -363,7 +355,7 @@ export function CaseTaskComposer({
                 {selectedWorkflow ? selectedWorkflow.title : "Workflow"}
               </span>
             </button>
-          </CaseTaskFieldPicker>
+          </CaseTaskWorkflowPicker>
           {/* Where the read row keeps its ⋯: two glyphs, so the composer ends
               on the same right edge instead of growing an action bar. */}
           <Button

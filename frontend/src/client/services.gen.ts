@@ -2800,6 +2800,7 @@ export const workflowExecutionsCreateWorkflowExecution = (
  * @param data.durationLteSeconds
  * @param data.searchTerm Filter by workflow title or alias.
  * @param data.relation
+ * @param data.caseTaskId Filter by the case task that started the run.
  * @param data.workflowId
  * @param data.limit
  * @param data.cursor
@@ -2829,6 +2830,7 @@ export const workflowExecutionsSearchWorkflowExecutions = (
       duration_lte_seconds: data.durationLteSeconds,
       search_term: data.searchTerm,
       relation: data.relation,
+      case_task_id: data.caseTaskId,
       workflow_id: data.workflowId,
       limit: data.limit,
       cursor: data.cursor,

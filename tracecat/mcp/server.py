@@ -295,6 +295,7 @@ from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerUpdate,
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
+from tracecat.workflow.executions.correlation import build_case_task_correlation_id
 from tracecat.workflow.executions.rerun import WorkflowRerunPlan
 from tracecat.workflow.executions.schemas import (
     WorkflowExecutionActionResultResponse,
@@ -7294,6 +7295,53 @@ async def get_case_task(
 
 
 @mcp.tool()
+async def list_case_task_workflow_runs(
+    workspace_id: uuid.UUID,
+    task_id: uuid.UUID,
+    limit: int = 20,
+    cursor: str | None = None,
+) -> MCPPaginatedResponse[WorkflowExecutionSummaryResponse]:
+    """List workflow runs started from a case task, newest first.
+
+    Args:
+        workspace_id: The workspace ID.
+        task_id: Task UUID.
+        limit: Maximum number of executions to return (1-100, default 20).
+
+    Returns JSON array of execution objects with id, run_id, status,
+    start_time, close_time, trigger_type, and execution_type.
+    """
+
+    try:
+        task_id = _coerce_uuid_arg(task_id, "task_id")
+        _, role = await _resolve_workspace_role(workspace_id)
+        limit = _normalize_limit(limit, default=20, max_limit=100)
+        async with CaseTasksService.with_session(role=role) as svc:
+            task = await svc.get_task(task_id)
+
+        exec_service = await WorkflowExecutionsService.connect(role=role)
+        executions = await exec_service.list_executions_paginated(
+            pagination=CursorPaginationParams(limit=limit, cursor=cursor),
+            correlation_id=build_case_task_correlation_id(task.id),
+        )
+        items = [build_execution_summary(execution) for execution in executions.items]
+        return MCPPaginatedResponse[WorkflowExecutionSummaryResponse](
+            items=items,
+            next_cursor=executions.next_cursor,
+            prev_cursor=executions.prev_cursor,
+            has_more=executions.has_more,
+            has_previous=executions.has_previous,
+        )
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list case task workflow runs", error=str(e))
+        raise ToolError(f"Failed to list case task workflow runs: {e}") from None
+
+
+@mcp.tool()
 async def create_case_task(
     workspace_id: uuid.UUID,
     case_id: uuid.UUID,
@@ -7523,6 +7571,7 @@ async def run_case_task(
             wf_id=wf_id,
             payload=payload,
             registry_lock=registry_lock,
+            correlation_id=build_case_task_correlation_id(task_id),
         )
         response_workflow_id = WorkflowUUID.new(response["wf_id"])
         return CaseTaskRunStartedResponse(

@@ -39898,6 +39898,20 @@ export const $WorkflowExecutionCreate = {
       ],
       title: "Inputs",
     },
+    case_task_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Case Task Id",
+      description:
+        "Case task that started this run. The run is then listed under the task's workflow runs.",
+    },
     time_anchor: {
       anyOf: [
         {

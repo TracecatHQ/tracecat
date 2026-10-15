@@ -147,6 +147,7 @@ export function WorkflowTriggerDialog({
       await createExecution({
         workflow_id: workflowId,
         inputs: withTaskContextInputs(values),
+        case_task_id: taskId ?? null,
       })
       showExecutionStartedToast()
       onOpenChange(false)
@@ -165,6 +166,7 @@ export function WorkflowTriggerDialog({
     await createExecution({
       workflow_id: workflowId,
       inputs: withTaskContextInputs(fallbackInputs),
+      case_task_id: taskId ?? null,
     })
     showExecutionStartedToast()
     onOpenChange(false)

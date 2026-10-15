@@ -985,6 +985,13 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
 class WorkflowExecutionCreate(BaseModel):
     workflow_id: AnyWorkflowID
     inputs: TriggerInputs | None = None
+    case_task_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Case task that started this run. The run is then listed under "
+            "the task's workflow runs."
+        ),
+    )
     time_anchor: datetime | None = Field(
         default=None,
         description=(
