@@ -5605,14 +5605,6 @@ async def lock_workflow_action(
     try:
         wf_id = WorkflowUUID.new(workflow_id)
         _, role = await _resolve_workspace_role(workspace_id)
-        if execution_id is not None:
-            _, events = await _load_execution_with_events(workspace_id, execution_id)
-            event = next((e for e in reversed(events) if e.action_ref == ref), None)
-            if event is None or _event_status(event) != "COMPLETED":
-                raise ToolError(
-                    f"Action {ref!r} did not complete in {execution_id}, "
-                    "so its result can't be locked."
-                )
         async with WorkflowActionService.with_session(role=role) as svc:
             actions = {a.ref: a for a in await svc.list_actions(wf_id)}
             if ref not in actions:
@@ -5620,6 +5612,16 @@ async def lock_workflow_action(
                     f"Action ref {ref!r} not found in workflow {wf_id}. "
                     f"Valid refs: {sorted(actions)}"
                 )
+            if execution_id is not None:
+                _, events = await _load_execution_with_events(
+                    workspace_id, execution_id
+                )
+                event = next((e for e in reversed(events) if e.action_ref == ref), None)
+                if event is None or _event_status(event) != "COMPLETED":
+                    raise ToolError(
+                        f"Action {ref!r} did not complete in {execution_id}, "
+                        "so its result can't be locked."
+                    )
             action = await svc.update_action(
                 actions[ref], ActionUpdate(locked_execution_id=execution_id)
             )
