@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import uuid
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
@@ -19,6 +18,12 @@ from tracecat.auth.types import Role
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.durations.schemas import CaseDurationRead
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus, CaseTaskStatus
+from tracecat.cases.exact_search import (
+    MAX_CASE_NUMBER,
+    SHORT_ID_PATTERN,
+    case_reference_predicate,
+    prepare_exact_case_match,
+)
 from tracecat.cases.hierarchy import TOP_LEVEL, CaseHierarchyService
 from tracecat.cases.query import CUSTOM_FIELD_PREFIX, CaseFieldResolver
 from tracecat.cases.rows.hydration import CaseRowHydrator
@@ -50,8 +55,6 @@ if TYPE_CHECKING:
 CASE_PRIORITY_SORT_ORDER = tuple(priority.value for priority in CasePriority)
 CASE_SEVERITY_SORT_ORDER = tuple(severity.value for severity in CaseSeverity)
 CASE_STATUS_SORT_ORDER = tuple(status.value for status in CaseStatus)
-MAX_CASE_NUMBER = 2**31 - 1
-SHORT_ID_PATTERN = re.compile(r"^(?:CASE-)?(\d{1,10})$", re.IGNORECASE)
 
 
 def parse_case_short_id(value: str) -> int | None:
@@ -275,13 +278,49 @@ class CaseSearchService(BaseWorkspaceService):
             linked_row=linked_row,
             exclude_case_id=exclude_case_id,
         )
+        if request.match_none:
+            filters.append(sa.false())
+        exact_match = None
+        if (
+            request.promote_exact_match
+            and not any(
+                (
+                    request.case_id,
+                    request.short_id,
+                    request.parent_id,
+                    linked_row,
+                    exclude_case_id,
+                )
+            )
+            and case_reference_predicate(request.search_term) is not None
+        ):
+            view_filters = await self.prepare_query(
+                request.model_copy(update={"search_term": None}),
+                case_addons_enabled=case_addons_enabled,
+                legacy_filters=legacy_filters,
+            )
+            if request.match_none:
+                view_filters.append(sa.false())
+            exact_match = await prepare_exact_case_match(
+                self.session,
+                workspace_id=self.workspace_id,
+                search_term=request.search_term,
+                filters=view_filters,
+            )
+        result_filters = filters
+        if exact_match is not None:
+            result_filters = [
+                Case.workspace_id == self.workspace_id,
+                sa.or_(sa.and_(*filters), exact_match.predicate),
+            ]
+
         include_case_addons = case_addons_enabled
         # Keep pagination independent of detail flags and exclude large text /
         # JSON columns. Wildcard raiseload suppresses model-default selectin
         # relationships, including table_rows and unrelated nested collections.
         stmt = (
             select(Case)
-            .where(*filters)
+            .where(*result_filters)
             .options(
                 load_only(
                     Case.id,
@@ -363,6 +402,9 @@ class CaseSearchService(BaseWorkspaceService):
                 ordering = (sort_attr.asc().nulls_last(), Case.id.asc())
             else:
                 ordering = (sort_attr.desc().nulls_last(), Case.id.desc())
+
+        if exact_match is not None:
+            ordering = (sa.case((exact_match.predicate, 0), else_=1).asc(), *ordering)
 
         case_page = await paginate(
             self.session,
@@ -451,6 +493,13 @@ class CaseSearchService(BaseWorkspaceService):
             case_items.append(
                 CaseReadMinimal(
                     id=case.id,
+                    is_exact_match=exact_match is not None
+                    and case.id == exact_match.id,
+                    is_outside_filters=(
+                        exact_match is not None
+                        and case.id == exact_match.id
+                        and exact_match.outside_filters
+                    ),
                     created_at=case.created_at,
                     updated_at=case.updated_at,
                     short_id=case.short_id,

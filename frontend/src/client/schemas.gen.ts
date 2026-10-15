@@ -10979,6 +10979,19 @@ export const $CaseSearchRequest = {
       title: "Include Count",
       default: true,
     },
+    promote_exact_match: {
+      type: "boolean",
+      title: "Promote Exact Match",
+      description:
+        "Place complete case references before filtered text matches within the authorized workspace.",
+      default: false,
+    },
+    match_none: {
+      type: "boolean",
+      title: "Match None",
+      description: "The ordinary filter population matches no cases.",
+      default: false,
+    },
   },
   additionalProperties: false,
   type: "object",

@@ -89,3 +89,10 @@ class CaseSearchRequest(CaseQuery, CursorPaginationParams):
     include_durations: bool = Field(default=False)
     include_payload: bool = Field(default=False)
     include_count: bool = Field(default=True)
+    promote_exact_match: bool = Field(
+        default=False,
+        description="Place complete case references before filtered text matches within the authorized workspace.",
+    )
+    match_none: bool = Field(
+        default=False, description="The ordinary filter population matches no cases."
+    )

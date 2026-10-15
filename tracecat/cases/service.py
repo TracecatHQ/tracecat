@@ -408,6 +408,8 @@ class CasesService(BaseWorkspaceService):
             include_durations=include_durations,
             include_payload=include_payload,
             include_count=include_count,
+            promote_exact_match=promote_exact_match,
+            match_none=match_none,
         )
         return await executor.query_cases(
             request,
