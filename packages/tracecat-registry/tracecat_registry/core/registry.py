@@ -13,7 +13,9 @@ from tracecat_registry import ctx, registry
         "Search or browse available action definitions by name and description. "
         "Follow `next_cursor` while `has_more` is true, then call "
         "`core.workflow.get_authoring_context` with selected `action_names` "
-        "for schemas and credentials. Search is a literal substring."
+        "for schemas and credentials. Search is a literal substring. "
+        "In Workspace Chat, follow `tracecat:workspace-chat` for tool routing "
+        "and `tracecat:automation-best-practices` for workflow authoring."
     ),
     default_title="Search action catalog",
     display_group="Action catalog",

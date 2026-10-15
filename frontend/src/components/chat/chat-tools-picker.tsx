@@ -21,6 +21,7 @@ import { Switch } from "@/components/ui/switch"
 import { toast } from "@/components/ui/use-toast"
 import { isAgentToolSelectable } from "@/lib/agent-tools"
 import { cn } from "@/lib/utils"
+import { useScopes } from "@/providers/scopes"
 import type { ChatSurface } from "@/types/chat-surface"
 
 interface ChatToolsPickerProps {
@@ -210,18 +211,34 @@ export function ChatToolsPicker({
 }: ChatToolsPickerProps) {
   const [query, setQuery] = useState("")
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const { hasScope, isLoading: scopesLoading } = useScopes()
   const isWorkspaceChat = surface === "workspace-chat"
+  const defaultCapabilityGroups = useMemo(
+    () =>
+      formsEnabled
+        ? [...DEFAULT_CAPABILITY_GROUPS, FORMS_CAPABILITY_GROUP]
+        : DEFAULT_CAPABILITY_GROUPS,
+    [formsEnabled]
+  )
   const visibleCapabilityGroups = useMemo(() => {
-    if (!isWorkspaceChat) {
+    if (!isWorkspaceChat || scopesLoading) {
       return []
     }
-    return formsEnabled
-      ? [...DEFAULT_CAPABILITY_GROUPS, FORMS_CAPABILITY_GROUP]
-      : DEFAULT_CAPABILITY_GROUPS
-  }, [isWorkspaceChat, formsEnabled])
+    return defaultCapabilityGroups
+      .map((group) => ({
+        ...group,
+        tools: group.tools.filter((tool) => hasScope(`action:${tool}:execute`)),
+      }))
+      .filter((group) => group.tools.length > 0)
+  }, [defaultCapabilityGroups, hasScope, isWorkspaceChat, scopesLoading])
   const defaultToolValues = useMemo(
-    () => new Set(visibleCapabilityGroups.flatMap((group) => group.tools)),
-    [visibleCapabilityGroups]
+    () =>
+      new Set(
+        isWorkspaceChat
+          ? defaultCapabilityGroups.flatMap((group) => group.tools)
+          : []
+      ),
+    [defaultCapabilityGroups, isWorkspaceChat]
   )
 
   const addedCount =
@@ -495,7 +512,7 @@ export function ChatToolsPicker({
             </>
           ) : (
             <>
-              {isWorkspaceChat ? (
+              {isWorkspaceChat && visibleCapabilityGroups.length > 0 ? (
                 <>
                   <GroupLabel pill="Always on">Active capabilities</GroupLabel>
                   {visibleCapabilityGroups.map((group) => (
