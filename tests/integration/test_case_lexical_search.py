@@ -2,7 +2,8 @@
 
 import asyncio
 from collections.abc import AsyncIterator
-from typing import Any, get_args
+from datetime import UTC, datetime, timedelta
+from typing import Any, Literal, get_args
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -22,7 +23,7 @@ from tests.integration.test_case_text_search_postgres import load_search_migrati
 from tests.unit.test_case_aggregation import add_case
 from tracecat.auth.dependencies import ExecutorWorkspaceRole, WorkspaceActorRouteRole
 from tracecat.auth.types import Role
-from tracecat.cases.enums import CasePriority
+from tracecat.cases.enums import CasePriority, CaseStatus
 from tracecat.cases.router import cases_router
 from tracecat.cases.search_schemas import CaseQuery, CaseSearchRequest
 from tracecat.cases.service import CasesService
@@ -293,7 +294,7 @@ async def test_selected_columns_and_literal_identifiers_are_not_fuzzy(
                 "search_term": f"CASE-{expected.case_number:04d}",
                 "search_mode": "full_text",
             },
-            [expected.id],
+            [expected.id, text_id.id],
         ),
         (
             {
@@ -625,3 +626,114 @@ async def test_normalized_byte_overflow_has_typed_query_rejection_and_literal_re
         )
         assert phrase.status_code == 200, phrase.text
         assert phrase.json()["items"] == []
+
+
+@pytest.mark.parametrize("reference_type", ["short_id", "uuid"])
+@pytest.mark.parametrize("delete_exact", [False, True])
+async def test_promoted_identity_and_native_mentions_share_one_stable_cursor(
+    lexical_service: CasesService,
+    reference_type: Literal["short_id", "uuid"],
+    delete_exact: bool,
+) -> None:
+    """Real indexed search retains mentions, filters, counts and deleted anchors."""
+    now = datetime.now(UTC)
+    exact = await text_case(lexical_service, "Synthetic older exact case")
+    exact.created_at = now - timedelta(days=60)
+    exact.status = CaseStatus.CLOSED
+    reference = exact.short_id if reference_type == "short_id" else str(exact.id)
+    first = await text_case(
+        lexical_service, "Synthetic description mention", f"Follow up on {reference}"
+    )
+    second = await text_case(lexical_service, f"Another synthetic mention {reference}")
+    first.created_at = now - timedelta(days=1)
+    second.created_at = now - timedelta(days=2)
+    await lexical_service.session.flush()
+    request = CaseSearchRequest(
+        search_term=reference,
+        search_mode=SearchMode.FULL_TEXT,
+        promote_exact_match=True,
+        start_time=now - timedelta(days=30),
+        status=[CaseStatus.NEW],
+        order_by="created_at",
+        sort="desc",
+        limit=1,
+    )
+    ids = []
+    for index in range(3):
+        page = await lexical_service.query_cases(request)
+        assert len(page.items) == 1
+        assert page.total_estimate == 2
+        row = page.items[0]
+        ids.append(row.id)
+        assert row.is_exact_match is (index == 0)
+        assert row.is_outside_filters is (index == 0)
+        if index == 1:
+            assert row.search_match is not None
+            assert "description" in row.search_match.matched_columns
+            assert any(
+                reference.lower() in excerpt.lower()
+                for excerpt in row.search_match.excerpts
+            )
+        if index == 0 and delete_exact:
+            await lexical_service.session.delete(exact)
+            await lexical_service.session.flush()
+        request = request.model_copy(update={"cursor": page.next_cursor})
+    assert ids == [exact.id, first.id, second.id]
+    assert request.cursor is None
+    counts = await lexical_service.query_case_aggregates(
+        CaseQuery(
+            search_term=reference,
+            search_mode=SearchMode.FULL_TEXT,
+            start_time=now - timedelta(days=30),
+            status=[CaseStatus.NEW],
+        )
+    )
+    assert counts.total == 2
+    assert counts.status_groups.new == 2
+
+
+async def test_reference_within_view_matches_identity_and_native_mentions_once(
+    lexical_service: CasesService,
+) -> None:
+    """Identity need not occur in source text to remain inside the view filters."""
+    exact = await text_case(lexical_service, "Synthetic case without its reference")
+    mention = await text_case(lexical_service, f"Synthetic mention {exact.short_id}")
+    page = await lexical_service.query_cases(
+        CaseSearchRequest(
+            search_term=exact.short_id,
+            search_mode=SearchMode.FULL_TEXT,
+            promote_exact_match=True,
+            limit=10,
+        )
+    )
+    assert [item.id for item in page.items] == [exact.id, mention.id]
+    assert page.items[0].is_exact_match
+    assert page.items[0].is_outside_filters is False
+    assert page.total_estimate == 2
+
+
+async def test_literal_promotion_reports_ordinary_membership_for_group_counts(
+    lexical_service: CasesService,
+) -> None:
+    """The exact row must not be subtracted from counts that never included it."""
+    exact = await text_case(lexical_service, "Synthetic case without reference text")
+    mention = await text_case(lexical_service, f"Synthetic mention {exact.short_id}")
+    request = CaseSearchRequest(
+        search_term=exact.short_id,
+        search_mode=SearchMode.LITERAL,
+        promote_exact_match=True,
+        limit=10,
+    )
+    page = await lexical_service.query_cases(request)
+    assert [item.id for item in page.items] == [exact.id, mention.id]
+    assert page.items[0].is_exact_match
+    assert page.items[0].is_outside_filters
+    assert page.total_estimate == 1
+    counts = await lexical_service.query_case_aggregates(
+        CaseQuery(
+            search_term=exact.short_id,
+            search_mode=SearchMode.LITERAL,
+        )
+    )
+    assert counts.total == 1
+    assert counts.status_groups.new == 1

@@ -654,12 +654,11 @@ describe("case search modes", () => {
     )
   })
 
-  it("treats case references as literal text in literal mode and keeps population counts", async () => {
+  it("keeps literal content matching and server-owned reference promotion together", async () => {
     const { result } = setup()
     await advance()
     act(() => {
       result.current.setSearchMode("literal")
-      result.current.setSearchScope("all")
       result.current.setSearchQuery("CASE-0042")
     })
     await advance(301)
@@ -667,8 +666,8 @@ describe("case search modes", () => {
       expect.objectContaining({
         searchMode: "literal",
         searchTerm: "CASE-0042",
-        shortId: undefined,
-        caseId: undefined,
+        promoteExactMatch: true,
+        startTime: expect.any(String),
         hierarchy: "all",
       })
     )
@@ -678,7 +677,6 @@ describe("case search modes", () => {
         searchTerm: "CASE-0042",
       })
     )
-    expect(result.current.searchScope).toBe("all")
     const stored = JSON.parse(
       window.localStorage.getItem(`${WORKSPACE_ID}:cases-filters:v1`) ?? "{}"
     )

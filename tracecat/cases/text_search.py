@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat import config
+from tracecat.cases.exact_search import MAX_CASE_NUMBER
 from tracecat.cases.text_search_indexes import (
     CASE_TEXT_DOCUMENT_BYTES,
     CASE_TEXT_MATCH_FUNCTION,
@@ -123,13 +124,15 @@ def parse_case_text_query(
 
     units = parse_full_text_query(value)
     text = value.strip()
+    case_number: int | None = None
+    case_id: uuid.UUID | None = None
     if match := _SHORT_ID.fullmatch(text):
         digits = match.group(1)
-        if len(digits) > 10 or int(digits) > 2**31 - 1:
+        if len(digits) > 10 or int(digits) > MAX_CASE_NUMBER:
             raise ValueError("Short ID number cannot exceed 2147483647")
-        return CaseTextQuery(text, (), mode, selected, case_number=int(digits))
+        case_number = int(digits)
     if _UUID.fullmatch(text):
-        return CaseTextQuery(text, (), mode, selected, case_id=uuid.UUID(text))
+        case_id = uuid.UUID(text)
 
     clauses: list[SearchClause] = []
     fuzzy_count = 0
@@ -144,7 +147,7 @@ def parse_case_text_query(
         clauses.append(
             SearchClause(unit.text, "phrase" if unit.is_phrase else "word", fuzzy)
         )
-    return CaseTextQuery(text, tuple(clauses), mode, selected)
+    return CaseTextQuery(text, tuple(clauses), mode, selected, case_number, case_id)
 
 
 async def validate_case_text_lexemes(
@@ -338,19 +341,11 @@ def build_case_text_expressions(query: CaseTextQuery) -> CaseTextExpressions:
     cross a tier boundary, and its integer representation survives cursor
     serialization without floating-point seek errors.
     """
-    if query.case_number is not None or query.case_id is not None:
-        identifier = (
-            Case.case_number == query.case_number
-            if query.case_number is not None
-            else Case.id == query.case_id
-        )
-        return CaseTextExpressions(
-            predicate=identifier,
-            score=sa.cast(sa.literal(5_000_000), sa.BigInteger),
-            summary_match=sa.false(),
-            description_match=sa.false(),
-            identifier_match=identifier,
-        )
+    identifier: ColumnElement[bool] = sa.false()
+    if query.case_number is not None:
+        identifier = Case.case_number == query.case_number
+    elif query.case_id is not None:
+        identifier = Case.id == query.case_id
     if not query.clauses:
         raise ValueError("Search must contain at least one clause")
     exact_clauses: list[ColumnElement[bool]] = []
@@ -384,6 +379,7 @@ def build_case_text_expressions(query: CaseTextQuery) -> CaseTextExpressions:
     # exact literal boost for a pure phrase without crossing source boundaries.
     contiguous = " ".join(clause.value for clause in query.clauses)
     tier = sa.case(
+        (identifier, 5),
         (
             sa.and_(
                 sa.literal("summary" in query.columns),
@@ -412,11 +408,11 @@ def build_case_text_expressions(query: CaseTextQuery) -> CaseTextExpressions:
         sa.BigInteger,
     )
     return CaseTextExpressions(
-        predicate=sa.and_(*clauses),
+        predicate=sa.or_(identifier, sa.and_(*clauses)),
         score=sa.cast(tier * 1_000_000 + subscore, sa.BigInteger),
         summary_match=sa.or_(*summaries),
         description_match=sa.or_(*descriptions),
-        identifier_match=sa.false(),
+        identifier_match=identifier,
     )
 
 
@@ -550,12 +546,12 @@ async def get_case_search_excerpts(
     to a workspace and explicit IDs.
     Full source text is evaluated inside PostgreSQL, including late matches;
     only bounded source windows leave the database. The caller supplies the
-    IDs after pagination, excluding lookahead rows. Identifiers need no text
-    excerpt. Text fields that no longer match are absent from the result.
+    IDs after pagination, excluding lookahead rows. Reference queries can also
+    match textual mentions. Fields that no longer match have no excerpt.
     """
     if len(case_ids) > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise ValueError("Excerpt IDs must fit one returned case page")
-    if not case_ids or query.case_id is not None or query.case_number is not None:
+    if not case_ids or not query.clauses:
         return {}
     marker = uuid.uuid4().hex
     start_marker, stop_marker = f"TCSTART_{marker}", f"TCSTOP_{marker}"

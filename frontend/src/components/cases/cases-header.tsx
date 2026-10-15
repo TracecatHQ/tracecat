@@ -717,7 +717,6 @@ export function CasesHeader({
               </SelectContent>
             </Select>
           )}
-
         </div>
 
         <div className="ml-auto flex items-center gap-2">
@@ -967,8 +966,7 @@ export function CasesHeader({
           value={sortBy}
           onChange={onSortByChange}
           allowRelevance={
-            searchMode === "full_text" &&
-            Boolean(appliedSearchQuery)
+            searchMode === "full_text" && Boolean(appliedSearchQuery)
           }
         />
 
