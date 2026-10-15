@@ -10,7 +10,8 @@ from collections.abc import Sequence
 from contextlib import suppress
 from datetime import UTC, datetime
 
-from sqlalchemy import ColumnElement, delete, select
+from sqlalchemy import ColumnElement, all_, bindparam, delete, select
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -84,7 +85,9 @@ async def purge_expired_files(session: AsyncSession, failed: set[uuid.UUID]) -> 
         .where(
             FormFile.submission_id.is_(None),
             FormFile.created_at < datetime.now(UTC) - PENDING_FILE_TTL,
-            FormFile.id.not_in(failed),
+            # One array parameter, however many files failed: a list of IDs
+            # would bind one parameter each, and drivers cap the count.
+            FormFile.id != all_(bindparam("failed", list(failed), ARRAY(UUID))),
         )
         .limit(EXPIRED_FILE_PURGE_BATCH)
         .with_for_update(skip_locked=True)

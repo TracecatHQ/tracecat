@@ -523,6 +523,23 @@ async def test_purge_keeps_the_row_of_a_blob_storage_failed_to_delete(
     assert blob_store.deleted == [key, key]
 
 
+async def test_a_batch_skips_any_number_of_failed_files(
+    session: AsyncSession,
+    files: FormFilesService,
+    blob_store: FakeBlobStore,
+    form: Form,
+) -> None:
+    """However many files a pass failed to delete, its next batch still runs."""
+    uploaded = await _upload(files, form)
+    await _age(session, uploaded.id, EXPIRED)
+    # More than a driver binds as separate parameters.
+    failed = {uuid.uuid4() for _ in range(40_000)}
+
+    assert await purge_expired_files(session, failed) == 1
+    assert await _rows(session) == {}
+    assert blob_store.objects == {}
+
+
 async def test_a_pass_purges_past_a_blob_storage_failed_to_delete(
     session: AsyncSession,
     files: FormFilesService,
