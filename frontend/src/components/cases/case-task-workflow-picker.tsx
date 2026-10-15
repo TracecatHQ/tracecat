@@ -64,7 +64,11 @@ export function CaseTaskWorkflowCommand({
 
   return (
     <Command aria-label="Set workflow" onKeyDown={handleKeyDown}>
-      <CommandInput placeholder="Search workflows…" className="text-xs" />
+      <CommandInput
+        autoFocus
+        placeholder="Search workflows…"
+        className="text-xs"
+      />
       <CommandList className="max-h-[min(300px,calc(var(--radix-popper-available-height,100vh)-3rem))]">
         <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
           No workflows found.
