@@ -1,6 +1,6 @@
 const OVERFLOW_TOOLTIP_CAP = 10
 
-/** Tooltip body for a `+N` badge: a capped, width-bounded list of names. */
+/** Tooltip body for a `+N` badge: a capped list of names that wrap. */
 export function OverflowTooltipList({
   items,
 }: {
@@ -12,7 +12,7 @@ export function OverflowTooltipList({
     <div className="max-w-xs">
       <ul className="space-y-0.5">
         {shown.map((item) => (
-          <li key={item.key} className="truncate">
+          <li key={item.key} className="break-words">
             {item.label}
           </li>
         ))}
