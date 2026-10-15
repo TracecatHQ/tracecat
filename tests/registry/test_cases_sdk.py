@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import ast
 import inspect
+from copy import deepcopy
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -370,6 +373,62 @@ async def test_search_cases_canonical_gateway_body_and_detail_flags(
     )
     assert response["items"] == [] and response["total_estimate"] is None
     assert len(requests) == 1
+
+
+@pytest.mark.anyio
+async def test_search_cases_serializes_native_filter_scalars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Real HTTP encoding preserves nested scalar values without mutating input."""
+    timestamp = datetime(2026, 1, 2, 3, 4, tzinfo=UTC)
+    day = date(2026, 1, 2)
+    assignee = uuid4()
+    amount = Decimal("12345678901234567890.123456789")
+    filters = {
+        "and": [
+            {"field": "created_at", "op": "gte", "value": timestamp},
+            {
+                "or": [
+                    {"field": "updated_at", "op": "eq", "value": day},
+                    {
+                        "not": {
+                            "field": "assignee",
+                            "op": "in",
+                            "value": [assignee],
+                        }
+                    },
+                ]
+            },
+            {"field": "fields.amount", "op": "gte", "value": amount},
+            {"field": "assignee", "op": "is_null", "value": None},
+        ]
+    }
+    original = deepcopy(filters)
+    requests: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        clauses = orjson.loads(request.content)["filters"]["and"]
+        assert datetime.fromisoformat(clauses[0]["value"]) == timestamp
+        alternatives = clauses[1]["or"]
+        assert date.fromisoformat(alternatives[0]["value"]) == day
+        assert alternatives[1]["not"]["value"] == [str(assignee)]
+        assert clauses[2]["value"] == str(amount)
+        assert clauses[3] == {
+            "field": "assignee",
+            "op": "is_null",
+            "value": None,
+        }
+        return httpx.Response(200, json={"items": [], "has_more": False})
+
+    def create_transport(*, uds: str) -> httpx.MockTransport:
+        return httpx.MockTransport(handle)
+
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", create_transport)
+    client = TracecatClient(action_gateway_socket="/tmp/synthetic-case-search.sock")
+    await client.cases.search_cases(filters=filters)
+    assert len(requests) == 1
+    assert filters == original
 
 
 def test_case_search_sdk_stub_signatures_match_client() -> None:

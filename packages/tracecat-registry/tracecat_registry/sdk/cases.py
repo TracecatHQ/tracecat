@@ -6,6 +6,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
+from pydantic_core import to_jsonable_python
+
 from tracecat_registry import types
 from tracecat_registry.sdk.types import (
     UNSET,
@@ -341,7 +343,7 @@ class CasesClient:
             if is_set(value):
                 params[name] = value
         # The standalone registry forwards JSON; the server validates the shared AST.
-        return await self._client.post("/cases/search", json=params)
+        return await self._client.post("/cases/search", json=to_jsonable_python(params))
 
     # === Comments === #
 
