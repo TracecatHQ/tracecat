@@ -114,7 +114,7 @@ function ActionRunRow({
       : event.status.toLowerCase().replace("_", " ")
 
   return (
-    <div className="flex h-10 items-center gap-3 px-3 text-xs">
+    <div className="group flex h-10 items-center gap-3 px-3 text-xs">
       {getExecutionStatusIcon(
         (event?.status ?? run.status) as WorkflowExecutionReadMinimal["status"],
         "size-3.5 shrink-0"
@@ -136,23 +136,32 @@ function ActionRunRow({
         {label}
       </span>
       {locked ? (
-        <span className="flex w-16 shrink-0 items-center justify-end gap-1 font-medium text-amber-600 dark:text-amber-400">
-          <LockIcon className="size-3.5" />
-          Locked
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="flex size-7 shrink-0 items-center justify-center text-amber-600 dark:text-amber-400">
+              <LockIcon className="size-3.5" />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Locked to this run</TooltipContent>
+        </Tooltip>
+      ) : reusable ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="size-7 shrink-0 opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+              aria-label="Lock to this run"
+              onClick={onLock}
+            >
+              <LockIcon className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Lock to this run</TooltipContent>
+        </Tooltip>
       ) : (
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="h-7 w-16 shrink-0 gap-1.5 text-xs"
-          disabled={!reusable}
-          title={reusable ? undefined : "Only successful runs can be locked"}
-          onClick={onLock}
-        >
-          <LockIcon className="size-3.5" />
-          Lock
-        </Button>
+        <span className="size-7 shrink-0" />
       )}
     </div>
   )
