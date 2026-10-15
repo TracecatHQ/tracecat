@@ -1,6 +1,11 @@
 "use client"
 
-import { InfoIcon, LockIcon, LockOpenIcon } from "lucide-react"
+import {
+  AlertTriangleIcon,
+  InfoIcon,
+  LockIcon,
+  LockOpenIcon,
+} from "lucide-react"
 import { useMemo } from "react"
 import type {
   ActionRead,
@@ -15,8 +20,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { useCompactWorkflowExecution, useWorkflowExecutions } from "@/lib/hooks"
+import {
+  useActionLockStatuses,
+  useCompactWorkflowExecution,
+  useWorkflowExecutions,
+} from "@/lib/hooks"
 import { slugifyActionRef } from "@/lib/utils"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 const MAX_RUNS = 25
 
@@ -41,6 +51,13 @@ export function ActionRunHistory({
   )
   const ref = slugifyActionRef(action.title)
   const lockedId = action.locked_execution_id ?? null
+  const workspaceId = useWorkspaceId()
+  const { staleLockedRefs } = useActionLockStatuses(
+    workspaceId,
+    workflowId,
+    !!lockedId
+  )
+  const lockStale = !!lockedId && staleLockedRefs.has(ref)
 
   return (
     <div className="flex flex-col gap-3 p-4">
@@ -57,18 +74,34 @@ export function ActionRunHistory({
             locks.
           </TooltipContent>
         </Tooltip>
-        {lockedId && (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7 shrink-0 gap-1.5 text-xs"
-            onClick={() => updateAction({ locked_execution_id: null })}
-          >
-            <LockOpenIcon className="size-3.5" />
-            Unlock
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {lockStale && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+                  <AlertTriangleIcon className="size-3.5" />
+                  Locked run expired
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-64">
+                The locked run is no longer in run history, so draft runs run
+                this action fresh.
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {lockedId && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 shrink-0 gap-1.5 text-xs"
+              onClick={() => updateAction({ locked_execution_id: null })}
+            >
+              <LockOpenIcon className="size-3.5" />
+              Unlock
+            </Button>
+          )}
+        </div>
       </div>
       <div className="divide-y rounded-md border">
         {workflowExecutionsIsLoading ? (

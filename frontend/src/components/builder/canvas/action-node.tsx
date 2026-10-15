@@ -80,6 +80,7 @@ import { useActionNodeZoomBreakpoint } from "@/hooks/canvas"
 import { isExpression } from "@/lib/expressions"
 import {
   useAction,
+  useActionLockStatuses,
   useGetRegistryAction,
   useWorkflowManager,
 } from "@/lib/hooks"
@@ -156,6 +157,15 @@ export default React.memo(function ActionNode({
   }, [actionPanelRef])
 
   const lockedExecutionId = action?.locked_execution_id ?? null
+  const { staleLockedRefs } = useActionLockStatuses(
+    workspaceId,
+    workflowId,
+    !!lockedExecutionId
+  )
+  const lockStale =
+    !!action &&
+    !!lockedExecutionId &&
+    staleLockedRefs.has(slugifyActionRef(action.title))
   const handleLockClick = useCallback(() => {
     if (lockedExecutionId) {
       void updateAction({ locked_execution_id: null })
@@ -443,7 +453,9 @@ export default React.memo(function ActionNode({
                         )}
                         onClick={handleLockClick}
                       >
-                        {lockedExecutionId ? (
+                        {lockStale ? (
+                          <AlertTriangleIcon className="size-3.5" />
+                        ) : lockedExecutionId ? (
                           <LockIcon className="size-3.5" />
                         ) : (
                           <LockOpenIcon className="size-3.5" />
@@ -451,9 +463,11 @@ export default React.memo(function ActionNode({
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="top" className="text-xs">
-                      {lockedExecutionId
-                        ? "Draft runs reuse this action's result from a past run. Click to unlock."
-                        : "Lock to a past run's result"}
+                      {lockStale
+                        ? "The locked run is no longer in run history, so draft runs run this action fresh. Click to unlock."
+                        : lockedExecutionId
+                          ? "Draft runs reuse this action's result from a past run. Click to unlock."
+                          : "Lock to a past run's result"}
                     </TooltipContent>
                   </Tooltip>
                 )}

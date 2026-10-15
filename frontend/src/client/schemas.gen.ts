@@ -279,6 +279,28 @@ export const $ActionInterfaceChange = {
     "Describes a change to an action's interface (expects or returns).",
 } as const
 
+export const $ActionLockStatus = {
+  properties: {
+    ref: {
+      type: "string",
+      title: "Ref",
+    },
+    locked_execution_id: {
+      type: "string",
+      title: "Locked Execution Id",
+    },
+    available: {
+      type: "boolean",
+      title: "Available",
+      description:
+        "False when the locked run no longer exists, e.g. after history retention.",
+    },
+  },
+  type: "object",
+  required: ["ref", "locked_execution_id", "available"],
+  title: "ActionLockStatus",
+} as const
+
 export const $ActionPositionUpdate = {
   properties: {
     action_id: {

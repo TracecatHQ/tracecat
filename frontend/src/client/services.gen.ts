@@ -12,6 +12,8 @@ import type {
   ActionsDeleteActionResponse,
   ActionsGetActionData,
   ActionsGetActionResponse,
+  ActionsListActionLockStatusesData,
+  ActionsListActionLockStatusesResponse,
   ActionsListActionsData,
   ActionsListActionsResponse,
   ActionsUpdateActionData,
@@ -3271,6 +3273,33 @@ export const actionsCreateAction = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Action Lock Statuses
+ * Whether each locked action's source run still exists.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.workflowId
+ * @returns ActionLockStatus Successful Response
+ * @throws ApiError
+ */
+export const actionsListActionLockStatuses = (
+  data: ActionsListActionLockStatusesData
+): CancelablePromise<ActionsListActionLockStatusesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/actions/lock-status",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      workflow_id: data.workflowId,
+    },
     errors: {
       422: "Validation Error",
     },

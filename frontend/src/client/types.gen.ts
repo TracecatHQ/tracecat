@@ -86,6 +86,15 @@ export type ActionInterfaceChange = {
 
 export type field = "expects" | "returns"
 
+export type ActionLockStatus = {
+  ref: string
+  locked_execution_id: string
+  /**
+   * False when the locked run no longer exists, e.g. after history retention.
+   */
+  available: boolean
+}
+
 /**
  * Position update for a single action.
  */
@@ -13597,6 +13606,13 @@ export type ActionsCreateActionData = {
 
 export type ActionsCreateActionResponse = ActionReadMinimal
 
+export type ActionsListActionLockStatusesData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type ActionsListActionLockStatusesResponse = Array<ActionLockStatus>
+
 export type ActionsGetActionData = {
   actionId: string
   workflowId: string
@@ -18832,6 +18848,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ActionReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/actions/lock-status": {
+    get: {
+      req: ActionsListActionLockStatusesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ActionLockStatus>
         /**
          * Validation Error
          */

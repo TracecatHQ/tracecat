@@ -15,6 +15,7 @@ from tracecat.service import BaseWorkspaceService
 from tracecat.workflow.actions.schemas import (
     ActionControlFlow,
     ActionCreate,
+    ActionLockStatus,
     ActionPositionUpdate,
     ActionUpdate,
 )
@@ -32,6 +33,51 @@ class WorkflowActionService(BaseWorkspaceService):
         )
         result = await self.session.execute(statement)
         return result.scalars().all()
+
+    @require_scope("workflow:read")
+    async def list_lock_statuses(
+        self, workflow_id: WorkflowID
+    ) -> list[ActionLockStatus]:
+        """Whether each locked action's source run still exists.
+
+        Only a confirmed missing run is reported as unavailable; a failed check
+        is reported as available so a Temporal error never flags a good lock.
+        """
+        statement = select(Action).where(
+            Action.workspace_id == self.workspace_id,
+            Action.workflow_id == workflow_id,
+            Action.locked_execution_id.is_not(None),
+        )
+        locked = [
+            (action.ref, action.locked_execution_id)
+            for action in (await self.session.execute(statement)).scalars().all()
+            if action.locked_execution_id
+        ]
+        if not locked:
+            return []
+
+        from tracecat.workflow.executions.service import WorkflowExecutionsService
+
+        exec_service = await WorkflowExecutionsService.connect(role=self.role)
+        available: dict[str, bool] = {}
+        for exec_id in {exec_id for _, exec_id in locked}:
+            try:
+                available[exec_id] = (
+                    await exec_service.get_execution(exec_id) is not None
+                )
+            except Exception as e:
+                self.logger.warning(
+                    "Could not check action lock source",
+                    execution_id=exec_id,
+                    error_type=type(e).__name__,
+                )
+                available[exec_id] = True
+        return [
+            ActionLockStatus(
+                ref=ref, locked_execution_id=exec_id, available=available[exec_id]
+            )
+            for ref, exec_id in locked
+        ]
 
     async def get_action(
         self, action_id: ActionID, workflow_id: WorkflowID

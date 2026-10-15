@@ -1,8 +1,9 @@
 import Cookies from "js-cookie"
 import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import {
+  type ActionLockStatus,
   type ActionRead,
   type ActionsDeleteActionData,
   type ActionUpdate,
@@ -21,6 +22,7 @@ import {
   type AwsAssumeRoleAccessRead,
   actionsDeleteAction,
   actionsGetAction,
+  actionsListActionLockStatuses,
   actionsUpdateAction,
   agentCreateProviderCredentials,
   agentDeleteProviderCredentials,
@@ -509,6 +511,9 @@ export function useAction(
       queryClient.invalidateQueries({
         queryKey: ["workflow", workflowId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["action-lock-status", workspaceId, workflowId],
+      })
       // Add a small delay before clearing the saving state to show feedback
       setTimeout(() => {
         setIsSaving(false)
@@ -526,6 +531,32 @@ export function useAction(
     updateAction,
     isSaving,
   }
+}
+
+/** Refs of locked actions whose locked run no longer exists. */
+export function useActionLockStatuses(
+  workspaceId: string,
+  workflowId: string | null,
+  enabled: boolean
+) {
+  const { data } = useQuery<ActionLockStatus[], Error>({
+    queryKey: ["action-lock-status", workspaceId, workflowId],
+    queryFn: async () =>
+      await actionsListActionLockStatuses({
+        workspaceId,
+        workflowId: workflowId ?? "",
+      }),
+    enabled: enabled && Boolean(workspaceId) && Boolean(workflowId),
+    staleTime: 60_000,
+  })
+  const staleLockedRefs = useMemo(
+    () =>
+      new Set(
+        (data ?? []).filter((status) => !status.available).map((s) => s.ref)
+      ),
+    [data]
+  )
+  return { staleLockedRefs }
 }
 
 export function useDeleteAction() {

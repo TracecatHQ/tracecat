@@ -1263,6 +1263,61 @@ async def test_locked_action_results_skips_unusable_locks(
 
 
 @pytest.mark.anyio
+async def test_list_lock_statuses_flags_only_missing_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.workflow.actions.service import WorkflowActionService
+
+    wf_id = WorkflowUUID.new_uuid4()
+    ok = f"{wf_id.short()}/exec_ok"
+    gone = f"{wf_id.short()}/exec_gone"
+    flaky = f"{wf_id.short()}/exec_flaky"
+    service = WorkflowActionService(cast(Any, object()), role=_role())
+    service.session = _locked_session(
+        [
+            SimpleNamespace(ref="a", locked_execution_id=ok),
+            SimpleNamespace(ref="b", locked_execution_id=gone),
+            SimpleNamespace(ref="c", locked_execution_id=flaky),
+            SimpleNamespace(ref="d", locked_execution_id=ok),
+        ]
+    )
+    fake_exec = _patch_exec_service(monkeypatch)
+    checked: list[str] = []
+
+    async def _get_execution(exec_id: str) -> Any:
+        checked.append(exec_id)
+        if exec_id == flaky:
+            raise RuntimeError("temporal unavailable")
+        return None if exec_id == gone else object()
+
+    fake_exec.get_execution = _get_execution  # type: ignore[attr-defined]
+
+    statuses = await service.list_lock_statuses(wf_id)
+
+    assert {s.ref: s.available for s in statuses} == {
+        "a": True,
+        "b": False,
+        "c": True,
+        "d": True,
+    }
+    assert sorted(checked) == sorted({ok, gone, flaky})
+
+
+@pytest.mark.anyio
+async def test_list_lock_statuses_without_locks_skips_exec_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.workflow.actions.service import WorkflowActionService
+
+    service = WorkflowActionService(cast(Any, object()), role=_role())
+    service.session = _locked_session([])
+    fake_exec = _patch_exec_service(monkeypatch)
+
+    assert await service.list_lock_statuses(WorkflowUUID.new_uuid4()) == []
+    assert fake_exec.calls == []
+
+
+@pytest.mark.anyio
 async def test_run_workflow_draft_missing_workflow_raises_not_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

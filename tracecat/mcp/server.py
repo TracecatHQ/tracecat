@@ -5522,7 +5522,9 @@ async def list_workflow_action_runs(
         ref: The action `ref`.
         limit: Number of recent workflow runs to inspect (1-25, default 10).
 
-    Returns JSON with the action's current `locked_execution_id` and `runs`,
+    Returns JSON with the action's current `locked_execution_id`,
+    `locked_run_available` (false once the locked run has been deleted by
+    history retention, in which case draft runs run the action fresh), and `runs`,
     newest first, each with `execution_id`, `execution_type`, `start_time`,
     `run_status`, `action_status` (null when the action didn't run),
     `lockable` (the action completed in that run), and `locked`.
@@ -5544,6 +5546,14 @@ async def list_workflow_action_runs(
             pagination=CursorPaginationParams(limit=limit, cursor=None),
             workflow_id=wf_id,
         )
+        locked_run_available: bool | None = None
+        if locked_id:
+            try:
+                locked_run_available = (
+                    await exec_service.get_execution(locked_id) is not None
+                )
+            except Exception:
+                locked_run_available = None
         runs: list[WorkflowActionRunEntry] = []
         for execution in executions.items:
             summary: Any = build_execution_summary(execution)
@@ -5564,7 +5574,11 @@ async def list_workflow_action_runs(
                 )
             )
         return WorkflowActionRunsResponse(
-            workflow_id=str(wf_id), ref=ref, locked_execution_id=locked_id, runs=runs
+            workflow_id=str(wf_id),
+            ref=ref,
+            locked_execution_id=locked_id,
+            locked_run_available=locked_run_available,
+            runs=runs,
         )
     except ToolError:
         raise

@@ -445,4 +445,5 @@ class WorkflowActionRunsResponse(BaseModel):
     workflow_id: str
     ref: str
     locked_execution_id: str | None = None
+    locked_run_available: bool | None = None
     runs: list[WorkflowActionRunEntry] = Field(default_factory=list)

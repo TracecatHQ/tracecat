@@ -13094,6 +13094,9 @@ async def test_list_workflow_action_runs_marks_lockable_and_locked(
         async def list_workflow_execution_events_compact(self, exec_id: str) -> Any:
             return events[exec_id]
 
+        async def get_execution(self, exec_id: str) -> Any:
+            return object() if exec_id in events else None
+
     async def _connect(*, role: Any) -> _ExecutionService:
         return _ExecutionService()
 
@@ -13107,6 +13110,7 @@ async def test_list_workflow_action_runs_marks_lockable_and_locked(
         )
     )
     assert payload["locked_execution_id"] == "wf_example/exec_ok"
+    assert payload["locked_run_available"] is True
     runs = {run["execution_id"]: run for run in payload["runs"]}
     assert (
         runs["wf_example/exec_ok"]["lockable"] and runs["wf_example/exec_ok"]["locked"]

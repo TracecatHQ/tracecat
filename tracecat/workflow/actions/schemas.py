@@ -98,6 +98,14 @@ class ActionControlFlow(Schema):
         return v
 
 
+class ActionLockStatus(Schema):
+    ref: str
+    locked_execution_id: str
+    available: bool = Field(
+        description="False when the locked run no longer exists, e.g. after history retention."
+    )
+
+
 class ActionRead(Schema):
     id: ActionID
     type: str
