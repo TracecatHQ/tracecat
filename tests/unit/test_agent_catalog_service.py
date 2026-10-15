@@ -847,12 +847,12 @@ async def test_resolve_catalog_id_by_model_prefers_enabled_platform_over_disable
 
 
 @pytest.mark.anyio
-async def test_resolve_catalog_id_by_model_workspace_override_replaces_org(
+async def test_resolve_catalog_id_by_model_workspace_subset_narrows_org(
     session: AsyncSession,
     svc_organization: Organization,
     svc_workspace,
 ) -> None:
-    """A workspace override fully replaces the org-level enabled set."""
+    """A workspace subset narrows the org-level enabled set."""
     service = AgentCatalogService(session=session)
     row_a = AgentCatalog(
         organization_id=svc_organization.id,
@@ -870,8 +870,9 @@ async def test_resolve_catalog_id_by_model_workspace_override_replaces_org(
     )
     session.add_all([row_a, row_b])
     await session.flush()
-    # Org level enables A; the workspace override enables only B.
+    # Org level enables both; the workspace subset keeps only B.
     session.add(_enable(org_id=svc_organization.id, catalog_id=row_a.id))
+    session.add(_enable(org_id=svc_organization.id, catalog_id=row_b.id))
     session.add(
         _enable(
             org_id=svc_organization.id,
@@ -1125,7 +1126,7 @@ async def test_is_catalog_id_enabled_respects_workspace_override(
     svc_organization: Organization,
     svc_workspace: Workspace,
 ) -> None:
-    """A workspace override replaces the org-level set for the enabled check."""
+    """A workspace subset narrows the org-level set for the enabled check."""
     service = AgentCatalogService(session=session)
     org_row = AgentCatalog(
         organization_id=svc_organization.id,
@@ -1143,8 +1144,9 @@ async def test_is_catalog_id_enabled_respects_workspace_override(
     )
     session.add_all([org_row, ws_row])
     await session.flush()
-    # Org level enables org_row; the workspace override enables only ws_row.
+    # Org level enables both; the workspace subset keeps only ws_row.
     session.add(_enable(org_id=svc_organization.id, catalog_id=org_row.id))
+    session.add(_enable(org_id=svc_organization.id, catalog_id=ws_row.id))
     session.add(
         _enable(
             org_id=svc_organization.id,
@@ -1323,6 +1325,8 @@ async def test_enabled_catalog_models_respects_workspace_override(
     session.add_all(
         [
             _enable(org_id=svc_organization.id, catalog_id=org_row.id),
+            _enable(org_id=svc_organization.id, catalog_id=workspace_row.id),
+            # The workspace subset narrows the org set to one model.
             _enable(
                 org_id=svc_organization.id,
                 catalog_id=workspace_row.id,

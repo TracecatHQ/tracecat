@@ -14,14 +14,16 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi import HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.membership import grant_org_membership, grant_workspace_membership
 from tracecat.agent import router as agent_router
 from tracecat.agent.access import router as agent_access_router
 from tracecat.agent.access.schemas import WorkspaceAgentModelAccessUpdate
+from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.catalog import router as agent_catalog_router
+from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.provider import router as agent_provider_router
 from tracecat.agent.session import router as agent_session_router
 from tracecat.auth import credentials
@@ -352,6 +354,91 @@ async def test_workspace_only_admin_manages_workspace_model_access(
         select(AgentModelAccess).where(AgentModelAccess.workspace_id == workspace.id)
     )
     assert remaining.all() == []
+
+
+async def _disable_at_org_level(
+    session: AsyncSession, org: Organization, *catalogs: AgentCatalog
+) -> None:
+    await session.execute(
+        delete(AgentModelAccess).where(
+            AgentModelAccess.organization_id == org.id,
+            AgentModelAccess.workspace_id.is_(None),
+            AgentModelAccess.catalog_id.in_([catalog.id for catalog in catalogs]),
+        )
+    )
+    await session.commit()
+
+
+async def test_workspace_subset_never_outlives_an_org_disable(
+    session: AsyncSession,
+) -> None:
+    """A model the org disables leaves every workspace subset, in every access check."""
+    org = await _org(session)
+    workspace = await _workspace(session, org)
+    admin = await _workspace_user(session, org, workspace, "workspace-admin")
+    disabled, kept = await _enable_org_models(session, org, 2)
+    role = await _resolve_role(session, admin, workspace.id)
+    await _put_access(
+        role,
+        session,
+        workspace,
+        WorkspaceAgentModelAccessUpdate(
+            inherit_all=False, catalog_ids=[disabled.id, kept.id]
+        ),
+    )
+
+    await _disable_at_org_level(session, org, disabled)
+
+    models = await agent_catalog_router.get_workspace_models(
+        workspace_id=workspace.id, role=role, session=session
+    )
+    assert [model.id for model in models.items] == [kept.id]
+    access = AgentModelAccessService(session=session, role=role)
+    catalog = AgentCatalogService(session=session)
+    for catalog_id, enabled in ((disabled.id, False), (kept.id, True)):
+        assert (
+            await access.is_catalog_enabled(catalog_id, workspace_id=workspace.id)
+            is enabled
+        )
+        assert (
+            await catalog.is_catalog_id_enabled(
+                org_id=org.id, catalog_id=catalog_id, workspace_id=workspace.id
+            )
+            is enabled
+        )
+
+
+async def test_workspace_whose_subset_the_org_disabled_gets_no_models(
+    session: AsyncSession,
+) -> None:
+    """Fail closed: a subset with no org-enabled model left yields none, not the org set."""
+    org = await _org(session)
+    workspace = await _workspace(session, org)
+    admin = await _workspace_user(session, org, workspace, "workspace-admin")
+    first, second, still_enabled = await _enable_org_models(session, org, 3)
+    await _set_org_default(session, org, still_enabled)
+    role = await _resolve_role(session, admin, workspace.id)
+    await _put_access(
+        role,
+        session,
+        workspace,
+        WorkspaceAgentModelAccessUpdate(
+            inherit_all=False, catalog_ids=[first.id, second.id]
+        ),
+    )
+
+    await _disable_at_org_level(session, org, first, second)
+
+    models = await agent_catalog_router.get_workspace_models(
+        workspace_id=workspace.id, role=role, session=session
+    )
+    assert models.items == []
+    assert models.workspace_subset_disabled is True
+    assert models.default_catalog_id is None
+    access = AgentModelAccessService(session=session, role=role)
+    assert not await access.is_catalog_enabled(
+        still_enabled.id, workspace_id=workspace.id
+    )
 
 
 async def test_workspace_model_access_rejects_models_the_org_has_not_enabled(

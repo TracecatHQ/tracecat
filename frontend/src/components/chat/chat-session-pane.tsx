@@ -840,7 +840,11 @@ export function ChatSessionPane({
 
   const commitSelectedTools = useCallback(
     (next: string[]) => {
-      if (areToolListsEqual(selectedToolsRef.current, next)) {
+      // Changing a session's tools is a session update that needs agent:execute.
+      if (
+        cannotExecuteAgents ||
+        areToolListsEqual(selectedToolsRef.current, next)
+      ) {
         return
       }
 
@@ -855,7 +859,7 @@ export function ChatSessionPane({
       pendingPersistedToolsRef.current = next
       void queuePersistTools(next)
     },
-    [chat, isReadonly, queuePersistTools]
+    [cannotExecuteAgents, chat, isReadonly, queuePersistTools]
   )
 
   const persistMcpChainRef = useRef<Promise<void>>(Promise.resolve())
@@ -1345,6 +1349,7 @@ export function ChatSessionPane({
                 removeDisabled={
                   isUpdatingTools ||
                   isReadonly ||
+                  cannotExecuteAgents ||
                   inputDisabled ||
                   !toolsEnabled
                 }

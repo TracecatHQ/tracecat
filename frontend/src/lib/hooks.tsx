@@ -5862,6 +5862,8 @@ export function useWorkspaceAgentModels(
     defaultCatalogId: data?.default_catalog_id ?? null,
     /** Whether the org has a default model, enabled here or not. */
     hasOrgDefault: data?.has_org_default ?? false,
+    /** The workspace has a subset, and the org disabled every model in it. */
+    workspaceSubsetDisabled: data?.workspace_subset_disabled ?? false,
     modelsLoading,
     modelsError,
   }
@@ -6078,7 +6080,7 @@ export function useDeleteProviderCredentials() {
  * Are we ready to chat?
  * Returns { ready, reason, modelInfo }
  *  ready   – boolean
- *  reason  – "no_model" | "default_not_enabled" | null
+ *  reason  – "no_model" | "default_not_enabled" | "subset_disabled" | null
  *  modelInfo – model info (if any)
  *
  * Without a model override, chat uses the org default model if it is enabled
@@ -6099,8 +6101,13 @@ export function useChatReadiness(
   workspaceId: string | null | undefined,
   options?: ChatReadinessOptions
 ) {
-  const { models, defaultCatalogId, hasOrgDefault, modelsLoading } =
-    useWorkspaceAgentModels(workspaceId)
+  const {
+    models,
+    defaultCatalogId,
+    hasOrgDefault,
+    workspaceSubsetDisabled,
+    modelsLoading,
+  } = useWorkspaceAgentModels(workspaceId)
   const modelOverride = options?.modelOverride
 
   if (modelsLoading) {
@@ -6128,10 +6135,16 @@ export function useChatReadiness(
     ? (models?.find((model) => model.id === defaultCatalogId) ?? null)
     : null
   if (!modelCfg) {
+    let reason = "no_model"
+    if (workspaceSubsetDisabled) {
+      reason = "subset_disabled"
+    } else if (hasOrgDefault) {
+      reason = "default_not_enabled"
+    }
     return {
       ready: false,
       loading: false,
-      reason: hasOrgDefault ? "default_not_enabled" : "no_model",
+      reason,
     }
   }
 

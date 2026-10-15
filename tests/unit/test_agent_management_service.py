@@ -232,6 +232,12 @@ async def test_get_catalog_credentials_respects_workspace_override_access(
     await _grant_access(
         session,
         org_id=svc_organization.id,
+        catalog_id=workspace_catalog.id,
+    )
+    # The workspace subset narrows the org set to one model.
+    await _grant_access(
+        session,
+        org_id=svc_organization.id,
         workspace_id=svc_workspace.id,
         catalog_id=workspace_catalog.id,
     )

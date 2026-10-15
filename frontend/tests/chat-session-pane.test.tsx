@@ -1000,6 +1000,65 @@ describe("ChatSessionPane", () => {
     expect(screen.getByRole("button", { name: "Stop" })).toBeDisabled()
   })
 
+  it("does not let a role without agent:execute remove a session's tools", () => {
+    // Changing a session's tools is a session update that needs agent:execute.
+    mockUseScopeCheck.mockImplementation((scope) => scope !== "agent:execute")
+    const action = {
+      id: "action-1",
+      name: "core.cases.list_cases",
+      action: "core.cases.list_cases",
+      default_title: "List cases",
+      description: "List all cases",
+      namespace: "core.cases",
+      type: "template" as const,
+      origin: "tracecat://test",
+      availability: { locked: false, missing_entitlements: [] },
+    }
+    mockUseBuilderRegistryActions.mockReturnValue({
+      registryActions: [action],
+      registryActionsIsLoading: false,
+      registryActionsError: null,
+      getRegistryAction: (key: string) =>
+        key === action.action ? action : undefined,
+    })
+    const updateChat = jest.fn()
+    mockUseUpdateChat.mockReturnValue({
+      updateChat,
+      isUpdating: false,
+      updateError: null,
+    })
+    mockUseVercelChat.mockReturnValue({
+      sendMessage: jest.fn(),
+      setMessages: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture({ tools: ["core.cases.list_cases"] })}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            toolsEnabled
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    const remove = screen.getByRole("button", { name: /remove list cases/i })
+    expect(remove).toBeDisabled()
+    fireEvent.click(remove)
+    expect(updateChat).not.toHaveBeenCalled()
+  })
+
   it("lets a role with agent:execute send, retry and approve", () => {
     // Editors and admins run the agent.
     const sendMessage = jest.fn().mockResolvedValue(undefined)

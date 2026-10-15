@@ -130,6 +130,7 @@ function setupMocks({
     models: modelsLoading || modelsError ? undefined : models,
     defaultCatalogId,
     hasOrgDefault,
+    workspaceSubsetDisabled: false,
     modelsLoading,
     modelsError,
   })

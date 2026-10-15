@@ -776,25 +776,25 @@ function ChatBody({
   // Render active chat session when ready
   if ((!chatReady || !modelInfo) && !chat?.is_readonly) {
     // Render configuration required state
-    const defaultNotEnabled = chatReadyReason === "default_not_enabled"
+    const workspaceReason = getWorkspaceModelReason(chatReadyReason)
     if (surface === "workspace-chat") {
       return (
         <ChatEmptyHero>
-          <NoDefaultModelComposer defaultNotEnabled={defaultNotEnabled} />
+          <NoDefaultModelComposer workspaceReason={workspaceReason} />
         </ChatEmptyHero>
       )
     }
 
-    if (defaultNotEnabled) {
+    if (workspaceReason) {
       return (
         <>
           <NoMessages />
           <div className="rounded-md border border-border bg-muted/40 p-4">
             <h4 className="mb-1 text-sm font-medium text-foreground">
-              Default model not enabled
+              {workspaceReason.title}
             </h4>
             <p className="text-xs text-muted-foreground">
-              {DEFAULT_MODEL_NOT_ENABLED_MESSAGE}
+              {workspaceReason.message}
             </p>
           </div>
         </>
@@ -903,14 +903,40 @@ function ChatBody({
  * real prompt input but is non-interactive, with a CTA linking to agent
  * settings where a default model can be selected.
  */
-/** Shown when the org default exists but this workspace's subset excludes it. */
-const DEFAULT_MODEL_NOT_ENABLED_MESSAGE =
-  "The organization default model is not enabled for this workspace. A workspace admin can enable it in workspace AI model settings."
+interface WorkspaceModelReason {
+  title: string
+  message: string
+}
+
+/**
+ * Explain a chat that cannot start because of the workspace's model subset,
+ * which org agent settings cannot fix. Other reasons return null.
+ */
+function getWorkspaceModelReason(
+  reason: string | undefined
+): WorkspaceModelReason | null {
+  switch (reason) {
+    case "subset_disabled":
+      return {
+        title: "Workspace models disabled",
+        message:
+          "The organization disabled every model enabled for this workspace. A workspace admin can choose new ones in workspace AI model settings.",
+      }
+    case "default_not_enabled":
+      return {
+        title: "Default model not enabled",
+        message:
+          "The organization default model is not enabled for this workspace. A workspace admin can enable it in workspace AI model settings.",
+      }
+    default:
+      return null
+  }
+}
 
 function NoDefaultModelComposer({
-  defaultNotEnabled,
+  workspaceReason,
 }: {
-  defaultNotEnabled: boolean
+  workspaceReason: WorkspaceModelReason | null
 }) {
   return (
     <div className="space-y-3">
@@ -922,8 +948,8 @@ function NoDefaultModelComposer({
         <PromptInputBody>
           <PromptInputTextarea
             placeholder={
-              defaultNotEnabled
-                ? "Enable the default model to start chatting..."
+              workspaceReason
+                ? "Enable a workspace model to start chatting..."
                 : "Select a default model to start chatting..."
             }
             readOnly
@@ -941,9 +967,9 @@ function NoDefaultModelComposer({
           />
         </PromptInputFooter>
       </PromptInput>
-      {defaultNotEnabled ? (
+      {workspaceReason ? (
         <p className="text-center text-xs text-muted-foreground">
-          {DEFAULT_MODEL_NOT_ENABLED_MESSAGE}
+          {workspaceReason.message}
         </p>
       ) : (
         <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">

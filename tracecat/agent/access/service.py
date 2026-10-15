@@ -9,6 +9,7 @@ from sqlalchemy import Select, exists, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
+from tracecat.agent.access.effective import effective_catalog_ids
 from tracecat.agent.access.schemas import (
     AgentModelAccessRead,
     WorkspaceAgentModelAccessRead,
@@ -222,20 +223,11 @@ class AgentModelAccessService(BaseOrgService):
     ) -> list[WorkspaceAgentModelRead]:
         """Return the effective model set for a workspace.
 
-        If the workspace has any explicit access rows, those fully override the
-        org-level set. Otherwise the org-level set applies.
+        A workspace subset narrows the org-enabled set and never extends it;
+        see ``effective_catalog_ids``.
         """
-        workspace_override_exists = await self.session.scalar(
-            select(
-                exists().where(
-                    AgentModelAccess.organization_id == self.organization_id,
-                    AgentModelAccess.workspace_id == workspace_id,
-                )
-            )
-        )
-        effective_workspace_id = workspace_id if workspace_override_exists else None
         return await self._list_labelled_models(
-            self._access_catalog_ids(effective_workspace_id)
+            effective_catalog_ids(self.organization_id, workspace_id)
         )
 
     @require_scope("agent:read")
@@ -251,10 +243,21 @@ class AgentModelAccessService(BaseOrgService):
         default_catalog_id = None
         if org_default is not None and org_default.id in enabled_catalog_ids:
             default_catalog_id = org_default.id
+        subset_disabled = not models and bool(
+            await self.session.scalar(
+                select(
+                    exists().where(
+                        AgentModelAccess.organization_id == self.organization_id,
+                        AgentModelAccess.workspace_id == workspace_id,
+                    )
+                )
+            )
+        )
         return WorkspaceAgentModelListResponse(
             items=models,
             default_catalog_id=default_catalog_id,
             has_org_default=org_default is not None,
+            workspace_subset_disabled=subset_disabled,
         )
 
     @require_scope("agent:read")
@@ -295,7 +298,7 @@ class AgentModelAccessService(BaseOrgService):
         desired_catalog_ids = set(params.catalog_ids)
         if desired_catalog_ids:
             candidates = await self._list_labelled_models(
-                self._access_catalog_ids(None)
+                effective_catalog_ids(self.organization_id, None)
             )
             candidate_ids = {candidate.id for candidate in candidates}
             if unknown := desired_catalog_ids - candidate_ids:
@@ -345,23 +348,13 @@ class AgentModelAccessService(BaseOrgService):
                 .order_by(AgentModelAccess.catalog_id)
             )
         )
-        candidates = await self._list_labelled_models(self._access_catalog_ids(None))
+        candidates = await self._list_labelled_models(
+            effective_catalog_ids(self.organization_id, None)
+        )
         return WorkspaceAgentModelAccessRead(
             inherit_all=not catalog_ids,
             catalog_ids=catalog_ids,
             candidates=candidates,
-        )
-
-    def _access_catalog_ids(self, workspace_id: UUID | None) -> Select[tuple[UUID]]:
-        """Catalog IDs with an access row at this level (``None`` = org level)."""
-        workspace_condition = (
-            AgentModelAccess.workspace_id == workspace_id
-            if workspace_id is not None
-            else AgentModelAccess.workspace_id.is_(None)
-        )
-        return select(AgentModelAccess.catalog_id).where(
-            AgentModelAccess.organization_id == self.organization_id,
-            workspace_condition,
         )
 
     async def _list_labelled_models(
@@ -409,39 +402,17 @@ class AgentModelAccessService(BaseOrgService):
         workspace_id: UUID | None = None,
     ) -> bool:
         """Return whether a catalog row is enabled under effective access rules."""
-        effective_workspace_id = None
-        if workspace_id is not None:
-            workspace_override_exists = await self.session.scalar(
-                select(
-                    exists().where(
-                        sa.and_(
-                            AgentModelAccess.organization_id == self.organization_id,
-                            AgentModelAccess.workspace_id == workspace_id,
-                        )
-                    )
-                )
-            )
-            if workspace_override_exists:
-                effective_workspace_id = workspace_id
-        workspace_condition = (
-            AgentModelAccess.workspace_id == effective_workspace_id
-            if effective_workspace_id is not None
-            else AgentModelAccess.workspace_id.is_(None)
-        )
-
         enabled = await self.session.scalar(
             select(
                 exists().where(
-                    sa.and_(
-                        AgentModelAccess.organization_id == self.organization_id,
-                        workspace_condition,
-                        AgentModelAccess.catalog_id == catalog_id,
-                        AgentCatalog.id == AgentModelAccess.catalog_id,
-                        sa.or_(
-                            AgentCatalog.organization_id.is_(None),
-                            AgentCatalog.organization_id == self.organization_id,
-                        ),
-                    )
+                    AgentCatalog.id == catalog_id,
+                    AgentCatalog.id.in_(
+                        effective_catalog_ids(self.organization_id, workspace_id)
+                    ),
+                    sa.or_(
+                        AgentCatalog.organization_id.is_(None),
+                        AgentCatalog.organization_id == self.organization_id,
+                    ),
                 )
             )
         )

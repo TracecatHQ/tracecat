@@ -560,6 +560,21 @@ describe("ChatInterface model readiness", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("says the org disabled the workspace's models when none are left", () => {
+    // A subset whose models the org disabled leaves the workspace with none.
+    mockUseChatReadiness.mockReturnValue({
+      ready: false,
+      loading: false,
+      reason: "subset_disabled",
+    })
+    renderChat({ surface: "regular" })
+
+    expect(screen.getByText("Workspace models disabled")).toBeInTheDocument()
+    expect(
+      screen.getByText(/organization disabled every model enabled/)
+    ).toBeInTheDocument()
+  })
+
   it("links to agent settings when the org has no default model", () => {
     mockUseChatReadiness.mockReturnValue({
       ready: false,

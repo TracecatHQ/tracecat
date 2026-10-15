@@ -885,6 +885,12 @@ class TestAgentPresetService:
                 ),
                 AgentModelAccess(
                     organization_id=svc_organization.id,
+                    workspace_id=None,
+                    catalog_id=workspace_catalog.id,
+                ),
+                # The workspace subset narrows the org set to one model.
+                AgentModelAccess(
+                    organization_id=svc_organization.id,
                     workspace_id=svc_workspace.id,
                     catalog_id=workspace_catalog.id,
                 ),

@@ -45,6 +45,10 @@ class WorkspaceAgentModelListResponse(BaseModel):
         default=False,
         description="Whether the organization has a default model, enabled here or not.",
     )
+    workspace_subset_disabled: bool = Field(
+        default=False,
+        description="True when the workspace has a model subset and the organization has disabled every model in it.",
+    )
 
 
 class CloudCatalogModelBase(BaseModel):

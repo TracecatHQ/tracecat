@@ -12552,6 +12552,10 @@ export type WorkspaceAgentModelListResponse = {
    * Whether the organization has a default model, enabled here or not.
    */
   has_org_default?: boolean
+  /**
+   * True when the workspace has a model subset and the organization has disabled every model in it.
+   */
+  workspace_subset_disabled?: boolean
 }
 
 /**

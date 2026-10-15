@@ -38,6 +38,7 @@ beforeEach(() => {
     models,
     defaultCatalogId: null,
     hasOrgDefault: false,
+    workspaceSubsetDisabled: false,
     modelsLoading: false,
     modelsError: null,
   })
@@ -109,6 +110,7 @@ it("matches a saved model without a catalog id against a custom source", () => {
     ],
     defaultCatalogId: null,
     hasOrgDefault: false,
+    workspaceSubsetDisabled: false,
     modelsLoading: false,
     modelsError: null,
   })
@@ -127,6 +129,7 @@ it("keeps the saved model visible, not unavailable, while models load", () => {
     models: undefined,
     defaultCatalogId: null,
     hasOrgDefault: false,
+    workspaceSubsetDisabled: false,
     modelsLoading: true,
     modelsError: null,
   })
@@ -159,6 +162,7 @@ it("keeps the saved model visible when the catalog fails to load", () => {
     models: undefined,
     defaultCatalogId: null,
     hasOrgDefault: false,
+    workspaceSubsetDisabled: false,
     modelsLoading: false,
     modelsError: error,
   })
@@ -184,6 +188,7 @@ it("shows only the load failure when no model is saved", () => {
     models: undefined,
     defaultCatalogId: null,
     hasOrgDefault: false,
+    workspaceSubsetDisabled: false,
     modelsLoading: false,
     modelsError: new ApiError(
       { method: "GET", url: "/agent/models" },

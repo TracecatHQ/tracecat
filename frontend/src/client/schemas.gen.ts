@@ -41792,6 +41792,13 @@ export const $WorkspaceAgentModelListResponse = {
         "Whether the organization has a default model, enabled here or not.",
       default: false,
     },
+    workspace_subset_disabled: {
+      type: "boolean",
+      title: "Workspace Subset Disabled",
+      description:
+        "True when the workspace has a model subset and the organization has disabled every model in it.",
+      default: false,
+    },
   },
   type: "object",
   required: ["items"],
