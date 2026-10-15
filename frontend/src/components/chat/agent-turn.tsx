@@ -47,6 +47,25 @@ function getRecordedAt(message: ThreadMessage): number | null {
   return null
 }
 
+/** When the message's last tool call returned, from history metadata. */
+function getToolsCompletedAt(message: ThreadMessage): number | null {
+  let latest: number | null = null
+  for (const part of message.parts) {
+    if (!isToolUIPart(part)) {
+      continue
+    }
+    const completedAt = part.callProviderMetadata?.tracecat?.completed_at
+    if (typeof completedAt !== "string") {
+      continue
+    }
+    const time = Date.parse(completedAt)
+    if (!Number.isNaN(time) && (latest === null || time > latest)) {
+      latest = time
+    }
+  }
+  return latest
+}
+
 /** Group consecutive non-user messages into one agent turn per prompt. */
 export function groupThread(messages: ThreadMessage[]): ThreadBlock[] {
   const blocks: ThreadBlock[] = []
@@ -157,7 +176,7 @@ export function AgentTurn({
     isLive || !foldFinishedTurns ? null : splitFinishedTurn(messages)
 
   // Each thought is its own history row, so it took as long as the gap since
-  // the row before it.
+  // the row or tool result before it.
   const reasoningSeconds = new Map<string, number>()
   let previousAt = startedAt
   for (const message of messages) {
@@ -174,6 +193,13 @@ export function AgentTurn({
       )
     }
     previousAt = recordedAt ?? previousAt
+    const toolsCompletedAt = getToolsCompletedAt(message)
+    if (
+      toolsCompletedAt !== null &&
+      (previousAt === null || toolsCompletedAt > previousAt)
+    ) {
+      previousAt = toolsCompletedAt
+    }
   }
 
   function renderMessages(group: ThreadMessage[], keySuffix: string) {

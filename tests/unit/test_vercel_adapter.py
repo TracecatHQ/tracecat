@@ -157,6 +157,30 @@ def test_convert_chat_messages_to_ui_leaves_approved_call_result_untagged() -> N
     assert "callProviderMetadata" not in part
 
 
+def test_convert_chat_messages_to_ui_records_when_a_call_completed() -> None:
+    """The merged result row's time survives, so later steps time from it."""
+    called_at = datetime(2026, 1, 1, 0, 0, 2, tzinfo=UTC)
+    completed_at = datetime(2026, 1, 1, 0, 0, 32, tzinfo=UTC)
+    call, approval, result = _decided_call(
+        ApprovalStatus.REJECTED, result="denied", is_error=True, reason="no"
+    )
+    call.created_at = called_at
+    result.created_at = completed_at
+
+    messages = convert_chat_messages_to_ui([call, approval, result])
+
+    assert len(messages) == 1
+    assert messages[0].metadata == {"created_at": called_at.isoformat()}
+    part = cast(ToolUIPartOutputError, messages[0].parts[0])
+    assert part.get("callProviderMetadata") == {
+        "tracecat": {
+            "approval": "rejected",
+            "reason": "no",
+            "completed_at": completed_at.isoformat(),
+        }
+    }
+
+
 def test_convert_chat_messages_to_ui_emits_cancelled_marker() -> None:
     messages = convert_chat_messages_to_ui(
         [

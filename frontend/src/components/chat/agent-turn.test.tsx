@@ -113,6 +113,37 @@ describe("AgentTurn", () => {
     expect(screen.getByText("Worked for 16s")).toBeInTheDocument()
   })
 
+  it("times a thought from the tool result before it", () => {
+    const slowTool: UIMessage = {
+      ...TOOL_CALL,
+      parts: [
+        {
+          type: "dynamic-tool",
+          toolName: "core__table__list_tables",
+          toolCallId: "call-1",
+          state: "output-available",
+          input: {},
+          output: [],
+          callProviderMetadata: {
+            tracecat: { completed_at: at(35).created_at },
+          },
+        },
+      ],
+    }
+    const nextThought: UIMessage = {
+      id: "thought-2",
+      role: "assistant",
+      metadata: at(36),
+      parts: [{ type: "reasoning", text: "No tables yet.", state: "done" }],
+    }
+    const answer: UIMessage = { ...ANSWER_MESSAGE, metadata: at(38) }
+    renderTurn([PROMPT, THOUGHT, slowTool, nextThought, answer])
+
+    fireEvent.click(screen.getByText("Worked for 38s"))
+
+    expect(screen.getByText("Thought for 1 second")).toBeInTheDocument()
+  })
+
   it("shows a turn that only thought as its thought", () => {
     renderTurn([PROMPT, THOUGHT, ANSWER_MESSAGE])
 

@@ -1021,6 +1021,8 @@ class MutableToolPart:
     input: Any
     output: Any | None = None
     error_text: str | None = None
+    # When the result row was recorded; the row itself merges into this part.
+    completed_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.input, dict):
@@ -1087,10 +1089,23 @@ class MutableToolPart:
             output=content,
         )
 
+    def _result_metadata(
+        self, extra: ProviderMetadata | None
+    ) -> ProviderMetadata | None:
+        """Merge the completion time into the result's Tracecat metadata."""
+        if self.completed_at is None:
+            return extra
+        tracecat = {
+            **(extra or {}).get("tracecat", {}),
+            "completed_at": self.completed_at.isoformat(),
+        }
+        return {**(extra or {}), "tracecat": tracecat}
+
     def to_ui_part(
         self, *, result_metadata: ProviderMetadata | None = None
     ) -> ToolUIPart:
         """Build the UI part, attaching ``result_metadata`` to a recorded result."""
+        result_metadata = self._result_metadata(result_metadata)
         if self.state == "input-available":
             return ToolUIPartInputAvailable(
                 type=self.type,
@@ -1414,6 +1429,7 @@ def convert_chat_messages_to_ui(
                         existing.set_result(
                             part.content, structured_error, is_error=part.is_error
                         )
+                        existing.completed_at = chat_message.created_at
                     else:
                         # Create fallback part when no existing tool entry is found
                         tool_part = MutableToolPart.with_result(
