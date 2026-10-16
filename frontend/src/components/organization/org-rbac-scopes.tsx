@@ -338,18 +338,18 @@ function CreateScopeDialog({
   }
 
   return (
-    <DialogContent size="sm">
+    <DialogContent size="md">
+      <DialogHeader>
+        <DialogTitle>Create custom scope</DialogTitle>
+        <DialogDescription>
+          Create a custom scope for your organization. Scope names should follow
+          the format <code>resource:action</code> (e.g.,{" "}
+          <code>workflow:execute</code>).
+        </DialogDescription>
+      </DialogHeader>
       <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
         <DialogBody>
-          <DialogHeader>
-            <DialogTitle>Create custom scope</DialogTitle>
-            <DialogDescription>
-              Create a custom scope for your organization. Scope names should
-              follow the format <code>resource:action</code> (e.g.,{" "}
-              <code>workflow:execute</code>).
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="scope-name">Scope name</Label>
               <Input

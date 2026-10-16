@@ -75,7 +75,7 @@ export function CreateSkillDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="sm">
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>Create skill</DialogTitle>
           <DialogDescription>
