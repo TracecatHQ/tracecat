@@ -948,6 +948,57 @@ class TestSearchCases:
         assert len(searched) == 1
         assert searched[0]["summary"] == "Investigate malware alert"
 
+    async def test_search_cases_short_id_and_structured_filters_reach_server(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ) -> None:
+        target = await create_case(
+            summary="Synthetic exact case",
+            description="Synthetic",
+            priority="critical",
+            payload={"value": "synthetic"},
+        )
+        other = await create_case(
+            summary="Synthetic unrelated case", description="Synthetic", priority="low"
+        )
+        case_id = str(target["id"])
+        target_read = await get_case(case_id=case_id)
+        by_short_id = _case_items(await search_cases(short_id=target_read["short_id"]))
+        assert [str(item["id"]) for item in by_short_id] == [case_id]
+        filters = {
+            "or": [
+                {"field": "priority", "op": "eq", "value": "critical"},
+                {"field": "summary", "op": "contains", "value": "no match"},
+            ]
+        }
+        by_filters = _case_items(await search_cases(filters=filters))
+        assert [str(item["id"]) for item in by_filters] == [case_id]
+        assert not _case_items(
+            await search_cases(
+                short_id=target_read["short_id"], case_id=str(other["id"])
+            )
+        )
+        assert not _case_items(
+            await search_cases(
+                short_id=target_read["short_id"],
+                filters={"field": "priority", "op": "eq", "value": "low"},
+            )
+        )
+        items = _case_items(
+            await search_cases(
+                short_id=target_read["short_id"],
+                case_id=case_id,
+                filters=filters,
+                include_payload=True,
+            )
+        )
+        assert [str(item["id"]) for item in items] == [case_id]
+        assert items[0].get("payload") == {"value": "synthetic"}
+        page = await search_cases(
+            case_id=case_id, filters=filters, paginate=True, include_count=False
+        )
+        assert isinstance(page, dict) and page["total_estimate"] is None
+        assert [str(item["id"]) for item in page["items"]] == [case_id]
+
 
 # =============================================================================
 # delete_case characterization tests

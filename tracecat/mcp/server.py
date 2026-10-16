@@ -148,6 +148,7 @@ from tracecat.cases.schemas import (
     CaseTaskUpdate,
     CaseUpdate,
 )
+from tracecat.cases.search_schemas import CaseSearchRequest
 from tracecat.cases.service import (
     CaseCommentsService,
     CaseFieldsService,
@@ -6698,7 +6699,24 @@ async def search_cases(
     priority: str | None = None,
     severity: str | None = None,
     order_by: str | None = None,
-    sort: str | None = None,
+    sort: Literal["asc", "desc"] | None = None,
+    case_id: uuid.UUID | None = None,
+    filters: dict[str, Any] | None = None,
+    hierarchy: Literal["all", "top_level"] = "all",
+    parent_id: uuid.UUID | None = None,
+    tags: list[str] | None = None,
+    dropdown: list[str] | None = None,
+    assignee_id: list[str] | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    updated_after: datetime | None = None,
+    updated_before: datetime | None = None,
+    include_rows: bool = False,
+    field_ids: list[str] | None = None,
+    include_durations: bool = False,
+    include_payload: bool = False,
+    include_count: bool = True,
+    reverse: bool = False,
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """Search cases with filtering and sorting.
 
@@ -6721,6 +6739,26 @@ async def search_cases(
             lowercase email; tags uses the first normalized tag alphabetically.
             Missing assignees and tags sort last in either direction.
         sort: Sort direction. One of: asc, desc.
+        case_id: Exact case UUID, ANDed with all matching conditions.
+        filters: Shared AND/OR/NOT JSON filter tree. Tag in matches any tag,
+            AND of contains requires all, NOT in excludes selected tags, and
+            is_null matches untagged cases. Scalar exclusions omit unset values
+            unless ORed with is_null.
+        hierarchy: Return all cases or top-level cases.
+        parent_id: Return sub-cases of this parent UUID.
+        tags: Legacy tag IDs or refs with any-tag semantics.
+        dropdown: Legacy definition_ref:option_ref selections.
+        assignee_id: User UUIDs or unassigned.
+        start_time: Inclusive creation lower bound.
+        end_time: Inclusive creation upper bound.
+        updated_after: Inclusive update lower bound.
+        updated_before: Inclusive update upper bound.
+        include_rows: Include linked table rows.
+        field_ids: Include these custom field values.
+        include_durations: Include durations when entitled.
+        include_payload: Include payload.
+        include_count: Include exact total_estimate.
+        reverse: Legacy pagination direction; continuation cursors encode direction.
 
     Returns a paginated JSON array of case objects.
     """
@@ -6738,25 +6776,49 @@ async def search_cases(
         if severity:
             parsed_severity = [CaseSeverity(s.strip()) for s in severity.split(",")]
 
-        async with CasesService.with_session(role=role) as svc:
-            result = await svc.search_cases(
-                params=CursorPaginationParams(
-                    limit=_normalize_limit(
-                        limit,
-                        default=config.TRACECAT__LIMIT_DEFAULT,
-                        max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
-                    ),
-                    cursor=cursor,
+        check_scopes(role, "case:read")
+        request = CaseSearchRequest.model_validate(
+            {
+                "limit": _normalize_limit(
+                    limit,
+                    default=config.TRACECAT__LIMIT_DEFAULT,
+                    max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
                 ),
-                search_term=search_term,
-                short_id=short_id,
-                status=parsed_status,
-                priority=parsed_priority,
-                severity=parsed_severity,
-                order_by=cast(Any, order_by),
-                sort=cast(Any, sort),
-            )
-            return result
+                "cursor": cursor,
+                "reverse": reverse,
+                "search_term": search_term,
+                "short_id": short_id,
+                "case_id": case_id,
+                "filters": filters,
+                "status": parsed_status,
+                "priority": parsed_priority,
+                "severity": parsed_severity,
+                "order_by": order_by,
+                "sort": sort,
+                "hierarchy": hierarchy,
+                "parent_id": parent_id,
+                "tags": tags,
+                "dropdown": dropdown,
+                "assignee_id": assignee_id,
+                "start_time": start_time,
+                "end_time": end_time,
+                "updated_after": updated_after,
+                "updated_before": updated_before,
+                "include_rows": include_rows,
+                "field_ids": field_ids,
+                "include_durations": include_durations,
+                "include_payload": include_payload,
+                "include_count": include_count,
+            }
+        )
+        async with CasesService.with_session(role=role) as svc:
+            return await svc.query_cases(request)
+    except ScopeDeniedError as e:
+        raise ToolError(
+            f"Missing required scope: {', '.join(e.required_scopes)}"
+        ) from e
+    except (EntitlementRequired, TracecatValidationError) as e:
+        raise ToolError(str(e)) from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
