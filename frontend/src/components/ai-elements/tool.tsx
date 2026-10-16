@@ -3,16 +3,14 @@
 import type { DynamicToolUIPart, ToolUIPart } from "ai"
 import {
   BanIcon,
-  ChevronDownIcon,
-  CircleCheckIcon,
-  CircleSlashIcon,
-  ClockIcon,
+  CircleAlertIcon,
   DownloadIcon,
+  LoaderCircleIcon,
   WrenchIcon,
-  XCircleIcon,
 } from "lucide-react"
 import {
   type ComponentProps,
+  Fragment,
   isValidElement,
   memo,
   type ReactNode,
@@ -22,31 +20,27 @@ import {
 } from "react"
 import { Button } from "@/components/ui/button"
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+  Trace,
+  TraceCollapsible,
+  TraceCollapsibleContent,
+  TraceCollapsibleTrigger,
+  TraceIcon,
+  TraceLine,
+  type TraceStatus,
+  TraceTitle,
+} from "@/components/ui/trace"
 import { cn } from "@/lib/utils"
 import { CodeBlock, CodeBlockCopyButton } from "./code-block"
 
 const MAX_INLINE_PAYLOAD_CHARS = 12_000
 
-export type ToolProps = ComponentProps<typeof Collapsible>
+export type ToolProps = ComponentProps<typeof TraceCollapsible>
 
+/** A tool call as a Trace line that expands into its input and output. */
 export const Tool = ({ className, ...props }: ToolProps) => (
-  <Collapsible
-    className={cn(
-      "group not-prose mb-2 w-full rounded-md border-[0.5px]",
-      className
-    )}
-    {...props}
-  />
+  <Trace className={cn("not-prose", className)}>
+    <TraceCollapsible {...props} />
+  </Trace>
 )
 
 export type ToolPart = ToolUIPart | DynamicToolUIPart
@@ -59,113 +53,101 @@ type LegacyToolState =
  * stopped the turn. Derived at render time; never sent to or by the server.
  */
 type InterruptedToolState = "output-interrupted"
-type ToolState = ToolPart["state"] | LegacyToolState | InterruptedToolState
+export type ToolState =
+  | ToolPart["state"]
+  | LegacyToolState
+  | InterruptedToolState
+
+/** How a tool line reads while running, after it succeeds, and after it fails. */
+export type ToolVerbs = { running: string; done: string; failed: string }
+
+const DEFAULT_TOOL_VERBS: ToolVerbs = {
+  running: "Running",
+  done: "Ran",
+  failed: "Failed to run",
+}
 
 export type ToolHeaderProps = {
-  title?: string
+  title: string
+  verbs?: ToolVerbs
   className?: string
   icon?: ReactNode
-  type: ToolPart["type"]
   state: ToolState
-  toolName?: string
 }
 
-const statusLabels: Record<ToolState, string> = {
-  "approval-requested": "Approval required",
-  "approval-responded": "Completed",
-  "input-available": "In progress",
-  "input-streaming": "In progress",
-  "output-available": "Completed",
-  "output-denied": "Denied",
-  "output-error": "Error",
-  "output-interrupted": "Interrupted",
+/** How a tool state reads on its Trace line. */
+function getToolLineStatus(
+  state: ToolState,
+  verbs: ToolVerbs = DEFAULT_TOOL_VERBS
+): {
+  status: TraceStatus | undefined
+  verb: string
+} {
+  switch (state) {
+    case "input-streaming":
+    case "input-available":
+      return { status: "running", verb: verbs.running }
+    case "approval-requested":
+      return { status: "pending", verb: "Waiting for approval to run" }
+    case "output-error":
+      return { status: "error", verb: verbs.failed }
+    case "output-denied":
+      // A denial is the user's decision, not a failure.
+      return { status: undefined, verb: "Denied" }
+    case "output-interrupted":
+      return { status: "pending", verb: "Stopped" }
+    default:
+      return { status: undefined, verb: verbs.done }
+  }
 }
 
-const statusIcons: Record<ToolState, ReactNode> = {
-  "approval-requested": (
-    <ClockIcon className="size-3.5 text-amber-500 animate-pulse" />
-  ),
-  "approval-responded": (
-    <CircleCheckIcon className="size-4 fill-emerald-500 stroke-background" />
-  ),
-  "input-available": (
-    <ClockIcon className="size-3.5 text-amber-500 animate-pulse" />
-  ),
-  "input-streaming": (
-    <ClockIcon className="size-3.5 text-amber-500 animate-pulse" />
-  ),
-  "output-available": (
-    <CircleCheckIcon className="size-4 fill-emerald-500 stroke-background" />
-  ),
-  "output-denied": <BanIcon className="size-3.5 text-muted-foreground" />,
-  "output-error": (
-    <XCircleIcon className="size-4 fill-rose-500 stroke-background" />
-  ),
-  "output-interrupted": (
-    <CircleSlashIcon className="size-3.5 text-muted-foreground" />
-  ),
+/** The leading icon for a tool line: a spinner or alert overrides the tool's own. */
+function ToolLineIcon({
+  status,
+  icon,
+}: {
+  status: TraceStatus | undefined
+  icon?: ReactNode
+}) {
+  if (status === "running") {
+    return <LoaderCircleIcon className="animate-spin" />
+  }
+  if (status === "error") {
+    return <CircleAlertIcon />
+  }
+  return icon ?? <WrenchIcon />
 }
-
-export const getStatusBadge = (status: ToolState) => (
-  <TooltipProvider delayDuration={0}>
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span
-          aria-label={statusLabels[status]}
-          className="inline-flex items-center"
-          role="img"
-        >
-          {statusIcons[status]}
-          <span className="sr-only">{statusLabels[status]}</span>
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="top">{statusLabels[status]}</TooltipContent>
-    </Tooltip>
-  </TooltipProvider>
-)
 
 export const ToolHeader = ({
   className,
   title,
-  type,
   state,
-  toolName,
   icon,
-  ...props
+  verbs,
 }: ToolHeaderProps) => {
-  const derivedName =
-    type === "dynamic-tool"
-      ? (toolName ?? "dynamic-tool")
-      : type.split("-").slice(1).join("-")
+  const { status, verb } = getToolLineStatus(state, verbs)
 
   return (
-    <CollapsibleTrigger
-      className={cn(
-        "flex w-full items-center justify-between gap-3 px-2.5 py-1.5",
-        className
-      )}
-      {...props}
-    >
-      <div className="flex items-center gap-2">
-        {icon ?? <WrenchIcon className="size-4 text-muted-foreground" />}
-        <span className="font-medium text-sm">{title ?? derivedName}</span>
-        {getStatusBadge(state)}
-      </div>
-      <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
-    </CollapsibleTrigger>
+    <TraceCollapsibleTrigger className={className}>
+      <TraceLine status={status}>
+        <TraceIcon>
+          <ToolLineIcon
+            status={status}
+            icon={state === "output-denied" ? <BanIcon /> : icon}
+          />
+        </TraceIcon>
+        <TraceTitle>
+          {verb} {title}
+        </TraceTitle>
+      </TraceLine>
+    </TraceCollapsibleTrigger>
   )
 }
 
-export type ToolContentProps = ComponentProps<typeof CollapsibleContent>
+export type ToolContentProps = ComponentProps<typeof TraceCollapsibleContent>
 
 export const ToolContent = ({ className, ...props }: ToolContentProps) => (
-  <CollapsibleContent
-    className={cn(
-      "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 space-y-3 px-2.5 pb-3 pt-2.5 text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
-      className
-    )}
-    {...props}
-  />
+  <TraceCollapsibleContent className={cn("space-y-3", className)} {...props} />
 )
 
 type SerializedPayload = {
@@ -365,6 +347,10 @@ const ToolPayload = memo(
       )
     }
 
+    if (serialized.extension === "txt") {
+      return <PlainOutput text={serialized.text} />
+    }
+
     return (
       <div className="space-y-2">
         <CodeBlock
@@ -386,15 +372,90 @@ export type ToolInputProps = ComponentProps<"div"> & {
   input: ToolPart["input"]
 }
 
-export const ToolInput = memo(
-  ({ className, input, ...props }: ToolInputProps) => (
-    <div className={cn("space-y-2 overflow-hidden", className)} {...props}>
-      <h4 className="font-medium text-[11px] text-muted-foreground tracking-wide">
-        PARAMETERS
-      </h4>
-      <ToolPayload payload={input} downloadName="tool-parameters" />
+/** Plain text output, without a code frame. */
+function PlainOutput({
+  text,
+  isError = false,
+}: {
+  text: string
+  isError?: boolean
+}) {
+  return (
+    <div className="relative">
+      <pre
+        className={cn(
+          "max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 p-2.5 pr-8 font-mono text-xs text-foreground",
+          isError && "text-destructive"
+        )}
+      >
+        {text}
+      </pre>
+      <CodeBlockCopyButton
+        code={text}
+        aria-label="Copy output"
+        className="absolute right-1.5 top-1.5 z-10 size-5 [&_svg]:size-3"
+      />
     </div>
   )
+}
+
+type ParamEntry = [key: string, value: string]
+
+/** Inputs whose values are all scalars, as key-value rows; else null. */
+function getFlatParams(input: unknown): ParamEntry[] | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return null
+  }
+  const entries: ParamEntry[] = []
+  for (const [key, value] of Object.entries(input)) {
+    if (
+      value !== null &&
+      typeof value !== "string" &&
+      typeof value !== "number" &&
+      typeof value !== "boolean"
+    ) {
+      return null
+    }
+    entries.push([key, String(value)])
+  }
+  return entries
+}
+
+export const ToolInput = memo(
+  ({ className, input, ...props }: ToolInputProps) => {
+    const flatParams = getFlatParams(input)
+    if (flatParams?.length === 0) {
+      return null
+    }
+    if (flatParams) {
+      return (
+        <dl
+          className={cn(
+            "grid grid-cols-[minmax(0,max-content)_1fr] gap-x-4 gap-y-1 text-xs",
+            className
+          )}
+          {...(props as ComponentProps<"dl">)}
+        >
+          {flatParams.map(([key, value]) => (
+            <Fragment key={key}>
+              <dt className="truncate text-muted-foreground">{key}</dt>
+              <dd className="min-w-0 whitespace-pre-wrap break-words font-mono text-foreground">
+                {value}
+              </dd>
+            </Fragment>
+          ))}
+        </dl>
+      )
+    }
+    return (
+      <div className={cn("space-y-2 overflow-hidden", className)} {...props}>
+        <h4 className="font-medium text-[11px] text-muted-foreground">
+          Parameters
+        </h4>
+        <ToolPayload payload={input} downloadName="tool-parameters" />
+      </div>
+    )
+  }
 )
 ToolInput.displayName = "ToolInput"
 
@@ -412,8 +473,8 @@ export const ToolOutput = memo(
 
     return (
       <div className={cn("space-y-2", className)} {...props}>
-        <h4 className="font-medium text-[11px] text-muted-foreground tracking-wide">
-          {errorText ? "Error" : "RESULT"}
+        <h4 className="font-medium text-[11px] text-muted-foreground">
+          {errorText ? "Error" : "Result"}
         </h4>
         {errorText && (
           <div className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive">
@@ -433,3 +494,24 @@ export const ToolOutput = memo(
   }
 )
 ToolOutput.displayName = "ToolOutput"
+
+export type ToolTerminalOutputProps = {
+  output: ToolPart["output"]
+  errorText?: string
+}
+
+/** A command's output as plain terminal text. */
+export const ToolTerminalOutput = memo(
+  ({ output, errorText }: ToolTerminalOutputProps) => {
+    if (errorText === undefined && (output === undefined || output === null)) {
+      return null
+    }
+    const text =
+      errorText ?? serializeToolPayload(extractMcpTextContent(output)).text
+    if (!text.trim()) {
+      return <p className="text-[11px] text-muted-foreground">No output</p>
+    }
+    return <PlainOutput text={text} isError={errorText !== undefined} />
+  }
+)
+ToolTerminalOutput.displayName = "ToolTerminalOutput"

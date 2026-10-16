@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 from claude_agent_sdk.types import (
     AssistantMessage,
+    TextBlock,
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
@@ -44,6 +45,19 @@ def _approval_message(
             created_at=datetime.now(UTC),
         ),
     )
+
+
+def test_convert_chat_messages_to_ui_carries_message_time() -> None:
+    recorded = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+    message = ChatMessage(
+        id=str(uuid4()),
+        message=AssistantMessage(content=[TextBlock(text="Done.")], model="claude"),
+        created_at=recorded,
+    )
+
+    [ui_message] = convert_chat_messages_to_ui([message])
+
+    assert ui_message.metadata == {"created_at": recorded.isoformat()}
 
 
 def _decided_call(
@@ -141,6 +155,30 @@ def test_convert_chat_messages_to_ui_leaves_approved_call_result_untagged() -> N
     part = cast(ToolUIPartOutputAvailable, messages[0].parts[0])
     assert part["state"] == "output-available"
     assert "callProviderMetadata" not in part
+
+
+def test_convert_chat_messages_to_ui_records_when_a_call_completed() -> None:
+    """The merged result row's time survives, so later steps time from it."""
+    called_at = datetime(2026, 1, 1, 0, 0, 2, tzinfo=UTC)
+    completed_at = datetime(2026, 1, 1, 0, 0, 32, tzinfo=UTC)
+    call, approval, result = _decided_call(
+        ApprovalStatus.REJECTED, result="denied", is_error=True, reason="no"
+    )
+    call.created_at = called_at
+    result.created_at = completed_at
+
+    messages = convert_chat_messages_to_ui([call, approval, result])
+
+    assert len(messages) == 1
+    assert messages[0].metadata == {"created_at": called_at.isoformat()}
+    part = cast(ToolUIPartOutputError, messages[0].parts[0])
+    assert part.get("callProviderMetadata") == {
+        "tracecat": {
+            "approval": "rejected",
+            "reason": "no",
+            "completed_at": completed_at.isoformat(),
+        }
+    }
 
 
 def test_convert_chat_messages_to_ui_emits_cancelled_marker() -> None:

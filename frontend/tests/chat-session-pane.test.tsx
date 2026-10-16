@@ -11,19 +11,26 @@ import { StrictMode } from "react"
 import type {
   AgentPresetReadMinimal,
   AgentSessionReadVercel,
+  UIMessage as ApiUIMessage,
   MCPIntegrationRead,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import {
-  ChatSessionPane,
-  MessagePart,
-} from "@/components/chat/chat-session-pane"
+import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+import { MessagePart } from "@/components/chat/message-part"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { useUpdateChat, useVercelChat } from "@/hooks/use-chat"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
+
+// These tests read every step of finished turns, which only the verbose level
+// draws without expanding the turn first.
+const mockVerbosity = jest.fn(() => "verbose")
+jest.mock("@/hooks/use-chat-verbosity", () => ({
+  ...jest.requireActual("@/hooks/use-chat-verbosity"),
+  useChatVerbosityPreference: () => [mockVerbosity(), jest.fn()],
+}))
 
 jest.mock("@/hooks/use-chat", () => ({
   useVercelChat: jest.fn(),
@@ -333,7 +340,7 @@ describe("ChatSessionPane", () => {
       </TooltipProvider>
     )
 
-    expect(screen.getByText("Agent: case-management")).toBeInTheDocument()
+    expect(screen.getByText("Ran Agent: case-management")).toBeInTheDocument()
   })
 
   it("renders the stop divider for a cancelled turn marker", () => {
@@ -381,8 +388,10 @@ describe("ChatSessionPane", () => {
       </TooltipProvider>
     )
 
-    expect(screen.getByText("Interrupted")).toBeInTheDocument()
-    expect(screen.queryByText("In progress")).not.toBeInTheDocument()
+    expect(
+      screen.getByText("Stopped core.table.list_tables")
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/^Running/)).not.toBeInTheDocument()
   })
 
   it("renders SDK abort errors as interrupted instead of leaking them", () => {
@@ -408,8 +417,10 @@ describe("ChatSessionPane", () => {
       </TooltipProvider>
     )
 
-    expect(screen.getByText("Interrupted")).toBeInTheDocument()
-    expect(screen.queryByText("Error")).not.toBeInTheDocument()
+    expect(
+      screen.getByText("Stopped core.table.list_tables")
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/^Failed to run/)).not.toBeInTheDocument()
   })
 
   it("marks tool calls listed in the structured interrupt metadata as interrupted", () => {
@@ -438,8 +449,10 @@ describe("ChatSessionPane", () => {
       </TooltipProvider>
     )
 
-    expect(screen.getByText("Interrupted")).toBeInTheDocument()
-    expect(screen.queryByText("Error")).not.toBeInTheDocument()
+    expect(
+      screen.getByText("Stopped core.table.list_tables")
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/^Failed to run/)).not.toBeInTheDocument()
   })
 
   it("marks structurally interrupted tool calls even without the turn flag", () => {
@@ -468,8 +481,10 @@ describe("ChatSessionPane", () => {
       </TooltipProvider>
     )
 
-    expect(screen.getByText("Interrupted")).toBeInTheDocument()
-    expect(screen.queryByText("Error")).not.toBeInTheDocument()
+    expect(
+      screen.getByText("Stopped core.table.list_tables")
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/^Failed to run/)).not.toBeInTheDocument()
   })
 
   it("keeps genuine tool errors as errors in a cancelled turn", () => {
@@ -495,8 +510,10 @@ describe("ChatSessionPane", () => {
       </TooltipProvider>
     )
 
-    expect(screen.getByText("Error")).toBeInTheDocument()
-    expect(screen.queryByText("Interrupted")).not.toBeInTheDocument()
+    expect(
+      screen.getByText("Failed to run core.table.list_tables")
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/^Stopped/)).not.toBeInTheDocument()
   })
 
   function mockUseVercelChatStatus(status: "ready" | "submitted") {
@@ -610,7 +627,7 @@ describe("ChatSessionPane", () => {
     })
   })
 
-  it("renders dots indicator while status is submitted", () => {
+  it("renders a thinking line while status is submitted", () => {
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
       setMessages: jest.fn(),
@@ -636,7 +653,125 @@ describe("ChatSessionPane", () => {
       </QueryClientProvider>
     )
 
-    expect(screen.getByTestId("dots-loader")).toBeInTheDocument()
+    expect(screen.getByTestId("agent-running-line")).toHaveTextContent(
+      "Thinking..."
+    )
+  })
+
+  it("draws one working line at minimal while a tool runs", () => {
+    mockVerbosity.mockReturnValue("minimal")
+    mockUseVercelChat.mockReturnValue({
+      sendMessage: jest.fn(),
+      setMessages: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [
+        { id: "u1", role: "user", parts: [{ type: "text", text: "Go" }] },
+        {
+          id: "a1",
+          role: "assistant",
+          parts: [
+            {
+              type: "dynamic-tool",
+              toolName: "core__table__list_tables",
+              toolCallId: "call-1",
+              state: "input-available",
+              input: {},
+            },
+          ],
+        },
+      ],
+      status: "streaming",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    try {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <ChatSessionPane
+              chat={createChatFixture()}
+              workspaceId="workspace-1"
+              entityType="case"
+              entityId="case-1"
+              modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            />
+          </TooltipProvider>
+        </QueryClientProvider>
+      )
+
+      const lines = screen.getAllByTestId("agent-running-line")
+      expect(lines).toHaveLength(1)
+      expect(lines[0]).toHaveTextContent("Working...")
+      expect(screen.queryByLabelText("Retry")).not.toBeInTheDocument()
+    } finally {
+      mockVerbosity.mockReturnValue("verbose")
+    }
+  })
+
+  it("re-arms the resume when an approval is resolved elsewhere", () => {
+    mockUseVercelChatStatus("ready")
+    const chat = createChatFixture()
+    const tree = (resume: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={chat}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            resume={resume}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    const { rerender } = render(tree(false))
+    rerender(tree(true))
+
+    expect(mockUseVercelChat.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ resume: true })
+    )
+  })
+
+  it("skips resuming a new session it opens to send the first message", () => {
+    // A resume that finds no stream resets the send's status to ready, which
+    // would hide the thinking line until the first part arrives.
+    mockUseVercelChat.mockReturnValue({
+      sendMessage: jest.fn(),
+      setMessages: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+    const chat = createChatFixture()
+    const tree = (pendingMessage?: string) => (
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={chat}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            pendingMessage={pendingMessage}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    const { rerender } = render(tree("Say hi"))
+    // Clearing the pending message after the send must not start a resume.
+    rerender(tree(undefined))
+
+    for (const [args] of mockUseVercelChat.mock.calls) {
+      expect(args).toEqual(expect.objectContaining({ resume: false }))
+    }
   })
 
   it("does not refocus after response if the textarea was not focused before disabling", async () => {
@@ -848,25 +983,21 @@ describe("ChatSessionPane", () => {
     )
 
     expect(screen.getByText("core.cases.list_cases")).toBeInTheDocument()
-    expect(screen.getByText("Approval required")).toBeInTheDocument()
-    const approvalSubmit = screen
-      .getAllByRole("button", { name: "Submit" })
-      .find((button) => button.textContent?.trim() === "Submit")
-    if (!approvalSubmit) {
-      throw new Error("Approval submit button not found")
-    }
-    expect(approvalSubmit).toBeDisabled()
+    // A lone call sends on click, with no separate submit step.
+    expect(
+      screen
+        .queryAllByRole("button", { name: "Submit decisions" })
+        .find((button) => button.textContent?.trim() === "Submit decisions")
+    ).toBeUndefined()
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit + approve" }))
+    fireEvent.click(screen.getByRole("button", { name: "Edit arguments" }))
     const overrideEditor = screen.getByTestId("mock-code-editor")
     expect((overrideEditor as HTMLTextAreaElement).value).toContain(
       '"limit": 100'
     )
+    fireEvent.click(screen.getByRole("button", { name: "Discard edits" }))
 
     fireEvent.click(screen.getByRole("button", { name: "Approve" }))
-    expect(approvalSubmit).toBeEnabled()
-
-    fireEvent.click(approvalSubmit)
 
     await waitFor(() => {
       expect(clearError).toHaveBeenCalled()
@@ -943,10 +1074,9 @@ describe("ChatSessionPane", () => {
     )
 
     const firstCard = screen.getByTestId("approval-card-tc-1")
-    const secondCard = screen.getByTestId("approval-card-tc-2")
     const approvalSubmit = screen
-      .getAllByRole("button", { name: "Submit" })
-      .find((button) => button.textContent?.trim() === "Submit")
+      .getAllByRole("button", { name: "Submit decisions" })
+      .find((button) => button.textContent?.trim() === "Submit decisions")
     if (!approvalSubmit) {
       throw new Error("Approval submit button not found")
     }
@@ -978,24 +1108,27 @@ describe("ChatSessionPane", () => {
       })
     )
 
+    // The sent call leaves the batch, so look both cards up again.
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("approval-card-tc-1")).queryByRole("button", {
+          name: "Approve",
+        })
+      ).not.toBeInTheDocument()
+    )
     expect(
-      within(firstCard).queryByLabelText("Decision: Approved")
-    ).not.toBeInTheDocument()
-    expect(firstCard).toHaveClass("bg-muted/10")
-    expect(firstCard).not.toHaveClass("opacity-75")
-    const submittedApproveButton = within(firstCard).getByRole("button", {
-      name: "Approve",
-    })
-    expect(submittedApproveButton).toBeDisabled()
-    expect(submittedApproveButton).toHaveClass("border-success/55")
-    expect(submittedApproveButton).toHaveClass("text-success")
-    expect(submittedApproveButton).toHaveClass("disabled:opacity-100")
+      within(screen.getByTestId("approval-card-tc-1")).getByText(
+        "Running core.http_request"
+      )
+    ).toBeInTheDocument()
     expect(
-      within(secondCard).queryByLabelText("Decision: Approved")
-    ).not.toBeInTheDocument()
+      within(screen.getByTestId("approval-card-tc-2")).getByRole("button", {
+        name: "Approve",
+      })
+    ).toBeEnabled()
   })
 
-  it("mounts previously submitted approval cards as disabled", () => {
+  it("mounts previously submitted approval cards without actions", () => {
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
       setMessages: jest.fn(),
@@ -1048,24 +1181,22 @@ describe("ChatSessionPane", () => {
 
     const firstCard = screen.getByTestId("approval-card-tc-1")
     const secondCard = screen.getByTestId("approval-card-tc-2")
-    const approvalSubmit = screen
-      .getAllByRole("button", { name: "Submit" })
-      .find((button) => button.textContent?.trim() === "Submit")
-    if (!approvalSubmit) {
-      throw new Error("Approval submit button not found")
-    }
 
-    expect(firstCard).toHaveClass("bg-muted/10")
     expect(
-      within(firstCard).getByRole("button", { name: "Approve" })
-    ).toBeDisabled()
+      within(firstCard).queryByRole("button", { name: "Approve" })
+    ).not.toBeInTheDocument()
     expect(
-      within(firstCard).getByRole("button", { name: "Approve" })
-    ).toHaveClass("border-success/55")
+      within(firstCard).getByText("Running core.http_request")
+    ).toBeInTheDocument()
     expect(
       within(secondCard).getByRole("button", { name: "Approve" })
     ).toBeEnabled()
-    expect(approvalSubmit).toBeDisabled()
+    // One call still waits, so it sends on click.
+    expect(
+      screen
+        .queryAllByRole("button", { name: "Submit decisions" })
+        .find((button) => button.textContent?.trim() === "Submit decisions")
+    ).toBeUndefined()
   })
 
   it("passes tools picked in draft mode with the first send", async () => {
@@ -2649,7 +2780,7 @@ describe("ChatSessionPane", () => {
       } as any)
     }
 
-    const renderSubject = (serverMessages: UIMessage[]) => (
+    const renderSubject = (serverMessages: ApiUIMessage[]) => (
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <ChatSessionPane
@@ -2793,7 +2924,9 @@ describe("ChatSessionPane", () => {
   // backend reconcile). The pane must render each toolCallId once — keep the
   // last copy (the stream one carries the live output) at the display layer.
   describe("tool call dedupe across the DB/stream seam", () => {
-    const TOOL_LABEL = "core.cases.list_cases"
+    // Matches the tool line ("Ran core.cases.list_cases") and the approval
+    // card label alike.
+    const TOOL_LABEL = /core\.cases\.list_cases$/
 
     function toolPart(
       toolCallId: string,

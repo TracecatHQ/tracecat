@@ -10,6 +10,7 @@ import dataclasses
 import json
 import uuid
 from collections.abc import AsyncIterable, AsyncIterator, Iterator
+from datetime import datetime
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -1020,6 +1021,8 @@ class MutableToolPart:
     input: Any
     output: Any | None = None
     error_text: str | None = None
+    # When the result row was recorded; the row itself merges into this part.
+    completed_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.input, dict):
@@ -1086,10 +1089,23 @@ class MutableToolPart:
             output=content,
         )
 
+    def _result_metadata(
+        self, extra: ProviderMetadata | None
+    ) -> ProviderMetadata | None:
+        """Merge the completion time into the result's Tracecat metadata."""
+        if self.completed_at is None:
+            return extra
+        tracecat = {
+            **(extra or {}).get("tracecat", {}),
+            "completed_at": self.completed_at.isoformat(),
+        }
+        return {**(extra or {}), "tracecat": tracecat}
+
     def to_ui_part(
         self, *, result_metadata: ProviderMetadata | None = None
     ) -> ToolUIPart:
         """Build the UI part, attaching ``result_metadata`` to a recorded result."""
+        result_metadata = self._result_metadata(result_metadata)
         if self.state == "input-available":
             return ToolUIPartInputAvailable(
                 type=self.type,
@@ -1125,6 +1141,7 @@ class MutableMessage:
     id: str
     role: Literal["system", "user", "assistant"]
     parts: list[MutableToolPart | UIMessagePart]
+    created_at: datetime | None = None
 
 
 UIMessagesTA: pydantic.TypeAdapter[list[UIMessage]] = pydantic.TypeAdapter(
@@ -1353,7 +1370,12 @@ def convert_chat_messages_to_ui(
 
         assert message_data is not None
 
-        mutable_message = MutableMessage(id=message_id, role=role, parts=[])
+        mutable_message = MutableMessage(
+            id=message_id,
+            role=role,
+            parts=[],
+            created_at=chat_message.created_at,
+        )
         approval_payload = _extract_approval_payload_from_message(message_data)
 
         for part_type, part in _iter_message_parts(message_data):
@@ -1407,6 +1429,7 @@ def convert_chat_messages_to_ui(
                         existing.set_result(
                             part.content, structured_error, is_error=part.is_error
                         )
+                        existing.completed_at = chat_message.created_at
                     else:
                         # Create fallback part when no existing tool entry is found
                         tool_part = MutableToolPart.with_result(
@@ -1449,13 +1472,15 @@ def convert_chat_messages_to_ui(
                 )
             else:
                 parts.append(part)
-        raw_messages.append(
-            {
-                "id": message.id,
-                "role": message.role,
-                "parts": parts,
-            }
-        )
+        raw_message: dict[str, Any] = {
+            "id": message.id,
+            "role": message.role,
+            "parts": parts,
+        }
+        # Lets the UI tell how long a turn took once it reloads from history.
+        if message.created_at is not None:
+            raw_message["metadata"] = {"created_at": message.created_at.isoformat()}
+        raw_messages.append(raw_message)
 
     return UIMessagesTA.validate_python(raw_messages)
 
