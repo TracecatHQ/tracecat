@@ -85,9 +85,14 @@ def _when(field: str, equals: Any) -> dict[str, Any]:
 @pytest.mark.parametrize(
     "image",
     [
-        _image("png", PNG + b"\x00" * (MAX_IMAGE_BYTES - len(PNG))),
-        _image("jpeg", b"\xff\xd8\xff\xe0" + b"\x00" * 10),
-        _image("webp", b"RIFF\x00\x00\x00\x00WEBP" + b"\x00" * 10),
+        pytest.param(
+            _image("png", PNG + b"\x00" * (MAX_IMAGE_BYTES - len(PNG))),
+            id="png-at-size-limit",
+        ),
+        pytest.param(_image("jpeg", b"\xff\xd8\xff\xe0" + b"\x00" * 10), id="jpeg"),
+        pytest.param(
+            _image("webp", b"RIFF\x00\x00\x00\x00WEBP" + b"\x00" * 10), id="webp"
+        ),
     ],
 )
 def test_option_images_accept_png_jpeg_and_webp_up_to_the_limit(image: str) -> None:
@@ -97,16 +102,23 @@ def test_option_images_accept_png_jpeg_and_webp_up_to_the_limit(image: str) -> N
 @pytest.mark.parametrize(
     "image",
     [
-        "https://example.com/laptop.png",
-        "data:image/gif;base64,R0lGODlh",
-        "data:image/svg+xml;base64,PHN2Zz4=",
-        "data:image/png,not-base64-marked",
-        "data:image/png;base64,not base64!",
+        pytest.param("https://example.com/laptop.png", id="remote-url"),
+        pytest.param("data:image/gif;base64,R0lGODlh", id="unsupported-gif"),
+        pytest.param("data:image/svg+xml;base64,PHN2Zz4=", id="unsupported-svg"),
+        pytest.param("data:image/png,not-base64-marked", id="missing-base64-marker"),
+        pytest.param("data:image/png;base64,not base64!", id="invalid-base64"),
         # Declared type and content disagree.
-        _image("png", b"\xff\xd8\xff\xe0" + b"\x00" * 10),
-        _image("webp", b"RIFF\x00\x00\x00\x00WAVE"),
-        _image("jpeg", b""),
-        _image("png", PNG + b"\x00" * (MAX_IMAGE_BYTES - len(PNG) + 1)),
+        pytest.param(
+            _image("png", b"\xff\xd8\xff\xe0" + b"\x00" * 10), id="mismatched-mime-type"
+        ),
+        pytest.param(
+            _image("webp", b"RIFF\x00\x00\x00\x00WAVE"), id="invalid-webp-signature"
+        ),
+        pytest.param(_image("jpeg", b""), id="empty-image"),
+        pytest.param(
+            _image("png", PNG + b"\x00" * (MAX_IMAGE_BYTES - len(PNG) + 1)),
+            id="png-over-size-limit",
+        ),
     ],
 )
 def test_option_images_reject_anything_else(image: str) -> None:
