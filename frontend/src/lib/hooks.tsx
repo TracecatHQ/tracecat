@@ -5576,14 +5576,23 @@ export function useIntegrationProvider({
     data: integration,
     isLoading: integrationIsLoading,
     error: integrationError,
-  } = useQuery<IntegrationRead, TracecatApiError>({
+  } = useQuery<IntegrationRead | null, TracecatApiError>({
     queryKey: ["integration", providerId, workspaceId, grantType],
-    queryFn: async () =>
-      await integrationsGetIntegration({
-        providerId,
-        workspaceId,
-        grantType,
-      }),
+    queryFn: async () => {
+      try {
+        return await integrationsGetIntegration({
+          providerId,
+          workspaceId,
+          grantType,
+        })
+      } catch (error) {
+        // No integration row yet means the provider is not configured.
+        if (error instanceof ApiError && error.status === 404) {
+          return null
+        }
+        throw error
+      }
+    },
     retry: retryHandler,
     enabled: Boolean(providerId && workspaceId),
     staleTime: 5 * 60 * 1000,
