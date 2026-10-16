@@ -239,6 +239,7 @@ class CasesClient:
         cursor: str | Unset = UNSET,
         reverse: bool | Unset = UNSET,
         search_term: str | Unset = UNSET,
+        short_id: str | Unset = UNSET,
         status: list[CaseStatus] | Unset = UNSET,
         priority: list[CasePriority] | Unset = UNSET,
         severity: list[CaseSeverity] | Unset = UNSET,
@@ -262,6 +263,8 @@ class CasesClient:
             params["reverse"] = reverse
         if is_set(search_term):
             params["search_term"] = search_term
+        if is_set(short_id):
+            params["short_id"] = short_id
         if is_set(status):
             params["status"] = status
         if is_set(priority):

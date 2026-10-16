@@ -65,6 +65,32 @@ async def test_aggregate_cases_uses_exact_gateway_path(
 
 
 @pytest.mark.anyio
+async def test_search_cases_sends_short_id_query_param(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"items": []})
+
+    def create_transport(*, uds: str) -> httpx.MockTransport:
+        return httpx.MockTransport(handle)
+
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", create_transport)
+    client = TracecatClient(action_gateway_socket="/tmp/search-cases-test.sock")
+
+    await client.cases.search_cases(short_id="CASE-0001", limit=5)
+    await client.cases.search_cases(limit=5)
+
+    assert len(requests) == 2
+    assert requests[0].url.path.endswith("/cases/search")
+    assert requests[0].url.params["short_id"] == "CASE-0001"
+    assert requests[0].url.params["limit"] == "5"
+    assert "short_id" not in requests[1].url.params
+
+
+@pytest.mark.anyio
 async def test_create_case_serializes_dropdown_uuid_values(
     cases_client: CasesClient, mock_tracecat_client: MagicMock
 ) -> None:
