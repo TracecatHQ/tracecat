@@ -63,6 +63,7 @@ from tracecat.db.models import (
 )
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
     ScopeDeniedError,
     TracecatCredentialsError,
@@ -74,6 +75,7 @@ from tracecat.forms.service import stored_form_config
 from tracecat.git.types import GitUrl
 from tracecat.integrations.enums import MCPAuthType
 from tracecat.logger import logger
+from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets.enums import SecretSource
 from tracecat.secrets.schemas import AwsSecretReferenceUpdate, SecretKeyValue
@@ -10187,6 +10189,54 @@ async def test_pull_dry_run_names_workflow_and_action_missing_from_registry(
         "Workflow 'Example enrich' uses action 'tools.example.removed', "
         "which is in no registry"
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("registry_version_with_manifest")
+async def test_pull_dry_run_resolves_registry_once_for_all_workflows(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A multi-workflow preview resolves one registry lock over the union of its actions."""
+    resolve = RegistryLockService.resolve_lock_with_bindings
+    resolved_action_sets: list[set[str]] = []
+
+    async def counting_resolve(
+        self: RegistryLockService, action_names: set[str]
+    ) -> RegistryLock:
+        resolved_action_sets.append(set(action_names))
+        return await resolve(self, action_names)
+
+    with patch.object(
+        RegistryLockService, "resolve_lock_with_bindings", counting_resolve
+    ):
+        result = await _pull_missing_action_tree(session, svc_role, dry_run=True)
+
+    assert result.success is False
+    assert resolved_action_sets == [{"core.transform.reshape", _REMOVED_ACTION}]
+
+
+@pytest.mark.anyio
+async def test_pull_dry_run_reports_batch_registry_error_once(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A registry error that isn't about one action is reported once, not per workflow."""
+    pending = BuiltinRegistryHasNoSelectionError(
+        "Builtin registry sync is still in progress. Please retry shortly."
+    )
+    with patch.object(
+        RegistryLockService,
+        "resolve_lock_with_bindings",
+        AsyncMock(side_effect=pending),
+    ):
+        result = await _pull_missing_action_tree(session, svc_role, dry_run=True)
+
+    assert result.success is False
+    [diagnostic] = result.diagnostics
+    assert diagnostic.error_type == "dependency"
+    assert diagnostic.workflow_title is None
+    assert diagnostic.message == str(pending)
 
 
 @pytest.mark.anyio

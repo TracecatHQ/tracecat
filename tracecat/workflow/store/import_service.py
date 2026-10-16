@@ -12,6 +12,8 @@ from tracecat.db.models import Webhook, Workflow, WorkflowTag, WorkflowTagLink
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import (
+    EntitlementRequired,
+    RegistryError,
     RegistryLockActionNotFoundError,
     TracecatAuthorizationError,
 )
@@ -169,6 +171,8 @@ class WorkflowImportService(BaseWorkspaceService):
             )
             diagnostics.extend(workflow_diagnostics)
 
+        diagnostics.extend(await self._validate_registry_actions(remote_workflows))
+
         # Cross-workflow integrity: validate alias references in child workflow actions
         cross_diagnostics = await self._validate_cross_workflow_integrity(
             remote_workflows
@@ -226,29 +230,7 @@ class WorkflowImportService(BaseWorkspaceService):
             # Check for conflicts
             wf_id = WorkflowUUID.new(remote_workflow.id)
             await self.wf_mgmt.get_workflow(wf_id, normalize=normalize_existing)
-            # Imported definitions carry no registry lock, so creates and runs
-            # both resolve one against the current registries. Resolve it the
-            # same way here to fail before any write.
-            await RegistryLockService(
-                self.session, self.role
-            ).resolve_lock_with_bindings(
-                {action.action for action in dsl_input.actions}
-            )
 
-        except RegistryLockActionNotFoundError as e:
-            title = remote_workflow.definition.title
-            diagnostics.append(
-                PullDiagnostic(
-                    workflow_path=workflow_path,
-                    workflow_title=title,
-                    error_type="dependency",
-                    message=(
-                        f"Workflow {title!r} uses action {e.action_name!r}, "
-                        "which is in no registry"
-                    ),
-                    details={"action_name": e.action_name, "registries": e.origins},
-                )
-            )
         except ValidationError as e:
             diagnostics.append(
                 PullDiagnostic(
@@ -271,6 +253,61 @@ class WorkflowImportService(BaseWorkspaceService):
             )
 
         return diagnostics
+
+    async def _validate_registry_actions(
+        self, remote_workflows: list[RemoteWorkflowDefinition]
+    ) -> list[PullDiagnostic]:
+        """Check that every action in the batch resolves against the current registries.
+
+        Imported definitions carry no registry lock, so creating a workflow and
+        running one both resolve a lock with ``resolve_lock_with_bindings``.
+        Resolving it here, once over the whole batch, fails the pull before any
+        write. A missing action is reported on each workflow that uses it.
+        """
+        action_names = {
+            action.action
+            for remote_workflow in remote_workflows
+            for action in remote_workflow.definition.actions
+        }
+        if not action_names:
+            return []
+        try:
+            await RegistryLockService(
+                self.session, self.role
+            ).resolve_lock_with_bindings(action_names)
+        except RegistryLockActionNotFoundError as e:
+            diagnostics = [
+                PullDiagnostic(
+                    workflow_path=f"workflows/{remote_workflow.id}/definition.yml",
+                    workflow_title=remote_workflow.definition.title,
+                    error_type="dependency",
+                    message=(
+                        f"Workflow {remote_workflow.definition.title!r} uses action "
+                        f"{e.action_name!r}, which is in no registry"
+                    ),
+                    details={"action_name": e.action_name, "registries": e.origins},
+                )
+                for remote_workflow in remote_workflows
+                if any(
+                    action.action == e.action_name
+                    for action in remote_workflow.definition.actions
+                )
+            ]
+            # A template step is in no workflow's own actions; report it once.
+            return diagnostics or [_registry_diagnostic(str(e))]
+        except (RegistryError, EntitlementRequired) as e:
+            return [_registry_diagnostic(str(e))]
+        except Exception as e:
+            return [
+                PullDiagnostic(
+                    workflow_path="",
+                    workflow_title=None,
+                    error_type="validation",
+                    message=f"Unexpected validation error: {str(e)}",
+                    details={"exception": str(e)},
+                )
+            ]
+        return []
 
     async def _validate_cross_workflow_integrity(
         self, remote_workflows: list[RemoteWorkflowDefinition]
@@ -773,6 +810,17 @@ class WorkflowImportService(BaseWorkspaceService):
             raise ValueError(f"Failed to create or find folder at path: {folder_path}")
 
         return final_folder.id
+
+
+def _registry_diagnostic(message: str) -> PullDiagnostic:
+    """A registry problem that affects the whole batch rather than one workflow."""
+    return PullDiagnostic(
+        workflow_path="",
+        workflow_title=None,
+        error_type="dependency",
+        message=message,
+        details={"exception": message},
+    )
 
 
 def _duplicates(values: Iterable[str]) -> set[str]:
