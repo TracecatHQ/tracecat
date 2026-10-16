@@ -928,11 +928,9 @@ function AgentPresetChatPane({
 
 function PlaygroundEmptyState() {
   return (
-    <div className="flex max-w-sm flex-col items-center gap-3 text-center">
-      <div className="flex size-10 items-center justify-center rounded-lg bg-muted">
-        <MousePointerClickIcon className="size-5 text-muted-foreground" />
-      </div>
-      <p className="text-pretty text-sm text-muted-foreground">
+    <div className="max-w-sm text-center">
+      <p className="text-sm font-medium text-foreground">Try out your agent</p>
+      <p className="mt-1 text-pretty text-sm text-muted-foreground">
         Send a message to see how it responds and which tools it calls. Runs use
         the last saved version.
       </p>
