@@ -3,6 +3,9 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any
+
+import pytest
 
 from tracecat.agent.session.schemas import (
     AgentSessionCreate,
@@ -11,48 +14,53 @@ from tracecat.agent.session.schemas import (
 )
 from tracecat.agent.session.types import AgentSessionEntity
 
+_CREATE_BASE = {
+    "title": "New session",
+    "entity_type": AgentSessionEntity.AGENT_PRESET,
+    "entity_id": str(uuid.uuid4()),
+}
 
-def test_agent_session_create_ignores_channel_context_payload() -> None:
-    session = AgentSessionCreate.model_validate(
-        {
-            "title": "New session",
-            "entity_type": AgentSessionEntity.AGENT_PRESET,
-            "entity_id": str(uuid.uuid4()),
-            "channel_context": {
-                "channel_type": "slack",
-                "channel_id": "C123",
-                "thread_ts": "1700000000.123",
+
+@pytest.mark.parametrize(
+    ("schema", "payload", "field"),
+    [
+        pytest.param(
+            AgentSessionCreate,
+            _CREATE_BASE
+            | {
+                "channel_context": {
+                    "channel_type": "slack",
+                    "channel_id": "C123",
+                    "thread_ts": "1700000000.123",
+                }
             },
-        }
-    )
+            "channel_context",
+            id="create-channel-context",
+        ),
+        pytest.param(
+            AgentSessionCreate,
+            _CREATE_BASE | {"agents_binding": {"subagents": []}},
+            "agents_binding",
+            id="create-agents-binding",
+        ),
+        pytest.param(
+            AgentSessionUpdate,
+            {"title": "Updated session", "agents_binding": {"subagents": []}},
+            "agents_binding",
+            id="update-agents-binding",
+        ),
+    ],
+)
+def test_agent_session_payloads_ignore_server_owned_fields(
+    schema: type[AgentSessionCreate] | type[AgentSessionUpdate],
+    payload: dict[str, Any],
+    field: str,
+) -> None:
+    """Clients cannot mass-assign server-owned session fields."""
+    parsed = schema.model_validate(payload)
 
-    dumped = session.model_dump()
-    assert "channel_context" not in dumped
-
-
-def test_agent_session_create_ignores_agents_binding_payload() -> None:
-    session = AgentSessionCreate.model_validate(
-        {
-            "title": "New session",
-            "entity_type": AgentSessionEntity.AGENT_PRESET,
-            "entity_id": str(uuid.uuid4()),
-            "agents_binding": {"subagents": []},
-        }
-    )
-
-    assert "agents_binding" not in session.model_dump(mode="json")
-
-
-def test_agent_session_update_ignores_agents_binding_payload() -> None:
-    session_update = AgentSessionUpdate.model_validate(
-        {
-            "title": "Updated session",
-            "agents_binding": {"subagents": []},
-        }
-    )
-
-    assert session_update.title == "Updated session"
-    assert "agents_binding" not in session_update.model_dump(mode="json")
+    assert parsed.title == payload["title"]
+    assert field not in parsed.model_dump(mode="json")
 
 
 def test_agent_session_read_defaults_binding_without_availability_flags() -> None:

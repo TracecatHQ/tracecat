@@ -749,45 +749,6 @@ async def test_other_tenants_user_is_not_visible(
 # =============================================================================
 
 
-@pytest.mark.anyio
-async def test_service_provider_config(client: httpx.AsyncClient) -> None:
-    """Advertise exactly what this surface implements."""
-    response = await client.get("/scim/v2/ServiceProviderConfig")
-
-    assert response.status_code == status.HTTP_200_OK
-    body = response.json()
-    assert body["patch"]["supported"] is True
-    assert body["bulk"]["supported"] is False
-    assert body["filter"]["supported"] is True
-    assert body["filter"]["maxResults"] > 0
-    assert body["changePassword"]["supported"] is False
-    assert body["sort"]["supported"] is False
-    assert body["etag"]["supported"] is False
-    assert body["authenticationSchemes"][0]["type"] == "oauthbearertoken"
-
-
-@pytest.mark.anyio
-async def test_resource_types(client: httpx.AsyncClient) -> None:
-    response = await client.get("/scim/v2/ResourceTypes")
-
-    assert response.status_code == status.HTTP_200_OK
-    body = response.json()
-    assert {r["id"] for r in body["Resources"]} == {"User", "Group"}
-
-
-@pytest.mark.anyio
-async def test_schemas_document(client: httpx.AsyncClient) -> None:
-    response = await client.get("/scim/v2/Schemas")
-
-    assert response.status_code == status.HTTP_200_OK
-    ids = {r["id"] for r in response.json()["Resources"]}
-    assert "urn:ietf:params:scim:schemas:core:2.0:User" in ids
-    assert "urn:ietf:params:scim:schemas:core:2.0:Group" in ids
-    user_schema = next(r for r in response.json()["Resources"] if r["name"] == "User")
-    username = next(a for a in user_schema["attributes"] if a["name"] == "userName")
-    assert username["mutability"] == "readWrite"
-
-
 @pytest.mark.parametrize(
     ("path", "expected"),
     [

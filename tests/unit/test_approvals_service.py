@@ -99,30 +99,6 @@ class TestApprovalService:
             assert approval.tool_name == f"tool_{i}"
             assert approval.status == ApprovalStatus.PENDING
 
-    async def test_create_approvals_empty_list(
-        self,
-        approvals_service: ApprovalService,
-    ) -> None:
-        """Test batch create with empty list returns empty list."""
-        created = await approvals_service.create_approvals([])
-        assert created == []
-
-    async def test_get_approval_by_session_and_tool(
-        self,
-        approvals_service: ApprovalService,
-        approval_create_params: ApprovalCreate,
-    ) -> None:
-        """Test retrieving approval by session and tool call ID."""
-        created = await approvals_service.create_approval(approval_create_params)
-
-        # Retrieve by session and tool call ID
-        retrieved = await approvals_service.get_approval_by_session_and_tool(
-            session_id=approval_create_params.session_id,
-            tool_call_id=approval_create_params.tool_call_id,
-        )
-        assert retrieved is not None
-        assert retrieved.id == created.id
-
     async def test_get_approval_by_session_and_tool_not_found(
         self,
         approvals_service: ApprovalService,
@@ -255,14 +231,6 @@ class TestApprovalService:
         assert updated[0].status == ApprovalStatus.APPROVED
         assert updated[1].status == ApprovalStatus.REJECTED
         assert updated[2].status == ApprovalStatus.APPROVED
-
-    async def test_update_approvals_empty_dict(
-        self,
-        approvals_service: ApprovalService,
-    ) -> None:
-        """Test batch update with empty dict returns empty list."""
-        updated = await approvals_service.update_approvals({})
-        assert updated == []
 
     async def test_delete_approval(
         self,

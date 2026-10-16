@@ -1,6 +1,7 @@
 import uuid
 from collections.abc import Iterator
 from decimal import Decimal
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -80,97 +81,68 @@ class TestCaseFieldsService:
         with pytest.raises(TracecatAuthorizationError):
             CaseFieldsService(session=session, role=role_without_workspace)
 
-    async def test_list_fields(self, case_fields_service: CaseFieldsService) -> None:
-        """Test listing case fields."""
-        # Mock the editor.get_columns method
-        mock_columns = [
-            {"name": "id", "type": sa.types.UUID(), "nullable": False},
-            {"name": "case_id", "type": sa.types.UUID(), "nullable": False},
-            {"name": "created_at", "type": sa.types.TIMESTAMP(), "nullable": False},
-            {"name": "updated_at", "type": sa.types.TIMESTAMP(), "nullable": False},
-            {"name": "custom_field1", "type": sa.types.String(), "nullable": True},
-            {"name": "custom_field2", "type": sa.types.Integer(), "nullable": True},
-        ]
-
-        with patch.object(
-            case_fields_service.editor, "get_columns"
-        ) as mock_get_columns:
-            mock_get_columns.return_value = mock_columns
-
-            # Call the list_fields method
-            fields = await case_fields_service.list_fields()
-
-            # Verify list_fields delegates the visible-column contract to the editor
-            assert fields == mock_columns
-            mock_get_columns.assert_called_once()
-
-    async def test_case_field_read_accepts_timestamptz_type(self) -> None:
-        """Ensure TIMESTAMPTZ columns can be read for custom fields."""
+    @pytest.mark.parametrize(
+        ("name", "column_type", "field_schema", "expected_type", "reserved"),
+        [
+            pytest.param(
+                "last_seen_at",
+                sa.types.TIMESTAMP(timezone=True),
+                None,
+                CaseFieldReadType.TIMESTAMPTZ,
+                False,
+                id="timestamptz-type",
+            ),
+            pytest.param(
+                "custom_tz_field",
+                "TIMESTAMP WITH TIME ZONE",
+                None,
+                CaseFieldReadType.TIMESTAMPTZ,
+                False,
+                id="timestamptz-string",
+            ),
+            pytest.param(
+                "case_id",
+                sa.types.UUID(),
+                None,
+                CaseFieldReadType.UUID,
+                True,
+                id="reserved-uuid",
+            ),
+            pytest.param(
+                "severity_band",
+                sa.types.String(),
+                {"severity_band": {"type": "SELECT", "options": ["low", "high"]}},
+                CaseFieldReadType.SELECT,
+                False,
+                id="schema-type-metadata",
+            ),
+        ],
+    )
+    async def test_case_field_read_type(
+        self,
+        name: str,
+        column_type: Any,
+        field_schema: dict[str, Any] | None,
+        expected_type: CaseFieldReadType,
+        reserved: bool,
+    ) -> None:
         column = ReflectedColumn(
-            name="last_seen_at",
-            type=sa.types.TIMESTAMP(timezone=True),
-            nullable=False,
-            default=None,
-            comment=None,
-        )
-
-        field = CaseFieldReadMinimal.from_sa(column)
-        assert field.type is CaseFieldReadType.TIMESTAMPTZ
-        assert field.reserved is False
-
-    async def test_case_field_read_normalises_timestamptz_string(self) -> None:
-        """Ensure reflected TIMESTAMP WITH TIME ZONE strings are supported."""
-        column = ReflectedColumn(
-            name="custom_tz_field",
-            type="TIMESTAMP WITH TIME ZONE",  # pyright: ignore[reportArgumentType]
+            name=name,
+            type=column_type,
             nullable=True,
             default=None,
             comment=None,
         )
 
-        field = CaseFieldReadMinimal.from_sa(column)
-        assert field.type is CaseFieldReadType.TIMESTAMPTZ
-        assert field.reserved is False
+        field = CaseFieldReadMinimal.from_sa(column, field_schema=field_schema)
+        assert field.type is expected_type
+        assert field.reserved is reserved
+        if field_schema is not None:
+            assert field.options == ["low", "high"]
 
-    async def test_case_field_read_preserves_reserved_uuid_type(self) -> None:
-        """Ensure reserved UUID columns remain UUID in read metadata."""
-        column = ReflectedColumn(
-            name="case_id",
-            type=sa.types.UUID(),
-            nullable=False,
-            default=None,
-            comment=None,
-        )
-
-        field = CaseFieldReadMinimal.from_sa(column)
-        assert field.type is CaseFieldReadType.UUID
-        assert field.reserved is True
-
-    async def test_case_field_read_prefers_schema_type_metadata(self) -> None:
-        """Ensure user-defined field metadata drives the public read type."""
-        column = ReflectedColumn(
-            name="severity_band",
-            type=sa.types.String(),
-            nullable=True,
-            default=None,
-            comment=None,
-        )
-
-        field = CaseFieldReadMinimal.from_sa(
-            column,
-            field_schema={
-                "severity_band": {
-                    "type": "SELECT",
-                    "options": ["low", "high"],
-                }
-            },
-        )
-        assert field.type is CaseFieldReadType.SELECT
-        assert field.options == ["low", "high"]
-
-    async def test_case_field_read_display_name(self) -> None:
-        """Read display names from metadata and fall back to the field ID."""
-        cases = [
+    @pytest.mark.parametrize(
+        ("field_id", "field_type", "field_schema", "expected_display_name"),
+        [
             (
                 "analyst_verdict",
                 sa.types.Text(),
@@ -190,24 +162,28 @@ class TestCaseFieldsService:
             ),
             ("analyst_verdict", sa.types.Text(), None, "analyst_verdict"),
             ("case_id", sa.types.UUID(), None, "case_id"),
-        ]
+        ],
+    )
+    async def test_case_field_read_display_name(
+        self,
+        field_id: str,
+        field_type: Any,
+        field_schema: dict[str, Any] | None,
+        expected_display_name: str,
+    ) -> None:
+        """Read display names from metadata and fall back to the field ID."""
+        column = ReflectedColumn(
+            name=field_id,
+            type=field_type,
+            nullable=True,
+            default=None,
+            comment=None,
+        )
 
-        for field_id, field_type, field_schema, expected_display_name in cases:
-            column = ReflectedColumn(
-                name=field_id,
-                type=field_type,
-                nullable=True,
-                default=None,
-                comment=None,
-            )
+        field = CaseFieldReadMinimal.from_sa(column, field_schema=field_schema)
 
-            field = CaseFieldReadMinimal.from_sa(
-                column,
-                field_schema=field_schema,
-            )
-
-            assert field.id == field_id
-            assert field.display_name == expected_display_name
+        assert field.id == field_id
+        assert field.display_name == expected_display_name
 
     async def test_create_field(self, case_fields_service: CaseFieldsService) -> None:
         """Test creating a case field."""
@@ -437,6 +413,24 @@ class TestCaseFieldsService:
                 "test_field", CaseFieldUpdate(name="__tc_workspace_id")
             )
 
+    async def test_update_field_rejects_sql_injection_like_field_id(
+        self,
+        case_fields_service: CaseFieldsService,
+    ) -> None:
+        """Reject field IDs that are not valid SQL identifiers before DDL runs."""
+        await case_fields_service.create_field(
+            CaseFieldCreate(
+                name="safe_field",
+                type=SqlType.TEXT,
+            )
+        )
+
+        with pytest.raises(ValueError, match="Identifier must"):
+            await case_fields_service.update_field(
+                'safe_field"; DROP TABLE case_fields; --',
+                CaseFieldUpdate(default="still text"),
+            )
+
     async def test_delete_field(self, case_fields_service: CaseFieldsService) -> None:
         """Test deleting a case field."""
         # Mock the editor.delete_column method
@@ -570,44 +564,27 @@ class TestCaseFieldsService:
 
         assert fields_by_case == {test_case.id: {"custom_field2": 123}}
 
-    async def test_batch_get_fields_rejects_reserved_field_ids(
+    @pytest.mark.parametrize("with_cases", [True, False])
+    @pytest.mark.parametrize(
+        ("field_id", "error"),
+        [
+            ("case_id", "reserved field"),
+            ("CASE_ID", "reserved field"),
+            ("__tc_workspace_id", "reserved for internal use"),
+        ],
+    )
+    async def test_batch_get_fields_rejects_reserved_and_internal_field_ids(
         self,
         case_fields_service: CaseFieldsService,
         test_case: Case,
+        with_cases: bool,
+        field_id: str,
+        error: str,
     ) -> None:
-        """Reserved case-field columns should not be selectable for hydration."""
-        with pytest.raises(ValueError, match="reserved field"):
-            await case_fields_service.batch_get_fields([test_case.id], ["case_id"])
-
-        with pytest.raises(ValueError, match="reserved field"):
-            await case_fields_service.batch_get_fields([test_case.id], ["CASE_ID"])
-
-    async def test_batch_get_fields_rejects_reserved_field_ids_with_no_cases(
-        self,
-        case_fields_service: CaseFieldsService,
-    ) -> None:
-        """Requested field IDs should be validated even for empty result pages."""
-        with pytest.raises(ValueError, match="reserved field"):
-            await case_fields_service.batch_get_fields([], ["case_id"])
-
-    async def test_batch_get_fields_rejects_internal_field_ids(
-        self,
-        case_fields_service: CaseFieldsService,
-        test_case: Case,
-    ) -> None:
-        """Internal/system-managed field IDs should be rejected."""
-        with pytest.raises(ValueError, match="reserved for internal use"):
-            await case_fields_service.batch_get_fields(
-                [test_case.id], ["__tc_workspace_id"]
-            )
-
-    async def test_batch_get_fields_rejects_internal_field_ids_with_no_cases(
-        self,
-        case_fields_service: CaseFieldsService,
-    ) -> None:
-        """Internal field IDs should be rejected before empty-case short-circuits."""
-        with pytest.raises(ValueError, match="reserved for internal use"):
-            await case_fields_service.batch_get_fields([], ["__tc_workspace_id"])
+        """Reserved and internal columns are rejected, even for empty result pages."""
+        case_ids = [test_case.id] if with_cases else []
+        with pytest.raises(ValueError, match=error):
+            await case_fields_service.batch_get_fields(case_ids, [field_id])
 
     async def test_upsert_field_values(
         self, case_fields_service: CaseFieldsService, test_case: Case

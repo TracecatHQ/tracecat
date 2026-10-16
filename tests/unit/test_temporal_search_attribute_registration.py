@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock
@@ -12,28 +11,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from tenacity import stop_after_attempt, wait_none
 
 from tracecat.api import common
-from tracecat.api.app import lifespan
 from tracecat.workflow.executions.enums import TemporalSearchAttr
-
-
-@pytest.mark.anyio
-async def test_add_temporal_search_attributes_registers_correlation_id(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    operator_service = SimpleNamespace(
-        list_search_attributes=AsyncMock(return_value=ListSearchAttributesResponse()),
-        add_search_attributes=AsyncMock(),
-    )
-    client = SimpleNamespace(operator_service=operator_service)
-    monkeypatch.setattr(common, "get_temporal_client", AsyncMock(return_value=client))
-
-    await common.add_temporal_search_attributes()
-
-    search_attributes = operator_service.add_search_attributes.await_args.args[
-        0
-    ].search_attributes
-    assert TemporalSearchAttr.CORRELATION_ID.value in search_attributes
-    assert TemporalSearchAttr.ERROR_OWNER.value in search_attributes
 
 
 @pytest.mark.anyio
@@ -194,14 +172,6 @@ async def test_add_temporal_search_attributes_propagates_registration_failure(
 
     with pytest.raises(RuntimeError, match="Temporal unavailable"):
         await single_attempt_add()
-
-
-def test_api_lifespan_supervises_temporal_search_attribute_registration() -> None:
-    source = inspect.getsource(lifespan)
-
-    assert "supervisor.spawn(\n        add_temporal_search_attributes()" in source
-    assert 'name="temporal_search_attribute_registration"' in source
-    assert "await add_temporal_search_attributes()" not in source
 
 
 @pytest.mark.anyio

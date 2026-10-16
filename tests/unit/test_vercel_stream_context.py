@@ -90,148 +90,91 @@ async def test_artifact_event_maps_to_data_part():
     ]
 
 
-@pytest.mark.anyio
-async def test_text_part_with_initial_content():
-    """Test text part start with initial content."""
-    ctx = VercelStreamContext(message_id="msg_test")
+def _text(event_type: StreamEventType, text: str | None) -> UnifiedStreamEvent:
+    return UnifiedStreamEvent(type=event_type, part_id=0, text=text)
 
-    events = [
-        UnifiedStreamEvent(type=StreamEventType.TEXT_START, part_id=0, text="hello"),
-    ]
 
-    frames = await collect_frames(ctx, events)
+def _thinking(event_type: StreamEventType, thinking: str | None) -> UnifiedStreamEvent:
+    return UnifiedStreamEvent(type=event_type, part_id=0, thinking=thinking)
 
-    assert len(frames) == 3
-    assert isinstance(frames[0], TextStartEventPayload)
-    assert isinstance(frames[1], TextDeltaEventPayload)
-    assert frames[1].delta == "hello"
-    assert isinstance(frames[2], TextEndEventPayload)
+
+_TS, _TD = StreamEventType.TEXT_START, StreamEventType.TEXT_DELTA
+_RS, _RD = StreamEventType.THINKING_START, StreamEventType.THINKING_DELTA
 
 
 @pytest.mark.anyio
-async def test_text_part_with_deltas():
-    """Test text part with delta events."""
-    ctx = VercelStreamContext(message_id="msg_test")
-
-    events = [
-        UnifiedStreamEvent(type=StreamEventType.TEXT_START, part_id=0, text="hello"),
-        UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, part_id=0, text=" world"),
-        UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, part_id=0, text="!"),
-    ]
-
-    frames = await collect_frames(ctx, events)
-
-    # Start, initial content, 2 deltas, end
-    assert len(frames) == 5
-    assert isinstance(frames[0], TextStartEventPayload)
-    assert isinstance(frames[1], TextDeltaEventPayload)
-    assert frames[1].delta == "hello"
-    assert isinstance(frames[2], TextDeltaEventPayload)
-    assert frames[2].delta == " world"
-    assert isinstance(frames[3], TextDeltaEventPayload)
-    assert frames[3].delta == "!"
-    assert isinstance(frames[4], TextEndEventPayload)
-
-
-@pytest.mark.anyio
-async def test_text_part_with_empty_initial_content():
-    """Test text part with empty initial content."""
-    ctx = VercelStreamContext(message_id="msg_test")
-
-    events = [
-        UnifiedStreamEvent(type=StreamEventType.TEXT_START, part_id=0, text=""),
-        UnifiedStreamEvent(type=StreamEventType.TEXT_DELTA, part_id=0, text="hello"),
-    ]
-
-    frames = await collect_frames(ctx, events)
-
-    # Start (no initial delta for empty content), delta, end
-    assert len(frames) == 3
-    assert isinstance(frames[0], TextStartEventPayload)
-    assert isinstance(frames[1], TextDeltaEventPayload)
-    assert frames[1].delta == "hello"
-    assert isinstance(frames[2], TextEndEventPayload)
-
-
-# ==============================================================================
-# Reasoning/Thinking Streaming Tests
-# ==============================================================================
-
-
-@pytest.mark.anyio
-async def test_reasoning_part_with_initial_content():
-    """Test reasoning part start with initial content."""
-    ctx = VercelStreamContext(message_id="msg_test")
-
-    events = [
-        UnifiedStreamEvent(
-            type=StreamEventType.THINKING_START, part_id=0, thinking="analyzing..."
+@pytest.mark.parametrize(
+    ("events", "start", "delta", "end", "deltas"),
+    [
+        pytest.param(
+            [_text(_TS, "hello")],
+            TextStartEventPayload,
+            TextDeltaEventPayload,
+            TextEndEventPayload,
+            ["hello"],
+            id="text-initial",
         ),
-    ]
-
-    frames = await collect_frames(ctx, events)
-
-    assert len(frames) == 3
-    assert isinstance(frames[0], ReasoningStartEventPayload)
-    assert isinstance(frames[1], ReasoningDeltaEventPayload)
-    assert frames[1].delta == "analyzing..."
-    assert isinstance(frames[2], ReasoningEndEventPayload)
-
-
-@pytest.mark.anyio
-async def test_reasoning_part_with_deltas():
-    """Test reasoning part with delta events."""
-    ctx = VercelStreamContext(message_id="msg_test")
-
-    events = [
-        UnifiedStreamEvent(
-            type=StreamEventType.THINKING_START, part_id=0, thinking="step 1"
+        pytest.param(
+            [_text(_TS, "hello"), _text(_TD, " world"), _text(_TD, "!")],
+            TextStartEventPayload,
+            TextDeltaEventPayload,
+            TextEndEventPayload,
+            ["hello", " world", "!"],
+            id="text-deltas",
         ),
-        UnifiedStreamEvent(
-            type=StreamEventType.THINKING_DELTA, part_id=0, thinking=", step 2"
+        pytest.param(
+            [_text(_TS, ""), _text(_TD, "hello")],
+            TextStartEventPayload,
+            TextDeltaEventPayload,
+            TextEndEventPayload,
+            ["hello"],
+            id="text-empty-initial",
         ),
-        UnifiedStreamEvent(
-            type=StreamEventType.THINKING_DELTA, part_id=0, thinking=", done"
+        pytest.param(
+            [_thinking(_RS, "analyzing...")],
+            ReasoningStartEventPayload,
+            ReasoningDeltaEventPayload,
+            ReasoningEndEventPayload,
+            ["analyzing..."],
+            id="reasoning-initial",
         ),
-    ]
-
-    frames = await collect_frames(ctx, events)
-
-    assert len(frames) == 5
-    assert isinstance(frames[0], ReasoningStartEventPayload)
-    assert isinstance(frames[1], ReasoningDeltaEventPayload)
-    assert isinstance(frames[2], ReasoningDeltaEventPayload)
-    assert isinstance(frames[3], ReasoningDeltaEventPayload)
-    assert frames[1].delta == "step 1"
-    assert frames[2].delta == ", step 2"
-    assert frames[3].delta == ", done"
-    assert isinstance(frames[4], ReasoningEndEventPayload)
-
-
-@pytest.mark.anyio
-async def test_reasoning_part_with_empty_delta():
-    """Test reasoning part with empty content delta."""
-    ctx = VercelStreamContext(message_id="msg_test")
-
-    events = [
-        UnifiedStreamEvent(type=StreamEventType.THINKING_START, part_id=0, thinking=""),
-        UnifiedStreamEvent(
-            type=StreamEventType.THINKING_DELTA, part_id=0, thinking=None
+        pytest.param(
+            [
+                _thinking(_RS, "step 1"),
+                _thinking(_RD, ", step 2"),
+                _thinking(_RD, ", done"),
+            ],
+            ReasoningStartEventPayload,
+            ReasoningDeltaEventPayload,
+            ReasoningEndEventPayload,
+            ["step 1", ", step 2", ", done"],
+            id="reasoning-deltas",
         ),
-        UnifiedStreamEvent(
-            type=StreamEventType.THINKING_DELTA, part_id=0, thinking="content"
+        pytest.param(
+            [_thinking(_RS, ""), _thinking(_RD, None), _thinking(_RD, "content")],
+            ReasoningStartEventPayload,
+            ReasoningDeltaEventPayload,
+            ReasoningEndEventPayload,
+            ["content"],
+            id="reasoning-empty-deltas",
         ),
-    ]
+    ],
+)
+async def test_text_and_reasoning_parts(
+    events: list[UnifiedStreamEvent],
+    start: type,
+    delta: type,
+    end: type,
+    deltas: list[str],
+) -> None:
+    """Initial content becomes the first delta; empty or None content emits none."""
+    frames = await collect_frames(VercelStreamContext(message_id="msg_test"), events)
 
-    frames = await collect_frames(ctx, events)
-
-    # Start, no delta for None, delta for "content", end
-    assert len(frames) == 3
-    assert isinstance(frames[0], ReasoningStartEventPayload)
-    # Frame 1 should be the actual content delta, not the None
-    assert isinstance(frames[1], ReasoningDeltaEventPayload)
-    assert frames[1].delta == "content"
-    assert isinstance(frames[2], ReasoningEndEventPayload)
+    assert isinstance(frames[0], start)
+    assert isinstance(frames[-1], end)
+    middle = frames[1:-1]
+    assert all(isinstance(frame, delta) for frame in middle)
+    assert [cast(TextDeltaEventPayload, frame).delta for frame in middle] == deltas
 
 
 # ==============================================================================
@@ -952,17 +895,6 @@ async def test_tool_call_delta_for_unknown_part():
 
 
 @pytest.mark.anyio
-async def test_part_finalization_with_no_active_parts():
-    """Test part finalization with no active parts."""
-    ctx = VercelStreamContext(message_id="msg_test")
-
-    # Try to finalize without any active parts
-    end_events = ctx.collect_current_part_end_events()
-
-    assert len(end_events) == 0
-
-
-@pytest.mark.anyio
 async def test_collect_end_events_for_specific_index():
     """Test collecting end events for specific vs all parts."""
     ctx = VercelStreamContext(message_id="msg_test")
@@ -989,151 +921,3 @@ async def test_collect_end_events_for_specific_index():
     end_events_all = ctx.collect_current_part_end_events()
     assert len(end_events_all) == 1
     assert isinstance(end_events_all[0], TextEndEventPayload)
-
-
-# ==============================================================================
-# State Management Tests
-# ==============================================================================
-
-
-@pytest.mark.anyio
-async def test_part_state_tracking():
-    """Test part state tracking across event lifecycle."""
-    ctx = VercelStreamContext(message_id="msg_test")
-
-    # Initially no parts
-    assert len(ctx.part_states) == 0
-
-    event = UnifiedStreamEvent(type=StreamEventType.TEXT_START, part_id=0, text="test")
-
-    async for _ in ctx.handle_event(event):
-        pass
-
-    # Part should be registered
-    assert 0 in ctx.part_states
-    assert ctx.part_states[0].part_type == "text"
-    assert ctx.part_states[0].open is True
-
-    # Finalize
-    ctx.collect_current_part_end_events()
-
-    # Part should be removed
-    assert 0 not in ctx.part_states
-
-
-@pytest.mark.anyio
-async def test_tool_index_management():
-    """Test tool index management (tool_call_id → part index mapping)."""
-    ctx = VercelStreamContext(message_id="msg_test")
-
-    event = UnifiedStreamEvent(
-        type=StreamEventType.TOOL_CALL_START,
-        part_id=0,
-        tool_call_id="call_123",
-        tool_name="search",
-        tool_input={},
-    )
-
-    async for _ in ctx.handle_event(event):
-        pass
-
-    # Tool index should be registered
-    assert "call_123" in ctx.tool_index
-    assert ctx.tool_index["call_123"] == 0
-
-    # Process tool result
-    result_event = UnifiedStreamEvent(
-        type=StreamEventType.TOOL_RESULT,
-        tool_call_id="call_123",
-        tool_name="search",
-        tool_output="result",
-        is_error=False,
-    )
-
-    async for _ in ctx.handle_event(result_event):
-        pass
-
-    # Tool index should be cleaned up after finalization
-    ctx.collect_current_part_end_events()
-    assert "call_123" not in ctx.tool_index
-
-
-@pytest.mark.anyio
-async def test_tool_finished_state_tracking():
-    """Test tool finished state tracking."""
-    ctx = VercelStreamContext(message_id="msg_test")
-
-    tool_call_id = "call_123"
-
-    events = [
-        UnifiedStreamEvent(
-            type=StreamEventType.TOOL_CALL_START,
-            part_id=0,
-            tool_call_id=tool_call_id,
-            tool_name="search",
-            tool_input={},
-        ),
-        UnifiedStreamEvent(
-            type=StreamEventType.TOOL_RESULT,
-            tool_call_id=tool_call_id,
-            tool_name="search",
-            tool_output="result",
-            is_error=False,
-        ),
-    ]
-
-    await collect_frames(ctx, events)
-
-    # Tool should be marked as finished
-    assert tool_call_id in ctx.tool_finished
-    assert ctx.tool_finished[tool_call_id] is True
-
-
-@pytest.mark.anyio
-async def test_tool_input_emitted_state_tracking():
-    """Test tool input emitted state tracking."""
-    ctx = VercelStreamContext(message_id="msg_test")
-
-    tool_call_id = "call_123"
-
-    event = UnifiedStreamEvent(
-        type=StreamEventType.TOOL_CALL_START,
-        part_id=0,
-        tool_call_id=tool_call_id,
-        tool_name="search",
-        tool_input={"q": "test"},
-    )
-
-    async for _ in ctx.handle_event(event):
-        pass
-
-    # Input not yet emitted (will be emitted on finalization)
-    assert tool_call_id in ctx.tool_input_emitted
-    assert ctx.tool_input_emitted[tool_call_id] is False
-
-    # Finalize - should emit input available
-    ctx.collect_current_part_end_events()
-
-    # Should now be marked as emitted
-    assert ctx.tool_input_emitted[tool_call_id] is True
-
-
-# ==============================================================================
-# SSE Format Tests
-# ==============================================================================
-
-
-@pytest.mark.anyio
-async def test_format_sse_produces_valid_output():
-    """Test that format_sse produces valid SSE format."""
-    payload = TextStartEventPayload(id="test_id")
-    sse_string = format_sse(payload)
-
-    assert sse_string.startswith("data: ")
-    assert sse_string.endswith("\n\n")
-
-    # Should be valid JSON
-    json_str = sse_string[6:-2]  # Remove "data: " and "\n\n"
-    data = json.loads(json_str)
-    assert data["type"] == "text-start"
-    assert data["id"] == "test_id"

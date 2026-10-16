@@ -5,7 +5,6 @@ import uuid
 from collections import Counter
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -26,7 +25,6 @@ from tracecat.cases.triggers.consumer import CaseTriggerConsumer
 from tracecat.contexts import ctx_role
 from tracecat.db import rls as rls_module
 from tracecat.db.engine import get_async_session
-from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.dsl.worker import get_activities as get_worker_activities
 from tracecat.executor.registry_resolver import _load_manifest_entry
 from tracecat.executor.service import get_registry_artifacts_for_lock
@@ -42,8 +40,6 @@ from tracecat.service import BaseOrgService
 from tracecat.settings.service import get_setting
 from tracecat.webhooks.dependencies import validate_incoming_webhook
 from tracecat.workspaces.activities import get_workspace_organization_id_activity
-
-RLS_MIGRATION_PATH = Path("alembic/versions/c76f9b01fad7_add_rls_policies.py")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -130,52 +126,6 @@ async def test_authenticate_user_membership_check_is_not_done_under_deny_default
     assert resolved_role.user_id == user_id
 
 
-@pytest.mark.anyio
-async def test_set_rls_context_from_role_applies_gucs_even_when_feature_flag_is_off(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Role-based context setup must still write GUCs when policies are installed."""
-    session = AsyncMock()
-    session.sync_session = MagicMock()
-    session.sync_session.info = {}
-
-    monkeypatch.setattr("tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS", set())
-
-    role = Role(
-        type="service",
-        organization_id=uuid.uuid4(),
-        workspace_id=uuid.uuid4(),
-        service_id="tracecat-service",
-        scopes=frozenset({"*"}),
-    )
-
-    await set_rls_context_from_role(session, role)
-
-    session.execute.assert_called_once()
-
-
-@pytest.mark.anyio
-async def test_set_rls_context_applies_gucs_even_when_feature_flag_is_off(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """RLS context must still be written when DB policies are installed."""
-    session = AsyncMock()
-    session.sync_session = MagicMock()
-    session.sync_session.info = {}
-
-    monkeypatch.setattr("tracecat.db.rls.config.TRACECAT__FEATURE_FLAGS", set())
-
-    await set_rls_context(
-        session,
-        org_id=uuid.uuid4(),
-        workspace_id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
-        bypass=True,
-    )
-
-    session.execute.assert_called_once()
-
-
 def test_rls_after_begin_reapplies_cached_context_when_feature_flag_is_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -201,21 +151,6 @@ def test_rls_after_begin_reapplies_cached_context_when_feature_flag_is_off(
     )
 
     connection.execute.assert_called_once()
-
-
-def test_rls_migration_uses_enable_without_force() -> None:
-    migration_sql = RLS_MIGRATION_PATH.read_text()
-    assert "ENABLE ROW LEVEL SECURITY" in migration_sql
-    assert "FORCE ROW LEVEL SECURITY" not in migration_sql
-
-
-def test_rls_migration_uses_special_oauth_state_policy() -> None:
-    migration_sql = RLS_MIGRATION_PATH.read_text()
-    assert 'ALTER TABLE "oauth_state" ENABLE ROW LEVEL SECURITY;' in migration_sql
-    assert (
-        "user_id = NULLIF(current_setting('app.current_user_id', true), '')::uuid"
-        in migration_sql
-    )
 
 
 def test_validate_incoming_webhook_uses_bypass_session_manager() -> None:

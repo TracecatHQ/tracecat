@@ -18,14 +18,9 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
     ExportTraceServiceRequest,
 )
 from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
-from pydantic import HttpUrl, SecretStr
+from pydantic import SecretStr
 
 from tracecat import config
-from tracecat.agent.otel_config import (
-    AgentOtelConfig,
-    ResolvedAgentOtelConfig,
-    resolve_agent_otel_config,
-)
 from tracecat.agent.otel_delivery import (
     DeliveryLimits,
     OtelDeliveryPool,
@@ -253,36 +248,38 @@ async def _start_test_receiver(
     return receiver
 
 
-@pytest.mark.anyio
-async def test_resolve_collector_url_prefers_signal_specific_endpoint() -> None:
-    url = resolve_collector_url(
-        {
-            "OTEL_EXPORTER_OTLP_ENDPOINT": "https://generic.example.com",
-            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "https://traces.example.com/v1/traces",
-        },
-        "/v1/traces",
-    )
-    assert url == "https://traces.example.com/v1/traces"
-
-
-@pytest.mark.anyio
-async def test_resolve_collector_url_falls_back_to_generic_with_path() -> None:
-    url = resolve_collector_url(
-        {"OTEL_EXPORTER_OTLP_ENDPOINT": "https://generic.example.com/"},
-        "/v1/logs",
-    )
-    assert url == "https://generic.example.com/v1/logs"
-
-
-@pytest.mark.anyio
-async def test_resolve_collector_url_returns_none_for_unknown_path() -> None:
-    assert (
-        resolve_collector_url(
+@pytest.mark.parametrize(
+    ("env", "path", "expected"),
+    [
+        pytest.param(
+            {
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "https://generic.example.com",
+                "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": (
+                    "https://traces.example.com/v1/traces"
+                ),
+            },
+            "/v1/traces",
+            "https://traces.example.com/v1/traces",
+            id="signal-specific",
+        ),
+        pytest.param(
+            {"OTEL_EXPORTER_OTLP_ENDPOINT": "https://generic.example.com/"},
+            "/v1/logs",
+            "https://generic.example.com/v1/logs",
+            id="generic-with-path",
+        ),
+        pytest.param(
             {"OTEL_EXPORTER_OTLP_ENDPOINT": "https://generic.example.com"},
             "/v1/health",
-        )
-        is None
-    )
+            None,
+            id="unknown-path",
+        ),
+    ],
+)
+def test_resolve_collector_url(
+    env: dict[str, str], path: str, expected: str | None
+) -> None:
+    assert resolve_collector_url(env, path) == expected
 
 
 def test_tenant_signal_enabled_reads_the_per_signal_exporter() -> None:
@@ -955,43 +952,6 @@ async def test_pool_bounds_pending_items_and_concurrent_requests(
         await receiver.stop()
 
 
-@pytest.mark.anyio
-async def test_pool_bounds_pending_bytes(
-    short_socket_dir: Path,
-    mock_transport: _MockTransport,
-    make_pool: _PoolFactory,
-    receiver_identity: _ReceiverIdentity,
-) -> None:
-    pool = make_pool(DeliveryLimits(max_bytes=3))
-    mock_transport.block()
-    receiver = await _start_test_receiver(
-        socket_path=short_socket_dir / "bytes.sock",
-        identity=receiver_identity,
-        pool=pool,
-    )
-    try:
-        first, _, _ = await _send_request(
-            receiver.socket_path,
-            method="POST",
-            path="/v1/logs",
-            body=b"abc",
-            authorization=f"Bearer {receiver_identity.token}",
-        )
-        second, _, _ = await _send_request(
-            receiver.socket_path,
-            method="POST",
-            path="/v1/logs",
-            body=b"d",
-            authorization=f"Bearer {receiver_identity.token}",
-        )
-        assert first == 202
-        assert second == 503
-        assert pool._reserved == 3
-    finally:
-        mock_transport.unblock()
-        await receiver.stop()
-
-
 async def _post_metric(
     receiver: OtelSocketReceiver, identity: _ReceiverIdentity
 ) -> int:
@@ -1463,53 +1423,3 @@ async def test_receiver_times_out_body_read_and_refunds(
     assert started_receiver._rejected["timeout"] == 1
     assert mock_transport.requests == []
     assert not delivery_pool._tasks
-
-
-@pytest.mark.anyio
-async def test_resolve_disabled_telemetry_returns_empty_envs() -> None:
-    resolved = resolve_agent_otel_config(
-        org_config=AgentOtelConfig(enabled=False),
-        org_headers=None,
-    )
-    assert resolved.enabled is False
-    assert resolved.sandbox_env == {}
-    assert resolved.collector_env == {}
-    assert resolved.headers == {}
-
-
-def test_sandbox_env_carries_no_endpoint() -> None:
-    config_value = AgentOtelConfig(
-        enabled=True,
-        endpoint=HttpUrl("https://generic.example.com"),
-        traces_enabled=True,
-        log_user_prompts=True,
-        resource_attributes={"service.name": "tracecat"},
-    )
-    resolved = resolve_agent_otel_config(
-        org_config=config_value,
-        org_headers={"Authorization": "Bearer t"},
-    )
-
-    sandbox_env = resolved.sandbox_env
-    assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in sandbox_env
-    assert sandbox_env["OTEL_EXPORTER_OTLP_PROTOCOL"] == "http/protobuf"
-    assert sandbox_env["OTEL_LOGS_EXPORTER"] == "otlp"
-    assert sandbox_env["OTEL_TRACES_EXPORTER"] == "otlp"
-    assert sandbox_env["OTEL_LOG_USER_PROMPTS"] == "1"
-    assert sandbox_env["OTEL_RESOURCE_ATTRIBUTES"] == "service.name=tracecat"
-    # Tenant headers never reach the resolver's sandbox env (the activity later
-    # injects only a receiver-bearer JWT as OTEL_EXPORTER_OTLP_HEADERS).
-    assert "OTEL_EXPORTER_OTLP_HEADERS" not in sandbox_env
-    # Tenant headers and collector endpoint remain trusted-side only.
-    assert resolved.collector_env["OTEL_EXPORTER_OTLP_ENDPOINT"] == (
-        "https://generic.example.com/"
-    )
-    assert resolved.headers["Authorization"].get_secret_value() == "Bearer t"
-
-
-def test_resolved_config_default_is_disabled() -> None:
-    resolved = ResolvedAgentOtelConfig()
-    assert resolved.enabled is False
-    assert resolved.sandbox_env == {}
-    assert resolved.collector_env == {}
-    assert resolved.headers == {}

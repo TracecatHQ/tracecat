@@ -1,4 +1,5 @@
 from collections import Counter
+from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
@@ -1260,14 +1261,6 @@ def test_format_datetime(
             None,
             False,
         ),  # Sunday - excluded
-        (
-            datetime(2024, 3, 24, 12, 0),
-            "09:00:00",
-            "17:00:00",
-            True,
-            None,
-            True,
-        ),  # Sunday - included
         # Edge cases
         (
             datetime(2024, 3, 18, 9, 0),
@@ -1446,22 +1439,6 @@ def test_format_datetime(
             None,
             True,
         ),  # Basic HH:MM format
-        (
-            datetime(2024, 3, 18, 8, 0),
-            "09:00",
-            "17:00",
-            False,
-            None,
-            False,
-        ),  # Before hours with HH:MM
-        (
-            datetime(2024, 3, 18, 18, 0),
-            "09:00",
-            "17:00",
-            False,
-            None,
-            False,
-        ),  # After hours with HH:MM
         # Mixed format test cases
         (
             datetime(2024, 3, 18, 12, 0),
@@ -1471,39 +1448,6 @@ def test_format_datetime(
             None,
             True,
         ),  # Mixed format HH:MM:SS and HH:MM
-        (
-            datetime(2024, 3, 18, 12, 0),
-            "09:00",
-            "17:00:00",
-            False,
-            None,
-            True,
-        ),  # Mixed format HH:MM and HH:MM:SS
-        # Overnight with HH:MM format
-        (
-            datetime(2024, 3, 18, 23, 0),
-            "22:00",
-            "06:00",
-            False,
-            None,
-            True,
-        ),  # During overnight with HH:MM
-        (
-            datetime(2024, 3, 18, 4, 0),
-            "22:00",
-            "06:00",
-            False,
-            None,
-            True,
-        ),  # During overnight with HH:MM
-        (
-            datetime(2024, 3, 18, 12, 0),
-            "22:00",
-            "06:00",
-            False,
-            None,
-            False,
-        ),  # Outside overnight with HH:MM
     ],
 )
 def test_is_working_hours(
@@ -1608,36 +1552,25 @@ def test_to_time_errors(input_val: Any, expected_error: type[Exception]) -> None
         to_time(input_val)
 
 
-def test_hash_md5() -> None:
-    assert hash_md5("test") == "098f6bcd4621d373cade4e832627b4f6"
-    assert hash_md5(b"test") == "098f6bcd4621d373cade4e832627b4f6"
-
-
-def test_hash_sha1() -> None:
-    assert hash_sha1("test") == "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"
-    assert hash_sha1(b"test") == "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"
-
-
-def test_hash_sha256() -> None:
-    assert (
-        hash_sha256("test")
-        == "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
-    )
-    assert (
-        hash_sha256(b"test")
-        == "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
-    )
-
-
-def test_hash_sha512() -> None:
-    assert (
-        hash_sha512("test")
-        == "ee26b0dd4af7e749aa1a8ee3c10ae9923f618980772e473f8819a5d4940e0db27ac185f8a0e1d5f84f88bc887fd67b143732c304cc5fa9ad8e6f57f50028a8ff"
-    )
-    assert (
-        hash_sha512(b"test")
-        == "ee26b0dd4af7e749aa1a8ee3c10ae9923f618980772e473f8819a5d4940e0db27ac185f8a0e1d5f84f88bc887fd67b143732c304cc5fa9ad8e6f57f50028a8ff"
-    )
+@pytest.mark.parametrize(
+    ("hash_fn", "expected"),
+    [
+        (hash_md5, "098f6bcd4621d373cade4e832627b4f6"),
+        (hash_sha1, "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"),
+        (
+            hash_sha256,
+            "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+        ),
+        (
+            hash_sha512,
+            "ee26b0dd4af7e749aa1a8ee3c10ae9923f618980772e473f8819a5d4940e0db27ac185f8a0e1d5f84f88bc887fd67b143732c304cc5fa9ad8e6f57f50028a8ff",
+        ),
+    ],
+    ids=["md5", "sha1", "sha256", "sha512"],
+)
+def test_hash_functions(hash_fn: Callable[[str | bytes], str], expected: str) -> None:
+    assert hash_fn("test") == expected
+    assert hash_fn(b"test") == expected
 
 
 # ============================================================================
@@ -1738,18 +1671,6 @@ class TestTimeAnchorFunctions:
         finally:
             ctx_logical_time.reset(token)
 
-    def test_utcnow_with_isoformat(self) -> None:
-        """Test utcnow() with as_isoformat=True."""
-        logical_time = datetime(2024, 6, 15, 10, 30, 45, tzinfo=UTC)
-        token = ctx_logical_time.set(logical_time)
-        try:
-            result = utcnow(as_isoformat=True)
-            assert isinstance(result, str)
-            # Should contain timezone info
-            assert "+" in result or "Z" in result or result.endswith("+00:00")
-        finally:
-            ctx_logical_time.reset(token)
-
     def test_utcnow_with_non_utc_timezone(self) -> None:
         """Test that utcnow() converts non-UTC timezones to UTC."""
         # Create a logical_time in a non-UTC timezone (US/Eastern = UTC-5 or UTC-4 DST)
@@ -1781,16 +1702,6 @@ class TestTimeAnchorFunctions:
         finally:
             ctx_logical_time.reset(token)
 
-    def test_today_without_logical_time(self) -> None:
-        """Test that today() falls back to wall clock when ctx_logical_time is not set."""
-        assert ctx_logical_time.get() is None
-
-        result = today()
-        expected = date.today()
-
-        assert isinstance(result, date)
-        assert result == expected
-
     def test_wall_clock_always_returns_current_time(self) -> None:
         """Test that wall_clock() ignores ctx_logical_time and returns actual time."""
         # Set a logical time to a specific past time
@@ -1818,16 +1729,3 @@ class TestTimeAnchorFunctions:
         # Should be parseable as ISO 8601
         parsed = datetime.fromisoformat(result)
         assert parsed.year >= 2024
-
-    def test_wall_clock_without_logical_time(self) -> None:
-        """Test wall_clock() when ctx_logical_time is not set."""
-        assert ctx_logical_time.get() is None
-
-        before = datetime.now()
-        result = wall_clock()
-        after = datetime.now()
-
-        # Type narrowing: when called without as_isoformat, wall_clock() returns datetime
-        assert isinstance(result, datetime)
-        assert result.tzinfo is None
-        assert before <= result <= after

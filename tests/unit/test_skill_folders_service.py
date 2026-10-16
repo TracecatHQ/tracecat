@@ -105,32 +105,18 @@ async def test_list_folders_escapes_like_wildcards(
     folder_service: SkillFolderService,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Listing a subtree should treat percent signs in folder names literally."""
+    """Subtree listing treats percent signs literally; pagination excludes the parent."""
     monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
     await folder_service.create_folder(name="foo%", parent_path="/")
     await folder_service.create_folder(name="child", parent_path="/foo%/")
     await folder_service.create_folder(name="fooz", parent_path="/")
 
     folders = await folder_service.list_folders("/foo%")
-
     assert {folder.path for folder in folders} == {"/foo%/", "/foo%/child/"}
-
-
-@pytest.mark.anyio
-async def test_list_folders_paginated_excludes_parent_and_escapes_like_wildcards(
-    folder_service: SkillFolderService,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Paginated subtree listing should exclude the parent and escape LIKE wildcards."""
-    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
-    await folder_service.create_folder(name="foo%", parent_path="/")
-    await folder_service.create_folder(name="child", parent_path="/foo%/")
-    await folder_service.create_folder(name="fooz", parent_path="/")
 
     page = await folder_service.list_folders_paginated(
         "/foo%", CursorPaginationParams(limit=10)
     )
-
     assert [folder.path for folder in page.items] == ["/foo%/child/"]
     assert page.has_more is False
 
@@ -460,37 +446,18 @@ async def test_delete_folder_recursive_clears_skills_and_deletes_descendants(
 
 
 @pytest.mark.anyio
-async def test_create_folder_rejects_blank_name(
+async def test_folder_names_are_trimmed_and_must_not_be_blank(
     folder_service: SkillFolderService,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Folder creation should reject empty or whitespace-only names."""
+    """Create and rename reject whitespace-only names and store trimmed names."""
     monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
     with pytest.raises(TracecatValidationError, match="Folder name cannot be empty"):
         await folder_service.create_folder(name="   ", parent_path="/")
 
-
-@pytest.mark.anyio
-async def test_create_folder_trims_name_before_persisting(
-    folder_service: SkillFolderService,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Folder creation should store trimmed names and normalized paths."""
-    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
     folder = await folder_service.create_folder(name="  parent  ", parent_path="/")
-
     assert folder.name == "parent"
     assert folder.path == "/parent/"
-
-
-@pytest.mark.anyio
-async def test_rename_folder_rejects_blank_name(
-    folder_service: SkillFolderService,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Folder renames should reject empty or whitespace-only names."""
-    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
-    folder = await folder_service.create_folder(name="parent", parent_path="/")
 
     with pytest.raises(TracecatValidationError, match="Folder name cannot be empty"):
         await folder_service.rename_folder(folder.id, "  ")

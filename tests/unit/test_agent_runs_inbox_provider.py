@@ -20,7 +20,7 @@ from tracecat.inbox.providers import agent_runs
 from tracecat.inbox.providers.agent_runs import AgentRunsInboxProvider, RunStatus
 from tracecat.inbox.schemas import InboxItemRead
 from tracecat.inbox.types import InboxGroup, InboxItemStatus, InboxItemType
-from tracecat.pagination import BaseCursorPaginator, CursorPaginatedResponse
+from tracecat.pagination import BaseCursorPaginator
 
 
 class _ScalarResult:
@@ -103,43 +103,15 @@ def _items_for_sessions(sessions: Sequence[AgentSession]) -> list[InboxItemRead]
 
 
 @pytest.mark.anyio
-async def test_grouped_list_items_passes_reverse(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    provider = AgentRunsInboxProvider(
-        cast(AsyncSession, _RecordingSession()),
-        _role(),
-    )
-    expected = CursorPaginatedResponse[InboxItemRead](
-        items=[],
-        next_cursor=None,
-        prev_cursor=None,
-        has_more=False,
-        has_previous=False,
-        total_estimate=None,
-    )
-    grouped = AsyncMock(return_value=expected)
-    monkeypatch.setattr(provider, "_list_items_grouped", grouped)
-    case_id = uuid.uuid4()
+@pytest.mark.parametrize("grouped", [True, False])
+async def test_reverse_scans_newer_keyset_ascending(grouped: bool) -> None:
+    """Reverse pagination must flip the scan on both grouped and ungrouped paths.
 
-    page = await provider.list_items(
-        limit=10,
-        cursor="cursor",
-        reverse=True,
-        case_id=case_id,
-        group=InboxGroup.COMPLETED,
-    )
-
-    assert page is expected
-    grouped.assert_awaited_once()
-    await_args = grouped.await_args
-    assert await_args is not None
-    assert await_args.kwargs["reverse"] is True
-    assert await_args.kwargs["case_id"] == case_id
-
-
-@pytest.mark.anyio
-async def test_grouped_reverse_uses_newer_keyset_and_ascending_order() -> None:
+    A reverse page selects rows newer than the cursor; scanning descending then
+    truncating to the limit would keep the newest rows and skip the ones
+    immediately adjacent to the cursor. The scan must run ascending so the LIMIT
+    keeps the adjacent rows.
+    """
     session = _RecordingSession()
     provider = AgentRunsInboxProvider(cast(AsyncSession, session), _role())
     cursor = BaseCursorPaginator.encode_cursor(
@@ -148,15 +120,18 @@ async def test_grouped_reverse_uses_newer_keyset_and_ascending_order() -> None:
         sort_value=datetime(2026, 1, 1, tzinfo=UTC),
     )
 
-    await provider._list_items_grouped(
-        limit=10,
-        cursor=cursor,
-        reverse=True,
-        order_by=None,
-        sort=None,
-        search=None,
-        group=InboxGroup.COMPLETED,
-    )
+    if grouped:
+        await provider._list_items_grouped(
+            limit=10,
+            cursor=cursor,
+            reverse=True,
+            order_by=None,
+            sort=None,
+            search=None,
+            group=InboxGroup.COMPLETED,
+        )
+    else:
+        await provider.list_items(limit=10, cursor=cursor, reverse=True)
 
     compiled = str(session.statements[-1].compile())
     assert "agent_session.created_at >" in compiled
@@ -261,31 +236,6 @@ async def test_grouped_reverse_empty_page_does_not_advertise_more(
     assert page.items == []
     assert page.next_cursor is None
     assert page.has_more is False
-
-
-@pytest.mark.anyio
-async def test_ungrouped_reverse_scans_newer_keyset_ascending() -> None:
-    """Ungrouped reverse pagination must flip the scan, like the grouped path.
-
-    A reverse page selects rows newer than the cursor; scanning descending then
-    truncating to the limit would keep the newest rows and skip the ones
-    immediately adjacent to the cursor. The scan must run ascending so the LIMIT
-    keeps the adjacent rows.
-    """
-    session = _RecordingSession()
-    provider = AgentRunsInboxProvider(cast(AsyncSession, session), _role())
-    cursor = BaseCursorPaginator.encode_cursor(
-        uuid.uuid4(),
-        sort_column="created_at",
-        sort_value=datetime(2026, 1, 1, tzinfo=UTC),
-    )
-
-    await provider.list_items(limit=10, cursor=cursor, reverse=True)
-
-    compiled = str(session.statements[-1].compile())
-    assert "agent_session.created_at >" in compiled
-    assert "agent_session.id >" in compiled
-    assert "ORDER BY agent_session.created_at ASC, agent_session.id ASC" in compiled
 
 
 @pytest.mark.anyio
@@ -541,7 +491,7 @@ async def test_search_scopes_workflow_match_to_workspace() -> None:
 
 
 @pytest.mark.anyio
-async def test_ungrouped_malformed_cursor_raises_value_error() -> None:
+async def test_malformed_cursor_raises_value_error() -> None:
     """A malformed cursor must raise ValueError so the router returns 400.
 
     Silently ignoring the bad cursor would fall back to the first page and
@@ -552,14 +502,6 @@ async def test_ungrouped_malformed_cursor_raises_value_error() -> None:
 
     with pytest.raises(ValueError):
         await provider.list_items(limit=10, cursor="not-base64")
-
-
-@pytest.mark.anyio
-async def test_grouped_malformed_cursor_raises_value_error() -> None:
-    """The grouped scan path must also reject malformed cursors with ValueError."""
-    session = _RecordingSession()
-    provider = AgentRunsInboxProvider(cast(AsyncSession, session), _role())
-
     with pytest.raises(ValueError):
         await provider._list_items_grouped(
             limit=10,

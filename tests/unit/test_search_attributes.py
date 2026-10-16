@@ -203,14 +203,19 @@ class TestWorkflowExecutionSearchAttributes:
         assert workspace_pairs, "TracecatWorkspaceId search attribute missing"
         assert workspace_pairs[0].value == str(mock_role_with_workspace.workspace_id)
 
-    async def test_manual_trigger_with_user_sets_all_attributes(
+    @pytest.mark.parametrize(
+        "trigger_type",
+        [TriggerType.MANUAL, TriggerType.SCHEDULED, TriggerType.WEBHOOK],
+    )
+    async def test_trigger_with_user_sets_all_attributes(
         self,
         mock_client: Mock,
         mock_role_with_workspace: Role,
         mock_dsl: DSLInput,
         test_workflow_id: WorkflowID,
+        trigger_type: TriggerType,
     ) -> None:
-        """Test that manual trigger with user sets trigger_type, user_id, and workspace_id."""
+        """Each trigger type sets trigger_type, user_id, and workspace_id."""
         service = WorkflowExecutionsService(
             client=mock_client, role=mock_role_with_workspace
         )
@@ -229,7 +234,7 @@ class TestWorkflowExecutionSearchAttributes:
             await service.create_workflow_execution(
                 dsl=mock_dsl,
                 wf_id=test_workflow_id,
-                trigger_type=TriggerType.MANUAL,
+                trigger_type=trigger_type,
             )
 
         # Verify search attributes were set
@@ -239,137 +244,20 @@ class TestWorkflowExecutionSearchAttributes:
         # Extract the search attribute pairs
         pairs = captured_search_attrs.search_attributes
         assert len(pairs) == 4
-
-        # Verify execution type
-        execution_type_pair = next(
-            p
-            for p in pairs  # pyright: ignore[reportGeneralTypeIssues]
-            if p.key.name == TemporalSearchAttr.EXECUTION_TYPE.value
-        )
-        assert execution_type_pair.value == "published"
-
-        # Verify trigger type
-        trigger_pair = next(
-            p
-            for p in pairs  # pyright: ignore[reportGeneralTypeIssues]
-            if p.key.name == TemporalSearchAttr.TRIGGER_TYPE.value
-        )
-        assert trigger_pair.value == TriggerType.MANUAL.value
-
-        # Verify user ID
-        user_pair = next(
-            p
-            for p in pairs  # pyright: ignore[reportGeneralTypeIssues]
-            if p.key.name == TemporalSearchAttr.TRIGGERED_BY_USER_ID.value
-        )
-        assert user_pair.value == str(mock_role_with_workspace.user_id)
-
-        # Verify workspace ID
-        workspace_pair = next(
-            p
-            for p in pairs  # pyright: ignore[reportGeneralTypeIssues]
-            if p.key.name == TemporalSearchAttr.WORKSPACE_ID.value
-        )
-        assert workspace_pair.value == str(mock_role_with_workspace.workspace_id)
-
-    async def test_scheduled_trigger_sets_trigger_type_and_workspace(
-        self,
-        mock_client: Mock,
-        mock_role_with_workspace: Role,
-        mock_dsl: DSLInput,
-        test_workflow_id: WorkflowID,
-    ) -> None:
-        """Test that scheduled trigger sets trigger_type and workspace_id."""
-        service = WorkflowExecutionsService(
-            client=mock_client, role=mock_role_with_workspace
-        )
-
-        # Mock execute_workflow to capture search attributes
-        captured_search_attrs = None
-
-        async def mock_execute_workflow(*args: Any, **kwargs: Any) -> dict[str, str]:
-            nonlocal captured_search_attrs
-            captured_search_attrs = kwargs.get("search_attributes")
-            return {"status": "completed"}
-
-        mock_client.execute_workflow = mock_execute_workflow
-
-        with patch.object(service, "_resolve_execution_timeout", return_value=None):
-            await service.create_workflow_execution(
-                dsl=mock_dsl,
-                wf_id=test_workflow_id,
-                trigger_type=TriggerType.SCHEDULED,
-            )
-
-        # Verify search attributes were set
-        assert captured_search_attrs is not None
-        pairs = captured_search_attrs.search_attributes
-
-        # Should have execution_type, trigger_type, user_id, and workspace_id
-        assert len(pairs) == 4
-
-        # Verify trigger type is SCHEDULED
-        trigger_pair = next(
-            p
-            for p in pairs  # pyright: ignore[reportGeneralTypeIssues]
-            if p.key.name == TemporalSearchAttr.TRIGGER_TYPE.value
-        )
-        assert trigger_pair.value == TriggerType.SCHEDULED.value
-
-        # Verify workspace ID is set correctly
-        workspace_pair = next(
-            p
-            for p in pairs  # pyright: ignore[reportGeneralTypeIssues]
-            if p.key.name == TemporalSearchAttr.WORKSPACE_ID.value
-        )
-        assert workspace_pair.value == str(mock_role_with_workspace.workspace_id)
-
-    async def test_webhook_trigger_sets_correct_attributes(
-        self,
-        mock_client: Mock,
-        mock_role_with_workspace: Role,
-        mock_dsl: DSLInput,
-        test_workflow_id: WorkflowID,
-    ) -> None:
-        """Test that webhook trigger sets correct search attributes."""
-        service = WorkflowExecutionsService(
-            client=mock_client, role=mock_role_with_workspace
-        )
-
-        captured_search_attrs = None
-
-        async def mock_execute_workflow(*args: Any, **kwargs: Any) -> dict[str, str]:
-            nonlocal captured_search_attrs
-            captured_search_attrs = kwargs.get("search_attributes")
-            return {"status": "completed"}
-
-        mock_client.execute_workflow = mock_execute_workflow
-
-        with patch.object(service, "_resolve_execution_timeout", return_value=None):
-            await service.create_workflow_execution(
-                dsl=mock_dsl,
-                wf_id=test_workflow_id,
-                trigger_type=TriggerType.WEBHOOK,
-            )
-
-        assert captured_search_attrs is not None
-        pairs = captured_search_attrs.search_attributes
-
-        # Verify trigger type is WEBHOOK
-        trigger_pair = next(
-            p
-            for p in pairs  # pyright: ignore[reportGeneralTypeIssues]
-            if p.key.name == TemporalSearchAttr.TRIGGER_TYPE.value
-        )
-        assert trigger_pair.value == TriggerType.WEBHOOK.value
-
-        # Verify workspace ID is set correctly
-        workspace_pair = next(
-            p
-            for p in pairs  # pyright: ignore[reportGeneralTypeIssues]
-            if p.key.name == TemporalSearchAttr.WORKSPACE_ID.value
-        )
-        assert workspace_pair.value == str(mock_role_with_workspace.workspace_id)
+        values = {
+            pair.key.name: pair.value
+            for pair in pairs  # pyright: ignore[reportGeneralTypeIssues]
+        }
+        assert values == {
+            TemporalSearchAttr.EXECUTION_TYPE.value: "published",
+            TemporalSearchAttr.TRIGGER_TYPE.value: trigger_type.value,
+            TemporalSearchAttr.TRIGGERED_BY_USER_ID.value: str(
+                mock_role_with_workspace.user_id
+            ),
+            TemporalSearchAttr.WORKSPACE_ID.value: str(
+                mock_role_with_workspace.workspace_id
+            ),
+        }
 
     async def test_service_role_without_workspace_omits_workspace_id(
         self,
@@ -532,69 +420,6 @@ class TestSearchAttributeQueries:
 
 @pytest.mark.anyio
 class TestSearchAttributeEnumMethods:
-    """Test the helper methods on search attribute enums."""
-
-    async def test_trigger_type_to_search_attr_pair(self) -> None:
-        """Test TriggerType.to_temporal_search_attr_pair() method."""
-        # Test MANUAL trigger
-        manual_pair = TriggerType.MANUAL.to_temporal_search_attr_pair()
-        assert manual_pair.key.name == TemporalSearchAttr.TRIGGER_TYPE.value
-        assert manual_pair.value == TriggerType.MANUAL.value
-
-        # Test SCHEDULED trigger
-        scheduled_pair = TriggerType.SCHEDULED.to_temporal_search_attr_pair()
-        assert scheduled_pair.key.name == TemporalSearchAttr.TRIGGER_TYPE.value
-        assert scheduled_pair.value == TriggerType.SCHEDULED.value
-
-        # Test WEBHOOK trigger
-        webhook_pair = TriggerType.WEBHOOK.to_temporal_search_attr_pair()
-        assert webhook_pair.key.name == TemporalSearchAttr.TRIGGER_TYPE.value
-        assert webhook_pair.value == TriggerType.WEBHOOK.value
-
-    async def test_temporal_search_attr_create_pair(self) -> None:
-        """Test TemporalSearchAttr.create_pair() method."""
-        # Test TRIGGER_TYPE
-        trigger_pair = TemporalSearchAttr.TRIGGER_TYPE.create_pair("manual")
-        assert trigger_pair.key.name == TemporalSearchAttr.TRIGGER_TYPE.value
-        assert trigger_pair.value == "manual"
-
-        # Test WORKSPACE_ID
-        workspace_pair = TemporalSearchAttr.WORKSPACE_ID.create_pair("ws-123")
-        assert workspace_pair.key.name == TemporalSearchAttr.WORKSPACE_ID.value
-        assert workspace_pair.value == "ws-123"
-
-        # Test TRIGGERED_BY_USER_ID
-        user_pair = TemporalSearchAttr.TRIGGERED_BY_USER_ID.create_pair("user-456")
-        assert user_pair.key.name == TemporalSearchAttr.TRIGGERED_BY_USER_ID.value
-        assert user_pair.value == "user-456"
-
-        correlation_pair = TemporalSearchAttr.CORRELATION_ID.create_pair(
-            "agent-session:123"
-        )
-        assert correlation_pair.key.name == TemporalSearchAttr.CORRELATION_ID.value
-        assert correlation_pair.value == "agent-session:123"
-
-    async def test_temporal_search_attr_key_property(self) -> None:
-        """Test that TemporalSearchAttr.key property returns SearchAttributeKey."""
-        from temporalio.common import SearchAttributeKey
-
-        # Test that key property returns correct type
-        trigger_key = TemporalSearchAttr.TRIGGER_TYPE.key
-        assert isinstance(trigger_key, SearchAttributeKey)
-        assert trigger_key.name == TemporalSearchAttr.TRIGGER_TYPE.value
-
-        workspace_key = TemporalSearchAttr.WORKSPACE_ID.key
-        assert isinstance(workspace_key, SearchAttributeKey)
-        assert workspace_key.name == TemporalSearchAttr.WORKSPACE_ID.value
-
-        user_key = TemporalSearchAttr.TRIGGERED_BY_USER_ID.key
-        assert isinstance(user_key, SearchAttributeKey)
-        assert user_key.name == TemporalSearchAttr.TRIGGERED_BY_USER_ID.value
-
-        correlation_key = TemporalSearchAttr.CORRELATION_ID.key
-        assert isinstance(correlation_key, SearchAttributeKey)
-        assert correlation_key.name == TemporalSearchAttr.CORRELATION_ID.value
-
     async def test_tracecat_correlation_id_helpers(self) -> None:
         session_id = uuid.UUID("00000000-0000-0000-0000-000000000123")
 

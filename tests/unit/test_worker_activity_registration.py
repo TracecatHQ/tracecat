@@ -354,44 +354,35 @@ async def test_agent_worker_registers_runtime_error_attribution_interceptor(
 
 
 @pytest.mark.anyio
-async def test_dsl_worker_rejects_single_workflow_task_slot(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("env_var", "value", "message"),
+    [
+        (
+            "TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS",
+            "1",
+            "TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS must be at least 2",
+        ),
+        (
+            "TEMPORAL__MAX_CONCURRENT_ACTIVITIES",
+            "0",
+            "TEMPORAL__MAX_CONCURRENT_ACTIVITIES must be at least 1",
+        ),
+    ],
+    ids=["single_workflow_task_slot", "zero_activity_slots"],
+)
+async def test_dsl_worker_rejects_invalid_slot_counts(
+    monkeypatch: pytest.MonkeyPatch, env_var: str, value: str, message: str
 ) -> None:
     from tracecat.dsl import worker
 
     temporal_worker = Mock()
     monkeypatch.delenv("SENTRY_DSN", raising=False)
-    monkeypatch.setenv("TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS", "1")
+    monkeypatch.setenv(env_var, value)
     monkeypatch.setattr(worker, "get_temporal_client", AsyncMock(return_value=object()))
     monkeypatch.setattr(worker, "get_activities", lambda: [])
     monkeypatch.setattr(worker, "Worker", temporal_worker)
 
-    with pytest.raises(
-        ValueError,
-        match="TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS must be at least 2",
-    ):
-        await worker.main(shutdown_event=asyncio.Event())
-
-    temporal_worker.assert_not_called()
-
-
-@pytest.mark.anyio
-async def test_dsl_worker_rejects_zero_activity_slots(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from tracecat.dsl import worker
-
-    temporal_worker = Mock()
-    monkeypatch.delenv("SENTRY_DSN", raising=False)
-    monkeypatch.setenv("TEMPORAL__MAX_CONCURRENT_ACTIVITIES", "0")
-    monkeypatch.setattr(worker, "get_temporal_client", AsyncMock(return_value=object()))
-    monkeypatch.setattr(worker, "get_activities", lambda: [])
-    monkeypatch.setattr(worker, "Worker", temporal_worker)
-
-    with pytest.raises(
-        ValueError,
-        match="TEMPORAL__MAX_CONCURRENT_ACTIVITIES must be at least 1",
-    ):
+    with pytest.raises(ValueError, match=message):
         await worker.main(shutdown_event=asyncio.Event())
 
     temporal_worker.assert_not_called()
@@ -404,11 +395,12 @@ async def test_agent_executor_worker_cleans_up_runtime_services_on_startup_failu
     from tracecat.agent import executor_worker
 
     stop_mcp_server = AsyncMock()
+    start_broker = AsyncMock()
     stop_broker = AsyncMock()
     start_otel_pool = Mock()
     stop_otel_pool = AsyncMock()
 
-    monkeypatch.setattr(executor_worker, "start_claude_runtime_broker", AsyncMock())
+    monkeypatch.setattr(executor_worker, "start_claude_runtime_broker", start_broker)
     monkeypatch.setattr(executor_worker, "start_mcp_server", AsyncMock())
     monkeypatch.setattr(executor_worker, "start_otel_delivery_pool", start_otel_pool)
     monkeypatch.setattr(
@@ -423,33 +415,10 @@ async def test_agent_executor_worker_cleans_up_runtime_services_on_startup_failu
         await executor_worker.main()
 
     stop_mcp_server.assert_awaited_once()
+    start_broker.assert_awaited_once()
     stop_broker.assert_awaited_once()
     start_otel_pool.assert_called_once()
     stop_otel_pool.assert_awaited_once()
-
-
-@pytest.mark.anyio
-async def test_agent_executor_worker_runs_runtime_service_hooks_on_startup_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from tracecat.agent import executor_worker
-
-    start_broker = AsyncMock()
-    stop_broker = AsyncMock()
-    monkeypatch.setattr(executor_worker, "start_claude_runtime_broker", start_broker)
-    monkeypatch.setattr(executor_worker, "start_mcp_server", AsyncMock())
-    monkeypatch.setattr(
-        executor_worker,
-        "get_temporal_client",
-        AsyncMock(side_effect=RuntimeError("boom")),
-    )
-    monkeypatch.setattr(executor_worker, "stop_mcp_server", AsyncMock())
-    monkeypatch.setattr(executor_worker, "stop_claude_runtime_broker", stop_broker)
-    with pytest.raises(RuntimeError, match="boom"):
-        await executor_worker.main()
-
-    start_broker.assert_awaited_once()
-    stop_broker.assert_awaited_once()
 
 
 @pytest.mark.anyio

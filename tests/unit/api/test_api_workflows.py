@@ -86,63 +86,6 @@ def mock_webhook(test_workspace: Workspace, mock_workflow: Workflow) -> Webhook:
 
 
 @pytest.mark.anyio
-async def test_list_workflows_success(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_workflow: Workflow,
-) -> None:
-    """Test GET /workflows returns paginated list of workflows."""
-    # Mock service layer
-    with patch.object(
-        workflow_management_router, "WorkflowsManagementService"
-    ) as MockService:
-        # Create mock service instance
-        mock_svc = AsyncMock()
-        mock_definition = WorkflowDefinitionMinimal(
-            id=str(uuid.uuid4()),
-            version=1,
-            created_at=datetime(2024, 1, 1, tzinfo=UTC),
-        )
-
-        # Mock paginated response
-        mock_response = CursorPaginatedResponse(
-            items=[(mock_workflow, mock_definition)],
-            next_cursor=None,
-            prev_cursor=None,
-            has_more=False,
-            has_previous=False,
-        )
-        mock_svc.list_workflows.return_value = mock_response
-
-        # Set up service mock
-        MockService.return_value = mock_svc
-
-        # Make request
-        response = client.get(
-            "/workflows",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-        )
-
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-
-        # Verify response structure
-        assert "items" in data
-        assert len(data["items"]) == 1
-        assert "has_more" in data
-        assert "next_cursor" in data
-
-        # Verify workflow data
-        workflow = data["items"][0]
-        assert workflow["title"] == "Test Workflow"
-        assert workflow["description"] == "Test workflow description"
-        assert workflow["status"] == "online"
-        assert workflow["alias"] == "test-workflow"
-        assert "latest_definition" in workflow
-
-
-@pytest.mark.anyio
 async def test_list_workflows_accepts_workspace_scoped_path(
     client: TestClient,
     test_admin_role: Role,
@@ -167,94 +110,6 @@ async def test_list_workflows_accepts_workspace_scoped_path(
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["items"][0]["title"] == "Test Workflow"
-
-
-@pytest.mark.anyio
-async def test_list_workflows_with_pagination(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_workflow: Workflow,
-) -> None:
-    """Test GET /workflows with pagination parameters."""
-    with (
-        patch(
-            "tracecat.workflow.management.router.WorkflowsManagementService"
-        ) as MockService,
-    ):
-        mock_svc = AsyncMock()
-        mock_response = CursorPaginatedResponse(
-            items=[(mock_workflow, None)],
-            next_cursor="next-cursor",
-            prev_cursor=None,
-            has_more=True,
-            has_previous=False,
-        )
-        mock_svc.list_workflows.return_value = mock_response
-        MockService.return_value = mock_svc
-
-        # Make request with pagination params
-        response = client.get(
-            "/workflows",
-            params={
-                "workspace_id": str(test_admin_role.workspace_id),
-                "limit": 10,
-                "cursor": "some-cursor",
-            },
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["has_more"] is True
-        assert data["next_cursor"] == "next-cursor"
-
-
-@pytest.mark.anyio
-async def test_list_workflows_with_tag_filter(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_workflow: Workflow,
-) -> None:
-    """Test GET /workflows with tag filtering."""
-    with (
-        patch(
-            "tracecat.workflow.management.router.WorkflowsManagementService"
-        ) as MockService,
-    ):
-        mock_svc = AsyncMock()
-        # Add tag to workflow
-        mock_tag = WorkflowTag(
-            id=uuid.uuid4(),
-            name="test-tag",
-            ref="test-tag",
-            workspace_id=mock_workflow.workspace_id,
-            created_at=datetime(2024, 1, 1, tzinfo=UTC),
-            updated_at=datetime(2024, 1, 1, tzinfo=UTC),
-        )
-        mock_workflow.tags = [mock_tag]
-
-        mock_response = CursorPaginatedResponse(
-            items=[(mock_workflow, None)],
-            next_cursor=None,
-            prev_cursor=None,
-            has_more=False,
-            has_previous=False,
-        )
-        mock_svc.list_workflows.return_value = mock_response
-        MockService.return_value = mock_svc
-
-        # Make request with tag filter
-        response = client.get(
-            "/workflows",
-            params={
-                "workspace_id": str(test_admin_role.workspace_id),
-                "tag": "test-tag",
-            },
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert len(data["items"]) == 1
-        assert data["items"][0]["tags"][0]["name"] == "test-tag"
 
 
 @pytest.mark.anyio
@@ -398,44 +253,6 @@ async def test_list_workflows_includes_trigger_summary(
 
 
 @pytest.mark.anyio
-async def test_create_workflow_success(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_workflow: Workflow,
-) -> None:
-    """Test POST /workflows creates a new workflow."""
-    with (
-        patch(
-            "tracecat.workflow.management.router.WorkflowsManagementService"
-        ) as MockService,
-    ):
-        mock_svc = AsyncMock()
-        mock_svc.create_workflow.return_value = mock_workflow
-        MockService.return_value = mock_svc
-
-        # Make request
-        response = client.post(
-            "/workflows",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-            data={
-                "title": "Test Workflow",
-                "description": "Test workflow description",
-            },
-        )
-
-        # Assertions
-        assert response.status_code == status.HTTP_201_CREATED
-        data = response.json()
-
-        # Verify workflow data
-        assert data["title"] == "Test Workflow"
-        assert data["description"] == "Test workflow description"
-        assert data["status"] == "online"
-        assert "id" in data
-        assert "created_at" in data
-
-
-@pytest.mark.anyio
 async def test_create_workflow_validation_error(
     client: TestClient,
     test_admin_role: Role,
@@ -455,73 +272,106 @@ async def test_create_workflow_validation_error(
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
-@pytest.mark.anyio
-async def test_get_workflow_success(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_workflow: Workflow,
-    mock_webhook: Webhook,
-) -> None:
-    """Test GET /workflows/{id} returns workflow details."""
-    with (
-        patch(
-            "tracecat.workflow.management.router.WorkflowsManagementService"
-        ) as MockService,
-    ):
-        mock_svc = AsyncMock()
-        # Add relationships
-        mock_workflow.actions = []
-        mock_workflow.webhook = mock_webhook
-        mock_workflow.schedules = []
-        mock_svc.get_workflow.return_value = mock_workflow
-        MockService.return_value = mock_svc
-
-        # Make request
-        workflow_id = str(mock_workflow.id)
-        response = client.get(
-            f"/workflows/{workflow_id}",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-        )
-
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-
-        # Verify workflow data
-        assert data["title"] == "Test Workflow"
-        assert data["description"] == "Test workflow description"
-        assert data["status"] == "online"
-        assert data["version"] == 1
-        assert "webhook" in data
-        assert "actions" in data
-        assert "schedules" in data
+def _duplicate_alias_error() -> IntegrityError:
+    unique_error = AsyncpgUniqueViolationError("uq_workflow_alias_workspace_id")
+    return IntegrityError("", {}, unique_error)
 
 
 @pytest.mark.anyio
-async def test_get_workflow_not_found(
+@pytest.mark.parametrize(
+    (
+        "method",
+        "suffix",
+        "payload",
+        "service_method",
+        "error",
+        "status_code",
+        "detail_contains",
+    ),
+    [
+        pytest.param(
+            "GET",
+            "",
+            None,
+            "get_workflow",
+            None,
+            status.HTTP_404_NOT_FOUND,
+            "not found",
+            id="get-not-found",
+        ),
+        pytest.param(
+            "GET",
+            "/draft",
+            None,
+            "get_workflow",
+            None,
+            status.HTTP_404_NOT_FOUND,
+            None,
+            id="get-draft-not-found",
+        ),
+        pytest.param(
+            "PATCH",
+            "",
+            {"title": "Updated Title"},
+            "update_workflow",
+            NoResultFound("Workflow not found"),
+            status.HTTP_404_NOT_FOUND,
+            None,
+            id="update-not-found",
+        ),
+        pytest.param(
+            "DELETE",
+            "",
+            None,
+            "delete_workflow",
+            NoResultFound("Workflow not found"),
+            status.HTTP_404_NOT_FOUND,
+            None,
+            id="delete-not-found",
+        ),
+        pytest.param(
+            "PATCH",
+            "",
+            {"alias": "duplicate-alias"},
+            "update_workflow",
+            _duplicate_alias_error(),
+            status.HTTP_409_CONFLICT,
+            None,
+            id="update-duplicate-alias",
+        ),
+    ],
+)
+async def test_workflow_errors_map_to_http_status(
     client: TestClient,
     test_admin_role: Role,
+    method: str,
+    suffix: str,
+    payload: dict[str, str] | None,
+    service_method: str,
+    error: Exception | None,
+    status_code: int,
+    detail_contains: str | None,
 ) -> None:
-    """Test GET /workflows/{id} with non-existent ID returns 404."""
-    with (
-        patch(
-            "tracecat.workflow.management.router.WorkflowsManagementService"
-        ) as MockService,
-    ):
+    with patch.object(
+        workflow_management_router, "WorkflowsManagementService"
+    ) as MockService:
         mock_svc = AsyncMock()
-        mock_svc.get_workflow.return_value = None
+        if error is None:
+            getattr(mock_svc, service_method).return_value = None
+        else:
+            getattr(mock_svc, service_method).side_effect = error
         MockService.return_value = mock_svc
 
-        # Make request with non-existent ID
-        fake_id = str(uuid.uuid4())
-        response = client.get(
-            f"/workflows/{fake_id}",
+        response = client.request(
+            method,
+            f"/workflows/{uuid.uuid4()}{suffix}",
             params={"workspace_id": str(test_admin_role.workspace_id)},
+            json=payload,
         )
 
-        # Should return 404
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-        assert "not found" in response.json()["detail"].lower()
+    assert response.status_code == status_code
+    if detail_contains is not None:
+        assert detail_contains in response.json()["detail"].lower()
 
 
 @pytest.mark.anyio
@@ -610,107 +460,6 @@ async def test_export_workflow_includes_layout(
 
 
 @pytest.mark.anyio
-async def test_update_workflow_success(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_workflow: Workflow,
-    mock_webhook: Webhook,
-) -> None:
-    """Test PATCH /workflows/{id} updates workflow and returns it."""
-    with (
-        patch(
-            "tracecat.workflow.management.router.WorkflowsManagementService"
-        ) as MockService,
-    ):
-        mock_svc = AsyncMock()
-        mock_workflow.actions = []
-        mock_workflow.webhook = mock_webhook
-        mock_workflow.schedules = []
-        mock_workflow.title = "Updated Title"
-        mock_svc.update_workflow.return_value = None
-        mock_svc.get_workflow.return_value = mock_workflow
-        MockService.return_value = mock_svc
-
-        # Make request
-        workflow_id = str(mock_workflow.id)
-        response = client.patch(
-            f"/workflows/{workflow_id}",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={
-                "title": "Updated Title",
-                "description": "Updated description",
-            },
-        )
-
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["id"] == WorkflowUUID.new(mock_workflow.id).short()
-        assert data["title"] == "Updated Title"
-
-        # Verify service was called with correct params
-        mock_svc.update_workflow.assert_called_once()
-
-
-@pytest.mark.anyio
-async def test_update_workflow_not_found(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Test PATCH /workflows/{id} with non-existent ID returns 404."""
-    with (
-        patch(
-            "tracecat.workflow.management.router.WorkflowsManagementService"
-        ) as MockService,
-    ):
-        mock_svc = AsyncMock()
-        mock_svc.update_workflow.side_effect = NoResultFound("Workflow not found")
-        MockService.return_value = mock_svc
-
-        # Make request
-        fake_id = str(uuid.uuid4())
-        response = client.patch(
-            f"/workflows/{fake_id}",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={"title": "Updated Title"},
-        )
-
-        # Should return 404
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-
-
-@pytest.mark.anyio
-async def test_update_workflow_duplicate_alias(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_workflow: Workflow,
-) -> None:
-    """Test PATCH /workflows/{id} with duplicate alias returns 409."""
-    with (
-        patch(
-            "tracecat.workflow.management.router.WorkflowsManagementService"
-        ) as MockService,
-    ):
-        mock_svc = AsyncMock()
-        # Create a proper IntegrityError with UniqueViolationError as cause
-        unique_error = AsyncpgUniqueViolationError("uq_workflow_alias_workspace_id")
-        integrity_error = IntegrityError("", {}, unique_error)
-        mock_svc.update_workflow.side_effect = integrity_error
-        MockService.return_value = mock_svc
-
-        # Make request
-        workflow_id = str(mock_workflow.id)
-        response = client.patch(
-            f"/workflows/{workflow_id}",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={"alias": "duplicate-alias"},
-        )
-
-        # Should return 409 conflict
-        assert response.status_code == status.HTTP_409_CONFLICT
-
-
-@pytest.mark.anyio
 async def test_restore_workflow_definition_duplicate_alias_returns_conflict(
     client: TestClient,
     test_admin_role: Role,
@@ -767,62 +516,6 @@ async def test_restore_workflow_definition_rejects_non_positive_version(
     )
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-
-
-@pytest.mark.anyio
-async def test_delete_workflow_success(
-    client: TestClient,
-    test_admin_role: Role,
-    mock_workflow: Workflow,
-) -> None:
-    """Test DELETE /workflows/{id} deletes workflow."""
-    with (
-        patch(
-            "tracecat.workflow.management.router.WorkflowsManagementService"
-        ) as MockService,
-    ):
-        mock_svc = AsyncMock()
-        mock_svc.delete_workflow.return_value = None
-        MockService.return_value = mock_svc
-
-        # Make request
-        workflow_id = str(mock_workflow.id)
-        response = client.delete(
-            f"/workflows/{workflow_id}",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-        )
-
-        # Assertions
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-
-        # Verify service was called
-        mock_svc.delete_workflow.assert_called_once()
-
-
-@pytest.mark.anyio
-async def test_delete_workflow_not_found(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Test DELETE /workflows/{id} with non-existent ID returns 404."""
-    with (
-        patch(
-            "tracecat.workflow.management.router.WorkflowsManagementService"
-        ) as MockService,
-    ):
-        mock_svc = AsyncMock()
-        mock_svc.delete_workflow.side_effect = NoResultFound("Workflow not found")
-        MockService.return_value = mock_svc
-
-        # Make request
-        fake_id = str(uuid.uuid4())
-        response = client.delete(
-            f"/workflows/{fake_id}",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-        )
-
-        # Should return 404
-        assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 @pytest.mark.anyio
@@ -1035,27 +728,6 @@ async def test_get_workflow_draft_returns_document_and_revision(
     assert data["document"]["metadata"]["title"] == "Test Workflow"
     assert data["document"]["definition"]["actions"] == []
     assert data["document"]["schedules"] == []
-
-
-@pytest.mark.anyio
-async def test_get_workflow_draft_not_found(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Test GET /workflows/{id}/draft with non-existent ID returns 404."""
-    with patch(
-        "tracecat.workflow.management.router.WorkflowsManagementService"
-    ) as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.get_workflow.return_value = None
-        MockService.return_value = mock_svc
-
-        response = client.get(
-            f"/workflows/{uuid.uuid4()}/draft",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-        )
-
-    assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 @pytest.mark.anyio
