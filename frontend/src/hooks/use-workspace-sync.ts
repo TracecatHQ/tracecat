@@ -85,6 +85,9 @@ export function useWorkflowSync(workspaceId: string) {
           queryKey: ["agent-directory-items", workspaceId],
         })
         queryClient.invalidateQueries({ queryKey: ["agent-tags", workspaceId] })
+        queryClient.invalidateQueries({
+          queryKey: ["agent-preset-workflow-references", workspaceId],
+        })
         queryClient.invalidateQueries({ queryKey: ["skills", workspaceId] })
         queryClient.invalidateQueries({
           queryKey: ["skill-library", workspaceId],

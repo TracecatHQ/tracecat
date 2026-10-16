@@ -514,6 +514,9 @@ export function useAction(
       queryClient.invalidateQueries({
         queryKey: ["action-lock-status", workspaceId, workflowId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references", workspaceId],
+      })
       // Add a small delay before clearing the saving state to show feedback
       setTimeout(() => {
         setIsSaving(false)
@@ -568,6 +571,9 @@ export function useDeleteAction() {
       const { actionId, workspaceId } = variables
       queryClient.invalidateQueries({
         queryKey: ["actions", actionId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references", workspaceId],
       })
     },
     onError: toastMutationError("deleting the action"),
@@ -632,6 +638,9 @@ export function useGraphOperations(workspaceId: string, workflowId: string) {
         // Update the graph cache with the latest structural state.
         queryClient.setQueryData(["graph", workspaceId, workflowId], graph)
         queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+        queryClient.invalidateQueries({
+          queryKey: ["agent-preset-workflow-references", workspaceId],
+        })
       }
     },
     onError: (error) => {
@@ -859,6 +868,10 @@ export function useWorkflowManager(
       await workflowsCreateWorkflow(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflows"] })
+      // An imported or duplicated workflow can run a preset.
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references", workspaceId],
+      })
       toast({
         title: "Created workflow",
         description: "Your workflow has been created successfully.",
@@ -899,6 +912,9 @@ export function useWorkflowManager(
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflows"] })
       queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references", workspaceId],
+      })
       toast({
         title: "Deleted workflow",
         description: "Your workflow has been deleted successfully.",
@@ -982,6 +998,9 @@ export function useWorkflowManager(
         queryClient.invalidateQueries({ queryKey: ["directory-items"] })
         // Keep an already-loaded builder view in step with a dashboard rename.
         queryClient.invalidateQueries({ queryKey: ["workflow"] })
+        queryClient.invalidateQueries({
+          queryKey: ["agent-preset-workflow-references", workspaceId],
+        })
       },
       onError: (error: TracecatApiError) => {
         // Transport failures rethrow a raw error with no `body`, so read the
