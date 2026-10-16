@@ -209,6 +209,8 @@ def test_base64_to_str(input_str: str, expected: str) -> None:
         ("SGVsbG8sIFdvcmxkIQ==", "Hello, World!"),
         ("", ""),
         ("U3BlY2lhbCBjaGFyczogIUAjJCVeJiooKQ==", "Special chars: !@#$%^&*()"),
+        ("aHR0cDovL2V4YW1wbGUuY29tL2xvZ2luP3g9MQ", "http://example.com/login?x=1"),
+        ("eyJzdWIiOiIxMjM0In0", '{"sub":"1234"}'),
     ],
 )
 def test_b64url_to_str(input_str: str, expected: str) -> None:
