@@ -2,10 +2,10 @@
 
 import {
   ChevronRightIcon,
+  CirclePauseIcon,
   CopyIcon,
   Loader2,
   PencilIcon,
-  ShieldAlertIcon,
 } from "lucide-react"
 import {
   type ReactNode,
@@ -270,10 +270,10 @@ export function ApprovalRequestPart({
     )
   }
 
-  function renderArgs(approval: ApprovalCard) {
+  function renderEditor(approval: ApprovalCard) {
     const decision = decisions[approval.tool_call_id]
     if (decision?.action !== "override") {
-      return <ApprovalArgs args={approval.args} />
+      return null
     }
     return (
       <div data-testid={`approval-override-editor-${approval.tool_call_id}`}>
@@ -307,7 +307,7 @@ export function ApprovalRequestPart({
         aria-pressed={isEditing}
         disabled={disabled}
         onClick={() => toggleEditing(approval)}
-        className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
+        className="-ml-2 h-7 gap-1.5 px-2 text-xs text-muted-foreground"
       >
         <PencilIcon className="size-3" />
         {isEditing ? "Discard edits" : "Edit arguments"}
@@ -343,6 +343,7 @@ export function ApprovalRequestPart({
       {pending.length === 1 &&
         pending.map((approval) => {
           const toolCallId = approval.tool_call_id
+          const actionId = reconstructActionType(approval.tool_name)
           const decision = decisions[toolCallId]
           const isEditing = decision?.action === "override"
           return (
@@ -350,14 +351,25 @@ export function ApprovalRequestPart({
               key={toolCallId}
               data-testid={`approval-card-${toolCallId}`}
               aria-label="Approval required"
-              className="my-2 overflow-hidden rounded-lg border bg-background"
+              className="my-2 rounded-[10px] border bg-background"
             >
-              <ApprovalHeader>Waiting for your approval</ApprovalHeader>
-              <div className="space-y-2.5 p-3">
-                <ApprovalToolName toolName={approval.tool_name} />
-                {renderArgs(approval)}
+              <header className="flex items-center justify-between gap-3 border-b px-3.5 py-2.5">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  {getIcon(actionId, TOOL_ICON_PROPS)}
+                  <span className="truncate font-mono text-[13px] font-medium">
+                    {actionId}
+                  </span>
+                </div>
+                <ApprovalStatus>Needs your approval</ApprovalStatus>
+              </header>
+              <div className="px-3.5 py-3">
+                {isEditing ? (
+                  renderEditor(approval)
+                ) : (
+                  <ApprovalArgs args={approval.args} />
+                )}
               </div>
-              <footer className="flex items-center justify-between gap-2 border-t px-3 py-2">
+              <footer className="flex flex-wrap items-center justify-between gap-2 px-3.5 pb-3">
                 <div>
                   {hasArgs(approval.args) && renderEditButton(approval)}
                 </div>
@@ -370,7 +382,7 @@ export function ApprovalRequestPart({
                     onClick={() =>
                       void send({ [toolCallId]: { action: "deny" } })
                     }
-                    className="h-7 px-3 text-xs"
+                    className={DECISION_BUTTON_CLASS}
                   >
                     Deny
                   </Button>
@@ -385,7 +397,7 @@ export function ApprovalRequestPart({
                           : { action: "approve" },
                       })
                     }
-                    className="h-7 bg-foreground px-3 text-xs text-background hover:bg-foreground/85"
+                    className={cn(DECISION_BUTTON_CLASS, PRIMARY_BUTTON_CLASS)}
                   >
                     {isEditing ? "Approve with edits" : "Approve"}
                   </Button>
@@ -398,12 +410,15 @@ export function ApprovalRequestPart({
         <section
           data-testid="approval-batch"
           aria-label="Approvals required"
-          className="my-2 overflow-hidden rounded-lg border bg-background"
+          className="my-2 rounded-[10px] border bg-background"
         >
-          <ApprovalHeader>
-            {pending.length} tool calls waiting for your approval
-          </ApprovalHeader>
-          <ul className="divide-y">
+          <div className="flex items-center justify-between gap-3 border-b px-3.5 py-3">
+            <span className="text-sm font-medium">
+              {pending.length} tool calls
+            </span>
+            <ApprovalStatus>Need your approval</ApprovalStatus>
+          </div>
+          <ul className="divide-y divide-border/60">
             {pending.map((approval) => {
               const toolCallId = approval.tool_call_id
               const actionId = reconstructActionType(approval.tool_name)
@@ -415,12 +430,14 @@ export function ApprovalRequestPart({
                 <li
                   key={toolCallId}
                   data-testid={`approval-card-${toolCallId}`}
+                  className="space-y-2 px-3.5 py-2.5"
                 >
                   <Collapsible>
-                    <div className="flex items-center gap-2 px-3 py-2">
-                      <CollapsibleTrigger className="group flex min-w-0 flex-1 items-center gap-2 text-left">
+                    <div className="flex items-center gap-2.5">
+                      <CollapsibleTrigger className="group flex min-w-0 flex-1 items-center gap-2.5 text-left">
                         <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
-                        <span className="shrink-0 font-mono text-xs">
+                        {getIcon(actionId, TOOL_ICON_PROPS)}
+                        <span className="shrink-0 font-mono text-[12.5px] font-medium">
                           {actionId}
                         </span>
                         <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
@@ -430,7 +447,7 @@ export function ApprovalRequestPart({
                       <div
                         role="group"
                         aria-label={`Decision for ${actionId}`}
-                        className="flex shrink-0 overflow-hidden rounded-md border"
+                        className="flex shrink-0 overflow-hidden rounded-[7px] border"
                       >
                         <button
                           type="button"
@@ -439,7 +456,7 @@ export function ApprovalRequestPart({
                           onClick={() =>
                             setDecision(toolCallId, { action: "deny" })
                           }
-                          className="h-6 px-2.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 aria-pressed:bg-muted aria-pressed:font-medium aria-pressed:text-foreground"
+                          className="h-[26px] px-[11px] text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50 aria-pressed:bg-muted aria-pressed:text-foreground"
                         >
                           Deny
                         </button>
@@ -453,21 +470,25 @@ export function ApprovalRequestPart({
                               isEditing ? decision : { action: "approve" }
                             )
                           }
-                          className="h-6 border-l px-2.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 aria-pressed:bg-foreground aria-pressed:font-medium aria-pressed:text-background"
+                          className="h-[26px] border-l px-[11px] text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50 aria-pressed:bg-foreground aria-pressed:text-background"
                         >
                           {isEditing ? "Approve with edits" : "Approve"}
                         </button>
                       </div>
                     </div>
                     <CollapsibleContent>
-                      <div className="space-y-2 px-3 pb-3 pl-8">
-                        {renderArgs(approval)}
+                      <div className="space-y-1 pl-[54px] pt-2">
+                        {isEditing ? (
+                          renderEditor(approval)
+                        ) : (
+                          <ApprovalArgs args={approval.args} />
+                        )}
                         {hasArgs(approval.args) && renderEditButton(approval)}
                       </div>
                     </CollapsibleContent>
                   </Collapsible>
                   {denied && (
-                    <div className="px-3 pb-3 pl-8">
+                    <div className="pl-[54px]">
                       <Input
                         aria-label={`Deny reason for ${actionId}`}
                         value={decision.reason ?? ""}
@@ -487,7 +508,7 @@ export function ApprovalRequestPart({
               )
             })}
           </ul>
-          <footer className="flex items-center justify-between gap-2 border-t px-3 py-2">
+          <footer className="flex flex-wrap items-center justify-between gap-2 border-t px-3.5 py-2.5">
             <span className="text-xs text-muted-foreground">
               {pendingDecided} of {pending.length} decided
             </span>
@@ -504,7 +525,7 @@ export function ApprovalRequestPart({
                     }
                   }
                 }}
-                className="h-7 px-3 text-xs"
+                className={DECISION_BUTTON_CLASS}
               >
                 Approve rest
               </Button>
@@ -513,7 +534,7 @@ export function ApprovalRequestPart({
                 size="sm"
                 onClick={handleSubmit}
                 disabled={disabled || !canSubmit || !hasSelectedPendingDecision}
-                className="h-7 bg-foreground px-3 text-xs text-background hover:bg-foreground/85"
+                className={cn(DECISION_BUTTON_CLASS, PRIMARY_BUTTON_CLASS)}
               >
                 {submitting && <Loader2 className="size-3 animate-spin" />}
                 Submit decisions
@@ -536,87 +557,92 @@ export function ApprovalRequestPart({
   )
 }
 
-function ApprovalHeader({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-medium">
-      <ShieldAlertIcon className="size-3.5 shrink-0 text-amber-500" />
-      {children}
-    </div>
-  )
-}
+const DECISION_BUTTON_CLASS = "h-[30px] rounded-[7px] px-3.5 text-[12.5px]"
+const PRIMARY_BUTTON_CLASS =
+  "bg-foreground text-background hover:bg-foreground/85"
 
-function ApprovalToolName({ toolName }: { toolName: string }) {
-  const actionId = reconstructActionType(toolName)
+/** The amber pause mark and what the card is waiting on. */
+function ApprovalStatus({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-w-0 items-center gap-2.5">
-      {getIcon(actionId, { className: "size-6 shrink-0 p-1" })}
-      <p className="min-w-0 truncate text-sm font-medium">
-        Run <span className="font-mono text-[13px]">{actionId}</span>
-      </p>
-    </div>
+    <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+      <CirclePauseIcon className="size-3.5 text-amber-500" />
+      {children}
+    </span>
   )
 }
 
 // Keys stay quiet; strings and constants take the code block's GitHub hues.
 const ARGS_JSON_CLASS = cn(
-  "max-h-80 rounded-none border-0 border-t bg-transparent [&_[role=tabpanel]]:px-3 [&_[role=tabpanel]]:py-2",
+  "max-h-80 rounded-none border-0 bg-transparent [&_[role=tabpanel]]:p-0",
   "[&_.json-view]:text-muted-foreground [&_.json-view]:[--json-property:hsl(var(--muted-foreground))] [&_.json-view]:[--json-index:hsl(var(--muted-foreground))]",
   "[&_.json-view]:[--json-string:#032f62] [&_.json-view]:[--json-number:#6f42c1] [&_.json-view]:[--json-boolean:#6f42c1] [&_.json-view]:[--json-null:#6f42c1]",
   "dark:[&_.json-view]:[--json-string:#9ecbff] dark:[&_.json-view]:[--json-number:#b392f0] dark:[&_.json-view]:[--json-boolean:#b392f0] dark:[&_.json-view]:[--json-null:#b392f0]"
 )
+
+// The root's braces and count repeat what the card already says.
+const HIDE_ROOT_CLASS =
+  "[&_.json-view>span]:hidden [&_.json-view>button]:hidden [&_.json-view>.jv-indent]:pl-0"
 
 /** Big nested values start folded so the top-level keys stay in view. */
 function foldLargeNested({ depth, size }: { depth: number; size: number }) {
   return depth > 1 && size > 5
 }
 
-/** A pending call's arguments, folded behind an "Arguments" toggle. */
+/** A call's arguments as a JSON tree, without the root's braces. */
+function ArgsTree({ args }: { args: unknown }) {
+  const value = parseArgs(args)
+  if (countArgs(value) === 0) {
+    return <p className="text-xs text-muted-foreground">No arguments</p>
+  }
+  return (
+    <JsonViewWithControls
+      src={value}
+      showControls={false}
+      defaultExpanded
+      collapsed={foldLargeNested}
+      displaySize="collapsed"
+      enableClipboard={false}
+      className={cn(
+        ARGS_JSON_CLASS,
+        value !== null && typeof value === "object" && HIDE_ROOT_CLASS
+      )}
+    />
+  )
+}
+
+/** A pending call's arguments in an inset well, with a copy button. */
 function ApprovalArgs({ args }: { args: unknown }) {
   const value = parseArgs(args)
-  const count = countArgs(value)
-  if (count === 0) {
+  if (countArgs(value) === 0) {
     return (
-      <p className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+      <p className={cn(ARGS_WELL_CLASS, "text-xs text-muted-foreground")}>
         No arguments
       </p>
     )
   }
   return (
-    <Collapsible defaultOpen className="rounded-md border bg-muted/30">
-      <div className="flex h-7 items-center justify-between gap-2 pl-1.5 pr-1">
-        <CollapsibleTrigger className="group flex items-center gap-1 rounded px-1 text-xs text-muted-foreground hover:text-foreground">
-          <ChevronRightIcon className="size-3 transition-transform group-data-[state=open]:rotate-90" />
-          Arguments
-          <span className="text-muted-foreground/70">{count}</span>
-        </CollapsibleTrigger>
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          aria-label="Copy arguments"
-          onClick={() =>
-            copyToClipboard({
-              value: formatArgs(value),
-              message: "Copied arguments",
-            })
-          }
-          className="size-5 text-muted-foreground [&_svg]:size-3"
-        >
-          <CopyIcon />
-        </Button>
-      </div>
-      <CollapsibleContent>
-        <JsonViewWithControls
-          src={value}
-          showControls={false}
-          defaultExpanded
-          collapsed={foldLargeNested}
-          className={ARGS_JSON_CLASS}
-        />
-      </CollapsibleContent>
-    </Collapsible>
+    <div className={cn(ARGS_WELL_CLASS, "relative pr-9")}>
+      <ArgsTree args={value} />
+      <Button
+        type="button"
+        size="icon"
+        variant="ghost"
+        aria-label="Copy arguments"
+        onClick={() =>
+          copyToClipboard({
+            value: formatArgs(value),
+            message: "Copied arguments",
+          })
+        }
+        className="absolute right-1.5 top-1.5 size-[22px] text-muted-foreground/60 hover:text-foreground [&_svg]:size-3"
+      >
+        <CopyIcon />
+      </Button>
+    </div>
   )
 }
+
+const ARGS_WELL_CLASS = "rounded-[7px] bg-muted py-2 pl-3 dark:bg-muted/50"
 
 /** Arguments as data, parsing a JSON string when the call sent one. */
 function parseArgs(args: unknown): unknown {

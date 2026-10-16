@@ -3,7 +3,11 @@
 import { CheckCheckIcon, CopyIcon, LinkIcon } from "lucide-react"
 import React from "react"
 import JsonView from "react18-json-view"
-import type { Collapsed, NodeMeta } from "react18-json-view/dist/types"
+import type {
+  Collapsed,
+  DisplaySize,
+  NodeMeta,
+} from "react18-json-view/dist/types"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -102,6 +106,10 @@ interface JsonViewWithControlsProps {
   className?: string
   /** Which nodes stay folded while expanded; everything opens by default. */
   collapsed?: Collapsed
+  /** When to show a node's item count; always by default. */
+  displaySize?: DisplaySize
+  /** Whether hovering a node offers to copy its JSONPath. */
+  enableClipboard?: boolean
 }
 
 export function JsonViewWithControls({
@@ -113,6 +121,8 @@ export function JsonViewWithControls({
   copyMode = "jsonpath-only",
   className,
   collapsed,
+  displaySize = true,
+  enableClipboard = true,
 }: JsonViewWithControlsProps): JSX.Element {
   const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
 
@@ -199,8 +209,8 @@ export function JsonViewWithControls({
           >
             <JsonView
               collapsed={isExpanded ? (collapsed ?? false) : true}
-              displaySize
-              enableClipboard
+              displaySize={displaySize}
+              enableClipboard={enableClipboard}
               src={source ?? null}
               className="break-all text-xs"
               theme="atom"
