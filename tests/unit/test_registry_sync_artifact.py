@@ -5,9 +5,17 @@ from __future__ import annotations
 import subprocess
 import tarfile
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
+from tracecat_registry import RegistrySecret
 
+from tracecat.registry.actions.schemas import (
+    RegistryActionCreate,
+    RegistryActionOptions,
+    RegistryActionUDFImpl,
+)
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.sync import artifact
 from tracecat.registry.sync.artifact import upload_squashfs_venv
 
@@ -40,6 +48,74 @@ async def test_upload_squashfs_venv_uploads_only_squashfs(
         bucket="tracecat-registry",
         content_type="application/vnd.squashfs",
     )
+
+
+@pytest.mark.anyio
+async def test_registry_actions_download_unchanged_from_beside_their_artifact(
+    mocker,
+) -> None:
+    """Actions uploaded beside an artifact download back equal to the originals."""
+    store: dict[tuple[str, str], bytes] = {}
+
+    async def upload_file(
+        *,
+        content: bytes,
+        key: str,
+        bucket: str,
+        content_type: str | None = None,
+    ) -> None:
+        assert content_type == "application/json"
+        store[(bucket, key)] = content
+
+    async def download_file(*, key: str, bucket: str) -> bytes:
+        return store[(bucket, key)]
+
+    mocker.patch(
+        "tracecat.registry.sync.artifact.blob.upload_file",
+        side_effect=upload_file,
+    )
+    mocker.patch(
+        "tracecat.registry.sync.artifact.blob.download_file",
+        side_effect=download_file,
+    )
+    actions = [
+        RegistryActionCreate(
+            repository_id=uuid4(),
+            name="reshape",
+            description="Reshape test payload",
+            namespace="core.transform",
+            type="udf",
+            origin=DEFAULT_REGISTRY_ORIGIN,
+            interface={"expects": {}, "returns": {}},
+            implementation=RegistryActionUDFImpl(
+                type="udf",
+                url=DEFAULT_REGISTRY_ORIGIN,
+                module="tracecat_registry.core.transform",
+                name="reshape",
+            ),
+            secrets=[RegistrySecret(name="example", keys=["EXAMPLE_TOKEN"])],
+            default_title="Reshape",
+            display_group=None,
+            doc_url=None,
+            author=None,
+            deprecated=None,
+            options=RegistryActionOptions(),
+        )
+    ]
+
+    actions_uri = await artifact.upload_registry_actions(
+        actions,
+        artifact_uri=(
+            "s3://tracecat-registry/platform/tarball-venvs/tracecat_registry/v1/"
+            "site-packages.squashfs"
+        ),
+    )
+
+    assert actions_uri == (
+        "s3://tracecat-registry/platform/tarball-venvs/tracecat_registry/v1/"
+        "actions.json"
+    )
+    assert await artifact.download_registry_actions(actions_uri) == actions
 
 
 @pytest.mark.anyio

@@ -68,6 +68,7 @@ from tracecat.executor.service import (
     get_registry_artifacts_for_lock,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.registry.artifact_keys import REGISTRY_ARTIFACT_FILENAME
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.repositories.platform_service import PlatformRegistryReposService
@@ -118,12 +119,9 @@ def _parse_s3_uri(uri: str) -> tuple[str, str]:
 
 def _artifact_keys_for_tarball_uri(tarball_uri: str) -> list[str]:
     _, key = _parse_s3_uri(tarball_uri)
-    if not key.endswith("site-packages.tar.gz"):
+    if not key.endswith(f"/{REGISTRY_ARTIFACT_FILENAME}"):
         raise ValueError(f"Unexpected registry artifact URI: {tarball_uri}")
-    return [
-        key,
-        key.removesuffix(".tar.gz") + ".squashfs",
-    ]
+    return [key]
 
 
 def _run_sync_artifact_sandbox_smoke_in_docker_or_skip(
@@ -731,11 +729,7 @@ class TestSyncv2MinioIntegration:
         try:
             stat = minio_client.stat_object(bucket, key)
             assert stat.size is not None and stat.size > 0
-            assert stat.content_type in (
-                "application/gzip",
-                "application/x-gzip",
-                "application/octet-stream",
-            )
+            assert stat.content_type == "application/vnd.squashfs"
         except Exception as e:
             pytest.fail(f"Tarball not found in MinIO: {e}")
 

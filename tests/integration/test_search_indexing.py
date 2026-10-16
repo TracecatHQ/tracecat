@@ -71,8 +71,26 @@ def scoped_database(monkeypatch: pytest.MonkeyPatch, env_sandbox):
 
 @pytest.fixture(autouse=True)
 async def close_redis_after_test():
+    """Give each test a Redis pool bound to its own event loop."""
+    # An earlier test on this xdist worker may have left a pool tied to its
+    # now-closed loop. Disconnecting that pool raises "Event loop is closed",
+    # so drop it instead of closing it.
+    RedisClient._client = None
+    RedisClient._pool = None
+    RedisClient._loop = None
     yield
     await RedisClient().close()
+
+
+@pytest.fixture(autouse=True)
+def isolated_search_capacity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep capacity leases held by tests on other xdist workers out of this test."""
+    # Capacity limits are global across workspaces, so leases from parallel
+    # search tests sharing one Redis would otherwise fill this test's slots.
+    monkeypatch.setattr(
+        "tracecat.search.capacity._KEY_PREFIX",
+        f"{{semantic-search-{uuid4().hex}}}:capacity:",
+    )
 
 
 @pytest.fixture

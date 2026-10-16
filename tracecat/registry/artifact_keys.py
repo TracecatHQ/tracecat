@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 from hashlib import sha256
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
 REGISTRY_ARTIFACT_S3_NAMESPACE = "tarball-venvs"
@@ -24,6 +24,9 @@ REGISTRY_ARTIFACT_FILENAME = "site-packages.squashfs"
 
 LEGACY_TARBALL_FILENAME = "site-packages.tar.gz"
 """Filename for the legacy gzip tarball artifact (read-only at runtime)."""
+
+REGISTRY_ACTIONS_FILENAME = "actions.json"
+"""Filename for the discovered actions a sync hands from the executor to the API."""
 
 ORIGIN_SLUG_MAX_LENGTH = 100
 ORIGIN_SLUG_HASH_LENGTH = 12
@@ -74,6 +77,11 @@ def get_artifact_s3_key(
     """Return the SquashFS artifact S3 key for a registry version."""
     prefix = get_artifact_s3_prefix(organization_id, repository_origin, version)
     return f"{prefix}/{REGISTRY_ARTIFACT_FILENAME}"
+
+
+def get_actions_s3_key(artifact_key: str) -> str:
+    """Return the discovered-actions key that sits beside an artifact key."""
+    return str(PurePosixPath(artifact_key).with_name(REGISTRY_ACTIONS_FILENAME))
 
 
 def get_squashfs_artifact_key(artifact_key: str) -> str:
