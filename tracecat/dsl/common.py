@@ -44,6 +44,7 @@ from tracecat.dsl.schemas import (
     DSLEnvironment,
     DSLExecutionError,
     ExecutionContext,
+    FixedActionResult,
     RunContext,
     StreamID,
     TaskResult,
@@ -942,6 +943,13 @@ class DSLRunArgs(BaseModel):
     registry_lock: RegistryLock | None = Field(
         default=None,
         description="Registry version lock for action execution. Contains origins (origin -> version) and actions (action_name -> origin) mappings.",
+    )
+    fixed_action_results: dict[str, FixedActionResult] = Field(
+        default_factory=dict,
+        description=(
+            "Results reused from a previous run, keyed by action ref. "
+            "Matching root-scope actions use these instead of executing."
+        ),
     )
 
     @field_validator("wf_id", mode="before")

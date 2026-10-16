@@ -36,7 +36,11 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.sync import CommitInfo, PullOptions, PushStatus
 from tracecat.vcs.github.app import GitHubAppError
-from tracecat.workflow.store.schemas import RemoteCaseTrigger, RemoteWorkflowSchedule
+from tracecat.workflow.store.schemas import (
+    RemoteCaseTrigger,
+    RemoteForm,
+    RemoteWorkflowSchedule,
+)
 from tracecat.workspace_sync.adapters import (
     AGENT_PRESET_RESOURCE_ADAPTER,
     SECRET_METADATA_RESOURCE_ADAPTER,
@@ -940,6 +944,43 @@ def test_pull_requires_workspace_update_only_for_explicit_default_metadata(
         assert exc_info.value.missing_scopes == ["workspace:update"]
     else:
         service._require_pull_scopes(spec, dry_run=dry_run)
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_pull_requires_form_write_scopes_only_to_apply_a_form_block(
+    dry_run: bool,
+    sample_dsl: DSLInput,
+) -> None:
+    """Applying a workflow's ``form:`` block needs form:create and form:update."""
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset(
+            {
+                "workspace_sync:sync",
+                "workflow:read",
+                "workflow:create",
+                "workflow:update",
+            }
+        ),
+    )
+    service = WorkspaceSyncService(session=AsyncMock(), role=role)
+    spec = WorkspaceSpec(
+        workflows={
+            "intake": WorkflowResourceSpec(
+                id="intake", form=RemoteForm(title="Intake"), definition=sample_dsl
+            )
+        }
+    )
+
+    if dry_run:
+        service._require_pull_scopes(spec, dry_run=dry_run)
+    else:
+        with pytest.raises(ScopeDeniedError) as exc_info:
+            service._require_pull_scopes(spec, dry_run=dry_run)
+        assert exc_info.value.missing_scopes == ["form:create", "form:update"]
 
 
 @pytest.mark.anyio
@@ -1892,19 +1933,38 @@ async def test_github_write_files_truncated_tree_rewrites_all_and_skips_deletion
 
 
 @pytest.mark.anyio
-async def test_github_write_files_retries_403_with_retry_after(
+@pytest.mark.parametrize(
+    ("status", "message", "branch_exists", "retried_call"),
+    [
+        pytest.param(403, "Request blocked", True, "create_git_tree", id="tree-403"),
+        pytest.param(429, "Too many requests", True, "create_git_tree", id="tree-429"),
+        pytest.param(
+            403, "Request blocked", False, "create_git_ref", id="branch-creation-403"
+        ),
+    ],
+)
+async def test_github_write_files_retries_with_retry_after(
     workspace_sync_service: WorkspaceSyncService,
+    status: int,
+    message: str,
+    branch_exists: bool,
+    retried_call: str,
 ) -> None:
     retry_error = GithubException(
-        status=403,
-        data={"message": "Request blocked"},
+        status=status,
+        data={"message": message},
         headers={"Retry-After": "0.25"},
     )
     repo = _FakeGitHubRepo(
         files={},
-        branch_exists=True,
+        branch_exists=branch_exists,
         ahead_by=0,
-        create_git_tree_errors=[retry_error],
+        create_git_tree_errors=(
+            [retry_error] if retried_call == "create_git_tree" else None
+        ),
+        create_git_ref_errors=[retry_error]
+        if retried_call == "create_git_ref"
+        else None,
     )
 
     with patch(
@@ -1919,72 +1979,9 @@ async def test_github_write_files_retries_403_with_retry_after(
 
     assert result.status is PushStatus.COMMITTED
     sleep.assert_awaited_once_with(0.25)
-    assert repo.call_counts["create_git_tree"] == 2
-    assert repo.call_counts["ref.edit"] == 1
-
-
-@pytest.mark.anyio
-async def test_github_write_files_retries_429_with_retry_after(
-    workspace_sync_service: WorkspaceSyncService,
-) -> None:
-    retry_error = GithubException(
-        status=429,
-        data={"message": "Too many requests"},
-        headers={"Retry-After": "0.25"},
-    )
-    repo = _FakeGitHubRepo(
-        files={},
-        branch_exists=True,
-        ahead_by=0,
-        create_git_tree_errors=[retry_error],
-    )
-
-    with patch(
-        "tracecat.workspace_sync.transport.asyncio.sleep", new_callable=AsyncMock
-    ) as sleep:
-        result = await _write_files_with_fake_repo(
-            repo,
-            service=workspace_sync_service,
-            files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
-            create_pr=False,
-        )
-
-    assert result.status is PushStatus.COMMITTED
-    sleep.assert_awaited_once_with(0.25)
-    assert repo.call_counts["create_git_tree"] == 2
-    assert repo.call_counts["ref.edit"] == 1
-
-
-@pytest.mark.anyio
-async def test_github_write_files_retries_branch_creation_with_retry_after(
-    workspace_sync_service: WorkspaceSyncService,
-) -> None:
-    retry_error = GithubException(
-        status=403,
-        data={"message": "Request blocked"},
-        headers={"Retry-After": "0.25"},
-    )
-    repo = _FakeGitHubRepo(
-        files={},
-        branch_exists=False,
-        ahead_by=0,
-        create_git_ref_errors=[retry_error],
-    )
-
-    with patch(
-        "tracecat.workspace_sync.transport.asyncio.sleep", new_callable=AsyncMock
-    ) as sleep:
-        result = await _write_files_with_fake_repo(
-            repo,
-            service=workspace_sync_service,
-            files={MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())},
-            create_pr=False,
-        )
-
-    assert result.status is PushStatus.COMMITTED
-    sleep.assert_awaited_once_with(0.25)
-    assert repo.call_counts["create_git_ref"] == 2
-    assert len(repo.created_refs) == 1
+    assert repo.call_counts[retried_call] == 2
+    if not branch_exists:
+        assert len(repo.created_refs) == 1
     assert repo.call_counts["ref.edit"] == 1
 
 

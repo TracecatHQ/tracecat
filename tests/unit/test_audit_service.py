@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ssl
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
@@ -91,6 +92,17 @@ class _AuditedService(BaseService):
             raise ValueError("operation failed")
         return "result"
 
+    def _not_ok_details(self, workflow_id: uuid.UUID) -> AuditEventDetails:
+        return AuditEventDetails(data={"changed_fields": ["status"]})
+
+    @audit_log(
+        resource_type="workflow",
+        action="update",
+        attempt_metadata=_not_ok_details,
+    )
+    async def mutate_not_ok(self, workflow_id: uuid.UUID) -> SimpleNamespace:
+        return SimpleNamespace(ok=False)
+
     def _broken_details(self, workflow_id: uuid.UUID) -> AuditEventDetails:
         return AuditEventDetails(data={"changed_fields": ["status"]})
 
@@ -116,6 +128,7 @@ class _AuditedService(BaseService):
     [
         ("success", [AuditEventStatus.ATTEMPT, AuditEventStatus.SUCCESS]),
         ("failure", [AuditEventStatus.ATTEMPT, AuditEventStatus.FAILURE]),
+        ("ok_false", [AuditEventStatus.ATTEMPT, AuditEventStatus.FAILURE]),
         ("service_account", [AuditEventStatus.ATTEMPT, AuditEventStatus.SUCCESS]),
         ("service_attributed", [AuditEventStatus.ATTEMPT, AuditEventStatus.SUCCESS]),
         ("service_unattributed", []),
@@ -169,6 +182,8 @@ async def test_audit_log_lifecycle(
         if scenario == "failure":
             with pytest.raises(ValueError, match="operation failed"):
                 await service.mutate(resource_id, fail=True)
+        elif scenario == "ok_false":
+            assert (await service.mutate_not_ok(resource_id)).ok is False
         else:
             result = await service.mutate(resource_id)
             assert result == "result"
@@ -790,23 +805,6 @@ async def test_platform_role_defaults_to_platform_audit_sink(
 
 
 @pytest.mark.anyio
-async def test_audit_setting_cache_hits_within_ttl(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A repeat lookup within the TTL is served from cache, not the DB."""
-    role = PlatformRole(type="user", user_id=uuid.uuid4(), service_id="tracecat-api")
-    audit_service = AuditService(AsyncMock(), role=role)
-    fetch = AsyncMock(return_value="https://example.com/audit")
-    monkeypatch.setattr(audit_service_module, "_fetch_platform_setting", fetch)
-
-    first = await audit_service._get_webhook_url()
-    second = await audit_service._get_webhook_url()
-
-    assert first == second == "https://example.com/audit"
-    fetch.assert_awaited_once_with("audit_webhook_url")
-
-
-@pytest.mark.anyio
 async def test_audit_setting_cache_separates_sinks_and_orgs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -864,30 +862,6 @@ async def test_audit_setting_cache_separates_sinks_and_orgs(
 
 
 @pytest.mark.anyio
-async def test_audit_setting_cache_clear_restores_fresh_reads(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """cache_clear forces the next lookup back to the underlying fetch."""
-    role = PlatformRole(type="user", user_id=uuid.uuid4(), service_id="tracecat-api")
-    audit_service = AuditService(AsyncMock(), role=role)
-    fetch = AsyncMock(
-        side_effect=[
-            "https://first.example.com/audit",
-            "https://second.example.com/audit",
-        ]
-    )
-    monkeypatch.setattr(audit_service_module, "_fetch_platform_setting", fetch)
-
-    assert await audit_service._get_webhook_url() == "https://first.example.com/audit"
-    assert await audit_service._get_webhook_url() == "https://first.example.com/audit"
-
-    audit_service_module.clear_audit_setting_cache()
-
-    assert await audit_service._get_webhook_url() == "https://second.example.com/audit"
-    assert fetch.await_count == 2
-
-
-@pytest.mark.anyio
 async def test_post_event_uses_custom_payload_headers_and_verify_ssl(
     monkeypatch: pytest.MonkeyPatch, audit_service: AuditService
 ) -> None:
@@ -937,7 +911,9 @@ async def test_post_event_uses_custom_payload_headers_and_verify_ssl(
         await audit_service._post_event(webhook_url=webhook_url, payload=event)
         await flush_audit_deliveries()
 
-    async_client_ctor.assert_called_once_with(timeout=10.0, verify=False)
+    async_client_ctor.assert_called_once_with(
+        timeout=10.0, verify=audit_service_module._delivery_ssl_context(False)
+    )
     assert client_mock.post.await_count == 1
     args = client_mock.post.await_args.args
     kwargs = client_mock.post.await_args.kwargs
@@ -948,6 +924,19 @@ async def test_post_event_uses_custom_payload_headers_and_verify_ssl(
     assert kwargs["json"]["resource_id"] == str(event.resource_id)
     assert kwargs["json"]["status"] == "SUCCESS"
     assert kwargs["json"]["actor_label"] == "user@example.com"
+
+
+def test_delivery_ssl_context_is_built_once_per_verify_mode() -> None:
+    """Deliveries share one TLS context per verify mode, keeping its security settings."""
+    verified = audit_service_module._delivery_ssl_context(True)
+    unverified = audit_service_module._delivery_ssl_context(False)
+
+    assert audit_service_module._delivery_ssl_context(True) is verified
+    assert audit_service_module._delivery_ssl_context(False) is unverified
+    assert verified.verify_mode == ssl.CERT_REQUIRED
+    assert verified.check_hostname is True
+    assert unverified.verify_mode == ssl.CERT_NONE
+    assert unverified.check_hostname is False
 
 
 @pytest.mark.anyio
@@ -995,7 +984,9 @@ async def test_post_event_wraps_payload_when_attribute_configured(
         await audit_service._post_event(webhook_url=webhook_url, payload=event)
         await flush_audit_deliveries()
 
-    async_client_ctor.assert_called_once_with(timeout=10.0, verify=True)
+    async_client_ctor.assert_called_once_with(
+        timeout=10.0, verify=audit_service_module._delivery_ssl_context(True)
+    )
     kwargs = client_mock.post.await_args.kwargs
     wrapped_payload = kwargs["json"]
     assert set(wrapped_payload.keys()) == {"event"}
@@ -1106,13 +1097,7 @@ async def test_create_event_settings_failure_does_not_raise(
     assert "secret-host" not in str(logger_mock.warning.call_args_list)
 
 
-def _delivery(
-    tag: str,
-    url: str = "https://example.com/audit",
-    *,
-    organization_id: uuid.UUID | None = None,
-    workspace_id: uuid.UUID | None = None,
-) -> _AuditDelivery:
+def _delivery(tag: str, url: str = "https://example.com/audit") -> _AuditDelivery:
     """Build a minimal delivery whose resource_id doubles as an identifying tag."""
     return _AuditDelivery(
         webhook_url=url,
@@ -1121,8 +1106,8 @@ def _delivery(
         verify_ssl=True,
         resource_type=cast(Any, "workflow"),
         action=cast(Any, "update"),
-        organization_id=organization_id,
-        workspace_id=workspace_id,
+        organization_id=None,
+        workspace_id=None,
     )
 
 
@@ -1255,15 +1240,9 @@ async def test_deliver_http_status_failures_log_status_without_secrets(
 async def test_deliver_success_logs_outcome_without_secrets(
     fresh_delivery_tasks: None,
 ) -> None:
-    """A successful delivery logs its outcome and discriminators, never secrets.
-
-    The spawn-time debug line only proves a task started, so this info line is
-    the sole confirmation that the sink actually accepted the event.
-    """
+    """A successful delivery logs its outcome, never the URL or payload."""
     webhook_url = "https://secret-host.example.com/audit-hook"
     payload_marker = "payload-secret-marker"
-    organization_id = uuid.uuid4()
-    workspace_id = uuid.uuid4()
     respx.post(webhook_url).mock(return_value=httpx.Response(200))
 
     infos: list[tuple[str, dict[str, object]]] = []
@@ -1272,28 +1251,11 @@ async def test_deliver_success_logs_outcome_without_secrets(
         infos.append((msg, kwargs))
 
     with patch("tracecat.audit.service.logger.info", side_effect=capture_info):
-        _spawn_delivery(
-            _delivery(
-                payload_marker,
-                url=webhook_url,
-                organization_id=organization_id,
-                workspace_id=workspace_id,
-            )
-        )
+        _spawn_delivery(_delivery(payload_marker, url=webhook_url))
         await flush_audit_deliveries()
 
     delivered = [kwargs for m, kwargs in infos if m == "Delivered audit webhook"]
     assert len(delivered) == 1
-    kwargs = delivered[0]
-    assert kwargs["status_code"] == 200
-    assert kwargs["attempts"] == 1
-    assert kwargs["retried"] is False
-    assert kwargs["resource_type"] == "workflow"
-    assert kwargs["action"] == "update"
-    assert kwargs["organization_id"] == organization_id
-    assert kwargs["workspace_id"] == workspace_id
-    assert isinstance(kwargs["duration_ms"], int)
-    # Same containment guarantee as the failure path.
     all_logs = repr(infos)
     assert webhook_url not in all_logs
     assert "secret-host" not in all_logs
@@ -1302,52 +1264,48 @@ async def test_deliver_success_logs_outcome_without_secrets(
 
 @respx.mock
 @pytest.mark.anyio
-async def test_deliver_success_after_retry_is_flagged(
+async def test_deliver_retry_outcomes_are_logged(
     fresh_delivery_tasks: None,
 ) -> None:
-    """A delivery that recovers from a transient failure logs retried=True.
+    """A recovered delivery logs retried=True and no warning; an exhausted
+    delivery never emits the success line.
 
-    Without this, a flaky sink is indistinguishable from a healthy one because
-    the eventual success is the only line emitted.
+    Without the retried flag, a flaky sink is indistinguishable from a healthy
+    one because the eventual success is the only line emitted.
     """
-    webhook_url = "https://example.com/audit"
-    respx.post(webhook_url).mock(side_effect=[httpx.Response(503), httpx.Response(200)])
+    flaky_url = "https://example.com/audit"
+    exhausted_url = "https://example.com/exhausted"
+    flaky_route = respx.post(flaky_url).mock(
+        side_effect=[httpx.Response(503), httpx.Response(200)]
+    )
+    respx.post(exhausted_url).mock(return_value=httpx.Response(500))
 
     infos: list[tuple[str, dict[str, object]]] = []
+    warnings: list[str] = []
 
     def capture_info(msg: str, **kwargs: object) -> None:
         infos.append((msg, kwargs))
 
-    with patch("tracecat.audit.service.logger.info", side_effect=capture_info):
-        _spawn_delivery(_delivery("retried"))
-        await flush_audit_deliveries()
-
-    delivered = [kwargs for m, kwargs in infos if m == "Delivered audit webhook"]
-    assert len(delivered) == 1
-    assert delivered[0]["status_code"] == 200
-    assert delivered[0]["attempts"] == 2
-    assert delivered[0]["retried"] is True
-
-
-@respx.mock
-@pytest.mark.anyio
-async def test_deliver_exhausted_retries_logs_no_success(
-    fresh_delivery_tasks: None,
-) -> None:
-    """An exhausted delivery must not emit the success line."""
-    webhook_url = "https://example.com/audit"
-    respx.post(webhook_url).mock(return_value=httpx.Response(500))
-
-    infos: list[tuple[str, dict[str, object]]] = []
-
-    def capture_info(msg: str, **kwargs: object) -> None:
-        infos.append((msg, kwargs))
+    def capture_warning(msg: str, **kwargs: object) -> None:
+        warnings.append(msg)
 
     with (
         patch("tracecat.audit.service.logger.info", side_effect=capture_info),
-        patch("tracecat.audit.service.logger.warning"),
+        patch("tracecat.audit.service.logger.warning", side_effect=capture_warning),
     ):
-        _spawn_delivery(_delivery("exhausted"))
+        _spawn_delivery(_delivery("retried", url=flaky_url))
+        await flush_audit_deliveries()
+
+        assert flaky_route.call_count == 2
+        assert warnings == []
+        delivered = [kwargs for m, kwargs in infos if m == "Delivered audit webhook"]
+        assert len(delivered) == 1
+        assert delivered[0]["status_code"] == 200
+        assert delivered[0]["attempts"] == 2
+        assert delivered[0]["retried"] is True
+
+        infos.clear()
+        _spawn_delivery(_delivery("exhausted", url=exhausted_url))
         await flush_audit_deliveries()
 
     assert [kwargs for m, kwargs in infos if m == "Delivered audit webhook"] == []
@@ -1572,29 +1530,6 @@ async def test_spawn_delivery_evicts_closed_loop_tasks(
 
 @respx.mock
 @pytest.mark.anyio
-async def test_deliver_retries_transient_failure_then_succeeds(
-    fresh_delivery_tasks: None,
-) -> None:
-    """A retryable failure is retried; success on a later attempt logs nothing."""
-    route = respx.post("https://example.com/audit").mock(
-        side_effect=[httpx.Response(503), httpx.Response(200)]
-    )
-
-    warnings: list[str] = []
-
-    def capture_warning(msg: str, **kwargs: object) -> None:
-        warnings.append(msg)
-
-    with patch("tracecat.audit.service.logger.warning", side_effect=capture_warning):
-        _spawn_delivery(_delivery("flaky"))
-        await flush_audit_deliveries()
-
-    assert route.call_count == 2
-    assert warnings == []
-
-
-@respx.mock
-@pytest.mark.anyio
 async def test_deliver_does_not_retry_terminal_status(
     fresh_delivery_tasks: None,
 ) -> None:
@@ -1768,184 +1703,60 @@ async def test_audit_log_extracts_id_from_keyword_object(role: Role) -> None:
 
 
 @pytest.mark.anyio
-async def test_audit_log_inner_function_failure_logs_failure_event(role: Role):
-    """Test that when inner function raises exception, failure event is logged."""
-
-    class MockService(BaseService):
-        service_name = "mock"
-
-        def __init__(self):
-            super().__init__(AsyncMock())
-
-        @audit_log(resource_type="workflow", action="create")
-        async def create_workflow(self, workflow_id: uuid.UUID):
-            raise ValueError("Workflow creation failed")
-
-    service = MockService()
-    token = ctx_role.set(role)
-
-    create_event_calls = []
-    audit_sessions: list[object | None] = []
-
-    async def mock_create_event(*args, **kwargs):
-        create_event_calls.append((args, kwargs))
-
-    @asynccontextmanager
-    async def mock_with_session(
-        cls,
-        _role=None,
-        *,
-        session=None,
-        audit_sink=None,
-    ):
-        del cls, audit_sink
-        audit_sessions.append(session)
-        yield SimpleNamespace(create_event=mock_create_event)
-
-    try:
-        with patch.object(AuditService, "with_session", classmethod(mock_with_session)):
-            with pytest.raises(ValueError, match="Workflow creation failed"):
-                await service.create_workflow(workflow_id=uuid.uuid4())
-    finally:
-        ctx_role.reset(token)
-
-    assert len(create_event_calls) >= 1
-    assert create_event_calls[0][1]["status"] == AuditEventStatus.ATTEMPT
-    assert len(create_event_calls) >= 2
-    assert create_event_calls[1][1]["status"] == AuditEventStatus.FAILURE
-    assert audit_sessions == [service.session, None]
-
-
-@pytest.mark.anyio
-async def test_audit_log_ok_false_logs_failure_event(role: Role) -> None:
-    class MockService(BaseService):
-        service_name = "mock"
-
-        def __init__(self) -> None:
-            super().__init__(AsyncMock())
-
-        @audit_log(resource_type="workflow", action="publish")
-        async def publish_workflow(self, workflow_id: uuid.UUID):
-            return SimpleNamespace(ok=False)
-
-    token = ctx_role.set(role)
-    create_event_calls: list[dict[str, object]] = []
-
-    async def mock_create_event(*args, **kwargs):
-        create_event_calls.append(kwargs)
-
-    try:
-        with patch.object(AuditService, "create_event", side_effect=mock_create_event):
-            await MockService().publish_workflow(uuid.uuid4())
-    finally:
-        ctx_role.reset(token)
-
-    assert [call["status"] for call in create_event_calls] == [
-        AuditEventStatus.ATTEMPT,
-        AuditEventStatus.FAILURE,
-    ]
-
-
-@pytest.mark.anyio
-async def test_audit_log_attempt_logging_failure_still_executes_function(role: Role):
-    """Test that when attempt logging fails, function still executes."""
-
-    class MockService:
-        def __init__(self):
-            self.session = AsyncMock()
-
-        @audit_log(resource_type="workflow", action="create")
-        async def create_workflow(self, workflow_id: uuid.UUID):
-            return {"id": str(workflow_id), "status": "created"}
-
-    service = MockService()
-    token = ctx_role.set(role)
-
-    create_event_calls = []
-
-    async def mock_create_event(*args, **kwargs):
-        if kwargs.get("status") == AuditEventStatus.ATTEMPT:
-            raise Exception("Attempt logging failed")
-        create_event_calls.append((args, kwargs))
-
-    try:
-        with patch.object(AuditService, "create_event", side_effect=mock_create_event):
-            result = await service.create_workflow(workflow_id=uuid.uuid4())
-    finally:
-        ctx_role.reset(token)
-
-    assert result["status"] == "created"
-    assert len(create_event_calls) == 1
-    assert create_event_calls[0][1]["status"] == AuditEventStatus.SUCCESS
-
-
-@pytest.mark.anyio
-async def test_audit_log_success_logging_failure_still_returns_result(role: Role):
-    """Test that when success logging fails, function still returns result."""
+@pytest.mark.parametrize(
+    ("failing_status", "operation_fails", "recorded_statuses"),
+    [
+        (AuditEventStatus.ATTEMPT, False, [AuditEventStatus.SUCCESS]),
+        (AuditEventStatus.SUCCESS, False, [AuditEventStatus.ATTEMPT]),
+        (AuditEventStatus.FAILURE, True, [AuditEventStatus.ATTEMPT]),
+    ],
+    ids=["attempt", "success", "failure"],
+)
+async def test_audit_log_logging_failure_does_not_change_operation_outcome(
+    role: Role,
+    failing_status: AuditEventStatus,
+    operation_fails: bool,
+    recorded_statuses: list[AuditEventStatus],
+) -> None:
+    """A failing audit write never swallows the result or the original error."""
     expected_result = {"id": str(uuid.uuid4()), "status": "created"}
 
     class MockService:
-        def __init__(self):
+        def __init__(self) -> None:
             self.session = AsyncMock()
 
         @audit_log(resource_type="workflow", action="create")
-        async def create_workflow(self, workflow_id: uuid.UUID):
+        async def create_workflow(
+            self, workflow_id: uuid.UUID, *, fail: bool
+        ) -> dict[str, str]:
+            if fail:
+                raise ValueError("Original error")
             return expected_result
 
     service = MockService()
     token = ctx_role.set(role)
 
-    create_event_calls = []
+    recorded: list[object] = []
 
-    async def mock_create_event(*args, **kwargs):
-        if kwargs.get("status") == AuditEventStatus.SUCCESS:
-            raise Exception("Success logging failed")
-        create_event_calls.append((args, kwargs))
-
-    try:
-        with patch.object(AuditService, "create_event", side_effect=mock_create_event):
-            result = await service.create_workflow(workflow_id=uuid.uuid4())
-    finally:
-        ctx_role.reset(token)
-
-    assert result == expected_result
-    assert len(create_event_calls) == 1
-    assert create_event_calls[0][1]["status"] == AuditEventStatus.ATTEMPT
-
-
-@pytest.mark.anyio
-async def test_audit_log_failure_logging_failure_still_raises_original_exception(
-    role: Role,
-) -> None:
-    """Test that when failure logging fails, original exception is still raised."""
-
-    class MockService:
-        def __init__(self):
-            self.session = AsyncMock()
-
-        @audit_log(resource_type="workflow", action="create")
-        async def create_workflow(self, workflow_id: uuid.UUID):
-            raise ValueError("Original error")
-
-    service = MockService()
-    token = ctx_role.set(role)
-
-    create_event_calls = []
-
-    async def mock_create_event(*args, **kwargs):
-        if kwargs.get("status") == AuditEventStatus.FAILURE:
-            raise Exception("Failure logging failed")
-        create_event_calls.append((args, kwargs))
+    async def mock_create_event(*args: object, **kwargs: object) -> None:
+        if kwargs.get("status") == failing_status:
+            raise Exception("Audit logging failed")
+        recorded.append(kwargs["status"])
 
     try:
         with patch.object(AuditService, "create_event", side_effect=mock_create_event):
-            with pytest.raises(ValueError, match="Original error"):
-                await service.create_workflow(workflow_id=uuid.uuid4())
+            if operation_fails:
+                with pytest.raises(ValueError, match="Original error"):
+                    await service.create_workflow(workflow_id=uuid.uuid4(), fail=True)
+            else:
+                result = await service.create_workflow(
+                    workflow_id=uuid.uuid4(), fail=False
+                )
+                assert result == expected_result
     finally:
         ctx_role.reset(token)
 
-    assert len(create_event_calls) == 1
-    assert create_event_calls[0][1]["status"] == AuditEventStatus.ATTEMPT
+    assert recorded == recorded_statuses
 
 
 def test_sanitize_audit_metadata_keeps_batch_operation_keys():

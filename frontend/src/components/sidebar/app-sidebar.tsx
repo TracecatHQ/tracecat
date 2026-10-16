@@ -157,7 +157,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         title: "Chat",
         url: `${basePath}/chat`,
         icon: BotIcon,
-        tag: "Beta",
         isActive: pathname?.startsWith(`${basePath}/chat`),
         visible: canAccessMissionControl,
         isLocked: entitlementsKnown && !workspaceChatEnabled,

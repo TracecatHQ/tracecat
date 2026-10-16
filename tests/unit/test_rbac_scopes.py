@@ -8,7 +8,6 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import (
     ensure_can_grant_scopes,
     get_missing_scopes,
-    has_all_scopes,
     has_any_scope,
     has_scope,
     require_action_scope,
@@ -47,75 +46,53 @@ def _set_role_with_scopes(scopes: frozenset[str]) -> None:
     ctx_role.set(role)
 
 
-class TestValidateScopeString:
-    """Tests for scope string validation."""
-
-    def test_valid_simple_scope(self):
-        assert validate_scope_string("workflow:read") is True
-        assert validate_scope_string("case:create") is True
-        assert validate_scope_string("org:member:invite") is True
-
-    def test_valid_scope_with_wildcard(self):
-        assert validate_scope_string("workflow:*") is True
-        assert validate_scope_string("action:*:execute") is True
-        assert validate_scope_string("*") is True
-
-    def test_valid_scope_with_special_chars(self):
-        assert validate_scope_string("action:core.http_request:execute") is True
-        assert validate_scope_string("action:tools.okta-client:execute") is True
-
-    def test_invalid_scope_uppercase(self):
-        assert validate_scope_string("Workflow:read") is False
-        assert validate_scope_string("WORKFLOW:READ") is False
-
-    def test_invalid_scope_spaces(self):
-        assert validate_scope_string("workflow: read") is False
-        assert validate_scope_string("workflow :read") is False
-
-    def test_invalid_scope_other_patterns(self):
-        assert validate_scope_string("workflow:?") is False
-        assert validate_scope_string("workflow:[read]") is False
+@pytest.mark.parametrize(
+    ("scope", "expected"),
+    [
+        ("workflow:read", True),
+        ("case:create", True),
+        ("org:member:invite", True),
+        ("workflow:*", True),
+        ("action:*:execute", True),
+        ("*", True),
+        ("action:core.http_request:execute", True),
+        ("action:tools.okta-client:execute", True),
+        ("Workflow:read", False),
+        ("WORKFLOW:READ", False),
+        ("workflow: read", False),
+        ("workflow :read", False),
+        ("workflow:?", False),
+        ("workflow:[read]", False),
+    ],
+)
+def test_validate_scope_string(scope: str, expected: bool) -> None:
+    assert validate_scope_string(scope) is expected
 
 
-class TestScopeMatches:
-    """Tests for scope matching with wildcards."""
-
-    def test_exact_match(self):
-        assert scope_matches("workflow:read", "workflow:read") is True
-        assert scope_matches("workflow:read", "workflow:create") is False
-
-    def test_global_wildcard(self):
-        assert scope_matches("*", "workflow:read") is True
-        assert scope_matches("*", "org:member:invite") is True
-        assert scope_matches("*", "anything:here") is True
-
-    def test_suffix_wildcard(self):
-        assert scope_matches("workflow:*", "workflow:read") is True
-        assert scope_matches("workflow:*", "workflow:create") is True
-        assert scope_matches("workflow:*", "workflow:execute") is True
-        assert scope_matches("workflow:*", "case:read") is False
-
-    def test_middle_wildcard(self):
-        assert scope_matches("action:*:execute", "action:core.http:execute") is True
-        assert scope_matches("action:*:execute", "action:tools.okta:execute") is True
-        assert scope_matches("action:*:execute", "action:tools.okta:read") is False
-
-    def test_prefix_wildcard(self):
-        assert (
-            scope_matches("action:core.*:execute", "action:core.http:execute") is True
-        )
-        assert (
-            scope_matches("action:core.*:execute", "action:core.transform:execute")
-            is True
-        )
-        assert (
-            scope_matches("action:core.*:execute", "action:tools.okta:execute") is False
-        )
-
-    def test_multiple_wildcards(self):
-        # Multiple wildcards in a scope
-        assert scope_matches("action:*.*:execute", "action:core.http:execute") is True
-        assert scope_matches("*:*", "workflow:read") is True
+@pytest.mark.parametrize(
+    ("granted", "required", "expected"),
+    [
+        ("workflow:read", "workflow:read", True),
+        ("workflow:read", "workflow:create", False),
+        ("*", "workflow:read", True),
+        ("*", "org:member:invite", True),
+        ("*", "anything:here", True),
+        ("workflow:*", "workflow:read", True),
+        ("workflow:*", "workflow:create", True),
+        ("workflow:*", "workflow:execute", True),
+        ("workflow:*", "case:read", False),
+        ("action:*:execute", "action:core.http:execute", True),
+        ("action:*:execute", "action:tools.okta:execute", True),
+        ("action:*:execute", "action:tools.okta:read", False),
+        ("action:core.*:execute", "action:core.http:execute", True),
+        ("action:core.*:execute", "action:core.transform:execute", True),
+        ("action:core.*:execute", "action:tools.okta:execute", False),
+        ("action:*.*:execute", "action:core.http:execute", True),
+        ("*:*", "workflow:read", True),
+    ],
+)
+def test_scope_matches(granted: str, required: str, expected: bool) -> None:
+    assert scope_matches(granted, required) is expected
 
 
 class TestScopeImplication:
@@ -165,84 +142,52 @@ class TestScopeImplication:
         assert scope_matches("workflow:*", "workflow:update") is True
 
 
-class TestHasScope:
-    """Tests for has_scope function."""
-
-    def test_has_exact_scope(self):
-        scopes = frozenset({"workflow:read", "case:create"})
-        assert has_scope(scopes, "workflow:read") is True
-        assert has_scope(scopes, "case:create") is True
-        assert has_scope(scopes, "workflow:delete") is False
-
-    def test_has_scope_via_wildcard(self):
-        scopes = frozenset({"workflow:*", "case:read"})
-        assert has_scope(scopes, "workflow:read") is True
-        assert has_scope(scopes, "workflow:create") is True
-        assert has_scope(scopes, "workflow:delete") is True
-        assert has_scope(scopes, "case:read") is True
-        assert has_scope(scopes, "case:create") is False
-
-    def test_has_scope_global_wildcard(self):
-        scopes = frozenset({"*"})
-        assert has_scope(scopes, "workflow:read") is True
-        assert has_scope(scopes, "org:delete") is True
-        assert has_scope(scopes, "anything:here") is True
-
-    def test_empty_scopes(self):
-        scopes: frozenset[str] = frozenset()
-        assert has_scope(scopes, "workflow:read") is False
+@pytest.mark.parametrize(
+    ("scopes", "required", "expected"),
+    [
+        ({"workflow:read", "case:create"}, "workflow:read", True),
+        ({"workflow:read", "case:create"}, "case:create", True),
+        ({"workflow:read", "case:create"}, "workflow:delete", False),
+        ({"workflow:*", "case:read"}, "workflow:read", True),
+        ({"workflow:*", "case:read"}, "workflow:create", True),
+        ({"workflow:*", "case:read"}, "workflow:delete", True),
+        ({"workflow:*", "case:read"}, "case:read", True),
+        ({"workflow:*", "case:read"}, "case:create", False),
+        ({"*"}, "workflow:read", True),
+        ({"*"}, "org:delete", True),
+        ({"*"}, "anything:here", True),
+        (set(), "workflow:read", False),
+    ],
+)
+def test_has_scope(scopes: set[str], required: str, expected: bool) -> None:
+    assert has_scope(frozenset(scopes), required) is expected
 
 
-class TestHasAllScopes:
-    """Tests for has_all_scopes function."""
-
-    def test_has_all_exact_scopes(self):
-        scopes = frozenset({"workflow:read", "workflow:execute", "case:read"})
-        assert has_all_scopes(scopes, {"workflow:read", "workflow:execute"}) is True
-        assert has_all_scopes(scopes, {"workflow:read", "case:create"}) is False
-
-    def test_has_all_via_wildcard(self):
-        scopes = frozenset({"workflow:*"})
-        assert has_all_scopes(scopes, {"workflow:read", "workflow:execute"}) is True
-        assert has_all_scopes(scopes, {"workflow:read", "case:read"}) is False
-
-
-class TestHasAnyScope:
-    """Tests for has_any_scope function."""
-
-    def test_has_any_exact_scope(self):
-        scopes = frozenset({"workflow:read", "case:create"})
-        assert has_any_scope(scopes, {"workflow:read", "workflow:delete"}) is True
-        assert has_any_scope(scopes, {"org:delete", "secret:read"}) is False
-
-    def test_has_any_via_wildcard(self):
-        scopes = frozenset({"workflow:*"})
-        assert has_any_scope(scopes, {"workflow:read", "case:read"}) is True
-        assert has_any_scope(scopes, {"case:read", "org:read"}) is False
+@pytest.mark.parametrize(
+    ("scopes", "required", "expected"),
+    [
+        ({"workflow:read", "case:create"}, {"workflow:read", "workflow:delete"}, True),
+        ({"workflow:read", "case:create"}, {"org:delete", "secret:read"}, False),
+        ({"workflow:*"}, {"workflow:read", "case:read"}, True),
+        ({"workflow:*"}, {"case:read", "org:read"}, False),
+    ],
+)
+def test_has_any_scope(scopes: set[str], required: set[str], expected: bool) -> None:
+    assert has_any_scope(frozenset(scopes), required) is expected
 
 
-class TestGetMissingScopes:
-    """Tests for get_missing_scopes function."""
-
-    def test_no_missing_scopes(self):
-        scopes = frozenset({"workflow:read", "workflow:execute"})
-        missing = get_missing_scopes(scopes, {"workflow:read", "workflow:execute"})
-        assert missing == set()
-
-    def test_some_missing_scopes(self):
-        scopes = frozenset({"workflow:read"})
-        missing = get_missing_scopes(scopes, {"workflow:read", "workflow:execute"})
-        assert missing == {"workflow:execute"}
-
-    def test_all_missing_scopes(self):
-        scopes = frozenset({"case:read"})
-        missing = get_missing_scopes(scopes, {"workflow:read", "workflow:execute"})
-        assert missing == {"workflow:read", "workflow:execute"}
-
-    def test_wildcard_covers_scopes(self):
-        scopes = frozenset({"workflow:*"})
-        missing = get_missing_scopes(scopes, {"workflow:read", "workflow:execute"})
-        assert missing == set()
+@pytest.mark.parametrize(
+    ("scopes", "missing"),
+    [
+        ({"workflow:read", "workflow:execute"}, set()),
+        ({"workflow:read"}, {"workflow:execute"}),
+        ({"case:read"}, {"workflow:read", "workflow:execute"}),
+        ({"workflow:*"}, set()),
+    ],
+)
+def test_get_missing_scopes(scopes: set[str], missing: set[str]) -> None:
+    required = {"workflow:read", "workflow:execute"}
+    assert get_missing_scopes(frozenset(scopes), required) == missing
 
 
 class TestEnsureCanGrantScopes:
@@ -343,201 +288,114 @@ class TestOrgRoleScopes:
         assert "agent:execute" in ADMIN_SCOPES
 
 
-class TestRequireScopeDecorator:
-    """Tests for the @require_scope decorator."""
+_BOTH = ("workflow:read", "workflow:execute")
 
-    def test_require_scope_passes_with_exact_scope(self):
-        _set_role_with_scopes(frozenset({"workflow:read"}))
 
-        @require_scope("workflow:read")
-        def protected_func():
-            return "success"
+@pytest.mark.parametrize(
+    ("scopes", "required", "require_all", "allowed", "expected_missing"),
+    [
+        ({"workflow:read"}, ("workflow:read",), True, True, None),
+        ({"workflow:*"}, ("workflow:read",), True, True, None),
+        ({"*"}, ("org:delete",), True, True, None),
+        ({"case:read"}, ("workflow:read",), True, False, "workflow:read"),
+        ({"workflow:read", "workflow:execute"}, _BOTH, True, True, None),
+        ({"workflow:read"}, _BOTH, True, False, "workflow:execute"),
+        ({"workflow:read"}, _BOTH, False, True, None),
+        ({"case:read"}, _BOTH, False, False, None),
+    ],
+)
+def test_require_scope(
+    scopes: set[str],
+    required: tuple[str, ...],
+    require_all: bool,
+    allowed: bool,
+    expected_missing: str | None,
+) -> None:
+    _set_role_with_scopes(frozenset(scopes))
 
+    @require_scope(*required, require_all=require_all)
+    def protected_func():
+        return "success"
+
+    if allowed:
         assert protected_func() == "success"
+        return
+    with pytest.raises(ScopeDeniedError) as exc_info:
+        protected_func()
+    if expected_missing is not None:
+        assert expected_missing in exc_info.value.required_scopes
+        assert expected_missing in exc_info.value.missing_scopes
 
-    def test_require_scope_passes_with_wildcard(self):
-        _set_role_with_scopes(frozenset({"workflow:*"}))
 
-        @require_scope("workflow:read")
-        def protected_func():
-            return "success"
+def test_require_scope_fails_without_role() -> None:
+    ctx_role.set(None)
 
-        assert protected_func() == "success"
+    @require_scope("workflow:read")
+    def protected_func():
+        return "success"
 
-    def test_require_scope_passes_with_superuser(self):
-        _set_role_with_scopes(frozenset({"*"}))
+    with pytest.raises(ScopeDeniedError) as exc_info:
+        protected_func()
 
-        @require_scope("org:delete")
-        def protected_func():
-            return "success"
+    assert "workflow:read" in exc_info.value.required_scopes
 
-        assert protected_func() == "success"
 
-    def test_require_scope_fails_without_scope(self):
-        _set_role_with_scopes(frozenset({"case:read"}))
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("scopes", "allowed"), [({"workflow:read"}, True), ({"case:read"}, False)]
+)
+async def test_require_scope_async_function(scopes: set[str], allowed: bool) -> None:
+    _set_role_with_scopes(frozenset(scopes))
 
-        @require_scope("workflow:read")
-        def protected_func():
-            return "success"
+    @require_scope("workflow:read")
+    async def async_protected_func():
+        return "async success"
 
-        with pytest.raises(ScopeDeniedError) as exc_info:
-            protected_func()
-
-        assert "workflow:read" in exc_info.value.required_scopes
-        assert "workflow:read" in exc_info.value.missing_scopes
-
-    def test_require_scope_multiple_all_required(self):
-        _set_role_with_scopes(frozenset({"workflow:read", "workflow:execute"}))
-
-        @require_scope("workflow:read", "workflow:execute", require_all=True)
-        def protected_func():
-            return "success"
-
-        assert protected_func() == "success"
-
-    def test_require_scope_multiple_missing_one(self):
-        _set_role_with_scopes(frozenset({"workflow:read"}))
-
-        @require_scope("workflow:read", "workflow:execute", require_all=True)
-        def protected_func():
-            return "success"
-
-        with pytest.raises(ScopeDeniedError) as exc_info:
-            protected_func()
-
-        assert "workflow:execute" in exc_info.value.missing_scopes
-
-    def test_require_scope_any_one_sufficient(self):
-        _set_role_with_scopes(frozenset({"workflow:read"}))
-
-        @require_scope("workflow:read", "workflow:execute", require_all=False)
-        def protected_func():
-            return "success"
-
-        assert protected_func() == "success"
-
-    def test_require_scope_any_none_present(self):
-        _set_role_with_scopes(frozenset({"case:read"}))
-
-        @require_scope("workflow:read", "workflow:execute", require_all=False)
-        def protected_func():
-            return "success"
-
-        with pytest.raises(ScopeDeniedError):
-            protected_func()
-
-    def test_require_scope_fails_without_role(self):
-        """Test that require_scope fails when ctx_role is None."""
-        ctx_role.set(None)
-
-        @require_scope("workflow:read")
-        def protected_func():
-            return "success"
-
-        with pytest.raises(ScopeDeniedError) as exc_info:
-            protected_func()
-
-        assert "workflow:read" in exc_info.value.required_scopes
-
-    @pytest.mark.anyio
-    async def test_require_scope_async_function(self):
-        _set_role_with_scopes(frozenset({"workflow:read"}))
-
-        @require_scope("workflow:read")
-        async def async_protected_func():
-            return "async success"
-
-        result = await async_protected_func()
-        assert result == "async success"
-
-    @pytest.mark.anyio
-    async def test_require_scope_async_function_denied(self):
-        _set_role_with_scopes(frozenset({"case:read"}))
-
-        @require_scope("workflow:read")
-        async def async_protected_func():
-            return "async success"
-
+    if allowed:
+        assert await async_protected_func() == "async success"
+    else:
         with pytest.raises(ScopeDeniedError):
             await async_protected_func()
 
 
-class TestRequireActionScope:
-    """Tests for the require_action_scope function."""
+_CORE_OKTA = {
+    "action:core.*:execute",
+    "action:tools.okta.*:execute",
+    "workflow:execute",
+}
 
-    def test_require_action_scope_with_exact_scope(self):
-        """User with exact action scope can execute."""
-        _set_role_with_scopes(frozenset({"action:core.http_request:execute"}))
-        # Should not raise
-        require_action_scope("core.http_request")
 
-    def test_require_action_scope_with_global_wildcard(self):
-        """Superuser with * scope can execute any action."""
-        _set_role_with_scopes(frozenset({"*"}))
-        require_action_scope("core.http_request")
-        require_action_scope("tools.okta.list_users")
+@pytest.mark.parametrize(
+    ("scopes", "action", "allowed"),
+    [
+        ({"action:core.http_request:execute"}, "core.http_request", True),
+        ({"*"}, "core.http_request", True),
+        ({"*"}, "tools.okta.list_users", True),
+        ({"action:*:execute"}, "core.http_request", True),
+        ({"action:*:execute"}, "tools.okta.list_users", True),
+        ({"action:core.*:execute"}, "core.http_request", True),
+        ({"action:core.*:execute"}, "core.transform.forward", True),
+        ({"action:core.*:execute"}, "tools.okta.list_users", False),
+        ({"action:tools.okta.*:execute"}, "tools.okta.list_users", True),
+        ({"action:tools.okta.*:execute"}, "tools.okta.suspend_user", True),
+        ({"action:tools.okta.*:execute"}, "tools.slack.send_message", False),
+        ({"workflow:execute"}, "core.http_request", False),
+        (set(), "core.http_request", False),
+        (_CORE_OKTA, "core.http_request", True),
+        (_CORE_OKTA, "tools.okta.list_users", True),
+        (_CORE_OKTA, "tools.slack.send_message", False),
+    ],
+)
+def test_require_action_scope(scopes: set[str], action: str, allowed: bool) -> None:
+    _set_role_with_scopes(frozenset(scopes))
 
-    def test_require_action_scope_with_action_wildcard(self):
-        """User with action:*:execute can execute any action."""
-        _set_role_with_scopes(frozenset({"action:*:execute"}))
-        require_action_scope("core.http_request")
-        require_action_scope("tools.okta.list_users")
-
-    def test_require_action_scope_with_prefix_wildcard(self):
-        """User with action:core.*:execute can execute core actions."""
-        _set_role_with_scopes(frozenset({"action:core.*:execute"}))
-        require_action_scope("core.http_request")
-        require_action_scope("core.transform.forward")
-
-        # Should fail for non-core actions
-        with pytest.raises(ScopeDeniedError) as exc_info:
-            require_action_scope("tools.okta.list_users")
-        assert "action:tools.okta.list_users:execute" in exc_info.value.missing_scopes
-
-    def test_require_action_scope_with_integration_wildcard(self):
-        """User with action:tools.okta.*:execute can execute okta actions."""
-        _set_role_with_scopes(frozenset({"action:tools.okta.*:execute"}))
-        require_action_scope("tools.okta.list_users")
-        require_action_scope("tools.okta.suspend_user")
-
-        # Should fail for other integrations
-        with pytest.raises(ScopeDeniedError):
-            require_action_scope("tools.slack.send_message")
-
-    def test_require_action_scope_denied(self):
-        """User without action scope gets denied."""
-        _set_role_with_scopes(frozenset({"workflow:execute"}))
-
-        with pytest.raises(ScopeDeniedError) as exc_info:
-            require_action_scope("core.http_request")
-
-        assert exc_info.value.required_scopes == ["action:core.http_request:execute"]
-        assert exc_info.value.missing_scopes == ["action:core.http_request:execute"]
-
-    def test_require_action_scope_empty_scopes(self):
-        """User with no scopes gets denied."""
-        _set_role_with_scopes(frozenset())
-
-        with pytest.raises(ScopeDeniedError):
-            require_action_scope("core.http_request")
-
-    def test_require_action_scope_multiple_scopes(self):
-        """User with multiple action scopes can execute matching actions."""
-        _set_role_with_scopes(
-            frozenset(
-                {
-                    "action:core.*:execute",
-                    "action:tools.okta.*:execute",
-                    "workflow:execute",
-                }
-            )
-        )
-        require_action_scope("core.http_request")
-        require_action_scope("tools.okta.list_users")
-
-        # Should fail for non-matching actions
-        with pytest.raises(ScopeDeniedError):
-            require_action_scope("tools.slack.send_message")
+    if allowed:
+        require_action_scope(action)
+        return
+    with pytest.raises(ScopeDeniedError) as exc_info:
+        require_action_scope(action)
+    assert exc_info.value.required_scopes == [f"action:{action}:execute"]
+    assert exc_info.value.missing_scopes == [f"action:{action}:execute"]
 
 
 class TestServicePrincipalScopes:

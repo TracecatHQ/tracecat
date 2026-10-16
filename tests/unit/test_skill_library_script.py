@@ -205,13 +205,38 @@ def test_add_resolves_commit_to_full_sha(
     assert source.commit == COMMIT
 
 
-def test_render_sources_round_trips() -> None:
-    source = _source(
-        {"triage": "skills/triage", "hunt": "skills/hunt"},
-        exclude=("*.pptx", 'quote"d'),
-    )
+@pytest.mark.parametrize(
+    ("source", "present", "absent"),
+    [
+        pytest.param(
+            _source(
+                {"triage": "skills/triage", "hunt": "skills/hunt"},
+                exclude=("*.pptx", 'quote"d'),
+            ),
+            [],
+            [],
+            id="skills-and-excludes",
+        ),
+        pytest.param(_source(), [], ["provider ="], id="official-maintenance"),
+        pytest.param(
+            replace(_source(), provider="Tracecat"),
+            ['provider = "Tracecat"'],
+            [],
+            id="other-maintainer",
+        ),
+        pytest.param(replace(_source(), group="Café"), [], [], id="non-ascii-group"),
+    ],
+)
+def test_render_sources_round_trips(
+    source: LibrarySource, present: list[str], absent: list[str]
+) -> None:
+    rendered = render_sources([source])
 
-    assert parse_sources(render_sources([source])) == [source]
+    assert parse_sources(rendered) == [source]
+    for fragment in present:
+        assert fragment in rendered
+    for fragment in absent:
+        assert fragment not in rendered
 
 
 @pytest.mark.parametrize("operation", [script.cmd_sync, script.cmd_update])
@@ -259,13 +284,6 @@ def test_sync_and_update_preserve_local_content_and_metadata(
     assert (saved[0].group, saved[0].provider) == ("AWS", None)
 
 
-def test_render_sources_preserves_official_maintenance() -> None:
-    source = replace(_source(), group="Example", provider=None)
-    rendered = render_sources([source])
-    assert "provider =" not in rendered
-    assert parse_sources(rendered) == [source]
-
-
 def test_add_requires_a_description_for_a_new_group(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -285,13 +303,6 @@ def test_render_sources_lists_standalone_skills_last() -> None:
     rendered = render_sources([standalone, replace(_source(), group="Zeta")])
     assert rendered.index('group = "Zeta"') < rendered.index('provider = "Tracecat"')
     assert parse_sources(rendered)[1] == standalone
-
-
-def test_render_sources_preserves_a_maintainer_other_than_the_group() -> None:
-    source = replace(_source(), provider="Tracecat")
-    rendered = render_sources([source])
-    assert 'provider = "Tracecat"' in rendered
-    assert parse_sources(rendered) == [source]
 
 
 @pytest.mark.parametrize(
@@ -451,11 +462,6 @@ def test_prepare_rejects_runtime_file_limits_without_writing(
         script._prepare_sync(_source(), archive)
 
     assert not script.LIBRARY_ROOT.exists()
-
-
-def test_render_sources_quotes_non_ascii_group() -> None:
-    source = replace(_source(), group="Café")
-    assert parse_sources(render_sources([source])) == [source]
 
 
 def test_add_extends_a_standalone_source_with_its_summary(

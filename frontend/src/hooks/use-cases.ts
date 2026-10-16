@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { DateRange } from "react-day-picker"
+import { v4 as uuid4 } from "uuid"
 import {
   type CasePriority,
   type CaseReadMinimal,
@@ -23,14 +24,14 @@ import type {
   SortDirection,
 } from "@/components/filters/filter-multi-select"
 import type { CaseHierarchyFilter } from "@/hooks/use-case-search-infinite"
-import { useDebounce } from "@/hooks/use-debounce"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useInfiniteQuery, useQuery } from "@/lib/query"
+import { withAbortSignal } from "@/lib/query-cancellation"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const CASES_PAGE_SIZE = 100
-const CASES_REFETCH_INTERVAL_MS = 120000
 const CASES_SEARCH_DEBOUNCE_MS = 300
+const CASES_REFETCH_INTERVAL_MS = 120000
 const CASES_FILTER_STORAGE_KEY = "cases-filters:v1"
 const ALL_CASE_STATUSES: ReadonlyArray<CaseStatus> = [
   "unknown",
@@ -119,6 +120,9 @@ export interface UseCasesResult {
   error: Error | null
   refetch: () => void
   filters: UseCasesFilters
+  appliedSearchQuery: string
+  effectiveHierarchy: CaseHierarchyFilter
+  isSearchPending: boolean
   setSearchQuery: (query: string) => void
   setSortBy: (value: CaseSortValue) => void
   setStatusFilter: (status: CaseStatus[]) => void
@@ -583,6 +587,7 @@ function resolveEnumIncludeFilter<T extends string>(
   return { values: complement, matchesNone: false }
 }
 
+/** Workspace case search with server-owned exact-reference promotion. */
 export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   const {
     enabled = true,
@@ -601,10 +606,40 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   }
   const initialFilterState = initialFilterStateRef.current
 
-  const [searchQuery, setSearchQuery] = useState(initialFilterState.searchQuery)
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useDebounce(
-    searchQuery.trim(),
-    CASES_SEARCH_DEBOUNCE_MS
+  const [searchQuery, setSearchQueryState] = useState(
+    initialFilterState.searchQuery
+  )
+  const [appliedSearch, setAppliedSearch] = useState({
+    query: initialFilterState.searchQuery.trim(),
+    revision: "",
+  })
+  const appliedSearchQuery = appliedSearch.query
+  const normalizedSearchInput = searchQuery.trim()
+  const applySearch = useCallback((query: string, resetPagination = false) => {
+    // Query cache entries can outlive this hook, so each application needs a
+    // generation that remains unique across remounts.
+    const revision = uuid4()
+    setAppliedSearch((previous) => {
+      if (previous.query === query && !resetPagination) return previous
+      return { query, revision }
+    })
+  }, [])
+  useEffect(() => {
+    if (normalizedSearchInput === appliedSearchQuery) return
+    const timeout = setTimeout(
+      () => applySearch(normalizedSearchInput),
+      CASES_SEARCH_DEBOUNCE_MS
+    )
+    return () => clearTimeout(timeout)
+  }, [normalizedSearchInput, appliedSearchQuery, applySearch])
+  const setSearchQuery = useCallback(
+    (query: string) => {
+      setSearchQueryState(query)
+      if (!query.trim()) {
+        applySearch("")
+      }
+    },
+    [applySearch]
   )
   const [sortBy, setSortByState] = useState<CaseSortValue>(
     initialFilterState.sortBy
@@ -725,8 +760,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     }
 
     const nextFilterState = loadPersistedCasesFilterState(workspaceId)
-    setSearchQuery(nextFilterState.searchQuery)
-    setDebouncedSearchQuery(nextFilterState.searchQuery.trim())
+    setSearchQueryState(nextFilterState.searchQuery)
+    applySearch(nextFilterState.searchQuery.trim(), true)
     setSortByState(nextFilterState.sortBy)
     setStatusFilter(nextFilterState.statusFilter)
     setStatusMode(nextFilterState.statusMode)
@@ -747,7 +782,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     setCreatedAfter(nextFilterState.createdAfter)
     setIncludeSubCases(nextFilterState.includeSubCases)
     setHydratedWorkspaceId(nextFilterState.hydratedWorkspaceId)
-  }, [hydratedWorkspaceId, workspaceId])
+  }, [hydratedWorkspaceId, workspaceId, applySearch])
 
   useEffect(() => {
     if (!workspaceId || !hasHydratedFilters || typeof window === "undefined") {
@@ -854,16 +889,6 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     []
   )
 
-  // Clearing the search applies immediately; typing waits for the debounce.
-  const hasSearchQuery = searchQuery.trim().length > 0
-  const normalizedSearch = hasSearchQuery ? debouncedSearchQuery : ""
-
-  useEffect(() => {
-    if (!hasSearchQuery) {
-      setDebouncedSearchQuery("")
-    }
-  }, [hasSearchQuery, setDebouncedSearchQuery])
-
   const { apiQueryParams, hasImpossibleEnumFilter } = useMemo(() => {
     const updatedBounds = getDateBoundsFromFilter(updatedAfter)
     const createdBounds = getDateBoundsFromFilter(createdAfter)
@@ -895,7 +920,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
     return {
       apiQueryParams: {
-        searchTerm: normalizedSearch.length > 0 ? normalizedSearch : undefined,
+        searchTerm:
+          appliedSearchQuery.length > 0 ? appliedSearchQuery : undefined,
         status: resolvedStatus.values,
         priority: resolvedPriority.values,
         severity: resolvedSeverity.values,
@@ -915,7 +941,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
           ? toEndOfDay(updatedBounds.end).toISOString()
           : undefined,
         // Searching also matches sub-cases, so they are never unreachable.
-        hierarchy: (includeSubCases || normalizedSearch
+        hierarchy: (includeSubCases || appliedSearchQuery
           ? "all"
           : "top_level") as CaseHierarchyFilter,
       },
@@ -925,7 +951,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         resolvedSeverity.matchesNone,
     }
   }, [
-    normalizedSearch,
+    appliedSearchQuery,
     statusFilter,
     statusMode,
     priorityFilter,
@@ -957,8 +983,11 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       JSON.stringify({
         apiQueryParams,
         hasImpossibleEnumFilter,
+        // A new applied search starts at page one even when returning to a
+        // previously cached term, including an immediately cleared input.
+        searchRevision: appliedSearch.revision,
       }),
-    [apiQueryParams, hasImpossibleEnumFilter]
+    [apiQueryParams, hasImpossibleEnumFilter, appliedSearch.revision]
   )
 
   const rowsKey = useMemo(
@@ -1004,23 +1033,28 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     fetchNextPage,
   } = useInfiniteQuery<CasesSearchCasesResponse, TracecatApiError>({
     queryKey: ["cases", workspaceId, rowsKey],
-    queryFn: ({ pageParam }) =>
-      casesSearchCases({
-        workspaceId,
-        ...apiQueryParams,
-        orderBy: serverSortParams.orderBy,
-        sort: serverSortParams.sort,
-        limit: CASES_PAGE_SIZE,
-        cursor: (pageParam as string | null) ?? undefined,
-        fieldIds:
-          normalizedFieldIds.length > 0 ? normalizedFieldIds : undefined,
-        includeDurations: includeDurations || undefined,
-      }),
+    queryFn: ({ pageParam, signal }) =>
+      withAbortSignal(
+        signal,
+        casesSearchCases({
+          workspaceId,
+          ...apiQueryParams,
+          promoteExactMatch: Boolean(appliedSearchQuery) || undefined,
+          matchNone: hasImpossibleEnumFilter || undefined,
+          orderBy: serverSortParams.orderBy,
+          sort: serverSortParams.sort,
+          limit: CASES_PAGE_SIZE,
+          cursor: (pageParam as string | null) ?? undefined,
+          fieldIds:
+            normalizedFieldIds.length > 0 ? normalizedFieldIds : undefined,
+          includeDurations: includeDurations || undefined,
+        })
+      ),
     enabled:
       enabled &&
       Boolean(workspaceId) &&
       hasHydratedFilters &&
-      !hasImpossibleEnumFilter,
+      (!hasImpossibleEnumFilter || Boolean(appliedSearchQuery)),
     initialPageParam: null,
     getNextPageParam: (lastPage) => {
       if (!lastPage.has_more || !lastPage.next_cursor) {
@@ -1041,11 +1075,14 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     refetch: refetchCounts,
   } = useQuery<CasesSearchCaseAggregatesResponse, TracecatApiError>({
     queryKey: ["cases", "aggregate", workspaceId, filtersKey],
-    queryFn: () =>
-      casesSearchCaseAggregates({
-        workspaceId,
-        ...apiQueryParams,
-      }),
+    queryFn: ({ signal }) =>
+      withAbortSignal(
+        signal,
+        casesSearchCaseAggregates({
+          workspaceId,
+          ...apiQueryParams,
+        })
+      ),
     enabled:
       enabled &&
       Boolean(workspaceId) &&
@@ -1102,7 +1139,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     return flattenedCases
   }, [flattenedCases, assigneeSortDirection, tagSortDirection])
 
-  const cases = hasImpossibleEnumFilter ? [] : sortedCases
+  const cases = sortedCases
 
   const totalFilteredCaseEstimate = hasImpossibleEnumFilter
     ? 0
@@ -1129,6 +1166,9 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     isLoading: isHydrationPending ? true : isLoading,
     error: error ?? null,
     refetch,
+    appliedSearchQuery,
+    isSearchPending: normalizedSearchInput !== appliedSearchQuery,
+    effectiveHierarchy: apiQueryParams.hierarchy,
     filters: {
       searchQuery,
       sortBy,

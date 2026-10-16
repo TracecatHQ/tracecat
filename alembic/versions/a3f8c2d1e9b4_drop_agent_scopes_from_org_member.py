@@ -8,7 +8,7 @@ before the first startup; seeding now also removes links a preset role's
 definition does not carry.
 
 Revision ID: a3f8c2d1e9b4
-Revises: 7e666328c9a6
+Revises: 3b8f2c1d9e7a
 Create Date: 2026-10-14 12:00:00.000000
 """
 
@@ -17,7 +17,7 @@ from collections.abc import Sequence
 from alembic import op
 
 revision: str = "a3f8c2d1e9b4"
-down_revision: str | None = "7e666328c9a6"
+down_revision: str | None = "3b8f2c1d9e7a"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

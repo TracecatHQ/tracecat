@@ -1,8 +1,9 @@
 import Cookies from "js-cookie"
 import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import {
+  type ActionLockStatus,
   type ActionRead,
   type ActionsDeleteActionData,
   type ActionUpdate,
@@ -18,6 +19,7 @@ import {
   type AwsAssumeRoleAccessRead,
   actionsDeleteAction,
   actionsGetAction,
+  actionsListActionLockStatuses,
   actionsUpdateAction,
   agentCreateProviderCredentials,
   agentDeleteProviderCredentials,
@@ -504,6 +506,12 @@ export function useAction(
       queryClient.invalidateQueries({
         queryKey: ["workflow", workflowId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["action-lock-status", workspaceId, workflowId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references", workspaceId],
+      })
       // Add a small delay before clearing the saving state to show feedback
       setTimeout(() => {
         setIsSaving(false)
@@ -523,6 +531,32 @@ export function useAction(
   }
 }
 
+/** Refs of locked actions whose locked run no longer exists. */
+export function useActionLockStatuses(
+  workspaceId: string,
+  workflowId: string | null,
+  enabled: boolean
+) {
+  const { data } = useQuery<ActionLockStatus[], Error>({
+    queryKey: ["action-lock-status", workspaceId, workflowId],
+    queryFn: async () =>
+      await actionsListActionLockStatuses({
+        workspaceId,
+        workflowId: workflowId ?? "",
+      }),
+    enabled: enabled && Boolean(workspaceId) && Boolean(workflowId),
+    staleTime: 60_000,
+  })
+  const staleLockedRefs = useMemo(
+    () =>
+      new Set(
+        (data ?? []).filter((status) => !status.available).map((s) => s.ref)
+      ),
+    [data]
+  )
+  return { staleLockedRefs }
+}
+
 export function useDeleteAction() {
   const queryClient = useQueryClient()
   const { mutateAsync: deleteAction } = useMutation({
@@ -532,6 +566,9 @@ export function useDeleteAction() {
       const { actionId, workspaceId } = variables
       queryClient.invalidateQueries({
         queryKey: ["actions", actionId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references", workspaceId],
       })
     },
     onError: toastMutationError("deleting the action"),
@@ -596,6 +633,9 @@ export function useGraphOperations(workspaceId: string, workflowId: string) {
         // Update the graph cache with the latest structural state.
         queryClient.setQueryData(["graph", workspaceId, workflowId], graph)
         queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+        queryClient.invalidateQueries({
+          queryKey: ["agent-preset-workflow-references", workspaceId],
+        })
       }
     },
     onError: (error) => {
@@ -823,6 +863,10 @@ export function useWorkflowManager(
       await workflowsCreateWorkflow(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflows"] })
+      // An imported or duplicated workflow can run a preset.
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references", workspaceId],
+      })
       toast({
         title: "Created workflow",
         description: "Your workflow has been created successfully.",
@@ -863,6 +907,9 @@ export function useWorkflowManager(
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflows"] })
       queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references", workspaceId],
+      })
       toast({
         title: "Deleted workflow",
         description: "Your workflow has been deleted successfully.",
@@ -946,6 +993,9 @@ export function useWorkflowManager(
         queryClient.invalidateQueries({ queryKey: ["directory-items"] })
         // Keep an already-loaded builder view in step with a dashboard rename.
         queryClient.invalidateQueries({ queryKey: ["workflow"] })
+        queryClient.invalidateQueries({
+          queryKey: ["agent-preset-workflow-references", workspaceId],
+        })
       },
       onError: (error: TracecatApiError) => {
         // Transport failures rethrow a raw error with no `body`, so read the
@@ -5521,14 +5571,23 @@ export function useIntegrationProvider({
     data: integration,
     isLoading: integrationIsLoading,
     error: integrationError,
-  } = useQuery<IntegrationRead, TracecatApiError>({
+  } = useQuery<IntegrationRead | null, TracecatApiError>({
     queryKey: ["integration", providerId, workspaceId, grantType],
-    queryFn: async () =>
-      await integrationsGetIntegration({
-        providerId,
-        workspaceId,
-        grantType,
-      }),
+    queryFn: async () => {
+      try {
+        return await integrationsGetIntegration({
+          providerId,
+          workspaceId,
+          grantType,
+        })
+      } catch (error) {
+        // No integration row yet means the provider is not configured.
+        if (error instanceof ApiError && error.status === 404) {
+          return null
+        }
+        throw error
+      }
+    },
     retry: retryHandler,
     enabled: Boolean(providerId && workspaceId),
     staleTime: 5 * 60 * 1000,

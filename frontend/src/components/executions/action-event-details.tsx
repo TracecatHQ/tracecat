@@ -475,8 +475,10 @@ function ActionEventContent({
           <ActionResultViewer
             result={actionEvent.action_result}
             eventRef={eventRef}
-            executionId={executionId}
-            eventId={actionEvent.source_event_id}
+            executionId={actionEvent.fixed_from_execution_id ?? executionId}
+            eventId={
+              actionEvent.fixed_from_event_id ?? actionEvent.source_event_id
+            }
             defaultExpanded={true}
           />
         </TabsContent>
@@ -497,8 +499,10 @@ function ActionEventContent({
           event={actionEvent}
           type={type}
           eventRef={eventRef}
-          executionId={executionId}
-          eventId={actionEvent.source_event_id}
+          executionId={actionEvent.fixed_from_execution_id ?? executionId}
+          eventId={
+            actionEvent.fixed_from_event_id ?? actionEvent.source_event_id
+          }
         />
       )}
     </div>

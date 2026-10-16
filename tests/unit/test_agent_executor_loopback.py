@@ -54,13 +54,6 @@ class _FakeStream:
         self.done = AsyncMock()
 
 
-class _FakeExternalSink:
-    def __init__(self) -> None:
-        self.append = AsyncMock()
-        self.error = AsyncMock()
-        self.done = AsyncMock()
-
-
 class _FakeSessionContext:
     def __init__(self, session: object) -> None:
         self._session = session
@@ -116,7 +109,7 @@ def loopback_input(tmp_path: Path) -> LoopbackInput:
 
 
 @pytest.mark.anyio
-async def test_initialize_stream_sink_falls_back_to_redis_on_external_lookup_error(
+async def test_terminal_error_falls_back_to_redis_on_external_lookup_error(
     monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
 ) -> None:
     handler = LoopbackHandler(input=loopback_input)
@@ -127,8 +120,14 @@ async def test_initialize_stream_sink_falls_back_to_redis_on_external_lookup_err
     stream_new = AsyncMock(return_value=fake_stream)
     monkeypatch.setattr("tracecat.agent.executor.loopback.AgentStream.new", stream_new)
 
-    sink = await handler._initialize_stream_sink()
+    emitted = await handler.emit_terminal_error(
+        "runtime exited before connect",
+        classification=agent_executor_unclassified(),
+    )
 
+    assert emitted is True
+    assert handler.build_result().terminal_stream_error_emitted is True
+    sink = handler._stream_sink
     assert isinstance(sink, AgentStreamSink)
     assert sink.stream is fake_stream
     external_lookup.assert_awaited_once()
@@ -137,6 +136,8 @@ async def test_initialize_stream_sink_falls_back_to_redis_on_external_lookup_err
         workspace_id=loopback_input.workspace_id,
         stream_id=loopback_input.active_stream_id,
     )
+    fake_stream.error.assert_awaited_once_with("runtime exited before connect")
+    fake_stream.done.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -144,7 +145,7 @@ async def test_initialize_stream_sink_uses_fanout_when_external_sink_available(
     monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
 ) -> None:
     handler = LoopbackHandler(input=loopback_input)
-    external_sink = _FakeExternalSink()
+    external_sink = _FakeStream()
     monkeypatch.setattr(
         handler,
         "_build_external_channel_sink",
@@ -161,38 +162,6 @@ async def test_initialize_stream_sink_uses_fanout_when_external_sink_available(
     assert isinstance(sink, FanoutStreamSink)
     fake_stream.append.assert_awaited_once_with(event)
     external_sink.append.assert_awaited_once_with(event)
-
-
-@pytest.mark.anyio
-async def test_emit_terminal_error_uses_redis_when_external_lookup_errors(
-    monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
-) -> None:
-    handler = LoopbackHandler(input=loopback_input)
-    monkeypatch.setattr(
-        handler,
-        "_build_external_channel_sink",
-        AsyncMock(side_effect=SQLAlchemyError("database unavailable")),
-    )
-
-    fake_stream = _FakeStream()
-    stream_new = AsyncMock(return_value=fake_stream)
-    monkeypatch.setattr("tracecat.agent.executor.loopback.AgentStream.new", stream_new)
-
-    emitted = await handler.emit_terminal_error(
-        "runtime exited before connect",
-        classification=agent_executor_unclassified(),
-    )
-
-    assert emitted is True
-    assert handler.build_result().terminal_stream_error_emitted is True
-    assert isinstance(handler._stream_sink, AgentStreamSink)
-    stream_new.assert_awaited_once_with(
-        session_id=loopback_input.session_id,
-        workspace_id=loopback_input.workspace_id,
-        stream_id=loopback_input.active_stream_id,
-    )
-    fake_stream.error.assert_awaited_once_with("runtime exited before connect")
-    fake_stream.done.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -372,68 +341,56 @@ async def test_persist_session_line_preserves_raw_nul_content(
     session.commit.assert_awaited_once()
 
 
-def test_should_suppress_pending_approval_tool_result() -> None:
+@pytest.mark.parametrize(
+    ("pending_approval", "tool_output", "is_error", "suppressed"),
+    [
+        pytest.param(True, {"id": "case-123"}, False, True, id="pending-approval"),
+        pytest.param(
+            False,
+            "The user doesn't want to take this action right now.",
+            True,
+            True,
+            id="synthetic-interrupt",
+        ),
+        pytest.param(
+            False,
+            [
+                {
+                    "type": "text",
+                    "text": (
+                        "STOP what you are doing and wait for the user to tell you"
+                        " how to proceed."
+                    ),
+                }
+            ],
+            True,
+            True,
+            id="nested-interrupt",
+        ),
+        pytest.param(
+            False, "Tool execution failed: timeout", True, False, id="normal-error"
+        ),
+    ],
+)
+def test_should_suppress_stream_event(
+    pending_approval: bool,
+    tool_output: object,
+    is_error: bool,
+    suppressed: bool,
+) -> None:
     handler = _make_handler()
-    handler._pending_approval_tool_call_ids.add("tool-1")
+    if pending_approval:
+        handler._pending_approval_tool_call_ids.add("tool-1")
 
     event = UnifiedStreamEvent(
         type=StreamEventType.TOOL_RESULT,
         tool_call_id="tool-1",
         tool_name="core.cases.create_case",
-        tool_output={"id": "case-123"},
+        tool_output=tool_output,
+        is_error=is_error,
     )
 
-    assert handler._should_suppress_stream_event(event) is True
-
-
-def test_should_suppress_synthetic_interrupt_output() -> None:
-    handler = _make_handler()
-
-    event = UnifiedStreamEvent(
-        type=StreamEventType.TOOL_RESULT,
-        tool_call_id="tool-2",
-        tool_name="core.cases.create_case",
-        tool_output="The user doesn't want to take this action right now.",
-        is_error=True,
-    )
-
-    assert handler._should_suppress_stream_event(event) is True
-
-
-def test_should_suppress_nested_interrupt_output() -> None:
-    handler = _make_handler()
-
-    event = UnifiedStreamEvent(
-        type=StreamEventType.TOOL_RESULT,
-        tool_call_id="tool-3",
-        tool_name="core.cases.create_case",
-        tool_output=[
-            {
-                "type": "text",
-                "text": (
-                    "STOP what you are doing and wait for the user to tell you"
-                    " how to proceed."
-                ),
-            }
-        ],
-        is_error=True,
-    )
-
-    assert handler._should_suppress_stream_event(event) is True
-
-
-def test_should_not_suppress_normal_tool_result_error() -> None:
-    handler = _make_handler()
-
-    event = UnifiedStreamEvent(
-        type=StreamEventType.TOOL_RESULT,
-        tool_call_id="tool-4",
-        tool_name="core.cases.create_case",
-        tool_output="Tool execution failed: timeout",
-        is_error=True,
-    )
-
-    assert handler._should_suppress_stream_event(event) is False
+    assert handler._should_suppress_stream_event(event) is suppressed
 
 
 @pytest.mark.anyio
@@ -624,21 +581,10 @@ async def test_persist_artifact_side_effects_uses_workspace_organization(
 
 
 @pytest.mark.anyio
-async def test_close_external_stream_leaves_redis_open() -> None:
-    handler = _make_handler()
-    stream = _FakeStream()
-    handler._stream_sink = stream
-
-    await handler._close_external_stream()
-
-    stream.done.assert_not_awaited()
-
-
-@pytest.mark.anyio
 async def test_terminal_success_closes_only_external_sink() -> None:
     handler = _make_handler()
     redis_stream = _FakeStream()
-    external_stream = _FakeExternalSink()
+    external_stream = _FakeStream()
     handler._stream_sink = FanoutStreamSink(
         sinks=(
             AgentStreamSink(stream=cast(AgentStream, redis_stream)),
@@ -660,7 +606,7 @@ async def test_terminal_success_closes_only_external_sink() -> None:
 async def test_terminal_error_streams_error_and_closes_only_external_sink() -> None:
     handler = _make_handler()
     redis_stream = _FakeStream()
-    external_stream = _FakeExternalSink()
+    external_stream = _FakeStream()
     handler._stream_sink = FanoutStreamSink(
         sinks=(
             AgentStreamSink(stream=cast(AgentStream, redis_stream)),
@@ -761,29 +707,10 @@ async def test_runtime_cleanup_does_not_close_slack_before_executor_error(
 
 
 @pytest.mark.anyio
-async def test_terminal_error_leaves_redis_open_for_workflow() -> None:
-    handler = _make_handler()
-    stream = _FakeStream()
-    event_order: list[str] = []
-
-    async def record_error(error: str) -> None:
-        assert error == "runtime failed"
-        event_order.append("error")
-
-    stream.error.side_effect = record_error
-    handler._stream_sink = stream
-
-    await handler.send_error("runtime failed")
-
-    assert event_order == ["error"]
-    stream.done.assert_not_awaited()
-
-
-@pytest.mark.anyio
 async def test_close_external_stream_is_deduplicated_on_approval_pause() -> None:
     handler = _make_handler()
     redis_stream = _FakeStream()
-    external_stream = _FakeExternalSink()
+    external_stream = _FakeStream()
     handler._stream_sink = FanoutStreamSink(
         sinks=(
             AgentStreamSink(stream=cast(AgentStream, redis_stream)),

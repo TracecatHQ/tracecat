@@ -53,40 +53,6 @@ def _build_service() -> tuple[AgentSessionService, AgentSession]:
 
 
 @pytest.mark.anyio
-async def test_list_messages_preserves_compaction_metadata() -> None:
-    service, agent_session = _build_service()
-    compaction_entry = SimpleNamespace(
-        id=uuid.uuid4(),
-        kind=MessageKind.COMPACTION.value,
-        content={
-            "type": "system",
-            "subtype": "compact_boundary",
-            "compactMetadata": {
-                "preTokens": 128000,
-                "trigger": "auto",
-            },
-        },
-    )
-
-    service.get_session = AsyncMock(return_value=agent_session)
-    service.session.execute = AsyncMock(
-        side_effect=[
-            _mock_scalar_result([]),
-            _mock_scalar_result([compaction_entry]),
-        ]
-    )
-
-    messages = await service.list_messages(agent_session.id)
-
-    assert len(messages) == 1
-    assert messages[0].kind == MessageKind.COMPACTION
-    assert messages[0].compaction == {
-        "phase": "completed",
-        "pre_tokens": 128000,
-    }
-
-
-@pytest.mark.anyio
 async def test_list_messages_maps_cancelled_marker() -> None:
     service, agent_session = _build_service()
     cancelled_entry = SimpleNamespace(

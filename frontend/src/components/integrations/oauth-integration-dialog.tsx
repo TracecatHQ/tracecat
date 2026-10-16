@@ -117,7 +117,7 @@ export function OAuthIntegrationDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
-      <DialogContent size="sm" className="sm:max-w-2xl">
+      <DialogContent size="lg" className="sm:max-w-2xl">
         <DialogHeader>
           <div className="flex items-start gap-4">
             <ProviderIcon providerId={providerId} className="size-10" />
@@ -131,31 +131,29 @@ export function OAuthIntegrationDialog({
           </div>
         </DialogHeader>
         <DialogBody>
-          <div className="flex-1 overflow-y-auto px-8 pb-8">
-            {providerIsLoading && <CenteredSpinner />}
-            {providerError && (
-              <div className="text-sm text-destructive">
-                Failed to load provider details.
-              </div>
-            )}
-            {!providerIsLoading && provider && (
-              <div className="space-y-6">
-                <ProviderConfigForm
-                  provider={provider}
-                  onSuccess={handleSubmitSuccess}
-                  formId={formId}
-                  formRef={formRef}
-                  hideActions
-                />
-                {integration?.status === "configured" && (
-                  <p className="text-xs text-muted-foreground">
-                    Saved configuration will stay in place even if the
-                    connection is not completed.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
+          {providerIsLoading && <CenteredSpinner />}
+          {providerError && (
+            <div className="text-sm text-destructive">
+              Failed to load provider details.
+            </div>
+          )}
+          {!providerIsLoading && provider && (
+            <div className="space-y-6">
+              <ProviderConfigForm
+                provider={provider}
+                onSuccess={handleSubmitSuccess}
+                formId={formId}
+                formRef={formRef}
+                hideActions
+              />
+              {integration?.status === "configured" && (
+                <p className="text-xs text-muted-foreground">
+                  Saved configuration will stay in place even if the connection
+                  is not completed.
+                </p>
+              )}
+            </div>
+          )}
         </DialogBody>
         <DialogFooter>
           <Button

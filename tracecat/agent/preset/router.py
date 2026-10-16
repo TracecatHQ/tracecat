@@ -16,13 +16,21 @@ from tracecat.agent.preset.schemas import (
     AgentPresetVersionDiff,
     AgentPresetVersionRead,
     AgentPresetVersionReadMinimal,
+    AgentPresetWorkflowReference,
 )
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.preset.workflow_references import (
+    AgentPresetWorkflowReferenceService,
+)
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
+from tracecat.pagination import (
+    CursorPaginatedResponse,
+    CursorPaginationParams,
+    PageParams,
+)
 
 router = APIRouter(prefix="/agent/presets", tags=["agent-presets"])
 
@@ -49,6 +57,36 @@ async def list_agent_presets(
     service = AgentPresetService(session, role=role)
     presets = await service.list_presets(use_in_chat=use_in_chat)
     return await service.build_preset_list_reads(presets)
+
+
+@router.get(
+    "/workflow-references",
+    response_model=CursorPaginatedResponse[AgentPresetWorkflowReference],
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Invalid cursor",
+        },
+    },
+)
+@require_scope("agent:read", "workflow:read")
+async def list_agent_preset_workflow_references(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None, max_length=8192),
+) -> CursorPaginatedResponse[AgentPresetWorkflowReference]:
+    """Page through the workflows that run each agent preset."""
+    service = AgentPresetWorkflowReferenceService(session, role=role)
+    try:
+        return await service.list_references(PageParams(limit=limit, cursor=cursor))
+    except TracecatValidationError as exc:
+        raise _validation_error(exc) from exc
 
 
 @router.post(

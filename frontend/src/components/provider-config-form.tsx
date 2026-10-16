@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Info, Save } from "lucide-react"
-import { useCallback, useMemo } from "react"
+import { useCallback, useEffect, useMemo } from "react"
 import { useForm, useWatch } from "react-hook-form"
 import { z } from "zod"
 import type { IntegrationUpdate, ProviderRead } from "@/client"
@@ -169,6 +169,13 @@ export function ProviderConfigForm({
     resolver: zodResolver(validationSchema),
     defaultValues,
   })
+
+  // Sync saved values that load after mount without clobbering user edits.
+  useEffect(() => {
+    if (!form.formState.isDirty) {
+      form.reset(defaultValues)
+    }
+  }, [defaultValues, form])
 
   const onSubmit = useCallback(
     async (data: OAuthSchema) => {

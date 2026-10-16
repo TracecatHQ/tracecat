@@ -249,10 +249,10 @@ async def test_list_tags_for_preset_paginated_uses_cursor_pages(
 
 
 @pytest.mark.anyio
-async def test_list_tags_for_preset_paginated_invalid_cursor_raises_validation(
+async def test_list_tags_invalid_cursor_raises_validation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Invalid preset tag cursors should surface app-level validation errors."""
+    """Invalid tag cursors should surface app-level validation errors."""
     service = AgentTagsService(
         session=AsyncMock(),
         role=_role_with_scopes(frozenset({"agent:read"})),
@@ -266,6 +266,9 @@ async def test_list_tags_for_preset_paginated_invalid_cursor_raises_validation(
         await service.list_tags_for_preset_paginated(
             uuid4(), CursorPaginationParams(cursor="invalid")
         )
+
+    with pytest.raises(TracecatValidationError, match="Invalid cursor for agent tags"):
+        await service.list_tags_paginated(CursorPaginationParams(cursor="invalid"))
 
 
 @pytest.mark.anyio
@@ -307,21 +310,6 @@ async def test_get_tag_missing_raises_tracecat_not_found(
 
     with pytest.raises(TracecatNotFoundError, match="Agent tag not found"):
         await service.get_tag(uuid4())
-
-
-@pytest.mark.anyio
-async def test_list_tags_paginated_invalid_cursor_raises_tracecat_validation(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Invalid tag cursors should surface app-level validation errors."""
-    service = AgentTagsService(
-        session=AsyncMock(),
-        role=_role_with_scopes(frozenset({"agent:read"})),
-    )
-    monkeypatch.setattr(service, "has_entitlement", AsyncMock(return_value=True))
-
-    with pytest.raises(TracecatValidationError, match="Invalid cursor for agent tags"):
-        await service.list_tags_paginated(CursorPaginationParams(cursor="invalid"))
 
 
 @pytest.mark.anyio

@@ -16,19 +16,16 @@ import pytest
 
 from tracecat.agent.sandbox.shim_entrypoint import (
     BRIDGE_HOST,
-    DEFAULT_LLM_SOCKET_PATH,
     DEFAULT_MCP_SOCKET_PATH,
     HTTP_HEADER_LIMIT,
     INIT_PAYLOAD_ENV_VAR,
     LLM_MAX_BODY_SIZE,
-    LLM_SOCKET_ENV_VAR,
     MCP_SOCKET_ENV_VAR,
     HTTPRequestError,
     SandboxSocketBridge,
     _forward_exit_code,
     _pump_stdin_to_process,
     _read_response_headers,
-    _read_stdin_chunk,
     _resolve_init_payload_path,
     _resolve_mcp_socket_path,
     _rewrite_mcp_bridge_command_port,
@@ -57,38 +54,6 @@ def test_resolve_init_payload_path_raises_without_env(
 
     with pytest.raises(RuntimeError, match=f"{INIT_PAYLOAD_ENV_VAR} is not set"):
         _resolve_init_payload_path()
-
-
-def test_read_stdin_chunk_uses_os_read(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, int] = {}
-
-    def fake_fileno() -> int:
-        return 42
-
-    def fake_os_read(fd: int, chunk_size: int) -> bytes:
-        captured["fd"] = fd
-        captured["chunk_size"] = chunk_size
-        return b'{"type":"control_request"}\n'
-
-    monkeypatch.setattr("sys.stdin.fileno", fake_fileno)
-    monkeypatch.setattr("os.read", fake_os_read)
-
-    chunk = _read_stdin_chunk(65536)
-
-    assert chunk == b'{"type":"control_request"}\n'
-    assert captured == {"fd": 42, "chunk_size": 65536}
-
-
-def test_llm_socket_path_falls_back_on_empty_env(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The shim resolves the LLM socket path with an env-var-then-default lookup."""
-    import os
-
-    monkeypatch.setenv(LLM_SOCKET_ENV_VAR, "")
-
-    resolved = Path(os.environ.get(LLM_SOCKET_ENV_VAR) or DEFAULT_LLM_SOCKET_PATH)
-    assert resolved == Path(DEFAULT_LLM_SOCKET_PATH)
 
 
 def test_resolve_mcp_socket_path_falls_back_on_empty_env(

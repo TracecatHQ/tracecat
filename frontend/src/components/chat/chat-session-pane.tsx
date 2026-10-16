@@ -322,6 +322,8 @@ export interface ChatSessionPaneProps {
   presetSelector?: ChatPresetSelector
   /** Selects the chat stream projection and surrounding UI surface. */
   surface?: ChatSurface
+  /** Center the thread and prompt in a readable column. Defaults to on for workspace chat. */
+  centered?: boolean
   /**
    * Reconnect to the live event stream on mount. Defaults to true. Set to
    * false for terminal sessions whose history is already loaded, to avoid
@@ -358,6 +360,7 @@ export function ChatSessionPane({
   inputDisabledPlaceholder,
   presetSelector,
   surface = "regular",
+  centered,
   resume = true,
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
@@ -432,13 +435,14 @@ export function ChatSessionPane({
     [chat?.messages]
   )
   const isWorkspaceChat = surface === "workspace-chat"
-  const chatContentCenterClass = isWorkspaceChat
+  const isCentered = centered ?? isWorkspaceChat
+  const chatContentCenterClass = isCentered
     ? "mx-auto w-full max-w-[56rem]"
     : undefined
-  const promptCenterClass = isWorkspaceChat
+  const promptCenterClass = isCentered
     ? "relative mx-auto w-full max-w-[56rem]"
     : "relative"
-  const promptInputClassName = isWorkspaceChat
+  const promptInputClassName = isCentered
     ? "[&_[data-slot=input-group]]:rounded-2xl [&_[data-slot=input-group]]:border-muted-foreground/25 [&_[data-slot=input-group]]:shadow-none"
     : undefined
   const {

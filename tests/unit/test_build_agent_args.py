@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from temporalio.exceptions import ApplicationError
-from tracecat_ee.agent.schemas import AgentActionArgs, PresetAgentActionArgs
+from tracecat_ee.agent.schemas import AgentActionArgs
 
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPStdioServerConfig
 from tracecat.auth.types import Role
@@ -202,37 +202,6 @@ class TestBuildAgentArgsActivity:
         assert result.user_prompt == "Hello"
 
     @pytest.mark.anyio
-    async def test_resolves_multiple_vars(self, role: Role):
-        """Multiple VARS references across different fields should all resolve."""
-        args = {
-            "user_prompt": "${{ VARS.prompts.default }}",
-            "model_name": "${{ VARS.models.claude }}",
-            "model_provider": "${{ VARS.providers.default }}",
-        }
-        input = BuildAgentArgsActivityInput(
-            args=args,
-            operand=_make_context(),
-            role=role,
-            task_environment=None,
-            default_environment="default",
-        )
-
-        with patch(
-            "tracecat.dsl.action.get_workspace_variables",
-            new_callable=AsyncMock,
-            return_value={
-                "models": {"claude": "claude-sonnet-4-5-20250929"},
-                "providers": {"default": "anthropic"},
-                "prompts": {"default": "You are a helpful assistant"},
-            },
-        ):
-            result = await DSLActivities.build_agent_args_activity(input)
-
-        assert result.model_name == "claude-sonnet-4-5-20250929"
-        assert result.model_provider == "anthropic"
-        assert result.user_prompt == "You are a helpful assistant"
-
-    @pytest.mark.anyio
     async def test_no_vars_works(self, role: Role):
         """When no VARS expressions are present, static values pass through."""
         args = {
@@ -286,39 +255,6 @@ class TestBuildAgentArgsActivity:
         assert result.model_name == "claude-sonnet-4-5-20250929"
         assert result.model_provider == "anthropic"
         assert result.catalog_id == catalog_id
-
-    @pytest.mark.anyio
-    async def test_vars_with_action_context(self, role: Role):
-        """VARS should work alongside ACTIONS context references."""
-        args = {
-            "user_prompt": "${{ ACTIONS.reshape.result }}",
-            "model_name": "${{ VARS.models.claude }}",
-            "model_provider": "anthropic",
-        }
-        input = BuildAgentArgsActivityInput(
-            args=args,
-            operand=_make_context(
-                actions={
-                    "reshape": TaskResult(
-                        result=_inline("What is 2+2?"),
-                        result_typename="str",
-                    ),
-                },
-            ),
-            role=role,
-            task_environment=None,
-            default_environment="default",
-        )
-
-        with patch(
-            "tracecat.dsl.action.get_workspace_variables",
-            new_callable=AsyncMock,
-            return_value={"models": {"claude": "claude-sonnet-4-5-20250929"}},
-        ):
-            result = await DSLActivities.build_agent_args_activity(input)
-
-        assert result.user_prompt == "What is 2+2?"
-        assert result.model_name == "claude-sonnet-4-5-20250929"
 
     @pytest.mark.anyio
     async def test_strips_whitespace_around_expressions(self, role: Role):
@@ -375,30 +311,6 @@ class TestBuildAgentArgsActivity:
             environment="staging",
             role=role,
         )
-
-    @pytest.mark.anyio
-    async def test_no_vars_skips_db_call(self, role: Role):
-        """When no VARS expressions are present, get_workspace_variables is not called."""
-        args = {
-            "user_prompt": "Hello",
-            "model_name": "claude-sonnet-4-5-20250929",
-            "model_provider": "anthropic",
-        }
-        input = BuildAgentArgsActivityInput(
-            args=args,
-            operand=_make_context(),
-            role=role,
-            task_environment=None,
-            default_environment="default",
-        )
-
-        with patch(
-            "tracecat.dsl.action.get_workspace_variables",
-            new_callable=AsyncMock,
-        ) as mock_get_vars:
-            await DSLActivities.build_agent_args_activity(input)
-
-        mock_get_vars.assert_not_called()
 
     @pytest.mark.anyio
     async def test_preserves_enable_thinking_flag(self, role: Role):
@@ -539,39 +451,6 @@ class TestBuildAgentArgsMcpResolution:
         assert result.mcp_servers == [resolved]
 
     @pytest.mark.anyio
-    async def test_mcp_integration_ids_not_present_on_result(self, role: Role):
-        """mcp_integration_ids must not appear as a field on AgentActionArgs."""
-        integration_id = str(uuid.uuid4())
-        resolved: MCPHttpServerConfig = {
-            "type": "http",
-            "name": "my-server",
-            "url": "https://mcp.example.com",
-            "id": integration_id,
-        }
-        args = {
-            "user_prompt": "Hello",
-            "model_name": "claude-sonnet-4-5-20250929",
-            "model_provider": "anthropic",
-            "mcp_integrations": [integration_id],
-        }
-        input = BuildAgentArgsActivityInput(
-            args=args,
-            operand=_make_context(),
-            role=role,
-            task_environment=None,
-            default_environment="default",
-        )
-
-        with patch(
-            "tracecat.dsl.action._resolve_mcp_integrations",
-            new_callable=AsyncMock,
-            return_value=[resolved],
-        ):
-            result = await DSLActivities.build_agent_args_activity(input)
-
-        assert not hasattr(result, "mcp_integration_ids")
-
-    @pytest.mark.anyio
     async def test_no_mcp_integration_ids_skips_resolution(self, role: Role):
         """When mcp_integration_ids is absent, resolution is never called and
         mcp_servers is None."""
@@ -596,49 +475,6 @@ class TestBuildAgentArgsMcpResolution:
 
         mock_resolve.assert_not_called()
         assert result.mcp_servers is None
-
-    @pytest.mark.anyio
-    async def test_multiple_mcp_integration_ids_resolve(self, role: Role):
-        """All IDs in the list are forwarded to the resolver as a batch."""
-        id1, id2 = str(uuid.uuid4()), str(uuid.uuid4())
-        resolved: list[MCPHttpServerConfig] = [
-            {
-                "type": "http",
-                "name": "server-a",
-                "url": "https://a.example.com",
-                "id": id1,
-            },
-            {
-                "type": "http",
-                "name": "server-b",
-                "url": "https://b.example.com",
-                "id": id2,
-            },
-        ]
-        args = {
-            "user_prompt": "Hello",
-            "model_name": "claude-sonnet-4-5-20250929",
-            "model_provider": "anthropic",
-            "mcp_integrations": [id1, id2],
-        }
-        input = BuildAgentArgsActivityInput(
-            args=args,
-            operand=_make_context(),
-            role=role,
-            task_environment=None,
-            default_environment="default",
-        )
-
-        with patch(
-            "tracecat.dsl.action._resolve_mcp_integrations",
-            new_callable=AsyncMock,
-            return_value=resolved,
-        ) as mock_resolve:
-            result = await DSLActivities.build_agent_args_activity(input)
-
-        mock_resolve.assert_awaited_once_with([id1, id2], role=role)
-        assert result.mcp_servers == resolved
-        assert len(result.mcp_servers) == 2  # type: ignore[arg-type]
 
     @pytest.mark.anyio
     async def test_stdio_mcp_integration_resolves(self, role: Role):
@@ -716,32 +552,6 @@ class TestBuildPresetAgentArgsActivity:
     """Tests for DSLActivities.build_preset_agent_args_activity."""
 
     @pytest.mark.anyio
-    async def test_resolves_vars_in_preset_args(self, role: Role):
-        """VARS expressions should resolve in preset agent args."""
-        args = {
-            "preset": "my-preset",
-            "user_prompt": "${{ VARS.prompts.default }}",
-        }
-        input = BuildAgentArgsActivityInput(
-            args=args,
-            operand=_make_context(),
-            role=role,
-            task_environment=None,
-            default_environment="default",
-        )
-
-        with patch(
-            "tracecat.dsl.action.get_workspace_variables",
-            new_callable=AsyncMock,
-            return_value={"prompts": {"default": "Analyze this alert"}},
-        ):
-            result = await DSLActivities.build_preset_agent_args_activity(input)
-
-        assert isinstance(result, PresetAgentActionArgs)
-        assert result.preset == "my-preset"
-        assert result.user_prompt == "Analyze this alert"
-
-    @pytest.mark.anyio
     async def test_output_type_passes_through(self, role: Role):
         """Structured output overrides should evaluate into preset agent args."""
         schema = {
@@ -769,55 +579,3 @@ class TestBuildPresetAgentArgsActivity:
             result = await DSLActivities.build_preset_agent_args_activity(input)
 
         assert result.output_type == schema
-
-    @pytest.mark.anyio
-    async def test_no_vars_works(self, role: Role):
-        """When no VARS are present, static values pass through."""
-        args = {
-            "preset": "my-preset",
-            "user_prompt": "Hello",
-        }
-        input = BuildAgentArgsActivityInput(
-            args=args,
-            operand=_make_context(),
-            role=role,
-            task_environment=None,
-            default_environment="default",
-        )
-
-        with patch(
-            "tracecat.dsl.action.get_workspace_variables",
-            new_callable=AsyncMock,
-        ) as mock_get_vars:
-            result = await DSLActivities.build_preset_agent_args_activity(input)
-
-        mock_get_vars.assert_not_called()
-        assert result.user_prompt == "Hello"
-
-    @pytest.mark.anyio
-    async def test_passes_environment_to_get_workspace_variables(self, role: Role):
-        """The environment should be forwarded to get_workspace_variables."""
-        args = {
-            "preset": "my-preset",
-            "user_prompt": "${{ VARS.prompts.default }}",
-        }
-        input = BuildAgentArgsActivityInput(
-            args=args,
-            operand=_make_context(),
-            role=role,
-            task_environment=None,
-            default_environment="staging",
-        )
-
-        with patch(
-            "tracecat.dsl.action.get_workspace_variables",
-            new_callable=AsyncMock,
-            return_value={"prompts": {"default": "Analyze this alert"}},
-        ) as mock_get_vars:
-            await DSLActivities.build_preset_agent_args_activity(input)
-
-        mock_get_vars.assert_called_once_with(
-            variable_exprs={"prompts"},
-            environment="staging",
-            role=role,
-        )

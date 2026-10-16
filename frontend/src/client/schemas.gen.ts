@@ -279,6 +279,28 @@ export const $ActionInterfaceChange = {
     "Describes a change to an action's interface (expects or returns).",
 } as const
 
+export const $ActionLockStatus = {
+  properties: {
+    ref: {
+      type: "string",
+      title: "Ref",
+    },
+    locked_execution_id: {
+      type: "string",
+      title: "Locked Execution Id",
+    },
+    available: {
+      type: "boolean",
+      title: "Available",
+      description:
+        "False when the locked run no longer exists, e.g. after history retention.",
+    },
+  },
+  type: "object",
+  required: ["ref", "locked_execution_id", "available"],
+  title: "ActionLockStatus",
+} as const
+
 export const $ActionPositionUpdate = {
   properties: {
     action_id: {
@@ -342,6 +364,17 @@ export const $ActionRead = {
       },
       type: "array",
       title: "Upstream Edges",
+    },
+    locked_execution_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Locked Execution Id",
     },
     ref: {
       type: "string",
@@ -849,6 +882,20 @@ export const $ActionUpdate = {
         },
       ],
       title: "Upstream Edges",
+    },
+    locked_execution_id: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Locked Execution Id",
+      description:
+        "Lock the action to this past execution: draft runs reuse its result. Set null to unlock.",
     },
   },
   type: "object",
@@ -4128,6 +4175,30 @@ export const $AgentPresetVersionReadMinimal = {
   ],
   title: "AgentPresetVersionReadMinimal",
   description: "Metadata returned when listing immutable preset versions.",
+} as const
+
+export const $AgentPresetWorkflowReference = {
+  properties: {
+    preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Preset Id",
+    },
+    workflow_id: {
+      type: "string",
+      pattern: "wf_[0-9a-zA-Z]+",
+      title: "Workflow Id",
+    },
+    workflow_title: {
+      type: "string",
+      title: "Workflow Title",
+    },
+  },
+  type: "object",
+  required: ["preset_id", "workflow_id", "workflow_title"],
+  title: "AgentPresetWorkflowReference",
+  description:
+    "A workflow whose draft runs a preset through `ai.preset_agent`.",
 } as const
 
 export const $AgentSessionArtifactsRead = {
@@ -10168,6 +10239,18 @@ export const $CaseRead = {
 
 export const $CaseReadMinimal = {
   properties: {
+    is_exact_match: {
+      type: "boolean",
+      title: "Is Exact Match",
+      description: "This row is the promoted exact case reference.",
+      default: false,
+    },
+    is_outside_filters: {
+      type: "boolean",
+      title: "Is Outside Filters",
+      description: "The promoted reference falls outside the filtered results.",
+      default: false,
+    },
     id: {
       type: "string",
       format: "uuid",
@@ -12984,6 +13067,69 @@ export const $CursorPaginatedResponse_AgentPresetVersionReadMinimal_ = {
   title: "CursorPaginatedResponse[AgentPresetVersionReadMinimal]",
 } as const
 
+export const $CursorPaginatedResponse_AgentPresetWorkflowReference_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentPresetWorkflowReference",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[AgentPresetWorkflowReference]",
+} as const
+
 export const $CursorPaginatedResponse_AgentTagRead_ = {
   properties: {
     items: {
@@ -14767,6 +14913,15 @@ export const $DSLRunArgs = {
       description:
         "Registry version lock for action execution. Contains origins (origin -> version) and actions (action_name -> origin) mappings.",
     },
+    fixed_action_results: {
+      additionalProperties: {
+        $ref: "#/components/schemas/FixedActionResult",
+      },
+      type: "object",
+      title: "Fixed Action Results",
+      description:
+        "Results reused from a previous run, keyed by action ref. Matching root-scope actions use these instead of executing.",
+    },
   },
   type: "object",
   required: ["role", "wf_id"],
@@ -16400,6 +16555,31 @@ export const $FileUIPart = {
   required: ["type", "mediaType", "url"],
   title: "FileUIPart",
   description: "A file part of a message.",
+} as const
+
+export const $FixedActionResult = {
+  properties: {
+    result: {
+      $ref: "#/components/schemas/TaskResult",
+    },
+    source_execution_id: {
+      type: "string",
+      title: "Source Execution Id",
+    },
+    source_event_id: {
+      type: "integer",
+      title: "Source Event Id",
+    },
+    mask_output: {
+      type: "boolean",
+      title: "Mask Output",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["result", "source_execution_id", "source_event_id"],
+  title: "FixedActionResult",
+  description: "An action result reused from a previous run of the workflow.",
 } as const
 
 export const $Float = {
@@ -40093,6 +40273,30 @@ export const $WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_ = {
         },
       ],
     },
+    fixed_from_execution_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern:
+            "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Fixed From Execution Id",
+    },
+    fixed_from_event_id: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Fixed From Event Id",
+    },
   },
   type: "object",
   required: [
@@ -41191,6 +41395,215 @@ export const $WorkflowReadMinimal = {
   ],
   title: "WorkflowReadMinimal",
   description: "Minimal version of WorkflowRead model for list endpoints.",
+} as const
+
+export const $WorkflowRerunActionMatch = {
+  properties: {
+    ref: {
+      type: "string",
+      title: "Ref",
+    },
+    status: {
+      $ref: "#/components/schemas/WorkflowRerunActionStatus",
+    },
+    source_action: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Action",
+    },
+    target_action: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Action",
+    },
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+  },
+  type: "object",
+  required: ["ref", "status"],
+  title: "WorkflowRerunActionMatch",
+} as const
+
+export const $WorkflowRerunActionStatus = {
+  type: "string",
+  enum: ["fixed", "excluded", "runs", "not_in_target", "action_changed"],
+  title: "WorkflowRerunActionStatus",
+} as const
+
+export const $WorkflowRerunPlan = {
+  properties: {
+    source_execution_id: {
+      type: "string",
+      pattern:
+        "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+      title: "Source Execution Id",
+    },
+    workflow_id: {
+      type: "string",
+      pattern: "wf_[0-9a-zA-Z]+",
+      title: "Workflow Id",
+    },
+    use_draft: {
+      type: "boolean",
+      title: "Use Draft",
+    },
+    version: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Version",
+    },
+    actions: {
+      items: {
+        $ref: "#/components/schemas/WorkflowRerunActionMatch",
+      },
+      type: "array",
+      title: "Actions",
+    },
+    fixed_action_refs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Fixed Action Refs",
+    },
+    unmatched_refs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Unmatched Refs",
+    },
+    inputs_error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Inputs Error",
+    },
+  },
+  type: "object",
+  required: [
+    "source_execution_id",
+    "workflow_id",
+    "use_draft",
+    "actions",
+    "fixed_action_refs",
+    "unmatched_refs",
+  ],
+  title: "WorkflowRerunPlan",
+} as const
+
+export const $WorkflowRerunRequest = {
+  properties: {
+    use_draft: {
+      type: "boolean",
+      title: "Use Draft",
+      description:
+        "Rerun against the current draft. Set false to use a published version.",
+      default: true,
+    },
+    version: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Version",
+      description:
+        "Published version to rerun against when use_draft is false. Null uses the current published version.",
+    },
+    fixed_action_refs: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Fixed Action Refs",
+      description:
+        "Action refs whose results to reuse. Null reuses every matching successful action; an empty list reruns everything.",
+    },
+    rerun_from_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Rerun From Ref",
+      description:
+        "Rerun from this action: it and every action downstream of it in the target run fresh.",
+    },
+  },
+  type: "object",
+  title: "WorkflowRerunRequest",
+} as const
+
+export const $WorkflowRerunResponse = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    wf_id: {
+      type: "string",
+      pattern: "wf_[0-9a-zA-Z]+",
+      title: "Wf Id",
+    },
+    wf_exec_id: {
+      type: "string",
+      pattern:
+        "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
+      title: "Wf Exec Id",
+    },
+    plan: {
+      $ref: "#/components/schemas/WorkflowRerunPlan",
+    },
+  },
+  type: "object",
+  required: ["message", "wf_id", "wf_exec_id", "plan"],
+  title: "WorkflowRerunResponse",
 } as const
 
 export const $WorkflowRunReadMinimal = {

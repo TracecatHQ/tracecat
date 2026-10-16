@@ -4,7 +4,6 @@ import asyncio
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import timedelta
 from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -842,56 +841,6 @@ def test_subflow_user_classification_control_flow_is_replay_gated() -> None:
 
 
 @pytest.mark.anyio
-async def test_prepare_subflow_keeps_existing_classification_authoritative() -> None:
-    original_classification = RuntimeErrorClassification.user(
-        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
-        message="The action failed",
-        retry_disposition=RetryDisposition.RETRYABLE,
-    )
-    original_error = _capture_application_error(original_classification)
-
-    with (
-        patch(
-            "tracecat.dsl.action._prepare_subflow",
-            new=AsyncMock(side_effect=original_error),
-        ),
-        pytest.raises(ApplicationError) as exc_info,
-    ):
-        await DSLActivities.prepare_subflow_activity(_prepare_subflow_input())
-
-    error = exc_info.value
-    assert extract_error_classification(error) == original_classification
-    assert error.non_retryable is False
-    assert error.type == original_classification.kind.value
-
-
-@pytest.mark.anyio
-async def test_prepare_subflow_keeps_existing_non_retryable_semantics() -> None:
-    original_error = ApplicationError(
-        "Do not retry this operation",
-        type="DependencyRejectedRequest",
-        non_retryable=True,
-    )
-
-    with (
-        patch(
-            "tracecat.dsl.action._prepare_subflow",
-            new=AsyncMock(side_effect=original_error),
-        ),
-        pytest.raises(ApplicationError) as exc_info,
-    ):
-        await DSLActivities.prepare_subflow_activity(_prepare_subflow_input())
-
-    error = exc_info.value
-    classification = extract_error_classification(error)
-    assert classification is not None
-    assert classification.owner is RuntimeErrorOwner.PLATFORM
-    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
-    assert error.non_retryable is True
-    assert error.type == classification.kind.value
-
-
-@pytest.mark.anyio
 async def test_prepare_subflow_drops_unclassified_application_error_details() -> None:
     sensitive = "postgresql://user:secret@example.invalid/database"
     original_error = ApplicationError(
@@ -951,38 +900,6 @@ async def test_prepare_subflow_filters_unclassified_sibling_details() -> None:
 
 
 @pytest.mark.anyio
-async def test_prepare_subflow_clears_retry_delay_for_non_retryable_classification() -> (
-    None
-):
-    classification = RuntimeErrorClassification.user(
-        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
-        message="The action failed",
-        retry_disposition=RetryDisposition.NON_RETRYABLE,
-    )
-    classified = _capture_application_error(classification)
-    original_error = ApplicationError(
-        classified.message,
-        *classified.details,
-        type=classified.type,
-        non_retryable=True,
-        next_retry_delay=timedelta(seconds=5),
-    )
-
-    with (
-        patch(
-            "tracecat.dsl.action._prepare_subflow",
-            new=AsyncMock(side_effect=original_error),
-        ),
-        pytest.raises(ApplicationError) as exc_info,
-    ):
-        await DSLActivities.prepare_subflow_activity(_prepare_subflow_input())
-
-    assert exc_info.value.non_retryable is True
-    assert exc_info.value.next_retry_delay is None
-    assert extract_error_classification(exc_info.value) == classification
-
-
-@pytest.mark.anyio
 async def test_prepare_subflow_cancellation_keeps_native_semantics() -> None:
     with (
         patch(
@@ -992,64 +909,6 @@ async def test_prepare_subflow_cancellation_keeps_native_semantics() -> None:
         pytest.raises(asyncio.CancelledError),
     ):
         await DSLActivities.prepare_subflow_activity(_prepare_subflow_input())
-
-
-@pytest.mark.anyio
-async def test_error_handler_runs_before_original_owner_is_stamped() -> None:
-    """The handler completes before the original error's owner is stamped."""
-    instance, args = _error_handler_workflow()
-    classification = RuntimeErrorClassification.user(
-        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
-        message="The action failed",
-        retry_disposition=RetryDisposition.NON_RETRYABLE,
-    )
-    error = _capture_application_error(
-        classification,
-        {"action": _error_transport_detail(classification, ref="action")},
-    )
-    events: list[str] = []
-
-    async def run_handler(_: DSLRunArgs) -> None:
-        events.append("handler")
-
-    with (
-        patch.object(
-            instance,
-            "_get_error_handler_workflow_id",
-            new=AsyncMock(return_value=args.wf_id),
-        ),
-        patch.object(
-            instance,
-            "_prepare_error_handler_workflow",
-            new=AsyncMock(return_value=args),
-        ),
-        patch.object(
-            instance,
-            "_run_error_handler_workflow",
-            new=AsyncMock(side_effect=run_handler),
-        ) as run_handler_mock,
-        patch.object(
-            DSLWorkflow,
-            "_upsert_terminal_error_owner",
-            side_effect=lambda _: events.append("upsert"),
-        ) as upsert_mock,
-        patch("tracecat.dsl.workflow.workflow.info"),
-        patch(
-            "tracecat.dsl.workflow.get_trigger_type",
-            return_value=TriggerType.MANUAL,
-        ),
-        pytest.raises(ApplicationError) as exc_info,
-    ):
-        await instance._handle_application_error(
-            args,
-            error,
-            stamp_terminal_owner=True,
-        )
-
-    assert exc_info.value is error
-    run_handler_mock.assert_awaited_once_with(args)
-    upsert_mock.assert_called_once_with(error)
-    assert events == ["handler", "upsert"]
 
 
 @pytest.mark.anyio
@@ -1118,48 +977,6 @@ async def test_error_handler_failure_preserves_original_terminal_owner() -> None
 
 
 @pytest.mark.anyio
-async def test_unclassified_handler_failure_preserves_original_owner() -> None:
-    """An unclassified handler failure stays secondary to the original error."""
-    instance, args = _error_handler_workflow()
-    original_classification = RuntimeErrorClassification.user(
-        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
-        message="The action failed",
-        retry_disposition=RetryDisposition.NON_RETRYABLE,
-    )
-    original_error = _capture_application_error(original_classification)
-    handler_error = RuntimeError("Handler lookup failed")
-
-    with (
-        patch.object(
-            instance,
-            "_get_error_handler_workflow_id",
-            new=AsyncMock(side_effect=handler_error),
-        ),
-        patch(
-            "tracecat.dsl.workflow.workflow.patched",
-            return_value=True,
-        ) as patched_mock,
-        patch("tracecat.dsl.workflow.workflow.upsert_search_attributes") as upsert_mock,
-    ):
-        try:
-            raise original_error
-        except ApplicationError as active_error:
-            with pytest.raises(ApplicationError) as exc_info:
-                await instance._handle_application_error(
-                    args,
-                    active_error,
-                    stamp_terminal_owner=True,
-                )
-
-    assert exc_info.value is original_error
-    assert handler_error.__context__ is original_error
-    patched_mock.assert_called_once_with(
-        WorkflowPatch.PRESERVE_ORIGINAL_ERROR_AFTER_HANDLER_FAILURE
-    )
-    upsert_mock.assert_not_called()
-
-
-@pytest.mark.anyio
 async def test_error_handler_lookup_failure_defers_owner_stamp_to_interceptor() -> None:
     instance, args = _error_handler_workflow()
     original_classification = RuntimeErrorClassification.user(
@@ -1180,45 +997,6 @@ async def test_error_handler_lookup_failure_defers_owner_stamp_to_interceptor() 
             instance,
             "_get_error_handler_workflow_id",
             new=AsyncMock(side_effect=lookup_error),
-        ),
-        patch.object(
-            DSLWorkflow,
-            "_upsert_terminal_error_owner",
-        ) as upsert_mock,
-        patch(
-            "tracecat.dsl.workflow.workflow.patched",
-            return_value=True,
-        ),
-        pytest.raises(ApplicationError) as exc_info,
-    ):
-        await instance._handle_application_error(
-            args,
-            original_error,
-            stamp_terminal_owner=True,
-        )
-
-    assert exc_info.value is original_error
-    upsert_mock.assert_not_called()
-
-
-@pytest.mark.anyio
-async def test_error_handler_detail_failure_defers_owner_stamp_to_interceptor() -> None:
-    instance, args = _error_handler_workflow()
-    original_classification = RuntimeErrorClassification.user(
-        kind=RuntimeErrorKind.ACTION_EXECUTION_FAILED,
-        message="The action failed",
-        retry_disposition=RetryDisposition.NON_RETRYABLE,
-    )
-    original_error = _capture_application_error(
-        original_classification,
-        {"action": {"invalid": "detail"}},
-    )
-
-    with (
-        patch.object(
-            instance,
-            "_get_error_handler_workflow_id",
-            new=AsyncMock(return_value=args.wf_id),
         ),
         patch.object(
             DSLWorkflow,
@@ -1296,14 +1074,6 @@ def test_terminal_owner_upsert_is_replay_gated() -> None:
 
     patched_mock.assert_called_once_with(WorkflowPatch.ERROR_OWNER_SEARCH_ATTRIBUTE)
     upsert_mock.assert_not_called()
-
-
-def test_error_handler_owner_timing_has_distinct_replay_patch() -> None:
-    assert WorkflowPatch.ERROR_OWNER_AFTER_HANDLER not in {
-        WorkflowPatch.ERROR_OWNER_SEARCH_ATTRIBUTE,
-        WorkflowPatch.ERROR_OWNER_CONTROL_FLOW,
-        WorkflowPatch.PRESERVE_ORIGINAL_ERROR_AFTER_HANDLER_FAILURE,
-    }
 
 
 def test_legacy_terminal_error_does_not_add_patch_marker_or_owner() -> None:

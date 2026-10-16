@@ -98,6 +98,14 @@ class ActionControlFlow(Schema):
         return v
 
 
+class ActionLockStatus(Schema):
+    ref: str
+    locked_execution_id: str
+    available: bool = Field(
+        description="False when the locked run no longer exists, e.g. after history retention."
+    )
+
+
 class ActionRead(Schema):
     id: ActionID
     type: str
@@ -109,6 +117,7 @@ class ActionRead(Schema):
     position_x: float = 0.0
     position_y: float = 0.0
     upstream_edges: list[ActionEdge] = Field(default_factory=list)
+    locked_execution_id: str | None = None
 
     @model_validator(mode="after")
     def normalize_agent_timeout(self) -> Self:
@@ -165,6 +174,14 @@ class ActionUpdate(Schema):
     position_x: float | None = None
     position_y: float | None = None
     upstream_edges: list[ActionEdge] | None = None
+    locked_execution_id: str | None = Field(
+        default=None,
+        max_length=255,
+        description=(
+            "Lock the action to this past execution: draft runs reuse its "
+            "result. Set null to unlock."
+        ),
+    )
 
     @field_validator("inputs", mode="after")
     def validate_inputs(cls, v: str) -> str:

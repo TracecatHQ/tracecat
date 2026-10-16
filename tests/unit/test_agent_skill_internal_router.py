@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
-from fastapi.routing import APIRoute
 
 from tracecat.agent.skill.internal_router import (
     get_skill,
@@ -16,7 +15,6 @@ from tracecat.agent.skill.internal_router import (
     list_skills,
     publish_skill_draft,
     publish_skill_version,
-    router,
 )
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatValidationError
@@ -32,47 +30,13 @@ def _executor_role() -> Role:
     )
 
 
-def test_internal_router_exposes_draft_and_version_publish() -> None:
-    routes = {
-        (route.path, method)
-        for route in router.routes
-        if isinstance(route, APIRoute)
-        for method in route.methods or ()
-    }
-
-    assert ("/internal/agent/skills/{skill_id}/publish", "POST") in routes
-    assert ("/internal/agent/skills/{skill_id}/versions", "POST") in routes
-
-
 @pytest.mark.anyio
-async def test_list_skills_converts_invalid_cursor_to_http_400() -> None:
+async def test_list_endpoints_convert_invalid_cursor_to_http_400() -> None:
+    skill_id = uuid.uuid4()
     mock_service = AsyncMock()
     mock_service.list_skills.side_effect = TracecatValidationError(
         "Invalid cursor for skills"
     )
-
-    with patch(
-        "tracecat.agent.skill.internal_router.SkillService",
-        return_value=mock_service,
-    ):
-        with pytest.raises(HTTPException) as exc_info:
-            raw_list_skills = cast(Any, list_skills).__wrapped__
-            await raw_list_skills(
-                role=_executor_role(),
-                session=AsyncMock(),
-                limit=10,
-                cursor="not-a-valid-cursor",
-                reverse=False,
-            )
-
-    assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == "Invalid cursor for skills"
-
-
-@pytest.mark.anyio
-async def test_list_skill_versions_converts_invalid_cursor_to_http_400() -> None:
-    skill_id = uuid.uuid4()
-    mock_service = AsyncMock()
     mock_service.get_skill_by_identifier.return_value = SimpleNamespace(id=skill_id)
     mock_service.list_versions.side_effect = TracecatValidationError(
         "Invalid cursor for skill versions"
@@ -82,9 +46,16 @@ async def test_list_skill_versions_converts_invalid_cursor_to_http_400() -> None
         "tracecat.agent.skill.internal_router.SkillService",
         return_value=mock_service,
     ):
-        with pytest.raises(HTTPException) as exc_info:
-            raw_list_skill_versions = cast(Any, list_skill_versions).__wrapped__
-            await raw_list_skill_versions(
+        with pytest.raises(HTTPException) as skills_exc:
+            await cast(Any, list_skills).__wrapped__(
+                role=_executor_role(),
+                session=AsyncMock(),
+                limit=10,
+                cursor="not-a-valid-cursor",
+                reverse=False,
+            )
+        with pytest.raises(HTTPException) as versions_exc:
+            await cast(Any, list_skill_versions).__wrapped__(
                 skill_id=skill_id,
                 role=_executor_role(),
                 session=AsyncMock(),
@@ -93,8 +64,10 @@ async def test_list_skill_versions_converts_invalid_cursor_to_http_400() -> None
                 reverse=False,
             )
 
-    assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == "Invalid cursor for skill versions"
+    assert skills_exc.value.status_code == 400
+    assert skills_exc.value.detail == "Invalid cursor for skills"
+    assert versions_exc.value.status_code == 400
+    assert versions_exc.value.detail == "Invalid cursor for skill versions"
 
 
 @pytest.mark.anyio

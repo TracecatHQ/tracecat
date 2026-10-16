@@ -221,6 +221,30 @@ TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED = env_bool(
 )
 """Prefer SquashFS registry artifacts when sidecars and mount support are available."""
 
+TRACECAT__EXECUTOR_SQUASHFS_MOUNT_MAX_ATTEMPTS = bound_env(
+    "TRACECAT__EXECUTOR_SQUASHFS_MOUNT_MAX_ATTEMPTS",
+    3,
+    lower=1,
+)
+"""Mount attempts per SquashFS artifact before falling back to extraction.
+
+Losers of a node-wide loop-device race retry; raise this before raising
+in-pod mount concurrency."""
+
+TRACECAT__EXECUTOR_REGISTRY_DOWNLOAD_SLOTS = bound_env(
+    "TRACECAT__EXECUTOR_REGISTRY_DOWNLOAD_SLOTS", 2, lower=1
+)
+"""Concurrent cold registry artifact downloads per executor process.
+
+Each download reserves its bytes against the cache cap before writing."""
+
+TRACECAT__EXECUTOR_REGISTRY_EXTRACT_SLOTS = bound_env(
+    "TRACECAT__EXECUTOR_REGISTRY_EXTRACT_SLOTS", 1, lower=1
+)
+"""Concurrent registry artifact extractions per executor process.
+
+unsquashfs already uses every visible core, so one is the default."""
+
 TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = int(
     os.environ.get("TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES") or 64
 )
@@ -866,6 +890,15 @@ TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS = env_networks(
 )
 """Deployment-specific CIDRs blocked in addition to the filtered baseline."""
 
+TRACECAT__SANDBOX_DNS_ALLOWED_EGRESS_CIDRS = env_networks(
+    "TRACECAT__SANDBOX_DNS_ALLOWED_EGRESS_CIDRS"
+)
+"""Additional CIDRs reachable from sandboxes on TCP/UDP port 53 only.
+
+CNIs with socket-level load balancing (for example Cilium with socket LB)
+rewrite the resolver ClusterIP to a backend pod IP before the packet reaches
+NSTUN. List the backend CIDR here so DNS to those addresses is allowed."""
+
 TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS = env_bool(
     "TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS", default=False
 )
@@ -886,7 +919,28 @@ TRACECAT__EXECUTOR_BACKEND = ExecutorBackendType.from_config(
 TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
     os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT") or 300
 )
-"""Default timeout in seconds for executor client operations (default: 300s)."""
+"""Maximum seconds one action function call may run (default: 300s).
+
+The executor caps each UDF subprocess call at this value and uses it as the
+action timeout when the timeout is 0. Template totals and run_python follow the
+action's own timeout. Agent services also use it to bound executor tool calls."""
+
+TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT = float(
+    os.environ.get("TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT") or 600
+)
+"""Seconds added to an action's timeout for the executor activity's start-to-close timeout.
+
+The action timeout budgets only the action function call. This allowance covers
+platform work in the same activity (context materialization, secret resolution,
+registry artifacts, sandbox startup, and result storage)."""
+
+TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE = float(
+    os.environ.get("TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE") or 60
+)
+"""Seconds an action subprocess may run beyond the action timeout before it is killed.
+
+Covers sandbox startup, imports, and result serialization around the timed
+function call, which the action runner enforces itself."""
 
 # === Action Gateway === #
 TRACECAT__ACTION_GATEWAY_SOCKET = (

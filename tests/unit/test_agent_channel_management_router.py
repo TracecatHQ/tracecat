@@ -33,16 +33,18 @@ class _AsyncContext:
         return None
 
 
-@pytest.mark.anyio
-async def test_start_slack_oauth_rejects_mismatched_token_preset() -> None:
-    role = Role(
+def _role() -> Role:
+    return Role(
         type="service",
         service_id="tracecat-api",
         workspace_id=uuid.uuid4(),
         organization_id=uuid.uuid4(),
         scopes=frozenset({"agent:update"}),
     )
-    params = SlackOAuthStartRequest(
+
+
+def _oauth_start_params() -> SlackOAuthStartRequest:
+    return SlackOAuthStartRequest(
         token_id=uuid.uuid4(),
         agent_preset_id=uuid.uuid4(),
         client_id="client-id",
@@ -50,86 +52,52 @@ async def test_start_slack_oauth_rejects_mismatched_token_preset() -> None:
         signing_secret="signing-secret",
         return_url="https://app.tracecat.com/settings",
     )
-    existing_token = SimpleNamespace(
-        id=params.token_id,
-        agent_preset_id=uuid.uuid4(),
-    )
-    mock_service = AsyncMock()
-    mock_service.get_token.return_value = existing_token
 
+
+async def _start_oauth_error(
+    params: SlackOAuthStartRequest, service: object
+) -> HTTPException:
     with patch(
         "tracecat.agent.channels.management_router.AgentChannelService",
-        return_value=mock_service,
+        return_value=service,
     ):
         with pytest.raises(HTTPException) as exc_info:
             oauth_start_fn = getattr(
                 start_slack_oauth, "__wrapped__", start_slack_oauth
             )
-            await oauth_start_fn(
-                params=params,
-                role=role,
-                session=AsyncMock(),
-            )
+            await oauth_start_fn(params=params, role=_role(), session=AsyncMock())
+    return exc_info.value
 
-    assert exc_info.value.status_code == 400
-    assert "does not match the requested agent preset" in exc_info.value.detail
+
+@pytest.mark.anyio
+async def test_start_slack_oauth_rejects_mismatched_token_preset() -> None:
+    params = _oauth_start_params()
+    mock_service = AsyncMock()
+    mock_service.get_token.return_value = SimpleNamespace(
+        id=params.token_id,
+        agent_preset_id=uuid.uuid4(),
+    )
+
+    error = await _start_oauth_error(params, mock_service)
+
+    assert error.status_code == 400
+    assert "does not match the requested agent preset" in error.detail
 
 
 @pytest.mark.anyio
 async def test_start_slack_oauth_returns_404_for_missing_token() -> None:
-    role = Role(
-        type="service",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        scopes=frozenset({"agent:update"}),
-    )
-    params = SlackOAuthStartRequest(
-        token_id=uuid.uuid4(),
-        agent_preset_id=uuid.uuid4(),
-        client_id="client-id",
-        client_secret="client-secret",
-        signing_secret="signing-secret",
-        return_url="https://app.tracecat.com/settings",
-    )
     mock_service = AsyncMock()
     mock_service.get_token.return_value = None
 
-    with patch(
-        "tracecat.agent.channels.management_router.AgentChannelService",
-        return_value=mock_service,
-    ):
-        with pytest.raises(HTTPException) as exc_info:
-            oauth_start_fn = getattr(
-                start_slack_oauth, "__wrapped__", start_slack_oauth
-            )
-            await oauth_start_fn(
-                params=params,
-                role=role,
-                session=AsyncMock(),
-            )
+    error = await _start_oauth_error(_oauth_start_params(), mock_service)
 
-    assert exc_info.value.status_code == 404
+    assert error.status_code == 404
 
 
 @pytest.mark.anyio
 async def test_start_slack_oauth_returns_404_for_soft_deleted_existing_token() -> None:
     """Slack OAuth updates reject tokens whose preset is soft-deleted."""
-    role = Role(
-        type="service",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        scopes=frozenset({"agent:update"}),
-    )
-    params = SlackOAuthStartRequest(
-        token_id=uuid.uuid4(),
-        agent_preset_id=uuid.uuid4(),
-        client_id="client-id",
-        client_secret="client-secret",
-        signing_secret="signing-secret",
-        return_url="https://app.tracecat.com/settings",
-    )
+    params = _oauth_start_params()
     existing_token = SimpleNamespace(
         id=params.token_id,
         agent_preset_id=params.agent_preset_id,
@@ -150,22 +118,10 @@ async def test_start_slack_oauth_returns_404_for_soft_deleted_existing_token() -
         )
     )
 
-    with patch(
-        "tracecat.agent.channels.management_router.AgentChannelService",
-        return_value=mock_service,
-    ):
-        with pytest.raises(HTTPException) as exc_info:
-            oauth_start_fn = getattr(
-                start_slack_oauth, "__wrapped__", start_slack_oauth
-            )
-            await oauth_start_fn(
-                params=params,
-                role=role,
-                session=AsyncMock(),
-            )
+    error = await _start_oauth_error(params, mock_service)
 
-    assert exc_info.value.status_code == 404
-    assert "not found in workspace" in exc_info.value.detail
+    assert error.status_code == 404
+    assert "not found in workspace" in error.detail
 
 
 @pytest.mark.anyio
@@ -264,13 +220,7 @@ async def test_slack_oauth_callback_rejects_soft_deleted_preset_before_exchange(
 @pytest.mark.anyio
 async def test_update_channel_token_returns_404_for_soft_deleted_preset() -> None:
     """Channel token updates surface soft-deleted presets as not found."""
-    role = Role(
-        type="service",
-        service_id="tracecat-api",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        scopes=frozenset({"agent:update"}),
-    )
+    role = _role()
     token_id = uuid.uuid4()
     existing_token = SimpleNamespace(
         id=token_id,

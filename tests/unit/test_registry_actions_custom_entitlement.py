@@ -444,6 +444,85 @@ async def test_search_actions_from_index_hides_custom_actions_without_entitlemen
 
 
 @pytest.mark.anyio
+async def test_search_actions_from_index_treats_like_wildcards_as_literal_text(
+    session: AsyncSession,
+) -> None:
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="literal-search-1.0",
+        action_names=[
+            "tools.literal.search_events",
+            "tools.literal.searchXevents",
+            "tools.literal.percent",
+            "tools.literal.number",
+        ],
+    )
+    await session.execute(
+        update(PlatformRegistryIndex)
+        .where(PlatformRegistryIndex.name == "percent")
+        .values(description="completion 100% done")
+    )
+    await session.execute(
+        update(PlatformRegistryIndex)
+        .where(PlatformRegistryIndex.name == "number")
+        .values(description="completion 1000 done")
+    )
+    await session.commit()
+
+    role = Role(
+        type="service",
+        organization_id=uuid.uuid4(),
+        service_id="tracecat-api",
+    )
+    service = RegistryActionsService(session, role=role)
+    underscore_matches = await service.search_actions_from_index("search_events")
+    percent_matches = await service.search_actions_from_index("100% done")
+
+    assert {f"{entry.namespace}.{entry.name}" for entry, _ in underscore_matches} == {
+        "tools.literal.search_events"
+    }
+    assert {f"{entry.namespace}.{entry.name}" for entry, _ in percent_matches} == {
+        "tools.literal.percent"
+    }
+
+
+@pytest.mark.anyio
+async def test_search_actions_ranks_exact_namespace_before_large_related_catalog(
+    session: AsyncSession,
+) -> None:
+    related_actions = [
+        f"tools.example_security.event_{index:03d}" for index in range(60)
+    ]
+    exact_action = "tools.example.search_events"
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="ranked-search-1.0",
+        action_names=[*related_actions, exact_action],
+    )
+    service = RegistryActionsService(
+        session,
+        role=Role(
+            type="service",
+            organization_id=uuid.uuid4(),
+            service_id="tracecat-api",
+        ),
+    )
+
+    first_page = await service.search_actions_from_index("example", limit=20)
+    all_matches = await service.search_actions_from_index("example")
+
+    assert f"{first_page[0][0].namespace}.{first_page[0][0].name}" == exact_action
+    assert len(first_page) == 20
+    assert len(all_matches) == 61
+    assert [f"{entry.namespace}.{entry.name}" for entry, _ in all_matches] == [
+        exact_action,
+        *related_actions,
+    ]
+
+
+@pytest.mark.anyio
 async def test_classify_missing_actions_separates_entitlement_gaps(
     svc_role: Role,
     session: AsyncSession,

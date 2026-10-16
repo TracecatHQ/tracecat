@@ -12,6 +12,8 @@ import type {
   ActionsDeleteActionResponse,
   ActionsGetActionData,
   ActionsGetActionResponse,
+  ActionsListActionLockStatusesData,
+  ActionsListActionLockStatusesResponse,
   ActionsListActionsData,
   ActionsListActionsResponse,
   ActionsUpdateActionData,
@@ -165,6 +167,8 @@ import type {
   AgentPresetsListAgentPresetsResponse,
   AgentPresetsListAgentPresetVersionsData,
   AgentPresetsListAgentPresetVersionsResponse,
+  AgentPresetsListAgentPresetWorkflowReferencesData,
+  AgentPresetsListAgentPresetWorkflowReferencesResponse,
   AgentPresetsListPresetTagsData,
   AgentPresetsListPresetTagsResponse,
   AgentPresetsMoveAgentPresetToFolderData,
@@ -1077,6 +1081,10 @@ import type {
   WorkflowExecutionsListWorkflowExecutionResetPointsResponse,
   WorkflowExecutionsListWorkflowExecutionsData,
   WorkflowExecutionsListWorkflowExecutionsResponse,
+  WorkflowExecutionsPreviewWorkflowExecutionRerunData,
+  WorkflowExecutionsPreviewWorkflowExecutionRerunResponse,
+  WorkflowExecutionsRerunWorkflowExecutionData,
+  WorkflowExecutionsRerunWorkflowExecutionResponse,
   WorkflowExecutionsResetWorkflowExecutionData,
   WorkflowExecutionsResetWorkflowExecutionResponse,
   WorkflowExecutionsSearchWorkflowExecutionsData,
@@ -2895,6 +2903,62 @@ export const workflowExecutionsResetWorkflowExecution = (
 }
 
 /**
+ * Preview Workflow Execution Rerun
+ * Match a past run's successful action results against a rerun target.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.executionId
+ * @param data.requestBody
+ * @returns WorkflowRerunPlan Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsPreviewWorkflowExecutionRerun = (
+  data: WorkflowExecutionsPreviewWorkflowExecutionRerunData
+): CancelablePromise<WorkflowExecutionsPreviewWorkflowExecutionRerunResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/workflow-executions/{execution_id}/rerun/preview",
+    path: {
+      workspace_id: data.workspaceId,
+      execution_id: data.executionId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Rerun Workflow Execution
+ * Rerun a past run, reusing results of its successful actions.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.executionId
+ * @param data.requestBody
+ * @returns WorkflowRerunResponse Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsRerunWorkflowExecution = (
+  data: WorkflowExecutionsRerunWorkflowExecutionData
+): CancelablePromise<WorkflowExecutionsRerunWorkflowExecutionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/workflow-executions/{execution_id}/rerun",
+    path: {
+      workspace_id: data.workspaceId,
+      execution_id: data.executionId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Bulk Reset Workflow Executions
  * @param data The data for the request.
  * @param data.workspaceId
@@ -3215,6 +3279,33 @@ export const actionsCreateAction = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Action Lock Statuses
+ * Whether each locked action's source run still exists.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.workflowId
+ * @returns ActionLockStatus Successful Response
+ * @throws ApiError
+ */
+export const actionsListActionLockStatuses = (
+  data: ActionsListActionLockStatusesData
+): CancelablePromise<ActionsListActionLockStatusesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/actions/lock-status",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      workflow_id: data.workflowId,
+    },
     errors: {
       422: "Validation Error",
     },
@@ -6126,6 +6217,36 @@ export const agentPresetsCreateAgentPreset = (
     mediaType: "application/json",
     errors: {
       400: "Invalid agent preset configuration",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Agent Preset Workflow References
+ * Page through the workflows that run each agent preset.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_AgentPresetWorkflowReference_ Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsListAgentPresetWorkflowReferences = (
+  data: AgentPresetsListAgentPresetWorkflowReferencesData
+): CancelablePromise<AgentPresetsListAgentPresetWorkflowReferencesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/presets/workflow-references",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      400: "Invalid cursor",
       422: "Validation Error",
     },
   })
@@ -11923,6 +12044,9 @@ export const casesCreateCase = (
  * @param data.reverse Reverse pagination direction
  * @param data.searchTerm Text to search for in case summary, description, short ID, or case UUID
  * @param data.shortId Search by exact case short ID (e.g. 42 or CASE-0042)
+ * @param data.caseId Filter by exact case UUID
+ * @param data.promoteExactMatch Place a complete case reference first, even outside view filters. Workspace authorization and explicit identity/relationship constraints remain strict. Filtered counts exclude cases outside the view.
+ * @param data.matchNone The ordinary filter population is empty; exact promotion may still match.
  * @param data.status Filter by case status
  * @param data.priority Filter by case priority
  * @param data.severity Filter by case severity
@@ -11959,6 +12083,9 @@ export const casesSearchCases = (
       reverse: data.reverse,
       search_term: data.searchTerm,
       short_id: data.shortId,
+      case_id: data.caseId,
+      promote_exact_match: data.promoteExactMatch,
+      match_none: data.matchNone,
       status: data.status,
       priority: data.priority,
       severity: data.severity,

@@ -114,7 +114,7 @@ export function CreateOrganizationDialog() {
           New organization
         </Button>
       </DialogTrigger>
-      <DialogContent size="sm">
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>Create organization</DialogTitle>
           <DialogDescription>

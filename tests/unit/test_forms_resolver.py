@@ -85,9 +85,14 @@ def _when(field: str, equals: Any) -> dict[str, Any]:
 @pytest.mark.parametrize(
     "image",
     [
-        _image("png", PNG + b"\x00" * (MAX_IMAGE_BYTES - len(PNG))),
-        _image("jpeg", b"\xff\xd8\xff\xe0" + b"\x00" * 10),
-        _image("webp", b"RIFF\x00\x00\x00\x00WEBP" + b"\x00" * 10),
+        pytest.param(
+            _image("png", PNG + b"\x00" * (MAX_IMAGE_BYTES - len(PNG))),
+            id="png-at-size-limit",
+        ),
+        pytest.param(_image("jpeg", b"\xff\xd8\xff\xe0" + b"\x00" * 10), id="jpeg"),
+        pytest.param(
+            _image("webp", b"RIFF\x00\x00\x00\x00WEBP" + b"\x00" * 10), id="webp"
+        ),
     ],
 )
 def test_option_images_accept_png_jpeg_and_webp_up_to_the_limit(image: str) -> None:
@@ -97,16 +102,23 @@ def test_option_images_accept_png_jpeg_and_webp_up_to_the_limit(image: str) -> N
 @pytest.mark.parametrize(
     "image",
     [
-        "https://example.com/laptop.png",
-        "data:image/gif;base64,R0lGODlh",
-        "data:image/svg+xml;base64,PHN2Zz4=",
-        "data:image/png,not-base64-marked",
-        "data:image/png;base64,not base64!",
+        pytest.param("https://example.com/laptop.png", id="remote-url"),
+        pytest.param("data:image/gif;base64,R0lGODlh", id="unsupported-gif"),
+        pytest.param("data:image/svg+xml;base64,PHN2Zz4=", id="unsupported-svg"),
+        pytest.param("data:image/png,not-base64-marked", id="missing-base64-marker"),
+        pytest.param("data:image/png;base64,not base64!", id="invalid-base64"),
         # Declared type and content disagree.
-        _image("png", b"\xff\xd8\xff\xe0" + b"\x00" * 10),
-        _image("webp", b"RIFF\x00\x00\x00\x00WAVE"),
-        _image("jpeg", b""),
-        _image("png", PNG + b"\x00" * (MAX_IMAGE_BYTES - len(PNG) + 1)),
+        pytest.param(
+            _image("png", b"\xff\xd8\xff\xe0" + b"\x00" * 10), id="mismatched-mime-type"
+        ),
+        pytest.param(
+            _image("webp", b"RIFF\x00\x00\x00\x00WAVE"), id="invalid-webp-signature"
+        ),
+        pytest.param(_image("jpeg", b""), id="empty-image"),
+        pytest.param(
+            _image("png", PNG + b"\x00" * (MAX_IMAGE_BYTES - len(PNG) + 1)),
+            id="png-over-size-limit",
+        ),
     ],
 )
 def test_option_images_reject_anything_else(image: str) -> None:
@@ -581,6 +593,42 @@ def test_a_field_default_must_be_a_valid_answer(
 
     expected = [] if valid else [(Code.DEFAULT_INVALID, ["layout", 0])]
     assert [(issue.code, issue.loc) for issue in result.issues] == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "valid"),
+    [
+        ("2026-02-03T10:00", True),
+        ("2026-02-03T10:00:00Z", True),
+        # What the widget sends.
+        ("2026-02-03T10:00:00.000Z", True),
+        ("2026-02-03T10:00:00.123456+08:00", True),
+        # Python parses these; a browser shows Invalid Date.
+        ("2026-W06-2T10:00:00", False),
+        ("20260203T100000", False),
+        ("2026-02-03T10", False),
+        ("2026-02-03 10:00:00", False),
+        ("2026-02-03T10:00:00+0800", False),
+        # Shaped right, but not a real date or time.
+        ("2026-02-30T10:00:00", False),
+        ("2026-02-03T10:00:60", False),
+        # Python reads this as +02:00; a browser rejects it.
+        ("2026-02-03T10:00:00+01:60", False),
+    ],
+)
+def test_a_datetime_answer_or_default_must_be_one_every_browser_parses(
+    value: str, valid: bool
+) -> None:
+    """Datetime answers and defaults take only the ISO form ``new Date()`` reads."""
+    answered = check_values(
+        _resolve(None, at={"type": "datetime"}).blocks, {"at": value}
+    )
+    defaulted = _resolve(None, at={"type": "datetime", "default": value})
+
+    assert [error.code for error in answered.errors] == (
+        [] if valid else [FormFieldErrorCode.INVALID_DATE]
+    )
+    assert _codes(defaulted) == ([] if valid else [Code.DEFAULT_INVALID])
 
 
 def test_a_default_issue_names_the_field_the_value_and_the_reason() -> None:

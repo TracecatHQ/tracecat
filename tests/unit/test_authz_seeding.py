@@ -19,7 +19,7 @@ from tracecat.db.models import Organization, Role, RoleScope, Scope
 
 @pytest.mark.anyio
 async def test_seed_system_scopes(session):
-    """Test that system scopes are seeded correctly."""
+    """System scopes are seeded once; a second run inserts nothing."""
     # Seed system scopes
     inserted_count = await seed_system_scopes(session)
 
@@ -41,32 +41,19 @@ async def test_seed_system_scopes(session):
     expected_names = {name for name, _, _, _ in SYSTEM_SCOPE_DEFINITIONS}
     assert scope_names == expected_names
 
-
-@pytest.mark.anyio
-async def test_seed_system_scopes_idempotent(session):
-    """Test that seeding is idempotent - running twice doesn't duplicate."""
-    # Seed once
-    first_count = await seed_system_scopes(session)
-    assert first_count == len(SYSTEM_SCOPE_DEFINITIONS)
-
-    # Seed again
-    second_count = await seed_system_scopes(session)
-    assert second_count == 0  # No new scopes inserted
-
-    # Verify count is still the same
-    result = await session.execute(
-        select(Scope).where(
+    assert await seed_system_scopes(session) == 0
+    rerun_result = await session.execute(
+        select(func.count(Scope.id)).where(
             Scope.source == ScopeSource.PLATFORM,
             Scope.organization_id.is_(None),
         )
     )
-    scopes = result.scalars().all()
-    assert len(scopes) == len(SYSTEM_SCOPE_DEFINITIONS)
+    assert rerun_result.scalar_one() == len(SYSTEM_SCOPE_DEFINITIONS)
 
 
 @pytest.mark.anyio
 async def test_seed_registry_scopes(session):
-    """Test bulk seeding of registry scopes."""
+    """Registry scopes are bulk-seeded once as platform scopes."""
     action_keys = [
         "tools.okta.list_users",
         "tools.okta.create_user",
@@ -102,28 +89,7 @@ async def test_seed_registry_scopes(session):
     )
     assert custom_scope_result.scalar_one() == 0
 
-
-@pytest.mark.anyio
-async def test_seed_registry_scopes_idempotent(session):
-    """Test that bulk seeding is idempotent."""
-    action_keys = ["tools.test.action1", "tools.test.action2"]
-
-    # First seed
-    first_count = await seed_registry_scopes(session, action_keys)
-    await session.commit()
-    assert first_count == len(action_keys)
-
-    # Second seed
-    second_count = await seed_registry_scopes(session, action_keys)
-    await session.commit()
-    assert second_count == 0
-
-
-@pytest.mark.anyio
-async def test_seed_registry_scopes_empty(session):
-    """Test bulk seeding with empty list."""
-    inserted_count = await seed_registry_scopes(session, [])
-    assert inserted_count == 0
+    assert await seed_registry_scopes(session, action_keys) == 0
 
 
 @pytest.mark.anyio
@@ -174,24 +140,15 @@ async def test_seed_system_roles_for_all_orgs_creates_roles_and_links(session):
     for slug, role_def in PRESET_ROLE_DEFINITIONS.items():
         assert role_scope_counts[slug] == len(role_def.scopes) * expected_org_count
 
-
-@pytest.mark.anyio
-async def test_seed_system_roles_for_all_orgs_idempotent(session):
-    """Running role seeding twice should not create duplicate roles."""
-    await seed_system_scopes(session)
-
-    first = await seed_system_roles_for_all_orgs(session)
-    second = await seed_system_roles_for_all_orgs(session)
-    assert first
-    assert set(first) == set(second)
-
-    org_count_result = await session.execute(select(func.count(Organization.id)))
-    org_count = org_count_result.scalar_one()
-    role_count_result = await session.execute(
-        select(func.count(Role.id)).where(Role.slug.in_(PRESET_ROLE_DEFINITIONS))
+    # Re-running must not duplicate roles.
+    assert set(await seed_system_roles_for_all_orgs(session)) == org_ids
+    rerun_roles = await session.execute(
+        select(func.count(Role.id)).where(
+            Role.organization_id.in_(org_ids),
+            Role.slug.in_(PRESET_ROLE_DEFINITIONS),
+        )
     )
-    role_count = role_count_result.scalar_one()
-    assert role_count == org_count * len(PRESET_ROLE_DEFINITIONS)
+    assert rerun_roles.scalar_one() == len(org_ids) * len(PRESET_ROLE_DEFINITIONS)
 
 
 @pytest.mark.anyio
@@ -282,8 +239,7 @@ async def test_seeding_reconciles_preset_role_links_to_their_definitions(session
     assert custom_links == {"agent:execute"}
 
 
-@pytest.mark.anyio
-async def test_system_scope_definitions_format(session):
+def test_system_scope_definitions_format():
     """Test that all system scope definitions follow the expected format."""
     for name, resource, action, description in SYSTEM_SCOPE_DEFINITIONS:
         # Name should contain resource and action
@@ -297,8 +253,7 @@ async def test_system_scope_definitions_format(session):
         assert action, f"Scope {name} should have an action"
 
 
-@pytest.mark.anyio
-async def test_system_scope_definitions_cover_all_preset_role_scopes(session):
+def test_system_scope_definitions_cover_all_preset_role_scopes():
     """All preset role scopes must exist in system scope definitions."""
     system_scope_names = {name for name, _, _, _ in SYSTEM_SCOPE_DEFINITIONS}
     preset_scope_names = {

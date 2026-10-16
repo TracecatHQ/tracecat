@@ -44,38 +44,164 @@ from tracecat.runtime.errors import (
     RuntimeErrorOwner,
 )
 
-
-def test_gemini_injects_api_key_and_prefixes_model() -> None:
-    data = {"model": "gemini-2.5-flash"}
-    creds = {"GEMINI_API_KEY": "test-gemini-key"}
-
-    _inject_provider_credentials(data, "gemini", creds)
-
-    assert data["api_key"] == "test-gemini-key"
-    assert data["model"] == "gemini/gemini-2.5-flash"
+_HAIKU_MODEL_ID = "anthropic.claude-3-haiku-20240307-v1:0"
+_AZURE_AI_CREDS = {
+    "AZURE_API_BASE": "https://example.services.ai.azure.com/anthropic",
+    "AZURE_API_KEY": "test-azure-ai-key",
+    "AZURE_AI_MODEL_NAME": "claude-sonnet-4-5",
+}
+_BEDROCK_KEYS = {"AWS_ACCESS_KEY_ID": "AKIA123", "AWS_SECRET_ACCESS_KEY": "secret"}
 
 
-def test_mistral_injects_api_key_and_prefixes_model() -> None:
-    data = {"model": "mistral-large-latest"}
-    creds = {"MISTRAL_API_KEY": "test-mistral-key"}
+@pytest.mark.parametrize(
+    ("model", "provider", "creds", "expected", "absent"),
+    [
+        pytest.param(
+            "gemini-2.5-flash",
+            "gemini",
+            {"GEMINI_API_KEY": "test-gemini-key"},
+            {"api_key": "test-gemini-key", "model": "gemini/gemini-2.5-flash"},
+            (),
+            id="gemini",
+        ),
+        pytest.param(
+            "mistral-large-latest",
+            "mistral",
+            {"MISTRAL_API_KEY": "test-mistral-key"},
+            {"api_key": "test-mistral-key", "model": "mistral/mistral-large-latest"},
+            (),
+            id="mistral",
+        ),
+        pytest.param(
+            "mistral-large-latest",
+            "mistral",
+            {
+                "MISTRAL_API_KEY": "test-mistral-key",
+                "MISTRAL_BASE_URL": "https://api.mistral.example/v1",
+            },
+            {
+                "api_key": "test-mistral-key",
+                "api_base": "https://api.mistral.example/v1",
+            },
+            (),
+            id="mistral-base-url",
+        ),
+        pytest.param(
+            "gpt-5",
+            "openai",
+            {
+                "OPENAI_API_KEY": "test-openai-key",
+                "OPENAI_BASE_URL": "https://api.openai.example/v1",
+            },
+            {
+                "api_key": "test-openai-key",
+                "api_base": "https://api.openai.example/v1",
+            },
+            (),
+            id="openai-base-url",
+        ),
+        pytest.param(
+            "azure_ai",
+            "azure_ai",
+            _AZURE_AI_CREDS,
+            {
+                "api_key": "test-azure-ai-key",
+                "api_base": "https://example.services.ai.azure.com/anthropic",
+                "model": "azure_ai/claude-sonnet-4-5",
+            },
+            ("api_version",),
+            id="azure-ai-without-api-version",
+        ),
+        pytest.param(
+            "azure_ai",
+            "azure_ai",
+            {**_AZURE_AI_CREDS, "AZURE_API_VERSION": "2024-05-01-preview"},
+            {
+                "api_version": "2024-05-01-preview",
+                "model": "azure_ai/claude-sonnet-4-5",
+            },
+            (),
+            id="azure-ai-with-api-version",
+        ),
+        pytest.param(
+            "bedrock",
+            "bedrock",
+            {
+                **_BEDROCK_KEYS,
+                "AWS_SESSION_TOKEN": "session-token",
+                "AWS_REGION": "us-west-2",
+                "AWS_MODEL_ID": _HAIKU_MODEL_ID,
+            },
+            {
+                "aws_access_key_id": "AKIA123",
+                "aws_secret_access_key": "secret",
+                "aws_session_token": "session-token",
+                "aws_region_name": "us-west-2",
+                "model": f"bedrock/{_HAIKU_MODEL_ID}",
+            },
+            (),
+            id="bedrock-static-keys",
+        ),
+        pytest.param(
+            "bedrock",
+            "bedrock",
+            {**_BEDROCK_KEYS, "AWS_MODEL_ID": _HAIKU_MODEL_ID},
+            {"model": f"bedrock/{_HAIKU_MODEL_ID}"},
+            (),
+            id="bedrock-invoke-when-converse-absent",
+        ),
+        pytest.param(
+            "bedrock",
+            "bedrock",
+            {
+                **_BEDROCK_KEYS,
+                "AWS_MODEL_ID": _HAIKU_MODEL_ID,
+                "AWS_BEDROCK_USE_CONVERSE": "true",
+            },
+            {"model": f"bedrock/converse/{_HAIKU_MODEL_ID}"},
+            (),
+            id="bedrock-converse-model-id",
+        ),
+        pytest.param(
+            "bedrock",
+            "bedrock",
+            {
+                **_BEDROCK_KEYS,
+                "AWS_INFERENCE_PROFILE_ID": f"us.{_HAIKU_MODEL_ID}",
+                "AWS_BEDROCK_USE_CONVERSE": "true",
+            },
+            {"model": f"bedrock/converse/us.{_HAIKU_MODEL_ID}"},
+            (),
+            id="bedrock-converse-inference-profile",
+        ),
+        pytest.param(
+            "bedrock",
+            "bedrock",
+            {
+                **_BEDROCK_KEYS,
+                "AWS_MODEL_ID": _HAIKU_MODEL_ID,
+                "AWS_BEDROCK_USE_CONVERSE": "false",
+            },
+            {"model": f"bedrock/{_HAIKU_MODEL_ID}"},
+            (),
+            id="bedrock-converse-false",
+        ),
+    ],
+)
+def test_inject_provider_credentials(
+    model: str,
+    provider: str,
+    creds: dict[str, str],
+    expected: dict[str, str],
+    absent: tuple[str, ...],
+) -> None:
+    data: dict[str, Any] = {"model": model}
 
-    _inject_provider_credentials(data, "mistral", creds)
+    _inject_provider_credentials(data, provider, creds)
 
-    assert data["api_key"] == "test-mistral-key"
-    assert data["model"] == "mistral/mistral-large-latest"
-
-
-def test_mistral_injects_optional_base_url() -> None:
-    data = {"model": "mistral-large-latest"}
-    creds = {
-        "MISTRAL_API_KEY": "test-mistral-key",
-        "MISTRAL_BASE_URL": "https://api.mistral.example/v1",
-    }
-
-    _inject_provider_credentials(data, "mistral", creds)
-
-    assert data["api_key"] == "test-mistral-key"
-    assert data["api_base"] == "https://api.mistral.example/v1"
+    assert {key: data.get(key) for key in expected} == expected
+    for key in absent:
+        assert key not in data
 
 
 def test_mistral_missing_api_key_raises() -> None:
@@ -96,69 +222,6 @@ def test_filter_allowed_model_settings_still_drops_thinking_for_openai() -> None
 
     assert filtered["temperature"] == 0.2
     assert "thinking" not in filtered
-
-
-def test_openai_injects_optional_base_url() -> None:
-    data = {"model": "gpt-5"}
-    creds = {
-        "OPENAI_API_KEY": "test-openai-key",
-        "OPENAI_BASE_URL": "https://api.openai.example/v1",
-    }
-
-    _inject_provider_credentials(data, "openai", creds)
-
-    assert data["api_key"] == "test-openai-key"
-    assert data["api_base"] == "https://api.openai.example/v1"
-
-
-def test_azure_ai_does_not_require_api_version() -> None:
-    data = {"model": "azure_ai"}
-    creds = {
-        "AZURE_API_BASE": "https://example.services.ai.azure.com/anthropic",
-        "AZURE_API_KEY": "test-azure-ai-key",
-        "AZURE_AI_MODEL_NAME": "claude-sonnet-4-5",
-    }
-
-    _inject_provider_credentials(data, "azure_ai", creds)
-
-    assert data["api_key"] == "test-azure-ai-key"
-    assert data["api_base"] == "https://example.services.ai.azure.com/anthropic"
-    assert "api_version" not in data
-    assert data["model"] == "azure_ai/claude-sonnet-4-5"
-
-
-def test_azure_ai_injects_api_version_when_present() -> None:
-    data = {"model": "azure_ai"}
-    creds = {
-        "AZURE_API_BASE": "https://example.services.ai.azure.com/anthropic",
-        "AZURE_API_KEY": "test-azure-ai-key",
-        "AZURE_API_VERSION": "2024-05-01-preview",
-        "AZURE_AI_MODEL_NAME": "claude-sonnet-4-5",
-    }
-
-    _inject_provider_credentials(data, "azure_ai", creds)
-
-    assert data["api_version"] == "2024-05-01-preview"
-    assert data["model"] == "azure_ai/claude-sonnet-4-5"
-
-
-def test_bedrock_uses_static_keys_when_configured() -> None:
-    data = {"model": "bedrock"}
-    creds = {
-        "AWS_ACCESS_KEY_ID": "AKIA123",
-        "AWS_SECRET_ACCESS_KEY": "secret",
-        "AWS_SESSION_TOKEN": "session-token",
-        "AWS_REGION": "us-west-2",
-        "AWS_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",
-    }
-
-    _inject_provider_credentials(data, "bedrock", creds)
-
-    assert data["aws_access_key_id"] == "AKIA123"
-    assert data["aws_secret_access_key"] == "secret"
-    assert data["aws_session_token"] == "session-token"
-    assert data["aws_region_name"] == "us-west-2"
-    assert data["model"] == "bedrock/anthropic.claude-3-haiku-20240307-v1:0"
 
 
 @pytest.mark.anyio
@@ -236,53 +299,6 @@ def test_bedrock_rejects_ambient_credential_fallback() -> None:
 
     assert exc_info.value.code == "401"
     assert "resolved before request dispatch" in exc_info.value.message
-
-
-def test_bedrock_uses_invoke_prefix_when_use_converse_absent() -> None:
-    data = {"model": "bedrock"}
-    creds = {
-        "AWS_ACCESS_KEY_ID": "AKIA123",
-        "AWS_SECRET_ACCESS_KEY": "secret",
-        "AWS_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",
-    }
-    _inject_provider_credentials(data, "bedrock", creds)
-    assert data["model"] == "bedrock/anthropic.claude-3-haiku-20240307-v1:0"
-
-
-def test_bedrock_uses_converse_prefix_for_model_id_when_flag_true() -> None:
-    data = {"model": "bedrock"}
-    creds = {
-        "AWS_ACCESS_KEY_ID": "AKIA123",
-        "AWS_SECRET_ACCESS_KEY": "secret",
-        "AWS_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",
-        "AWS_BEDROCK_USE_CONVERSE": "true",
-    }
-    _inject_provider_credentials(data, "bedrock", creds)
-    assert data["model"] == "bedrock/converse/anthropic.claude-3-haiku-20240307-v1:0"
-
-
-def test_bedrock_uses_converse_prefix_for_inference_profile_when_flag_true() -> None:
-    data = {"model": "bedrock"}
-    creds = {
-        "AWS_ACCESS_KEY_ID": "AKIA123",
-        "AWS_SECRET_ACCESS_KEY": "secret",
-        "AWS_INFERENCE_PROFILE_ID": "us.anthropic.claude-3-haiku-20240307-v1:0",
-        "AWS_BEDROCK_USE_CONVERSE": "true",
-    }
-    _inject_provider_credentials(data, "bedrock", creds)
-    assert data["model"] == "bedrock/converse/us.anthropic.claude-3-haiku-20240307-v1:0"
-
-
-def test_bedrock_false_flag_does_not_use_converse_prefix() -> None:
-    data = {"model": "bedrock"}
-    creds = {
-        "AWS_ACCESS_KEY_ID": "AKIA123",
-        "AWS_SECRET_ACCESS_KEY": "secret",
-        "AWS_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",
-        "AWS_BEDROCK_USE_CONVERSE": "false",
-    }
-    _inject_provider_credentials(data, "bedrock", creds)
-    assert data["model"] == "bedrock/anthropic.claude-3-haiku-20240307-v1:0"
 
 
 def test_litellm_config_routes_provider_placeholders_before_catch_all() -> None:
@@ -472,68 +488,6 @@ async def test_other_catalog_authorization_errors_are_not_model_not_enabled(
         )
 
 
-@pytest.mark.anyio
-async def test_user_api_key_auth_strips_anthropic_beta_metadata_for_non_anthropic_provider(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "tracecat.agent.gateway.verify_llm_token",
-        lambda _: SimpleNamespace(
-            workspace_id="00000000-0000-0000-0000-000000000001",
-            organization_id="00000000-0000-0000-0000-000000000002",
-            session_id="00000000-0000-0000-0000-000000000003",
-            catalog_id=None,
-            use_workspace_credentials=False,
-            model="bedrock",
-            provider="bedrock",
-            base_url=None,
-            model_settings={},
-            routes={},
-        ),
-    )
-    request = _make_request(
-        "/v1/messages",
-        headers=[(b"anthropic-beta", b"clear_thinking_20251015")],
-        query_string=b"beta=true",
-    )
-
-    await user_api_key_auth(request, api_key="valid-token")
-
-    assert request.headers.get("anthropic-beta") is None
-    assert "beta" not in request.query_params
-
-
-@pytest.mark.anyio
-async def test_user_api_key_auth_preserves_anthropic_beta_metadata_for_anthropic_provider(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "tracecat.agent.gateway.verify_llm_token",
-        lambda _: SimpleNamespace(
-            workspace_id="00000000-0000-0000-0000-000000000001",
-            organization_id="00000000-0000-0000-0000-000000000002",
-            session_id="00000000-0000-0000-0000-000000000003",
-            catalog_id=None,
-            use_workspace_credentials=False,
-            model="claude-sonnet-4",
-            provider="anthropic",
-            base_url=None,
-            model_settings={},
-            routes={},
-        ),
-    )
-    request = _make_request(
-        "/v1/messages",
-        headers=[(b"anthropic-beta", b"clear_thinking_20251015")],
-        query_string=b"beta=true",
-    )
-
-    await user_api_key_auth(request, api_key="valid-token")
-
-    assert request.headers["anthropic-beta"] == "clear_thinking_20251015"
-    assert request.query_params["beta"] == "true"
-
-
 @pytest.mark.parametrize(
     (
         "root_model",
@@ -544,6 +498,16 @@ async def test_user_api_key_auth_preserves_anthropic_beta_metadata_for_anthropic
         "preserves_metadata",
     ),
     [
+        pytest.param(
+            "claude-sonnet-4",
+            "anthropic",
+            None,
+            None,
+            None,
+            True,
+            id="anthropic-root",
+        ),
+        pytest.param("bedrock", "bedrock", None, None, None, False, id="bedrock-root"),
         pytest.param(
             "gpt-5",
             "openai",
@@ -569,11 +533,25 @@ async def test_user_api_key_auth_applies_anthropic_beta_metadata_by_route(
     monkeypatch: pytest.MonkeyPatch,
     root_model: str,
     root_provider: str,
-    route_key: str,
-    route_model: str,
-    route_provider: str,
+    route_key: str | None,
+    route_model: str | None,
+    route_provider: str | None,
     preserves_metadata: bool,
 ) -> None:
+    routes = (
+        {
+            route_key: SimpleNamespace(
+                model=route_model,
+                provider=route_provider,
+                catalog_id=None,
+                base_url=None,
+                model_settings={},
+                use_workspace_credentials=False,
+            )
+        }
+        if route_key
+        else {}
+    )
     monkeypatch.setattr(
         "tracecat.agent.gateway.verify_llm_token",
         lambda _: SimpleNamespace(
@@ -586,23 +564,14 @@ async def test_user_api_key_auth_applies_anthropic_beta_metadata_by_route(
             provider=root_provider,
             base_url=None,
             model_settings={},
-            routes={
-                route_key: SimpleNamespace(
-                    model=route_model,
-                    provider=route_provider,
-                    catalog_id=None,
-                    base_url=None,
-                    model_settings={},
-                    use_workspace_credentials=False,
-                )
-            },
+            routes=routes,
         ),
     )
     request = _make_request(
         "/v1/messages",
         headers=[(b"anthropic-beta", b"clear_thinking_20251015")],
         query_string=b"beta=true",
-        json_body={"model": route_key},
+        json_body={"model": route_key} if route_key else None,
     )
 
     await user_api_key_auth(request, api_key="valid-token")

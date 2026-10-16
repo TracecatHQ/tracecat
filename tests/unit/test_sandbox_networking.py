@@ -15,6 +15,7 @@ from tracecat.sandbox.networking import (
     SandboxDnsRoute,
     build_sandbox_dns_config,
     configured_sandbox_network_policy,
+    gateway_only_network_policy,
     nstun_user_net_config_lines,
     resolve_sandbox_network_plan,
     write_sandbox_network_files,
@@ -183,6 +184,69 @@ def test_filtered_nstun_policy_orders_dns_and_exceptions_before_blocks() -> None
     assert 'action: REJECT\n    proto: ANY\n    dst_ip: "::/0"' in config_text
     assert "PASTA" not in config_text
     assert "map_gw" not in config_text
+
+
+def test_filtered_nstun_policy_allows_dns_networks_before_private_blocks() -> None:
+    # Socket-level load balancers (e.g. Cilium socket LB) rewrite the resolver
+    # ClusterIP to a backend pod IP before NSTUN sees the packet.
+    dns_route = SandboxDnsRoute(
+        guest_address=IPv4Address("172.20.0.10"),
+        host_address=IPv4Address("172.20.0.10"),
+    )
+
+    config_text = "\n".join(
+        nstun_user_net_config_lines(
+            SandboxNetworkPolicy(),
+            (dns_route,),
+            dns_networks=(ip_network("10.129.0.0/16"), ip_network("10.129.0.0/16")),
+        )
+    )
+
+    assert config_text.count('dst_ip: "10.129.0.0/16"') == 2
+    assert (
+        'action: ALLOW\n    proto: UDP\n    dst_ip: "10.129.0.0/16"\n    dport: 53'
+    ) in config_text
+    assert (
+        'action: ALLOW\n    proto: TCP\n    dst_ip: "10.129.0.0/16"\n    dport: 53'
+    ) in config_text
+    assert config_text.index('dst_ip: "10.129.0.0/16"') < config_text.index(
+        'dst_ip: "10.0.0.0/8"'
+    )
+
+
+def test_resolve_network_plan_reads_dns_networks_from_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        tracecat_config,
+        "TRACECAT__SANDBOX_DNS_ALLOWED_EGRESS_CIDRS",
+        (ip_network("10.129.0.0/16"),),
+    )
+    host_resolv = tmp_path / "host-resolv.conf"
+    host_resolv.write_text("nameserver 172.20.0.10\n")
+
+    plan = resolve_sandbox_network_plan(
+        tmp_path / "network",
+        SandboxNetworkRequest(purpose=SandboxNetworkPurpose.ACTION),
+        host_resolv_path=host_resolv,
+    )
+
+    config_text = "\n".join(plan.user_net_lines)
+    assert (
+        'action: ALLOW\n    proto: UDP\n    dst_ip: "10.129.0.0/16"\n    dport: 53'
+    ) in config_text
+    assert 'proto: ANY\n    dst_ip: "10.129.0.0/16"' not in config_text
+
+
+def test_gateway_only_policy_ignores_dns_networks() -> None:
+    policy = gateway_only_network_policy("10.43.0.20", 8080)
+
+    config_text = "\n".join(
+        nstun_user_net_config_lines(policy, dns_networks=(ip_network("10.129.0.0/16"),))
+    )
+
+    assert "10.129.0.0/16" not in config_text
+    assert "dport: 53" not in config_text
 
 
 def test_filtered_nstun_policy_rejects_all_ipv6_by_default() -> None:

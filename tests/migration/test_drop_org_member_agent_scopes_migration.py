@@ -14,7 +14,7 @@ from sqlalchemy.pool import NullPool
 from tests.database import TEST_DB_CONFIG
 
 MIGRATION_REVISION = "a3f8c2d1e9b4"
-PREVIOUS_REVISION = "7e666328c9a6"
+PREVIOUS_REVISION = "3b8f2c1d9e7a"
 
 
 def _run_alembic(db_url: str, *args: str) -> subprocess.CompletedProcess[str]:

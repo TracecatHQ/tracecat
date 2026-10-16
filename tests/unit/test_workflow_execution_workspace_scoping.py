@@ -232,14 +232,23 @@ class TestWorkflowExecutionWorkspaceFiltering:
             with pytest.raises(WorkflowExecutionNotFoundError):
                 await service.require_execution("wf_abc/exec_abc")
 
-    async def test_cancel_workflow_execution_requires_execution_visibility(
+    @pytest.mark.parametrize(
+        ("operation", "kwargs"),
+        [
+            ("cancel", {}),
+            ("terminate", {"reason": "Testing terminate"}),
+        ],
+    )
+    async def test_workflow_execution_control_requires_execution_visibility(
         self,
         mock_client: Mock,
         mock_role: Role,
+        operation: str,
+        kwargs: dict[str, str],
     ) -> None:
         service = WorkflowExecutionsService(client=mock_client, role=mock_role)
         handle = Mock(spec=WorkflowHandle)
-        handle.cancel = AsyncMock()
+        setattr(handle, operation, AsyncMock())
 
         with (
             patch.object(
@@ -247,63 +256,20 @@ class TestWorkflowExecutionWorkspaceFiltering:
             ) as mock_require_execution,
             patch.object(service, "handle", Mock(return_value=handle)) as mock_handle,
         ):
-            await service.cancel_workflow_execution("wf_abc/exec_abc")
-
-        mock_require_execution.assert_awaited_once_with("wf_abc/exec_abc")
-        mock_handle.assert_called_once_with("wf_abc/exec_abc")
-        handle.cancel.assert_awaited_once()
-
-    async def test_cancel_workflow_execution_raises_when_not_visible(
-        self,
-        mock_client: Mock,
-        mock_role: Role,
-    ) -> None:
-        service = WorkflowExecutionsService(client=mock_client, role=mock_role)
-        with (
-            patch.object(
-                service,
-                "require_execution",
-                AsyncMock(
-                    side_effect=WorkflowExecutionNotFoundError(
-                        "Workflow execution not found: wf_abc/exec_abc"
-                    )
-                ),
-            ) as mock_require_execution,
-            patch.object(service, "handle", Mock()) as mock_handle,
-        ):
-            with pytest.raises(WorkflowExecutionNotFoundError):
-                await service.cancel_workflow_execution("wf_abc/exec_abc")
-
-        mock_require_execution.assert_awaited_once_with("wf_abc/exec_abc")
-        mock_handle.assert_not_called()
-
-    async def test_terminate_workflow_execution_requires_execution_visibility(
-        self,
-        mock_client: Mock,
-        mock_role: Role,
-    ) -> None:
-        service = WorkflowExecutionsService(client=mock_client, role=mock_role)
-        handle = Mock(spec=WorkflowHandle)
-        handle.terminate = AsyncMock()
-
-        with (
-            patch.object(
-                service, "require_execution", AsyncMock(return_value=Mock())
-            ) as mock_require_execution,
-            patch.object(service, "handle", Mock(return_value=handle)) as mock_handle,
-        ):
-            await service.terminate_workflow_execution(
-                "wf_abc/exec_abc", reason="Testing terminate"
+            await getattr(service, f"{operation}_workflow_execution")(
+                "wf_abc/exec_abc", **kwargs
             )
 
         mock_require_execution.assert_awaited_once_with("wf_abc/exec_abc")
         mock_handle.assert_called_once_with("wf_abc/exec_abc")
-        handle.terminate.assert_awaited_once_with(reason="Testing terminate")
+        getattr(handle, operation).assert_awaited_once_with(**kwargs)
 
-    async def test_terminate_workflow_execution_raises_when_not_visible(
+    @pytest.mark.parametrize("operation", ["cancel", "terminate"])
+    async def test_workflow_execution_control_raises_when_not_visible(
         self,
         mock_client: Mock,
         mock_role: Role,
+        operation: str,
     ) -> None:
         service = WorkflowExecutionsService(client=mock_client, role=mock_role)
         with (
@@ -319,7 +285,9 @@ class TestWorkflowExecutionWorkspaceFiltering:
             patch.object(service, "handle", Mock()) as mock_handle,
         ):
             with pytest.raises(WorkflowExecutionNotFoundError):
-                await service.terminate_workflow_execution("wf_abc/exec_abc")
+                await getattr(service, f"{operation}_workflow_execution")(
+                    "wf_abc/exec_abc"
+                )
 
         mock_require_execution.assert_awaited_once_with("wf_abc/exec_abc")
         mock_handle.assert_not_called()

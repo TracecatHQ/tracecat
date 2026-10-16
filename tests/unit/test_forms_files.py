@@ -430,8 +430,8 @@ async def test_expiry_purges_every_workspace_without_waiting_for_an_upload(
     stop = asyncio.Event()
     purge = storage.purge_expired_files
 
-    async def purge_until_done(session: AsyncSession) -> int:
-        if (purged := await purge(session)) < 2:
+    async def purge_until_done(session: AsyncSession, failed: set[uuid.UUID]) -> int:
+        if (purged := await purge(session, failed)) < 2:
             stop.set()
         return purged
 
@@ -454,7 +454,7 @@ async def test_expiry_keeps_running_after_a_failed_pass(
     stop = asyncio.Event()
     passes: list[str] = []
 
-    async def purge(session: AsyncSession) -> int:
+    async def purge(session: AsyncSession, failed: set[uuid.UUID]) -> int:
         if not passes:
             passes.append("failed")
             raise TimeoutError
@@ -488,12 +488,89 @@ async def test_purge_removes_a_bounded_batch(
     for uploaded in uploads:
         await _age(session, uploaded.id, EXPIRED)
 
-    assert await purge_expired_files(session) == 2
+    assert await purge_expired_files(session, set()) == 2
 
     remaining = await _rows(session)
     assert len(remaining) == 1
     # Only the blobs of the deleted rows are gone.
     assert set(blob_store.objects) == {_key(form, file_id) for file_id in remaining}
+
+
+async def test_purge_keeps_the_row_of_a_blob_storage_failed_to_delete(
+    session: AsyncSession,
+    files: FormFilesService,
+    blob_store: FakeBlobStore,
+    form: Form,
+) -> None:
+    """A storage failure leaves the file's row, so the next pass retries it."""
+    uploaded = await _upload(files, form)
+    await _age(session, uploaded.id, EXPIRED)
+    key = _key(form, uploaded.id)
+
+    blob_store.undeletable = {key}
+    failed: set[uuid.UUID] = set()
+    assert await purge_expired_files(session, failed) == 1
+    assert failed == {uploaded.id}
+    assert set(await _rows(session)) == {uploaded.id}
+    assert set(blob_store.objects) == {key}
+    # The rest of the pass skips it.
+    assert await purge_expired_files(session, failed) == 0
+
+    blob_store.undeletable = set()
+    assert await purge_expired_files(session, set()) == 1
+    assert await _rows(session) == {}
+    assert blob_store.objects == {}
+    assert blob_store.deleted == [key, key]
+
+
+async def test_a_batch_skips_any_number_of_failed_files(
+    session: AsyncSession,
+    files: FormFilesService,
+    blob_store: FakeBlobStore,
+    form: Form,
+) -> None:
+    """However many files a pass failed to delete, its next batch still runs."""
+    uploaded = await _upload(files, form)
+    await _age(session, uploaded.id, EXPIRED)
+    # More than a driver binds as separate parameters.
+    failed = {uuid.uuid4() for _ in range(40_000)}
+
+    assert await purge_expired_files(session, failed) == 1
+    assert await _rows(session) == {}
+    assert blob_store.objects == {}
+
+
+async def test_a_pass_purges_past_a_blob_storage_failed_to_delete(
+    session: AsyncSession,
+    files: FormFilesService,
+    blob_store: FakeBlobStore,
+    form: Form,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed delete neither ends the pass nor pins the batches after it."""
+    stuck, other = [await _upload(files, form) for _ in range(2)]
+    for uploaded in (stuck, other):
+        await _age(session, uploaded.id, EXPIRED)
+    blob_store.undeletable = {_key(form, stuck.id)}
+    monkeypatch.setattr(storage, "EXPIRED_FILE_PURGE_BATCH", 1)
+    monkeypatch.setattr(
+        storage, "get_async_session_bypass_rls_context_manager", use_session(session)
+    )
+    stop = asyncio.Event()
+    purge = storage.purge_expired_files
+
+    async def purge_one_pass(session: AsyncSession, failed: set[uuid.UUID]) -> int:
+        if (held := await purge(session, failed)) < 1:
+            stop.set()
+        return held
+
+    monkeypatch.setattr(storage, "purge_expired_files", purge_one_pass)
+
+    async with asyncio.timeout(10):
+        await storage.run_file_expiry(stop)
+
+    assert set(await _rows(session)) == {stuck.id}
+    assert set(blob_store.objects) == {_key(form, stuck.id)}
 
 
 # ----- Claiming on submit -----
@@ -910,10 +987,13 @@ async def test_blob_deletion_is_best_effort_and_covers_every_key(
     # More keys than one batch, with a failure early on.
     keys = ["forms/w/f/fail", *(f"forms/w/f/{i}" for i in range(501))]
 
-    await storage.delete_file_blobs(keys)
+    blob_store.objects = dict.fromkeys(keys, b"x")
 
-    # A failure does not stop the rest, and no key is left behind.
+    # A failure does not stop the rest, no key is left behind, and the
+    # caller learns which keys failed.
+    assert await storage.delete_file_blobs(keys) == {"forms/w/f/fail"}
     assert sorted(blob_store.deleted) == sorted(keys)
+    assert set(blob_store.objects) == {"forms/w/f/fail"}
 
 
 async def test_an_upload_that_races_its_forms_deletion_leaves_no_blob(

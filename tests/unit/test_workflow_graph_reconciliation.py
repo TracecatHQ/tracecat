@@ -98,8 +98,11 @@ async def test_reconcile_no_changes_needed(
     svc_role: Role,
     workflow_with_actions: tuple[Workflow, list[Action]],
 ) -> None:
-    """Return False when upstream_edges are already in sync."""
-    workflow, _ = workflow_with_actions
+    """Return False when upstream_edges are already in sync.
+
+    Trigger edges with correct IDs are preserved.
+    """
+    workflow, actions = workflow_with_actions
 
     service = WorkflowsManagementService(session, role=svc_role)
     result = await service._reconcile_graph_object_with_actions(workflow)
@@ -109,29 +112,12 @@ async def test_reconcile_no_changes_needed(
     assert len(workflow.actions) == 2
     assert workflow.actions[0].upstream_edges
     assert workflow.actions[1].upstream_edges
-
-
-@pytest.mark.anyio
-async def test_reconcile_removes_stale_nodes(
-    session: AsyncSession,
-    svc_role: Role,
-    workflow_with_actions: tuple[Workflow, list[Action]],
-) -> None:
-    """Remove upstream_edges that point to deleted actions."""
-    workflow, actions = workflow_with_actions
-
-    deleted_action = actions[0]
-    await session.delete(deleted_action)
-    await session.commit()
-    await session.refresh(workflow, ["actions"])
-
-    service = WorkflowsManagementService(session, role=svc_role)
-    result = await service._reconcile_graph_object_with_actions(workflow)
-
-    assert result is True
-    await session.refresh(workflow, ["actions"])
-    remaining_action = workflow.actions[0]
-    assert remaining_action.upstream_edges == []
+    trigger_edges = [
+        edge
+        for edge in actions[0].upstream_edges
+        if edge.get("source_type") == "trigger"
+    ]
+    assert trigger_edges
 
 
 @pytest.mark.anyio
@@ -183,33 +169,13 @@ async def test_reconcile_removes_all_stale_references(
 
 
 @pytest.mark.anyio
-async def test_reconcile_preserves_trigger_node(
-    session: AsyncSession,
-    svc_role: Role,
-    workflow_with_actions: tuple[Workflow, list[Action]],
-) -> None:
-    """Trigger edges with correct IDs should be preserved."""
-    workflow, actions = workflow_with_actions
-
-    service = WorkflowsManagementService(session, role=svc_role)
-    await service._reconcile_graph_object_with_actions(workflow)
-
-    await session.refresh(workflow, ["actions"])
-    trigger_edges = [
-        edge
-        for edge in actions[0].upstream_edges
-        if edge.get("source_type") == "trigger"
-    ]
-    assert trigger_edges
-
-
-@pytest.mark.anyio
 async def test_reconcile_persists_changes(
     session: AsyncSession,
     svc_role: Role,
     workflow_with_actions: tuple[Workflow, list[Action]],
 ) -> None:
-    """Persist upstream_edges cleanup to the database."""
+    """Remove upstream_edges that point to deleted actions and persist the
+    cleanup to the database."""
     workflow, actions = workflow_with_actions
 
     await session.delete(actions[0])
@@ -217,41 +183,14 @@ async def test_reconcile_persists_changes(
     await session.refresh(workflow, ["actions"])
 
     service = WorkflowsManagementService(session, role=svc_role)
-    await service._reconcile_graph_object_with_actions(workflow)
+    result = await service._reconcile_graph_object_with_actions(workflow)
+
+    assert result is True
 
     session.expire(workflow)
     await session.refresh(workflow, ["actions"])
 
     assert workflow.actions[0].upstream_edges == []
-
-
-@pytest.mark.anyio
-async def test_reconcile_empty_graph_object(
-    session: AsyncSession,
-    svc_workspace: Workspace,
-    svc_role: Role,
-) -> None:
-    """Workflows without actions should not error."""
-    workflow = Workflow(
-        id=uuid.uuid4(),
-        title="Empty Workflow",
-        description="Workflow with no graph",
-        status="offline",
-        workspace_id=svc_workspace.id,
-        config={},
-    )
-    session.add(workflow)
-    await session.commit()
-    await session.refresh(workflow, ["actions"])
-
-    try:
-        service = WorkflowsManagementService(session, role=svc_role)
-        result = await service._reconcile_graph_object_with_actions(workflow)
-
-        assert result is False
-    finally:
-        await session.delete(workflow)
-        await session.commit()
 
 
 @pytest.mark.anyio

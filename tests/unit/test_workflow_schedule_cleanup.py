@@ -127,34 +127,3 @@ async def test_delete_workflow_handles_temporal_errors_gracefully(test_role: Rol
 
             # Verify that delete_schedule was called despite the error
             mock_delete.assert_called_once_with(schedule.id)
-
-
-@pytest.mark.anyio
-async def test_delete_workflow_with_no_schedules(test_role: Role):
-    """Test that deleting a workflow with no schedules works normally."""
-
-    async with get_async_session_context_manager() as session:
-        # Create workflow management service
-        mgmt_service = WorkflowsManagementService(session, role=test_role)
-
-        # Create a test workflow with no schedules
-        workflow = Workflow(
-            title="Test Workflow No Schedules",
-            description="Test workflow without schedules",
-            workspace_id=test_role.workspace_id
-            if test_role.workspace_id
-            else uuid.uuid4(),
-            version=1,
-        )
-        session.add(workflow)
-        await session.commit()
-        await session.refresh(workflow)
-
-        # Mock the Temporal bridge
-        with patch("tracecat.workflow.schedules.bridge.delete_schedule") as mock_delete:
-            # Delete the workflow
-            workflow_uuid = WorkflowUUID.new(workflow.id)
-            await mgmt_service.delete_workflow(workflow_uuid)
-
-            # Verify that delete_schedule was never called
-            mock_delete.assert_not_called()

@@ -154,50 +154,27 @@ def test_edge_dedup_key_trigger_ignores_handle() -> None:
 
 
 @pytest.mark.anyio
-async def test_add_edge_success_then_error_coexist(
+@pytest.mark.parametrize(
+    "handles",
+    [("success", "error"), ("error", "success")],
+    ids=["success_then_error", "error_then_success"],
+)
+async def test_add_edge_success_and_error_coexist(
     session: AsyncSession,
     svc_role: Role,
     workflow_pair: tuple[Workflow, Action, Action],
+    handles: tuple[EdgeHandle, EdgeHandle],
 ) -> None:
-    """Adding error after success leaves both edges intact (#2619)."""
+    """Adding both handles leaves both edges intact in either order (#2619)."""
     workflow, action_a, action_b = workflow_pair
     service = WorkflowGraphService(session, role=svc_role)
 
-    await service.apply_operations(
-        WorkflowUUID.new(workflow.id),
-        workflow.graph_version,
-        [_add_edge_op(action_a.id, action_b.id, "success")],
-    )
-    await service.apply_operations(
-        WorkflowUUID.new(workflow.id),
-        workflow.graph_version,
-        [_add_edge_op(action_a.id, action_b.id, "error")],
-    )
-
-    await session.refresh(action_b)
-    assert _handles_for(action_b, action_a.id) == ["error", "success"]
-
-
-@pytest.mark.anyio
-async def test_add_edge_error_then_success_coexist(
-    session: AsyncSession,
-    svc_role: Role,
-    workflow_pair: tuple[Workflow, Action, Action],
-) -> None:
-    """Insertion order does not matter."""
-    workflow, action_a, action_b = workflow_pair
-    service = WorkflowGraphService(session, role=svc_role)
-
-    await service.apply_operations(
-        WorkflowUUID.new(workflow.id),
-        workflow.graph_version,
-        [_add_edge_op(action_a.id, action_b.id, "error")],
-    )
-    await service.apply_operations(
-        WorkflowUUID.new(workflow.id),
-        workflow.graph_version,
-        [_add_edge_op(action_a.id, action_b.id, "success")],
-    )
+    for handle in handles:
+        await service.apply_operations(
+            WorkflowUUID.new(workflow.id),
+            workflow.graph_version,
+            [_add_edge_op(action_a.id, action_b.id, handle)],
+        )
 
     await session.refresh(action_b)
     assert _handles_for(action_b, action_a.id) == ["error", "success"]

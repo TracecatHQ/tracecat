@@ -403,23 +403,6 @@ class TestOrganizationServiceListMembers:
         assert user_in_org2.id not in member_ids
         assert len(members) == 2
 
-    @pytest.mark.anyio
-    async def test_list_members_empty_org(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-        org2: Organization,
-    ):
-        """Test list_members returns empty list for org with no additional members."""
-        # Query org2 which has no members
-        role = create_admin_role(org2.id, admin_in_org1.id)
-        service = OrgService(session, role=role)
-
-        members = await service.list_members()
-
-        assert len(members) == 0
-
 
 class TestOrganizationServiceGetMember:
     """Tests for OrganizationService.get_member()."""
@@ -885,18 +868,21 @@ class TestOrganizationServiceDeleteMember:
             await service.delete_member(superuser.id, allow_idp_managed=True)
 
     @pytest.mark.anyio
-    async def test_scim_guard_is_per_organization(
+    @pytest.mark.parametrize("linked_in_own_org", [True, False])
+    async def test_scim_guard_blocks_only_the_owning_organization(
         self,
         session: AsyncSession,
         org1: Organization,
         org2: Organization,
         user_in_org1: User,
         admin_in_org1: User,
+        linked_in_own_org: bool,
     ):
-        """A linkage in one org must not block removal by another org's admin."""
+        """The org holding the linkage is refused; another org's linkage is ignored."""
+        linked_org_id = org1.id if linked_in_own_org else org2.id
         session.add(
             ScimConnection(
-                organization_id=org2.id,
+                organization_id=linked_org_id,
                 key_id=uuid.uuid4().hex,
                 hashed="x",
                 salt="x",
@@ -905,11 +891,15 @@ class TestOrganizationServiceDeleteMember:
             )
         )
         await seed_external_user(
-            session, organization_id=org2.id, user_id=user_in_org1.id
+            session, organization_id=linked_org_id, user_id=user_in_org1.id
         )
         service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
 
-        # org2 owns the linkage, so org1's admin is unaffected by it.
+        if linked_in_own_org:
+            with pytest.raises(TracecatConflictError, match="identity provider"):
+                await service.delete_member(user_in_org1.id)
+            return
+
         await service.delete_member(user_in_org1.id)
         assert (
             await session.scalar(
@@ -920,33 +910,6 @@ class TestOrganizationServiceDeleteMember:
             )
             is None
         )
-
-    @pytest.mark.anyio
-    async def test_scim_guard_blocks_the_owning_organization(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        user_in_org1: User,
-        admin_in_org1: User,
-    ):
-        """The org holding the linkage is the one refused."""
-        session.add(
-            ScimConnection(
-                organization_id=org1.id,
-                key_id=uuid.uuid4().hex,
-                hashed="x",
-                salt="x",
-                preview="scim_test",
-                status=ScimConnectionStatus.ACTIVE,
-            )
-        )
-        await seed_external_user(
-            session, organization_id=org1.id, user_id=user_in_org1.id
-        )
-        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
-
-        with pytest.raises(TracecatConflictError, match="identity provider"):
-            await service.delete_member(user_in_org1.id)
 
     @pytest.mark.anyio
     async def test_delete_nonexistent_member_raises(
@@ -1341,33 +1304,6 @@ class TestOrganizationServiceInvitations:
     """Tests for OrgService invitation methods."""
 
     @pytest.mark.anyio
-    async def test_create_invitation(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-        org1_member_role: DBRole,
-    ):
-        """Test create_invitation creates an invitation record."""
-        role = create_admin_role(org1.id, admin_in_org1.id)
-        service = InvitationService(session, role=role)
-
-        invitation = await service.create_invitation(
-            InvitationCreate(
-                email="newuser@example.com",
-                grants=[InvitationGrant(role_id=org1_member_role.id)],
-            )
-        )
-
-        assert invitation.email == "newuser@example.com"
-        assert invitation.grants[0].role_id == org1_member_role.id
-        assert invitation.organization_id == org1.id
-        assert invitation.invited_by == admin_in_org1.id
-        assert invitation.status == InvitationStatus.PENDING
-        assert invitation.token is not None
-        assert len(invitation.token) > 0
-
-    @pytest.mark.anyio
     async def test_create_invitation_with_admin_role(
         self,
         session: AsyncSession,
@@ -1375,7 +1311,7 @@ class TestOrganizationServiceInvitations:
         admin_in_org1: User,
         org1_admin_role: DBRole,
     ):
-        """Test create_invitation can assign admin role."""
+        """Test create_invitation creates a pending admin-role invitation."""
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = InvitationService(session, role=role)
 
@@ -1386,7 +1322,12 @@ class TestOrganizationServiceInvitations:
             )
         )
 
+        assert invitation.email == "newadmin@example.com"
         assert invitation.grants[0].role_id == org1_admin_role.id
+        assert invitation.organization_id == org1.id
+        assert invitation.invited_by == admin_in_org1.id
+        assert invitation.status == InvitationStatus.PENDING
+        assert invitation.token
 
     @pytest.mark.anyio
     async def test_create_owner_invitation_requires_owner_or_superuser(
@@ -1741,31 +1682,6 @@ class TestOrganizationServiceInvitations:
         assert revoked_invitations[0].id == revoked_inv.id
 
     @pytest.mark.anyio
-    async def test_get_invitation_by_token(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-        org1_member_role: DBRole,
-    ):
-        """Test get_invitation_by_token retrieves invitation."""
-        role = create_admin_role(org1.id, admin_in_org1.id)
-        service = InvitationService(session, role=role)
-
-        invitation = await service.create_invitation(
-            InvitationCreate(
-                email="test@example.com",
-                grants=[InvitationGrant(role_id=org1_member_role.id)],
-            )
-        )
-
-        retrieved = await find_invitation_by_token(session, invitation.token)
-        assert retrieved is not None
-
-        assert retrieved.id == invitation.id
-        assert retrieved.email == invitation.email
-
-    @pytest.mark.anyio
     async def test_get_invitation_by_token_returns_org_and_inviter_info(
         self,
         session: AsyncSession,
@@ -1792,6 +1708,8 @@ class TestOrganizationServiceInvitations:
         # Get invitation by token
         retrieved = await find_invitation_by_token(session, invitation.token)
         assert retrieved is not None
+        assert retrieved.id == invitation.id
+        assert retrieved.email == invitation.email
 
         # Verify organization info is available
         assert retrieved.organization_id == org1.id
@@ -1946,7 +1864,8 @@ class TestOrganizationServiceInvitations:
         assert invitation.accepted_at is not None
 
     @pytest.mark.anyio
-    async def test_accept_invitation_allows_superuser_account_in_multi_tenant(
+    @pytest.mark.parametrize("multi_tenant", [True, False])
+    async def test_accept_invitation_allows_superuser_account(
         self,
         session: AsyncSession,
         org1: Organization,
@@ -1954,69 +1873,10 @@ class TestOrganizationServiceInvitations:
         admin_in_org1: User,
         org1_member_role: DBRole,
         monkeypatch: pytest.MonkeyPatch,
+        multi_tenant: bool,
     ):
-        """Test multi-tenant superuser accounts accept org invitations as users."""
-        monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
-        standalone_superuser = User(
-            id=uuid.uuid4(),
-            email=f"standalone-superuser-{uuid.uuid4().hex[:8]}@example.com",
-            hashed_password="hashed",
-            role=UserRole.ADMIN,
-            is_active=True,
-            is_superuser=True,
-            is_verified=True,
-        )
-        service_superuser = User(
-            id=uuid.uuid4(),
-            email=f"service-superuser-{uuid.uuid4().hex[:8]}@example.com",
-            hashed_password="hashed",
-            role=UserRole.ADMIN,
-            is_active=True,
-            is_superuser=True,
-            is_verified=True,
-        )
-        session.add_all([standalone_superuser, service_superuser])
-        await session.commit()
-
-        admin_role = create_admin_role(org1.id, admin_in_org1.id)
-        admin_service = InvitationService(session, role=admin_role)
-        standalone_invitation = await admin_service.create_invitation(
-            InvitationCreate(
-                email=standalone_superuser.email,
-                grants=[InvitationGrant(role_id=org1_member_role.id)],
-            )
-        )
-        service_invitation = await admin_service.create_invitation(
-            InvitationCreate(
-                email=service_superuser.email,
-                grants=[InvitationGrant(role_id=org1_member_role.id)],
-            )
-        )
-
-        await accept_invitation_for_user(
-            session,
-            user_id=standalone_superuser.id,
-            token=standalone_invitation.token,
-        )
-        assert await _is_org_member(session, standalone_superuser.id, org1.id)
-
-        await accept_invitation_for_user(
-            session, user_id=service_superuser.id, token=service_invitation.token
-        )
-        assert await _is_org_member(session, service_superuser.id, org1.id)
-
-    @pytest.mark.anyio
-    async def test_accept_invitation_allows_superuser_account_in_single_tenant(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        org2: Organization,
-        admin_in_org1: User,
-        org1_member_role: DBRole,
-        monkeypatch: pytest.MonkeyPatch,
-    ):
-        """Test single-tenant superuser accounts can accept org invitations."""
-        monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+        """Superuser accounts accept org invitations as users in either tenancy mode."""
+        monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", multi_tenant)
         standalone_superuser = User(
             id=uuid.uuid4(),
             email=f"standalone-superuser-{uuid.uuid4().hex[:8]}@example.com",
@@ -2186,62 +2046,37 @@ class TestOrganizationScimInviteWarning:
         return connection
 
     @pytest.mark.anyio
-    async def test_is_scim_connected_false_without_connection(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-    ):
-        service = InvitationService(
-            session, role=create_admin_role(org1.id, admin_in_org1.id)
-        )
-
-        assert await service.is_scim_connected() is False
-
-    @pytest.mark.anyio
-    async def test_is_scim_connected_true_with_connection(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-    ):
-        await self._connect_scim(session, org1.id)
-        service = InvitationService(
-            session, role=create_admin_role(org1.id, admin_in_org1.id)
-        )
-
-        assert await service.is_scim_connected() is True
-
-    @pytest.mark.anyio
-    async def test_is_scim_connected_false_after_disconnect(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-    ):
-        connection = await self._connect_scim(session, org1.id)
-        connection.status = ScimConnectionStatus.DISABLED
-        await session.commit()
-        service = InvitationService(
-            session, role=create_admin_role(org1.id, admin_in_org1.id)
-        )
-
-        assert await service.is_scim_connected() is False
-
-    @pytest.mark.anyio
-    async def test_is_scim_connected_ignores_other_org_connection(
+    @pytest.mark.parametrize(
+        ("connected_org", "status", "expected"),
+        [
+            (None, None, False),
+            ("org1", None, True),
+            ("org1", ScimConnectionStatus.DISABLED, False),
+            ("org2", None, False),
+        ],
+        ids=["no_connection", "own_org", "disabled", "other_org"],
+    )
+    async def test_is_scim_connected(
         self,
         session: AsyncSession,
         org1: Organization,
         org2: Organization,
         admin_in_org1: User,
+        connected_org: str | None,
+        status: ScimConnectionStatus | None,
+        expected: bool,
     ):
-        await self._connect_scim(session, org2.id)
+        if connected_org is not None:
+            org = org1 if connected_org == "org1" else org2
+            connection = await self._connect_scim(session, org.id)
+            if status is not None:
+                connection.status = status
+                await session.commit()
         service = InvitationService(
             session, role=create_admin_role(org1.id, admin_in_org1.id)
         )
 
-        assert await service.is_scim_connected() is False
+        assert await service.is_scim_connected() is expected
 
     @pytest.mark.anyio
     async def test_create_invitation_warns_in_scim_org(
@@ -2267,27 +2102,6 @@ class TestOrganizationScimInviteWarning:
         assert "manual@example.com" in response.warning
         assert "also provisions this address" in response.warning
         assert "Otherwise, SCIM does not add them" in response.warning
-
-    @pytest.mark.anyio
-    async def test_create_invitation_has_no_warning_without_scim(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-        org1_member_role: DBRole,
-    ):
-        role = create_admin_role(org1.id, admin_in_org1.id)
-
-        response = await create_invitation(
-            role=role,
-            session=session,
-            params=InvitationCreate(
-                email="manual-no-scim@example.com",
-                grants=[InvitationGrant(role_id=org1_member_role.id)],
-            ),
-        )
-
-        assert response.warning is None
 
 
 @pytest.mark.anyio
@@ -2659,66 +2473,37 @@ class TestOrganizationServiceListInvitationAccess:
             (group.id, group.name)
         ]
 
-    async def test_group_org_wide_workspace_role_lists_all_workspaces(
+    @pytest.mark.parametrize(
+        ("explicit_slug", "expected_slug"),
+        [
+            ("workspace-viewer", "organization-admin"),
+            ("organization-owner", "organization-owner"),
+        ],
+        ids=["group_admin_sets_display_role", "explicit_owner_precedes_group_admin"],
+    )
+    async def test_display_role_precedence(
         self,
         session: AsyncSession,
         org1: Organization,
         admin_in_org1: User,
+        explicit_slug: str,
+        expected_slug: str,
     ) -> None:
-        viewer_role = await _system_role(session, org1.id, "workspace-viewer")
-        first_workspace = Workspace(
-            id=uuid.uuid4(), name="Alpha Workspace", organization_id=org1.id
-        )
-        second_workspace = Workspace(
-            id=uuid.uuid4(), name="Beta Workspace", organization_id=org1.id
-        )
-        session.add_all([first_workspace, second_workspace])
-        await session.flush()
-        invitation, _group = await _invitation_with_group_role(
-            session,
-            org1,
-            explicit_role=viewer_role,
-            explicit_workspace_id=first_workspace.id,
-            group_role=viewer_role,
-            group_workspace_id=None,
-        )
-        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
-
-        with (
-            patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)),
-            patch.object(
-                session, "execute", new=AsyncMock(wraps=session.execute)
-            ) as execute_mock,
-        ):
-            access = (await service.list_invitation_access([invitation]))[invitation.id]
-
-        assert execute_mock.await_count == 4
-        assert [(item.id, item.name) for item in access.roles] == [
-            (viewer_role.id, viewer_role.name)
-        ]
-        assert [(item.id, item.name) for item in access.workspaces] == [
-            (first_workspace.id, first_workspace.name),
-            (second_workspace.id, second_workspace.name),
-        ]
-
-    async def test_group_org_admin_sets_display_role(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-    ) -> None:
-        viewer_role = await _system_role(session, org1.id, "workspace-viewer")
+        explicit_role = await _system_role(session, org1.id, explicit_slug)
         admin_role = await _system_role(session, org1.id, "organization-admin")
-        workspace = Workspace(
-            id=uuid.uuid4(), name="Group Workspace", organization_id=org1.id
-        )
-        session.add(workspace)
-        await session.flush()
+        workspace_id: uuid.UUID | None = None
+        if explicit_slug == "workspace-viewer":
+            workspace = Workspace(
+                id=uuid.uuid4(), name="Group Workspace", organization_id=org1.id
+            )
+            session.add(workspace)
+            await session.flush()
+            workspace_id = workspace.id
         invitation, _group = await _invitation_with_group_role(
             session,
             org1,
-            explicit_role=viewer_role,
-            explicit_workspace_id=workspace.id,
+            explicit_role=explicit_role,
+            explicit_workspace_id=workspace_id,
             group_role=admin_role,
             group_workspace_id=None,
         )
@@ -2728,30 +2513,7 @@ class TestOrganizationServiceListInvitationAccess:
             access = (await service.list_invitation_access([invitation]))[invitation.id]
 
         assert access.role_name == "Invited"
-        assert access.role_slug == "organization-admin"
-
-    async def test_explicit_owner_display_role_precedes_group_admin(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-    ) -> None:
-        owner_role = await _system_role(session, org1.id, "organization-owner")
-        admin_role = await _system_role(session, org1.id, "organization-admin")
-        invitation, _group = await _invitation_with_group_role(
-            session,
-            org1,
-            explicit_role=owner_role,
-            explicit_workspace_id=None,
-            group_role=admin_role,
-            group_workspace_id=None,
-        )
-        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
-
-        with patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)):
-            access = (await service.list_invitation_access([invitation]))[invitation.id]
-
-        assert access.role_slug == "organization-owner"
+        assert access.role_slug == expected_slug
 
     async def test_without_rbac_read_hides_group_access(
         self,
@@ -2825,86 +2587,49 @@ class TestOrganizationServiceListInvitationAccess:
         ]
         assert access.groups == []
 
-    async def test_org_wide_workspace_role_lists_all_workspaces(
+    @pytest.mark.parametrize(
+        ("org_wide_slug", "explicit_slug", "expected_count"),
+        [
+            pytest.param("workspace-viewer", None, 2, id="org_wide_workspace_role"),
+            pytest.param("organization-admin", None, 2, id="org_admin"),
+            pytest.param(
+                None, "workspace-viewer", 1, id="org_role_without_workspace_read"
+            ),
+        ],
+    )
+    async def test_org_wide_role_workspace_expansion(
         self,
         session: AsyncSession,
         org1: Organization,
         admin_in_org1: User,
+        org_wide_slug: str | None,
+        explicit_slug: str | None,
+        expected_count: int,
     ) -> None:
-        viewer_role = await _system_role(session, org1.id, "workspace-viewer")
-        (
-            invitation,
-            first_workspace,
-            second_workspace,
-        ) = await _invitation_with_workspaces(session, org1, viewer_role)
-        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
-
-        with (
-            patch.object(service, "has_entitlement", new=AsyncMock(return_value=False)),
-            patch.object(
-                session, "execute", new=AsyncMock(wraps=session.execute)
-            ) as execute_mock,
-        ):
-            access = (await service.list_invitation_access([invitation]))[invitation.id]
-
-        assert execute_mock.await_count == 3
-        assert [(item.id, item.name) for item in access.workspaces] == [
-            (first_workspace.id, "Alpha Workspace"),
-            (second_workspace.id, "Beta Workspace"),
-        ]
-
-    async def test_org_admin_lists_all_workspaces(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-    ) -> None:
-        admin_role = await _system_role(session, org1.id, "organization-admin")
-        (
-            invitation,
-            first_workspace,
-            second_workspace,
-        ) = await _invitation_with_workspaces(session, org1, admin_role)
-        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
-
-        with patch.object(
-            service, "has_entitlement", new=AsyncMock(return_value=False)
-        ):
-            access = (await service.list_invitation_access([invitation]))[invitation.id]
-
-        assert [(item.id, item.name) for item in access.workspaces] == [
-            (first_workspace.id, "Alpha Workspace"),
-            (second_workspace.id, "Beta Workspace"),
-        ]
-
-    async def test_org_role_without_workspace_read_lists_only_explicit_workspaces(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-    ) -> None:
-        viewer_role = await _system_role(session, org1.id, "workspace-viewer")
-        org_scope = (
-            await session.execute(select(Scope).where(Scope.name == "org:member:read"))
-        ).scalar_one()
-        org_role = DBRole(
-            id=uuid.uuid4(),
-            name="Organization Auditor",
-            slug=None,
-            organization_id=org1.id,
+        if org_wide_slug is not None:
+            org_wide_role = await _system_role(session, org1.id, org_wide_slug)
+        else:
+            org_scope = (
+                await session.execute(
+                    select(Scope).where(Scope.name == "org:member:read")
+                )
+            ).scalar_one()
+            org_wide_role = DBRole(
+                id=uuid.uuid4(),
+                name="Organization Auditor",
+                slug=None,
+                organization_id=org1.id,
+            )
+            session.add(org_wide_role)
+            await session.flush()
+            session.add(RoleScope(role_id=org_wide_role.id, scope_id=org_scope.id))
+        explicit_role = (
+            await _system_role(session, org1.id, explicit_slug)
+            if explicit_slug is not None
+            else None
         )
-        session.add(org_role)
-        await session.flush()
-        session.add(RoleScope(role_id=org_role.id, scope_id=org_scope.id))
-        (
-            invitation,
-            first_workspace,
-            _second_workspace,
-        ) = await _invitation_with_workspaces(
-            session,
-            org1,
-            org_role,
-            explicit_role=viewer_role,
+        invitation, *workspaces = await _invitation_with_workspaces(
+            session, org1, org_wide_role, explicit_role=explicit_role
         )
         service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
 
@@ -2914,7 +2639,7 @@ class TestOrganizationServiceListInvitationAccess:
             access = (await service.list_invitation_access([invitation]))[invitation.id]
 
         assert [(item.id, item.name) for item in access.workspaces] == [
-            (first_workspace.id, "Alpha Workspace")
+            (workspace.id, workspace.name) for workspace in workspaces[:expected_count]
         ]
 
     async def test_lists_invited_role_and_access_with_and_without_rbac_read(
