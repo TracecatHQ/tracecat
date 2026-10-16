@@ -267,6 +267,100 @@ class TestScopeValidation:
         # Should not raise any exceptions
         assert dsl is not None
 
+    def test_cycle_without_scope_actions_is_rejected(self):
+        """Test that dependency cycles are rejected in workflows without scopes."""
+        with pytest.raises(
+            TracecatDSLError,
+            match="Cycle detected in workflow dependencies. Actions in or downstream of the cycle: 'action_b', 'action_c', 'action_d'",
+        ):
+            DSLInput(
+                title="Cyclic Workflow",
+                description="action_b and action_c depend on each other",
+                entrypoint=DSLEntrypoint(),
+                actions=[
+                    ActionStatement(
+                        ref="action_a",
+                        action="core.transform.reshape",
+                        args={"value": 1},
+                    ),
+                    ActionStatement(
+                        ref="action_b",
+                        action="core.transform.reshape",
+                        args={"value": 2},
+                        depends_on=["action_a", "action_c"],
+                    ),
+                    ActionStatement(
+                        ref="action_c",
+                        action="core.transform.reshape",
+                        args={"value": 3},
+                        depends_on=["action_b.error"],
+                    ),
+                    ActionStatement(
+                        ref="action_d",
+                        action="core.transform.reshape",
+                        args={"value": 4},
+                        depends_on=["action_c"],
+                    ),
+                ],
+            )
+
+    def test_self_dependency_is_rejected(self):
+        """Test that an action depending on itself is rejected."""
+        with pytest.raises(TracecatDSLError, match="Cycle detected"):
+            DSLInput(
+                title="Self Dependency",
+                description="action_b depends on itself",
+                entrypoint=DSLEntrypoint(),
+                actions=[
+                    ActionStatement(
+                        ref="action_a",
+                        action="core.transform.reshape",
+                        args={"value": 1},
+                    ),
+                    ActionStatement(
+                        ref="action_b",
+                        action="core.transform.reshape",
+                        args={"value": 2},
+                        depends_on=["action_a", "action_b"],
+                    ),
+                ],
+            )
+
+    def test_diamond_with_duplicate_edge_types_is_valid(self):
+        """Test that multiple edges between the same actions are not cycles."""
+        dsl = DSLInput(
+            title="Diamond",
+            description="Fan-out and fan-in with success and error edges",
+            entrypoint=DSLEntrypoint(),
+            actions=[
+                ActionStatement(
+                    ref="action_a",
+                    action="core.transform.reshape",
+                    args={"value": 1},
+                ),
+                ActionStatement(
+                    ref="action_b",
+                    action="core.transform.reshape",
+                    args={"value": 2},
+                    depends_on=["action_a"],
+                ),
+                ActionStatement(
+                    ref="action_c",
+                    action="core.transform.reshape",
+                    args={"value": 3},
+                    depends_on=["action_a.error"],
+                ),
+                ActionStatement(
+                    ref="action_d",
+                    action="core.transform.reshape",
+                    args={"value": 4},
+                    depends_on=["action_b", "action_b.error", "action_c"],
+                ),
+            ],
+        )
+
+        assert dsl is not None
+
     def test_scatter_without_gather(self):
         """Test scatter without corresponding gather."""
         dsl = DSLInput(
