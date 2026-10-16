@@ -1,7 +1,19 @@
 "use client"
 
-import { Loader2 } from "lucide-react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import {
+  ChevronRightIcon,
+  CopyIcon,
+  Loader2,
+  PencilIcon,
+  ShieldAlertIcon,
+} from "lucide-react"
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react"
 import type { ApprovalDecision } from "@/client"
 import {
   Tool,
@@ -12,15 +24,21 @@ import {
 } from "@/components/ai-elements/tool"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getIcon } from "@/components/icons"
+import { JsonViewWithControls } from "@/components/json-viewer"
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
+import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
 import {
   type ApprovalCard,
   isToolApprovedDecision,
   isToolDeniedDecision,
 } from "@/lib/chat"
-import { cn, reconstructActionType } from "@/lib/utils"
+import { cn, copyToClipboard, reconstructActionType } from "@/lib/utils"
 
 const TOOL_ICON_PROPS = { className: "size-5 p-[3px]" } as const
 
@@ -227,152 +245,282 @@ export function ApprovalRequestPart({
   }, [decisions, hasSelectedPendingDecision, onSubmit, send])
 
   const disabled = !onSubmit || decidedElsewhere || submitting
-  const pendingCount = approvals.filter(
-    (approval) => !submittedDecisions[approval.tool_call_id]
-  ).length
-  // A lone call sends on click; a batch is chosen call by call, then submitted.
-  const sendsOnClick = pendingCount === 1
 
   if (!approvals.length) {
     return null
   }
 
+  // A lone call sends on click; a batch is chosen call by call, then submitted.
+  const pending = approvals.filter(
+    (approval) =>
+      !submittedDecisions[approval.tool_call_id] &&
+      !sendingIds.has(approval.tool_call_id)
+  )
+  const pendingDecided = pending.filter(
+    (approval) => decisions[approval.tool_call_id]?.action
+  ).length
+
+  function toggleEditing(approval: ApprovalCard) {
+    const isEditing = decisions[approval.tool_call_id]?.action === "override"
+    setDecision(
+      approval.tool_call_id,
+      isEditing
+        ? { action: undefined, overrideArgs: undefined }
+        : { action: "override", overrideArgs: formatArgs(approval.args) }
+    )
+  }
+
+  function renderArgs(approval: ApprovalCard) {
+    const decision = decisions[approval.tool_call_id]
+    if (decision?.action !== "override") {
+      return <ApprovalArgs args={approval.args} />
+    }
+    return (
+      <div data-testid={`approval-override-editor-${approval.tool_call_id}`}>
+        <CodeEditor
+          value={decision.overrideArgs ?? formatArgs(approval.args)}
+          language="json"
+          readOnly={disabled}
+          onChange={(value) =>
+            setDecision(approval.tool_call_id, {
+              action: "override",
+              overrideArgs: value,
+            })
+          }
+          className={cn(
+            "text-xs",
+            "[&_.cm-editor]:!border [&_.cm-editor]:!border-input [&_.cm-editor]:!bg-background [&_.cm-editor]:rounded-md",
+            "[&_.cm-scroller]:h-auto [&_.cm-scroller]:min-h-24 [&_.cm-scroller]:max-h-80 [&_.cm-scroller]:overflow-auto"
+          )}
+        />
+      </div>
+    )
+  }
+
+  function renderEditButton(approval: ApprovalCard) {
+    const isEditing = decisions[approval.tool_call_id]?.action === "override"
+    return (
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        aria-pressed={isEditing}
+        disabled={disabled}
+        onClick={() => toggleEditing(approval)}
+        className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
+      >
+        <PencilIcon className="size-3" />
+        {isEditing ? "Discard edits" : "Edit arguments"}
+      </Button>
+    )
+  }
+
   return (
     <div className="space-y-1">
-      {approvals.map((approval) => {
-        const toolCallId = approval.tool_call_id
-        const actionId = reconstructActionType(approval.tool_name)
-        const decision = decisions[toolCallId]
-        const submittedDecision = submittedDecisions[toolCallId]
-        const isEditing = decision?.action === "override"
-        const isSending = sendingIds.has(toolCallId)
-        const isPending = !submittedDecision && !isSending
-        function choose(update: DecisionState) {
-          if (sendsOnClick) {
-            void send({ [toolCallId]: update })
-          } else {
-            setDecision(toolCallId, update)
-          }
-        }
-        return (
-          <div key={toolCallId} data-testid={`approval-card-${toolCallId}`}>
-            <Tool defaultOpen>
-              <ToolHeader
-                title={actionId}
-                state={getApprovalToolState(submittedDecision, isSending)}
-                icon={getIcon(actionId, TOOL_ICON_PROPS)}
-              />
-              <ToolContent>
-                {isEditing ? (
-                  <div data-testid={`approval-override-editor-${toolCallId}`}>
-                    <CodeEditor
-                      value={decision.overrideArgs ?? formatArgs(approval.args)}
-                      language="json"
-                      readOnly={disabled}
-                      onChange={(value) =>
-                        setDecision(toolCallId, {
-                          action: "override",
-                          overrideArgs: value,
-                        })
-                      }
-                      className={cn(
-                        "text-xs",
-                        "[&_.cm-editor]:!border [&_.cm-editor]:!border-input [&_.cm-editor]:!bg-background [&_.cm-editor]:rounded-md",
-                        "[&_.cm-scroller]:h-auto [&_.cm-scroller]:min-h-24 [&_.cm-scroller]:max-h-80 [&_.cm-scroller]:overflow-auto"
-                      )}
-                    />
-                  </div>
-                ) : (
+      {approvals
+        .filter((approval) => !pending.includes(approval))
+        .map((approval) => {
+          const toolCallId = approval.tool_call_id
+          const actionId = reconstructActionType(approval.tool_name)
+          return (
+            <div key={toolCallId} data-testid={`approval-card-${toolCallId}`}>
+              <Tool>
+                <ToolHeader
+                  title={actionId}
+                  state={getApprovalToolState(
+                    submittedDecisions[toolCallId],
+                    sendingIds.has(toolCallId)
+                  )}
+                  icon={getIcon(actionId, TOOL_ICON_PROPS)}
+                />
+                <ToolContent>
                   <ToolInput input={approval.args} />
-                )}
-                {isPending && decision?.action === "deny" && (
-                  <Textarea
-                    className="text-xs"
-                    rows={3}
-                    value={decision.reason ?? ""}
-                    onChange={(event) =>
-                      setDecision(toolCallId, {
-                        action: "deny",
-                        reason: event.target.value,
+                </ToolContent>
+              </Tool>
+            </div>
+          )
+        })}
+      {pending.length === 1 &&
+        pending.map((approval) => {
+          const toolCallId = approval.tool_call_id
+          const decision = decisions[toolCallId]
+          const isEditing = decision?.action === "override"
+          return (
+            <section
+              key={toolCallId}
+              data-testid={`approval-card-${toolCallId}`}
+              aria-label="Approval required"
+              className="my-2 overflow-hidden rounded-lg border bg-background"
+            >
+              <ApprovalHeader>Waiting for your approval</ApprovalHeader>
+              <div className="space-y-2.5 p-3">
+                <ApprovalToolName toolName={approval.tool_name} />
+                {renderArgs(approval)}
+              </div>
+              <footer className="flex items-center justify-between gap-2 border-t px-3 py-2">
+                <div>
+                  {hasArgs(approval.args) && renderEditButton(approval)}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={disabled || !canSubmit}
+                    onClick={() =>
+                      void send({ [toolCallId]: { action: "deny" } })
+                    }
+                    className="h-7 px-3 text-xs"
+                  >
+                    Deny
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={disabled || !canSubmit}
+                    onClick={() =>
+                      void send({
+                        [toolCallId]: isEditing
+                          ? decision
+                          : { action: "approve" },
                       })
                     }
-                    placeholder="Share a short reason"
-                    disabled={disabled}
-                  />
-                )}
-                {isPending && (
-                  <div className="flex flex-wrap gap-1.5 [&>button]:h-7 [&>button]:px-2.5 [&>button]:text-xs">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      aria-pressed={
-                        sendsOnClick
-                          ? undefined
-                          : decision?.action === "approve"
-                      }
-                      disabled={disabled || (sendsOnClick && !canSubmit)}
-                      onClick={() =>
-                        choose(isEditing ? decision : { action: "approve" })
-                      }
-                      className="aria-pressed:bg-muted"
-                    >
-                      {isEditing ? "Approve with edits" : "Approve"}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      aria-pressed={
-                        sendsOnClick ? undefined : decision?.action === "deny"
-                      }
-                      disabled={disabled || (sendsOnClick && !canSubmit)}
-                      onClick={() => choose({ action: "deny" })}
-                      className="aria-pressed:bg-muted"
-                    >
-                      Deny
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      aria-pressed={isEditing}
-                      disabled={disabled}
-                      onClick={() =>
-                        setDecision(
-                          toolCallId,
-                          isEditing
-                            ? { action: undefined, overrideArgs: undefined }
-                            : {
-                                action: "override",
-                                overrideArgs: formatArgs(approval.args),
-                              }
-                        )
-                      }
-                      className="aria-pressed:bg-muted"
-                    >
-                      Edit
-                    </Button>
-                  </div>
-                )}
-              </ToolContent>
-            </Tool>
-          </div>
-        )
-      })}
-      {pendingCount > 1 && (
-        <div className="flex">
-          <Button
-            type="button"
-            size="sm"
-            className="h-7 px-2.5 text-xs"
-            onClick={handleSubmit}
-            disabled={disabled || !canSubmit || !hasSelectedPendingDecision}
-          >
-            {submitting && <Loader2 className="size-3 animate-spin" />}
-            Submit
-          </Button>
-        </div>
+                    className="h-7 bg-foreground px-3 text-xs text-background hover:bg-foreground/85"
+                  >
+                    {isEditing ? "Approve with edits" : "Approve"}
+                  </Button>
+                </div>
+              </footer>
+            </section>
+          )
+        })}
+      {pending.length > 1 && (
+        <section
+          data-testid="approval-batch"
+          aria-label="Approvals required"
+          className="my-2 overflow-hidden rounded-lg border bg-background"
+        >
+          <ApprovalHeader>
+            {pending.length} tool calls waiting for your approval
+          </ApprovalHeader>
+          <ul className="divide-y">
+            {pending.map((approval) => {
+              const toolCallId = approval.tool_call_id
+              const actionId = reconstructActionType(approval.tool_name)
+              const decision = decisions[toolCallId]
+              const isEditing = decision?.action === "override"
+              const approved = decision?.action === "approve" || isEditing
+              const denied = decision?.action === "deny"
+              return (
+                <li
+                  key={toolCallId}
+                  data-testid={`approval-card-${toolCallId}`}
+                >
+                  <Collapsible>
+                    <div className="flex items-center gap-2 px-3 py-2">
+                      <CollapsibleTrigger className="group flex min-w-0 flex-1 items-center gap-2 text-left">
+                        <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
+                        <span className="shrink-0 font-mono text-xs">
+                          {actionId}
+                        </span>
+                        <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+                          {summarizeArgs(approval.args)}
+                        </span>
+                      </CollapsibleTrigger>
+                      <div
+                        role="group"
+                        aria-label={`Decision for ${actionId}`}
+                        className="flex shrink-0 overflow-hidden rounded-md border"
+                      >
+                        <button
+                          type="button"
+                          aria-pressed={denied}
+                          disabled={disabled}
+                          onClick={() =>
+                            setDecision(toolCallId, { action: "deny" })
+                          }
+                          className="h-6 px-2.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 aria-pressed:bg-muted aria-pressed:font-medium aria-pressed:text-foreground"
+                        >
+                          Deny
+                        </button>
+                        <button
+                          type="button"
+                          aria-pressed={approved}
+                          disabled={disabled}
+                          onClick={() =>
+                            setDecision(
+                              toolCallId,
+                              isEditing ? decision : { action: "approve" }
+                            )
+                          }
+                          className="h-6 border-l px-2.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 aria-pressed:bg-foreground aria-pressed:font-medium aria-pressed:text-background"
+                        >
+                          {isEditing ? "Approve with edits" : "Approve"}
+                        </button>
+                      </div>
+                    </div>
+                    <CollapsibleContent>
+                      <div className="space-y-2 px-3 pb-3 pl-8">
+                        {renderArgs(approval)}
+                        {hasArgs(approval.args) && renderEditButton(approval)}
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                  {denied && (
+                    <div className="px-3 pb-3 pl-8">
+                      <Input
+                        aria-label={`Deny reason for ${actionId}`}
+                        value={decision.reason ?? ""}
+                        onChange={(event) =>
+                          setDecision(toolCallId, {
+                            action: "deny",
+                            reason: event.target.value,
+                          })
+                        }
+                        placeholder="Reason, sent to the agent"
+                        disabled={disabled}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+          <footer className="flex items-center justify-between gap-2 border-t px-3 py-2">
+            <span className="text-xs text-muted-foreground">
+              {pendingDecided} of {pending.length} decided
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={disabled || pendingDecided === pending.length}
+                onClick={() => {
+                  for (const approval of pending) {
+                    if (!decisions[approval.tool_call_id]?.action) {
+                      setDecision(approval.tool_call_id, { action: "approve" })
+                    }
+                  }
+                }}
+                className="h-7 px-3 text-xs"
+              >
+                Approve rest
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleSubmit}
+                disabled={disabled || !canSubmit || !hasSelectedPendingDecision}
+                className="h-7 bg-foreground px-3 text-xs text-background hover:bg-foreground/85"
+              >
+                {submitting && <Loader2 className="size-3 animate-spin" />}
+                Submit decisions
+              </Button>
+            </div>
+          </footer>
+        </section>
       )}
       {!onSubmit && (
         <p className="text-xs text-muted-foreground">
@@ -386,6 +534,135 @@ export function ApprovalRequestPart({
       )}
     </div>
   )
+}
+
+function ApprovalHeader({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2 text-xs font-medium">
+      <ShieldAlertIcon className="size-3.5 shrink-0 text-amber-500" />
+      {children}
+    </div>
+  )
+}
+
+function ApprovalToolName({ toolName }: { toolName: string }) {
+  const actionId = reconstructActionType(toolName)
+  return (
+    <div className="flex min-w-0 items-center gap-2.5">
+      {getIcon(actionId, { className: "size-6 shrink-0 p-1" })}
+      <p className="min-w-0 truncate text-sm font-medium">
+        Run <span className="font-mono text-[13px]">{actionId}</span>
+      </p>
+    </div>
+  )
+}
+
+// Keys stay quiet; strings and constants take the code block's GitHub hues.
+const ARGS_JSON_CLASS = cn(
+  "max-h-80 rounded-none border-0 border-t bg-transparent [&_[role=tabpanel]]:px-3 [&_[role=tabpanel]]:py-2",
+  "[&_.json-view]:text-muted-foreground [&_.json-view]:[--json-property:hsl(var(--muted-foreground))] [&_.json-view]:[--json-index:hsl(var(--muted-foreground))]",
+  "[&_.json-view]:[--json-string:#032f62] [&_.json-view]:[--json-number:#6f42c1] [&_.json-view]:[--json-boolean:#6f42c1] [&_.json-view]:[--json-null:#6f42c1]",
+  "dark:[&_.json-view]:[--json-string:#9ecbff] dark:[&_.json-view]:[--json-number:#b392f0] dark:[&_.json-view]:[--json-boolean:#b392f0] dark:[&_.json-view]:[--json-null:#b392f0]"
+)
+
+/** Big nested values start folded so the top-level keys stay in view. */
+function foldLargeNested({ depth, size }: { depth: number; size: number }) {
+  return depth > 1 && size > 5
+}
+
+/** A pending call's arguments, folded behind an "Arguments" toggle. */
+function ApprovalArgs({ args }: { args: unknown }) {
+  const value = parseArgs(args)
+  const count = countArgs(value)
+  if (count === 0) {
+    return (
+      <p className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+        No arguments
+      </p>
+    )
+  }
+  return (
+    <Collapsible defaultOpen className="rounded-md border bg-muted/30">
+      <div className="flex h-7 items-center justify-between gap-2 pl-1.5 pr-1">
+        <CollapsibleTrigger className="group flex items-center gap-1 rounded px-1 text-xs text-muted-foreground hover:text-foreground">
+          <ChevronRightIcon className="size-3 transition-transform group-data-[state=open]:rotate-90" />
+          Arguments
+          <span className="text-muted-foreground/70">{count}</span>
+        </CollapsibleTrigger>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          aria-label="Copy arguments"
+          onClick={() =>
+            copyToClipboard({
+              value: formatArgs(value),
+              message: "Copied arguments",
+            })
+          }
+          className="size-5 text-muted-foreground [&_svg]:size-3"
+        >
+          <CopyIcon />
+        </Button>
+      </div>
+      <CollapsibleContent>
+        <JsonViewWithControls
+          src={value}
+          showControls={false}
+          defaultExpanded
+          collapsed={foldLargeNested}
+          className={ARGS_JSON_CLASS}
+        />
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+/** Arguments as data, parsing a JSON string when the call sent one. */
+function parseArgs(args: unknown): unknown {
+  if (typeof args !== "string") {
+    return args ?? {}
+  }
+  try {
+    return JSON.parse(args)
+  } catch {
+    return args
+  }
+}
+
+function countArgs(value: unknown): number {
+  if (value === null || value === undefined) {
+    return 0
+  }
+  if (Array.isArray(value)) {
+    return value.length
+  }
+  if (typeof value === "object") {
+    return Object.keys(value).length
+  }
+  return 1
+}
+
+function hasArgs(args: unknown): boolean {
+  return countArgs(parseArgs(args)) > 0
+}
+
+/** One line of top-level arguments for a batch row, e.g. "limit: 5, ids: [2]". */
+function summarizeArgs(args: unknown): string {
+  const value = parseArgs(args)
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return countArgs(value) === 0 ? "No arguments" : formatArgs(value)
+  }
+  const parts = Object.entries(value).map(([key, item]) => {
+    if (Array.isArray(item)) {
+      return `${key}: [${item.length}]`
+    }
+    if (item && typeof item === "object") {
+      return `${key}: {…}`
+    }
+    return `${key}: ${typeof item === "string" ? item : JSON.stringify(item)}`
+  })
+  return parts.length ? parts.join(", ") : "No arguments"
 }
 
 /** The tool line state for a call, from its decision and whether it is sending. */
