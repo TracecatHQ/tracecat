@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -22,7 +22,7 @@ import yaml
 from cryptography.fernet import Fernet
 from pydantic import SecretStr, ValidationError
 from pydantic_core import PydanticSerializationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.secrets.references.service import SecretReferencesService
 
@@ -63,6 +63,7 @@ from tracecat.db.models import (
 )
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
     ScopeDeniedError,
     TracecatCredentialsError,
@@ -73,14 +74,17 @@ from tracecat.forms.schemas import FormConfig
 from tracecat.forms.service import stored_form_config
 from tracecat.git.types import GitUrl
 from tracecat.integrations.enums import MCPAuthType
+from tracecat.logger import logger
+from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets.enums import SecretSource
 from tracecat.secrets.schemas import AwsSecretReferenceUpdate, SecretKeyValue
 from tracecat.secrets.service import SecretsService, build_external_secret_reference
-from tracecat.sync import PullOptions, PushStatus
+from tracecat.sync import PullOptions, PullResult, PushStatus
 from tracecat.tables.schemas import TableUpdate
 from tracecat.tables.service import BaseTablesService
 from tracecat.tiers.enums import Entitlement
+from tracecat.workflow.store.import_service import WorkflowImportService
 from tracecat.workflow.store.schemas import WorkflowSyncPullRequest
 from tracecat.workspace_sync.adapters import (
     AGENT_PRESET_RESOURCE_ADAPTER,
@@ -128,6 +132,9 @@ from tracecat.workspace_sync.serialization import (
 from tracecat.workspace_sync.service import WorkspaceSyncService
 from tracecat.workspace_sync.transport import VcsTreeSnapshot
 from tracecat.workspace_sync.workflow import serialize_workflow_spec
+
+if TYPE_CHECKING:
+    from loguru import Record
 
 EXPANDED_RESOURCE_TYPES = {
     "workflow",
@@ -782,6 +789,7 @@ async def test_pull_dry_run_reports_per_resource_counts(
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("registry_version_with_manifest")
 async def test_pull_dry_run_validation_does_not_normalize_existing_workflow(
     session: AsyncSession,
     svc_role: Role,
@@ -10104,3 +10112,222 @@ async def test_pull_needs_form_scopes_to_create_replace_or_clear_a_form(
     assert cleared.success is True
     _, again = await _pull_form_tree(session, workflow_only, None)
     assert again.success is True
+
+
+# ----- Pull errors -----
+
+_REMOVED_ACTION = "tools.example.removed"
+_PULL_ERROR_COMMIT = "e" * 40
+
+
+def _workflow_with_action(*, source_id: str, title: str, action: str) -> dict[str, Any]:
+    return _workflow_spec(
+        source_id=source_id,
+        title=title,
+        alias=source_id,
+        folder_path="Examples",
+        actions=[{"ref": "step", "action": action, "args": {}}],
+    )
+
+
+def _missing_action_git_tree() -> dict[str, str]:
+    """Two new workflows; the second, in import order, uses a removed action."""
+    workflows = [
+        _workflow_with_action(
+            source_id="example-a-intake",
+            title="Example intake",
+            action="core.transform.reshape",
+        ),
+        _workflow_with_action(
+            source_id="example-b-enrich",
+            title="Example enrich",
+            action=_REMOVED_ACTION,
+        ),
+    ]
+    tree = {MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())}
+    for workflow in workflows:
+        tree[f"{WORKFLOW_ROOT}/{workflow['id']}/definition.yml"] = _yaml(workflow)
+    return tree
+
+
+async def _pull_missing_action_tree(
+    session: AsyncSession, role: Role, *, dry_run: bool
+) -> PullResult:
+    service = WorkspaceSyncService(session=session, role=role)
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha=_PULL_ERROR_COMMIT,
+        tree_sha="tree-pull-errors",
+        files=_missing_action_git_tree(),
+    )
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        return await service.pull(
+            options=PullOptions(commit_sha=_PULL_ERROR_COMMIT, dry_run=dry_run)
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("registry_version_with_manifest")
+async def test_pull_dry_run_names_workflow_and_action_missing_from_registry(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A dry run fails on a new workflow whose action is in no registry, naming both."""
+    result = await _pull_missing_action_tree(session, svc_role, dry_run=True)
+
+    assert result.success is False
+    [diagnostic] = result.diagnostics
+    assert diagnostic.error_type == "dependency"
+    assert diagnostic.workflow_title == "Example enrich"
+    assert diagnostic.message == (
+        "Workflow 'Example enrich' uses action 'tools.example.removed', "
+        "which is in no registry"
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("registry_version_with_manifest")
+async def test_pull_dry_run_resolves_registry_once_for_all_workflows(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A multi-workflow preview resolves one registry lock over the union of its actions."""
+    resolve = RegistryLockService.resolve_lock_with_bindings
+    resolved_action_sets: list[set[str]] = []
+
+    async def counting_resolve(
+        self: RegistryLockService, action_names: set[str]
+    ) -> RegistryLock:
+        resolved_action_sets.append(set(action_names))
+        return await resolve(self, action_names)
+
+    with patch.object(
+        RegistryLockService, "resolve_lock_with_bindings", counting_resolve
+    ):
+        result = await _pull_missing_action_tree(session, svc_role, dry_run=True)
+
+    assert result.success is False
+    assert resolved_action_sets == [{"core.transform.reshape", _REMOVED_ACTION}]
+
+
+@pytest.mark.anyio
+async def test_pull_dry_run_reports_batch_registry_error_once(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A registry error that isn't about one action is reported once, not per workflow."""
+    pending = BuiltinRegistryHasNoSelectionError(
+        "Builtin registry sync is still in progress. Please retry shortly."
+    )
+    with patch.object(
+        RegistryLockService,
+        "resolve_lock_with_bindings",
+        AsyncMock(side_effect=pending),
+    ):
+        result = await _pull_missing_action_tree(session, svc_role, dry_run=True)
+
+    assert result.success is False
+    [diagnostic] = result.diagnostics
+    assert diagnostic.error_type == "dependency"
+    assert diagnostic.workflow_title is None
+    assert diagnostic.message == str(pending)
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("registry_version_with_manifest")
+async def test_pull_apply_failure_past_validation_is_logged_and_names_workflow(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """An import that fails past validation logs the error and names the workflow and action."""
+    records: list[Record] = []
+    sink_id = logger.add(lambda message: records.append(message.record), level="ERROR")
+    try:
+        with patch.object(
+            WorkflowImportService,
+            "validate_workflows",
+            AsyncMock(return_value=[]),
+        ):
+            result = await _pull_missing_action_tree(session, svc_role, dry_run=False)
+    finally:
+        logger.remove(sink_id)
+
+    assert result.success is False
+    assert result.message == "Workspace import failed on workflow 'Example enrich'"
+    [diagnostic] = result.diagnostics
+    assert diagnostic.error_type == "transaction"
+    assert (
+        diagnostic.workflow_path == f"{WORKFLOW_ROOT}/example-b-enrich/definition.yml"
+    )
+    assert diagnostic.workflow_title == "Example enrich"
+    assert diagnostic.message.startswith(
+        "Failed to import workflow 'Example enrich': "
+        "Action 'tools.example.removed' not found in any registry."
+    )
+    [record] = [
+        record
+        for record in records
+        if record["message"] == "Workspace import transaction failed"
+    ]
+    assert record["exception"] is not None
+    assert record["extra"]["workspace_id"] == str(svc_role.workspace_id)
+    assert record["extra"]["commit_sha"] == _PULL_ERROR_COMMIT
+    assert record["extra"]["workflow_path"] == diagnostic.workflow_path
+    # The first workflow imported before the failure; the rollback undid it.
+    workflow_count = await session.scalar(
+        select(func.count())
+        .select_from(Workflow)
+        .where(Workflow.workspace_id == svc_role.workspace_id)
+    )
+    assert workflow_count == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("registry_version_with_manifest")
+async def test_pull_validation_resolves_registry_for_existing_workflow_updates(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """An update gets an unlocked definition too, so validation rejects its missing action."""
+    session.add(
+        Workflow(
+            workspace_id=svc_role.workspace_id,
+            title="Example enrich",
+            description="Existing workflow synced before the action was removed",
+            alias="example-b-enrich",
+        )
+    )
+    await session.flush()
+    snapshot = WorkspaceRemoteSnapshot(
+        commit_sha=_PULL_ERROR_COMMIT,
+        files={},
+        spec=WorkspaceSpec(
+            workflows={
+                "example-b-enrich": WorkflowResourceSpec.model_validate(
+                    _workflow_with_action(
+                        source_id="example-b-enrich",
+                        title="Example enrich",
+                        action=_REMOVED_ACTION,
+                    )
+                )
+            }
+        ),
+    )
+
+    diagnostics = await WorkspaceSyncService(
+        session=session,
+        role=svc_role,
+    )._validate_workflow_import(snapshot)
+
+    [diagnostic] = diagnostics
+    assert diagnostic.error_type == "dependency"
+    assert diagnostic.message == (
+        "Workflow 'Example enrich' uses action 'tools.example.removed', "
+        "which is in no registry"
+    )

@@ -160,6 +160,19 @@ class RegistryLockInvalidDataError(RegistryError):
     """Raised when registry lock resolution finds deterministic invalid data."""
 
 
+class RegistryLockActionNotFoundError(RegistryLockInvalidDataError):
+    """Raised when an action name resolves to no registry origin."""
+
+    def __init__(self, action_name: str, origins: list[str]):
+        super().__init__(
+            f"Action '{action_name}' not found in any registry. "
+            f"Available registries: {origins}",
+            detail={"action_name": action_name, "origins": origins},
+        )
+        self.action_name = action_name
+        self.origins = origins
+
+
 class RegistryLockAmbiguousActionError(RegistryLockInvalidDataError):
     """Raised when an action name resolves to more than one registry origin.
 
