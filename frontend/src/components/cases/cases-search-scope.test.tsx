@@ -5,6 +5,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import type { ReactNode } from "react"
 import {
   type CaseReadMinimal,
@@ -246,6 +247,39 @@ describe("exact-first case search UI", () => {
     fireEvent.click(screen.getByRole("button", { name: "CASE-0042" }))
     expect(mockPush).toHaveBeenCalledWith(
       `/workspaces/${WORKSPACE_ID}/cases/${CASE.id}`
+    )
+  })
+
+  it("keeps relationship sorting usable with active view filters", async () => {
+    const user = userEvent.setup()
+    setup()
+    const sortControl = screen.getByRole("combobox", {
+      name: "Case sort field",
+    })
+    expect(sortControl).not.toBeDisabled()
+    fireEvent.keyDown(sortControl, { key: "ArrowDown" })
+    await user.click(await screen.findByRole("option", { name: /^Assignee/ }))
+    expect(sortControl).toHaveTextContent("Assignee")
+    await waitFor(() =>
+      expect(casesSearchCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({ orderBy: "assignee", sort: "desc" })
+      )
+    )
+    fireEvent.keyDown(sortControl, { key: "ArrowDown" })
+    await user.click(await screen.findByRole("option", { name: /^Tags/ }))
+    expect(sortControl).toHaveTextContent("Tags")
+    await user.click(screen.getByRole("button", { name: "Sort descending" }))
+    await waitFor(() =>
+      expect(casesSearchCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({ orderBy: "tags", sort: "asc" })
+      )
+    )
+    await user.click(screen.getByRole("button", { name: "Reset" }))
+    expect(sortControl).toHaveTextContent("Updated")
+    await waitFor(() =>
+      expect(casesSearchCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({ orderBy: "updated_at", sort: "desc" })
+      )
     )
   })
 

@@ -5810,7 +5810,8 @@ async def test_update_case_with_dropdown_values(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_list_cases(monkeypatch):
+@pytest.mark.parametrize("order_by", [None, "assignee", "tags"])
+async def test_list_cases(monkeypatch, order_by):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
 
@@ -5844,6 +5845,7 @@ async def test_list_cases(monkeypatch):
     )
 
     async def _list_cases(**kwargs):
+        assert kwargs["order_by"] == order_by
         return list_result
 
     cases_service = SimpleNamespace(list_cases=_list_cases)
@@ -5855,7 +5857,9 @@ async def test_list_cases(monkeypatch):
         SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
     )
 
-    result = await _tool(mcp_server.list_cases)(workspace_id=str(uuid.uuid4()))
+    result = await _tool(mcp_server.list_cases)(
+        workspace_id=str(uuid.uuid4()), order_by=order_by
+    )
     payload = _payload(result)
     assert len(payload["items"]) == 1
     assert payload["items"][0]["summary"] == "Suspicious login"
@@ -5863,7 +5867,8 @@ async def test_list_cases(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_search_cases(monkeypatch):
+@pytest.mark.parametrize("order_by", [None, "assignee", "tags"])
+async def test_search_cases(monkeypatch, order_by):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
 
@@ -5915,11 +5920,13 @@ async def test_search_cases(monkeypatch):
         status="new,in_progress",
         priority="critical",
         search_term="phishing",
+        order_by=order_by,
     )
     payload = _payload(result)
     assert len(payload["items"]) == 1
     assert payload["items"][0]["summary"] == "Phishing alert"
     assert captured["search_term"] == "phishing"
+    assert captured["order_by"] == order_by
     # Verify enum parsing for comma-separated values
     assert len(captured["status"]) == 2
     assert len(captured["priority"]) == 1

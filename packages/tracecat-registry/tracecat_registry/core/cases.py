@@ -552,9 +552,20 @@ async def list_cases_by_row(
         Doc("Pagination cursor used to fetch a specific page when paginate=true."),
     ] = None,
     order_by: Annotated[
-        Literal["created_at", "updated_at", "priority", "severity", "status", "tasks"]
+        Literal[
+            "created_at",
+            "updated_at",
+            "priority",
+            "severity",
+            "status",
+            "tasks",
+            "assignee",
+            "tags",
+        ]
         | None,
-        Doc("The field to order the cases by."),
+        Doc(
+            "The field to order by. Assignee uses lowercase email; tags uses the first normalized tag alphabetically. Missing values sort last."
+        ),
     ] = None,
     sort: Annotated[
         Literal["asc", "desc"] | None,
@@ -605,9 +616,20 @@ async def list_cases(
         Doc("Reverse pagination direction when paginate=true."),
     ] = False,
     order_by: Annotated[
-        Literal["created_at", "updated_at", "priority", "severity", "status", "tasks"]
+        Literal[
+            "created_at",
+            "updated_at",
+            "priority",
+            "severity",
+            "status",
+            "tasks",
+            "assignee",
+            "tags",
+        ]
         | None,
-        Doc("The field to order the cases by."),
+        Doc(
+            "The field to order by. Assignee uses lowercase email; tags uses the first normalized tag alphabetically. Missing values sort last."
+        ),
     ] = None,
     sort: Annotated[
         Literal["asc", "desc"] | None,
@@ -702,9 +724,20 @@ async def search_cases(
         Doc("Reverse pagination direction when paginate=true."),
     ] = False,
     order_by: Annotated[
-        Literal["created_at", "updated_at", "priority", "severity", "status", "tasks"]
+        Literal[
+            "created_at",
+            "updated_at",
+            "priority",
+            "severity",
+            "status",
+            "tasks",
+            "assignee",
+            "tags",
+        ]
         | None,
-        Doc("The field to order the cases by."),
+        Doc(
+            "The field to order by. Assignee uses lowercase email; tags uses the first normalized tag alphabetically. Missing values sort last."
+        ),
     ] = None,
     sort: Annotated[
         Literal["asc", "desc"] | None,

@@ -245,7 +245,14 @@ async def list_linked_cases(
     cursor: str | None = Query(default=None),
     reverse: bool = Query(default=False),
     order_by: Literal[
-        "created_at", "updated_at", "priority", "severity", "status", "tasks"
+        "created_at",
+        "updated_at",
+        "priority",
+        "severity",
+        "status",
+        "tasks",
+        "assignee",
+        "tags",
     ]
     | None = Query(None, description="Case column to order by. Default: created_at"),
     sort: Literal["asc", "desc"] | None = Query(
