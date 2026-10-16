@@ -7,7 +7,7 @@ and datetimes become ISO format strings.
 
 from uuid import UUID
 from datetime import datetime
-from typing import Any, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 
 # ============================================================================
@@ -156,6 +156,14 @@ class CaseDurationRead(TypedDict):
     duration: str | None
 
 
+class CaseSearchMatchRead(TypedDict):
+    """Plain-text lexical match metadata beside the case's source fields."""
+
+    score: float | None
+    matched_columns: list[Literal["summary", "description", "id", "short_id"]]
+    excerpts: list[str]
+
+
 class CaseReadMinimal(TypedDict):
     """Minimal case information returned by search operations.
 
@@ -164,6 +172,7 @@ class CaseReadMinimal(TypedDict):
 
     id: UUID
     short_id: str
+    search_match: NotRequired[CaseSearchMatchRead | None]
     summary: str
     priority: str
     severity: str

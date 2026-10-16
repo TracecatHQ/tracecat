@@ -6694,6 +6694,8 @@ async def search_cases(
     limit: int = config.TRACECAT__LIMIT_DEFAULT,
     cursor: str | None = None,
     search_term: str | None = None,
+    search_mode: Literal["full_text", "literal"] | None = None,
+    search_columns: list[Literal["summary", "description"]] | None = None,
     short_id: str | None = None,
     status: str | None = None,
     priority: str | None = None,
@@ -6726,6 +6728,8 @@ async def search_cases(
         cursor: Cursor for pagination.
         search_term: Text to search for in case summary, description, short
             ID, or case UUID.
+        search_mode: Explicit full_text words/phrases or literal substring; omitted preserves legacy behavior.
+        search_columns: Summary/description fields to search; omitted uses both.
         short_id: Search by exact case short ID (e.g. ``42`` or
             ``CASE-0042``).
         status: Comma-separated case statuses to filter by. Values: new,
@@ -6787,6 +6791,8 @@ async def search_cases(
                 "cursor": cursor,
                 "reverse": reverse,
                 "search_term": search_term,
+                "search_mode": search_mode,
+                "search_columns": search_columns,
                 "short_id": short_id,
                 "case_id": case_id,
                 "filters": filters,

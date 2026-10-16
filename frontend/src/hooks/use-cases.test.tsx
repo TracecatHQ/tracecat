@@ -22,6 +22,7 @@ const searchCases = jest.mocked(casesSearchCases)
 const searchAggregates = jest.mocked(casesSearchCaseAggregates)
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
+const OTHER_WORKSPACE_ID = "22222222-2222-4222-8222-222222222222"
 
 const CASE: CaseReadMinimal = {
   id: "00000000-0000-4000-8000-000000000042",
@@ -470,7 +471,7 @@ describe("case search ordering", () => {
         tagSortDirection: "desc",
       })
     )
-    const { result } = setup()
+    const { result, changeWorkspace } = setup()
     await advance()
     expect(result.current.filters.sortBy).toEqual({
       field: "assignee",
@@ -483,5 +484,203 @@ describe("case search ordering", () => {
     expect(casesSearchCases).toHaveBeenLastCalledWith(
       expect.objectContaining({ orderBy: "assignee", sort: "asc" })
     )
+    window.localStorage.setItem(
+      `${OTHER_WORKSPACE_ID}:cases-filters:v1`,
+      JSON.stringify({
+        searchQuery: "powershell",
+        searchOrder: "relevance",
+        sortBy: { field: "assignee", direction: "asc" },
+        assigneeSortDirection: "asc",
+      })
+    )
+    act(() => changeWorkspace(OTHER_WORKSPACE_ID))
+    await advance()
+    expect(result.current.filters.sortBy).toEqual({
+      field: "relevance",
+      direction: "desc",
+    })
+    expect(result.current.filters.prioritySortDirection).toBeNull()
+    expect(result.current.filters.severitySortDirection).toBeNull()
+    expect(result.current.filters.assigneeSortDirection).toBeNull()
+    expect(result.current.filters.tagSortDirection).toBeNull()
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({ orderBy: "relevance", sort: "desc" })
+    )
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(`${OTHER_WORKSPACE_ID}:cases-filters:v1`) ??
+          "{}"
+      )
+    ).toMatchObject({
+      sortBy: { field: "assignee", direction: "asc" },
+      assigneeSortDirection: "asc",
+    })
+    act(() => result.current.setSearchMode("literal"))
+    await advance()
+    expect(result.current.filters.assigneeSortDirection).toBe("asc")
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({ orderBy: "assignee", sort: "asc" })
+    )
+  })
+})
+
+describe("case search modes", () => {
+  it("applies lexical mode to rows/counts together and resets the cursor when mode changes", async () => {
+    jest.mocked(casesSearchCases).mockImplementation(() =>
+      resolved<CasesSearchCasesResponse>({
+        items: [CASE],
+        has_more: true,
+        next_cursor: "synthetic-mode-cursor",
+      })
+    )
+    const { result } = setup()
+    await advance()
+    act(() => result.current.setSearchQuery("powershell encoded"))
+    await advance(301)
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        searchTerm: "powershell encoded",
+        searchMode: "full_text",
+        orderBy: "relevance",
+        sort: "desc",
+        cursor: undefined,
+        includeCount: false,
+      })
+    )
+    expect(casesSearchCaseAggregates).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        searchTerm: "powershell encoded",
+        searchMode: "full_text",
+      })
+    )
+    await advance(10)
+    expect(result.current.hasNextPage).toBe(true)
+    act(() => result.current.fetchNextPage())
+    await advance()
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cursor: "synthetic-mode-cursor" })
+    )
+    act(() => result.current.setSearchMode("literal"))
+    await advance()
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        searchMode: "literal",
+        orderBy: "updated_at",
+        cursor: undefined,
+      })
+    )
+    expect(casesSearchCaseAggregates).toHaveBeenLastCalledWith(
+      expect.objectContaining({ searchMode: "literal" })
+    )
+    expect(result.current.filters.sortBy.field).toBe("updated_at")
+  })
+
+  it("preserves literal edge spaces and switches modes without applying pending input", async () => {
+    const { result } = setup()
+    await advance()
+    act(() => {
+      result.current.setSearchMode("literal")
+      result.current.setSearchQuery(" foo ")
+    })
+    await advance(301)
+    expect(result.current.appliedSearchQuery).toBe(" foo ")
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({ searchTerm: " foo ", searchMode: "literal" })
+    )
+    expect(casesSearchCaseAggregates).toHaveBeenLastCalledWith(
+      expect.objectContaining({ searchTerm: " foo ", searchMode: "literal" })
+    )
+    act(() => result.current.setSearchQuery(" bar "))
+    await advance(100)
+    act(() => result.current.setSearchMode("full_text"))
+    await advance()
+    expect(result.current.appliedSearchQuery).toBe("foo")
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({ searchTerm: "foo", searchMode: "full_text" })
+    )
+    expect(casesSearchCaseAggregates).toHaveBeenLastCalledWith(
+      expect.objectContaining({ searchTerm: "foo", searchMode: "full_text" })
+    )
+    await advance(301)
+    expect(result.current.appliedSearchQuery).toBe("bar")
+    act(() => result.current.setSearchMode("literal"))
+    await advance()
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({ searchTerm: " bar ", searchMode: "literal" })
+    )
+    expect(casesSearchCaseAggregates).toHaveBeenLastCalledWith(
+      expect.objectContaining({ searchTerm: " bar ", searchMode: "literal" })
+    )
+    act(() => result.current.setSearchQuery("   "))
+    await advance()
+    expect(result.current.appliedSearchQuery).toBe("")
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({ searchTerm: undefined, searchMode: undefined })
+    )
+  })
+
+  it("keeps an explicit default-column choice across terms and offers relevance again", async () => {
+    const { result } = setup()
+    await advance()
+    act(() => {
+      result.current.setSearchQuery("powershell")
+      result.current.setSortBy({ field: "updated_at", direction: "desc" })
+    })
+    await advance(301)
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        searchMode: "full_text",
+        orderBy: "updated_at",
+      })
+    )
+    act(() => result.current.setSearchQuery("encoded"))
+    await advance(301)
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({ orderBy: "updated_at", searchTerm: "encoded" })
+    )
+    act(() => result.current.setPrioritySortDirection("asc"))
+    expect(result.current.filters.prioritySortDirection).toBe("asc")
+    act(() =>
+      result.current.setSortBy({ field: "relevance", direction: "desc" })
+    )
+    await advance()
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({ orderBy: "relevance" })
+    )
+    expect(result.current.filters.prioritySortDirection).toBeNull()
+    act(() => result.current.setSearchQuery(""))
+    await advance()
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({ searchMode: undefined, orderBy: "updated_at" })
+    )
+  })
+
+  it("keeps literal content matching and server-owned reference promotion together", async () => {
+    const { result } = setup()
+    await advance()
+    act(() => {
+      result.current.setSearchMode("literal")
+      result.current.setSearchQuery("CASE-0042")
+    })
+    await advance(301)
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        searchMode: "literal",
+        searchTerm: "CASE-0042",
+        promoteExactMatch: true,
+        startTime: expect.any(String),
+        hierarchy: "all",
+      })
+    )
+    expect(casesSearchCaseAggregates).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        searchMode: "literal",
+        searchTerm: "CASE-0042",
+      })
+    )
+    const stored = JSON.parse(
+      window.localStorage.getItem(`${WORKSPACE_ID}:cases-filters:v1`) ?? "{}"
+    )
+    expect(stored.searchMode).toBe("literal")
   })
 })

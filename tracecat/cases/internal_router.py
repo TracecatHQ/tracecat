@@ -63,7 +63,7 @@ from tracecat.cases.schemas import (
     InternalCaseCommentData,
     InternalCaseData,
 )
-from tracecat.cases.search_schemas import CaseQuery, CaseSearchRequest
+from tracecat.cases.search_schemas import CaseQuery, CaseSearchOrder, CaseSearchRequest
 from tracecat.cases.service import (
     CaseCommentsService,
     CasesService,
@@ -82,7 +82,8 @@ from tracecat.exceptions import (
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
-from tracecat.query.errors import TracecatQueryOverflowError
+from tracecat.query.errors import TracecatQueryOverflowError, TracecatQueryTimeoutError
+from tracecat.query.lexical_types import LexicalSearchError, SearchMode
 from tracecat.tiers.enums import Entitlement
 
 router = APIRouter(
@@ -251,6 +252,8 @@ async def query_cases(
     """Search with typed AND/OR/NOT filters and independent result details."""
     try:
         return await CasesService(session, role).query_cases(params)
+    except LexicalSearchError as exc:
+        raise HTTPException(status_code=503, detail=exc.detail) from exc
     except (ValueError, TracecatValidationError) as exc:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -263,6 +266,8 @@ async def query_case_aggregates(
     """Count the same typed matching conditions as search."""
     try:
         return await CasesService(session, role).query_case_aggregates(params)
+    except LexicalSearchError as exc:
+        raise HTTPException(status_code=503, detail=exc.detail) from exc
     except (ValueError, TracecatValidationError) as exc:
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -284,6 +289,13 @@ async def search_cases(
     search_term: str | None = Query(
         None,
         description="Text to search for in case summary, description, short ID, or case UUID",
+    ),
+    search_mode: SearchMode | None = Query(
+        None,
+        description="Explicit full_text or literal; omitted mode preserves legacy search.",
+    ),
+    search_columns: list[Literal["summary", "description"]] | None = Query(
+        None, description="Selected text fields; omitted searches both."
     ),
     short_id: str | None = Query(
         None,
@@ -320,19 +332,9 @@ async def search_cases(
     updated_before: datetime | None = Query(
         None, description="Return cases updated at or before this timestamp"
     ),
-    order_by: Literal[
-        "created_at",
-        "updated_at",
-        "priority",
-        "severity",
-        "status",
-        "tasks",
-        "assignee",
-        "tags",
-    ]
-    | None = Query(
+    order_by: CaseSearchOrder | None = Query(
         None,
-        description="Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks, assignee, tags). Default: created_at",
+        description="Full-text defaults to relevance; legacy/literal defaults to created_at. Explicit columns preserve their ordering.",
     ),
     sort: Literal["asc", "desc"] | None = Query(
         None, description="Direction to sort (asc or desc)"
@@ -375,6 +377,8 @@ async def search_cases(
         cases = await service.search_cases(
             pagination_params,
             search_term=search_term,
+            search_mode=search_mode,
+            search_columns=search_columns,
             short_id=short_id,
             case_id=case_id,
             include_count=include_count,
@@ -400,13 +404,15 @@ async def search_cases(
         )
         return cases
 
+    except LexicalSearchError as exc:
+        raise HTTPException(status_code=503, detail=exc.detail) from exc
     except (ValueError, TracecatValidationError) as e:
         logger.warning(f"Invalid request for search cases: {e}")
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except (HTTPException, EntitlementRequired):
+    except (HTTPException, EntitlementRequired, TracecatQueryTimeoutError):
         raise
     except Exception as e:
         logger.error(f"Failed to search cases: {e}")

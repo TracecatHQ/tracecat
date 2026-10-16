@@ -60,6 +60,7 @@ interface CasesLayoutProps {
   isSearchPending: boolean
   members?: WorkspaceMember[]
   tags?: CaseTagRead[]
+  onSearchModeChange?: (mode: "full_text" | "literal") => void
   onSearchChange: (query: string) => void
   onSortByChange: (value: CaseSortValue) => void
   onStatusChange: (status: CaseStatus[]) => void
@@ -108,6 +109,7 @@ export function CasesLayout({
   isSearchPending,
   members,
   tags,
+  onSearchModeChange,
   onSearchChange,
   onSortByChange,
   onStatusChange,
@@ -408,6 +410,8 @@ export function CasesLayout({
     effectiveHierarchy,
     isSearchPending,
     onSearchChange,
+    searchMode: filters.searchMode,
+    onSearchModeChange,
     sortBy: filters.sortBy,
     onSortByChange,
     statusFilter: filters.statusFilter,

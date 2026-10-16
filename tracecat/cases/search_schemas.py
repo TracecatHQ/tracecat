@@ -11,8 +11,15 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.pagination import CursorPaginationParams
 from tracecat.query.filters import Filter
+from tracecat.query.lexical import (
+    literal_search_pattern,
+    parse_full_text_query,
+    resolve_search_columns,
+)
+from tracecat.query.lexical_types import SearchMode
 
 type CaseSearchOrder = Literal[
+    "relevance",
     "created_at",
     "updated_at",
     "priority",
@@ -46,6 +53,13 @@ class CaseQuery(BaseModel):
 
     filters: Filter | None = Field(default=None)
     search_term: str | None = Field(default=None, max_length=1000)
+    search_mode: SearchMode | None = Field(
+        default=None,
+        description="Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.",
+    )
+    search_columns: list[Literal["summary", "description"]] | None = Field(
+        default=None, min_length=1, max_length=2
+    )
     short_id: str | None = Field(default=None, max_length=1000)
     case_id: UUID | None = Field(default=None)
     hierarchy: Literal["all", "top_level"] = Field(default="all")
@@ -76,6 +90,21 @@ class CaseQuery(BaseModel):
         """Reject the incompatible parent and top-level search constraints."""
         if self.parent_id is not None and self.hierarchy == "top_level":
             raise ValueError("parent_id cannot be combined with hierarchy=top_level")
+        if self.search_mode is not None:
+            if self.search_term is None:
+                raise ValueError("search_mode requires search_term")
+            if self.search_mode == SearchMode.FULL_TEXT:
+                parse_full_text_query(self.search_term)
+            else:
+                literal_search_pattern(self.search_term)
+            resolve_search_columns(
+                "all_columns"
+                if self.search_columns is None
+                else tuple(self.search_columns),
+                ("summary", "description"),
+            )
+        elif self.search_columns is not None:
+            raise ValueError("search_columns requires an explicit search_mode")
         return self
 
 
@@ -96,3 +125,15 @@ class CaseSearchRequest(CaseQuery, CursorPaginationParams):
     match_none: bool = Field(
         default=False, description="The ordinary filter population matches no cases."
     )
+
+    @model_validator(mode="after")
+    def validate_relevance(self) -> Self:
+        """Relevance is a descending full-text order; explicit columns keep theirs."""
+        relevance = self.order_by == "relevance" or (
+            self.order_by is None and self.search_mode == SearchMode.FULL_TEXT
+        )
+        if relevance and self.search_mode != SearchMode.FULL_TEXT:
+            raise ValueError("Relevance ordering requires full_text search")
+        if relevance and self.sort == "asc":
+            raise ValueError("Relevance ordering must be descending")
+        return self

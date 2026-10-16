@@ -150,8 +150,25 @@ expect_failure 42501 'needs USAGE on the public schema' migrate "$existing" "$re
 admin "$existing" -c "GRANT USAGE ON SCHEMA public TO $reader" >/dev/null
 admin "$existing" -c 'REVOKE EXECUTE ON FUNCTION public.similarity(text,text) FROM PUBLIC' >/dev/null
 expect_failure 42501 'needs EXECUTE on public.similarity' read_only_check "$existing" < "$sql_file"
+[[ $(< "$failure_log") == *"GRANT EXECUTE ON FUNCTION public.similarity(text,text) TO $reader;"* ]]
 expect_failure 42501 'needs EXECUTE on public.similarity' migrate "$existing" "$reader"
-echo 'PASS: existing data and pgvector preserved; schema/function permission diagnostics'
+admin "$existing" -c "GRANT EXECUTE ON FUNCTION public.similarity(text,text) TO $reader" >/dev/null
+read_only_check "$existing" < "$sql_file"
+admin "$existing" -c "REVOKE EXECUTE ON FUNCTION public.strict_word_similarity(text,text) FROM PUBLIC, $reader" >/dev/null
+expect_failure 42501 'needs EXECUTE on public.strict_word_similarity' read_only_check "$existing" < "$sql_file"
+[[ $(< "$failure_log") == *"GRANT EXECUTE ON FUNCTION public.strict_word_similarity(text,text) TO $reader;"* ]]
+admin "$existing" -c "GRANT EXECUTE ON FUNCTION public.strict_word_similarity(text,text) TO $reader" >/dev/null
+read_only_check "$existing" < "$sql_file"
+operator_function=$(admin "$existing" -Atc "SELECT format('%I.%I(text,text)', n.nspname, p.proname) FROM pg_operator o JOIN pg_proc p ON p.oid = o.oprcode JOIN pg_namespace n ON n.oid = p.pronamespace WHERE o.oid = 'public.%>>(text,text)'::regoperator")
+[[ -n "$operator_function" ]]
+admin "$existing" -c "REVOKE EXECUTE ON FUNCTION $operator_function FROM PUBLIC, $reader" >/dev/null
+expect_failure 42501 "needs EXECUTE on $operator_function for public.%>>" read_only_check "$existing" < "$sql_file"
+[[ $(< "$failure_log") == *"GRANT EXECUTE ON FUNCTION $operator_function TO $reader;"* ]]
+admin "$existing" -c "GRANT EXECUTE ON FUNCTION $operator_function TO $reader" >/dev/null
+read_only_check "$existing" < "$sql_file"
+[[ $(admin "$existing" -Atc "SELECT oid || ':' || extversion FROM pg_extension WHERE extname = 'vector'") == "$original_vector" ]]
+[[ $(admin "$existing" -Atc 'SELECT embedding::text FROM synthetic_source') == '[1,0,0]' ]]
+echo 'PASS: existing data and pgvector preserved; missing and granted schema/function/operator permissions'
 
 # 3. An existing extension in the wrong schema is never relocated. Objects
 # detached from the extension must fail validation despite retaining their names.
@@ -168,4 +185,12 @@ expect_failure 55000 'pg_trgm must provide public.gin_trgm_ops' migrate "$invali
 admin "$invalid" -c 'ALTER EXTENSION pg_trgm ADD OPERATOR CLASS public.gin_trgm_ops USING gin; ALTER EXTENSION pg_trgm DROP FUNCTION public.similarity(text,text)' >/dev/null
 expect_failure 55000 'pg_trgm must provide public.similarity' read_only_check "$invalid" < "$sql_file"
 expect_failure 55000 'pg_trgm must provide public.similarity' migrate "$invalid"
+admin "$invalid" -c 'ALTER EXTENSION pg_trgm ADD FUNCTION public.similarity(text,text); ALTER EXTENSION pg_trgm DROP FUNCTION public.strict_word_similarity(text,text)' >/dev/null
+expect_failure 55000 'pg_trgm must provide public.strict_word_similarity' read_only_check "$invalid" < "$sql_file"
+admin "$invalid" -c 'ALTER EXTENSION pg_trgm ADD FUNCTION public.strict_word_similarity(text,text); ALTER EXTENSION pg_trgm DROP OPERATOR public.%>>(text,text)' >/dev/null
+expect_failure 55000 'pg_trgm must provide public.%>>(text,text)' read_only_check "$invalid" < "$sql_file"
+admin "$invalid" -c "ALTER EXTENSION pg_trgm ADD OPERATOR public.%>>(text,text); ALTER EXTENSION pg_trgm DROP FUNCTION $operator_function" >/dev/null
+expect_failure 55000 'pg_trgm must own the implementation of public.%>>(text,text)' read_only_check "$invalid" < "$sql_file"
+admin "$invalid" -c "ALTER EXTENSION pg_trgm ADD FUNCTION $operator_function" >/dev/null
+read_only_check "$invalid" < "$sql_file"
 echo 'PASS: incorrect schema and unrelated same-named extension objects rejected'

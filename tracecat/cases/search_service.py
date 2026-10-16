@@ -21,7 +21,6 @@ from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus, CaseTas
 from tracecat.cases.exact_search import (
     MAX_CASE_NUMBER,
     SHORT_ID_PATTERN,
-    case_reference_predicate,
     prepare_exact_case_match,
 )
 from tracecat.cases.hierarchy import TOP_LEVEL, CaseHierarchyService
@@ -30,6 +29,7 @@ from tracecat.cases.rows.hydration import CaseRowHydrator
 from tracecat.cases.schemas import (
     CaseReadMinimal,
     CaseSearchAggregateRead,
+    CaseSearchMatchRead,
     CaseStatusGroupCounts,
 )
 from tracecat.cases.search_adapters import (
@@ -41,11 +41,20 @@ from tracecat.cases.search_schemas import CaseQuery, CaseSearchRequest
 from tracecat.cases.sorting import case_relationship_sort_key
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.search import resolve_case_tag_filters
+from tracecat.cases.text_search import (
+    CaseTextQuery,
+    build_case_text_expressions,
+    case_search_execution_context,
+    get_case_search_excerpts,
+    parse_case_text_query,
+    validate_case_text_lexemes,
+)
 from tracecat.db.models import Case, CaseDropdownValue, CaseTableRow, CaseTag, CaseTask
 from tracecat.exceptions import TracecatValidationError
 from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
 from tracecat.query.compiler import compile_filter
 from tracecat.query.filters import Filter
+from tracecat.query.lexical_types import SearchMatchMetadata, SearchMode
 from tracecat.service import BaseWorkspaceService
 
 if TYPE_CHECKING:
@@ -80,7 +89,7 @@ def case_identity_predicates(query: CaseQuery) -> list[ColumnElement[bool]]:
     filters: list[ColumnElement[bool]] = []
     if query.case_id is not None:
         filters.append(Case.id == query.case_id)
-    if query.search_term:
+    if query.search_term and query.search_mode is None:
         case_number_text = cast(Case.case_number, sa.String)
         short_id_expr = func.concat(
             "CASE-",
@@ -225,6 +234,7 @@ class CaseSearchService(BaseWorkspaceService):
         legacy_filters: Filter | None = None,
         linked_row: tuple[uuid.UUID, uuid.UUID] | None = None,
         exclude_case_id: uuid.UUID | None = None,
+        lexical: CaseTextQuery | None = None,
     ) -> list[ColumnElement[bool]]:
         """Keep trusted scope and compatibility constraints outside the user tree."""
         compatibility = await self.compatibility_filters(query)
@@ -236,6 +246,8 @@ class CaseSearchService(BaseWorkspaceService):
             Case.workspace_id == self.workspace_id,
             *case_identity_predicates(query),
         ]
+        if lexical is not None:
+            predicates.append(build_case_text_expressions(lexical).predicate)
         predicates.extend(
             compile_filter(tree, resolver) for tree in trees if tree is not None
         )
@@ -270,6 +282,59 @@ class CaseSearchService(BaseWorkspaceService):
         linked_row: tuple[uuid.UUID, uuid.UUID] | None = None,
         exclude_case_id: uuid.UUID | None = None,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
+        """Own lexical execution/rollback while preserving the legacy read path."""
+        lexical = self.parse_lexical_query(request)
+        if lexical is None:
+            return await self._query_cases(
+                request,
+                case_addons_enabled=case_addons_enabled,
+                legacy_filters=legacy_filters,
+                linked_row=linked_row,
+                exclude_case_id=exclude_case_id,
+            )
+        transaction = (
+            self.session.begin_nested()
+            if self.session.in_transaction()
+            else self.session.begin()
+        )
+        async with (
+            transaction,
+            case_search_execution_context(
+                self.session,
+                check_readiness=True,
+                use_trigram_threshold=any(clause.fuzzy for clause in lexical.clauses),
+            ),
+        ):
+            await validate_case_text_lexemes(self.session, lexical)
+            return await self._query_cases(
+                request,
+                case_addons_enabled=case_addons_enabled,
+                legacy_filters=legacy_filters,
+                linked_row=linked_row,
+                exclude_case_id=exclude_case_id,
+                lexical=lexical,
+            )
+
+    @staticmethod
+    def parse_lexical_query(query: CaseQuery) -> CaseTextQuery | None:
+        """Separate omitted-mode compatibility from explicit lexical execution."""
+        if query.search_mode is None:
+            return None
+        assert query.search_term is not None
+        return parse_case_text_query(
+            query.search_term, mode=query.search_mode, columns=query.search_columns
+        )
+
+    async def _query_cases(
+        self,
+        request: CaseSearchRequest,
+        *,
+        case_addons_enabled: bool,
+        legacy_filters: Filter | None = None,
+        linked_row: tuple[uuid.UUID, uuid.UUID] | None = None,
+        exclude_case_id: uuid.UUID | None = None,
+        lexical: CaseTextQuery | None = None,
+    ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """Paginate once, then hydrate only the selected page."""
         filters = await self.prepare_query(
             request,
@@ -277,36 +342,26 @@ class CaseSearchService(BaseWorkspaceService):
             legacy_filters=legacy_filters,
             linked_row=linked_row,
             exclude_case_id=exclude_case_id,
+            lexical=lexical,
         )
         if request.match_none:
             filters.append(sa.false())
         exact_match = None
-        if (
-            request.promote_exact_match
-            and not any(
-                (
-                    request.case_id,
-                    request.short_id,
-                    request.parent_id,
-                    case_addons_enabled and request.hierarchy == "top_level",
-                    linked_row,
-                    exclude_case_id,
-                )
+        if request.promote_exact_match and not any(
+            (
+                request.case_id,
+                request.short_id,
+                request.parent_id,
+                case_addons_enabled and request.hierarchy == "top_level",
+                linked_row,
+                exclude_case_id,
             )
-            and case_reference_predicate(request.search_term) is not None
         ):
-            view_filters = await self.prepare_query(
-                request.model_copy(update={"search_term": None}),
-                case_addons_enabled=case_addons_enabled,
-                legacy_filters=legacy_filters,
-            )
-            if request.match_none:
-                view_filters.append(sa.false())
             exact_match = await prepare_exact_case_match(
                 self.session,
                 workspace_id=self.workspace_id,
                 search_term=request.search_term,
-                filters=view_filters,
+                filters=filters,
             )
         result_filters = filters
         if exact_match is not None:
@@ -341,6 +396,17 @@ class CaseSearchService(BaseWorkspaceService):
             )
         )
 
+        text_expressions = (
+            build_case_text_expressions(lexical) if lexical is not None else None
+        )
+        if lexical is not None:
+            stmt = stmt.execution_options(
+                case_lexical_context=(
+                    lexical.mode.value,
+                    lexical.columns,
+                )
+            )
+
         total_estimate: int | None = None
         if request.include_count:
             # Preserve the legacy exact filtered count. The UI can use the
@@ -350,7 +416,9 @@ class CaseSearchService(BaseWorkspaceService):
             total_estimate = int(total_count or 0)
 
         # Determine sort column and direction
-        sort_column = request.order_by or "created_at"
+        sort_column = request.order_by or (
+            "relevance" if request.search_mode == SearchMode.FULL_TEXT else "created_at"
+        )
         sort_direction = request.sort or "desc"
 
         # Map computed properties to their underlying columns
@@ -361,7 +429,10 @@ class CaseSearchService(BaseWorkspaceService):
         # For "tasks", use a correlated subquery; for enum fields, sort by semantic rank.
         task_count_expr: ColumnElement[int] | None = None
         enum_sort_values: Sequence[str] | None = None
-        if sort_column == "tasks":
+        if sort_column == "relevance":
+            assert text_expressions is not None
+            sort_attr = text_expressions.score
+        elif sort_column == "tasks":
             task_count_expr = func.coalesce(
                 select(func.count())
                 .where(CaseTask.case_id == Case.id)
@@ -541,6 +612,77 @@ class CaseSearchService(BaseWorkspaceService):
                 for item in case_items
             ]
 
+        if lexical is not None and text_expressions is not None and case_items:
+            selected_ids = [item.id for item in case_items]
+            matches = (
+                (
+                    await self.session.execute(
+                        select(
+                            Case.id,
+                            text_expressions.score.label("case_search_score"),
+                            text_expressions.summary_match.label(
+                                "case_search_summary_match"
+                            ),
+                            text_expressions.description_match.label(
+                                "case_search_description_match"
+                            ),
+                            text_expressions.identifier_match.label(
+                                "case_search_identifier_match"
+                            ),
+                        ).where(
+                            Case.workspace_id == self.workspace_id,
+                            Case.id.in_(selected_ids),
+                        )
+                    )
+                )
+                .tuples()
+                .all()
+            )
+            excerpts = await get_case_search_excerpts(
+                self.session,
+                workspace_id=self.workspace_id,
+                case_ids=selected_ids,
+                query=lexical,
+            )
+            metadata: dict[uuid.UUID, CaseSearchMatchRead] = {}
+            for (
+                case_id,
+                score,
+                summary_match,
+                description_match,
+                identifier_match,
+            ) in matches:
+                columns = tuple(
+                    name
+                    for name, matched in (
+                        ("summary", summary_match),
+                        ("description", description_match),
+                        (
+                            "short_id" if lexical.case_number is not None else "id",
+                            identifier_match,
+                        ),
+                    )
+                    if matched
+                )
+                if not columns:
+                    continue
+                bounded = SearchMatchMetadata(
+                    score=float(score)
+                    if lexical.mode == SearchMode.FULL_TEXT
+                    else None,
+                    matched_columns=columns,
+                    excerpts=tuple(
+                        excerpt.text for excerpt in excerpts.get(case_id, ())
+                    ),
+                )
+                metadata[case_id] = CaseSearchMatchRead.model_validate(
+                    bounded, from_attributes=True
+                )
+            case_items = [
+                item.model_copy(update={"search_match": metadata.get(item.id)})
+                for item in case_items
+            ]
+
         return CursorPaginatedResponse(
             items=case_items,
             next_cursor=case_page.next_cursor,
@@ -589,11 +731,49 @@ class CaseSearchService(BaseWorkspaceService):
         case_addons_enabled: bool,
         legacy_filters: Filter | None = None,
     ) -> CaseSearchAggregateRead:
+        """Count the identical lexical predicate under the same execution limits."""
+        lexical = self.parse_lexical_query(query)
+        if lexical is None:
+            return await self._query_aggregates(
+                query,
+                case_addons_enabled=case_addons_enabled,
+                legacy_filters=legacy_filters,
+            )
+        transaction = (
+            self.session.begin_nested()
+            if self.session.in_transaction()
+            else self.session.begin()
+        )
+        async with (
+            transaction,
+            case_search_execution_context(
+                self.session,
+                check_readiness=True,
+                use_trigram_threshold=any(clause.fuzzy for clause in lexical.clauses),
+            ),
+        ):
+            await validate_case_text_lexemes(self.session, lexical)
+            return await self._query_aggregates(
+                query,
+                case_addons_enabled=case_addons_enabled,
+                legacy_filters=legacy_filters,
+                lexical=lexical,
+            )
+
+    async def _query_aggregates(
+        self,
+        query: CaseQuery,
+        *,
+        case_addons_enabled: bool,
+        legacy_filters: Filter | None = None,
+        lexical: CaseTextQuery | None = None,
+    ) -> CaseSearchAggregateRead:
         """Return exact status totals using the same matching predicates as rows."""
         filters = await self.prepare_query(
             query,
             case_addons_enabled=case_addons_enabled,
             legacy_filters=legacy_filters,
+            lexical=lexical,
         )
         aggregate_stmt = select(
             func.count(Case.id).label("total"),
