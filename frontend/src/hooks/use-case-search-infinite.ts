@@ -51,6 +51,7 @@ export function useCaseSearchInfinite({
         searchTerm: searchTerm || undefined,
         limit: pageSize,
         cursor: pageParam ?? undefined,
+        includeCount: false,
       }),
     initialPageParam: null,
     getNextPageParam: (lastPage) =>

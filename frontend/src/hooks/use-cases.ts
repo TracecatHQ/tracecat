@@ -149,6 +149,7 @@ export interface UseCasesResult {
   stageCounts: CaseSearchAggregateRead["status_groups"] | null
   isCountsLoading: boolean
   isCountsFetching: boolean
+  isCountsError: boolean
   hasNextPage: boolean
   isFetchingNextPage: boolean
   fetchNextPage: () => void
@@ -1048,6 +1049,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
           fieldIds:
             normalizedFieldIds.length > 0 ? normalizedFieldIds : undefined,
           includeDurations: includeDurations || undefined,
+          includeCount: false,
         })
       ),
     enabled:
@@ -1072,6 +1074,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     data: aggregateData,
     isLoading: isCountsLoading,
     isFetching: isCountsFetching,
+    isError: isCountsError,
     refetch: refetchCounts,
   } = useQuery<CasesSearchCaseAggregatesResponse, TracecatApiError>({
     queryKey: ["cases", "aggregate", workspaceId, filtersKey],
@@ -1095,7 +1098,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   })
 
   const visibleRowsData = hasHydratedFilters ? rowsData : undefined
-  const visibleAggregateData = hasHydratedFilters ? aggregateData : undefined
+  const visibleAggregateData =
+    hasHydratedFilters && !isCountsError ? aggregateData : undefined
 
   const flattenedCases = useMemo(() => {
     const pages = visibleRowsData?.pages ?? []
@@ -1143,9 +1147,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
   const totalFilteredCaseEstimate = hasImpossibleEnumFilter
     ? 0
-    : (visibleAggregateData?.total ??
-      visibleRowsData?.pages[0]?.total_estimate ??
-      null)
+    : (visibleAggregateData?.total ?? null)
   const isHydrationPending =
     enabled && Boolean(workspaceId) && !hasHydratedFilters
 
@@ -1223,6 +1225,11 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     isCountsFetching: hasImpossibleEnumFilter
       ? false
       : hasHydratedFilters && isCountsFetching,
+    isCountsError:
+      enabled &&
+      hasHydratedFilters &&
+      !hasImpossibleEnumFilter &&
+      isCountsError,
     hasNextPage: hasImpossibleEnumFilter ? false : Boolean(hasNextPage),
     isFetchingNextPage: hasImpossibleEnumFilter
       ? false
