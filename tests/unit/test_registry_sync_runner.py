@@ -852,3 +852,63 @@ async def test_sync_result_payload_stays_small_for_any_action_count(
         "s3://registry/platform/tarball-venvs/tracecat_registry/v1/actions.json"
     )
     assert RegistryActionsAdapter.validate_json(uploads[result.actions_uri]) == actions
+
+
+@pytest.mark.anyio
+async def test_artifact_deleted_when_actions_upload_fails(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    """A failed actions upload must not orphan the artifact uploaded before it."""
+    repository_id = uuid4()
+    runner = RegistrySyncRunner()
+    mocker.patch.object(
+        runner,
+        "_get_builtin_package_path",
+        mocker.AsyncMock(return_value=tmp_path),
+    )
+    mocker.patch.object(
+        runner,
+        "_build_unsandboxed_execution_artifact",
+        mocker.AsyncMock(return_value=_make_artifact_result(tmp_path)),
+    )
+    mocker.patch.object(
+        runner,
+        "_discover_unsandboxed_actions",
+        mocker.AsyncMock(
+            return_value=SyncResultSuccess(
+                actions=[_make_action(repository_id, "Action")]
+            )
+        ),
+    )
+    artifact_uri = (
+        "s3://registry/platform/tarball-venvs/tracecat_registry/v1/"
+        "site-packages.squashfs"
+    )
+    mocker.patch.object(
+        runner,
+        "_upload_squashfs",
+        mocker.AsyncMock(return_value=artifact_uri),
+    )
+    mocker.patch(
+        "tracecat.registry.sync.runner.upload_registry_actions",
+        mocker.AsyncMock(side_effect=RuntimeError("actions upload failed")),
+    )
+    delete_file = mocker.patch(
+        "tracecat.registry.sync.runner.blob.delete_file",
+        mocker.AsyncMock(),
+    )
+
+    with pytest.raises(RuntimeError, match="actions upload failed"):
+        await runner.run(
+            RegistrySyncRequest(
+                repository_id=repository_id,
+                origin=DEFAULT_REGISTRY_ORIGIN,
+                origin_type="builtin",
+            )
+        )
+
+    delete_file.assert_awaited_once_with(
+        key="platform/tarball-venvs/tracecat_registry/v1/site-packages.squashfs",
+        bucket="registry",
+    )
