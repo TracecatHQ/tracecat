@@ -714,6 +714,98 @@ async def test_write_stream_response_emits_error_after_headers_sent(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error_type", "kind", "owner"),
+    [
+        (
+            "throttling_error",
+            RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+            RuntimeErrorOwner.PLATFORM,
+        ),
+        (
+            "budget_exceeded",
+            RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED,
+            RuntimeErrorOwner.USER,
+        ),
+    ],
+)
+async def test_write_stream_response_classifies_typed_upstream_error_event(
+    tmp_path: Path,
+    error_type: str,
+    kind: RuntimeErrorKind,
+    owner: RuntimeErrorOwner,
+) -> None:
+    errors: list[LLMProxyError] = []
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    writer = _FakeWriter()
+    error_event = b"event: error\ndata: " + orjson.dumps(
+        {
+            "type": "error",
+            "error": {"type": error_type, "message": "synthetic provider error"},
+        }
+    )
+
+    async def upstream() -> AsyncIterator[bytes]:
+        yield b'event: message_start\ndata: {"type":"message_start"}\n\n'
+        yield error_event + b"\n\n"
+
+    await socket_proxy._write_response(
+        cast(asyncio.StreamWriter, writer),
+        status_code=200,
+        reason_phrase="OK",
+        headers={"Content-Type": "text/event-stream"},
+        body_chunks=llm_proxy._rewrite_sse_stream(upstream()),
+        trace_request_id="trace-test-upstream-error",
+        path="/v1/messages",
+    )
+
+    assert writer.buffer.count(b"event: error") == 1
+    assert error_event in writer.buffer
+    assert [error.message for error in errors] == [
+        "LLM stream failed: synthetic provider error"
+    ]
+    assert errors[0].classification.kind is kind
+    assert errors[0].classification.owner is owner
+
+
+@pytest.mark.anyio
+async def test_write_stream_response_forwards_untyped_upstream_error_event(
+    tmp_path: Path,
+) -> None:
+    errors: list[LLMProxyError] = []
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    writer = _FakeWriter()
+    error_event = (
+        b'event: error\ndata: {"type":"error","error":'
+        b'{"type":"overloaded_error","message":"synthetic"}}\n\n'
+    )
+
+    async def upstream() -> AsyncIterator[bytes]:
+        yield error_event
+
+    await socket_proxy._write_response(
+        cast(asyncio.StreamWriter, writer),
+        status_code=200,
+        reason_phrase="OK",
+        headers={"Content-Type": "text/event-stream"},
+        body_chunks=llm_proxy._rewrite_sse_stream(upstream()),
+        trace_request_id="trace-test-overloaded",
+        path="/v1/messages",
+    )
+
+    assert writer.buffer.endswith(error_event)
+    assert errors == []
+
+
+@pytest.mark.anyio
 async def test_write_stream_response_surfaces_friendly_read_timeout(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
