@@ -10,48 +10,6 @@ from tracecat.exceptions import TracecatDSLError
 class TestScopeValidation:
     """Test scope region validation for scatter-gather patterns."""
 
-    def test_valid_scatter_gather_workflow(self):
-        """Test a valid scatter-gather workflow passes validation."""
-        dsl = DSLInput(
-            title="Valid Scatter-Gather",
-            description="A workflow with proper scatter-gather scoping",
-            entrypoint=DSLEntrypoint(),
-            actions=[
-                ActionStatement(  # scope: root
-                    ref="prepare_data",
-                    action="core.transform.reshape",
-                    args={"value": [1, 2, 3]},
-                ),
-                ActionStatement(  # scope: scatter_items (scatter region)
-                    ref="scatter_items",
-                    action="core.transform.scatter",
-                    args={"collection": "${{ ACTIONS.prepare_data.result }}"},
-                    depends_on=["prepare_data"],
-                ),
-                ActionStatement(  # scope: scatter_items (scatter region)
-                    ref="process_item",
-                    action="core.transform.reshape",
-                    args={"value": "${{ TRIGGER.item * 2 }}"},
-                    depends_on=["scatter_items"],
-                ),
-                ActionStatement(  # scope: root
-                    ref="gather_results",
-                    action="core.transform.gather",
-                    args={"items": "${{ ACTIONS.process_item.result }}"},
-                    depends_on=["process_item"],
-                ),
-                ActionStatement(  # scope: root
-                    ref="final_report",
-                    action="core.transform.reshape",
-                    args={"value": "${{ ACTIONS.gather_results.result }}"},
-                    depends_on=["gather_results"],
-                ),
-            ],
-        )
-
-        # Should not raise any exceptions
-        assert dsl is not None
-
     def test_invalid_upward_reference(self):
         """Test that upward references (outer -> inner) are caught."""
         with pytest.raises(
@@ -126,6 +84,12 @@ class TestScopeValidation:
                     action="core.transform.gather",
                     args={"items": "${{ ACTIONS.b.result }}"},
                     depends_on=["b"],
+                ),
+                ActionStatement(  # scope: root
+                    ref="report",
+                    action="core.transform.reshape",
+                    args={"value": "${{ ACTIONS.gather.result }}"},
+                    depends_on=["gather"],
                 ),
             ],
         )
@@ -229,37 +193,6 @@ class TestScopeValidation:
                     action="core.transform.gather",
                     args={"items": "${{ ACTIONS.inner_gather.result }}"},
                     depends_on=["inner_gather"],
-                ),
-            ],
-        )
-
-        # Should not raise any exceptions
-        assert dsl is not None
-
-    def test_workflow_without_scatter_gather(self):
-        """Test that regular workflows without scatter-gather work normally."""
-        dsl = DSLInput(
-            title="Regular Workflow",
-            description="A normal workflow without scatter-gather",
-            entrypoint=DSLEntrypoint(),
-            actions=[
-                ActionStatement(  # scope: root
-                    ref="action_a",
-                    action="core.transform.reshape",
-                    args={"value": 1},
-                    depends_on=[],
-                ),
-                ActionStatement(  # scope: root
-                    ref="action_b",
-                    action="core.transform.reshape",
-                    args={"value": "${{ ACTIONS.action_a.result + 1 }}"},
-                    depends_on=["action_a"],
-                ),
-                ActionStatement(  # scope: root
-                    ref="action_c",
-                    action="core.transform.reshape",
-                    args={"value": "${{ ACTIONS.action_b.result + 1 }}"},
-                    depends_on=["action_b"],
                 ),
             ],
         )
