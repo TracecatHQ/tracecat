@@ -36,7 +36,7 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.exceptions import RegistrySyncContentError
 from tracecat.git.utils import parse_git_url
 from tracecat.logger import logger
-from tracecat.registry.artifact_keys import get_artifact_s3_key, parse_s3_uri
+from tracecat.registry.artifact_keys import get_artifact_s3_key
 from tracecat.registry.constants import PLATFORM_REGISTRY_NAMESPACE
 from tracecat.registry.sync.artifact import (
     RegistryArtifactBuildError,
@@ -428,22 +428,14 @@ class RegistrySyncRunner:
             storage_namespace=request.storage_namespace,
         )
         logger.info("Registry artifact uploaded", artifact_uri=artifact_uri)
-        try:
-            actions_uri = await upload_registry_actions(
-                discovery.actions,
-                artifact_uri=artifact_uri,
-            )
-        except Exception:
-            # No registry version will reference this artifact; don't orphan it.
-            try:
-                bucket, key = parse_s3_uri(artifact_uri)
-                await blob.delete_file(key=key, bucket=bucket)
-            except Exception:
-                logger.exception(
-                    "Failed to delete unreferenced registry artifact",
-                    artifact_uri=artifact_uri,
-                )
-            raise
+        # Commit-pinned keys are shared, and timestamp keys can collide within
+        # a second. Even a pre-upload HEAD cannot prove exclusive ownership:
+        # another sync may publish this URI before our actions upload fails.
+        # Retain the artifact on failure rather than break a live version.
+        actions_uri = await upload_registry_actions(
+            discovery.actions,
+            artifact_uri=artifact_uri,
+        )
         return RegistrySyncResult(
             actions_uri=actions_uri,
             num_actions=len(discovery.actions),

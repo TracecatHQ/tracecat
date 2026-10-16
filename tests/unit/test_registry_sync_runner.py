@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -33,12 +34,14 @@ from tracecat.registry.sync.runner import (
     RegistrySyncRunner,
     RegistrySyncRunnerError,
     RegistrySyncValidationError,
+    _ResolvedPackage,
     _SandboxedBackend,
     _UnsandboxedBackend,
 )
 from tracecat.registry.sync.schemas import (
     RegistryActionsAdapter,
     RegistrySyncRequest,
+    RegistrySyncResult,
     SyncErrorCode,
     SyncResultSuccess,
 )
@@ -855,11 +858,11 @@ async def test_sync_result_payload_stays_small_for_any_action_count(
 
 
 @pytest.mark.anyio
-async def test_artifact_deleted_when_actions_upload_fails(
+async def test_artifact_retained_when_actions_upload_fails(
     tmp_path: Path,
     mocker,
 ) -> None:
-    """A failed actions upload must not orphan the artifact uploaded before it."""
+    """A failed actions upload must retain artifacts without exclusive ownership."""
     repository_id = uuid4()
     runner = RegistrySyncRunner()
     mocker.patch.object(
@@ -908,7 +911,145 @@ async def test_artifact_deleted_when_actions_upload_fails(
             )
         )
 
-    delete_file.assert_awaited_once_with(
-        key="platform/tarball-venvs/tracecat_registry/v1/site-packages.squashfs",
-        bucket="registry",
+    delete_file.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_existing_artifact_kept_when_actions_upload_fails(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    """A re-sync must not delete an artifact a live registry version references."""
+    repository_id = uuid4()
+    runner = RegistrySyncRunner()
+    artifact_uri = (
+        "s3://registry/org/tarball-venvs/example/abc123/site-packages.squashfs"
     )
+    mocker.patch.object(
+        runner,
+        "_upload_squashfs",
+        mocker.AsyncMock(return_value=artifact_uri),
+    )
+    mocker.patch(
+        "tracecat.registry.sync.runner.upload_registry_actions",
+        mocker.AsyncMock(side_effect=RuntimeError("actions upload failed")),
+    )
+    file_exists = mocker.patch(
+        "tracecat.registry.sync.runner.blob.file_exists",
+        mocker.AsyncMock(return_value=True),
+    )
+    delete_file = mocker.patch(
+        "tracecat.registry.sync.runner.blob.delete_file",
+        mocker.AsyncMock(),
+    )
+
+    with pytest.raises(RuntimeError, match="actions upload failed"):
+        await runner._finalize_sync(
+            request=RegistrySyncRequest(
+                repository_id=repository_id,
+                origin="https://github.com/example/registry",
+                origin_type="git",
+                storage_namespace="org",
+            ),
+            resolved=_ResolvedPackage(path=tmp_path, commit_sha="abc123"),
+            discovery=SyncResultSuccess(
+                actions=[_make_action(repository_id, "Action")]
+            ),
+            artifact_result=_make_artifact_result(tmp_path),
+        )
+
+    file_exists.assert_not_awaited()
+    delete_file.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("commit_sha", [None, "abc123"])
+async def test_concurrent_sync_failure_keeps_successful_sync_artifact(
+    tmp_path: Path,
+    mocker,
+    commit_sha: str | None,
+) -> None:
+    """A failed sync must retain the shared artifact another sync just published."""
+    repository_id = uuid4()
+    first_runner, second_runner = RegistrySyncRunner(), RegistrySyncRunner()
+    version = commit_sha or "2026.01.01.000000"
+    artifact_key = f"org/tarball-venvs/example/{version}/site-packages.squashfs"
+    artifact_uri = f"s3://registry/{artifact_key}"
+    objects: set[str] = set()
+    both_uploading = asyncio.Event()
+    first_completed = asyncio.Event()
+
+    async def upload_first(**kwargs: object) -> str:
+        await both_uploading.wait()
+        objects.add(artifact_key)
+        return artifact_uri
+
+    async def upload_second(**kwargs: object) -> str:
+        both_uploading.set()
+        await first_completed.wait()
+        objects.add(artifact_key)
+        return artifact_uri
+
+    async def delete_artifact(*, key: str, bucket: str) -> None:
+        objects.discard(key)
+
+    # Both syncs can observe absence before either uploads. A HEAD check does
+    # not make either sync the exclusive owner of the shared destination key.
+    mocker.patch(
+        "tracecat.registry.sync.runner.blob.file_exists",
+        mocker.AsyncMock(return_value=False),
+    )
+    mocker.patch.object(first_runner, "_upload_squashfs", side_effect=upload_first)
+    mocker.patch.object(second_runner, "_upload_squashfs", side_effect=upload_second)
+    upload_error = RuntimeError("actions upload failed")
+    mocker.patch(
+        "tracecat.registry.sync.runner.upload_registry_actions",
+        mocker.AsyncMock(
+            side_effect=[
+                artifact_uri.replace("site-packages.squashfs", "actions.json"),
+                upload_error,
+            ]
+        ),
+    )
+    delete_file = mocker.patch(
+        "tracecat.registry.sync.runner.blob.delete_file",
+        side_effect=delete_artifact,
+    )
+    request = RegistrySyncRequest(
+        repository_id=repository_id,
+        origin="https://github.com/example/registry",
+        origin_type="git" if commit_sha else "builtin",
+        storage_namespace="org",
+    )
+    resolved = _ResolvedPackage(path=tmp_path, commit_sha=commit_sha)
+    discovery = SyncResultSuccess(actions=[_make_action(repository_id, "Action")])
+    artifact_result = _make_artifact_result(tmp_path)
+
+    async def finalize_first() -> RegistrySyncResult:
+        try:
+            return await first_runner._finalize_sync(
+                request=request,
+                resolved=resolved,
+                discovery=discovery,
+                artifact_result=artifact_result,
+            )
+        finally:
+            first_completed.set()
+
+    async with asyncio.timeout(5):
+        first, second = await asyncio.gather(
+            finalize_first(),
+            second_runner._finalize_sync(
+                request=request,
+                resolved=resolved,
+                discovery=discovery,
+                artifact_result=artifact_result,
+            ),
+            return_exceptions=True,
+        )
+
+    assert not isinstance(first, BaseException)
+    assert first.artifact_uri == artifact_uri
+    assert second is upload_error
+    assert artifact_key in objects
+    delete_file.assert_not_awaited()

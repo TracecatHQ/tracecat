@@ -55,6 +55,7 @@ from tracecat.dsl.schemas import (
     RunContext,
 )
 from tracecat.dsl.worker import new_sandbox_runner
+from tracecat.executor.action_gateway.server import ActionGateway
 from tracecat.executor.action_runner import ActionRunner
 from tracecat.executor.backends.ephemeral import EphemeralBackend
 from tracecat.executor.enums import ExecutorBackendType
@@ -197,6 +198,7 @@ def _run_sync_artifact_sandbox_smoke_in_docker_or_skip(
                 "    privileged: true",
                 '    user: "0:0"',
                 "    cgroup: private",
+                "    pids_limit: 4096",
                 "    security_opt:",
                 "      - seccomp:unconfined",
                 "      - systempaths=unconfined",
@@ -1777,13 +1779,18 @@ async def _run_sync_artifact_sandbox_smoke_child() -> None:
         executor_token="mock-token-for-testing",
     )
 
-    backend = EphemeralBackend()
-    result = await backend.execute(
-        input_data,
-        role,
-        resolved_context=resolved_context,
-        timeout=120.0,
-    )
+    action_gateway = ActionGateway()
+    try:
+        await action_gateway.start()
+        backend = EphemeralBackend()
+        result = await backend.execute(
+            input_data,
+            role,
+            resolved_context=resolved_context,
+            timeout=120.0,
+        )
+    finally:
+        await action_gateway.stop()
     if not isinstance(result, ExecutorResultSuccess):
         raise AssertionError(f"Expected sandbox execution success, got: {result}")
 
