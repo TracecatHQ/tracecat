@@ -225,18 +225,15 @@ class WorkflowImportService(BaseWorkspaceService):
 
             # Check for conflicts
             wf_id = WorkflowUUID.new(remote_workflow.id)
-            existing_workflow = await self.wf_mgmt.get_workflow(
-                wf_id, normalize=normalize_existing
+            await self.wf_mgmt.get_workflow(wf_id, normalize=normalize_existing)
+            # Imported definitions carry no registry lock, so creates and runs
+            # both resolve one against the current registries. Resolve it the
+            # same way here to fail before any write.
+            await RegistryLockService(
+                self.session, self.role
+            ).resolve_lock_with_bindings(
+                {action.action for action in dsl_input.actions}
             )
-            # Creating a workflow resolves a registry lock against the current
-            # registries, so resolve it the same way here and fail before any
-            # write. Updates keep the workflow's existing lock.
-            if existing_workflow is None:
-                await RegistryLockService(
-                    self.session, self.role
-                ).resolve_lock_with_bindings(
-                    {action.action for action in dsl_input.actions}
-                )
 
         except RegistryLockActionNotFoundError as e:
             title = remote_workflow.definition.title

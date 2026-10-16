@@ -787,6 +787,7 @@ async def test_pull_dry_run_reports_per_resource_counts(
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("registry_version_with_manifest")
 async def test_pull_dry_run_validation_does_not_normalize_existing_workflow(
     session: AsyncSession,
     svc_role: Role,
@@ -10239,16 +10240,16 @@ async def test_pull_apply_failure_past_validation_is_logged_and_names_workflow(
 
 @pytest.mark.anyio
 @pytest.mark.usefixtures("registry_version_with_manifest")
-async def test_pull_validation_does_not_resolve_registry_for_existing_workflow(
+async def test_pull_validation_resolves_registry_for_existing_workflow_updates(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    """Updating an existing workflow keeps its registry lock, so validation skips resolution."""
+    """An update gets an unlocked definition too, so validation rejects its missing action."""
     session.add(
         Workflow(
             workspace_id=svc_role.workspace_id,
             title="Example enrich",
-            description="Existing workflow pinned to an older registry",
+            description="Existing workflow synced before the action was removed",
             alias="example-b-enrich",
         )
     )
@@ -10274,4 +10275,9 @@ async def test_pull_validation_does_not_resolve_registry_for_existing_workflow(
         role=svc_role,
     )._validate_workflow_import(snapshot)
 
-    assert diagnostics == []
+    [diagnostic] = diagnostics
+    assert diagnostic.error_type == "dependency"
+    assert diagnostic.message == (
+        "Workflow 'Example enrich' uses action 'tools.example.removed', "
+        "which is in no registry"
+    )
