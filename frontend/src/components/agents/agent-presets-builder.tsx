@@ -858,6 +858,7 @@ function AgentPresetChatPane({
         modelInfo={modelInfo ?? undefined}
         emptyState={<PlaygroundEmptyState />}
         toolsEnabled={false}
+        centered
       />
     )
   }
