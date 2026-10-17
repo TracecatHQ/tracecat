@@ -93,7 +93,7 @@ describe("AgentPresetChatToggle", () => {
     )
   })
 
-  it("orders chat visibility, discard, save, then Push", async () => {
+  it("orders chat visibility, discard, Push, versions, then Publish", async () => {
     const actions: AgentPresetDetailActionsState = {
       workspaceId: "workspace-1",
       presetId: "preset-1",
@@ -117,28 +117,27 @@ describe("AgentPresetChatToggle", () => {
     )
     const toggle = screen.getByRole("switch", { name: "Use in chat" })
     const discard = screen.getByRole("button", { name: "Discard" })
-    const save = screen.getByRole("button", { name: "Save as v13" })
     const push = screen.getByRole("button", { name: "Push" })
+    const history = screen.getByRole("button", { name: "History" })
+    const publish = screen.getByRole("button", { name: "Publish" })
     for (const [before, after] of [
       [toggle, discard],
-      [discard, save],
-      [save, push],
+      [discard, push],
+      [push, history],
+      [history, publish],
     ]) {
       expect(
         before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING
       ).toBeTruthy()
     }
-    expect(
-      screen.queryByRole("button", { name: "History" })
-    ).not.toBeInTheDocument()
-    await userEvent.click(save)
+    await userEvent.click(publish)
     expect(actions.submit).toHaveBeenCalledTimes(1)
     await userEvent.click(discard)
     expect(actions.discard).toHaveBeenCalledTimes(1)
     expect(mockUpdateAgentPreset).not.toHaveBeenCalled()
   })
 
-  it("shows a clean preset as saved and ignores clicks", async () => {
+  it("disables Publish for a clean preset and ignores clicks", async () => {
     const submit = jest.fn()
     mockUseDetailContext.mockReturnValue({
       actions: {
@@ -163,9 +162,9 @@ describe("AgentPresetChatToggle", () => {
     expect(
       screen.queryByRole("button", { name: "Discard" })
     ).not.toBeInTheDocument()
-    const saved = screen.getByRole("button", { name: "Saved" })
-    expect(saved).toHaveAttribute("aria-disabled", "true")
-    await userEvent.click(saved)
+    const publish = screen.getByRole("button", { name: "Publish" })
+    expect(publish).toHaveAttribute("aria-disabled", "true")
+    await userEvent.click(publish)
     expect(submit).not.toHaveBeenCalled()
   })
 
@@ -181,7 +180,7 @@ describe("AgentPresetChatToggle", () => {
       expect(screen.getByRole("button", { name: "Push" })).toBeInTheDocument()
       expect(screen.queryByRole("switch")).not.toBeInTheDocument()
       expect(
-        screen.queryByRole("button", { name: /^Save/ })
+        screen.queryByRole("button", { name: "Publish" })
       ).not.toBeInTheDocument()
     }
   )

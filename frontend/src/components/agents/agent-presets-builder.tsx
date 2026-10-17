@@ -71,6 +71,7 @@ import {
   AgentPresetRailToolGroup,
   AgentPresetRailTools,
 } from "@/components/agents/agent-preset-rail-tools"
+import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
 import { SlackChannelPanel } from "@/components/agents/external-channels/slack-channel-panel"
 import {
   ChatHistoryDropdown,
@@ -134,18 +135,19 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { useAgentChannelTokens } from "@/hooks/use-agent-channels"
 import {
   useAgentPreset,
   useAgentPresets,
   useAgentPresetToolPolicyPreview,
   useAgentPresetVersion,
+  useAgentPresetVersions,
   useCreateAgentPreset,
   useUpdateAgentPreset,
 } from "@/hooks/use-agent-presets"
@@ -665,6 +667,11 @@ function AgentPresetChatPane({
     chatId: activeChatId,
     workspaceId,
   })
+  const { versions, versionsIsLoading, versionsError } = useAgentPresetVersions(
+    workspaceId,
+    preset?.id,
+    { enabled: Boolean(preset && workspaceId) }
+  )
   const selectedVersionId = chat?.agent_preset_version_id ?? null
   const {
     presetVersion: selectedVersionConfig,
@@ -725,9 +732,9 @@ function AgentPresetChatPane({
         title: `${preset.name} chat`,
         entity_type: "agent_preset",
         entity_id: preset.id,
-        tools: preset.actions ?? undefined,
+        tools: selectedVersionConfig?.actions ?? preset.actions ?? undefined,
         agent_preset_id: preset.id,
-        agent_preset_version_id: null,
+        agent_preset_version_id: selectedVersionId,
       })
       setSelectedChatId(newChat.id)
       await refetchChats()
@@ -736,16 +743,15 @@ function AgentPresetChatPane({
     }
   }
 
-  // New chats run the latest version; older chats may still be pinned.
-  const handleUseLatest = async () => {
-    if (!activeChatId) return
+  const handlePresetVersionChange = async (nextVersionId: string | null) => {
+    if (!activeChatId || chat?.is_readonly) return
     try {
       await updateChat({
         chatId: activeChatId,
-        update: { agent_preset_version_id: null },
+        update: { agent_preset_version_id: nextVersionId },
       })
     } catch (error) {
-      console.error("Failed to unpin preset chat version", error)
+      console.error("Failed to update preset chat version", error)
     }
   }
 
@@ -868,25 +874,17 @@ function AgentPresetChatPane({
       <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border/60 px-5">
         {leading}
         <span className="flex-1" />
-        {preset && selectedVersionId ? (
-          <span className="mr-1 flex items-center gap-1 text-xs text-muted-foreground">
-            Pinned to{" "}
-            {selectedVersionConfig
-              ? `v${selectedVersionConfig.version}`
-              : "an older version"}
-            {chat?.is_readonly ? null : (
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-7 px-2 text-xs"
-                disabled={isUpdating}
-                onClick={() => void handleUseLatest()}
-              >
-                Use latest
-              </Button>
-            )}
-          </span>
+        {preset ? (
+          <AgentPresetVersionSelect
+            versions={versions}
+            versionsIsLoading={versionsIsLoading}
+            versionsError={versionsError}
+            selectedVersionId={selectedVersionId}
+            currentVersionId={preset.current_version_id ?? null}
+            onSelect={handlePresetVersionChange}
+            disabled={!activeChatId || !chat || chat.is_readonly || isUpdating}
+            triggerClassName="h-7 w-[10.5rem] text-xs shadow-none"
+          />
         ) : null}
         {preset ? (
           <>
@@ -1215,15 +1213,16 @@ function AgentPresetForm({
   initialTab = "configuration",
   onTabChange,
 }: AgentPresetFormProps) {
-  const [leftMode, setLeftMode] = useState<"instructions" | "playground">(
-    initialTab === "live-chat" ? "playground" : "instructions"
+  const [leftMode, setLeftMode] = useState<AgentPresetLeftMode>(() =>
+    tabToLeftMode(initialTab)
   )
   // null follows the mode: open for Instructions, hidden in Playground.
   const [railPinned, setRailPinned] = useState<boolean | null>(null)
   const railOpen = railPinned ?? leftMode === "instructions"
-  const [railView, setRailView] = useState<AgentPresetRailView>(() =>
-    tabToRailView(initialTab)
+  const [railTab, setRailTab] = useState<AgentPresetRailTab>(() =>
+    tabToRailTab(initialTab)
   )
+  const [railDrill, setRailDrill] = useState<AgentPresetRailDrill | null>(null)
   const { hasEntitlement, hasEntitlementData } = useEntitlements()
   const channelsEnabled = hasEntitlement("agent_channels")
   const form = useForm<AgentPresetFormValues>({
@@ -1249,18 +1248,19 @@ function AgentPresetForm({
   // Routes a legacy tab target, such as a validation error, to its new home.
   const focusTab = useCallback(
     (tab: AgentPresetSideTab, subagentIndex?: number) => {
-      if (tab === "live-chat") {
-        setLeftMode("playground")
+      if (tab === "live-chat" || tab === "channels") {
+        setLeftMode(tabToLeftMode(tab))
         return
       }
       // Every other target, including the model row, lives in or beside the rail.
       setRailPinned(true)
       if (tab === "assistant") setLeftMode("instructions")
-      if (tab === "subagents" && subagentIndex !== undefined) {
-        setRailView({ kind: "subagent", index: subagentIndex })
-      } else {
-        setRailView(tabToRailView(tab))
-      }
+      setRailTab(tabToRailTab(tab))
+      setRailDrill(
+        tab === "subagents" && subagentIndex !== undefined
+          ? { kind: "subagent", index: subagentIndex }
+          : null
+      )
     },
     []
   )
@@ -1368,14 +1368,10 @@ function AgentPresetForm({
 
   // Wait for entitlements so a deep link to Channels survives the first render.
   useEffect(() => {
-    if (
-      hasEntitlementData &&
-      !channelsEnabled &&
-      railView.kind === "channels"
-    ) {
-      setRailView({ kind: "root" })
+    if (hasEntitlementData && !channelsEnabled && leftMode === "channels") {
+      setLeftMode("instructions")
     }
-  }, [channelsEnabled, hasEntitlementData, railView.kind])
+  }, [channelsEnabled, hasEntitlementData, leftMode])
 
   const handleSubmit = form.handleSubmit(
     async (values) => {
@@ -1556,28 +1552,21 @@ function AgentPresetForm({
   )
 
   // Channels lives in the URL so the Slack OAuth redirect returns to it.
-  function handleRailViewChange(next: AgentPresetRailView) {
-    setRailView(next)
-    if (next.kind === "channels") {
-      onTabChange?.("channels")
-    } else if (railView.kind === "channels") {
-      onTabChange?.(leftMode === "playground" ? "live-chat" : "configuration")
-    }
-  }
-
   const modeSwitch = (
-    <SegmentedControl
+    <SegmentedControl<AgentPresetLeftMode>
       ariaLabel="Left pane"
       value={leftMode}
       onValueChange={(value) => {
         setLeftMode(value)
         setRailPinned(null)
-        if (railView.kind !== "channels")
-          onTabChange?.(value === "playground" ? "live-chat" : "configuration")
+        onTabChange?.(LEFT_MODE_TABS[value])
       }}
       options={[
         { value: "instructions", label: "Instructions" },
         { value: "playground", label: "Playground" },
+        ...(channelsEnabled
+          ? [{ value: "channels" as const, label: "Channels" }]
+          : []),
       ]}
     />
   )
@@ -1605,17 +1594,26 @@ function AgentPresetForm({
     </Tooltip>
   )
 
-  const leftPanel =
-    leftMode === "instructions" ? (
-      <div className="flex h-full min-h-0 flex-col">
-        <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border/60 px-5">
-          {modeSwitch}
-          <span className="flex-1" />
-          {railToggle}
-        </div>
-        <div className="min-h-0 flex-1">{documentPanel}</div>
-      </div>
-    ) : (
+  // No detail header (artifact view): keep form actions reachable.
+  const inlineActions = detail ? null : (
+    <AgentPresetDetailActions
+      workspaceId={workspaceId}
+      presetId={presetIdValue}
+      currentVersionId={presetCurrentVersionId}
+      getDraftPayload={getDraftPayloadStable}
+      isSaving={isSaving}
+      canSubmit={canSubmit}
+      submitLabel={submitLabel}
+      onPublish={submit}
+      isDirty={isDirty}
+      cutsVersion={cutsVersion}
+      onDiscard={discard}
+    />
+  )
+
+  let leftPanel: ReactNode
+  if (leftMode === "playground") {
+    leftPanel = (
       <AgentPresetChatPane
         preset={preset}
         workspaceId={workspaceId}
@@ -1624,34 +1622,45 @@ function AgentPresetForm({
         leading={modeSwitch}
         trailing={
           <>
-            {/* No detail header (artifact view): keep form actions reachable. */}
-            {detail ? null : (
-              <AgentPresetDetailActions
-                workspaceId={workspaceId}
-                presetId={presetIdValue}
-                currentVersionId={presetCurrentVersionId}
-                getDraftPayload={getDraftPayloadStable}
-                isSaving={isSaving}
-                canSubmit={canSubmit}
-                submitLabel={submitLabel}
-                onPublish={submit}
-                isDirty={isDirty}
-                cutsVersion={cutsVersion}
-                onDiscard={discard}
-                showVersionChip
-              />
-            )}
+            {inlineActions}
             {railToggle}
           </>
         }
       />
     )
+  } else {
+    leftPanel = (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border/60 px-5">
+          {modeSwitch}
+          <span className="flex-1" />
+          {leftMode === "channels" ? inlineActions : null}
+          {railToggle}
+        </div>
+        <div className="min-h-0 flex-1">
+          {/* Mount once entitlements resolve; the panel's early return
+              while loading changes its hook order. */}
+          {leftMode === "channels" ? (
+            channelsEnabled ? (
+              <SlackChannelPanel workspaceId={workspaceId} preset={preset} />
+            ) : null
+          ) : (
+            documentPanel
+          )}
+        </div>
+      </div>
+    )
+  }
 
   const rail = (
     <AgentPresetRail
-      view={railView}
-      onViewChange={handleRailViewChange}
-      channelsEnabled={channelsEnabled}
+      tab={railTab}
+      onTabChange={(tab) => {
+        setRailTab(tab)
+        setRailDrill(null)
+      }}
+      drill={railDrill}
+      onDrillChange={setRailDrill}
       preset={preset}
       workspaceId={workspaceId}
       agentPresets={agentPresets}
@@ -1825,7 +1834,6 @@ function AgentPresetDocumentPanel({
                 isDirty={isDirty}
                 cutsVersion={cutsVersion}
                 onDiscard={onDiscard}
-                showVersionChip
               />
             </div>
           )}
@@ -1909,31 +1917,53 @@ function SegmentedControl<T extends string>({
   )
 }
 
-type AgentPresetRailView =
-  | { kind: "root" }
-  | { kind: "output" }
-  | { kind: "channels" }
+type AgentPresetLeftMode = "instructions" | "playground" | "channels"
+
+const LEFT_MODE_TABS: Record<AgentPresetLeftMode, AgentPresetSideTab> = {
+  instructions: "configuration",
+  playground: "live-chat",
+  channels: "channels",
+}
+
+function tabToLeftMode(tab: AgentPresetSideTab): AgentPresetLeftMode {
+  if (tab === "live-chat") return "playground"
+  if (tab === "channels") return "channels"
+  return "instructions"
+}
+
+const RAIL_TABS = [
+  { value: "tools", label: "Tools" },
+  { value: "skills", label: "Skills" },
+  { value: "subagents", label: "Subagents" },
+  { value: "output", label: "Output" },
+] as const
+
+type AgentPresetRailTab = (typeof RAIL_TABS)[number]["value"]
+
+type AgentPresetRailDrill =
   | { kind: "subagent"; index: number }
   | { kind: "tools"; groupKey: string; title: string }
 
-function tabToRailView(tab: AgentPresetSideTab): AgentPresetRailView {
-  if (tab === "structured-output") {
-    return { kind: "output" }
-  }
-  if (tab === "channels") {
-    return { kind: "channels" }
-  }
-  return { kind: "root" }
+function tabToRailTab(tab: AgentPresetSideTab): AgentPresetRailTab {
+  if (tab === "skills") return "skills"
+  if (tab === "subagents") return "subagents"
+  if (tab === "structured-output") return "output"
+  return "tools"
+}
+
+function isAgentPresetRailTab(value: string): value is AgentPresetRailTab {
+  return RAIL_TABS.some((tab) => tab.value === value)
 }
 
 const RAIL_ROW =
   "grid min-h-8 w-full grid-cols-[104px_minmax(0,1fr)] items-center rounded-md px-2 select-none text-left text-[13px] transition-colors hover:bg-foreground/[0.04] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
 
-/** One-scroll agent configuration with drill-ins. */
+/** Tabbed agent configuration with drill-ins. */
 function AgentPresetRail({
-  view,
-  onViewChange,
-  channelsEnabled,
+  tab,
+  onTabChange,
+  drill,
+  onDrillChange,
   preset,
   workspaceId,
   agentPresets,
@@ -1954,9 +1984,10 @@ function AgentPresetRail({
   onAddSubagent,
   onRemoveSubagent,
 }: {
-  view: AgentPresetRailView
-  onViewChange: (view: AgentPresetRailView) => void
-  channelsEnabled: boolean
+  tab: AgentPresetRailTab
+  onTabChange: (tab: AgentPresetRailTab) => void
+  drill: AgentPresetRailDrill | null
+  onDrillChange: (drill: AgentPresetRailDrill | null) => void
   preset: AgentPresetRead | null
   workspaceId: string
   agentPresets: AgentPresetReadMinimal[]
@@ -1990,152 +2021,165 @@ function AgentPresetRail({
     savedSkillActions: preset?.tool_policy?.skill_actions,
     maxTools: preset?.tool_policy?.max_tools,
   })
-  const back = () => onViewChange({ kind: "root" })
+  const back = () => onDrillChange(null)
+  // Drill-ins belong to the tab that opened them.
+  const activeDrill =
+    drill?.kind === "subagent" &&
+    tab === "subagents" &&
+    subagentFields[drill.index] !== undefined
+      ? drill
+      : drill?.kind === "tools" && tab === "tools"
+        ? drill
+        : null
   let drillTitle = ""
-  if (view.kind === "output") drillTitle = "Output"
-  if (view.kind === "channels") drillTitle = "Channels"
-  if (view.kind === "tools") drillTitle = view.title
-  if (view.kind === "subagent") {
-    const subagent = subagents?.[view.index]
+  if (activeDrill?.kind === "tools") drillTitle = activeDrill.title
+  if (activeDrill?.kind === "subagent") {
+    const subagent = subagents?.[activeDrill.index]
     drillTitle = subagent
       ? getSubagentFormAlias(subagent) || "Subagent"
       : "Subagent"
   }
-  const subagentMissing =
-    view.kind === "subagent" && subagentFields[view.index] === undefined
+  const tabLabel = RAIL_TABS.find((option) => option.value === tab)?.label
 
   return (
     <aside
       aria-label="Agent configuration"
       className={cn("flex h-full min-h-0 flex-col", RAIL_SURFACE)}
     >
-      <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block">
-        <div className="px-4 pt-4 pb-6 text-xs">
-          {view.kind === "root" || subagentMissing ? (
-            <div className="flex flex-col gap-6">
-              <AgentPresetSettingsRows
-                form={form}
-                isSaving={isSaving}
-                enabledModelOptions={enabledModelOptions}
-                enabledModelsLoaded={enabledModelsLoaded}
-                hasStdioMcp={hasStdioMcp}
-                onOpenOutput={() => onViewChange({ kind: "output" })}
-              />
-              <AgentPresetConfigurationPanel
-                workspaceId={workspaceId}
-                savedSkillIds={
-                  preset
-                    ? (preset.skills ?? []).map((skill) => skill.skill_id)
-                    : undefined
-                }
-                maxTools={preset?.tool_policy?.max_tools}
-                savedSkillActions={preset?.tool_policy?.skill_actions}
-                savedNamespaces={preset?.namespaces}
-                form={form}
-                isSaving={isSaving}
-                registryActions={registryActions}
-                registryLoading={registryLoading}
-                mcpLoading={mcpLoading}
-                toolsLoadError={toolsLoadError}
-                mcpIntegrations={mcpIntegrations}
-                onOpenGroup={(groupKey, title) =>
-                  onViewChange({ kind: "tools", groupKey, title })
-                }
-              />
-              <AgentPresetSkillsPanel
-                form={form}
-                workspaceId={workspaceId}
-                isSaving={isSaving}
-                skillFields={skillFields}
-                savedBindings={preset?.skills}
-                onAddSkillBinding={onAddSkillBinding}
-                onRemoveSkillBinding={onRemoveSkillBinding}
-              />
-              <AgentPresetSubagentsPanel
-                form={form}
-                isSaving={isSaving}
-                parentPreset={preset}
-                agentPresets={agentPresets}
-                subagentFields={subagentFields}
-                onAddSubagent={onAddSubagent}
-                onOpenSubagent={(index) =>
-                  onViewChange({ kind: "subagent", index })
-                }
-              />
-              {channelsEnabled ? (
-                <AgentPresetChannelsSummary
-                  workspaceId={workspaceId}
-                  preset={preset}
-                  onOpen={() => onViewChange({ kind: "channels" })}
-                />
-              ) : null}
-            </div>
-          ) : (
-            <div>
-              <div className="mb-3 flex h-8 items-center gap-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1 px-2 text-[13px] font-normal text-muted-foreground"
-                  onClick={back}
-                >
-                  <ChevronLeft className="size-3.5" />
-                  Agent
-                </Button>
-                <span className="text-muted-foreground/60">/</span>
-                <span className="truncate px-1.5 text-[13px] text-foreground">
-                  {drillTitle}
-                </span>
-              </div>
-              {view.kind === "output" ? (
-                <AgentPresetStructuredOutputPanel
-                  form={form}
-                  isSaving={isSaving}
-                />
-              ) : null}
-              {view.kind === "tools" ? (
-                <AgentPresetRailToolGroup
-                  groupKey={view.groupKey}
-                  registryActions={registryActions}
-                  mcpIntegrations={mcpIntegrations}
-                  registryLoading={registryLoading}
-                  mcpLoading={mcpLoading}
-                  toolsLoadError={toolsLoadError}
-                  isSaving={isSaving}
-                  maxTools={toolPolicy.maxTools}
-                  skillActions={toolPolicy.skillActions}
-                  onEmptied={back}
-                />
-              ) : null}
-              {/* Mount once entitlements resolve; the panel's early return
-                  while loading changes its hook order. */}
-              {view.kind === "channels" && channelsEnabled ? (
-                <div className="-mx-4">
-                  <SlackChannelPanel
-                    workspaceId={workspaceId}
-                    preset={preset}
-                  />
-                </div>
-              ) : null}
-              {view.kind === "subagent" && !subagentMissing ? (
-                <AgentPresetSubagentDetail
-                  key={subagentFields[view.index]?.id}
-                  form={form}
-                  index={view.index}
-                  isSaving={isSaving}
-                  parentPreset={preset}
-                  agentPresets={agentPresets}
-                  onRemove={(index) => {
-                    onRemoveSubagent(index)
-                    back()
-                  }}
-                />
-              ) : null}
-            </div>
-          )}
+      <Tabs
+        value={tab}
+        onValueChange={(value) => {
+          if (isAgentPresetRailTab(value)) onTabChange(value)
+        }}
+        className="flex h-full min-h-0 flex-col"
+      >
+        <div className="flex h-12 shrink-0 items-stretch border-b border-border/60 px-3">
+          <TabsList className="h-full gap-1 rounded-none bg-transparent p-0">
+            {RAIL_TABS.map((option) => (
+              <TabsTrigger
+                key={option.value}
+                value={option.value}
+                className="h-full rounded-none px-2 text-xs font-normal data-[state=active]:bg-transparent data-[state=active]:text-foreground"
+              >
+                {option.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
         </div>
-      </ScrollArea>
+        <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block">
+          <div className="px-4 pt-4 pb-6 text-xs">
+            {activeDrill ? (
+              <div>
+                <div className="mb-3 flex h-8 items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1 px-2 text-[13px] font-normal text-muted-foreground"
+                    onClick={back}
+                  >
+                    <ChevronLeft className="size-3.5" />
+                    {tabLabel}
+                  </Button>
+                  <span className="text-muted-foreground/60">/</span>
+                  <span className="truncate px-1.5 text-[13px] text-foreground">
+                    {drillTitle}
+                  </span>
+                </div>
+                {activeDrill.kind === "tools" ? (
+                  <AgentPresetRailToolGroup
+                    groupKey={activeDrill.groupKey}
+                    registryActions={registryActions}
+                    mcpIntegrations={mcpIntegrations}
+                    registryLoading={registryLoading}
+                    mcpLoading={mcpLoading}
+                    toolsLoadError={toolsLoadError}
+                    isSaving={isSaving}
+                    maxTools={toolPolicy.maxTools}
+                    skillActions={toolPolicy.skillActions}
+                    onEmptied={back}
+                  />
+                ) : (
+                  <AgentPresetSubagentDetail
+                    key={subagentFields[activeDrill.index]?.id}
+                    form={form}
+                    index={activeDrill.index}
+                    isSaving={isSaving}
+                    parentPreset={preset}
+                    agentPresets={agentPresets}
+                    onRemove={(index) => {
+                      onRemoveSubagent(index)
+                      back()
+                    }}
+                  />
+                )}
+              </div>
+            ) : (
+              <>
+                <TabsContent value="tools" className="mt-0">
+                  <div className="flex flex-col gap-6">
+                    <AgentPresetSettingsRows
+                      form={form}
+                      isSaving={isSaving}
+                      enabledModelOptions={enabledModelOptions}
+                      enabledModelsLoaded={enabledModelsLoaded}
+                      hasStdioMcp={hasStdioMcp}
+                      onOpenOutput={() => onTabChange("output")}
+                    />
+                    <AgentPresetConfigurationPanel
+                      workspaceId={workspaceId}
+                      savedSkillIds={savedSkillIds}
+                      maxTools={preset?.tool_policy?.max_tools}
+                      savedSkillActions={preset?.tool_policy?.skill_actions}
+                      savedNamespaces={preset?.namespaces}
+                      form={form}
+                      isSaving={isSaving}
+                      registryActions={registryActions}
+                      registryLoading={registryLoading}
+                      mcpLoading={mcpLoading}
+                      toolsLoadError={toolsLoadError}
+                      mcpIntegrations={mcpIntegrations}
+                      onOpenGroup={(groupKey, title) =>
+                        onDrillChange({ kind: "tools", groupKey, title })
+                      }
+                    />
+                  </div>
+                </TabsContent>
+                <TabsContent value="skills" className="mt-0">
+                  <AgentPresetSkillsPanel
+                    form={form}
+                    workspaceId={workspaceId}
+                    isSaving={isSaving}
+                    skillFields={skillFields}
+                    savedBindings={preset?.skills}
+                    onAddSkillBinding={onAddSkillBinding}
+                    onRemoveSkillBinding={onRemoveSkillBinding}
+                  />
+                </TabsContent>
+                <TabsContent value="subagents" className="mt-0">
+                  <AgentPresetSubagentsPanel
+                    form={form}
+                    isSaving={isSaving}
+                    parentPreset={preset}
+                    agentPresets={agentPresets}
+                    subagentFields={subagentFields}
+                    onAddSubagent={onAddSubagent}
+                    onOpenSubagent={(index) =>
+                      onDrillChange({ kind: "subagent", index })
+                    }
+                  />
+                </TabsContent>
+                <TabsContent value="output" className="mt-0">
+                  <AgentPresetStructuredOutputPanel
+                    form={form}
+                    isSaving={isSaving}
+                  />
+                </TabsContent>
+              </>
+            )}
+          </div>
+        </ScrollArea>
+      </Tabs>
     </aside>
   )
 }
@@ -2459,59 +2503,6 @@ function describeOutput(
   } catch {
     return { label: "JSON schema", meta: "invalid", invalid: true }
   }
-}
-
-/** Connected channels, with a drill-in to set them up. */
-function AgentPresetChannelsSummary({
-  workspaceId,
-  preset,
-  onOpen,
-}: {
-  workspaceId: string
-  preset: AgentPresetRead | null
-  onOpen: () => void
-}) {
-  const { tokens } = useAgentChannelTokens(workspaceId, {
-    enabled: Boolean(preset?.id),
-    agentPresetId: preset?.id,
-  })
-  const channels = tokens ?? []
-  return (
-    <section>
-      <RailSectionHeader
-        title="Channels"
-        addLabel="Add channel"
-        onAdd={onOpen}
-        addDisabled={!preset}
-        addDisabledReason={preset ? null : "Save the agent to add channels"}
-      />
-      {channels.length === 0 ? (
-        <RailEmpty />
-      ) : (
-        channels.map((channel) => (
-          <button
-            key={channel.id}
-            type="button"
-            onClick={onOpen}
-            className={RAIL_LIST_ROW}
-          >
-            <LogoTile>
-              <ProviderIcon
-                inline
-                providerId="slack"
-                className="size-3 rounded-none bg-transparent p-0"
-              />
-            </LogoTile>
-            <span className="truncate">Slack</span>
-            <span className="flex-1" />
-            <span className="text-xs text-muted-foreground">
-              {channel.is_active ? "Active" : "Paused"}
-            </span>
-          </button>
-        ))
-      )}
-    </section>
-  )
 }
 
 /**
