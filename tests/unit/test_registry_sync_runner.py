@@ -851,8 +851,12 @@ async def test_sync_result_payload_stays_small_for_any_action_count(
     [payload] = get_data_converter().payload_converter.to_payloads([result])
     assert len(payload.data) < 1024
     assert result.num_actions == num_actions
-    assert result.actions_uri == (
-        "s3://registry/platform/tarball-venvs/tracecat_registry/v1/actions.json"
+    assert result.actions_uri.startswith(
+        "s3://registry/platform/tarball-venvs/tracecat_registry/v1/actions/"
+    )
+    assert result.actions_uri.endswith("/actions.json")
+    assert result.artifact_uri == (
+        "s3://registry/platform/tarball-venvs/tracecat_registry/v1/site-packages.squashfs"
     )
     assert RegistryActionsAdapter.validate_json(uploads[result.actions_uri]) == actions
 

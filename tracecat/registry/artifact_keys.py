@@ -15,6 +15,7 @@ import re
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
+from uuid import UUID
 
 REGISTRY_ARTIFACT_S3_NAMESPACE = "tarball-venvs"
 """Historical S3 namespace for registry execution artifacts."""
@@ -79,9 +80,14 @@ def get_artifact_s3_key(
     return f"{prefix}/{REGISTRY_ARTIFACT_FILENAME}"
 
 
-def get_actions_s3_key(artifact_key: str) -> str:
-    """Return the discovered-actions key that sits beside an artifact key."""
-    return str(PurePosixPath(artifact_key).with_name(REGISTRY_ACTIONS_FILENAME))
+def get_actions_s3_key(artifact_key: str, *, upload_id: UUID) -> str:
+    """Return the actions key isolated to one upload beside its artifact."""
+    return str(
+        PurePosixPath(artifact_key).parent
+        / "actions"
+        / upload_id.hex
+        / REGISTRY_ACTIONS_FILENAME
+    )
 
 
 def get_squashfs_artifact_key(artifact_key: str) -> str:

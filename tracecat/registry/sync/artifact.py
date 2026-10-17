@@ -20,6 +20,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 import aiofiles
 import tracecat_registry
@@ -694,9 +695,11 @@ async def upload_registry_actions(
 
     A full registry's actions are several MB of JSON, more than a Temporal
     payload may carry, so the sync result carries only this object's URI.
+    Each upload gets its own key so overlapping syncs and activity retries
+    cannot overwrite the actions referenced by another result.
     """
     bucket, artifact_key = parse_s3_uri(artifact_uri)
-    key = get_actions_s3_key(artifact_key)
+    key = get_actions_s3_key(artifact_key, upload_id=uuid4())
     await blob.upload_file(
         content=RegistryActionsAdapter.dump_json(actions),
         key=key,
