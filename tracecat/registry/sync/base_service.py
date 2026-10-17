@@ -35,6 +35,7 @@ from tracecat.registry.sync.artifact import (
     build_artifact_from_git,
     build_artifact_from_path,
     build_builtin_registry_artifact,
+    download_registry_actions,
     upload_squashfs_venv,
 )
 from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
@@ -770,8 +771,7 @@ class BaseRegistrySyncService[
                 f"Registry sync workflow failed: {exc}"
             ) from exc
 
-        actions = workflow_result.actions
-        self._raise_if_validation_errors(workflow_result.validation_errors)
+        actions = await download_registry_actions(workflow_result.actions_uri)
         artifact_uri = workflow_result.artifact_uri
         commit_sha = workflow_result.commit_sha
 

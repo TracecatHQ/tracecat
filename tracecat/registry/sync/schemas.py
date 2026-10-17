@@ -92,6 +92,10 @@ SyncResultAdapter: TypeAdapter[SyncResultSuccess | SyncResultError] = TypeAdapte
     SyncResultSuccess | SyncResultError
 )
 
+RegistryActionsAdapter: TypeAdapter[list[RegistryActionCreate]] = TypeAdapter(
+    list[RegistryActionCreate]
+)
+
 
 # =============================================================================
 # Temporal Workflow Schemas (Sandboxed Registry Sync)
@@ -149,7 +153,8 @@ class RegistrySyncResult(BaseModel):
     """Result from sandboxed registry sync workflow.
 
     Returned from the ExecutorWorker to the API service via Temporal.
-    Contains discovered actions and artifact location for DB operations.
+    The discovered actions stay in blob storage at ``actions_uri`` so the
+    result stays the same small size whatever the registry's action count.
     """
 
     model_config = ConfigDict(
@@ -158,10 +163,11 @@ class RegistrySyncResult(BaseModel):
         validate_by_name=True,
     )
 
-    actions: list[RegistryActionCreate] = Field(
-        default_factory=list,
-        description="List of discovered registry actions",
+    actions_uri: str = Field(
+        ...,
+        description="S3 URI of the discovered registry actions JSON",
     )
+    num_actions: int = Field(..., description="Number of discovered actions")
     artifact_uri: str = Field(
         ...,
         validation_alias=AliasChoices("artifact_uri", "tarball_uri"),
@@ -171,10 +177,6 @@ class RegistrySyncResult(BaseModel):
     commit_sha: str | None = Field(
         default=None,
         description="Resolved commit SHA (None for builtin/local repos)",
-    )
-    validation_errors: dict[str, list[RegistryActionValidationErrorInfo]] = Field(
-        default_factory=dict,
-        description="Map of action name to validation errors",
     )
 
     @property
