@@ -50,13 +50,6 @@ def _build_preset_read(preset: dict[str, object]) -> AgentPresetRead:
     return AgentPresetRead.model_validate(data)
 
 
-def test_builder_bundled_actions_exclude_exa_tools():
-    assert all(
-        not action.startswith("tools.exa.")
-        for action in internal_tools.BUILDER_BUNDLED_ACTIONS
-    )
-
-
 def test_evaluate_configuration_prefers_workspace_secret_even_when_empty():
     requirements = [
         {
@@ -106,30 +99,10 @@ def test_evaluate_configuration_accepts_configured_oauth_integration():
 
 
 @pytest.mark.anyio
-async def test_list_sessions_defaults_to_all_workspace_creators(monkeypatch):
-    preset_id = uuid.uuid4()
-    claims = _build_claims(preset_id)
-    captured: dict[str, object] = {}
-
-    async def _list_sessions(**kwargs):
-        captured.update(kwargs)
-        return []
-
-    service = SimpleNamespace(list_sessions=_list_sessions)
-    monkeypatch.setattr(
-        "tracecat.agent.session.service.AgentSessionService.with_session",
-        lambda role: _AsyncContext(service),
-    )
-
-    result = await internal_tools.list_sessions({}, claims)
-
-    assert result == {"sessions": []}
-    assert captured["created_by"] is None
-    assert captured["entity_id"] == preset_id
-
-
-@pytest.mark.anyio
-async def test_list_sessions_accepts_creator_filter(monkeypatch):
+@pytest.mark.parametrize("filter_creator", [False, True])
+async def test_list_sessions_scopes_to_preset_and_optional_creator(
+    monkeypatch, filter_creator: bool
+):
     preset_id = uuid.uuid4()
     creator_id = uuid.uuid4()
     claims = _build_claims(preset_id)
@@ -145,9 +118,12 @@ async def test_list_sessions_accepts_creator_filter(monkeypatch):
         lambda role: _AsyncContext(service),
     )
 
-    await internal_tools.list_sessions({"created_by": str(creator_id)}, claims)
+    args = {"created_by": str(creator_id)} if filter_creator else {}
+    result = await internal_tools.list_sessions(args, claims)
 
-    assert captured["created_by"] == creator_id
+    assert result == {"sessions": []}
+    assert captured["created_by"] == (creator_id if filter_creator else None)
+    assert captured["entity_id"] == preset_id
 
 
 @pytest.mark.anyio

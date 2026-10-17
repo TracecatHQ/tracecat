@@ -4177,6 +4177,30 @@ export const $AgentPresetVersionReadMinimal = {
   description: "Metadata returned when listing immutable preset versions.",
 } as const
 
+export const $AgentPresetWorkflowReference = {
+  properties: {
+    preset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Preset Id",
+    },
+    workflow_id: {
+      type: "string",
+      pattern: "wf_[0-9a-zA-Z]+",
+      title: "Workflow Id",
+    },
+    workflow_title: {
+      type: "string",
+      title: "Workflow Title",
+    },
+  },
+  type: "object",
+  required: ["preset_id", "workflow_id", "workflow_title"],
+  title: "AgentPresetWorkflowReference",
+  description:
+    "A workflow whose draft runs a preset through `ai.preset_agent`.",
+} as const
+
 export const $AgentSessionArtifactsRead = {
   properties: {
     artifacts: {
@@ -13041,6 +13065,69 @@ export const $CursorPaginatedResponse_AgentPresetVersionReadMinimal_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[AgentPresetVersionReadMinimal]",
+} as const
+
+export const $CursorPaginatedResponse_AgentPresetWorkflowReference_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentPresetWorkflowReference",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[AgentPresetWorkflowReference]",
 } as const
 
 export const $CursorPaginatedResponse_AgentTagRead_ = {

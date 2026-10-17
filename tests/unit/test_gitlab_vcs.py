@@ -442,27 +442,19 @@ async def test_gitlab_transport_reads_manifest_roots_and_blobs() -> None:
 
 
 @pytest.mark.anyio
-async def test_gitlab_transport_allows_repo_ssh_port_on_same_instance() -> None:
+@pytest.mark.parametrize(
+    "url",
+    [_git_url_with_ssh_port(), _git_url_with_ssh_alias()],
+    ids=["ssh_port_on_same_instance", "ssh_host_alias"],
+)
+async def test_gitlab_transport_allows_repo_ssh_host_variants(url: GitUrl) -> None:
     api = _MockGitLabApi(
         project_path="group/subgroup/project",
         files={MANIFEST_FILENAME: _manifest()},
     )
     transport = _MockGitLabTransport(api=api)
 
-    snapshot = await transport.read_files(url=_git_url_with_ssh_port(), ref="main")
-
-    assert snapshot.commit_sha == "0" * 39 + "1"
-
-
-@pytest.mark.anyio
-async def test_gitlab_transport_allows_repo_ssh_host_alias() -> None:
-    api = _MockGitLabApi(
-        project_path="group/subgroup/project",
-        files={MANIFEST_FILENAME: _manifest()},
-    )
-    transport = _MockGitLabTransport(api=api)
-
-    snapshot = await transport.read_files(url=_git_url_with_ssh_alias(), ref="main")
+    snapshot = await transport.read_files(url=url, ref="main")
 
     assert snapshot.commit_sha == "0" * 39 + "1"
 

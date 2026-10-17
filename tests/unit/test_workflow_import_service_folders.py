@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import cast
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -127,77 +128,63 @@ class TestWorkflowImportServiceFolders:
         assert call_args.kwargs["name"] == "detections"
         assert call_args.kwargs["parent_path"] == "/security/"
 
-    @pytest.mark.anyio
-    async def test_create_new_workflow_with_folder_path(
-        self,
-        workflow_import_service: WorkflowImportService,
-        sample_remote_workflow_with_folder: RemoteWorkflowDefinition,
-    ) -> None:
+    @staticmethod
+    def _stub_create_dependencies(service: WorkflowImportService) -> Mock:
         mock_wf_mgmt = AsyncMock()
         mock_workflow = Mock()
         mock_workflow.id = uuid.uuid4()
         mock_wf_mgmt.create_db_workflow_from_dsl.return_value = mock_workflow
-        workflow_import_service.wf_mgmt = mock_wf_mgmt
+        service.wf_mgmt = mock_wf_mgmt
+        service.session.flush = AsyncMock()
+        service._ensure_folder_exists = AsyncMock(return_value=uuid.uuid4())
+        service._create_schedules = AsyncMock()
+        service._update_webhook = AsyncMock()
+        service._update_case_trigger = AsyncMock()
+        service._update_form = AsyncMock()
+        service._create_tags = AsyncMock()
+        return mock_workflow
 
+    @staticmethod
+    async def _create_new_workflow(
+        service: WorkflowImportService,
+        remote: RemoteWorkflowDefinition,
+        *,
+        sync_schedules: bool,
+    ) -> None:
         mock_defn_service = AsyncMock()
         mock_defn_service.create_workflow_definition.return_value = Mock(version=1)
-        workflow_import_service.session.flush = AsyncMock()
-        test_folder_id = uuid.uuid4()
-        workflow_import_service._ensure_folder_exists = AsyncMock(
-            return_value=test_folder_id
-        )
-        workflow_import_service._create_schedules = AsyncMock()
-        workflow_import_service._update_webhook = AsyncMock()
-        workflow_import_service._update_case_trigger = AsyncMock()
-        workflow_import_service._update_form = AsyncMock()
-        workflow_import_service._create_tags = AsyncMock()
-
         with patch(
             "tracecat.workflow.store.import_service.WorkflowDefinitionsService",
             return_value=mock_defn_service,
         ):
-            await workflow_import_service._create_new_workflow(
-                sample_remote_workflow_with_folder,
-                sync_schedules=True,
-            )
-
-        workflow_import_service._ensure_folder_exists.assert_called_once_with(
-            "/security/detections/"
-        )
-        assert mock_workflow.folder_id == test_folder_id
+            await service._create_new_workflow(remote, sync_schedules=sync_schedules)
 
     @pytest.mark.anyio
-    async def test_create_new_workflow_without_folder_path(
+    @pytest.mark.parametrize("with_folder", [True, False])
+    async def test_create_new_workflow_assigns_folder_from_path(
         self,
         workflow_import_service: WorkflowImportService,
         sample_remote_workflow: RemoteWorkflowDefinition,
+        sample_remote_workflow_with_folder: RemoteWorkflowDefinition,
+        with_folder: bool,
     ) -> None:
-        mock_wf_mgmt = AsyncMock()
-        mock_workflow = Mock()
-        mock_workflow.id = uuid.uuid4()
-        mock_wf_mgmt.create_db_workflow_from_dsl.return_value = mock_workflow
-        workflow_import_service.wf_mgmt = mock_wf_mgmt
+        mock_workflow = self._stub_create_dependencies(workflow_import_service)
+        ensure_folder = cast(AsyncMock, workflow_import_service._ensure_folder_exists)
+        remote = (
+            sample_remote_workflow_with_folder
+            if with_folder
+            else sample_remote_workflow
+        )
 
-        mock_defn_service = AsyncMock()
-        mock_defn_service.create_workflow_definition.return_value = Mock(version=1)
-        workflow_import_service.session.flush = AsyncMock()
-        workflow_import_service._ensure_folder_exists = AsyncMock()
-        workflow_import_service._create_schedules = AsyncMock()
-        workflow_import_service._update_webhook = AsyncMock()
-        workflow_import_service._update_case_trigger = AsyncMock()
-        workflow_import_service._update_form = AsyncMock()
-        workflow_import_service._create_tags = AsyncMock()
+        await self._create_new_workflow(
+            workflow_import_service, remote, sync_schedules=True
+        )
 
-        with patch(
-            "tracecat.workflow.store.import_service.WorkflowDefinitionsService",
-            return_value=mock_defn_service,
-        ):
-            await workflow_import_service._create_new_workflow(
-                sample_remote_workflow,
-                sync_schedules=True,
-            )
-
-        workflow_import_service._ensure_folder_exists.assert_not_called()
+        if with_folder:
+            ensure_folder.assert_called_once_with("/security/detections/")
+            assert mock_workflow.folder_id == ensure_folder.return_value
+        else:
+            ensure_folder.assert_not_called()
 
     @pytest.mark.anyio
     async def test_create_new_workflow_can_skip_schedule_sync(
@@ -205,28 +192,10 @@ class TestWorkflowImportServiceFolders:
         workflow_import_service: WorkflowImportService,
         sample_remote_workflow: RemoteWorkflowDefinition,
     ) -> None:
-        mock_wf_mgmt = AsyncMock()
-        mock_workflow = Mock()
-        mock_workflow.id = uuid.uuid4()
-        mock_wf_mgmt.create_db_workflow_from_dsl.return_value = mock_workflow
-        workflow_import_service.wf_mgmt = mock_wf_mgmt
+        self._stub_create_dependencies(workflow_import_service)
 
-        mock_defn_service = AsyncMock()
-        mock_defn_service.create_workflow_definition.return_value = Mock(version=1)
-        workflow_import_service.session.flush = AsyncMock()
-        workflow_import_service._create_schedules = AsyncMock()
-        workflow_import_service._update_webhook = AsyncMock()
-        workflow_import_service._update_case_trigger = AsyncMock()
-        workflow_import_service._update_form = AsyncMock()
-        workflow_import_service._create_tags = AsyncMock()
+        await self._create_new_workflow(
+            workflow_import_service, sample_remote_workflow, sync_schedules=False
+        )
 
-        with patch(
-            "tracecat.workflow.store.import_service.WorkflowDefinitionsService",
-            return_value=mock_defn_service,
-        ):
-            await workflow_import_service._create_new_workflow(
-                sample_remote_workflow,
-                sync_schedules=False,
-            )
-
-        workflow_import_service._create_schedules.assert_not_called()
+        cast(AsyncMock, workflow_import_service._create_schedules).assert_not_called()

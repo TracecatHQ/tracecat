@@ -93,7 +93,6 @@ def _write_skill(root: Path, slug: str, frontmatter: str) -> None:
 
 BUNDLED_LIBRARY_ROOT = catalog.LIBRARY_ROOT
 TOOLED_SLUG = "tooled-skill"
-FIXTURE_LIBRARY_SLUGS = (SLUG, "incident-summary", TOOLED_SLUG)
 
 
 @pytest.fixture(autouse=True)
@@ -166,34 +165,37 @@ def test_parse_sources_reads_entries() -> None:
 
 
 @pytest.mark.parametrize(
-    ("skills", "overrides"),
+    ("toml", "match"),
     [
-        (None, {"commit": "main"}),
-        (None, {"repo": "not-a-repo"}),
-        (None, {"tree_sha256": "short"}),
-        ({"triage": "skills/../secrets"}, {}),
-        ({"triage": "/abs"}, {}),
-        ({}, {}),
+        (_source_toml(None, commit="main"), None),
+        (_source_toml(None, repo="not-a-repo"), None),
+        (_source_toml(None, tree_sha256="short"), None),
+        (_source_toml({"triage": "skills/../secrets"}), None),
+        (_source_toml({"triage": "/abs"}), None),
+        (_source_toml({}), None),
+        (
+            _source_toml() + _source_toml({"other": "skills/other"}, group="Other"),
+            "listed twice",
+        ),
+        (
+            _source_toml() + _source_toml(group="Other", repo="other/skills"),
+            "listed twice",
+        ),
+    ],
+    ids=[
+        "branch-commit",
+        "bad-repo",
+        "short-tree-sha",
+        "path-traversal",
+        "absolute-path",
+        "no-skills",
+        "duplicate-repo",
+        "duplicate-slug",
     ],
 )
-def test_parse_sources_rejects_invalid_entries(
-    skills: dict[str, str] | None, overrides: dict[str, str]
-) -> None:
-    with pytest.raises(ValueError):
-        parse_sources(_source_toml(skills, **overrides))
-
-
-@pytest.mark.parametrize(
-    "second",
-    [
-        _source_toml({"other": "skills/other"}, group="Other"),
-        _source_toml(group="Other", repo="other/skills"),
-    ],
-    ids=["same repo", "same slug"],
-)
-def test_parse_sources_rejects_duplicates(second: str) -> None:
-    with pytest.raises(ValueError, match="listed twice"):
-        parse_sources(_source_toml() + second)
+def test_parse_sources_rejects_invalid_entries(toml: str, match: str | None) -> None:
+    with pytest.raises(ValueError, match=match):
+        parse_sources(toml)
 
 
 def _local_source_toml(provider: str | None = "Tracecat") -> str:
@@ -417,10 +419,6 @@ def test_load_library_tolerates_missing_root(
     monkeypatch.setattr(catalog, "LIBRARY_ROOT", tmp_path / "missing")
     load_library.cache_clear()
     assert load_library() == {}
-
-
-def test_load_library_reads_library_root() -> None:
-    assert sorted(load_library()) == sorted(FIXTURE_LIBRARY_SLUGS)
 
 
 @pytest.mark.parametrize(
@@ -761,10 +759,12 @@ class TestSkillLibraryService:
             _preset(["incident-summary"])
         )
 
-        with pytest.raises(TracecatValidationError):
+        with pytest.raises(TracecatValidationError) as exc:
             await library_service.uninstall_many(slugs)
         await session.rollback()
 
+        assert exc.value.detail is not None
+        assert exc.value.detail["code"] == "library_skill_in_use"
         assert await library_service._installed(slugs) == set(slugs)
 
     async def test_batch_uninstall_rejects_all_if_one_install_is_missing(

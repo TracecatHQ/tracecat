@@ -43,7 +43,7 @@ export function UploadSkillDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="sm" className="sm:max-w-[520px]">
+      <DialogContent size="md" className="sm:max-w-[520px]">
         <DialogHeader>
           <DialogTitle>Upload skill</DialogTitle>
           <DialogDescription>

@@ -90,6 +90,7 @@ class ToolUseStreamRewriter:
     def __init__(self) -> None:
         self._buffer = b""
         self._pending: dict[int, _PendingToolUse] = {}
+        self.error: dict[str, Any] | None = None
 
     def feed(self, chunk: bytes) -> bytes:
         """Consume upstream bytes and return the bytes ready to forward."""
@@ -142,6 +143,9 @@ class ToolUseStreamRewriter:
                 if delta.get("type") == "input_json_delta":
                     pending.partial_json.append(str(delta.get("partial_json", "")))
                 return b""
+            case {"type": "error", "error": dict() as error}:
+                self.error = error
+                return event
             case {"type": "content_block_stop", "index": int(index)}:
                 pending = self._pending.pop(index, None)
                 if pending is None:

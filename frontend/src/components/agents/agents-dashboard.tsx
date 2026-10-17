@@ -19,6 +19,7 @@ import {
   MousePointerClickIcon,
   Pencil,
   SearchIcon,
+  Sparkles,
   StarIcon,
   TagsIcon,
   Trash2,
@@ -49,6 +50,12 @@ import {
   agentPresetsRemovePresetTag,
 } from "@/client"
 import { AgentApprovalsDialog } from "@/components/agents/agent-approvals-dialog"
+import { AgentWorkflowBadges } from "@/components/agents/agent-workflow-badges"
+import { OverflowTooltipList } from "@/components/agents/overflow-tooltip-list"
+import {
+  useAgentCatalogFilterOptions,
+  useAgentCatalogFilterState,
+} from "@/components/agents/use-agent-catalog-filters"
 import { WorkspaceDefaultAgentBadge } from "@/components/agents/workspace-default-agent-badge"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CollapsibleSection } from "@/components/collapsible-section"
@@ -58,6 +65,10 @@ import {
   getFileTreeItems,
   ROOT_FOLDER_NAME,
 } from "@/components/dashboard/file-tree-command"
+import {
+  FilterMultiSelect,
+  type FilterOption,
+} from "@/components/filters/filter-multi-select"
 import {
   getIcon,
   getIconSource,
@@ -148,6 +159,12 @@ import {
 } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
+import {
+  type AgentCatalogFilters,
+  type AgentWorkflowRef,
+  hasAgentCatalogFilters,
+  matchesAgentCatalogFilters,
+} from "@/lib/agent-catalog-filters"
 import { buildDuplicateAgentPresetPayload } from "@/lib/agent-presets"
 import type { AgentSessionWithStatus, AgentStatusTone } from "@/lib/agents"
 import {
@@ -1623,7 +1640,12 @@ function ToolSourceTiles({
             </span>
           </TooltipTrigger>
           <TooltipContent>
-            {groups.slice(TOOL_SOURCE_TILE_CAP).flat().join(", ")}
+            <OverflowTooltipList
+              items={groups
+                .slice(TOOL_SOURCE_TILE_CAP)
+                .flat()
+                .map((name) => ({ key: name, label: name }))}
+            />
           </TooltipContent>
         </Tooltip>
       )}
@@ -1634,6 +1656,8 @@ function ToolSourceTiles({
 type McpIntegrationsBySlug = Map<string, MCPIntegrationRead>
 
 const NO_MCP_INTEGRATIONS: McpIntegrationsBySlug = new Map()
+
+const NO_WORKFLOWS: AgentWorkflowRef[] = []
 
 function pluralize(count: number, singular: string): string {
   return `${count} ${count === 1 ? singular : `${singular}s`}`
@@ -1752,9 +1776,11 @@ function AgentCatalogRow({
   organizationEnabled = true,
   defaultAgentActions,
   mcpBySlug,
+  workflows,
 }: {
   item: AgentDirectoryItem
   mcpBySlug: McpIntegrationsBySlug
+  workflows: AgentWorkflowRef[]
   onOpenPreset: (presetId: string) => void
   onOpenFolder: (path: string) => void
   setSelectedItem: (item: AgentDirectoryItem) => void
@@ -1854,6 +1880,7 @@ function AgentCatalogRow({
                 mcpBySlug={mcpBySlug}
               />
               <div className="ml-auto flex shrink-0 items-center gap-2">
+                <AgentWorkflowBadges workflows={workflows} />
                 <div className="flex shrink-0 items-center gap-1">
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -1952,7 +1979,20 @@ function AgentsCatalogHeader({
   totalCount,
   viewSwitchEnabled = true,
   defaultAgentId,
+  filters,
+  onFiltersChange,
+  mcpOptions,
+  mcpEmptyMessage,
+  workflowOptions,
+  workflowEmptyMessage,
 }: {
+  filters: AgentCatalogFilters
+  onFiltersChange: (filters: AgentCatalogFilters) => void
+  mcpOptions: FilterOption[]
+  mcpEmptyMessage: string
+  /** Null hides the filter, e.g. without workflow read access. */
+  workflowOptions: FilterOption[] | null
+  workflowEmptyMessage: string
   searchQuery: string
   onSearchChange: (query: string) => void
   sortBy: AgentsSortValue
@@ -2062,6 +2102,32 @@ function AgentsCatalogHeader({
             )}
           </button>
         </div>
+        <FilterMultiSelect
+          placeholder="MCP servers"
+          icon={Sparkles}
+          value={filters.mcpSlugs}
+          options={mcpOptions}
+          onChange={(mcpSlugs) => onFiltersChange({ ...filters, mcpSlugs })}
+          mode="include"
+          onModeChange={() => {}}
+          allowExclude={false}
+          emptyMessage={mcpEmptyMessage}
+        />
+        {workflowOptions ? (
+          <FilterMultiSelect
+            placeholder="Workflows"
+            icon={WorkflowIcon}
+            value={filters.workflowIds}
+            options={workflowOptions}
+            onChange={(workflowIds) =>
+              onFiltersChange({ ...filters, workflowIds })
+            }
+            mode="include"
+            onModeChange={() => {}}
+            allowExclude={false}
+            emptyMessage={workflowEmptyMessage}
+          />
+        ) : null}
         {defaultAgentId ? (
           <WorkspaceDefaultAgentBadge
             presetId={defaultAgentId}
@@ -2115,15 +2181,96 @@ export function AgentsDashboard() {
     null
   )
 
-  // Data hooks
+  const baseRoute = `/workspaces/${workspaceId}/agents`
+
+  const buildRoute = useCallback(
+    (params: URLSearchParams): string => {
+      const query = params.toString()
+      return query ? `${baseRoute}?${query}` : baseRoute
+    },
+    [baseRoute]
+  )
+
+  const replaceParams = useCallback(
+    (params: URLSearchParams) => router.replace(buildRoute(params)),
+    [buildRoute, router]
+  )
+  const { filters, setFilters, canReadWorkflows } = useAgentCatalogFilterState({
+    searchParams,
+    replaceParams,
+  })
+  // A folder only lists its own children, so an active filter searches the
+  // flat catalog to reach agents in nested folders.
+  const flatCatalog = view === "list" || hasAgentCatalogFilters(filters)
+
+  // Data hooks. The flat list also feeds the MCP filter options in the
+  // folder view, so agents in nested folders stay selectable.
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
-    { enabled: !entitlementsLoading && view === "list" }
+    { enabled: !entitlementsLoading }
   )
   const { directoryItems, directoryItemsIsLoading, directoryItemsError } =
     useAgentDirectoryItems(currentPath, workspaceId, {
-      enabled: organizationEnabled && view === "folders",
+      enabled: organizationEnabled && !flatCatalog,
     })
+
+  // The preset summary names MCP integrations only by slug. Use the unfiltered
+  // workspace-wide list so filtering never drops an option, plus the current
+  // folder while that list loads.
+  const usedMcpSlugs = useMemo(() => {
+    const summaries = [
+      ...(presets ?? []).map((preset) => preset.tool_summary),
+      ...(directoryItems ?? []).flatMap((item) =>
+        item.type === "preset" ? [item.tool_summary] : []
+      ),
+    ]
+    return [
+      ...new Set(summaries.flatMap((summary) => summary?.mcp_slugs ?? [])),
+    ]
+  }, [directoryItems, presets])
+  // The list endpoint needs `integration:read`; without it the request 403s
+  // and the slugs stay uncounted.
+  const canReadIntegrations = useScopeCheck("integration:read") === true
+  const mcpQuery = useListMcpIntegrations(workspaceId, undefined, {
+    enabled: canReadIntegrations,
+  })
+  // A skipped query still returns data cached before the scope was lost.
+  const mcpIntegrations = canReadIntegrations
+    ? mcpQuery.mcpIntegrations
+    : undefined
+  let mcpEmptyMessage = "No MCP servers found."
+  if (canReadIntegrations && mcpQuery.mcpIntegrationsIsLoading) {
+    mcpEmptyMessage = "Loading MCP servers..."
+  } else if (canReadIntegrations && mcpQuery.mcpIntegrationsError) {
+    mcpEmptyMessage = "Failed to load MCP servers."
+  }
+  const mcpBySlug = useMemo(
+    () =>
+      mcpIntegrations
+        ? new Map(
+            mcpIntegrations.map((integration) => [
+              integration.slug,
+              integration,
+            ])
+          )
+        : NO_MCP_INTEGRATIONS,
+    [mcpIntegrations]
+  )
+  const {
+    workflowsByPreset,
+    mcpOptions,
+    workflowOptions,
+    workflowEmptyMessage,
+    workflowFilterIsLoading,
+    workflowFilterError,
+  } = useAgentCatalogFilterOptions({
+    workspaceId,
+    filters,
+    canReadWorkflows,
+    mcpBySlug,
+    usedMcpSlugs,
+  })
+
   const { agentTags, agentTagsIsLoading } = useAgentTagCatalog(workspaceId, {
     enabled: organizationEnabled,
   })
@@ -2131,7 +2278,7 @@ export function AgentsDashboard() {
     useCreateAgentPreset(workspaceId)
   const { moveAgentPreset } = useMoveAgentPreset(workspaceId)
   const { folders, foldersIsLoading } = useAgentFolders(workspaceId, {
-    enabled: organizationEnabled && view === "list",
+    enabled: organizationEnabled && flatCatalog,
   })
   const folderPathById = useMemo(
     () => new Map((folders ?? []).map((folder) => [folder.id, folder.path])),
@@ -2169,7 +2316,7 @@ export function AgentsDashboard() {
         const created = await createAgentPreset(payload)
         if (organizationEnabled) {
           let targetFolderPath: string | undefined = "/"
-          if (view === "folders") {
+          if (!flatCatalog) {
             targetFolderPath = currentPath
           } else if (item.folder_id) {
             targetFolderPath = folderPathById.get(item.folder_id)
@@ -2201,25 +2348,15 @@ export function AgentsDashboard() {
     [
       createAgentPreset,
       currentPath,
+      flatCatalog,
       folderPathById,
       moveAgentPreset,
       organizationEnabled,
       presets,
       queryClient,
       router,
-      view,
       workspaceId,
     ]
-  )
-
-  const baseRoute = `/workspaces/${workspaceId}/agents`
-
-  const buildRoute = useCallback(
-    (params: URLSearchParams): string => {
-      const query = params.toString()
-      return query ? `${baseRoute}?${query}` : baseRoute
-    },
-    [baseRoute]
   )
 
   const handleViewChange = useCallback(
@@ -2271,11 +2408,18 @@ export function AgentsDashboard() {
     [normalizedSearch]
   )
 
+  const matchesQuery = useCallback(
+    (item: AgentDirectoryItem): boolean =>
+      matchesSearch(item) &&
+      matchesAgentCatalogFilters(item, filters, workflowsByPreset),
+    [filters, matchesSearch, workflowsByPreset]
+  )
+
   // Folder view items
   const sortedDirectoryItems = useMemo(() => {
-    const filtered = (directoryItems ?? []).filter(matchesSearch)
+    const filtered = (directoryItems ?? []).filter(matchesQuery)
     return [...filtered].sort((a, b) => compareAgentItemsBySort(a, b, sortBy))
-  }, [directoryItems, matchesSearch, sortBy])
+  }, [directoryItems, matchesQuery, sortBy])
 
   // List view items — convert presets to directory items
   const sortedListItems = useMemo(() => {
@@ -2296,43 +2440,17 @@ export function AgentsDashboard() {
         updated_at: preset.updated_at,
       })
     )
-    const filtered = items.filter(matchesSearch)
+    const filtered = items.filter(matchesQuery)
     return [...filtered].sort((a, b) => compareAgentItemsBySort(a, b, sortBy))
-  }, [presets, matchesSearch, sortBy])
+  }, [presets, matchesQuery, sortBy])
 
-  const visibleItems =
-    view === "folders" ? sortedDirectoryItems : sortedListItems
+  const visibleItems = flatCatalog ? sortedListItems : sortedDirectoryItems
   const isLoading =
     entitlementsLoading ||
-    (view === "folders" ? directoryItemsIsLoading : presetsIsLoading)
-  const error = view === "folders" ? directoryItemsError : presetsError
-  // Tool counts include the tools of attached MCP integrations, which the
-  // preset summary only names by slug.
-  const hasMcpSources = visibleItems.some(
-    (item) => item.type === "preset" && item.tool_summary?.mcp_slugs?.length
-  )
-  // The list endpoint needs `integration:read`; without it the request 403s
-  // and the slugs stay uncounted.
-  const canReadIntegrations = useScopeCheck("integration:read") === true
-  const mcpQuery = useListMcpIntegrations(workspaceId, undefined, {
-    enabled: hasMcpSources && canReadIntegrations,
-  })
-  // A skipped query still returns data cached before the scope was lost.
-  const mcpIntegrations = canReadIntegrations
-    ? mcpQuery.mcpIntegrations
-    : undefined
-  const mcpBySlug = useMemo(
-    () =>
-      mcpIntegrations
-        ? new Map(
-            mcpIntegrations.map((integration) => [
-              integration.slug,
-              integration,
-            ])
-          )
-        : NO_MCP_INTEGRATIONS,
-    [mcpIntegrations]
-  )
+    workflowFilterIsLoading ||
+    (flatCatalog ? presetsIsLoading : directoryItemsIsLoading)
+  const error =
+    (flatCatalog ? presetsError : directoryItemsError) ?? workflowFilterError
 
   return (
     <TooltipProvider>
@@ -2347,6 +2465,12 @@ export function AgentsDashboard() {
           totalCount={visibleItems.length}
           viewSwitchEnabled={organizationEnabled}
           defaultAgentId={defaultAgentId}
+          filters={filters}
+          onFiltersChange={setFilters}
+          mcpOptions={mcpOptions}
+          mcpEmptyMessage={mcpEmptyMessage}
+          workflowOptions={workflowOptions}
+          workflowEmptyMessage={workflowEmptyMessage}
         />
 
         <div className="min-h-0 flex-1 overflow-auto">
@@ -2378,6 +2502,7 @@ export function AgentsDashboard() {
                   key={`${item.type}-${item.id}`}
                   item={item}
                   mcpBySlug={mcpBySlug}
+                  workflows={workflowsByPreset.get(item.id) ?? NO_WORKFLOWS}
                   onOpenPreset={handleOpenPreset}
                   onOpenFolder={handleOpenFolder}
                   setSelectedItem={setSelectedItem}
@@ -2394,7 +2519,7 @@ export function AgentsDashboard() {
                     createAgentPresetIsPending ||
                     (organizationEnabled &&
                       item.type === "preset" &&
-                      view === "list" &&
+                      flatCatalog &&
                       item.folder_id != null &&
                       (foldersIsLoading || !folderPathById.has(item.folder_id)))
                   }

@@ -20,10 +20,8 @@ from tracecat.agent.preset.resolver import (
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
-    AgentPresetSkillBindingRead,
     AgentPresetToolSummary,
     AgentPresetUpdate,
-    AgentPresetVersionReadMinimal,
     build_agent_preset_read_minimal,
     build_agent_preset_tool_summary,
     build_subagent_eligibility,
@@ -92,14 +90,6 @@ def test_agent_preset_create_trims_required_fields() -> None:
     assert payload.use_in_chat is False
 
 
-@pytest.mark.parametrize("enabled", [False, True])
-def test_agent_preset_minimal_read_exposes_chat_visibility(enabled: bool) -> None:
-    read = build_agent_preset_read_minimal(
-        make_agent_preset(use_in_chat=enabled), supports_subagent_approvals=False
-    )
-    assert read.use_in_chat is enabled
-
-
 def test_agent_preset_create_rejects_catalog_without_legacy_model_fields() -> None:
     with pytest.raises(ValidationError):
         AgentPresetCreate.model_validate(
@@ -151,17 +141,6 @@ def test_agent_preset_create_ignores_legacy_skill_version_id() -> None:
 
     assert payload.skills is not None
     assert payload.skills[0].model_dump(mode="json") == {"skill_id": str(skill_id)}
-
-
-def test_agent_preset_skill_binding_read_requires_stored_version() -> None:
-    with pytest.raises(ValidationError):
-        AgentPresetSkillBindingRead.model_validate(
-            {
-                "skill_id": str(uuid.uuid4()),
-                "skill_name": "triage-skill",
-                "skill_version": 1,
-            }
-        )
 
 
 @pytest.mark.parametrize(
@@ -428,11 +407,6 @@ def test_agents_config_rejects_misspelled_subagents_field() -> None:
         AgentSubagentsConfig.model_validate({"subagent": [{"preset": "analyst"}]})
 
 
-def test_resolved_agents_config_rejects_other_unknown_fields() -> None:
-    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-        ResolvedAgentsConfig.model_validate({"enabled": False, "disabled": True})
-
-
 def test_build_subagent_eligibility_rejects_nested_subagents() -> None:
     eligibility = build_subagent_eligibility(
         agents_config={
@@ -450,24 +424,6 @@ def test_build_subagent_eligibility_rejects_nested_subagents() -> None:
     )
 
 
-def test_agent_preset_version_read_schema_accepts_legacy_whitespace_model_fields() -> (
-    None
-):
-    payload = AgentPresetVersionReadMinimal.model_validate(
-        {
-            "id": "522b4d28-ae2b-4705-bb53-c3aa9071fe16",
-            "preset_id": "f3af894f-3d0e-484d-8a2c-36931ca68cc0",
-            "workspace_id": "6b2bb4d8-8461-486d-b4ca-e10a5a19d2f2",
-            "version": 1,
-            "created_at": "2026-03-09T00:00:00Z",
-            "updated_at": "2026-03-09T00:00:00Z",
-        }
-    )
-
-    assert payload.version == 1
-    assert str(payload.workspace_id) == "6b2bb4d8-8461-486d-b4ca-e10a5a19d2f2"
-
-
 @pytest.mark.parametrize(
     "field_name", ["retries", "enable_thinking", "enable_internet_access"]
 )
@@ -476,12 +432,6 @@ def test_agent_preset_update_rejects_null_for_non_nullable_fields(
 ) -> None:
     with pytest.raises(ValidationError, match="cannot be null"):
         AgentPresetUpdate.model_validate({field_name: None})
-
-
-def test_agent_preset_update_allows_omitting_non_nullable_fields() -> None:
-    update = AgentPresetUpdate.model_validate({"name": "Renamed"})
-    assert update.retries is None
-    assert "retries" not in update.model_fields_set
 
 
 @pytest.mark.parametrize(

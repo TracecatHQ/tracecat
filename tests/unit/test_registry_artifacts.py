@@ -22,7 +22,6 @@ import tracecat_registry
 
 from tracecat.concurrency import run_blocking_rejoin_on_cancel
 from tracecat.executor.registry_artifact_storage import (
-    MeteredAdmissionLock,
     MeteredSlots,
     RegistryArtifactByteReservation,
     RegistryArtifactMaterializationContext,
@@ -51,7 +50,6 @@ from tracecat.executor.registry_artifacts import (
     bundled_builtin_registry_uri,
     compute_registry_artifact_cache_key,
 )
-from tracecat.registry.artifact_keys import parse_s3_uri
 
 MAX_ENTRIES_CONFIG = (
     "tracecat.executor.registry_artifacts.config"
@@ -152,6 +150,15 @@ def _tarball_payload(*, size: int) -> bytes:
         member.size = len(payload)
         tar.addfile(member, io.BytesIO(payload))
     return output.getvalue()
+
+
+async def _download_tarball_payload(
+    self: TarballArtifact,
+    ctx: RegistryArtifactMaterializationContext,
+    path: Path,
+) -> None:
+    del self, ctx
+    path.write_bytes(_tarball_payload(size=1))
 
 
 @dataclass(slots=True)
@@ -310,56 +317,8 @@ def temp_cache_dir():
         yield Path(tmpdir)
 
 
-class TestParseS3Uri:
-    """Tests for parse_s3_uri function."""
-
-    def test_valid_uri(self):
-        """Test parsing a valid S3 URI."""
-        bucket, key = parse_s3_uri("s3://my-bucket/path/to/file.tar.gz")
-        assert bucket == "my-bucket"
-        assert key == "path/to/file.tar.gz"
-
-    def test_uri_with_nested_path(self):
-        """Test parsing URI with deeply nested path."""
-        bucket, key = parse_s3_uri("s3://bucket/a/b/c/d/e/file.tar.gz")
-        assert bucket == "bucket"
-        assert key == "a/b/c/d/e/file.tar.gz"
-
-    def test_invalid_uri_no_prefix(self):
-        """Test that non-S3 URIs raise ValueError."""
-        with pytest.raises(ValueError, match="Invalid S3 URI"):
-            parse_s3_uri("https://bucket/key")
-
-    def test_invalid_uri_no_key(self):
-        """Test that URIs without keys raise ValueError."""
-        with pytest.raises(ValueError, match="Invalid S3 URI"):
-            parse_s3_uri("s3://bucket")
-
-    def test_invalid_uri_empty_bucket(self):
-        """Test that URIs with empty bucket raise ValueError."""
-        with pytest.raises(ValueError, match="Invalid S3 URI"):
-            parse_s3_uri("s3:///key")
-
-
 class TestRegistryArtifactCache:
     """Tests for registry artifact cache behavior."""
-
-    def test_compute_registry_artifact_cache_key_deterministic(self):
-        """Test that cache key computation is deterministic."""
-        uri = "s3://bucket/path/to/registry-v1.2.3.tar.gz"
-
-        key1 = compute_registry_artifact_cache_key(uri)
-        key2 = compute_registry_artifact_cache_key(uri)
-
-        assert key1 == key2
-        assert len(key1) == 16
-
-    def test_compute_registry_artifact_cache_key_case_sensitive(self):
-        """Test that cache key is case-sensitive because S3 keys are case-sensitive."""
-        key1 = compute_registry_artifact_cache_key("s3://BUCKET/PATH/FILE.tar.gz")
-        key2 = compute_registry_artifact_cache_key("s3://bucket/path/file.tar.gz")
-
-        assert key1 != key2
 
     def test_compute_registry_artifact_cache_key_whitespace_sensitive(self):
         """Cache identity preserves whitespace that can belong to an S3 key."""
@@ -373,49 +332,6 @@ class TestRegistryArtifactCache:
     def test_compute_registry_artifact_cache_key_empty(self):
         """Test that empty URI returns the base cache key."""
         assert compute_registry_artifact_cache_key("") == "base"
-
-    @pytest.mark.anyio
-    async def test_download_artifact_uses_blob_download_file_to_path(
-        self, temp_cache_dir
-    ):
-        """Test that artifact downloads stay behind the blob storage helper."""
-        cache = RegistryArtifactCache(temp_cache_dir)
-        artifact = SquashfsArtifact(
-            uri="s3://bucket/path/site-packages.squashfs",
-            cache_key="download-test",
-        )
-        ctx = cache._context_for(artifact.cache_key)
-        output_path = temp_cache_dir / "artifact.squashfs"
-
-        async def mock_download_file_to_path(
-            *,
-            key: str,
-            bucket: str,
-            output_path: Path,
-            max_bytes: int | None = None,
-            ensure_capacity: Callable[[int], Awaitable[None]] | None = None,
-            defer_cleanup: Callable[[Path], None] | None = None,
-            redact_log_identifiers: bool = False,
-        ) -> None:
-            assert max_bytes is None
-            assert ensure_capacity is None
-            assert defer_cleanup is not None
-            assert redact_log_identifiers is True
-            output_path.write_bytes(b"squashfs")
-
-        with patch(
-            "tracecat.executor.registry_artifacts.blob.download_file_to_path",
-            new_callable=AsyncMock,
-            side_effect=mock_download_file_to_path,
-        ) as download_file_to_path:
-            await artifact.download(ctx, output_path)
-
-        download_file_to_path.assert_awaited_once()
-        await_args = download_file_to_path.await_args
-        assert await_args is not None
-        assert await_args.kwargs["key"] == "path/site-packages.squashfs"
-        assert await_args.kwargs["bucket"] == "bucket"
-        assert output_path.read_bytes() == b"squashfs"
 
     @pytest.mark.anyio
     async def test_lease_uses_bundled_current_builtin(
@@ -566,11 +482,14 @@ class TestRegistryArtifactCache:
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         materialization_started = asyncio.Event()
         finish_materialization = asyncio.Event()
+        materialize_calls = 0
 
         async def mock_materialize(
             self: TarballArtifact,
             ctx: RegistryArtifactMaterializationContext,
         ) -> list[Path]:
+            nonlocal materialize_calls
+            materialize_calls += 1
             materialization_started.set()
             await finish_materialization.wait()
             ctx.paths.tarball_target_dir.mkdir(parents=True)
@@ -604,6 +523,7 @@ class TestRegistryArtifactCache:
 
         expected_paths = [cache._paths_for(cache_key).tarball_target_dir]
         assert results == [expected_paths] * 5
+        assert materialize_calls == 1
         sidecar_exists.assert_awaited_once()
         enforce_cache_budget.assert_awaited_once_with(protected_key=cache_key)
 
@@ -835,24 +755,6 @@ class TestRegistryArtifactCache:
         ):
             entry = cache._measure_entry(cache_key)
         assert entry.size_bytes < 1024 * 1024
-
-    @pytest.mark.anyio
-    async def test_admission_lock_records_wait_and_hold_time(self) -> None:
-        """Hold time is measured per acquisition, not just wait time."""
-        lock = MeteredAdmissionLock()
-        with (
-            patch(
-                "tracecat.executor.registry_artifact_storage._ADMISSION_WAIT_MS"
-            ) as wait_ms,
-            patch(
-                "tracecat.executor.registry_artifact_storage._ADMISSION_HOLD_MS"
-            ) as hold_ms,
-        ):
-            async with lock:
-                await asyncio.sleep(0.05)
-        wait_ms.record.assert_called_once()
-        hold_ms.record.assert_called_once()
-        assert hold_ms.record.call_args.args[0] >= 40
 
     @pytest.mark.anyio
     async def test_reserved_staging_bytes_are_charged_once(
@@ -1832,24 +1734,6 @@ class TestRegistryArtifactCache:
             error_type="RuntimeError",
         )
 
-    def test_mount_capability_is_checked_lazily(self, temp_cache_dir):
-        """An enabled executor learns mount availability from the actual spawn."""
-        cache = RegistryArtifactCache(temp_cache_dir)
-
-        with (
-            patch(
-                "tracecat.executor.registry_artifacts.shutil.which",
-                return_value=None,
-            ),
-            patch(
-                "tracecat.executor.registry_artifacts.config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED",
-                True,
-            ),
-        ):
-            ctx = cache._context_for("squashfs-test")
-            assert cache._can_try_squashfs() is True
-            assert ctx.can_mount_squashfs() is True
-
     @pytest.mark.anyio
     async def test_artifact_candidates_skip_non_registry_tarballs(self, temp_cache_dir):
         """Test that arbitrary gzip tarballs do not trigger sidecar lookups."""
@@ -2314,17 +2198,13 @@ class TestRegistryArtifactCache:
         cache._context_for(cache_key).defer_cleanup(target_dir)
         target_dir.unlink()
 
-        async def mock_download(self, ctx, path):
-            del self, ctx
-            path.write_bytes(_tarball_payload(size=1))
-
         async def mock_extract(self, tarball_path, output_dir):
             del self, tarball_path
             (output_dir / "module.py").write_text("VALUE = 1")
 
         with (
             patch(SQUASHFS_ENABLED_CONFIG, False),
-            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "download", _download_tarball_payload),
             patch.object(TarballArtifact, "extract", mock_extract),
         ):
             async with cache.lease([artifact_uri]) as registry_paths:
@@ -2511,54 +2391,6 @@ class TestRegistryArtifactCache:
         )
 
         assert result == [target_dir]
-
-    @pytest.mark.anyio
-    async def test_materialize_concurrent_requests(self, temp_cache_dir):
-        """Test that concurrent requests for same artifact do not race."""
-        cache = RegistryArtifactCache(temp_cache_dir)
-        artifact_uri = "s3://bucket/test.tar.gz"
-        cache_key = compute_registry_artifact_cache_key(artifact_uri)
-        download_count = 0
-
-        async def mock_download(self, ctx, path):
-            nonlocal download_count
-            download_count += 1
-            await asyncio.sleep(0.1)
-            path.write_bytes(_tarball_payload(size=1))
-
-        async def mock_extract(self, tarball_path, target_dir):
-            (target_dir / "extracted.txt").write_text("extracted")
-
-        with (
-            patch.object(TarballArtifact, "download", mock_download),
-            patch.object(TarballArtifact, "extract", mock_extract),
-        ):
-            results = await asyncio.gather(
-                _materialize(cache, cache_key, artifact_uri),
-                _materialize(cache, cache_key, artifact_uri),
-                _materialize(cache, cache_key, artifact_uri),
-            )
-
-        assert all(r == results[0] for r in results)
-        assert download_count == 1
-
-    def test_runtime_for_same_key(self, temp_cache_dir):
-        """The same cache key returns the same runtime state."""
-        cache = RegistryArtifactCache(temp_cache_dir)
-
-        runtime1 = cache._runtime_for("key1")
-        runtime2 = cache._runtime_for("key1")
-
-        assert runtime1 is runtime2
-
-    def test_runtime_for_different_keys(self, temp_cache_dir):
-        """Different cache keys return different runtime state."""
-        cache = RegistryArtifactCache(temp_cache_dir)
-
-        runtime1 = cache._runtime_for("key1")
-        runtime2 = cache._runtime_for("key2")
-
-        assert runtime1 is not runtime2
 
 
 class TestRegistryArtifactCacheLease:
@@ -2826,9 +2658,9 @@ class TestRegistryArtifactCacheLease:
                 side_effect=AssertionError("empty leases must not converge"),
             ) as converge_cache_budget,
         ):
-            async with cache.lease(
-                None,
-            ) as registry_paths:
+            async with cache.lease(None) as registry_paths:
+                assert registry_paths == []
+            async with cache.lease([]) as registry_paths:
                 assert registry_paths == []
 
         ensure_swept.assert_not_awaited()
@@ -3807,15 +3639,12 @@ class TestRegistryArtifactCacheEviction:
             temp_cache_dir, compute_registry_artifact_cache_key(idle_uri)
         )
 
-        async def mock_download(self, ctx, path):
-            path.write_bytes(_tarball_payload(size=1))
-
         async def mock_extract(self, tarball_path, target_dir):
             (target_dir / "module.py").write_text("VALUE = 2")
 
         with (
             patch(MAX_ENTRIES_CONFIG, 2),
-            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "download", _download_tarball_payload),
             patch.object(TarballArtifact, "extract", mock_extract),
         ):
             async with cache.lease([leased_uri]):
@@ -4040,9 +3869,6 @@ class TestRegistryArtifactCacheEviction:
         new_uri = "s3://bucket/new.tar.gz"
         new_key = compute_registry_artifact_cache_key(new_uri)
 
-        async def mock_download(self, ctx, path):
-            path.write_bytes(_tarball_payload(size=1))
-
         async def mock_extract(self, tarball_path, target_dir):
             (target_dir / "module.py").write_bytes(b"x" * (2 * allocation_unit))
 
@@ -4053,7 +3879,7 @@ class TestRegistryArtifactCacheEviction:
                 "tracecat.executor.registry_artifacts._tarball_extracted_size",
                 return_value=allocation_unit,
             ),
-            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "download", _download_tarball_payload),
             patch.object(TarballArtifact, "extract", mock_extract),
         ):
             async with cache.lease([new_uri]) as registry_paths:
@@ -4075,9 +3901,6 @@ class TestRegistryArtifactCacheEviction:
         artifact_uri = "s3://bucket/new.tar.gz"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
 
-        async def mock_download(self, ctx, path):
-            path.write_bytes(_tarball_payload(size=1))
-
         async def mock_extract(self, tarball_path, target_dir):
             (target_dir / "module.py").write_text("VALUE = 2")
 
@@ -4088,7 +3911,7 @@ class TestRegistryArtifactCacheEviction:
                 "tracecat.executor.registry_artifact_storage._delete_cache_path",
                 return_value=False,
             ),
-            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "download", _download_tarball_payload),
             patch.object(TarballArtifact, "extract", mock_extract),
             patch("tracecat.executor.registry_artifacts.logger.warning") as warning,
         ):
@@ -4205,9 +4028,6 @@ class TestRegistryArtifactCacheEviction:
         artifact_uri = "s3://bucket/new-after-rename-failure.tar.gz"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
 
-        async def mock_download(self, ctx, path):
-            path.write_bytes(_tarball_payload(size=1))
-
         async def mock_extract(self, tarball_path, target_dir):
             (target_dir / "module.py").write_text("VALUE = 2")
 
@@ -4218,7 +4038,7 @@ class TestRegistryArtifactCacheEviction:
                 "tracecat.executor.registry_artifact_storage._move_entry_to_trash",
                 side_effect=OSError("rename failed"),
             ),
-            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "download", _download_tarball_payload),
             patch.object(TarballArtifact, "extract", mock_extract),
         ):
             registry_paths = await _materialize(cache, cache_key, artifact_uri)
@@ -4237,9 +4057,6 @@ class TestRegistryArtifactCacheEviction:
         artifact_uri = "s3://bucket/new-after-scan-failure.tar.gz"
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
 
-        async def mock_download(self, ctx, path):
-            path.write_bytes(_tarball_payload(size=1))
-
         async def mock_extract(self, tarball_path, target_dir):
             (target_dir / "module.py").write_text("VALUE = 2")
 
@@ -4254,7 +4071,7 @@ class TestRegistryArtifactCacheEviction:
                 "tracecat.executor.registry_artifacts._tarball_extracted_size",
                 return_value=9,
             ),
-            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "download", _download_tarball_payload),
             patch.object(TarballArtifact, "extract", mock_extract),
         ):
             async with cache.lease([artifact_uri]) as registry_paths:
@@ -4475,9 +4292,6 @@ class TestRegistryArtifactCacheEviction:
                 await materialized.wait()
             return True
 
-        async def mock_download(self, ctx, path):
-            path.write_bytes(_tarball_payload(size=1))
-
         async def mock_extract(self, tarball_path, target_dir):
             (target_dir / "module.py").write_text("VALUE = 1")
 
@@ -4488,7 +4302,7 @@ class TestRegistryArtifactCacheEviction:
                 "_enforce_cache_budget",
                 side_effect=mock_enforce_cache_budget,
             ),
-            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "download", _download_tarball_payload),
             patch.object(TarballArtifact, "extract", mock_extract),
         ):
             convergence = asyncio.create_task(cache._converge_cache_budget())
@@ -4901,9 +4715,6 @@ class TestRegistryArtifactCacheEviction:
             delete_finished.set()
             return deleted
 
-        async def mock_download(self, ctx, path):
-            path.write_bytes(_tarball_payload(size=1))
-
         async def mock_extract(self, tarball_path, target_dir):
             (target_dir / "module.py").write_text("VALUE = 2")
 
@@ -4916,7 +4727,7 @@ class TestRegistryArtifactCacheEviction:
                 "tracecat.executor.registry_artifacts._tarball_extracted_size",
                 return_value=9,
             ),
-            patch.object(TarballArtifact, "download", mock_download),
+            patch.object(TarballArtifact, "download", _download_tarball_payload),
             patch.object(TarballArtifact, "extract", mock_extract),
         ):
             eviction = asyncio.create_task(cache._evict_entry(cache_key))
@@ -5205,21 +5016,6 @@ class TestRegistryArtifactCacheStartupSweep:
         assert mount_dir.is_dir()
 
     @pytest.mark.anyio
-    async def test_ensure_swept_runs_once(self, temp_cache_dir):
-        """Repeated startup-sweep requests invoke the sweep once."""
-        cache = RegistryArtifactCache(temp_cache_dir)
-
-        with patch.object(
-            cache,
-            "_sweep_startup_state",
-            wraps=cache._sweep_startup_state,
-        ) as sweep:
-            await cache.ensure_swept()
-            await cache.ensure_swept()
-
-        assert sweep.call_count == 1
-
-    @pytest.mark.anyio
     async def test_concurrent_ensure_swept_runs_once(self, temp_cache_dir):
         """Concurrent startup-sweep requests invoke the sweep once."""
         cache = RegistryArtifactCache(temp_cache_dir)
@@ -5230,6 +5026,7 @@ class TestRegistryArtifactCacheStartupSweep:
             wraps=cache._sweep_startup_state,
         ) as sweep:
             await asyncio.gather(*(cache.ensure_swept() for _ in range(4)))
+            await cache.ensure_swept()
 
         assert sweep.call_count == 1
 

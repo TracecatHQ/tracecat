@@ -5,9 +5,11 @@ import base64
 import hashlib
 import os
 import threading
+from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, call, patch
 from urllib.parse import urlparse
 
 import httpx
@@ -25,12 +27,350 @@ from tracecat.storage.blob import (
     file_exists,
     generate_presigned_download_url,
     generate_presigned_upload_url,
-    get_bucket_lifecycle,
     get_storage_client,
     open_download_stream,
     upload_file,
     upload_file_from_path,
 )
+
+SENSITIVE_KEY = "skills/tenant-id/private-object"
+SENSITIVE_SOURCE_KEY = "skill-uploads/tenant-id/private-object"
+SENSITIVE_BUCKET = "affected-customer-bucket"
+PROVIDER_MESSAGE = (
+    f"denied {SENSITIVE_BUCKET}/{SENSITIVE_SOURCE_KEY} to {SENSITIVE_KEY}"
+)
+REDACTED = "<redacted>"
+
+# op -> (client method, redacted error name, failure log message)
+_OPS: dict[str, tuple[str, str, str]] = {
+    "upload": ("put_object", "StorageUploadError", "Failed to upload file"),
+    "download": (
+        "get_object",
+        "StorageDownloadError",
+        "Failed to open download stream",
+    ),
+    "copy": ("copy_object", "StorageCopyError", "Failed to copy file"),
+    "delete": (
+        "delete_object",
+        "StorageDeleteError",
+        "Failed to delete file",
+    ),
+    "file_exists": (
+        "head_object",
+        "StorageMetadataError",
+        "Failed to check file existence",
+    ),
+    "presigned_download": (
+        "generate_presigned_url",
+        "StoragePresignError",
+        "Failed to generate presigned download URL",
+    ),
+    "presigned_upload": (
+        "generate_presigned_url",
+        "StoragePresignError",
+        "Failed to generate presigned upload URL",
+    ),
+}
+
+
+@pytest.fixture
+def mock_s3() -> Iterator[AsyncMock]:
+    client = AsyncMock()
+    with patch("tracecat.storage.blob.get_storage_client") as get_client:
+        get_client.return_value.__aenter__.return_value = client
+        yield client
+
+
+@pytest.fixture
+def storage_logger() -> Iterator[MagicMock]:
+    with patch("tracecat.storage.blob.logger") as logger:
+        yield logger
+
+
+async def _call_op(op: str, *, redact: bool) -> object:
+    match op:
+        case "upload":
+            return await upload_file(
+                b"content",
+                SENSITIVE_KEY,
+                SENSITIVE_BUCKET,
+                redact_log_identifiers=redact,
+            )
+        case "download":
+            return await download_file(
+                SENSITIVE_KEY, SENSITIVE_BUCKET, redact_log_identifiers=redact
+            )
+        case "copy":
+            return await copy_file(
+                source_key=SENSITIVE_SOURCE_KEY,
+                destination_key=SENSITIVE_KEY,
+                bucket=SENSITIVE_BUCKET,
+                content_type="application/octet-stream",
+                redact_log_identifiers=redact,
+            )
+        case "delete":
+            return await delete_file(
+                SENSITIVE_KEY, SENSITIVE_BUCKET, redact_log_identifiers=redact
+            )
+        case "file_exists":
+            return await file_exists(
+                SENSITIVE_KEY, SENSITIVE_BUCKET, redact_log_identifiers=redact
+            )
+        case "presigned_download":
+            return await generate_presigned_download_url(
+                key=SENSITIVE_KEY,
+                bucket=SENSITIVE_BUCKET,
+                redact_log_identifiers=redact,
+            )
+        case "presigned_upload":
+            return await generate_presigned_upload_url(
+                key=SENSITIVE_KEY,
+                bucket=SENSITIVE_BUCKET,
+                expiry=60,
+                content_type="application/octet-stream",
+                checksum_sha256="base64-checksum",
+                redact_log_identifiers=redact,
+            )
+    raise AssertionError(op)
+
+
+def _redacted_identifiers(op: str) -> dict[str, str]:
+    if op == "copy":
+        return {
+            "source_key": REDACTED,
+            "destination_key": REDACTED,
+            "bucket": REDACTED,
+        }
+    return {"key": REDACTED, "bucket": REDACTED}
+
+
+def _provider_error() -> ClientError:
+    return ClientError(
+        error_response={"Error": {"Code": "AccessDenied", "Message": PROVIDER_MESSAGE}},
+        operation_name="Op",
+    )
+
+
+def _assert_no_identifiers(text: str) -> None:
+    for secret in (
+        SENSITIVE_KEY,
+        SENSITIVE_SOURCE_KEY,
+        SENSITIVE_BUCKET,
+        PROVIDER_MESSAGE,
+    ):
+        assert secret not in text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("op", "client_call", "log_level", "log_message", "log_extra"),
+    [
+        pytest.param(
+            "upload",
+            call.put_object(
+                Bucket=SENSITIVE_BUCKET, Key=SENSITIVE_KEY, Body=b"content"
+            ),
+            "info",
+            "File uploaded successfully",
+            {"size": 7},
+            id="upload",
+        ),
+        pytest.param(
+            "download",
+            call.get_object(Bucket=SENSITIVE_BUCKET, Key=SENSITIVE_KEY),
+            "debug",
+            "File downloaded successfully",
+            {"size": 7},
+            id="download",
+        ),
+        pytest.param(
+            "copy",
+            call.copy_object(
+                Bucket=SENSITIVE_BUCKET,
+                Key=SENSITIVE_KEY,
+                CopySource={"Bucket": SENSITIVE_BUCKET, "Key": SENSITIVE_SOURCE_KEY},
+                ContentType="application/octet-stream",
+                MetadataDirective="REPLACE",
+            ),
+            "info",
+            "File copied successfully",
+            {},
+            id="copy",
+        ),
+        pytest.param(
+            "presigned_upload",
+            call.generate_presigned_url(
+                "put_object",
+                Params={
+                    "Bucket": SENSITIVE_BUCKET,
+                    "Key": SENSITIVE_KEY,
+                    "ContentType": "application/octet-stream",
+                    "ChecksumSHA256": "base64-checksum",
+                },
+                ExpiresIn=60,
+            ),
+            "debug",
+            "Generated presigned upload URL",
+            {
+                "expiry": 60,
+                "content_type": "application/octet-stream",
+                "checksum_sha256": "base64-checksum",
+            },
+            id="presigned_upload",
+        ),
+    ],
+)
+async def test_redacted_success_logs_hide_identifiers(
+    mock_s3: AsyncMock,
+    storage_logger: MagicMock,
+    op: str,
+    client_call: Any,
+    log_level: str,
+    log_message: str,
+    log_extra: dict[str, object],
+) -> None:
+    body = AsyncMock()
+    body.read.return_value = b"content"
+    mock_s3.get_object.return_value = {"Body": body}
+    mock_s3.generate_presigned_url.return_value = "https://example.com/upload"
+
+    await _call_op(op, redact=True)
+
+    assert mock_s3.mock_calls == [client_call]
+    getattr(storage_logger, log_level).assert_called_once_with(
+        log_message, **_redacted_identifiers(op), **log_extra
+    )
+    _assert_no_identifiers(str(storage_logger.mock_calls))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("op", "failure"),
+    [
+        ("upload", "provider"),
+        ("upload", "transport"),
+        ("download", "provider"),
+        ("download", "transport"),
+        ("copy", "provider"),
+        ("delete", "provider"),
+        ("file_exists", "provider"),
+        ("file_exists", "transport"),
+        ("presigned_download", "provider"),
+        ("presigned_upload", "provider"),
+    ],
+)
+async def test_redacted_failures_hide_identifiers_and_provider_prose(
+    mock_s3: AsyncMock, storage_logger: MagicMock, op: str, failure: str
+) -> None:
+    client_method, error_name, log_message = _OPS[op]
+    error: Exception
+    if failure == "provider":
+        error, error_code = _provider_error(), "AccessDenied"
+    else:
+        error = EndpointConnectionError(
+            endpoint_url=f"https://{SENSITIVE_BUCKET}/{SENSITIVE_KEY}"
+        )
+        error_code = None
+    getattr(mock_s3, client_method).side_effect = error
+
+    with pytest.raises(getattr(blob_module, error_name)) as raised:
+        await _call_op(op, redact=True)
+
+    assert raised.value.error_code == error_code
+    _assert_no_identifiers(str(raised.value))
+    storage_logger.error.assert_called_once_with(
+        log_message,
+        **_redacted_identifiers(op),
+        error_code=error_code,
+        error_type=type(error).__name__,
+    )
+    _assert_no_identifiers(str(storage_logger.mock_calls))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("op", "logs_failure"),
+    [
+        ("upload", True),
+        ("download", True),
+        ("presigned_download", True),
+        ("file_exists", False),
+    ],
+)
+async def test_default_failures_reraise_client_error_unredacted(
+    mock_s3: AsyncMock, storage_logger: MagicMock, op: str, logs_failure: bool
+) -> None:
+    client_method, _, log_message = _OPS[op]
+    error = _provider_error()
+    getattr(mock_s3, client_method).side_effect = error
+
+    with pytest.raises(ClientError) as raised:
+        await _call_op(op, redact=False)
+
+    assert raised.value is error
+    if logs_failure:
+        storage_logger.error.assert_called_once_with(
+            log_message,
+            key=SENSITIVE_KEY,
+            bucket=SENSITIVE_BUCKET,
+            error=str(error),
+        )
+    else:
+        assert not storage_logger.mock_calls
+
+
+@pytest.mark.anyio
+async def test_file_exists_redacted_not_found_remains_false(mock_s3: AsyncMock) -> None:
+    mock_s3.head_object.side_effect = ClientError(
+        error_response={"Error": {"Code": "404"}},
+        operation_name="HeadObject",
+    )
+
+    assert not await file_exists(
+        SENSITIVE_KEY, SENSITIVE_BUCKET, redact_log_identifiers=True
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("key", "kwargs", "extra_params"),
+    [
+        pytest.param(
+            "test/file.txt",
+            {},
+            {"ResponseContentDisposition": 'attachment; filename="file.txt"'},
+            id="forces_attachment_by_default",
+        ),
+        pytest.param(
+            "test/image.png", {"force_download": False}, {}, id="preview_inline"
+        ),
+        pytest.param(
+            "test/file.bin",
+            {"override_content_type": "application/octet-stream"},
+            {
+                "ResponseContentDisposition": 'attachment; filename="file.bin"',
+                "ResponseContentType": "application/octet-stream",
+            },
+            id="content_type_override",
+        ),
+    ],
+)
+async def test_presigned_download_response_headers(
+    mock_s3: AsyncMock,
+    key: str,
+    kwargs: dict[str, Any],
+    extra_params: dict[str, str],
+) -> None:
+    mock_s3.generate_presigned_url.return_value = "https://example.com/presigned-url"
+
+    result = await generate_presigned_download_url(key, "test-bucket", 3600, **kwargs)
+
+    assert result == "https://example.com/presigned-url"
+    mock_s3.generate_presigned_url.assert_called_once_with(
+        "get_object",
+        Params={"Bucket": "test-bucket", "Key": key, **extra_params},
+        ExpiresIn=3600,
+    )
 
 
 class TestS3Operations:
@@ -42,37 +382,18 @@ class TestS3Operations:
         yield
         blob_module.clear_storage_session_cache()
 
-    @pytest.fixture
-    def mock_s3_client(self):
-        """Create a mock S3 client."""
-        mock_client = AsyncMock()
-        return mock_client
-
     @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_ensure_bucket_exists_existing(self, mock_get_client):
-        """Test ensure_bucket_exists when bucket already exists."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        await ensure_bucket_exists("test-bucket")
-        mock_client.head_bucket.assert_called_once_with(Bucket="test-bucket")
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_ensure_bucket_exists_create_new(self, mock_get_client):
+    async def test_ensure_bucket_exists_create_new(self, mock_s3: AsyncMock):
         """Test ensure_bucket_exists when bucket needs to be created."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
 
         # Simulate bucket not found
-        mock_client.head_bucket.side_effect = ClientError(
+        mock_s3.head_bucket.side_effect = ClientError(
             error_response={"Error": {"Code": "404"}}, operation_name="head_bucket"
         )
 
         await ensure_bucket_exists("test-bucket")
-        mock_client.head_bucket.assert_called_once_with(Bucket="test-bucket")
-        mock_client.create_bucket.assert_called_once_with(Bucket="test-bucket")
+        mock_s3.head_bucket.assert_called_once_with(Bucket="test-bucket")
+        mock_s3.create_bucket.assert_called_once_with(Bucket="test-bucket")
 
     @pytest.mark.anyio
     async def test_get_storage_client_minio_uses_endpoint_and_env(self, monkeypatch):
@@ -328,197 +649,12 @@ class TestS3Operations:
             assert len(blob_module._STORAGE_CLIENTS) == 0
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_upload_file(self, mock_get_client):
-        """Test file upload."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        content = b"test content"
-        key = "test/file.txt"
-        content_type = "text/plain"
-
-        await upload_file(content, key, "test-bucket", content_type)
-
-        mock_client.put_object.assert_called_once_with(
-            Bucket="test-bucket", Key=key, Body=content, ContentType=content_type
-        )
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_upload_file_without_content_type(self, mock_get_client):
-        """When content_type is None, upload omits ContentType param."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        content = b"bytes"
-        key = "no/ctype.bin"
-
-        await upload_file(content, key, "bucket")
-        # Ensure ContentType not passed
-        mock_client.put_object.assert_called_once()
-        kwargs = mock_client.put_object.call_args.kwargs
-        assert kwargs == {"Bucket": "bucket", "Key": key, "Body": content}
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.logger")
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_upload_file_can_redact_success_logs(
-        self, mock_get_client, mock_logger
-    ) -> None:
-        """Redacted uploads keep identifiers out of success logs."""
-
-        sensitive_key = "skills/tenant-id/private-object"
-        sensitive_bucket = "affected-customer-bucket"
-        content = b"content"
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        await upload_file(
-            content,
-            sensitive_key,
-            sensitive_bucket,
-            redact_log_identifiers=True,
-        )
-
-        mock_client.put_object.assert_awaited_once_with(
-            Bucket=sensitive_bucket,
-            Key=sensitive_key,
-            Body=content,
-        )
-        mock_logger.info.assert_called_once_with(
-            "File uploaded successfully",
-            key="<redacted>",
-            bucket="<redacted>",
-            size=len(content),
-        )
-        assert sensitive_key not in str(mock_logger.mock_calls)
-        assert sensitive_bucket not in str(mock_logger.mock_calls)
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.logger")
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_upload_file_can_redact_provider_failure(
-        self, mock_get_client, mock_logger
-    ) -> None:
-        """Redacted uploads suppress identifiers and provider prose."""
-
-        sensitive_key = "skills/tenant-id/private-object"
-        sensitive_bucket = "affected-customer-bucket"
-        provider_message = f"denied {sensitive_bucket}/{sensitive_key}"
-        client_error = ClientError(
-            error_response={
-                "Error": {"Code": "AccessDenied", "Message": provider_message}
-            },
-            operation_name="PutObject",
-        )
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.put_object.side_effect = client_error
-
-        with pytest.raises(blob_module.StorageUploadError) as raised:
-            await upload_file(
-                b"content",
-                sensitive_key,
-                sensitive_bucket,
-                redact_log_identifiers=True,
-            )
-
-        assert raised.value.error_code == "AccessDenied"
-        assert sensitive_key not in str(raised.value)
-        assert sensitive_bucket not in str(raised.value)
-        assert provider_message not in str(raised.value)
-        mock_logger.error.assert_called_once_with(
-            "Failed to upload file",
-            key="<redacted>",
-            bucket="<redacted>",
-            error_code="AccessDenied",
-            error_type="ClientError",
-        )
-        assert sensitive_key not in str(mock_logger.mock_calls)
-        assert sensitive_bucket not in str(mock_logger.mock_calls)
-        assert provider_message not in str(mock_logger.mock_calls)
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.logger")
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_upload_file_can_redact_transport_failure(
-        self, mock_get_client, mock_logger
-    ) -> None:
-        """Redacted uploads suppress identifiers from transport failures."""
-
-        sensitive_key = "skills/tenant-id/private-object"
-        sensitive_bucket = "affected-customer-bucket"
-        transport_error = EndpointConnectionError(
-            endpoint_url=f"https://{sensitive_bucket}/{sensitive_key}"
-        )
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.put_object.side_effect = transport_error
-
-        with pytest.raises(blob_module.StorageUploadError) as raised:
-            await upload_file(
-                b"content",
-                sensitive_key,
-                sensitive_bucket,
-                redact_log_identifiers=True,
-            )
-
-        assert raised.value.error_code is None
-        assert sensitive_key not in str(raised.value)
-        assert sensitive_bucket not in str(raised.value)
-        mock_logger.error.assert_called_once_with(
-            "Failed to upload file",
-            key="<redacted>",
-            bucket="<redacted>",
-            error_code=None,
-            error_type="EndpointConnectionError",
-        )
-        assert sensitive_key not in str(mock_logger.mock_calls)
-        assert sensitive_bucket not in str(mock_logger.mock_calls)
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.logger")
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_upload_file_default_failure_remains_unredacted(
-        self, mock_get_client, mock_logger
-    ) -> None:
-        """Default uploads still log identifiers and re-raise ClientError."""
-
-        key = "attachments/private-object"
-        bucket = "customer-bucket"
-        provider_message = f"denied {bucket}/{key}"
-        client_error = ClientError(
-            error_response={
-                "Error": {"Code": "AccessDenied", "Message": provider_message}
-            },
-            operation_name="PutObject",
-        )
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.put_object.side_effect = client_error
-
-        with pytest.raises(ClientError) as raised:
-            await upload_file(b"content", key, bucket)
-
-        assert raised.value is client_error
-        mock_logger.error.assert_called_once_with(
-            "Failed to upload file",
-            key=key,
-            bucket=bucket,
-            error=str(client_error),
-        )
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
     async def test_upload_file_from_path_uses_bounded_transfer_config(
         self,
-        mock_get_client,
+        mock_s3: AsyncMock,
         tmp_path: Path,
     ):
         """Path uploads bound queued multipart payloads."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
 
         path = tmp_path / "site-packages.tar.gz"
         path.write_bytes(b"content")
@@ -530,8 +666,8 @@ class TestS3Operations:
             content_type="application/gzip",
         )
 
-        mock_client.upload_file.assert_called_once()
-        kwargs = mock_client.upload_file.call_args.kwargs
+        mock_s3.upload_file.assert_called_once()
+        kwargs = mock_s3.upload_file.call_args.kwargs
         assert kwargs["Filename"] == str(path)
         assert kwargs["Bucket"] == "tracecat-registry"
         assert kwargs["Key"] == "registry/site-packages.tar.gz"
@@ -543,575 +679,15 @@ class TestS3Operations:
         assert transfer_config.max_io_queue_size == 2
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_download_file(self, mock_get_client):
-        """Test file download."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        expected_content = b"test content"
-        mock_body = AsyncMock()
-        mock_body.read.return_value = expected_content
-        mock_response = {"Body": mock_body}
-        mock_client.get_object.return_value = mock_response
-
-        result = await download_file("test/file.txt", "test-bucket")
-
-        assert result == expected_content
-        mock_client.get_object.assert_called_once_with(
-            Bucket="test-bucket", Key="test/file.txt"
-        )
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_download_file_not_found(self, mock_get_client):
+    async def test_download_file_not_found(self, mock_s3: AsyncMock):
         """Test file download when file doesn't exist."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
 
-        mock_client.get_object.side_effect = ClientError(
+        mock_s3.get_object.side_effect = ClientError(
             error_response={"Error": {"Code": "NoSuchKey"}}, operation_name="get_object"
         )
 
         with pytest.raises(FileNotFoundError):
             await download_file("nonexistent.txt", "test-bucket")
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.logger")
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_download_file_can_redact_success_logs(
-        self, mock_get_client, mock_logger
-    ) -> None:
-        """Redacted downloads keep identifiers out of success logs."""
-
-        sensitive_key = "skills/tenant-id/private-object"
-        sensitive_bucket = "affected-customer-bucket"
-        content = b"content"
-        mock_body = AsyncMock()
-        mock_body.read.return_value = content
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.get_object.return_value = {"Body": mock_body}
-
-        result = await download_file(
-            sensitive_key,
-            sensitive_bucket,
-            redact_log_identifiers=True,
-        )
-
-        assert result == content
-        mock_logger.debug.assert_called_once_with(
-            "File downloaded successfully",
-            key="<redacted>",
-            bucket="<redacted>",
-            size=len(content),
-        )
-        assert sensitive_key not in str(mock_logger.mock_calls)
-        assert sensitive_bucket not in str(mock_logger.mock_calls)
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.logger")
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_download_file_can_redact_provider_failure(
-        self, mock_get_client, mock_logger
-    ) -> None:
-        """Redacted downloads suppress identifiers and provider prose."""
-
-        sensitive_key = "skills/tenant-id/private-object"
-        sensitive_bucket = "affected-customer-bucket"
-        provider_message = f"denied {sensitive_bucket}/{sensitive_key}"
-        client_error = ClientError(
-            error_response={
-                "Error": {"Code": "AccessDenied", "Message": provider_message}
-            },
-            operation_name="GetObject",
-        )
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.get_object.side_effect = client_error
-
-        with pytest.raises(blob_module.StorageDownloadError) as raised:
-            await download_file(
-                sensitive_key,
-                sensitive_bucket,
-                redact_log_identifiers=True,
-            )
-
-        assert raised.value.error_code == "AccessDenied"
-        assert sensitive_key not in str(raised.value)
-        assert sensitive_bucket not in str(raised.value)
-        assert provider_message not in str(raised.value)
-        mock_logger.error.assert_called_once_with(
-            "Failed to open download stream",
-            key="<redacted>",
-            bucket="<redacted>",
-            error_code="AccessDenied",
-            error_type="ClientError",
-        )
-        assert sensitive_key not in str(mock_logger.mock_calls)
-        assert sensitive_bucket not in str(mock_logger.mock_calls)
-        assert provider_message not in str(mock_logger.mock_calls)
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.logger")
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_download_file_can_redact_transport_failure(
-        self, mock_get_client, mock_logger
-    ) -> None:
-        """Redacted downloads suppress identifiers from transport failures."""
-
-        sensitive_key = "skills/tenant-id/private-object"
-        sensitive_bucket = "affected-customer-bucket"
-        transport_error = EndpointConnectionError(
-            endpoint_url=f"https://{sensitive_bucket}/{sensitive_key}"
-        )
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.get_object.side_effect = transport_error
-
-        with pytest.raises(blob_module.StorageDownloadError) as raised:
-            await download_file(
-                sensitive_key,
-                sensitive_bucket,
-                redact_log_identifiers=True,
-            )
-
-        assert raised.value.error_code is None
-        assert sensitive_key not in str(raised.value)
-        assert sensitive_bucket not in str(raised.value)
-        mock_logger.error.assert_called_once_with(
-            "Failed to open download stream",
-            key="<redacted>",
-            bucket="<redacted>",
-            error_code=None,
-            error_type="EndpointConnectionError",
-        )
-        assert sensitive_key not in str(mock_logger.mock_calls)
-        assert sensitive_bucket not in str(mock_logger.mock_calls)
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.logger")
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_download_file_default_failure_remains_unredacted(
-        self, mock_get_client, mock_logger
-    ) -> None:
-        """Default downloads still log identifiers and re-raise ClientError."""
-
-        key = "attachments/private-object"
-        bucket = "customer-bucket"
-        provider_message = f"denied {bucket}/{key}"
-        client_error = ClientError(
-            error_response={
-                "Error": {"Code": "AccessDenied", "Message": provider_message}
-            },
-            operation_name="GetObject",
-        )
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.get_object.side_effect = client_error
-
-        with pytest.raises(ClientError) as raised:
-            await download_file(key, bucket)
-
-        assert raised.value is client_error
-        mock_logger.error.assert_called_once_with(
-            "Failed to open download stream",
-            key=key,
-            bucket=bucket,
-            error=str(client_error),
-        )
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.logger")
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_copy_file_can_redact_success_logs(
-        self, mock_get_client, mock_logger
-    ) -> None:
-        """Redacted copies keep storage identifiers out of success logs."""
-
-        sensitive_bucket = "affected-customer-bucket"
-        sensitive_source_key = "skill-uploads/tenant-id/private-object"
-        sensitive_destination_key = "skills/tenant-id/private-object"
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        await copy_file(
-            source_key=sensitive_source_key,
-            destination_key=sensitive_destination_key,
-            bucket=sensitive_bucket,
-            content_type="application/octet-stream",
-            redact_log_identifiers=True,
-        )
-
-        mock_client.copy_object.assert_awaited_once_with(
-            Bucket=sensitive_bucket,
-            Key=sensitive_destination_key,
-            CopySource={"Bucket": sensitive_bucket, "Key": sensitive_source_key},
-            ContentType="application/octet-stream",
-            MetadataDirective="REPLACE",
-        )
-        mock_logger.info.assert_called_once_with(
-            "File copied successfully",
-            source_key="<redacted>",
-            destination_key="<redacted>",
-            bucket="<redacted>",
-        )
-        assert sensitive_bucket not in str(mock_logger.mock_calls)
-        assert sensitive_source_key not in str(mock_logger.mock_calls)
-        assert sensitive_destination_key not in str(mock_logger.mock_calls)
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.logger")
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_copy_file_can_redact_transport_failure(
-        self, mock_get_client, mock_logger
-    ) -> None:
-        """Redacted copies suppress identifiers and provider error prose."""
-
-        sensitive_bucket = "affected-customer-bucket"
-        sensitive_source_key = "skill-uploads/tenant-id/private-object"
-        sensitive_destination_key = "skills/tenant-id/private-object"
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.copy_object.side_effect = ClientError(
-            error_response={
-                "Error": {
-                    "Code": "AccessDenied",
-                    "Message": (
-                        f"denied {sensitive_bucket}/{sensitive_source_key} to "
-                        f"{sensitive_destination_key}"
-                    ),
-                }
-            },
-            operation_name="copy_object",
-        )
-
-        with pytest.raises(blob_module.StorageCopyError) as raised:
-            await copy_file(
-                source_key=sensitive_source_key,
-                destination_key=sensitive_destination_key,
-                bucket=sensitive_bucket,
-                redact_log_identifiers=True,
-            )
-
-        assert raised.value.error_code == "AccessDenied"
-        assert sensitive_bucket not in str(raised.value)
-        assert sensitive_source_key not in str(raised.value)
-        assert sensitive_destination_key not in str(raised.value)
-        mock_logger.error.assert_called_once_with(
-            "Failed to copy file",
-            source_key="<redacted>",
-            destination_key="<redacted>",
-            bucket="<redacted>",
-            error_code="AccessDenied",
-            error_type="ClientError",
-        )
-        assert sensitive_bucket not in str(mock_logger.mock_calls)
-        assert sensitive_source_key not in str(mock_logger.mock_calls)
-        assert sensitive_destination_key not in str(mock_logger.mock_calls)
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_delete_file(self, mock_get_client):
-        """Test file deletion."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        await delete_file("test/file.txt", "test-bucket")
-
-        mock_client.delete_object.assert_called_once_with(
-            Bucket="test-bucket", Key="test/file.txt"
-        )
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_delete_file_error_propagates(self, mock_get_client):
-        """If delete_object fails, propagate ClientError."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.delete_object.side_effect = ClientError(
-            error_response={"Error": {"Code": "AccessDenied"}},
-            operation_name="delete_object",
-        )
-
-        with pytest.raises(ClientError):
-            await delete_file("k", "b")
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.logger")
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_delete_file_can_redact_transport_failure(
-        self, mock_get_client, mock_logger
-    ) -> None:
-        """Redacted deletions suppress storage identifiers and provider prose."""
-        sensitive_bucket = "affected-customer-bucket"
-        sensitive_key = "skills/tenant-id/private-object"
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.delete_object.side_effect = ClientError(
-            error_response={
-                "Error": {
-                    "Code": "AccessDenied",
-                    "Message": f"denied {sensitive_bucket}/{sensitive_key}",
-                }
-            },
-            operation_name="delete_object",
-        )
-
-        with pytest.raises(blob_module.StorageDeleteError) as raised:
-            await delete_file(
-                sensitive_key,
-                sensitive_bucket,
-                redact_log_identifiers=True,
-            )
-
-        assert raised.value.error_code == "AccessDenied"
-        assert sensitive_bucket not in str(raised.value)
-        assert sensitive_key not in str(raised.value)
-        mock_logger.error.assert_called_once_with(
-            "Failed to delete file",
-            key="<redacted>",
-            bucket="<redacted>",
-            error_code="AccessDenied",
-            error_type="ClientError",
-        )
-        assert sensitive_bucket not in str(mock_logger.mock_calls)
-        assert sensitive_key not in str(mock_logger.mock_calls)
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.logger")
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_file_exists_can_redact_provider_failure(
-        self, mock_get_client, mock_logger
-    ) -> None:
-        """Redacted metadata checks suppress identifiers and provider prose."""
-
-        sensitive_key = "skill-uploads/tenant-id/private-object"
-        sensitive_bucket = "affected-customer-bucket"
-        provider_message = f"denied {sensitive_bucket}/{sensitive_key}"
-        client_error = ClientError(
-            error_response={
-                "Error": {"Code": "AccessDenied", "Message": provider_message}
-            },
-            operation_name="HeadObject",
-        )
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.head_object.side_effect = client_error
-
-        with pytest.raises(blob_module.StorageMetadataError) as raised:
-            await file_exists(
-                sensitive_key,
-                sensitive_bucket,
-                redact_log_identifiers=True,
-            )
-
-        assert raised.value.error_code == "AccessDenied"
-        assert sensitive_key not in str(raised.value)
-        assert sensitive_bucket not in str(raised.value)
-        assert provider_message not in str(raised.value)
-        mock_logger.error.assert_called_once_with(
-            "Failed to check file existence",
-            key="<redacted>",
-            bucket="<redacted>",
-            error_code="AccessDenied",
-            error_type="ClientError",
-        )
-        assert sensitive_key not in str(mock_logger.mock_calls)
-        assert sensitive_bucket not in str(mock_logger.mock_calls)
-        assert provider_message not in str(mock_logger.mock_calls)
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.logger")
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_file_exists_can_redact_transport_failure(
-        self, mock_get_client, mock_logger
-    ) -> None:
-        """Redacted metadata checks suppress transport failure identifiers."""
-
-        sensitive_key = "skill-uploads/tenant-id/private-object"
-        sensitive_bucket = "affected-customer-bucket"
-        transport_error = EndpointConnectionError(
-            endpoint_url=f"https://{sensitive_bucket}/{sensitive_key}"
-        )
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.head_object.side_effect = transport_error
-
-        with pytest.raises(blob_module.StorageMetadataError) as raised:
-            await file_exists(
-                sensitive_key,
-                sensitive_bucket,
-                redact_log_identifiers=True,
-            )
-
-        assert raised.value.error_code is None
-        assert sensitive_key not in str(raised.value)
-        assert sensitive_bucket not in str(raised.value)
-        mock_logger.error.assert_called_once_with(
-            "Failed to check file existence",
-            key="<redacted>",
-            bucket="<redacted>",
-            error_code=None,
-            error_type="EndpointConnectionError",
-        )
-        assert sensitive_key not in str(mock_logger.mock_calls)
-        assert sensitive_bucket not in str(mock_logger.mock_calls)
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.logger")
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_file_exists_default_failure_remains_unredacted(
-        self, mock_get_client, mock_logger
-    ) -> None:
-        """Default metadata checks still re-raise ClientError without logging."""
-
-        key = "attachments/private-object"
-        bucket = "customer-bucket"
-        client_error = ClientError(
-            error_response={
-                "Error": {
-                    "Code": "AccessDenied",
-                    "Message": f"denied {bucket}/{key}",
-                }
-            },
-            operation_name="HeadObject",
-        )
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.head_object.side_effect = client_error
-
-        with pytest.raises(ClientError) as raised:
-            await file_exists(key, bucket)
-
-        assert raised.value is client_error
-        assert not mock_logger.mock_calls
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_file_exists_redacted_not_found_remains_false(
-        self, mock_get_client
-    ) -> None:
-        """Redaction preserves the existing not-found result."""
-
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.head_object.side_effect = ClientError(
-            error_response={"Error": {"Code": "404"}},
-            operation_name="HeadObject",
-        )
-
-        assert not await file_exists(
-            "skill-uploads/tenant-id/private-object",
-            "affected-customer-bucket",
-            redact_log_identifiers=True,
-        )
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    @patch("tracecat.storage.blob.config")
-    async def test_generate_presigned_download_url(self, mock_config, mock_get_client):
-        """Test presigned download URL generation."""
-        # Mock config
-        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = 10
-        mock_config.TRACECAT__PUBLIC_APP_URL = "http://localhost"
-        mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = "http://minio:9000"
-        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = None
-
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        expected_url = "https://example.com/presigned-url"
-        mock_client.generate_presigned_url.return_value = expected_url
-
-        result = await generate_presigned_download_url(
-            "test/file.txt", "test-bucket", 3600
-        )
-
-        assert result == expected_url
-        mock_client.generate_presigned_url.assert_called_once_with(
-            "get_object",
-            Params={
-                "Bucket": "test-bucket",
-                "Key": "test/file.txt",
-                "ResponseContentDisposition": 'attachment; filename="file.txt"',
-            },
-            ExpiresIn=3600,
-        )
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    @patch("tracecat.storage.blob.config")
-    async def test_generate_presigned_download_url_with_preview(
-        self, mock_config, mock_get_client
-    ):
-        """Test presigned download URL generation with preview mode."""
-        # Mock config
-        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = 10
-        mock_config.TRACECAT__PUBLIC_APP_URL = "http://localhost"
-        mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = "http://minio:9000"
-        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = None
-
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        expected_url = "https://example.com/presigned-url"
-        mock_client.generate_presigned_url.return_value = expected_url
-
-        # Test with preview mode disabled (force_download=False)
-        result = await generate_presigned_download_url(
-            "test/image.png", "test-bucket", 3600, force_download=False
-        )
-
-        assert result == expected_url
-        mock_client.generate_presigned_url.assert_called_once_with(
-            "get_object",
-            Params={
-                "Bucket": "test-bucket",
-                "Key": "test/image.png",
-                # No ResponseContentDisposition when force_download=False
-            },
-            ExpiresIn=3600,
-        )
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    @patch("tracecat.storage.blob.config")
-    async def test_generate_presigned_download_url_with_content_type_override(
-        self, mock_config, mock_get_client
-    ):
-        """Test presigned download URL generation with content type override."""
-        # Mock config
-        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = 10
-        mock_config.TRACECAT__PUBLIC_APP_URL = "http://localhost"
-        mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = "http://minio:9000"
-        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = None
-
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        expected_url = "https://example.com/presigned-url"
-        mock_client.generate_presigned_url.return_value = expected_url
-
-        # Test with content type override
-        result = await generate_presigned_download_url(
-            "test/file.bin",
-            "test-bucket",
-            3600,
-            override_content_type="application/octet-stream",
-        )
-
-        assert result == expected_url
-        mock_client.generate_presigned_url.assert_called_once_with(
-            "get_object",
-            Params={
-                "Bucket": "test-bucket",
-                "Key": "test/file.bin",
-                "ResponseContentDisposition": 'attachment; filename="file.bin"',
-                "ResponseContentType": "application/octet-stream",
-            },
-            ExpiresIn=3600,
-        )
 
     @pytest.mark.anyio
     @pytest.mark.parametrize(
@@ -1132,20 +708,17 @@ class TestS3Operations:
             ),
         ],
     )
-    @patch("tracecat.storage.blob.get_storage_client")
     async def test_presigned_download_sanitizes_a_download_filename(
-        self, mock_get_client, filename, expected
+        self, mock_s3: AsyncMock, filename, expected
     ):
         """The filename goes into the header only, never into the key."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.generate_presigned_url.return_value = "https://example.com/url"
+        mock_s3.generate_presigned_url.return_value = "https://example.com/url"
 
         await generate_presigned_download_url(
             "forms/a/b/c", "test-bucket", 60, download_filename=filename
         )
 
-        mock_client.generate_presigned_url.assert_called_once_with(
+        mock_s3.generate_presigned_url.assert_called_once_with(
             "get_object",
             Params={
                 "Bucket": "test-bucket",
@@ -1154,206 +727,6 @@ class TestS3Operations:
             },
             ExpiresIn=60,
         )
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.logger")
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_presigned_download_can_redact_provider_failure(
-        self, mock_get_client, mock_logger
-    ) -> None:
-        """Redacted presigning suppresses identifiers and provider prose."""
-
-        sensitive_key = "skills/tenant-id/private-object"
-        sensitive_bucket = "affected-customer-bucket"
-        provider_message = f"denied {sensitive_bucket}/{sensitive_key}"
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.generate_presigned_url.side_effect = ClientError(
-            error_response={
-                "Error": {
-                    "Code": "AccessDenied",
-                    "Message": provider_message,
-                }
-            },
-            operation_name="GeneratePresignedUrl",
-        )
-
-        with pytest.raises(blob_module.StoragePresignError) as raised:
-            await generate_presigned_download_url(
-                key=sensitive_key,
-                bucket=sensitive_bucket,
-                redact_log_identifiers=True,
-            )
-
-        assert raised.value.error_code == "AccessDenied"
-        assert sensitive_key not in str(raised.value)
-        assert sensitive_bucket not in str(raised.value)
-        assert provider_message not in str(raised.value)
-        mock_logger.error.assert_called_once_with(
-            "Failed to generate presigned download URL",
-            key="<redacted>",
-            bucket="<redacted>",
-            error_code="AccessDenied",
-            error_type="ClientError",
-        )
-        assert sensitive_key not in str(mock_logger.mock_calls)
-        assert sensitive_bucket not in str(mock_logger.mock_calls)
-        assert provider_message not in str(mock_logger.mock_calls)
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.logger")
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_presigned_download_default_failure_remains_unredacted(
-        self, mock_get_client, mock_logger
-    ) -> None:
-        """Default presigning still logs identifiers and re-raises ClientError."""
-
-        key = "attachments/private-object"
-        bucket = "customer-bucket"
-        provider_message = f"denied {bucket}/{key}"
-        client_error = ClientError(
-            error_response={
-                "Error": {
-                    "Code": "AccessDenied",
-                    "Message": provider_message,
-                }
-            },
-            operation_name="GeneratePresignedUrl",
-        )
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.generate_presigned_url.side_effect = client_error
-
-        with pytest.raises(ClientError) as raised:
-            await generate_presigned_download_url(key=key, bucket=bucket)
-
-        assert raised.value is client_error
-        mock_logger.error.assert_called_once_with(
-            "Failed to generate presigned download URL",
-            key=key,
-            bucket=bucket,
-            error=str(client_error),
-        )
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_generate_presigned_upload_url(self, mock_get_client):
-        """Test presigned upload URL generation."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        expected_url = "https://example.com/presigned-upload-url"
-        mock_client.generate_presigned_url.return_value = expected_url
-
-        result = await generate_presigned_upload_url(
-            "test/file.txt",
-            "test-bucket",
-            3600,
-            "text/plain",
-            checksum_sha256="base64-checksum",
-        )
-
-        assert result == expected_url
-        mock_client.generate_presigned_url.assert_called_once_with(
-            "put_object",
-            Params={
-                "Bucket": "test-bucket",
-                "Key": "test/file.txt",
-                "ContentType": "text/plain",
-                "ChecksumSHA256": "base64-checksum",
-            },
-            ExpiresIn=3600,
-        )
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.logger")
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_presigned_upload_can_redact_success_logs(
-        self, mock_get_client, mock_logger
-    ) -> None:
-        """Redacted presigning keeps identifiers out of success logs."""
-
-        sensitive_key = "skill-uploads/tenant-id/private-object"
-        sensitive_bucket = "affected-customer-bucket"
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.generate_presigned_url.return_value = "https://example.com/upload"
-
-        result = await generate_presigned_upload_url(
-            key=sensitive_key,
-            bucket=sensitive_bucket,
-            expiry=60,
-            content_type="application/octet-stream",
-            checksum_sha256="base64-checksum",
-            redact_log_identifiers=True,
-        )
-
-        assert result == "https://example.com/upload"
-        mock_client.generate_presigned_url.assert_awaited_once_with(
-            "put_object",
-            Params={
-                "Bucket": sensitive_bucket,
-                "Key": sensitive_key,
-                "ContentType": "application/octet-stream",
-                "ChecksumSHA256": "base64-checksum",
-            },
-            ExpiresIn=60,
-        )
-        mock_logger.debug.assert_called_once_with(
-            "Generated presigned upload URL",
-            key="<redacted>",
-            bucket="<redacted>",
-            expiry=60,
-            content_type="application/octet-stream",
-            checksum_sha256="base64-checksum",
-        )
-        assert sensitive_key not in str(mock_logger.mock_calls)
-        assert sensitive_bucket not in str(mock_logger.mock_calls)
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.logger")
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_presigned_upload_can_redact_provider_failure(
-        self, mock_get_client, mock_logger
-    ) -> None:
-        """Redacted presigning suppresses identifiers and provider prose."""
-
-        sensitive_key = "skill-uploads/tenant-id/private-object"
-        sensitive_bucket = "affected-customer-bucket"
-        provider_message = f"denied {sensitive_bucket}/{sensitive_key}"
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.generate_presigned_url.side_effect = ClientError(
-            error_response={
-                "Error": {
-                    "Code": "AccessDenied",
-                    "Message": provider_message,
-                }
-            },
-            operation_name="GeneratePresignedUrl",
-        )
-
-        with pytest.raises(blob_module.StoragePresignError) as raised:
-            await generate_presigned_upload_url(
-                key=sensitive_key,
-                bucket=sensitive_bucket,
-                redact_log_identifiers=True,
-            )
-
-        assert raised.value.error_code == "AccessDenied"
-        assert sensitive_key not in str(raised.value)
-        assert sensitive_bucket not in str(raised.value)
-        assert provider_message not in str(raised.value)
-        mock_logger.error.assert_called_once_with(
-            "Failed to generate presigned upload URL",
-            key="<redacted>",
-            bucket="<redacted>",
-            error_code="AccessDenied",
-            error_type="ClientError",
-        )
-        assert sensitive_key not in str(mock_logger.mock_calls)
-        assert sensitive_bucket not in str(mock_logger.mock_calls)
-        assert provider_message not in str(mock_logger.mock_calls)
 
     @pytest.mark.anyio
     async def test_presigned_aws_url_uses_regional_sigv4_host(
@@ -1441,9 +814,10 @@ class TestS3Operations:
             await blob_module.close_storage_client_cache()
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
     @patch("tracecat.storage.blob.config")
-    async def test_presigned_url_path_replacement(self, mock_config, mock_get_client):
+    async def test_presigned_url_path_replacement(
+        self, mock_config, mock_s3: AsyncMock
+    ):
         """Test that presigned URLs correctly include /s3 path prefix."""
         # Setup configuration
         mock_config.TRACECAT__PUBLIC_APP_URL = "http://localhost"
@@ -1454,12 +828,10 @@ class TestS3Operations:
         mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = "http://minio:9000"
 
         # Setup mock client
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
 
         # Mock the original presigned URL from MinIO
         original_url = "http://minio:9000/tracecat/attachments/test.txt?AWSAccessKeyId=minio&Signature=abc123&Expires=1234567890"
-        mock_client.generate_presigned_url.return_value = original_url
+        mock_s3.generate_presigned_url.return_value = original_url
 
         # Generate presigned URL
         result = await generate_presigned_download_url(
@@ -1473,10 +845,9 @@ class TestS3Operations:
         assert "localhost" in result
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
     @patch("tracecat.storage.blob.config")
     async def test_presigned_url_no_replacement_when_not_minio(
-        self, mock_config, mock_get_client
+        self, mock_config, mock_s3: AsyncMock
     ):
         """Test that URLs are not modified when not from internal MinIO."""
         # Mock config
@@ -1486,12 +857,10 @@ class TestS3Operations:
         mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = None
 
         # Setup mock client
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
 
         # URL that doesn't start with http://minio:9000
         original_url = "https://s3.amazonaws.com/bucket/test.txt?AWSAccessKeyId=key&Signature=abc123&Expires=1234567890"
-        mock_client.generate_presigned_url.return_value = original_url
+        mock_s3.generate_presigned_url.return_value = original_url
 
         # Generate presigned URL
         result = await generate_presigned_download_url(
@@ -1504,53 +873,23 @@ class TestS3Operations:
         assert parsed.hostname == "s3.amazonaws.com"
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
     @patch("tracecat.storage.blob.config")
     async def test_presigned_url_no_replacement_without_blob_endpoint(
-        self, mock_config, mock_get_client
+        self, mock_config, mock_s3: AsyncMock
     ):
         """Skip presigned URL rewriting when blob endpoint is unset."""
         mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = 10
         mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = None
         mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = "http://public/s3"
 
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
         original_url = "https://s3.amazonaws.com/bucket/test.txt?AWSAccessKeyId=key&Signature=abc123&Expires=1234567890"
-        mock_client.generate_presigned_url.return_value = original_url
+        mock_s3.generate_presigned_url.return_value = original_url
 
         result = await generate_presigned_download_url(
             "attachments/test.txt", "tracecat", 30
         )
 
         assert result == original_url
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_presigned_url_expiry_validation(self, mock_get_client):
-        """Test that presigned URLs have appropriate expiry times."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        mock_client.generate_presigned_url.return_value = (
-            "http://test.com/file?Expires=123"
-        )
-
-        # Test with various expiry times
-        short_expiry = 30  # 30 seconds - appropriate for immediate download
-        await generate_presigned_download_url("test.txt", "bucket", short_expiry)
-
-        # Verify the expiry was passed correctly with security headers
-        mock_client.generate_presigned_url.assert_called_with(
-            "get_object",
-            Params={
-                "Bucket": "bucket",
-                "Key": "test.txt",
-                "ResponseContentDisposition": 'attachment; filename="test.txt"',
-            },
-            ExpiresIn=short_expiry,
-        )
 
 
 class TestRewritePresignedEndpoint:
@@ -1612,92 +951,30 @@ class TestRewritePresignedEndpoint:
 class TestEdgeCases:
     """Test edge cases and error conditions."""
 
-    @patch("tracecat.storage.blob.logger")
     @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_logging_on_errors(self, mock_get_client, mock_logger):
-        """Test that errors are properly logged."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        # Simulate S3 error
-        mock_client.put_object.side_effect = ClientError(
-            error_response={"Error": {"Code": "AccessDenied"}},
-            operation_name="put_object",
-        )
-
-        # This should raise and log
-        with pytest.raises(ClientError):
-            await upload_file(b"content", "key", "test-bucket")
-
-        # Check that error was logged
-        mock_logger.error.assert_called()
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_storage_error_handling_security(self, mock_get_client):
-        """Test that storage errors don't leak sensitive information."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        # Simulate various S3 errors
-        mock_client.get_object.side_effect = ClientError(
-            error_response={
-                "Error": {
-                    "Code": "AccessDenied",
-                    "Message": "Access denied to sensitive-bucket/secret-path/",
-                }
-            },
-            operation_name="get_object",
-        )
-
-        # Error should be raised but internal paths should not be exposed
-        with pytest.raises(ClientError):
-            await download_file("test-file.txt", "test-bucket")
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_ensure_bucket_exists_head_error_propagates(self, mock_get_client):
-        """Non-404 head_bucket errors bubble up."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        mock_client.head_bucket.side_effect = ClientError(
-            error_response={"Error": {"Code": "500"}}, operation_name="head_bucket"
-        )
-
-        with pytest.raises(ClientError):
-            await ensure_bucket_exists("bucket")
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_open_download_stream_yields_stream_and_length(self, mock_get_client):
+    async def test_open_download_stream_yields_stream_and_length(
+        self, mock_s3: AsyncMock
+    ):
         """open_download_stream yields a usable body and ContentLength when present."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
 
         mock_stream = AsyncMock()
         mock_body = AsyncMock()
         mock_body.__aenter__.return_value = mock_stream
         mock_response = {"Body": mock_body, "ContentLength": 123}
-        mock_client.get_object.return_value = mock_response
+        mock_s3.get_object.return_value = mock_response
 
         async with open_download_stream(key="k", bucket="b") as (stream, length):
             assert stream is mock_body
             assert length == 123
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.blob.logger")
-    @patch("tracecat.storage.blob.get_storage_client")
     async def test_open_download_stream_can_redact_transport_failure(
-        self, mock_get_client, mock_logger
+        self, mock_s3: AsyncMock, storage_logger: MagicMock
     ) -> None:
         """Registry downloads suppress bucket, key, and provider messages."""
         sensitive_bucket = "affected-customer-bucket"
         sensitive_key = "tenant/private/site-packages.squashfs"
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.get_object.side_effect = ClientError(
+        mock_s3.get_object.side_effect = ClientError(
             error_response={
                 "Error": {
                     "Code": "AccessDenied",
@@ -1717,7 +994,7 @@ class TestEdgeCases:
 
         assert sensitive_bucket not in str(raised.value)
         assert sensitive_key not in str(raised.value)
-        mock_logger.error.assert_called_once_with(
+        storage_logger.error.assert_called_once_with(
             "Failed to open download stream",
             key="<redacted>",
             bucket="<redacted>",
@@ -1726,15 +1003,11 @@ class TestEdgeCases:
         )
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.blob.logger")
-    @patch("tracecat.storage.blob.get_storage_client")
     async def test_redacted_download_rejects_provider_prose_as_error_code(
-        self, mock_get_client, mock_logger
+        self, mock_s3: AsyncMock, storage_logger: MagicMock
     ) -> None:
         sensitive_message = "tenant/private/object is forbidden"
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-        mock_client.get_object.side_effect = ClientError(
+        mock_s3.get_object.side_effect = ClientError(
             error_response={"Error": {"Code": sensitive_message}},
             operation_name="get_object",
         )
@@ -1748,7 +1021,7 @@ class TestEdgeCases:
                 pass
 
         assert raised.value.error_code is None
-        assert sensitive_message not in str(mock_logger.mock_calls)
+        assert sensitive_message not in str(storage_logger.mock_calls)
 
     @pytest.mark.anyio
     async def test_download_file_to_path_writes_bytes(
@@ -2139,94 +1412,13 @@ class TestEdgeCases:
         assert deferred == [partial_path]
         assert partial_path.is_file()
 
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_ensure_bucket_exists_create_error_propagates(self, mock_get_client):
-        """Create-bucket failure after 404 bubbles up."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        # Simulate 404 then create failure
-        mock_client.head_bucket.side_effect = ClientError(
-            error_response={"Error": {"Code": "404"}}, operation_name="head_bucket"
-        )
-        mock_client.create_bucket.side_effect = ClientError(
-            error_response={"Error": {"Code": "BucketAlreadyExists"}},
-            operation_name="create_bucket",
-        )
-
-        with pytest.raises(ClientError):
-            await ensure_bucket_exists("bucket")
-
 
 class TestBucketLifecycle:
     """Test bucket lifecycle configuration operations."""
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_get_bucket_lifecycle_returns_config(self, mock_get_client):
-        """Test get_bucket_lifecycle returns config when it exists."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        expected_config = {
-            "Rules": [
-                {
-                    "ID": "test-rule",
-                    "Status": "Enabled",
-                    "Filter": {"Prefix": ""},
-                    "Expiration": {"Days": 30},
-                }
-            ]
-        }
-        mock_client.get_bucket_lifecycle_configuration.return_value = expected_config
-
-        result = await get_bucket_lifecycle("test-bucket")
-
-        assert result == expected_config
-        mock_client.get_bucket_lifecycle_configuration.assert_called_once_with(
-            Bucket="test-bucket"
-        )
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_get_bucket_lifecycle_returns_none_when_not_configured(
-        self, mock_get_client
-    ):
-        """Test get_bucket_lifecycle returns None when no lifecycle exists."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        mock_client.get_bucket_lifecycle_configuration.side_effect = ClientError(
-            error_response={"Error": {"Code": "NoSuchLifecycleConfiguration"}},
-            operation_name="get_bucket_lifecycle_configuration",
-        )
-
-        result = await get_bucket_lifecycle("test-bucket")
-
-        assert result is None
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_get_bucket_lifecycle_propagates_other_errors(self, mock_get_client):
-        """Test get_bucket_lifecycle propagates non-lifecycle errors."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        mock_client.get_bucket_lifecycle_configuration.side_effect = ClientError(
-            error_response={"Error": {"Code": "AccessDenied"}},
-            operation_name="get_bucket_lifecycle_configuration",
-        )
-
-        with pytest.raises(ClientError):
-            await get_bucket_lifecycle("test-bucket")
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_configure_bucket_lifecycle_sets_expiration(self, mock_get_client):
+    async def test_configure_bucket_lifecycle_sets_expiration(self, mock_s3: AsyncMock):
         """Test configure_bucket_lifecycle sets lifecycle rules correctly."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
 
         await configure_bucket_lifecycle(
             bucket="test-bucket",
@@ -2234,8 +1426,8 @@ class TestBucketLifecycle:
             rule_id="test-expiration",
         )
 
-        mock_client.put_bucket_lifecycle_configuration.assert_called_once()
-        call_kwargs = mock_client.put_bucket_lifecycle_configuration.call_args.kwargs
+        mock_s3.put_bucket_lifecycle_configuration.assert_called_once()
+        call_kwargs = mock_s3.put_bucket_lifecycle_configuration.call_args.kwargs
         assert call_kwargs["Bucket"] == "test-bucket"
         lifecycle_config = call_kwargs["LifecycleConfiguration"]
         assert len(lifecycle_config["Rules"]) == 1
@@ -2245,62 +1437,23 @@ class TestBucketLifecycle:
         assert rule["Expiration"]["Days"] == 30
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_configure_bucket_lifecycle_uses_default_rule_id(
-        self, mock_get_client
-    ):
-        """Test configure_bucket_lifecycle uses default rule ID."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        await configure_bucket_lifecycle(bucket="test-bucket", expiration_days=7)
-
-        call_kwargs = mock_client.put_bucket_lifecycle_configuration.call_args.kwargs
-        rule = call_kwargs["LifecycleConfiguration"]["Rules"][0]
-        assert rule["ID"] == "workflow-artifact-expiration"
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
     async def test_configure_bucket_lifecycle_removes_rule_when_zero_days(
-        self, mock_get_client
+        self, mock_s3: AsyncMock
     ):
         """Test configure_bucket_lifecycle removes existing rule when expiration_days is 0."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
 
         await configure_bucket_lifecycle(bucket="test-bucket", expiration_days=0)
 
-        mock_client.delete_bucket_lifecycle.assert_called_once_with(
-            Bucket="test-bucket"
-        )
-        mock_client.put_bucket_lifecycle_configuration.assert_not_called()
+        mock_s3.delete_bucket_lifecycle.assert_called_once_with(Bucket="test-bucket")
+        mock_s3.put_bucket_lifecycle_configuration.assert_not_called()
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_configure_bucket_lifecycle_removes_rule_when_negative_days(
-        self, mock_get_client
-    ):
-        """Test configure_bucket_lifecycle removes existing rule when expiration_days is negative."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        await configure_bucket_lifecycle(bucket="test-bucket", expiration_days=-1)
-
-        mock_client.delete_bucket_lifecycle.assert_called_once_with(
-            Bucket="test-bucket"
-        )
-        mock_client.put_bucket_lifecycle_configuration.assert_not_called()
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
     async def test_configure_bucket_lifecycle_handles_no_existing_rule(
-        self, mock_get_client
+        self, mock_s3: AsyncMock
     ):
         """Test configure_bucket_lifecycle handles case when no lifecycle rule exists to remove."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
 
-        mock_client.delete_bucket_lifecycle.side_effect = ClientError(
+        mock_s3.delete_bucket_lifecycle.side_effect = ClientError(
             error_response={"Error": {"Code": "NoSuchLifecycleConfiguration"}},
             operation_name="delete_bucket_lifecycle",
         )
@@ -2308,36 +1461,4 @@ class TestBucketLifecycle:
         # Should not raise - gracefully handles missing lifecycle
         await configure_bucket_lifecycle(bucket="test-bucket", expiration_days=0)
 
-        mock_client.delete_bucket_lifecycle.assert_called_once()
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_configure_bucket_lifecycle_delete_error_propagates(
-        self, mock_get_client
-    ):
-        """Test configure_bucket_lifecycle propagates errors during deletion."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        mock_client.delete_bucket_lifecycle.side_effect = ClientError(
-            error_response={"Error": {"Code": "AccessDenied"}},
-            operation_name="delete_bucket_lifecycle",
-        )
-
-        with pytest.raises(ClientError):
-            await configure_bucket_lifecycle(bucket="test-bucket", expiration_days=0)
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.blob.get_storage_client")
-    async def test_configure_bucket_lifecycle_error_propagates(self, mock_get_client):
-        """Test configure_bucket_lifecycle propagates errors."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        mock_client.put_bucket_lifecycle_configuration.side_effect = ClientError(
-            error_response={"Error": {"Code": "AccessDenied"}},
-            operation_name="put_bucket_lifecycle_configuration",
-        )
-
-        with pytest.raises(ClientError):
-            await configure_bucket_lifecycle(bucket="test-bucket", expiration_days=30)
+        mock_s3.delete_bucket_lifecycle.assert_called_once()

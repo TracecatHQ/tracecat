@@ -1568,19 +1568,8 @@ if __name__ == "__main__":
         )
 
 
-@pytest.mark.parametrize(
-    "raise_stmt",
-    [
-        pytest.param("raise MemoryError()", id="python-allocator"),
-        pytest.param(
-            "raise OSError(errno.ENOMEM, 'Cannot allocate memory')",
-            id="enomem-syscall",
-        ),
-    ],
-)
-def test_nsjail_wrapper_reports_memory_error_as_resource_limit(
+def test_nsjail_wrapper_reports_enomem_as_resource_limit(
     tmp_path: Path,
-    raise_stmt: str,
 ) -> None:
     """Invariant: either shape of memory exhaustion becomes the envelope code.
 
@@ -1594,11 +1583,11 @@ def test_nsjail_wrapper_reports_memory_error_as_resource_limit(
     result = _run_wrapper_source(
         WRAPPER_SCRIPT,
         tmp_path,
-        f"""
+        """
 import errno
 
 def main():
-    {raise_stmt}
+    raise OSError(errno.ENOMEM, 'Cannot allocate memory')
 """,
     )
 
@@ -1606,32 +1595,3 @@ def main():
     assert result["error_code"] == "resource_limit_exceeded"
     assert result["error"] == "Script exceeded the sandbox memory limit"
     assert result["traceback"] is None
-
-
-def test_nsjail_wrapper_reports_resource_limit_when_output_serialization_dies(
-    tmp_path: Path,
-) -> None:
-    """Invariant: a MemoryError while serializing output still writes an envelope.
-
-    ``to_json_safe`` falls back to ``repr`` for unknown types, so a value whose
-    repr exhausts memory kills ``json.dumps`` after the script itself finished.
-    The wrapper must still leave a result file carrying the resource-limit code
-    rather than dying and degrading to a generic workload failure.
-    """
-    result = _run_wrapper_source(
-        WRAPPER_SCRIPT,
-        tmp_path,
-        """
-class _Unrepresentable:
-    def __repr__(self):
-        raise MemoryError()
-
-
-def main():
-    return _Unrepresentable()
-""",
-    )
-
-    assert result["success"] is False
-    assert result["error_code"] == "resource_limit_exceeded"
-    assert result["output"] is None

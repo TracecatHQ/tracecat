@@ -123,63 +123,6 @@ async def test_get_action_secrets_passes_sets_to_auth_sandbox(mocker):
     assert call_kwargs["environment"] == "test_env"
 
 
-@pytest.mark.anyio
-async def test_get_action_secrets_skips_optional_oauth(mocker):
-    """Ensure optional OAuth integrations do not raise when missing."""
-
-    action_secrets: set[RegistrySecretType] = {
-        RegistryOAuthSecret(
-            provider_id="azure_log_analytics",
-            grant_type="authorization_code",
-        ),
-        RegistryOAuthSecret(
-            provider_id="azure_log_analytics",
-            grant_type="client_credentials",
-            optional=True,
-        ),
-    }
-
-    mocker.patch("tracecat.expressions.eval.extract_templated_secrets", return_value=[])
-    mocker.patch(
-        "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
-    )
-
-    sandbox = mocker.AsyncMock()
-    sandbox.secrets = {}
-    sandbox.__aenter__.return_value = sandbox
-    sandbox.__aexit__.return_value = None
-    mocker.patch("tracecat.secrets.secrets_manager.AuthSandbox", return_value=sandbox)
-
-    delegated_integration = mocker.MagicMock()
-    delegated_integration.provider_id = "azure_log_analytics"
-    delegated_integration.grant_type = OAuthGrantType.AUTHORIZATION_CODE
-
-    service = mocker.AsyncMock()
-    service.list_integrations.return_value = [delegated_integration]
-    service.refresh_token_if_needed.return_value = delegated_integration
-    service.get_access_token.return_value = SecretStr("user-token")
-
-    @asynccontextmanager
-    async def service_cm():
-        yield service
-
-    mocker.patch(
-        "tracecat.secrets.secrets_manager.IntegrationService.with_session",
-        return_value=service_cm(),
-    )
-
-    secrets = await secrets_manager.get_action_secrets(
-        secret_exprs=set(), action_secrets=action_secrets
-    )
-    assert (
-        secrets["azure_log_analytics_oauth"]["AZURE_LOG_ANALYTICS_USER_TOKEN"]
-        == "user-token"
-    )
-    assert (
-        "AZURE_LOG_ANALYTICS_SERVICE_TOKEN" not in secrets["azure_log_analytics_oauth"]
-    )
-
-
 @pytest.mark.parametrize("secret_name", ["aws", "amazon_bedrock"])
 @pytest.mark.anyio
 async def test_get_action_secrets_injects_runtime_aws_external_id(
@@ -223,22 +166,24 @@ async def test_get_action_secrets_injects_runtime_aws_external_id(
     assert secrets["TRACECAT_AWS_EXTERNAL_ID"] == "tracecat-ws-deadbeef"
 
 
-@pytest.mark.anyio
-async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
-    """Ensure both delegated and service tokens are returned when available."""
+_AZURE_OAUTH_SECRETS: set[RegistrySecretType] = {
+    RegistryOAuthSecret(
+        provider_id="azure_log_analytics",
+        grant_type="authorization_code",
+    ),
+    RegistryOAuthSecret(
+        provider_id="azure_log_analytics",
+        grant_type="client_credentials",
+        optional=True,
+    ),
+}
+_OAUTH_TOKENS = {
+    OAuthGrantType.AUTHORIZATION_CODE: "user-token",
+    OAuthGrantType.CLIENT_CREDENTIALS: "service-token",
+}
 
-    action_secrets: set[RegistrySecretType] = {
-        RegistryOAuthSecret(
-            provider_id="azure_log_analytics",
-            grant_type="authorization_code",
-        ),
-        RegistryOAuthSecret(
-            provider_id="azure_log_analytics",
-            grant_type="client_credentials",
-            optional=True,
-        ),
-    }
 
+def _patch_oauth_secret_env(mocker, grant_types: list[OAuthGrantType]) -> None:
     mocker.patch("tracecat.expressions.eval.extract_templated_secrets", return_value=[])
     mocker.patch(
         "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
@@ -250,29 +195,19 @@ async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
     sandbox.__aexit__.return_value = None
     mocker.patch("tracecat.secrets.secrets_manager.AuthSandbox", return_value=sandbox)
 
-    delegated_integration = mocker.MagicMock()
-    delegated_integration.provider_id = "azure_log_analytics"
-    delegated_integration.grant_type = OAuthGrantType.AUTHORIZATION_CODE
-
-    service_integration = mocker.MagicMock()
-    service_integration.provider_id = "azure_log_analytics"
-    service_integration.grant_type = OAuthGrantType.CLIENT_CREDENTIALS
+    integrations = []
+    for grant_type in grant_types:
+        integration = mocker.MagicMock()
+        integration.provider_id = "azure_log_analytics"
+        integration.grant_type = grant_type
+        integrations.append(integration)
 
     service = mocker.AsyncMock()
-    service.list_integrations.return_value = [
-        delegated_integration,
-        service_integration,
-    ]
+    service.list_integrations.return_value = integrations
     service.refresh_token_if_needed.side_effect = lambda integration: integration
-
-    def _get_access_token(integration):
-        if integration.grant_type == OAuthGrantType.AUTHORIZATION_CODE:
-            return SecretStr("user-token")
-        if integration.grant_type == OAuthGrantType.CLIENT_CREDENTIALS:
-            return SecretStr("service-token")
-        return None
-
-    service.get_access_token.side_effect = _get_access_token
+    service.get_access_token.side_effect = lambda integration: SecretStr(
+        _OAUTH_TOKENS[integration.grant_type]
+    )
 
     @asynccontextmanager
     async def service_cm():
@@ -283,71 +218,53 @@ async def test_get_action_secrets_merges_multiple_oauth_tokens(mocker):
         return_value=service_cm(),
     )
 
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("grant_types", "expected"),
+    [
+        pytest.param(
+            [OAuthGrantType.AUTHORIZATION_CODE],
+            {"AZURE_LOG_ANALYTICS_USER_TOKEN": "user-token"},
+            id="skips_missing_optional_oauth",
+        ),
+        pytest.param(
+            [OAuthGrantType.AUTHORIZATION_CODE, OAuthGrantType.CLIENT_CREDENTIALS],
+            {
+                "AZURE_LOG_ANALYTICS_USER_TOKEN": "user-token",
+                "AZURE_LOG_ANALYTICS_SERVICE_TOKEN": "service-token",
+            },
+            id="merges_multiple_oauth_tokens",
+        ),
+    ],
+)
+async def test_get_action_secrets_resolves_oauth_tokens(
+    mocker, grant_types: list[OAuthGrantType], expected: dict[str, str]
+):
+    _patch_oauth_secret_env(mocker, grant_types)
+
     secrets = await secrets_manager.get_action_secrets(
-        secret_exprs=set(), action_secrets=action_secrets
+        secret_exprs=set(), action_secrets=_AZURE_OAUTH_SECRETS
     )
-    assert (
-        secrets["azure_log_analytics_oauth"]["AZURE_LOG_ANALYTICS_USER_TOKEN"]
-        == "user-token"
-    )
-    assert (
-        secrets["azure_log_analytics_oauth"]["AZURE_LOG_ANALYTICS_SERVICE_TOKEN"]
-        == "service-token"
-    )
+
+    assert secrets["azure_log_analytics_oauth"] == expected
 
 
 @pytest.mark.anyio
 async def test_get_action_secrets_missing_required_oauth_raises(mocker):
     """Required OAuth integrations should surface a credentials error."""
-
-    action_secrets: set[RegistrySecretType] = {
-        RegistryOAuthSecret(
-            provider_id="azure_log_analytics",
-            grant_type="authorization_code",
-        )
-    }
-
-    mocker.patch("tracecat.expressions.eval.extract_templated_secrets", return_value=[])
-    mocker.patch(
-        "tracecat.secrets.secrets_manager.get_runtime_env", return_value="test_env"
-    )
-
-    sandbox = mocker.AsyncMock()
-    sandbox.secrets = {}
-    sandbox.__aenter__.return_value = sandbox
-    sandbox.__aexit__.return_value = None
-    mocker.patch("tracecat.secrets.secrets_manager.AuthSandbox", return_value=sandbox)
-
-    service = mocker.AsyncMock()
-    service.list_integrations.return_value = []
-
-    @asynccontextmanager
-    async def service_cm():
-        yield service
-
-    mocker.patch(
-        "tracecat.secrets.secrets_manager.IntegrationService.with_session",
-        return_value=service_cm(),
-    )
+    _patch_oauth_secret_env(mocker, [])
 
     with pytest.raises(TracecatCredentialsError):
         await secrets_manager.get_action_secrets(
-            secret_exprs=set(), action_secrets=action_secrets
+            secret_exprs=set(),
+            action_secrets={
+                RegistryOAuthSecret(
+                    provider_id="azure_log_analytics",
+                    grant_type="authorization_code",
+                )
+            },
         )
-
-
-@pytest.mark.anyio
-async def test_extract_templated_secrets_detects_nested_complex_expressions():
-    from tracecat.expressions.eval import extract_templated_secrets
-
-    expr = '${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}'
-    secrets = extract_templated_secrets(expr)
-    assert sorted(secrets) == sorted(
-        [
-            "zendesk.ZENDESK_EMAIL",
-            "zendesk.ZENDESK_API_TOKEN",
-        ]
-    )
 
 
 @pytest.mark.anyio

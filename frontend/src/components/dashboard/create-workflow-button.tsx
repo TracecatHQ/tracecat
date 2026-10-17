@@ -122,7 +122,7 @@ function ImportWorkflowDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="sm" className="sm:max-w-[600px]">
+      <DialogContent size="md" className="sm:max-w-[600px]">
         <DialogHeader>
           <DialogTitle>Import workflow from file</DialogTitle>
           <DialogDescription>

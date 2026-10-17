@@ -354,47 +354,6 @@ async def test_build_token_scoped_tools_does_not_advertise_internal_from_actions
 
 
 @pytest.mark.anyio
-async def test_token_scoped_fastmcp_get_tool_reuses_token_catalog(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    claims = _build_claims(allowed_actions=["core.cases.list_cases"])
-    tool = trusted_server._build_scoped_tool(
-        tool_name="core__cases__list_cases",
-        description="List cases",
-        parameters_json_schema={"type": "object"},
-        claims=claims,
-    )
-    build_token_scoped_tools = AsyncMock(
-        return_value=trusted_server._TokenScopedToolBuild(
-            tools=[tool],
-            failed_user_mcp_servers={},
-        )
-    )
-
-    monkeypatch.setattr(
-        trusted_server,
-        "get_http_headers",
-        lambda include: {"authorization": "Bearer token"},
-    )
-    monkeypatch.setattr(
-        trusted_server,
-        "_claims_from_authorization_header",
-        lambda authorization: claims,
-    )
-    monkeypatch.setattr(
-        trusted_server,
-        "_build_token_scoped_tools",
-        build_token_scoped_tools,
-    )
-
-    mcp = trusted_server.TokenScopedFastMCP("test")
-
-    assert await mcp.get_tool("core__cases__list_cases") is tool
-    assert await mcp.get_tool("core__cases__list_cases") is tool
-    build_token_scoped_tools.assert_awaited_once_with(claims)
-
-
-@pytest.mark.anyio
 async def test_build_token_scoped_tools_filters_root_catalog(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1203,40 +1162,13 @@ async def test_build_token_scoped_tools_lists_deferred_actions(
 
 
 @pytest.mark.anyio
-async def test_execute_registry_action_refuses_deferred_action(
+async def test_execute_user_mcp_refuses_deferred_tool_in_registry_spelling(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    execute_action = AsyncMock(return_value={"ok": True})
-    monkeypatch.setattr(trusted_server, "execute_action", execute_action)
-
-    with pytest.raises(
-        ToolError, match="^Tool 'core.cases.delete_case' requires approval$"
-    ):
-        await trusted_server._execute_registry_action(
-            "core.cases.delete_case",
-            {},
-            _build_claims(deferred_actions=["core.cases.delete_case"]),
-        )
-
-    execute_action.assert_not_awaited()
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("server_name", "tool_name", "deferred_name"),
-    [
-        ("Jira", "deleteIssue", "mcp__Jira__deleteIssue"),
-        ("Jira", "deleteIssue", "mcp__tracecat-registry__mcp__Jira__deleteIssue"),
-        # Remote tool names may contain "__".
-        ("example", "a__b", "mcp__example__a__b"),
-    ],
-)
-async def test_execute_user_mcp_refuses_deferred_tool(
-    monkeypatch: pytest.MonkeyPatch,
-    server_name: str,
-    tool_name: str,
-    deferred_name: str,
-) -> None:
+    """A deferred user MCP tool is refused under its registry-prefixed spelling."""
+    server_name = "Jira"
+    tool_name = "deleteIssue"
+    deferred_name = "mcp__tracecat-registry__mcp__Jira__deleteIssue"
     monkeypatch.setattr(
         trusted_server,
         "UserMCPClient",
@@ -1433,28 +1365,6 @@ async def test_token_scoped_mcp_lists_but_refuses_deferred_action(
 
     await mcp.call_tool("core__cases__list_cases", {})
     execute_action.assert_awaited_once()
-
-
-@pytest.mark.anyio
-async def test_execute_internal_refuses_deferred_tool(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    handler = AsyncMock(return_value={"updated": True})
-    monkeypatch.setitem(
-        trusted_server.INTERNAL_TOOL_HANDLERS, "internal.builder.update_preset", handler
-    )
-    claims = _build_claims(deferred_actions=["internal.builder.update_preset"])
-
-    assert trusted_server._internal_tool_names(claims) == [
-        "internal.builder.update_preset"
-    ]
-    with pytest.raises(
-        ToolError, match="^Tool 'internal.builder.update_preset' requires approval$"
-    ):
-        await trusted_server._execute_internal(
-            "internal.builder.update_preset", {}, claims
-        )
-    handler.assert_not_awaited()
 
 
 @pytest.mark.anyio

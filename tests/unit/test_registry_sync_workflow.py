@@ -152,71 +152,35 @@ async def test_sync_registry_activity_keeps_transient_discovery_errors_retryable
 
 
 @pytest.mark.anyio
-async def test_backfill_registry_artifacts_activity_skips_existing_artifacts(
+@pytest.mark.parametrize(
+    ("artifact_name", "squashfs_exists", "status", "error"),
+    [
+        pytest.param(
+            "site-packages.tar.gz", True, "exists", None, id="tarball_with_sidecar"
+        ),
+        pytest.param(
+            "site-packages.squashfs", True, "exists", None, id="existing_squashfs"
+        ),
+        pytest.param(
+            "site-packages.squashfs",
+            False,
+            "skipped",
+            "SquashFS artifact is missing and no tarball source is available.",
+            id="missing_squashfs",
+        ),
+    ],
+)
+async def test_backfill_registry_artifacts_activity_checks_existing_squashfs(
     monkeypatch: pytest.MonkeyPatch,
+    artifact_name: str,
+    squashfs_exists: bool,
+    status: str,
+    error: str | None,
 ) -> None:
     async def fake_file_exists(*, key: str, bucket: str) -> bool:
         assert bucket == "registry-artifacts"
         assert key == "platform/tarball-venvs/test/1.0.0/site-packages.squashfs"
-        return True
-
-    monkeypatch.setattr(
-        "tracecat.registry.sync.workflow.blob.file_exists",
-        fake_file_exists,
-    )
-
-    version_id = uuid4()
-    result = await backfill_registry_artifacts_activity(
-        RegistryArtifactsBackfillItem(
-            version_id=version_id,
-            version="1.0.0",
-            tarball_uri=(
-                "s3://registry-artifacts/platform/tarball-venvs/test/1.0.0/"
-                "site-packages.tar.gz"
-            ),
-        )
-    )
-
-    assert result.status == "exists"
-    assert result.version_id == version_id
-
-
-@pytest.mark.anyio
-async def test_backfill_registry_artifacts_activity_accepts_existing_squashfs_uri(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def fake_file_exists(*, key: str, bucket: str) -> bool:
-        assert bucket == "registry-artifacts"
-        assert key == "platform/tarball-venvs/test/1.0.0/site-packages.squashfs"
-        return True
-
-    monkeypatch.setattr(
-        "tracecat.registry.sync.workflow.blob.file_exists",
-        fake_file_exists,
-    )
-
-    result = await backfill_registry_artifacts_activity(
-        RegistryArtifactsBackfillItem(
-            version_id=uuid4(),
-            version="1.0.0",
-            tarball_uri=(
-                "s3://registry-artifacts/platform/tarball-venvs/test/1.0.0/"
-                "site-packages.squashfs"
-            ),
-        )
-    )
-
-    assert result.status == "exists"
-
-
-@pytest.mark.anyio
-async def test_backfill_registry_artifacts_activity_skips_missing_squashfs_uri(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def fake_file_exists(*, key: str, bucket: str) -> bool:
-        assert bucket == "registry-artifacts"
-        assert key == "platform/tarball-venvs/test/1.0.0/site-packages.squashfs"
-        return False
+        return squashfs_exists
 
     async def fail_download_tarball_venv(**kwargs: object) -> Path:
         raise AssertionError(f"download should not be called: {kwargs}")
@@ -230,21 +194,21 @@ async def test_backfill_registry_artifacts_activity_skips_missing_squashfs_uri(
         fail_download_tarball_venv,
     )
 
+    version_id = uuid4()
     result = await backfill_registry_artifacts_activity(
         RegistryArtifactsBackfillItem(
-            version_id=uuid4(),
+            version_id=version_id,
             version="1.0.0",
             tarball_uri=(
-                "s3://registry-artifacts/platform/tarball-venvs/test/1.0.0/"
-                "site-packages.squashfs"
+                f"s3://registry-artifacts/platform/tarball-venvs/test/1.0.0/{artifact_name}"
             ),
         )
     )
 
-    assert result.status == "skipped"
-    assert result.error == (
-        "SquashFS artifact is missing and no tarball source is available."
-    )
+    assert result.status == status
+    assert result.version_id == version_id
+    if error is not None:
+        assert result.error == error
 
 
 @pytest.mark.anyio

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from pydantic import SecretStr
@@ -53,6 +53,31 @@ def _make_artifact_result(tmp_path: Path) -> RegistryArtifactBuildResult:
     )
 
 
+def _make_action(repository_id: UUID, default_title: str) -> RegistryActionCreate:
+    return RegistryActionCreate(
+        repository_id=repository_id,
+        name="reshape",
+        description="Reshape test payload",
+        namespace="core.transform",
+        type="udf",
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        interface={"expects": {}, "returns": {}},
+        implementation=RegistryActionUDFImpl(
+            type="udf",
+            url=DEFAULT_REGISTRY_ORIGIN,
+            module="tracecat_registry.core.transform",
+            name="reshape",
+        ),
+        secrets=None,
+        default_title=default_title,
+        display_group=None,
+        doc_url=None,
+        author=None,
+        deprecated=None,
+        options=RegistryActionOptions(),
+    )
+
+
 def _make_sandboxed_runner(
     mocker,
     sandbox,
@@ -74,32 +99,8 @@ def _make_sandboxed_runner(
 
 
 def test_write_prebuilt_registry_manifest_is_compact(tmp_path: Path) -> None:
-    repository_id = uuid4()
     manifest = RegistryVersionManifest.from_actions(
-        [
-            RegistryActionCreate(
-                repository_id=repository_id,
-                name="reshape",
-                description="Reshape test payload",
-                namespace="core.transform",
-                type="udf",
-                origin=DEFAULT_REGISTRY_ORIGIN,
-                interface={"expects": {}, "returns": {}},
-                implementation=RegistryActionUDFImpl(
-                    type="udf",
-                    url=DEFAULT_REGISTRY_ORIGIN,
-                    module="tracecat_registry.core.transform",
-                    name="reshape",
-                ),
-                secrets=None,
-                default_title="Prebuilt title",
-                display_group=None,
-                doc_url=None,
-                author=None,
-                deprecated=None,
-                options=RegistryActionOptions(),
-            )
-        ]
+        [_make_action(uuid4(), "Prebuilt title")]
     )
 
     manifest_path = write_prebuilt_registry_manifest(
@@ -309,24 +310,23 @@ async def test_runner_rejects_local_registry_when_disabled(
     build_execution_artifact.assert_not_awaited()
 
 
-def test_runner_selects_nsjail_when_enabled(mocker) -> None:
-    mocker.patch.object(
-        config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
-    )
+@pytest.mark.parametrize(
+    ("backend_type", "expected_backend"),
+    [
+        (ExecutorBackendType.NSJAIL, _SandboxedBackend),
+        (ExecutorBackendType.DIRECT, _UnsandboxedBackend),
+    ],
+)
+def test_runner_selects_backend_from_executor_config(
+    mocker,
+    backend_type: ExecutorBackendType,
+    expected_backend: type[_SandboxedBackend] | type[_UnsandboxedBackend],
+) -> None:
+    mocker.patch.object(config, "TRACECAT__EXECUTOR_BACKEND", backend_type)
 
     runner = RegistrySyncRunner()
 
-    assert isinstance(runner._backend, _SandboxedBackend)
-
-
-def test_runner_skips_nsjail_when_explicitly_disabled(mocker) -> None:
-    mocker.patch.object(
-        config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.DIRECT
-    )
-
-    runner = RegistrySyncRunner()
-
-    assert isinstance(runner._backend, _UnsandboxedBackend)
+    assert isinstance(runner._backend, expected_backend)
 
 
 @pytest.mark.anyio
@@ -668,10 +668,12 @@ async def test_runner_does_not_upload_artifacts_under_target_version(
 
 
 @pytest.mark.anyio
-async def test_runner_falls_back_to_discovery_when_prebuilt_manifest_is_invalid(
+@pytest.mark.parametrize("prebuilt", ["valid", "invalid_json", "conversion_error"])
+async def test_runner_uses_prebuilt_manifest_or_falls_back_to_discovery(
     tmp_path,
     mocker,
     monkeypatch: pytest.MonkeyPatch,
+    prebuilt: str,
 ) -> None:
     monkeypatch.setattr(
         config,
@@ -685,249 +687,52 @@ async def test_runner_falls_back_to_discovery_when_prebuilt_manifest_is_invalid(
         repository_origin=DEFAULT_REGISTRY_ORIGIN,
         version="1.2.3",
     )
-    artifact_dir.mkdir(parents=True)
-    (artifact_dir / "manifest.json").write_text("{invalid")
-
-    runner = RegistrySyncRunner()
-    request = RegistrySyncRequest(
-        repository_id=repository_id,
-        origin=DEFAULT_REGISTRY_ORIGIN,
-        origin_type="builtin",
-        target_version="1.2.3",
-        storage_namespace="platform",
-        validate_actions=True,
-    )
-
-    mocker.patch.object(
-        runner,
-        "_get_builtin_package_path",
-        mocker.AsyncMock(return_value=tmp_path),
-    )
-    artifact_result = _make_artifact_result(tmp_path)
-    build_tarball_venv = mocker.patch.object(
-        runner,
-        "_build_unsandboxed_execution_artifact",
-        mocker.AsyncMock(return_value=artifact_result),
-    )
-    discover_actions = mocker.patch.object(
-        runner,
-        "_discover_unsandboxed_actions",
-        mocker.AsyncMock(return_value=SyncResultSuccess(actions=[])),
-    )
-    upload_tarball = mocker.patch.object(
-        runner,
-        "_upload_squashfs",
-        mocker.AsyncMock(
-            return_value=(
-                "s3://registry/platform/tarball-venvs/tracecat_registry/generated/"
-                "site-packages.squashfs"
-            )
-        ),
-    )
-
-    result = await runner.run(request)
-
-    assert result.tarball_uri.endswith("/site-packages.squashfs")
-    build_tarball_venv.assert_awaited_once()
-    discover_actions.assert_awaited_once_with(request, None)
-    upload_tarball.assert_awaited_once()
-
-
-@pytest.mark.anyio
-async def test_runner_falls_back_when_prebuilt_manifest_conversion_fails(
-    tmp_path,
-    mocker,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR",
-        str(tmp_path),
-    )
-    repository_id = uuid4()
-    manifest = RegistryVersionManifest.from_actions(
-        [
-            RegistryActionCreate(
-                repository_id=repository_id,
-                name="reshape",
-                description="Reshape test payload",
-                namespace="core.transform",
-                type="udf",
-                origin=DEFAULT_REGISTRY_ORIGIN,
-                interface={"expects": {}, "returns": {}},
-                implementation=RegistryActionUDFImpl(
-                    type="udf",
-                    url=DEFAULT_REGISTRY_ORIGIN,
-                    module="tracecat_registry.core.transform",
-                    name="reshape",
-                ),
-                secrets=None,
-                default_title="Prebuilt title",
-                display_group=None,
-                doc_url=None,
-                author=None,
-                deprecated=None,
-                options=RegistryActionOptions(),
-            )
-        ]
-    )
-    artifact_dir = get_artifact_local_dir(
-        root=tmp_path,
-        organization_id="platform",
-        repository_origin=DEFAULT_REGISTRY_ORIGIN,
-        version="1.2.3",
-    )
-    write_prebuilt_registry_manifest(artifact_dir=artifact_dir, manifest=manifest)
-
-    runner = RegistrySyncRunner()
-    request = RegistrySyncRequest(
-        repository_id=repository_id,
-        origin=DEFAULT_REGISTRY_ORIGIN,
-        origin_type="builtin",
-        target_version="1.2.3",
-        storage_namespace="platform",
-        validate_actions=True,
-    )
-
-    mocker.patch.object(
-        runner,
-        "_get_builtin_package_path",
-        mocker.AsyncMock(return_value=tmp_path),
-    )
-    artifact_result = _make_artifact_result(tmp_path)
-    mocker.patch.object(
-        runner,
-        "_build_unsandboxed_execution_artifact",
-        mocker.AsyncMock(return_value=artifact_result),
-    )
-    fallback_actions = [
-        RegistryActionCreate(
-            repository_id=repository_id,
-            name="reshape",
-            description="Reshape test payload",
-            namespace="core.transform",
-            type="udf",
-            origin=DEFAULT_REGISTRY_ORIGIN,
-            interface={"expects": {}, "returns": {}},
-            implementation=RegistryActionUDFImpl(
-                type="udf",
-                url=DEFAULT_REGISTRY_ORIGIN,
-                module="tracecat_registry.core.transform",
-                name="reshape",
-            ),
-            secrets=None,
-            default_title="Recovered title",
-            display_group=None,
-            doc_url=None,
-            author=None,
-            deprecated=None,
-            options=RegistryActionOptions(),
+    if prebuilt == "invalid_json":
+        artifact_dir.mkdir(parents=True)
+        (artifact_dir / "manifest.json").write_text("{invalid")
+    else:
+        manifest = RegistryVersionManifest.from_actions(
+            [_make_action(repository_id, "Prebuilt title")]
         )
-    ]
+        write_prebuilt_registry_manifest(artifact_dir=artifact_dir, manifest=manifest)
+    if prebuilt == "conversion_error":
+
+        def raise_conversion_error(*_args, **_kwargs) -> list[RegistryActionCreate]:
+            raise ValueError("bad prebuilt action payload")
+
+        monkeypatch.setattr(
+            RegistryVersionManifest,
+            "to_action_creates",
+            raise_conversion_error,
+        )
+
+    runner = RegistrySyncRunner()
+    request = RegistrySyncRequest(
+        repository_id=repository_id,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        origin_type="builtin",
+        target_version="1.2.3",
+        storage_namespace="platform",
+        validate_actions=True,
+    )
+
+    mocker.patch.object(
+        runner,
+        "_get_builtin_package_path",
+        mocker.AsyncMock(return_value=tmp_path),
+    )
+    build_artifact = mocker.patch.object(
+        runner,
+        "_build_unsandboxed_execution_artifact",
+        mocker.AsyncMock(return_value=_make_artifact_result(tmp_path)),
+    )
+    fallback_actions = [_make_action(repository_id, "Recovered title")]
     discover_actions = mocker.patch.object(
         runner,
         "_discover_unsandboxed_actions",
         mocker.AsyncMock(return_value=SyncResultSuccess(actions=fallback_actions)),
     )
-    mocker.patch.object(
-        runner,
-        "_upload_squashfs",
-        mocker.AsyncMock(
-            return_value=(
-                "s3://registry/platform/tarball-venvs/tracecat_registry/generated/"
-                "site-packages.squashfs"
-            )
-        ),
-    )
-
-    def raise_conversion_error(*_args, **_kwargs) -> list[RegistryActionCreate]:
-        raise ValueError("bad prebuilt action payload")
-
-    monkeypatch.setattr(
-        RegistryVersionManifest,
-        "to_action_creates",
-        raise_conversion_error,
-    )
-
-    result = await runner.run(request)
-
-    assert result.actions == fallback_actions
-    discover_actions.assert_awaited_once_with(request, None)
-
-
-@pytest.mark.anyio
-async def test_runner_uses_prebuilt_manifest_without_discovery(
-    tmp_path,
-    mocker,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR",
-        str(tmp_path),
-    )
-    repository_id = uuid4()
-    manifest = RegistryVersionManifest.from_actions(
-        [
-            RegistryActionCreate(
-                repository_id=repository_id,
-                name="reshape",
-                description="Reshape test payload",
-                namespace="core.transform",
-                type="udf",
-                origin=DEFAULT_REGISTRY_ORIGIN,
-                interface={"expects": {}, "returns": {}},
-                implementation=RegistryActionUDFImpl(
-                    type="udf",
-                    url=DEFAULT_REGISTRY_ORIGIN,
-                    module="tracecat_registry.core.transform",
-                    name="reshape",
-                ),
-                secrets=None,
-                default_title="Prebuilt title",
-                display_group=None,
-                doc_url=None,
-                author=None,
-                deprecated=None,
-                options=RegistryActionOptions(),
-            )
-        ]
-    )
-    artifact_dir = get_artifact_local_dir(
-        root=tmp_path,
-        organization_id="platform",
-        repository_origin=DEFAULT_REGISTRY_ORIGIN,
-        version="1.2.3",
-    )
-    write_prebuilt_registry_manifest(artifact_dir=artifact_dir, manifest=manifest)
-
-    runner = RegistrySyncRunner()
-    request = RegistrySyncRequest(
-        repository_id=repository_id,
-        origin=DEFAULT_REGISTRY_ORIGIN,
-        origin_type="builtin",
-        target_version="1.2.3",
-        storage_namespace="platform",
-        validate_actions=True,
-    )
-
-    mocker.patch.object(
-        runner,
-        "_get_builtin_package_path",
-        mocker.AsyncMock(return_value=tmp_path),
-    )
-    artifact_result = _make_artifact_result(tmp_path)
-    build_tarball_venv = mocker.patch.object(
-        runner,
-        "_build_unsandboxed_execution_artifact",
-        mocker.AsyncMock(return_value=artifact_result),
-    )
-    discover_actions = mocker.patch.object(
-        runner,
-        "_discover_unsandboxed_actions",
-        mocker.AsyncMock(),
-    )
-    upload_tarball = mocker.patch.object(
+    upload_squashfs = mocker.patch.object(
         runner,
         "_upload_squashfs",
         mocker.AsyncMock(
@@ -941,8 +746,11 @@ async def test_runner_uses_prebuilt_manifest_without_discovery(
     result = await runner.run(request)
 
     assert result.tarball_uri.endswith("/site-packages.squashfs")
-    assert len(result.actions) == 1
-    assert result.actions[0].default_title == "Prebuilt title"
-    build_tarball_venv.assert_awaited_once()
-    discover_actions.assert_not_awaited()
-    upload_tarball.assert_awaited_once()
+    build_artifact.assert_awaited_once()
+    upload_squashfs.assert_awaited_once()
+    if prebuilt == "valid":
+        assert [action.default_title for action in result.actions] == ["Prebuilt title"]
+        discover_actions.assert_not_awaited()
+    else:
+        assert result.actions == fallback_actions
+        discover_actions.assert_awaited_once_with(request, None)

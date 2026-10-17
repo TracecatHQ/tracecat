@@ -162,6 +162,13 @@ def prepared(
 
 
 @pytest.mark.parametrize(
+    ("template_depth", "secret_backed"),
+    [
+        pytest.param(2, True, id="nested-secret"),
+        pytest.param(0, False, id="direct-plain"),
+    ],
+)
+@pytest.mark.parametrize(
     ("make_error", "kind", "owner", "retry"),
     [
         (

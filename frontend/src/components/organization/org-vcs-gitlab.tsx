@@ -223,7 +223,7 @@ function GitLabConnectionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="sm" className="max-w-lg">
+      <DialogContent size="md" className="max-w-lg">
         <DialogHeader>
           <DialogTitle>GitLab workspace sync credential</DialogTitle>
         </DialogHeader>
