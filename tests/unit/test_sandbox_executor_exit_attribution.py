@@ -79,6 +79,13 @@ def test_workload_stderr_tail_is_empty_without_workload_output() -> None:
             id="workload-memory-or-wall-limit",
         ),
         pytest.param(
+            128 + signal.SIGKILL,
+            False,
+            False,
+            SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
+            id="memory-limit-before-python-start-marker",
+        ),
+        pytest.param(
             128 + signal.SIGXCPU,
             False,
             True,
