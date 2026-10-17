@@ -267,6 +267,7 @@ class DSLInput(BaseModel):
             )
 
         self._all_action_expressions_valid(valid_action_refs)
+        self._validate_acyclic()
         self._validate_scatter_gather_scopes()
         return self
 
@@ -280,6 +281,23 @@ class DSLInput(BaseModel):
                         raise TracecatDSLError(
                             f"Action '{action.ref}' has an expression in field '{key2loc(key)}' that references unknown action '{dep}'"
                         )
+
+    def _validate_acyclic(self) -> None:
+        """Validate that action dependencies form a DAG."""
+        adj = self._to_adjacency()
+        indegrees = {action.ref: len(action.depends_on) for action in self.actions}
+        queue = deque(ref for ref, indegree in indegrees.items() if indegree == 0)
+        while queue:
+            ref = queue.popleft()
+            for next_ref in adj[ref]:
+                indegrees[next_ref] -= 1
+                if indegrees[next_ref] == 0:
+                    queue.append(next_ref)
+        if blocked := sorted(ref for ref, indegree in indegrees.items() if indegree):
+            raise TracecatDSLError(
+                "Cycle detected in workflow dependencies. Actions in or downstream"
+                f" of the cycle: {', '.join(repr(ref) for ref in blocked)}"
+            )
 
     def _validate_scatter_gather_scopes(self) -> None:
         """Validate control-flow scope boundaries.
