@@ -77,6 +77,7 @@ import {
   ToolInput,
   ToolOutput,
 } from "@/components/ai-elements/tool"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
 import { ChatToolsPicker } from "@/components/chat/chat-tools-picker"
 import { SmoothResponse } from "@/components/chat/smooth-response"
@@ -331,6 +332,10 @@ export interface ChatSessionPaneProps {
   resume?: boolean
 }
 
+/** Composer placeholder for users whose role lacks `agent:execute`. */
+export const AGENT_EXECUTE_REQUIRED_MESSAGE =
+  "Your role cannot run agents. Ask an admin for the agent:execute scope."
+
 export function ChatSessionPane({
   chat,
   workspaceId,
@@ -413,6 +418,9 @@ export function ChatSessionPane({
 
   // Read-only state includes ownership, backend availability, and entitlements.
   const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
+  // Sending, retrying and approving all run the agent. `undefined` means the
+  // scopes are still loading, which must not disable anything.
+  const cannotExecuteAgents = useScopeCheck("agent:execute") === false
   let readonlyDescription =
     chat && "user_id" in chat
       ? "This legacy conversation is read-only."
@@ -526,7 +534,8 @@ export function ChatSessionPane({
 
   // Send pending message on mount (used after forking)
   useEffect(() => {
-    if (!pendingMessage || isReadonly || !chat || !modelInfo) return
+    if (!pendingMessage || isReadonly || cannotExecuteAgents) return
+    if (!chat || !modelInfo) return
 
     const messageKey = `${chat.id}:${pendingMessage}`
     if (pendingMessageSentRef.current === messageKey) return
@@ -538,6 +547,7 @@ export function ChatSessionPane({
   }, [
     pendingMessage,
     isReadonly,
+    cannotExecuteAgents,
     chat,
     modelInfo,
     clearError,
@@ -575,7 +585,23 @@ export function ChatSessionPane({
 
   const isOptimisticBeforeSendPending = optimisticMessageText !== null
   const isInputDisabled =
-    isReadonly || inputDisabled || isOptimisticBeforeSendPending || !canSubmit
+    isReadonly ||
+    cannotExecuteAgents ||
+    inputDisabled ||
+    isOptimisticBeforeSendPending ||
+    !canSubmit
+
+  let composerPlaceholder = placeholder
+  if (isReadonly) {
+    composerPlaceholder = readonlyDescription
+  } else if (cannotExecuteAgents) {
+    composerPlaceholder = AGENT_EXECUTE_REQUIRED_MESSAGE
+  } else if (
+    (inputDisabled || isOptimisticBeforeSendPending) &&
+    inputDisabledPlaceholder
+  ) {
+    composerPlaceholder = inputDisabledPlaceholder
+  }
 
   const isGeneratingTurn = status === "submitted" || status === "streaming"
   const [cancelRequested, setCancelRequested] = useState(false)
@@ -585,7 +611,8 @@ export function ChatSessionPane({
   }, [isGeneratingTurn])
 
   const handleStop = useCallback(async () => {
-    if (!chat?.id || cancelRequested || isReadonly) return
+    if (!chat?.id || cancelRequested || isReadonly || cannotExecuteAgents)
+      return
     setCancelRequested(true)
     try {
       await cancelChatTurn({ chatId: chat.id })
@@ -596,7 +623,13 @@ export function ChatSessionPane({
         description: parseChatError(error),
       })
     }
-  }, [cancelChatTurn, cancelRequested, chat?.id, isReadonly])
+  }, [
+    cancelChatTurn,
+    cancelRequested,
+    chat?.id,
+    isReadonly,
+    cannotExecuteAgents,
+  ])
   const isInputDisabledRef = useRef(isInputDisabled)
   isInputDisabledRef.current = isInputDisabled
   /** Guards `handleSubmit` against re-entry while it awaits a preset write. */
@@ -811,7 +844,11 @@ export function ChatSessionPane({
 
   const commitSelectedTools = useCallback(
     (next: string[]) => {
-      if (areToolListsEqual(selectedToolsRef.current, next)) {
+      // Changing a session's tools is a session update that needs agent:execute.
+      if (
+        cannotExecuteAgents ||
+        areToolListsEqual(selectedToolsRef.current, next)
+      ) {
         return
       }
 
@@ -826,7 +863,7 @@ export function ChatSessionPane({
       pendingPersistedToolsRef.current = next
       void queuePersistTools(next)
     },
-    [chat, isReadonly, queuePersistTools]
+    [cannotExecuteAgents, chat, isReadonly, queuePersistTools]
   )
 
   const persistMcpChainRef = useRef<Promise<void>>(Promise.resolve())
@@ -1316,6 +1353,7 @@ export function ChatSessionPane({
                 removeDisabled={
                   isUpdatingTools ||
                   isReadonly ||
+                  cannotExecuteAgents ||
                   inputDisabled ||
                   !toolsEnabled
                 }
@@ -1333,14 +1371,7 @@ export function ChatSessionPane({
               onFocus={handleInputFocus}
               onBlur={handleInputBlur}
               onSelect={mentions.handleSelectionChange}
-              placeholder={
-                isReadonly
-                  ? readonlyDescription
-                  : (inputDisabled || isOptimisticBeforeSendPending) &&
-                      inputDisabledPlaceholder
-                    ? inputDisabledPlaceholder
-                    : placeholder
-              }
+              placeholder={composerPlaceholder}
               value={input}
               autoFocus={autoFocusInput && !isReadonly && !inputDisabled}
               disabled={isInputDisabled}
@@ -1357,7 +1388,9 @@ export function ChatSessionPane({
                   selectedMcpIntegrations={selectedMcpIntegrations}
                   onMcpChange={commitSelectedMcpIntegrations}
                   mcpEnabled={sessionMcpEnabled}
-                  disabled={inputDisabled || isUpdatingTools}
+                  disabled={
+                    inputDisabled || isUpdatingTools || cannotExecuteAgents
+                  }
                   surface={surface}
                   formsEnabled={formsAccess === "enabled"}
                   mcpIntegrationsHref={`/workspaces/${workspaceId}/mcp-servers`}
@@ -1373,7 +1406,10 @@ export function ChatSessionPane({
                   label={activePresetLabel}
                   showSpinner={presetSelector?.showSpinner}
                   disabled={
-                    presetSelector?.disabled || inputDisabled || !canSubmit
+                    presetSelector?.disabled ||
+                    inputDisabled ||
+                    cannotExecuteAgents ||
+                    !canSubmit
                   }
                   onClear={() => void presetSelector?.onSelect(null)}
                 />
@@ -1387,6 +1423,7 @@ export function ChatSessionPane({
               <PromptInputSubmit
                 disabled={
                   isReadonly ||
+                  cannotExecuteAgents ||
                   (isGeneratingTurn
                     ? isCancellingChatTurn || cancelRequested
                     : isInputDisabled || !input.trim())
@@ -1491,9 +1528,12 @@ export function ChatSessionPane({
                         }
                       />
                     ))}
+                    {/* Retry starts a run, so it follows the composer's gate. */}
                     {role === "assistant" &&
                       !isWaitingForResponse &&
-                      !isReadonly && (
+                      !isReadonly &&
+                      !cannotExecuteAgents &&
+                      !inputDisabled && (
                         // Render response actions for assistant messages and reveal them on hover for older messages.
                         <Actions
                           className={cn(
@@ -2330,12 +2370,15 @@ function approvalStateKey(approval: ApprovalCard): string {
 
 function ApprovalRequestPart({
   approvals,
-  onSubmit,
+  onSubmit: onSubmitProp,
 }: {
   approvals: ApprovalCard[]
   /** Resolves with the tool call IDs whose decisions it sent. */
   onSubmit?: (decisions: ApprovalDecision[]) => Promise<string[]>
 }) {
+  // A decision resumes the agent run, so it needs agent:execute.
+  const cannotExecuteAgents = useScopeCheck("agent:execute") === false
+  const onSubmit = cannotExecuteAgents ? undefined : onSubmitProp
   const [decisions, setDecisions] = useState<Record<string, DecisionState>>({})
   const [submittedDecisions, setSubmittedDecisions] = useState<
     Record<string, DecisionState>
@@ -2666,7 +2709,9 @@ function ApprovalRequestPart({
       </div>
       {!onSubmit && (
         <p className="text-xs text-muted-foreground">
-          Approval submission is not available in this context.
+          {cannotExecuteAgents
+            ? AGENT_EXECUTE_REQUIRED_MESSAGE
+            : "Approval submission is not available in this context."}
         </p>
       )}
       {decidedElsewhere && (

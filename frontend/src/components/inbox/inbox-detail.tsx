@@ -1,11 +1,8 @@
 "use client"
 
-import { ChevronDown } from "lucide-react"
-import Link from "next/link"
 import { useCallback, useRef, useState } from "react"
 import { agentSessionsForkSession } from "@/client"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
-import { NoMessages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -14,6 +11,7 @@ import {
 } from "@/hooks/use-agent-presets"
 import { useGetChatVercel } from "@/hooks/use-chat"
 import { type InboxSessionItem, isLiveAgentStatus } from "@/lib/agents"
+import { getModelUnavailableMessage } from "@/lib/chat-readiness"
 import { useChatReadiness } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -72,8 +70,10 @@ export function InboxDetail({
   const {
     ready: chatReady,
     loading: chatReadyLoading,
+    reason: chatReadyReason,
     modelInfo,
   } = useChatReadiness(
+    workspaceId,
     presetModel
       ? {
           modelOverride: {
@@ -92,7 +92,11 @@ export function InboxDetail({
   // Block input when there are pending approvals and we haven't forked yet
   // User must make an approval decision before they can send messages
   const hasPendingApprovals = session.pendingApprovalCount > 0
-  const inputDisabled = !isForkedSession && hasPendingApprovals
+  // Without a usable model the transcript and approvals stay visible; only
+  // new messages are blocked.
+  const modelUnavailable = !chatReady || !modelInfo
+  const approvalsBlockInput = !isForkedSession && hasPendingApprovals
+  const inputDisabled = modelUnavailable || approvalsBlockInput
   const resume = isLiveAgentStatus(session.derivedStatus)
 
   /**
@@ -158,31 +162,6 @@ export function InboxDetail({
     )
   }
 
-  // Check if chat is ready (model configured)
-  if (!chatReady || !modelInfo) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 p-4">
-        <NoMessages />
-        <Link
-          href="/organization/settings/agent"
-          className="block w-full max-w-md rounded-md border border-border bg-gradient-to-r from-muted/30 to-muted/50 p-4 backdrop-blur-sm transition-all duration-200 hover:from-muted/40 hover:to-muted/60"
-        >
-          <div className="flex items-center gap-3">
-            <div className="flex-1">
-              <h4 className="mb-1 text-sm font-medium text-foreground">
-                No default model
-              </h4>
-              <p className="text-xs text-muted-foreground">
-                Select a default model in agent settings to enable chat.
-              </p>
-            </div>
-            <ChevronDown className="size-4 rotate-[-90deg] text-muted-foreground" />
-          </div>
-        </Link>
-      </div>
-    )
-  }
-
   // The persisted last_error banner is rendered by ChatSessionPane itself (from
   // the session's last_error), so the inbox detail doesn't duplicate it here.
   return (
@@ -208,13 +187,17 @@ export function InboxDetail({
             : "Type to ask follow-up questions..."
       }
       className="h-full"
-      modelInfo={modelInfo}
+      modelInfo={modelInfo ?? undefined}
       toolsEnabled={false}
       onBeforeSend={isForkedSession ? undefined : handleFork}
       pendingMessage={pendingMessage}
       onPendingMessageSent={onPendingMessageSent}
       inputDisabled={inputDisabled}
-      inputDisabledPlaceholder="Make an approval decision to continue..."
+      inputDisabledPlaceholder={
+        modelUnavailable
+          ? getModelUnavailableMessage(chatReadyReason)
+          : "Make an approval decision to continue..."
+      }
       // Re-arm the SDK reconnect when an externally resolved approval moves
       // the session from PENDING_APPROVAL to RUNNING.
       resume={resume}

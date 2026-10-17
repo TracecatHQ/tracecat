@@ -498,6 +498,8 @@ import type {
   GetCatalogEntryResponse,
   GetCustomProviderData,
   GetCustomProviderResponse,
+  GetWorkspaceModelAccessData,
+  GetWorkspaceModelAccessResponse,
   GetWorkspaceModelsData,
   GetWorkspaceModelsResponse,
   GraphApplyGraphOperationsData,
@@ -993,6 +995,8 @@ import type {
   UpdateCatalogEntryResponse,
   UpdateCustomProviderData,
   UpdateCustomProviderResponse,
+  UpdateWorkspaceModelAccessData,
+  UpdateWorkspaceModelAccessResponse,
   UsersGetMyScopesData,
   UsersGetMyScopesResponse,
   UsersSearchUserData,
@@ -5678,13 +5682,14 @@ export const deleteCatalogEntry = (
 
 /**
  * Get Workspace Models
- * Get models accessible to a workspace.
+ * Get models accessible to a workspace, and its default model.
  *
  * Returns the full effective set; the list is bounded by org enablement
- * and is expected to be small, so pagination is not used here.
+ * and is expected to be small, so pagination is not used here. The default
+ * is the organization's default model, if it is enabled for this workspace.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns AgentCatalogListResponse Successful Response
+ * @returns WorkspaceAgentModelListResponse Successful Response
  * @throws ApiError
  */
 export const getWorkspaceModels = (
@@ -5696,6 +5701,57 @@ export const getWorkspaceModels = (
     path: {
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Workspace Model Access
+ * Get a workspace's model subset and the organization models it can use.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns WorkspaceAgentModelAccessRead Successful Response
+ * @throws ApiError
+ */
+export const getWorkspaceModelAccess = (
+  data: GetWorkspaceModelAccessData
+): CancelablePromise<GetWorkspaceModelAccessResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent-model-access",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Workspace Model Access
+ * Replace a workspace's model subset, or clear it to inherit the org's models.
+ *
+ * Every catalog ID must be enabled for the organization.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkspaceAgentModelAccessRead Successful Response
+ * @throws ApiError
+ */
+export const updateWorkspaceModelAccess = (
+  data: UpdateWorkspaceModelAccessData
+): CancelablePromise<UpdateWorkspaceModelAccessResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/workspaces/{workspace_id}/agent-model-access",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

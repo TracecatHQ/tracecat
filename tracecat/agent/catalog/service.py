@@ -8,11 +8,11 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 import sqlalchemy as sa
-from sqlalchemy import Select, and_, exists, select, tuple_
+from sqlalchemy import and_, exists, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import aliased
 
+from tracecat.agent.access.effective import effective_catalog_ids
 from tracecat.agent.bedrock import (
     BEDROCK_DISCOVERY_SOURCE,
     BEDROCK_FOUNDATION_MODEL_METADATA_KEY,
@@ -25,7 +25,7 @@ from tracecat.agent.catalog.schemas import AgentCatalogRead
 from tracecat.agent.catalog.types import ModelKey
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
-from tracecat.db.models import AgentCatalog, AgentCustomProvider, AgentModelAccess
+from tracecat.db.models import AgentCatalog, AgentCustomProvider
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.service import BaseService
@@ -137,49 +137,6 @@ class AgentCatalogService(BaseService):
             raise TracecatNotFoundError(f"Catalog entry {catalog_id} not found")
         return row
 
-    def _enabled_catalog_ids_subquery(
-        self,
-        *,
-        org_id: UUID,
-        workspace_id: UUID | None,
-    ) -> Select[tuple[UUID]]:
-        """Subquery of catalog ids enabled for the importing workspace.
-
-        Mirrors ``is_catalog_enabled``: a workspace's explicit access rows fully
-        override the org-level set; otherwise the org-level (``workspace_id IS
-        NULL``) set applies. The override existence check is embedded as an
-        uncorrelated EXISTS so it rides along in the caller's query.
-        """
-        access = select(AgentModelAccess.catalog_id).where(
-            AgentModelAccess.organization_id == org_id
-        )
-        if workspace_id is None:
-            return access.where(AgentModelAccess.workspace_id.is_(None))
-
-        # Alias so the EXISTS keeps its own FROM instead of auto-correlating
-        # to the enclosing AgentModelAccess select.
-        override = aliased(AgentModelAccess)
-        override_exists = (
-            select(override.catalog_id)
-            .where(
-                override.organization_id == org_id,
-                override.workspace_id == workspace_id,
-            )
-            .exists()
-        )
-        return access.where(
-            sa.or_(
-                sa.and_(
-                    override_exists,
-                    AgentModelAccess.workspace_id == workspace_id,
-                ),
-                sa.and_(
-                    ~override_exists,
-                    AgentModelAccess.workspace_id.is_(None),
-                ),
-            )
-        )
-
     async def is_catalog_id_enabled(
         self,
         *,
@@ -195,9 +152,7 @@ class AgentCatalogService(BaseService):
         not rewrite the user's selected row to another enabled row that happens
         to win the ``(provider, name)`` tuple resolver's ordering.
         """
-        enabled_catalog_ids = self._enabled_catalog_ids_subquery(
-            org_id=org_id, workspace_id=workspace_id
-        )
+        enabled_catalog_ids = effective_catalog_ids(org_id, workspace_id)
         stmt = select(
             exists().where(
                 AgentCatalog.id == catalog_id,
@@ -226,9 +181,7 @@ class AgentCatalogService(BaseService):
         if not catalog_ids:
             return {}
 
-        enabled_catalog_ids = self._enabled_catalog_ids_subquery(
-            org_id=org_id, workspace_id=workspace_id
-        )
+        enabled_catalog_ids = effective_catalog_ids(org_id, workspace_id)
         stmt = (
             select(
                 AgentCatalog.id,
@@ -268,9 +221,7 @@ class AgentCatalogService(BaseService):
         if not models:
             return {}
 
-        enabled_catalog_ids = self._enabled_catalog_ids_subquery(
-            org_id=org_id, workspace_id=workspace_id
-        )
+        enabled_catalog_ids = effective_catalog_ids(org_id, workspace_id)
         stmt = (
             select(
                 AgentCatalog.model_provider,
@@ -368,8 +319,9 @@ class AgentCatalogService(BaseService):
         Candidates are restricted to the rows **enabled for the importing
         workspace** under the same effective-access rules the runtime enforces
         (``AgentManagementService.get_catalog_credentials`` →
-        ``is_catalog_enabled``): a workspace's explicit access rows fully
-        override the org-level set, otherwise the org-level set applies. This
+        ``is_catalog_enabled``, both via ``effective_catalog_ids``): a
+        workspace's subset narrows the org-enabled set, otherwise the org-level
+        set applies. This
         prevents rewriting to an org-owned row that isn't enabled here when an
         enabled platform row with the same model exists — which would otherwise
         make the agent fail immediately at execution.
@@ -387,9 +339,7 @@ class AgentCatalogService(BaseService):
         deterministically rather than skip; an imported agent resolving to a
         plausible enabled model beats leaving it dangling.
         """
-        enabled_catalog_ids = self._enabled_catalog_ids_subquery(
-            org_id=org_id, workspace_id=workspace_id
-        )
+        enabled_catalog_ids = effective_catalog_ids(org_id, workspace_id)
 
         stmt = (
             select(AgentCatalog.id)

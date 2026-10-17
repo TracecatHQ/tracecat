@@ -7,7 +7,7 @@ import {
   type ReactNode,
   useState,
 } from "react"
-import type { AgentCatalogRead, AgentCustomProviderRead } from "@/client"
+import type { AgentCatalogRead, WorkspaceAgentModelRead } from "@/client"
 import { LogoTile } from "@/components/agents/agent-preset-rail-primitives"
 import { getModelProviderIconId, ProviderIcon } from "@/components/icons"
 import {
@@ -84,22 +84,15 @@ function getSourceType(model: AgentCatalogRead): string {
   return model.organization_id ? "organization" : "platform"
 }
 
-/** Build sorted display options from the model catalog and custom sources. */
+/** Build sorted display options from a workspace's labelled models. */
 export function buildEnabledModelOptions(
-  models: AgentCatalogRead[] | undefined,
-  providers: AgentCustomProviderRead[] | undefined
+  models: WorkspaceAgentModelRead[] | undefined
 ): EnabledModelOption[] {
-  const providersById = new Map(
-    (providers ?? []).map((provider) => [provider.id, provider])
-  )
   return (models ?? [])
     .map((model) => {
-      const provider = model.custom_provider_id
-        ? (providersById.get(model.custom_provider_id) ?? null)
-        : null
       const isCustomSource = model.custom_provider_id != null
       const sourceName = isCustomSource
-        ? (provider?.display_name ?? "Custom")
+        ? (model.custom_provider_name ?? "Custom")
         : getProviderDisplayLabel(model.model_provider)
       return {
         catalogId: model.id,
@@ -112,7 +105,7 @@ export function buildEnabledModelOptions(
         metadata: model.model_provider,
         sourceName,
         sourceType: getSourceType(model),
-        baseUrl: provider?.base_url ?? null,
+        baseUrl: model.custom_provider_base_url ?? null,
       }
     })
     .sort(
