@@ -809,7 +809,7 @@ describe("CaseTasksPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Add task" }))
     fireEvent.click(screen.getByRole("button", { name: "Workflow" }))
-    const search = await screen.findByPlaceholderText("Set workflow…")
+    const search = await screen.findByPlaceholderText("Search workflows…")
     fireEvent.keyDown(search, { key: "Escape" })
 
     // Radix portals the palette, but React synthetic events still bubble
@@ -817,7 +817,7 @@ describe("CaseTasksPanel", () => {
     // instead of letting it cancel the card underneath.
     await waitFor(() =>
       expect(
-        screen.queryByPlaceholderText("Set workflow…")
+        screen.queryByPlaceholderText("Search workflows…")
       ).not.toBeInTheDocument()
     )
     expect(screen.getByPlaceholderText("Task title")).toBeInTheDocument()

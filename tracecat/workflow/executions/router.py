@@ -1,4 +1,5 @@
 import base64
+import uuid
 from datetime import datetime
 from typing import Any, Literal
 
@@ -19,7 +20,7 @@ from tracecat.auth.dependencies import (
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import Workflow
+from tracecat.db.models import CaseTask, Workflow
 from tracecat.dsl.common import (
     DSLInput,
     get_execution_type_from_search_attr,
@@ -53,6 +54,7 @@ from tracecat.storage.object import (
 )
 from tracecat.storage.utils import serialize_object
 from tracecat.validation.service import validate_dsl
+from tracecat.workflow.executions.correlation import build_case_task_correlation_id
 from tracecat.workflow.executions.dependencies import (
     UnquotedExecutionID,
     resolve_triggered_by_user_id,
@@ -419,6 +421,10 @@ async def search_workflow_executions(
     relation: WorkflowExecutionRelationFilter = Query(
         default=WorkflowExecutionRelationFilter.ALL
     ),
+    case_task_id: uuid.UUID | None = Query(
+        default=None,
+        description="Filter by the case task that started the run.",
+    ),
 ) -> CursorPaginatedResponse[WorkflowRunReadMinimal]:
     if start_time_from and start_time_to and start_time_from > start_time_to:
         raise HTTPException(
@@ -477,6 +483,11 @@ async def search_workflow_executions(
             duration_gte_seconds=duration_gte_seconds,
             duration_lte_seconds=duration_lte_seconds,
             relation=relation,
+            correlation_id=(
+                build_case_task_correlation_id(case_task_id)
+                if case_task_id is not None
+                else None
+            ),
         )
     except ValueError as e:
         raise HTTPException(
@@ -1067,10 +1078,24 @@ async def create_workflow_execution(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Invalid workflow ID"
         )
+    correlation_id: str | None = None
+    if params.case_task_id is not None:
+        task_id = await session.scalar(
+            select(CaseTask.id).where(
+                CaseTask.workspace_id == role.workspace_id,
+                CaseTask.id == params.case_task_id,
+            )
+        )
+        if task_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Case task not found"
+            )
+        correlation_id = build_case_task_correlation_id(task_id)
     dsl_input = DSLInput(**defn.content)
     try:
         service = await WorkflowExecutionsService.connect(role=role)
         response = service.create_workflow_execution_nowait(
+            correlation_id=correlation_id,
             dsl=dsl_input,
             wf_id=wf_id,
             payload=params.inputs,

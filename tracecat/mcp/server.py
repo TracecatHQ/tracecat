@@ -295,6 +295,7 @@ from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerUpdate,
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
+from tracecat.workflow.executions.correlation import build_case_task_correlation_id
 from tracecat.workflow.executions.rerun import WorkflowRerunPlan
 from tracecat.workflow.executions.schemas import (
     WorkflowExecutionActionResultResponse,
@@ -7523,6 +7524,7 @@ async def run_case_task(
             wf_id=wf_id,
             payload=payload,
             registry_lock=registry_lock,
+            correlation_id=build_case_task_correlation_id(task_id),
         )
         response_workflow_id = WorkflowUUID.new(response["wf_id"])
         return CaseTaskRunStartedResponse(
