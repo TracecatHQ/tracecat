@@ -44,10 +44,7 @@ import {
   casesGetCase,
   casesUpdateCase,
 } from "@/client"
-import {
-  AgentPresetDetailHeaderActions,
-  AgentPresetDetailVersionChip,
-} from "@/components/agents/agent-preset-detail-actions"
+import { AgentPresetDetailHeaderActions } from "@/components/agents/agent-preset-detail-actions"
 import {
   AgentsCatalogViewMode,
   AgentsCatalogViewToggle,
@@ -2391,13 +2388,10 @@ function getPageConfig(
       const presetId = agentPresetMatch[1]
       return {
         title: (
-          <div className="flex min-w-0 items-center gap-3">
-            <AgentPresetBreadcrumb
-              presetId={presetId}
-              workspaceId={workspaceId}
-            />
-            <AgentPresetDetailVersionChip />
-          </div>
+          <AgentPresetBreadcrumb
+            presetId={presetId}
+            workspaceId={workspaceId}
+          />
         ),
         actions: (
           <AgentPresetDetailHeaderActions

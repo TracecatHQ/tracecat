@@ -1,5 +1,6 @@
 """HTTP-level tests for workflow execution routes that accept slash-delimited IDs."""
 
+import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 from urllib.parse import quote
@@ -9,12 +10,15 @@ from fastapi import status
 from fastapi.testclient import TestClient
 from temporalio.client import WorkflowExecutionStatus
 
+from tracecat.api.app import app as api_app
 from tracecat.auth.types import Role
+from tracecat.db.engine import get_async_session
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.validation.schemas import ValidationResult, ValidationResultType
 from tracecat.workflow.executions import internal_router as internal_executions_router
 from tracecat.workflow.executions import router as executions_router
+from tracecat.workflow.executions.correlation import build_case_task_correlation_id
 
 
 def _workflow_definition_content(title: str = "Test Workflow") -> dict:
@@ -776,6 +780,101 @@ async def test_create_workflow_execution_returns_404_for_unscoped_definition(
     mock_get_definition.assert_awaited_once_with(
         WorkflowUUID.new(workflow_id), load_relationships=False
     )
+    mock_connect.assert_not_awaited()
+
+
+async def _mock_db_session() -> AsyncMock:
+    return await api_app.dependency_overrides[get_async_session]()
+
+
+@pytest.mark.anyio
+async def test_create_workflow_execution_tags_case_task_runs(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    workflow_id = "wf_4itKqkgCZrLhgYiq5L211X"
+    task_id = uuid.uuid4()
+
+    mock_defn = Mock()
+    mock_defn.content = _workflow_definition_content()
+    mock_defn.registry_lock = None
+    mock_session = await _mock_db_session()
+    mock_session.scalar = AsyncMock(return_value=task_id)
+    mock_exec_service = AsyncMock()
+    mock_exec_service.create_workflow_execution_nowait = Mock(
+        return_value={
+            "wf_id": workflow_id,
+            "wf_exec_id": f"{workflow_id}/exec_abc",
+            "message": "Workflow execution started",
+        }
+    )
+
+    with (
+        patch.object(
+            executions_router.WorkflowDefinitionsService,
+            "__init__",
+            lambda self, session, role: None,
+        ),
+        patch.object(
+            executions_router.WorkflowDefinitionsService,
+            "get_definition_by_workflow_id",
+            AsyncMock(return_value=mock_defn),
+        ),
+        patch.object(
+            executions_router.WorkflowExecutionsService,
+            "connect",
+            AsyncMock(return_value=mock_exec_service),
+        ),
+    ):
+        response = client.post(
+            "/workflow-executions",
+            json={"workflow_id": workflow_id, "case_task_id": str(task_id)},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    call = mock_exec_service.create_workflow_execution_nowait.call_args
+    assert call.kwargs["correlation_id"] == build_case_task_correlation_id(task_id)
+
+
+@pytest.mark.anyio
+async def test_create_workflow_execution_returns_404_for_unknown_case_task(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """A task outside the caller's workspace is not found and nothing starts."""
+    workflow_id = "wf_4itKqkgCZrLhgYiq5L211X"
+
+    mock_defn = Mock()
+    mock_defn.content = _workflow_definition_content()
+    mock_defn.registry_lock = None
+    mock_session = await _mock_db_session()
+    mock_session.scalar = AsyncMock(return_value=None)
+    mock_connect = AsyncMock()
+
+    with (
+        patch.object(
+            executions_router.WorkflowDefinitionsService,
+            "__init__",
+            lambda self, session, role: None,
+        ),
+        patch.object(
+            executions_router.WorkflowDefinitionsService,
+            "get_definition_by_workflow_id",
+            AsyncMock(return_value=mock_defn),
+        ),
+        patch.object(
+            executions_router.WorkflowExecutionsService,
+            "connect",
+            mock_connect,
+        ),
+    ):
+        response = client.post(
+            "/workflow-executions",
+            json={"workflow_id": workflow_id, "case_task_id": str(uuid.uuid4())},
+        )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json()["detail"] == "Case task not found"
     mock_connect.assert_not_awaited()
 
 

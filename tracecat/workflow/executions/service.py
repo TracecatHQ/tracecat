@@ -491,8 +491,10 @@ class WorkflowExecutionsService:
         duration_gte_seconds: int | None = None,
         duration_lte_seconds: int | None = None,
         relation: WorkflowExecutionRelationFilter = WorkflowExecutionRelationFilter.ALL,
+        correlation_id: str | None = None,
     ) -> WorkflowExecutionsPage:
         query = build_query(
+            correlation_id=correlation_id,
             workflow_id=workflow_id,
             trigger_types=trigger_types,
             triggered_by_user_id=triggered_by_user_id,
@@ -1510,6 +1512,7 @@ class WorkflowExecutionsService:
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
         memo: dict[str, Any] | None = None,
+        correlation_id: str | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a new workflow execution.
 
@@ -1518,6 +1521,7 @@ class WorkflowExecutionsService:
         Args:
             memo: Optional memo dict to store with the workflow execution.
                   Useful for correlation (e.g., parent_wf_exec_id).
+            correlation_id: Optional `TracecatCorrelationId` search attribute value.
         """
         wf_exec_id = generate_exec_id(wf_id)
         coro = self._start_workflow(
@@ -1530,6 +1534,7 @@ class WorkflowExecutionsService:
             memo=memo,
             trigger_inputs=payload,
             execution_type=ExecutionType.PUBLISHED,
+            correlation_id=correlation_id,
         )
         task = asyncio.ensure_future(coro)
         task.add_done_callback(self._handle_background_task_exception)
@@ -1552,6 +1557,7 @@ class WorkflowExecutionsService:
         registry_lock: RegistryLock | None = None,
         memo: dict[str, Any] | None = None,
         fixed_action_results: dict[str, FixedActionResult] | None = None,
+        correlation_id: str | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a workflow execution and wait until Temporal acknowledges start."""
         if wf_exec_id is None:
@@ -1568,6 +1574,7 @@ class WorkflowExecutionsService:
             registry_lock=registry_lock,
             memo=memo,
             fixed_action_results=fixed_action_results,
+            correlation_id=correlation_id,
         )
 
         return WorkflowExecutionCreateResponse(
@@ -1910,6 +1917,7 @@ class WorkflowExecutionsService:
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
         fixed_action_results: dict[str, FixedActionResult] | None = None,
+        correlation_id: str | None = None,
         **kwargs: Any,
     ) -> None:
         if self.role is None:
@@ -1989,6 +1997,8 @@ class WorkflowExecutionsService:
                     )
                 )
         pairs.append(execution_type.to_temporal_search_attr_pair())
+        if correlation_id is not None:
+            pairs.append(TemporalSearchAttr.CORRELATION_ID.create_pair(correlation_id))
         search_attrs = TypedSearchAttributes(search_attributes=pairs)
 
         try:

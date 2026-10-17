@@ -73,6 +73,7 @@ jobs:
       matrix:
         test_group:
           - unit
+          - unit-sandbox
           - registry
           - temporal
           # - ee # TODO: re-enable this when we have tests
@@ -247,7 +248,22 @@ jobs:
           TRACECAT__DB_POOL_SIZE: "1"
           TRACECAT__DB_MAX_OVERFLOW: "2"
         run: |
-          if [ "${{ matrix.test_group }}" = "ee" ]; then
+          # Container/nsjail sandbox tests dominate the unit job's tail, so they
+          # run as their own matrix group in parallel with the rest of tests/unit.
+          sandbox_tests=(
+            tests/unit/test_agent_sandbox_litellm.py
+            tests/unit/test_executor_sandbox_nsjail.py
+            tests/unit/executor/test_run_python_sdk_context.py
+          )
+          if [ "${{ matrix.test_group }}" = "unit" ]; then
+            ignore_args=()
+            for path in "${sandbox_tests[@]}"; do
+              ignore_args+=(--ignore="$path")
+            done
+            uv run pytest tests/unit "${ignore_args[@]}" -m "not live_secret" -n auto -ra -o faulthandler_timeout=300
+          elif [ "${{ matrix.test_group }}" = "unit-sandbox" ]; then
+            uv run pytest "${sandbox_tests[@]}" -m "not live_secret" -n auto -ra -o faulthandler_timeout=300
+          elif [ "${{ matrix.test_group }}" = "ee" ]; then
             uv run pytest packages/tracecat-ee/tests/ -m "not live_secret" -ra
           elif [ "${{ matrix.test_group }}" = "temporal" ]; then
             # Temporal tests run with compression enabled and parallelization

@@ -1,6 +1,6 @@
 "use client"
 
-import { Check, Loader2, Save } from "lucide-react"
+import { LayersPlus, Loader2 } from "lucide-react"
 import type { ReactNode } from "react"
 import type { AgentPresetCreate } from "@/client"
 import { AgentPresetChatToggle } from "@/components/agents/agent-preset-chat-toggle"
@@ -13,7 +13,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useAgentPresetVersions } from "@/hooks/use-agent-presets"
-import { cn } from "@/lib/utils"
 import { useAgentPresetDetailContext } from "@/providers/agent-preset-detail"
 
 /**
@@ -32,13 +31,12 @@ export type AgentPresetDetailActionsProps = {
   cutsVersion?: boolean
   onDiscard?: () => void
   syncActions?: ReactNode
-  /** Render the version chip here; the standalone route shows it in the title. */
-  showVersionChip?: boolean
 }
 
 /**
- * Chat visibility, discard, save, and sync actions. Rendered in the global
- * controls header or inline in the document panel.
+ * Chat visibility, discard, sync, version history, and publish actions,
+ * laid out like the skill detail header. Rendered in the global controls
+ * header or inline in the document panel.
  */
 export function AgentPresetDetailActions({
   workspaceId,
@@ -53,7 +51,6 @@ export function AgentPresetDetailActions({
   cutsVersion = true,
   onDiscard,
   syncActions,
-  showVersionChip = false,
 }: AgentPresetDetailActionsProps) {
   const { versions } = useAgentPresetVersions(
     workspaceId,
@@ -66,7 +63,7 @@ export function AgentPresetDetailActions({
     versions,
     currentVersionId
   )
-  const save = getSaveCopy({
+  const publish = getPublishCopy({
     presetId,
     isDirty,
     cutsVersion,
@@ -77,16 +74,6 @@ export function AgentPresetDetailActions({
 
   return (
     <>
-      {showVersionChip && presetId ? (
-        <AgentPresetVersionHistory
-          workspaceId={workspaceId}
-          presetId={presetId}
-          currentVersionId={currentVersionId}
-          getDraftPayload={getDraftPayload}
-          disabled={isSaving}
-          versionChip
-        />
-      ) : null}
       {presetId ? (
         <AgentPresetChatToggle
           workspaceId={workspaceId}
@@ -106,36 +93,43 @@ export function AgentPresetDetailActions({
           Discard
         </Button>
       ) : null}
+      {syncActions}
+      {presetId ? (
+        <AgentPresetVersionHistory
+          workspaceId={workspaceId}
+          presetId={presetId}
+          currentVersionId={currentVersionId}
+          getDraftPayload={getDraftPayload}
+          disabled={isSaving}
+        />
+      ) : null}
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
             type="button"
-            size="sm"
-            variant="outline"
-            className={cn(
-              "h-7 gap-1.5 px-2.5 text-xs shadow-none",
-              active
-                ? "border-foreground bg-foreground font-medium text-background hover:bg-foreground/90 hover:text-background"
-                : "bg-background text-muted-foreground"
-            )}
+            size="icon"
+            variant="ghost"
+            className="size-7 aria-disabled:cursor-default aria-disabled:opacity-50 aria-disabled:hover:bg-transparent"
             onClick={() => {
               if (active) onPublish()
             }}
             aria-disabled={!active}
-            aria-label={save.label}
+            aria-label={publish.label}
           >
-            <SaveStatusIcon isSaving={isSaving} isDirty={isDirty} />
-            {save.label}
+            {isSaving ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <LayersPlus className="size-4" />
+            )}
           </Button>
         </TooltipTrigger>
-        <TooltipContent className="max-w-60">{save.tip}</TooltipContent>
+        <TooltipContent className="max-w-60">{publish.tip}</TooltipContent>
       </Tooltip>
-      {syncActions}
     </>
   )
 }
 
-function getSaveCopy({
+function getPublishCopy({
   presetId,
   isDirty,
   cutsVersion,
@@ -153,49 +147,27 @@ function getSaveCopy({
   }
   if (!isDirty) {
     return {
-      label: "Saved",
+      label: "Publish",
       tip:
         currentVersionNumber !== null
-          ? `All changes are saved in v${currentVersionNumber}.`
-          : "All changes are saved.",
+          ? `No changes to publish. v${currentVersionNumber} is live.`
+          : "No changes to publish.",
     }
   }
   if (!cutsVersion) {
     return {
-      label: "Save",
-      tip: "Saves name and description. The version does not change.",
+      label: "Publish",
+      tip: "Publishes name and description. The version does not change.",
     }
   }
   const next = currentVersionNumber !== null ? currentVersionNumber + 1 : null
   return {
-    label: next !== null ? `Save as v${next}` : "Save",
+    label: "Publish",
     tip:
       next !== null
-        ? `Saves your changes as v${next}. Chat and workflows run it right away.`
-        : "Saves your changes as a new version.",
+        ? `Publish v${next}. Chat and workflows run it right away.`
+        : "Publish a new version.",
   }
-}
-
-/**
- * Version chip for the controls-header title, next to the breadcrumb. Pulls
- * the handles the preset form registered into `AgentPresetDetailProvider`.
- */
-export function AgentPresetDetailVersionChip() {
-  const actions = useAgentPresetDetailContext()?.actions
-  if (!actions?.presetId) {
-    return null
-  }
-  return (
-    <AgentPresetVersionHistory
-      workspaceId={actions.workspaceId}
-      presetId={actions.presetId}
-      currentVersionId={actions.currentVersionId}
-      getDraftPayload={actions.getDraftPayload}
-      disabled={actions.isSaving}
-      versionChip
-      align="start"
-    />
-  )
 }
 
 /**
@@ -230,16 +202,4 @@ export function AgentPresetDetailHeaderActions({
       syncActions={syncActions}
     />
   )
-}
-
-function SaveStatusIcon({
-  isSaving,
-  isDirty,
-}: {
-  isSaving: boolean
-  isDirty: boolean
-}) {
-  if (isSaving) return <Loader2 className="size-3.5 animate-spin" />
-  if (isDirty) return <Save className="size-3.5" />
-  return <Check className="size-3.5" />
 }

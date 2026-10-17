@@ -1292,6 +1292,9 @@ export function useCreateManualWorkflowExecution(workflowId: string) {
       await queryClient.refetchQueries({
         queryKey: ["compact-workflow-execution", wf_exec_id],
       })
+      await queryClient.invalidateQueries({
+        queryKey: ["case-task-workflow-runs"],
+      })
     },
     onError: (error: TracecatApiError<Record<string, string>>) => {
       switch (error.status) {
