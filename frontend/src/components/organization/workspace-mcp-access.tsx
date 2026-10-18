@@ -225,15 +225,14 @@ function CreateTokenDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="md">
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <DialogHeader>
+            <DialogTitle>Create MCP token</DialogTitle>
+            <DialogDescription>
+              Create a workspace-scoped bearer secret for MCP clients that
+              cannot use OIDC.
+            </DialogDescription>
+          </DialogHeader>
           <DialogBody>
-            <DialogHeader>
-              <DialogTitle>Create MCP token</DialogTitle>
-              <DialogDescription>
-                Create a workspace-scoped bearer secret for MCP clients that
-                cannot use OIDC.
-              </DialogDescription>
-            </DialogHeader>
-
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="mcp-token-name">Name</Label>

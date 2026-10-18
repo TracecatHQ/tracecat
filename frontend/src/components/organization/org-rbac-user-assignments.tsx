@@ -440,12 +440,12 @@ function UserAssignmentFormDialog({
   return (
     <DialogContent size="md">
       <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
         <DialogBody>
-          <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
-            <DialogDescription>{description}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="assignment-user">User</Label>
               <Select value={userId} onValueChange={setUserId}>
@@ -559,19 +559,19 @@ function UserAssignmentEditDialog({
   return (
     <DialogContent size="sm">
       <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+        <DialogHeader>
+          <DialogTitle>Change user assignment</DialogTitle>
+          <DialogDescription>
+            Update the role for{" "}
+            <span className="font-semibold">{assignment.user_email}</span>
+            {assignment.workspace_name
+              ? ` in ${assignment.workspace_name}`
+              : " (organization-wide)"}
+            .
+          </DialogDescription>
+        </DialogHeader>
         <DialogBody>
-          <DialogHeader>
-            <DialogTitle>Change user assignment</DialogTitle>
-            <DialogDescription>
-              Update the role for{" "}
-              <span className="font-semibold">{assignment.user_email}</span>
-              {assignment.workspace_name
-                ? ` in ${assignment.workspace_name}`
-                : " (organization-wide)"}
-              .
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="edit-role">Role</Label>
               <Select value={roleId} onValueChange={setRoleId}>
