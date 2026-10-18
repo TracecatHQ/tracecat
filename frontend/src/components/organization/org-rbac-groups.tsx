@@ -46,6 +46,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -329,9 +330,6 @@ export function OrgRbacGroups() {
           description="Create a new group to organize users and assign roles."
           onSubmit={handleCreateGroup}
           isPending={createGroupIsPending}
-          onOpenChange={(open) => {
-            if (!open) setIsCreateOpen(false)
-          }}
         />
       )}
 
@@ -344,12 +342,6 @@ export function OrgRbacGroups() {
             handleUpdateGroup(selectedGroup.id, name, description)
           }
           isPending={updateGroupIsPending}
-          onOpenChange={(open) => {
-            if (!open) {
-              setIsEditOpen(false)
-              setSelectedGroup(null)
-            }
-          }}
         />
       )}
     </Dialog>
@@ -1029,14 +1021,12 @@ function GroupFormDialog({
   initialData,
   onSubmit,
   isPending,
-  onOpenChange,
 }: {
   title: string
   description: string
   initialData?: GroupReadWithMembers
   onSubmit: (name: string, description: string) => Promise<void>
   isPending: boolean
-  onOpenChange: (open: boolean) => void
 }) {
   const [name, setName] = useState(initialData?.name ?? "")
   const [groupDescription, setGroupDescription] = useState(
@@ -1050,43 +1040,38 @@ function GroupFormDialog({
   }
 
   return (
-    <DialogContent>
-      <form onSubmit={handleSubmit}>
+    <DialogContent size="md">
+      <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 py-4">
-          <div className="space-y-2">
-            <Label htmlFor="group-name">Group name</Label>
-            <Input
-              id="group-name"
-              placeholder="e.g., Security Team"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
+        <DialogBody>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="group-name">Group name</Label>
+              <Input
+                id="group-name"
+                placeholder="e.g., Security Team"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="group-description">Description (optional)</Label>
+              <Textarea
+                id="group-description"
+                placeholder="Describe the purpose of this group"
+                value={groupDescription}
+                onChange={(e) => setGroupDescription(e.target.value)}
+                rows={3}
+              />
+            </div>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="group-description">Description (optional)</Label>
-            <Textarea
-              id="group-description"
-              placeholder="Describe the purpose of this group"
-              value={groupDescription}
-              onChange={(e) => setGroupDescription(e.target.value)}
-              rows={3}
-            />
-          </div>
-        </div>
+        </DialogBody>
         <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button type="submit" disabled={!name.trim() || isPending}>
+          <Button size="sm" type="submit" disabled={!name.trim() || isPending}>
             {getSubmitLabel(Boolean(initialData), isPending)}
           </Button>
         </DialogFooter>

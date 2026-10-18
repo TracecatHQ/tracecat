@@ -56,6 +56,18 @@ const DialogOverlay = React.forwardRef<
 ))
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 
+function containsDialogTitle(node: React.ReactNode, depth = 0): boolean {
+  if (depth > 6) {
+    return false
+  }
+  return React.Children.toArray(node).some(
+    (child) =>
+      React.isValidElement<{ children?: React.ReactNode }>(child) &&
+      (child.type === DialogTitle ||
+        containsDialogTitle(child.props.children, depth + 1))
+  )
+}
+
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
@@ -71,18 +83,7 @@ const DialogContent = React.forwardRef<
     size?: DialogPanelSize
   }
 >(({ className, children, title = "Dialog", size, ...props }, ref) => {
-  // Determine if the consumer already supplied a DialogTitle
-  const hasTitle = React.Children.toArray(children).some(
-    (child) =>
-      React.isValidElement<{ children?: React.ReactNode }>(child) &&
-      (child.type === DialogTitle ||
-        (child.type === DialogHeader &&
-          React.Children.toArray(child.props.children).some(
-            (grandchild) =>
-              React.isValidElement(grandchild) &&
-              grandchild.type === DialogTitle
-          )))
-  )
+  const hasTitle = containsDialogTitle(children)
 
   return (
     <DialogPortal>
