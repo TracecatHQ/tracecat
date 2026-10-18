@@ -2458,8 +2458,21 @@ class TableEditorService(BaseWorkspaceService):
                     )
                 )
             else:
+                if "type" in set_fields:
+                    default_type = SqlType(set_fields["type"])
+                else:
+                    physical_column = next(
+                        (c for c in await self.get_columns() if c["name"] == new_name),
+                        None,
+                    )
+                    default_type = (
+                        SqlType.JSONB
+                        if physical_column is not None
+                        and isinstance(physical_column["type"], sa.JSON)
+                        else SqlType.TEXT
+                    )
                 normalized_default, formatted_default = prepare_default_value(
-                    SqlType(set_fields.get("type", "TEXT")), updated_default
+                    default_type, updated_default
                 )
                 set_fields["default"] = normalized_default
                 await conn.execute(

@@ -395,6 +395,30 @@ class TestCaseFieldsService:
                 },
             )
 
+    async def test_update_field_multi_select_default_without_type(
+        self, case_fields_service: CaseFieldsService
+    ) -> None:
+        """Updating a MULTI_SELECT default without resending the type must render JSON."""
+        await case_fields_service.create_field(
+            CaseFieldCreate(
+                name="multi_default_field",
+                type=SqlType.MULTI_SELECT,
+                options=["alpha", "beta", "gamma"],
+                default=["beta"],
+            )
+        )
+
+        await case_fields_service.update_field(
+            "multi_default_field",
+            CaseFieldUpdate(default=["beta", "gamma"]),
+        )
+
+        columns = await case_fields_service.editor.get_columns()
+        column = next(c for c in columns if c["name"] == "multi_default_field")
+        default_sql = column["default"]
+        assert default_sql is not None
+        assert '["beta", "gamma"]' in default_sql or '["beta","gamma"]' in default_sql
+
     async def test_update_field_rejects_internal_name(
         self, case_fields_service: CaseFieldsService
     ) -> None:
