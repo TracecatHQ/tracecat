@@ -1163,7 +1163,7 @@ export function ServiceAccountsManager({
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent size="md" className="max-w-3xl">
+        <DialogContent size="lg" className="max-w-3xl">
           <form
             onSubmit={async (event) => {
               event.preventDefault()
@@ -1171,21 +1171,20 @@ export function ServiceAccountsManager({
             }}
             className="flex min-h-0 flex-1 flex-col"
           >
+            <DialogHeader>
+              <DialogTitle>
+                {editingServiceAccount
+                  ? "Edit service account"
+                  : "Create service account"}
+              </DialogTitle>
+              <DialogDescription>
+                {editingServiceAccount
+                  ? "Update the service account name, description, and permissions."
+                  : `Create a ${kindLabel.toLowerCase()} service account with specific permissions.`}
+              </DialogDescription>
+            </DialogHeader>
             <DialogBody>
-              <DialogHeader>
-                <DialogTitle>
-                  {editingServiceAccount
-                    ? "Edit service account"
-                    : "Create service account"}
-                </DialogTitle>
-                <DialogDescription>
-                  {editingServiceAccount
-                    ? "Update the service account name, description, and permissions."
-                    : `Create a ${kindLabel.toLowerCase()} service account with specific permissions.`}
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden py-4">
+              <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="service-account-name">

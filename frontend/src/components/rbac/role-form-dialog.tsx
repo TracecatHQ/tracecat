@@ -123,15 +123,14 @@ export function RoleFormDialog({
   }, [scopes, selectedScopeIds, filteredCategories])
 
   return (
-    <DialogContent size="md" className="max-w-3xl">
+    <DialogContent size="lg" className="max-w-3xl">
       <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
         <DialogBody>
-          <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
-            <DialogDescription>{description}</DialogDescription>
-          </DialogHeader>
-
-          <div className="flex-1 min-h-0 space-y-4 py-4 overflow-hidden">
+          <div className="flex-1 min-h-0 space-y-4 overflow-hidden">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="role-name">Role name</Label>
