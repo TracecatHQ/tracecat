@@ -61,16 +61,16 @@ export function RenameDialog({
     >
       <DialogContent size="sm">
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <DialogHeader>
+            <DialogTitle>
+              Rename {target.isFolder ? "folder" : "file"}
+            </DialogTitle>
+            <DialogDescription>
+              Update the relative path. Folders will be renamed by moving every
+              file inside them.
+            </DialogDescription>
+          </DialogHeader>
           <DialogBody>
-            <DialogHeader>
-              <DialogTitle>
-                Rename {target.isFolder ? "folder" : "file"}
-              </DialogTitle>
-              <DialogDescription>
-                Update the relative path. Folders will be renamed by moving
-                every file inside them.
-              </DialogDescription>
-            </DialogHeader>
             <div className="space-y-2">
               <Label htmlFor="rename-path">Relative path</Label>
               <Input
