@@ -288,6 +288,39 @@ async def test_agent_catalog_list_accepts_service_account_with_scope() -> None:
 
 
 @pytest.mark.anyio
+async def test_registry_repository_sync_accepts_service_account_with_scope() -> None:
+    endpoint = cast(AsyncEndpoint, registry_repos_router.sync_registry_repository)
+    organization_id = uuid.uuid4()
+    denied_role = Role(
+        type="service_account",
+        service_id="tracecat-api",
+        organization_id=organization_id,
+        service_account_id=uuid.uuid4(),
+        scopes=frozenset({"org:registry:read"}),
+    )
+    token = ctx_role.set(denied_role)
+    try:
+        with pytest.raises(ScopeDeniedError):
+            await endpoint()
+    finally:
+        ctx_role.reset(token)
+
+    allowed_role = Role(
+        type="service_account",
+        service_id="tracecat-api",
+        organization_id=organization_id,
+        service_account_id=uuid.uuid4(),
+        scopes=frozenset({"org:registry:update"}),
+    )
+    token = ctx_role.set(allowed_role)
+    try:
+        with pytest.raises(TypeError):
+            await endpoint()
+    finally:
+        ctx_role.reset(token)
+
+
+@pytest.mark.anyio
 async def test_agent_catalog_reads_reject_workspace_bound_service_accounts() -> None:
     # A tc_ws_sk_ key resolves on org routes; it must not see the org-wide catalog.
     workspace_id = uuid.uuid4()

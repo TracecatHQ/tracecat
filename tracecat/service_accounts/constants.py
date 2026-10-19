@@ -79,6 +79,8 @@ ORG_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES: frozenset[str] = (
             "org:settings:delete",
             "org:workspace:read",
             "workspace:create",
+            # Lets CI pipelines sync custom registry repositories.
+            "org:registry:update",
             # RBAC management — lets a service account mirror user/role
             # assignments across workspaces (e.g. membership-sync principals).
             "org:rbac:read",
