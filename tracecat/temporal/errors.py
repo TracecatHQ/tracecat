@@ -21,6 +21,7 @@ from typing import Any, Literal, Never
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from temporalio.exceptions import ApplicationError, is_cancelled_exception
+from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 
 from tracecat.logger import logger
 from tracecat.observability.sentry import capture_activity_failure
@@ -28,6 +29,7 @@ from tracecat.observability.types import PlatformErrorCapture
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
+    RuntimeErrorKind,
     RuntimeErrorOwner,
     TracecatRuntimeError,
 )
@@ -183,6 +185,25 @@ def raise_application_error_from_classification(
         next_retry_delay=next_retry_delay,
         capture=capture,
     ) from None
+
+
+def activity_timeout_error(
+    cause: TemporalTimeoutError,
+    message: str,
+) -> ApplicationError:
+    """Classify an exhausted activity deadline as a non-retryable platform failure.
+
+    Queueing, setup, persistence, or a lost worker can exhaust the deadline, so
+    it does not prove that the workload exceeded its own limits.
+    """
+    return application_error_from_classification(
+        RuntimeErrorClassification.platform(
+            kind=RuntimeErrorKind.EXECUTOR_ACTIVITY_TIMED_OUT,
+            message=message,
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
+            cause=cause,
+        )
+    )
 
 
 def raise_wrapped_application_error(

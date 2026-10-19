@@ -36,6 +36,10 @@ class RegistryArtifactBuildError(Exception):
     """Raised when registry venv (SquashFS) building fails."""
 
 
+class RegistryPackageInstallError(RegistryArtifactBuildError):
+    """Raised when the registry package's dependencies cannot be installed."""
+
+
 @dataclass
 class RegistryArtifactBuildResult:
     """Result of building a SquashFS venv image."""

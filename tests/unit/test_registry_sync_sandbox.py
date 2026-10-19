@@ -12,7 +12,11 @@ from uuid import uuid4
 
 import pytest
 
-from tracecat.exceptions import RegistryError, RegistrySyncContentError
+from tracecat.exceptions import (
+    RegistryError,
+    RegistrySyncContentError,
+    RegistrySyncSourceError,
+)
 from tracecat.registry.sync.artifact import (
     RegistryArtifactBuildError,
 )
@@ -258,7 +262,7 @@ async def test_registry_clone_stops_when_keyscan_fails(
     )
     temporary_agent = mocker.patch("tracecat.registry.sync.sandbox.temporary_ssh_agent")
 
-    with pytest.raises(RegistryError, match=error):
+    with pytest.raises(RegistryError, match=error) as exc_info:
         await RegistrySyncSandbox().clone_repository(
             git_url="git+ssh://git@git.example.test/acme/registry.git",
             commit_sha="a" * 40,
@@ -267,6 +271,7 @@ async def test_registry_clone_stops_when_keyscan_fails(
             timeout_seconds=90,
         )
 
+    assert not isinstance(exc_info.value, RegistrySyncSourceError)
     execute.assert_awaited_once()
     temporary_agent.assert_not_called()
 
@@ -289,7 +294,9 @@ async def test_registry_clone_keeps_keyscan_infrastructure_failure_typed(
     )
     temporary_agent = mocker.patch("tracecat.registry.sync.sandbox.temporary_ssh_agent")
 
-    with pytest.raises(SandboxInfrastructureError, match="SSH host key scan failed"):
+    with pytest.raises(
+        SandboxInfrastructureError, match="SSH host key scan failed"
+    ) as exc_info:
         await RegistrySyncSandbox().clone_repository(
             git_url="git+ssh://git@git.example.test/acme/registry.git",
             commit_sha="a" * 40,
@@ -298,7 +305,71 @@ async def test_registry_clone_keeps_keyscan_infrastructure_failure_typed(
             timeout_seconds=90,
         )
 
+    assert "producing a result" not in str(exc_info.value)
     temporary_agent.assert_not_called()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("clone_outcome", "error"),
+    [
+        pytest.param(
+            {
+                "return_value": SandboxResult(
+                    success=False,
+                    error="RuntimeError: Git command failed: clone: not found",
+                )
+            },
+            "Git clone failed: RuntimeError: Git command failed",
+            id="workload",
+        ),
+        pytest.param(
+            {"side_effect": SandboxTimeoutError("synthetic clone timeout")},
+            "Git clone timed out after 90s",
+            id="timeout",
+        ),
+    ],
+)
+async def test_registry_clone_attributes_git_failures_to_source(
+    tmp_path: Path,
+    mocker,
+    clone_outcome: dict[str, object],
+    error: str,
+) -> None:
+    @asynccontextmanager
+    async def fake_agent(*, socket_dir: Path):
+        socket_dir.mkdir(parents=True)
+        socket_path = socket_dir / "agent.sock"
+        socket_path.touch()
+        yield SshEnv(ssh_auth_sock=str(socket_path), ssh_agent_pid="123")
+
+    keyscan = SandboxResult(success=True, output="|1|salt|hash ssh-ed25519 key")
+    clone = mocker.AsyncMock(**clone_outcome)
+
+    async def execute(*args: object, script_name: str, **kwargs: object):
+        if script_name == "keyscan.py":
+            return keyscan
+        return await clone(*args, **kwargs)
+
+    mocker.patch(
+        "tracecat.registry.sync.sandbox.NsjailExecutor",
+        return_value=mocker.Mock(execute=execute),
+    )
+    mocker.patch(
+        "tracecat.registry.sync.sandbox.temporary_ssh_agent", side_effect=fake_agent
+    )
+    mocker.patch(
+        "tracecat.registry.sync.sandbox.add_ssh_key_to_agent", mocker.AsyncMock()
+    )
+
+    with pytest.raises(RegistrySyncSourceError, match=error):
+        await RegistrySyncSandbox().clone_repository(
+            git_url="git+ssh://git@git.example.test/acme/registry.git",
+            commit_sha="a" * 40,
+            ssh_key="fake-private-key",
+            work_dir=tmp_path / "sync",
+            timeout_seconds=90,
+        )
 
 
 @pytest.mark.anyio
@@ -328,7 +399,7 @@ async def test_registry_clone_rejects_invalid_ssh_target_before_keyscan(
     executor_cls = mocker.patch("tracecat.registry.sync.sandbox.NsjailExecutor")
     temporary_agent = mocker.patch("tracecat.registry.sync.sandbox.temporary_ssh_agent")
 
-    with pytest.raises(RegistryError, match=error):
+    with pytest.raises(RegistrySyncSourceError, match=error):
         await RegistrySyncSandbox().clone_repository(
             git_url=git_url,
             commit_sha="a" * 40,

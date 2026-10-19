@@ -152,6 +152,10 @@ class RegistrySyncContentError(RegistryError):
         self.code = code
 
 
+class RegistrySyncSourceError(RegistryError):
+    """Registry sync failed on the repository's Git source or settings."""
+
+
 class BuiltinRegistryHasNoSelectionError(RegistryError):
     """Raised when the builtin platform registry has no selected version yet."""
 

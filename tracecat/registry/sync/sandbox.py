@@ -12,6 +12,7 @@ import sysconfig
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Never
 from uuid import UUID
 
 import tracecat_registry
@@ -19,22 +20,26 @@ from pydantic import ValidationError
 
 import tracecat
 from tracecat import config
-from tracecat.exceptions import RegistryError
+from tracecat.exceptions import RegistryError, RegistrySyncSourceError
 from tracecat.git.types import GitUrl
 from tracecat.git.utils import parse_git_url
+from tracecat.logger import logger
 from tracecat.registry.sync.artifact import (
     RegistryArtifactBuildError,
     RegistryArtifactBuildResult,
+    RegistryPackageInstallError,
 )
 from tracecat.registry.sync.schemas import (
     RegistryCloneResult,
-    SyncErrorCode,
     SyncResultAdapter,
     SyncResultError,
     SyncResultSuccess,
 )
 from tracecat.sandbox.cgroup import sandbox_cgroup
-from tracecat.sandbox.exceptions import SandboxInfrastructureError, SandboxTimeoutError
+from tracecat.sandbox.exceptions import (
+    SandboxTimeoutError,
+    raise_for_sandbox_error_code,
+)
 from tracecat.sandbox.executor import NsjailExecutor
 from tracecat.sandbox.types import (
     ResourceLimits,
@@ -240,16 +245,6 @@ _DISCOVERY_SCRIPT = """
 import asyncio
 from uuid import UUID
 
-try:
-    from tracecat.registry.sync.entrypoint import load_and_serialize_installed_actions
-    from tracecat.registry.sync.schemas import SyncResultError
-except ImportError as exc:
-    # Registry dependencies are importable ahead of Tracecat's own, so an
-    # incompatible version can break Tracecat imports. Retrying cannot fix it.
-    _IMPORT_ERROR = exc
-else:
-    _IMPORT_ERROR = None
-
 
 def main(
     origin,
@@ -259,13 +254,20 @@ def main(
     validate=False,
     organization_id=None,
 ):
-    if _IMPORT_ERROR is not None:
+    try:
+        from tracecat.registry.sync.entrypoint import (
+            load_and_serialize_installed_actions,
+        )
+        from tracecat.registry.sync.schemas import SyncResultError
+    except ImportError as exc:
+        # Registry dependencies are importable ahead of Tracecat's own, so an
+        # incompatible version can break Tracecat imports. Retrying cannot fix it.
         return {
             "error": (
                 "Registry dependencies conflict with Tracecat's runtime: "
-                f"{type(_IMPORT_ERROR).__name__}: {_IMPORT_ERROR}"
+                f"{type(exc).__name__}: {exc}"
             ),
-            "error_code": "__IMPORT_FAILED_CODE__",
+            "error_code": "import_failed",
         }
     try:
         result = asyncio.run(
@@ -281,7 +283,7 @@ def main(
     except Exception as exc:
         return SyncResultError.from_exception(exc).model_dump(mode="json")
     return result.model_dump(mode="json")
-""".replace("__IMPORT_FAILED_CODE__", SyncErrorCode.IMPORT_FAILED.value)
+"""
 
 
 def _hash_file(path: Path) -> str:
@@ -293,13 +295,28 @@ def _hash_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _raise_for_infrastructure_failure(result: SandboxResult, phase: str) -> None:
-    """Keep NsJail launch failures distinct from workload failures."""
+def _raise_for_failed_result(
+    result: SandboxResult,
+    phase: str,
+    workload_error: type[Exception],
+) -> Never:
+    """Raise the typed error for a failed registry jail.
+
+    NsJail launch failures stay distinct from workload failures and never quote
+    sandbox output.
+    """
     if result.error_code is SandboxErrorCode.INFRASTRUCTURE_FAILURE:
-        detail = result.error or "Sandbox infrastructure failed"
-        raise SandboxInfrastructureError(
-            f"Sandboxed registry {phase} failed: {str(detail)[:2000]}"
+        logger.warning(
+            "Registry sync sandbox failed before the workload started",
+            phase=phase,
+            error=result.error,
         )
+        raise_for_sandbox_error_code(
+            result.error_code,
+            f"Sandboxed registry {phase} failed before the workload started",
+        )
+    detail = result.error or result.stderr or f"Unknown {phase} error"
+    raise workload_error(f"Sandboxed registry {phase} failed: {str(detail)[:2000]}")
 
 
 def _validate_installed_site_packages(site_packages: Path) -> None:
@@ -348,18 +365,18 @@ def _validate_git_ssh_target(git_url: GitUrl) -> _ValidatedGitSshTarget:
         host = git_url.host
         port = ""
     if not _SSH_HOST_PATTERN.fullmatch(host):
-        raise RegistryError("Registry sync Git host is invalid")
+        raise RegistrySyncSourceError("Registry sync Git host is invalid")
     if port and (not port.isdigit() or not 1 <= int(port) <= 65535):
-        raise RegistryError("Registry sync Git port is invalid")
+        raise RegistrySyncSourceError("Registry sync Git port is invalid")
     if not _SSH_USER_PATTERN.fullmatch(git_url.user):
-        raise RegistryError("Registry sync Git SSH user is invalid")
+        raise RegistrySyncSourceError("Registry sync Git SSH user is invalid")
     if not _GIT_PATH_PATTERN.fullmatch(f"{git_url.org}/{git_url.repo}"):
-        raise RegistryError("Registry sync Git repository path is invalid")
+        raise RegistrySyncSourceError("Registry sync Git repository path is invalid")
     if any(
         segment in {"", ".", ".."}
         for segment in [*git_url.org.split("/"), git_url.repo]
     ):
-        raise RegistryError("Registry sync Git repository path is invalid")
+        raise RegistrySyncSourceError("Registry sync Git repository path is invalid")
     destination_host = f"[{host}]:{port}" if port else host
     return _ValidatedGitSshTarget(
         host=host,
@@ -434,11 +451,7 @@ class RegistrySyncSandbox:
             ) from exc
 
         if not result.success:
-            _raise_for_infrastructure_failure(result, "SSH host key scan")
-            detail = result.error or result.stderr or "Unknown ssh-keyscan error"
-            raise RegistryError(
-                f"Sandboxed SSH host key scan failed: {str(detail)[:2000]}"
-            )
+            _raise_for_failed_result(result, "SSH host key scan", RegistryError)
         if not isinstance(result.output, str) or not result.output.strip():
             raise RegistryError("Sandboxed SSH host key scan returned no host keys")
 
@@ -468,11 +481,13 @@ class RegistrySyncSandbox:
         try:
             parsed_url = parse_git_url(git_url)
         except ValueError as exc:
-            raise RegistryError("Invalid Git SSH URL for registry sync") from exc
+            raise RegistrySyncSourceError(
+                "Invalid Git SSH URL for registry sync"
+            ) from exc
         target = _validate_git_ssh_target(parsed_url)
 
         if commit_sha is not None and not _GIT_OBJECT_ID_PATTERN.fullmatch(commit_sha):
-            raise RegistryError("Registry sync commit SHA is invalid")
+            raise RegistrySyncSourceError("Registry sync commit SHA is invalid")
         requested_commit = commit_sha or parsed_url.ref
 
         normalized_url = GitUrl(
@@ -551,35 +566,38 @@ class RegistrySyncSandbox:
                 env_vars[f"GIT_CONFIG_VALUE_{index}"] = value
 
             executor = NsjailExecutor(cgroup_mount=sandbox_cgroup())
-            result = await executor.execute(
-                job_dir,
-                SandboxConfig(
-                    network=SandboxNetworkRequest(SandboxNetworkPurpose.REGISTRY),
-                    resources=ResourceLimits(
-                        timeout_seconds=timeout_seconds,
-                        cpu_seconds=timeout_seconds,
-                        memory_mb=1024,
-                        max_file_size_mb=512,
+            try:
+                result = await executor.execute(
+                    job_dir,
+                    SandboxConfig(
+                        network=SandboxNetworkRequest(SandboxNetworkPurpose.REGISTRY),
+                        resources=ResourceLimits(
+                            timeout_seconds=timeout_seconds,
+                            cpu_seconds=timeout_seconds,
+                            memory_mb=1024,
+                            max_file_size_mb=512,
+                        ),
+                        env_vars=env_vars,
+                        bind_mounts=[
+                            SandboxBindMount(
+                                source=agent_socket.parent,
+                                destination=sandbox_agent_dir,
+                            ),
+                            SandboxBindMount(
+                                source=known_hosts_path,
+                                destination=sandbox_known_hosts,
+                            ),
+                        ],
                     ),
-                    env_vars=env_vars,
-                    bind_mounts=[
-                        SandboxBindMount(
-                            source=agent_socket.parent,
-                            destination=sandbox_agent_dir,
-                        ),
-                        SandboxBindMount(
-                            source=known_hosts_path,
-                            destination=sandbox_known_hosts,
-                        ),
-                    ],
-                ),
-                script_name="wrapper.py",
-            )
+                    script_name="wrapper.py",
+                )
+            except SandboxTimeoutError as exc:
+                raise RegistrySyncSourceError(
+                    f"Sandboxed Git clone timed out after {timeout_seconds}s"
+                ) from exc
 
         if not result.success:
-            _raise_for_infrastructure_failure(result, "Git clone")
-            detail = result.error or result.stderr or "Unknown Git clone error"
-            raise RegistryError(f"Sandboxed Git clone failed: {str(detail)[:2000]}")
+            _raise_for_failed_result(result, "Git clone", RegistrySyncSourceError)
         try:
             clone_result = RegistryCloneResult.model_validate(result.output)
         except ValidationError as exc:
@@ -627,10 +645,8 @@ class RegistrySyncSandbox:
             timeout_seconds=timeout_seconds,
         )
         if not result.success:
-            _raise_for_infrastructure_failure(result, "package installation")
-            detail = result.error or result.stderr or "Unknown installation error"
-            raise RegistryArtifactBuildError(
-                f"Sandboxed registry package installation failed: {str(detail)[:2000]}"
+            _raise_for_failed_result(
+                result, "package installation", RegistryPackageInstallError
             )
         _validate_installed_site_packages(site_packages)
         return site_packages
@@ -687,11 +703,7 @@ class RegistrySyncSandbox:
             script_name="wrapper.py",
         )
         if not result.success:
-            _raise_for_infrastructure_failure(result, "packaging")
-            detail = result.error or result.stderr or "Unknown packaging error"
-            raise RegistryArtifactBuildError(
-                f"Sandboxed registry packaging failed: {str(detail)[:2000]}"
-            )
+            _raise_for_failed_result(result, "packaging", RegistryArtifactBuildError)
 
         sandbox_artifact = job_dir / "site-packages.squashfs"
         try:
@@ -792,9 +804,7 @@ class RegistrySyncSandbox:
                 log_raw_crash_stderr=True,
             )
             if not result.success:
-                _raise_for_infrastructure_failure(result, "discovery")
-                detail = result.error or result.stderr or "Unknown discovery error"
-                raise RegistryError(f"Sandboxed registry discovery failed: {detail}")
+                _raise_for_failed_result(result, "discovery", RegistryError)
 
             parsed_result = SyncResultAdapter.validate_python(result.output)
             if isinstance(parsed_result, SyncResultError):

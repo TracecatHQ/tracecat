@@ -2,23 +2,24 @@
 
 from __future__ import annotations
 
-import gc
+import dataclasses
 import json
 import subprocess
 import sys
 import uuid
-from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import pytest
 from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 
+from tests.temporal import runtime_error_attribution_harness as harness
 from tracecat import config
-from tracecat.dsl._converter import get_data_converter
 from tracecat.executor.enums import ExecutorBackendType
+from tracecat.registry.sync import workflow as sync_workflow
 from tracecat.registry.sync.base_service import _workflow_failure_detail
 from tracecat.registry.sync.runner import (
     ActionDiscoveryError,
@@ -28,26 +29,81 @@ from tracecat.registry.sync.runner import (
 from tracecat.registry.sync.sandbox import NsjailExecutor, RegistrySyncSandbox
 from tracecat.registry.sync.schemas import RegistrySyncRequest
 from tracecat.registry.sync.workflow import (
+    REGISTRY_SYNC_WORKFLOW_EXECUTION_TIMEOUT,
     RegistrySyncWorkflow,
     sync_registry_activity,
 )
-from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorClassification,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 from tracecat.sandbox.types import SandboxErrorCode, SandboxResult
 from tracecat.temporal.errors import extract_error_classifications
-from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 pytestmark = [pytest.mark.temporal]
 
+env = harness.env
 
-@pytest.fixture
-async def env() -> AsyncGenerator[WorkflowEnvironment, None]:
-    gc.collect()
-    async with await WorkflowEnvironment.start_local(
-        data_converter=get_data_converter(compression_enabled=False),
-        search_attributes=[TemporalSearchAttr.ERROR_OWNER.key],
-        dev_server_log_level="error",
-    ) as environment:
-        yield environment
+
+@pytest.fixture(autouse=True)
+def fast_activity_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the production retry policy without waiting out its backoff."""
+    monkeypatch.setattr(
+        sync_workflow,
+        "SYNC_ACTIVITY_RETRY_POLICY",
+        dataclasses.replace(
+            sync_workflow.SYNC_ACTIVITY_RETRY_POLICY,
+            initial_interval=timedelta(milliseconds=10),
+        ),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _SyncFailure:
+    classification: RuntimeErrorClassification
+    detail: str
+    history_json: str
+
+
+async def _run_sync_to_failure(
+    env: WorkflowEnvironment,
+    test_worker_factory: Any,
+    request: RegistrySyncRequest,
+) -> _SyncFailure:
+    """Run the sync workflow like the API does and return its single failed run."""
+    task_queue = f"registry-sync-boundary-{uuid.uuid4()}"
+    workflow_id = f"registry-sync-{uuid.uuid4()}"
+    async with test_worker_factory(
+        env.client,
+        activities=[sync_registry_activity],
+        workflows=[RegistrySyncWorkflow],
+        task_queue=task_queue,
+    ):
+        handle = await env.client.start_workflow(
+            RegistrySyncWorkflow.run,
+            request,
+            id=workflow_id,
+            task_queue=task_queue,
+            execution_timeout=REGISTRY_SYNC_WORKFLOW_EXECUTION_TIMEOUT,
+        )
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await handle.result()
+
+    failure = exc_info.value
+    classifications = extract_error_classifications(
+        failure, include_implicit_context=False
+    )
+    # The workflow is not rerun after its activity fails.
+    latest = await env.client.get_workflow_handle(workflow_id).describe()
+    assert latest.run_id == handle.result_run_id
+    history = await handle.fetch_history()
+    return _SyncFailure(
+        classification=classifications[0],
+        detail=_workflow_failure_detail(failure, classifications),
+        history_json=history.to_json(),
+    )
 
 
 @pytest.mark.anyio
@@ -73,61 +129,49 @@ async def test_retryable_sync_failure_reaches_caller_through_interceptor(
     monkeypatch.setattr(
         "tracecat.registry.sync.workflow.RegistrySyncRunner", _FakeRunner
     )
-    task_queue = f"registry-sync-boundary-{uuid.uuid4()}"
-    workflow_id = f"registry-sync-{uuid.uuid4()}"
     request = RegistrySyncRequest(
         repository_id=uuid.uuid4(),
         origin="tracecat_registry",
         origin_type="builtin",
     )
 
-    async with test_worker_factory(
-        env.client,
-        activities=[sync_registry_activity],
-        workflows=[RegistrySyncWorkflow],
-        task_queue=task_queue,
-    ):
-        handle = await env.client.start_workflow(
-            RegistrySyncWorkflow.run,
-            request,
-            id=workflow_id,
-            task_queue=task_queue,
-            execution_timeout=timedelta(minutes=20),
-        )
-        with pytest.raises(WorkflowFailureError) as exc_info:
-            await handle.result()
+    failure = await _run_sync_to_failure(env, test_worker_factory, request)
 
-    failure = exc_info.value
-    detail = _workflow_failure_detail(
-        failure,
-        extract_error_classifications(failure, include_implicit_context=False),
-    )
-    assert detail.startswith("Registry action discovery failed: ")
-    assert "RuntimeError: worker lost" in detail
-    assert "unclassified" not in detail
-    assert "synthetic-registry-token-value" not in detail
-
-    history = await handle.fetch_history()
-    assert "synthetic-registry-token-value" not in history.to_json()
-    # Activity retries are exhausted once; the workflow is not rerun.
-    assert attempts == 3
-    latest = await env.client.get_workflow_handle(workflow_id).describe()
-    assert latest.run_id == handle.result_run_id
+    assert failure.detail.startswith("Registry action discovery failed: ")
+    assert "RuntimeError: worker lost" in failure.detail
+    assert "unclassified" not in failure.detail
+    assert "synthetic-registry-token-value" not in failure.detail
+    assert "synthetic-registry-token-value" not in failure.history_json
+    assert attempts == sync_workflow.SYNC_ACTIVITY_RETRY_POLICY.maximum_attempts
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("origin_type", "error_code", "owner"),
+    ("origin_type", "error_code", "owner", "retry", "detail_prefix"),
     [
-        pytest.param("git", None, RuntimeErrorOwner.USER, id="git_workload"),
+        pytest.param(
+            "git",
+            None,
+            RuntimeErrorOwner.USER,
+            RetryDisposition.NON_RETRYABLE,
+            "No solution found when resolving dependencies",
+            id="git_workload",
+        ),
         pytest.param(
             "git",
             SandboxErrorCode.INFRASTRUCTURE_FAILURE,
             RuntimeErrorOwner.PLATFORM,
+            RetryDisposition.RETRYABLE,
+            "Sandboxed registry package installation failed before the workload",
             id="git_infrastructure",
         ),
         pytest.param(
-            "builtin", None, RuntimeErrorOwner.PLATFORM, id="builtin_workload"
+            "builtin",
+            None,
+            RuntimeErrorOwner.PLATFORM,
+            RetryDisposition.RETRYABLE,
+            "No solution found when resolving dependencies",
+            id="builtin_workload",
         ),
     ],
 )
@@ -135,6 +179,8 @@ async def test_sandbox_install_failure_reaches_caller_through_interceptor(
     origin_type: Literal["builtin", "git"],
     error_code: SandboxErrorCode | None,
     owner: RuntimeErrorOwner,
+    retry: RetryDisposition,
+    detail_prefix: str,
     env: WorkflowEnvironment,
     test_worker_factory,
     monkeypatch: pytest.MonkeyPatch,
@@ -172,46 +218,23 @@ async def test_sandbox_install_failure_reaches_caller_through_interceptor(
     monkeypatch.setattr(
         RegistrySyncRunner, "_resolve_sandboxed_package", _resolved_package
     )
-    task_queue = f"registry-sync-boundary-{uuid.uuid4()}"
-    workflow_id = f"registry-sync-{uuid.uuid4()}"
     request = RegistrySyncRequest(
         repository_id=uuid.uuid4(),
         origin="git+ssh://git@git.example.test/acme/registry.git",
         origin_type=origin_type,
     )
 
-    async with test_worker_factory(
-        env.client,
-        activities=[sync_registry_activity],
-        workflows=[RegistrySyncWorkflow],
-        task_queue=task_queue,
-    ):
-        handle = await env.client.start_workflow(
-            RegistrySyncWorkflow.run,
-            request,
-            id=workflow_id,
-            task_queue=task_queue,
-            execution_timeout=timedelta(minutes=20),
-        )
-        with pytest.raises(WorkflowFailureError) as exc_info:
-            await handle.result()
+    failure = await _run_sync_to_failure(env, test_worker_factory, request)
 
-    failure = exc_info.value
-    classifications = extract_error_classifications(
-        failure, include_implicit_context=False
-    )
-    assert classifications[0].owner is owner
-    detail = _workflow_failure_detail(failure, classifications)
-    assert detail.startswith("Registry package installation failed: ")
-    assert "No solution found when resolving dependencies" in detail
-    assert "unclassified" not in detail
-    assert "synthetic-index-token-value" not in detail
-
-    history = await handle.fetch_history()
-    assert "synthetic-index-token-value" not in history.to_json()
-    assert attempts == 3
-    latest = await env.client.get_workflow_handle(workflow_id).describe()
-    assert latest.run_id == handle.result_run_id
+    assert failure.classification.owner is owner
+    assert failure.classification.retry_disposition is retry
+    assert failure.detail.startswith("Registry package installation failed: ")
+    assert detail_prefix in failure.detail
+    assert "unclassified" not in failure.detail
+    assert "synthetic-index-token-value" not in failure.detail
+    assert "synthetic-index-token-value" not in failure.history_json
+    max_attempts = sync_workflow.SYNC_ACTIVITY_RETRY_POLICY.maximum_attempts
+    assert attempts == (1 if retry is RetryDisposition.NON_RETRYABLE else max_attempts)
 
 
 _RUN_DISCOVERY_SCRIPT = """
@@ -277,35 +300,17 @@ async def test_builtin_discovery_import_failure_is_platform_owned(
     )
     monkeypatch.setattr(RegistrySyncSandbox, "install_package", _installed)
     monkeypatch.setattr(NsjailExecutor, "execute", _run_discovery_script)
-    task_queue = f"registry-sync-boundary-{uuid.uuid4()}"
-    workflow_id = f"registry-sync-{uuid.uuid4()}"
     request = RegistrySyncRequest(
         repository_id=uuid.uuid4(),
         origin="tracecat_registry",
         origin_type="builtin",
     )
 
-    async with test_worker_factory(
-        env.client,
-        activities=[sync_registry_activity],
-        workflows=[RegistrySyncWorkflow],
-        task_queue=task_queue,
-    ):
-        handle = await env.client.start_workflow(
-            RegistrySyncWorkflow.run,
-            request,
-            id=workflow_id,
-            task_queue=task_queue,
-            execution_timeout=timedelta(minutes=20),
-        )
-        with pytest.raises(WorkflowFailureError) as exc_info:
-            await handle.result()
+    failure = await _run_sync_to_failure(env, test_worker_factory, request)
 
-    classifications = extract_error_classifications(
-        exc_info.value, include_implicit_context=False
+    assert failure.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert (
+        failure.classification.kind is RuntimeErrorKind.REGISTRY_SYNC_VALIDATION_FAILED
     )
-    assert classifications[0].owner is RuntimeErrorOwner.PLATFORM
-    assert classifications[0].kind is RuntimeErrorKind.REGISTRY_SYNC_VALIDATION_FAILED
-    detail = _workflow_failure_detail(exc_info.value, classifications)
-    assert "Registry dependencies conflict with Tracecat's runtime" in detail
+    assert "Registry dependencies conflict with Tracecat's runtime" in failure.detail
     assert attempts == 1

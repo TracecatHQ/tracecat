@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal
 from uuid import UUID, uuid4
 
 import pytest
@@ -31,6 +30,7 @@ from tracecat.registry.constants import (
 from tracecat.registry.sync.artifact import (
     RegistryArtifactBuildError,
     RegistryArtifactBuildResult,
+    RegistryPackageInstallError,
 )
 from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
 from tracecat.registry.sync.runner import (
@@ -51,7 +51,13 @@ from tracecat.registry.sync.schemas import (
     SyncErrorCode,
     SyncResultSuccess,
 )
+from tracecat.registry.sync.workflow import classify_sync_failure
 from tracecat.registry.versions.schemas import RegistryVersionManifest
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 from tracecat.sandbox.exceptions import SandboxInfrastructureError
 from tracecat.sandbox.types import SandboxErrorCode, SandboxResult
 
@@ -371,17 +377,21 @@ async def test_runner_wraps_sandbox_clone_failures(mocker) -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("origin_type", "user_owned"),
+    ("error_code", "cause_type"),
     [
-        pytest.param("git", True, id="git"),
-        pytest.param("builtin", False, id="builtin"),
+        pytest.param(None, RegistryPackageInstallError, id="workload"),
+        pytest.param(
+            SandboxErrorCode.INFRASTRUCTURE_FAILURE,
+            SandboxInfrastructureError,
+            id="infrastructure",
+        ),
     ],
 )
 async def test_runner_wraps_sandbox_install_failures(
     tmp_path: Path,
     mocker,
-    origin_type: Literal["builtin", "git"],
-    user_owned: bool,
+    error_code: SandboxErrorCode | None,
+    cause_type: type[Exception],
 ) -> None:
     package_path = tmp_path / "registry"
     package_path.mkdir()
@@ -391,7 +401,9 @@ async def test_runner_wraps_sandbox_install_failures(
         "tracecat.registry.sync.sandbox.NsjailExecutor.execute_install",
         mocker.AsyncMock(
             return_value=SandboxResult(
-                success=False, error="No solution found when resolving dependencies"
+                success=False,
+                error="No solution found when resolving dependencies",
+                error_code=error_code,
             )
         ),
     )
@@ -404,53 +416,12 @@ async def test_runner_wraps_sandbox_install_failures(
     request = RegistrySyncRequest(
         repository_id=uuid4(),
         origin="git+ssh://git@git.example.test/acme/registry.git",
-        origin_type=origin_type,
+        origin_type="git",
     )
 
-    with pytest.raises(
-        PackageInstallError,
-        match="installation failed: No solution found when resolving dependencies",
-    ) as exc_info:
+    with pytest.raises(PackageInstallError, match="installation failed") as exc_info:
         await runner.run(request)
-    assert isinstance(exc_info.value.__cause__, RegistryArtifactBuildError)
-    assert exc_info.value.user_owned is user_owned
-
-
-@pytest.mark.anyio
-async def test_runner_keeps_sandbox_install_infrastructure_failures_typed(
-    tmp_path: Path,
-    mocker,
-) -> None:
-    package_path = tmp_path / "registry"
-    package_path.mkdir()
-    (package_path / "pyproject.toml").write_text("[project]\nname='registry'\n")
-    mocker.patch("tracecat.registry.sync.sandbox.sandbox_cgroup", return_value=None)
-    mocker.patch(
-        "tracecat.registry.sync.sandbox.NsjailExecutor.execute_install",
-        mocker.AsyncMock(
-            return_value=SandboxResult(
-                success=False,
-                error="Sandbox infrastructure failed before producing a result",
-                error_code=SandboxErrorCode.INFRASTRUCTURE_FAILURE,
-                exit_code=255,
-            )
-        ),
-    )
-    runner = _make_sandboxed_runner(mocker, RegistrySyncSandbox())
-    mocker.patch.object(
-        runner,
-        "_get_builtin_package_path",
-        mocker.AsyncMock(return_value=package_path),
-    )
-    request = RegistrySyncRequest(
-        repository_id=uuid4(),
-        origin="tracecat_registry",
-        origin_type="builtin",
-    )
-
-    with pytest.raises(PackageInstallError) as exc_info:
-        await runner.run(request)
-    assert isinstance(exc_info.value.__cause__, SandboxInfrastructureError)
+    assert isinstance(exc_info.value.__cause__, cause_type)
 
 
 @pytest.mark.anyio
@@ -640,20 +611,24 @@ async def test_fetch_registry_ssh_key_uses_role_scoped_service_session(mocker) -
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("error", "user_owned"),
+    ("error", "owner"),
     [
         pytest.param(
             TracecatCredentialsNotFoundError("SSH key not found"),
-            True,
+            RuntimeErrorOwner.USER,
             id="missing_key",
         ),
-        pytest.param(ConnectionError("database unavailable"), False, id="db_outage"),
+        pytest.param(
+            ConnectionError("database unavailable"),
+            RuntimeErrorOwner.PLATFORM,
+            id="db_outage",
+        ),
     ],
 )
 async def test_fetch_registry_ssh_key_failure_ownership(
     mocker,
     error: Exception,
-    user_owned: bool,
+    owner: RuntimeErrorOwner,
 ) -> None:
     secrets_service = mocker.Mock()
     secrets_service.get_ssh_key = mocker.AsyncMock(side_effect=error)
@@ -670,7 +645,12 @@ async def test_fetch_registry_ssh_key_failure_ownership(
 
     with pytest.raises(GitCloneError) as exc_info:
         await RegistrySyncRunner()._fetch_registry_ssh_key(uuid4())
-    assert exc_info.value.user_owned is user_owned
+    request = RegistrySyncRequest(
+        repository_id=uuid4(),
+        origin="git+ssh://git@git.example.test/acme/registry.git",
+        origin_type="git",
+    )
+    assert classify_sync_failure(exc_info.value, request).owner is owner
 
 
 @pytest.mark.anyio
@@ -733,6 +713,23 @@ async def test_runner_raises_before_upload_on_validation_errors(
     upload_tarball.assert_not_awaited()
 
 
+def _assert_discovery_classification(
+    error: ActionDiscoveryError, *, retryable: bool
+) -> None:
+    request = RegistrySyncRequest(
+        repository_id=uuid4(),
+        origin="git+ssh://git@git.example.test/acme/registry.git",
+        origin_type="git",
+    )
+    classification = classify_sync_failure(error, request)
+    if retryable:
+        assert classification.kind is RuntimeErrorKind.REGISTRY_SYNC_FAILED
+        assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    else:
+        assert classification.kind is RuntimeErrorKind.REGISTRY_SYNC_VALIDATION_FAILED
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+
+
 @pytest.mark.anyio
 async def test_discover_actions_marks_template_load_errors_non_retryable(
     mocker,
@@ -759,7 +756,7 @@ async def test_discover_actions_marks_template_load_errors_non_retryable(
             None,
         )
 
-    assert exc_info.value.non_retryable is True
+    _assert_discovery_classification(exc_info.value, retryable=False)
 
 
 @pytest.mark.anyio
@@ -785,7 +782,7 @@ async def test_discover_actions_marks_missing_package_non_retryable(mocker) -> N
             None,
         )
 
-    assert exc_info.value.non_retryable is True
+    _assert_discovery_classification(exc_info.value, retryable=False)
 
 
 @pytest.mark.anyio
@@ -810,7 +807,7 @@ async def test_discover_actions_keeps_subprocess_errors_retryable(mocker) -> Non
             None,
         )
 
-    assert exc_info.value.non_retryable is False
+    _assert_discovery_classification(exc_info.value, retryable=True)
 
 
 @pytest.mark.anyio

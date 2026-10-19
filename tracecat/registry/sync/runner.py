@@ -25,7 +25,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 from uuid import UUID
 
 import aiofiles
@@ -33,11 +33,7 @@ import aiofiles
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.exceptions import (
-    RegistryError,
-    RegistrySyncContentError,
-    TracecatCredentialsNotFoundError,
-)
+from tracecat.exceptions import RegistryError, RegistrySyncSourceError
 from tracecat.git.utils import parse_git_url
 from tracecat.logger import logger
 from tracecat.registry.artifact_keys import get_artifact_s3_key
@@ -57,7 +53,7 @@ from tracecat.registry.sync.schemas import (
     SyncResultSuccess,
 )
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
-from tracecat.sandbox.exceptions import SandboxInfrastructureError
+from tracecat.sandbox.exceptions import SandboxError
 from tracecat.secrets.service import SecretsService
 from tracecat.storage import blob
 
@@ -68,38 +64,36 @@ if TYPE_CHECKING:
 class RegistrySyncRunnerError(Exception):
     """Base exception for registry sync runner errors.
 
-    Failures are platform-owned unless the raise site knows the user's
-    repository or registry settings caused them.
+    Ownership comes from the typed causes in the exception chain, not from the
+    raise site.
     """
 
-    def __init__(self, message: str, *, user_owned: bool = False) -> None:
-        super().__init__(message)
-        self.user_owned = user_owned
+    summary: ClassVar[str] = "Registry sync failed"
+    """Safe, user-facing summary of the failed phase."""
 
 
 class GitCloneError(RegistrySyncRunnerError):
     """Raised when git clone fails."""
 
+    summary: ClassVar[str] = "Registry repository clone failed"
+
 
 class PackageInstallError(RegistrySyncRunnerError):
     """Raised when package installation fails."""
+
+    summary: ClassVar[str] = "Registry package installation failed"
 
 
 class ArtifactBuildError(RegistrySyncRunnerError):
     """Raised when building the registry artifact fails."""
 
+    summary: ClassVar[str] = "Registry artifact build failed"
+
 
 class ActionDiscoveryError(RegistrySyncRunnerError):
     """Raised when action discovery fails."""
 
-    def __init__(self, message: str, *, non_retryable: bool = False) -> None:
-        super().__init__(message)
-        self.non_retryable = non_retryable
-
-
-def _is_non_retryable_discovery_error(exc: BaseException) -> bool:
-    """Content/configuration failures carry a typed code; retrying cannot fix them."""
-    return isinstance(exc, RegistrySyncContentError)
+    summary: ClassVar[str] = "Registry action discovery failed"
 
 
 def _build_validation_failure_message(
@@ -123,6 +117,8 @@ def _build_validation_failure_message(
 
 class RegistrySyncValidationError(RegistrySyncRunnerError):
     """Raised when action discovery returns validation errors."""
+
+    summary: ClassVar[str] = "Registry action validation failed"
 
     def __init__(
         self,
@@ -249,12 +245,8 @@ class RegistrySyncRunner:
                 output_dir=output_dir,
                 timeout_seconds=self.install_timeout,
             )
-        except (RegistryArtifactBuildError, SandboxInfrastructureError) as exc:
-            raise PackageInstallError(
-                str(exc),
-                user_owned=request.origin_type != "builtin"
-                and isinstance(exc, RegistryArtifactBuildError),
-            ) from exc
+        except (RegistryArtifactBuildError, SandboxError) as exc:
+            raise PackageInstallError(str(exc)) from exc
         logger.info(
             "Registry package installed",
             site_packages_path=str(installed_site_packages),
@@ -276,7 +268,7 @@ class RegistrySyncRunner:
                 output_dir=output_dir,
                 timeout_seconds=self.install_timeout,
             )
-        except (RegistryArtifactBuildError, SandboxInfrastructureError) as exc:
+        except (RegistryArtifactBuildError, SandboxError) as exc:
             raise ArtifactBuildError(str(exc)) from exc
         self._log_built_artifact(artifact_result)
         return await self._finalize_sync(
@@ -341,10 +333,7 @@ class RegistrySyncRunner:
                     timeout_seconds=self.clone_timeout,
                 )
             except Exception as exc:
-                raise GitCloneError(
-                    f"Sandboxed Git clone failed: {exc}",
-                    user_owned=isinstance(exc, RegistryError),
-                ) from exc
+                raise GitCloneError(f"Sandboxed Git clone failed: {exc}") from exc
         finally:
             ssh_key = ""
         return _ResolvedPackage(package_path, commit_sha)
@@ -377,6 +366,8 @@ class RegistrySyncRunner:
                 ssh_key=ssh_key,
                 work_dir=work_dir,
             )
+        except RegistryError as exc:
+            raise GitCloneError(str(exc)) from exc
         finally:
             ssh_key = ""
         return _ResolvedPackage(package_path, commit_sha)
@@ -498,8 +489,7 @@ class RegistrySyncRunner:
             except Exception as exc:
                 raise GitCloneError(
                     f"Failed to retrieve SSH key for git operations: {exc}. "
-                    "Ensure a 'github-ssh-key' secret exists in your organization.",
-                    user_owned=isinstance(exc, TracecatCredentialsNotFoundError),
+                    "Ensure a 'github-ssh-key' secret exists in your organization."
                 ) from exc
         return secret.get_secret_value()
 
@@ -522,7 +512,8 @@ class RegistrySyncRunner:
             Tuple of (path to cloned repository, resolved commit SHA).
 
         Raises:
-            GitCloneError: If clone fails.
+            RegistrySyncSourceError: If a Git command fails or times out.
+            RegistryError: If the checked-out commit cannot be resolved.
         """
         clone_path = work_dir / "repo"
         clone_path.mkdir(parents=True, exist_ok=True)
@@ -569,16 +560,15 @@ class RegistrySyncRunner:
                 )
             except TimeoutError as e:
                 process.kill()
-                raise GitCloneError(
+                raise RegistrySyncSourceError(
                     f"Git clone timed out after {git_timeout}s. "
-                    "Check SSH key permissions and network connectivity.",
-                    user_owned=True,
+                    "Check SSH key permissions and network connectivity."
                 ) from e
 
             if process.returncode != 0:
                 error_msg = stderr.decode().strip()
-                raise GitCloneError(
-                    f"Failed to clone repository: {error_msg}", user_owned=True
+                raise RegistrySyncSourceError(
+                    f"Failed to clone repository: {error_msg}"
                 )
 
             # Fetch and checkout the specific commit if provided
@@ -597,16 +587,15 @@ class RegistrySyncRunner:
                     )
                 except TimeoutError as e:
                     process.kill()
-                    raise GitCloneError(
+                    raise RegistrySyncSourceError(
                         f"Git fetch timed out after {git_timeout}s. "
-                        "Check SSH key permissions and network connectivity.",
-                        user_owned=True,
+                        "Check SSH key permissions and network connectivity."
                     ) from e
 
                 if process.returncode != 0:
                     error_msg = stderr.decode().strip()
-                    raise GitCloneError(
-                        f"Failed to fetch commit: {error_msg}", user_owned=True
+                    raise RegistrySyncSourceError(
+                        f"Failed to fetch commit: {error_msg}"
                     )
 
                 checkout_cmd = ["git", "checkout", commit_sha]
@@ -623,15 +612,14 @@ class RegistrySyncRunner:
                     )
                 except TimeoutError as e:
                     process.kill()
-                    raise GitCloneError(
-                        f"Git checkout timed out after {git_timeout}s.",
-                        user_owned=True,
+                    raise RegistrySyncSourceError(
+                        f"Git checkout timed out after {git_timeout}s."
                     ) from e
 
                 if process.returncode != 0:
                     error_msg = stderr.decode().strip()
-                    raise GitCloneError(
-                        f"Failed to checkout commit: {error_msg}", user_owned=True
+                    raise RegistrySyncSourceError(
+                        f"Failed to checkout commit: {error_msg}"
                     )
 
             # Get the resolved commit SHA (verify the checkout worked)
@@ -646,7 +634,7 @@ class RegistrySyncRunner:
             stdout, stderr = await process.communicate()
             if process.returncode != 0:
                 error_msg = stderr.decode().strip()
-                raise GitCloneError(f"Failed to get commit SHA: {error_msg}")
+                raise RegistryError(f"Failed to get commit SHA: {error_msg}")
             resolved_sha = stdout.decode().strip()
             return clone_path, resolved_sha
 
@@ -741,10 +729,7 @@ class RegistrySyncRunner:
                 timeout_seconds=self.discover_timeout,
             )
         except Exception as exc:
-            raise ActionDiscoveryError(
-                f"Failed to discover actions: {exc}",
-                non_retryable=_is_non_retryable_discovery_error(exc),
-            ) from exc
+            raise ActionDiscoveryError(f"Failed to discover actions: {exc}") from exc
         self._log_discovered_actions(result)
         return result
 
@@ -781,10 +766,7 @@ class RegistrySyncRunner:
                 organization_id=request.organization_id,
             )
         except Exception as exc:
-            raise ActionDiscoveryError(
-                f"Failed to discover actions: {exc}",
-                non_retryable=_is_non_retryable_discovery_error(exc),
-            ) from exc
+            raise ActionDiscoveryError(f"Failed to discover actions: {exc}") from exc
         self._log_discovered_actions(result)
         return result
 

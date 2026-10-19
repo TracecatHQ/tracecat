@@ -40,6 +40,7 @@ from tracecat.registry.sync.base_service import ArtifactsBuildResult
 from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
 from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
 from tracecat.registry.sync.runner import ActionDiscoveryError
+from tracecat.registry.sync.schemas import RegistrySyncRequest
 from tracecat.registry.sync.service import (
     RegistryActionShadowsBuiltinError,
     RegistrySyncError,
@@ -678,7 +679,14 @@ async def test_sync_via_temporal_surfaces_unclassified_activity_failure(
         "RuntimeError: worker lost"
     )
     try:
-        _raise_registry_sync_failure(ActionDiscoveryError(detail))
+        _raise_registry_sync_failure(
+            ActionDiscoveryError(detail),
+            RegistrySyncRequest(
+                repository_id=repo.id,
+                origin=DEFAULT_REGISTRY_ORIGIN,
+                origin_type="builtin",
+            ),
+        )
     except ApplicationError as exc:
         app_error = exc
     message = f"Registry action discovery failed: {detail}"

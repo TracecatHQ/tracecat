@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal
@@ -15,13 +16,24 @@ from temporalio.exceptions import (
     TimeoutType,
 )
 
+from tracecat.exceptions import (
+    RegistryError,
+    RegistrySyncContentError,
+    RegistrySyncSourceError,
+    TracecatCredentialsNotFoundError,
+)
 from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.registry.actions.schemas import RegistryActionValidationErrorInfo
+from tracecat.registry.sync.artifact import (
+    RegistryArtifactBuildError,
+    RegistryPackageInstallError,
+)
 from tracecat.registry.sync.runner import (
     ActionDiscoveryError,
     ArtifactBuildError,
     GitCloneError,
     PackageInstallError,
+    RegistrySyncRunnerError,
     RegistrySyncValidationError,
 )
 from tracecat.registry.sync.schemas import (
@@ -30,6 +42,7 @@ from tracecat.registry.sync.schemas import (
     RegistryArtifactsBackfillRequest,
     RegistrySyncFailureDiagnostic,
     RegistrySyncRequest,
+    SyncErrorCode,
 )
 from tracecat.registry.sync.workflow import (
     RegistryArtifactsBackfillWorkflow,
@@ -43,17 +56,15 @@ from tracecat.runtime.errors import (
     RuntimeErrorKind,
     RuntimeErrorOwner,
 )
-from tracecat.sandbox.exceptions import SandboxInfrastructureError
+from tracecat.sandbox.exceptions import (
+    SandboxInfrastructureError,
+    SandboxTimeoutError,
+)
 from tracecat.temporal.errors import (
     extract_error_classification,
     extract_error_classifications,
     extract_error_diagnostics,
 )
-
-
-def _caused_by(error: Exception, cause: Exception) -> Exception:
-    error.__cause__ = cause
-    return error
 
 
 def _assert_registry_validation_classification(
@@ -129,12 +140,16 @@ async def test_sync_registry_activity_raises_non_retryable_error_for_content_dis
     class _FakeRunner:
         async def run(self, request: RegistrySyncRequest) -> None:
             del request
-            raise ActionDiscoveryError(
-                "Failed to discover actions: Failed to load template action from "
+            detail = (
+                "Failed to load template action from "
                 "/custom_actions/example_template.yml: "
                 "Invalid type annotation for expected field 'items': 'list'. "
-                "Lists must include an item type, e.g. 'list[str]' or 'list[Any]'.",
-                non_retryable=True,
+                "Lists must include an item type, e.g. 'list[str]' or 'list[Any]'."
+            )
+            raise ActionDiscoveryError(
+                f"Failed to discover actions: {detail}"
+            ) from RegistrySyncContentError(
+                detail, code=SyncErrorCode.TEMPLATE_LOAD_FAILED
             )
 
     monkeypatch.setattr(
@@ -163,102 +178,173 @@ def _registry_sync_failure_detail(error: ApplicationError) -> str:
     return RegistrySyncFailureDiagnostic.model_validate(diagnostic).detail
 
 
+_GIT_ORIGIN = "git+ssh://git@git.example.test/acme/registry.git"
+
+
+def _with_cause(error: BaseException, cause: BaseException) -> BaseException:
+    error.__cause__ = cause
+    return error
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("runner_error", "owner", "message", "detail"),
+    ("runner_error", "cause", "origin_type", "owner", "retry", "message", "detail"),
     [
         pytest.param(
             ActionDiscoveryError(
                 "Failed to discover actions: Sync subprocess timed out after 300s"
             ),
+            RegistryError("Sync subprocess timed out after 300s"),
+            "git",
             RuntimeErrorOwner.PLATFORM,
+            RetryDisposition.RETRYABLE,
             "Registry action discovery failed",
             "Failed to discover actions: Sync subprocess timed out after 300s",
-            id="discovery",
+            id="discovery_crash",
         ),
         pytest.param(
             GitCloneError(
-                "Git clone failed: https://user:synthetic-password@git.example.com/r.git",
-                user_owned=True,
+                "Git clone failed: https://user:synthetic-password@git.example.com/r.git"
             ),
+            RegistrySyncSourceError("Repository not found"),
+            "git",
             RuntimeErrorOwner.USER,
+            RetryDisposition.NON_RETRYABLE,
             "Registry repository clone failed",
             "Git clone failed: https://git.example.com/r.git",
-            id="git_clone_redacted",
+            id="git_source_redacted",
         ),
         pytest.param(
-            PackageInstallError(
-                "Package installation failed: resolver error", user_owned=True
+            GitCloneError("Git clone timed out after 120s."),
+            _with_cause(
+                RegistrySyncSourceError("Git clone timed out after 120s."),
+                builtins.TimeoutError(),
             ),
+            "git",
             RuntimeErrorOwner.USER,
+            RetryDisposition.RETRYABLE,
+            "Registry repository clone failed",
+            "Git clone timed out after 120s.",
+            id="git_source_timeout",
+        ),
+        pytest.param(
+            GitCloneError("Sandboxed Git clone failed: clone timed out"),
+            SandboxTimeoutError("clone timed out"),
+            "git",
+            RuntimeErrorOwner.PLATFORM,
+            RetryDisposition.RETRYABLE,
+            "Registry repository clone failed",
+            "Sandboxed Git clone failed: clone timed out",
+            id="git_untyped_timeout",
+        ),
+        pytest.param(
+            GitCloneError("Sandboxed Git clone returned invalid output"),
+            RegistryError("Sandboxed Git clone returned invalid output"),
+            "git",
+            RuntimeErrorOwner.PLATFORM,
+            RetryDisposition.RETRYABLE,
+            "Registry repository clone failed",
+            "Sandboxed Git clone returned invalid output",
+            id="git_clone_invalid_output",
+        ),
+        pytest.param(
+            GitCloneError("Failed to retrieve SSH key: not found"),
+            TracecatCredentialsNotFoundError("SSH key not found"),
+            "git",
+            RuntimeErrorOwner.USER,
+            RetryDisposition.NON_RETRYABLE,
+            "Registry repository clone failed",
+            "Failed to retrieve SSH key: not found",
+            id="ssh_key_missing",
+        ),
+        pytest.param(
+            GitCloneError("Failed to retrieve SSH key: database unavailable"),
+            ConnectionError("database unavailable"),
+            "git",
+            RuntimeErrorOwner.PLATFORM,
+            RetryDisposition.RETRYABLE,
+            "Registry repository clone failed",
+            "Failed to retrieve SSH key: database unavailable",
+            id="ssh_key_outage",
+        ),
+        pytest.param(
+            GitCloneError("Sandboxed Git clone failed before the workload started"),
+            SandboxInfrastructureError("nsjail launch failed"),
+            "git",
+            RuntimeErrorOwner.PLATFORM,
+            RetryDisposition.RETRYABLE,
+            "Registry repository clone failed",
+            "Sandboxed Git clone failed before the workload started",
+            id="git_clone_infrastructure",
+        ),
+        pytest.param(
+            PackageInstallError("Package installation failed: resolver error"),
+            RegistryPackageInstallError("resolver error"),
+            "git",
+            RuntimeErrorOwner.USER,
+            RetryDisposition.NON_RETRYABLE,
             "Registry package installation failed",
             "Package installation failed: resolver error",
             id="package_install",
         ),
         pytest.param(
             PackageInstallError("Package installation failed: resolver error"),
+            RegistryPackageInstallError("resolver error"),
+            "builtin",
             RuntimeErrorOwner.PLATFORM,
+            RetryDisposition.RETRYABLE,
             "Registry package installation failed",
             "Package installation failed: resolver error",
-            id="package_install_platform",
+            id="builtin_package_install",
         ),
         pytest.param(
-            GitCloneError("Failed to retrieve SSH key: database unavailable"),
+            PackageInstallError("Installed site-packages path is unsafe"),
+            RegistryArtifactBuildError("Installed site-packages path is unsafe"),
+            "git",
             RuntimeErrorOwner.PLATFORM,
-            "Registry repository clone failed",
-            "Failed to retrieve SSH key: database unavailable",
-            id="git_clone_platform",
+            RetryDisposition.RETRYABLE,
+            "Registry package installation failed",
+            "Installed site-packages path is unsafe",
+            id="package_install_layout",
         ),
         pytest.param(
             ArtifactBuildError("Sandboxed registry packaging failed: mksquashfs"),
+            None,
+            "git",
             RuntimeErrorOwner.PLATFORM,
+            RetryDisposition.RETRYABLE,
             "Registry artifact build failed",
             "Sandboxed registry packaging failed: mksquashfs",
             id="artifact_build",
         ),
         pytest.param(
-            _caused_by(
-                PackageInstallError(
-                    "Sandboxed registry package installation failed: "
-                    "Sandbox infrastructure failed before producing a result",
-                    user_owned=True,
-                ),
-                SandboxInfrastructureError("nsjail launch failed"),
-            ),
+            RegistrySyncRunnerError("git_url is required for git origin type"),
+            None,
+            "git",
             RuntimeErrorOwner.PLATFORM,
-            "Registry package installation failed",
-            "Sandboxed registry package installation failed: "
-            "Sandbox infrastructure failed before producing a result",
-            id="package_install_infrastructure",
-        ),
-        pytest.param(
-            _caused_by(
-                GitCloneError(
-                    "Sandboxed Git clone failed: nsjail launch failed",
-                    user_owned=True,
-                ),
-                SandboxInfrastructureError("nsjail launch failed"),
-            ),
-            RuntimeErrorOwner.PLATFORM,
-            "Registry repository clone failed",
-            "Sandboxed Git clone failed: nsjail launch failed",
-            id="git_clone_infrastructure",
+            RetryDisposition.RETRYABLE,
+            "Registry sync failed",
+            "git_url is required for git origin type",
+            id="generic",
         ),
     ],
 )
-async def test_sync_registry_activity_classifies_retryable_failures(
+async def test_sync_registry_activity_classifies_sync_failures(
     monkeypatch: pytest.MonkeyPatch,
-    runner_error: Exception,
+    runner_error: RegistrySyncRunnerError,
+    cause: BaseException | None,
+    origin_type: Literal["builtin", "git"],
     owner: RuntimeErrorOwner,
+    retry: RetryDisposition,
     message: str,
     detail: str,
 ) -> None:
-    """Retryable sync failures carry a redacted diagnostic past the interceptor."""
+    """Typed causes decide ownership; user failures that repeat are not retried."""
 
     class _FakeRunner:
         async def run(self, request: RegistrySyncRequest) -> None:
             del request
-            raise runner_error
+            raise runner_error from cause
 
     monkeypatch.setattr(
         "tracecat.registry.sync.workflow.RegistrySyncRunner", _FakeRunner
@@ -266,8 +352,8 @@ async def test_sync_registry_activity_classifies_retryable_failures(
 
     request = RegistrySyncRequest(
         repository_id=uuid4(),
-        origin="tracecat_registry",
-        origin_type="builtin",
+        origin="tracecat_registry" if origin_type == "builtin" else _GIT_ORIGIN,
+        origin_type=origin_type,
     )
 
     with pytest.raises(ApplicationError) as exc_info:
@@ -278,11 +364,42 @@ async def test_sync_registry_activity_classifies_retryable_failures(
     assert classification is not None
     assert classification.owner is owner
     assert classification.kind is RuntimeErrorKind.REGISTRY_SYNC_FAILED
-    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert classification.retry_disposition is retry
     assert error.message == message
-    assert error.non_retryable is False
+    assert error.non_retryable is (retry is RetryDisposition.NON_RETRYABLE)
     assert error.__cause__ is None
     assert _registry_sync_failure_detail(error) == detail
+
+
+@pytest.mark.anyio
+async def test_sync_registry_activity_redacts_validation_messages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeRunner:
+        async def run(self, request: RegistrySyncRequest) -> None:
+            del request
+            raise ActionDiscoveryError(
+                "Failed to discover actions: Authorization: Bearer synthetic-token"
+            ) from RegistrySyncContentError(
+                "Authorization: Bearer synthetic-token",
+                code=SyncErrorCode.IMPORT_FAILED,
+            )
+
+    monkeypatch.setattr(
+        "tracecat.registry.sync.workflow.RegistrySyncRunner", _FakeRunner
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await sync_registry_activity(
+            RegistrySyncRequest(
+                repository_id=uuid4(), origin=_GIT_ORIGIN, origin_type="git"
+            )
+        )
+
+    _assert_registry_validation_classification(exc_info.value)
+    assert "synthetic-token" not in str(exc_info.value)
+    (classification,) = extract_error_classifications(exc_info.value)
+    assert "synthetic-token" not in classification.message
 
 
 @pytest.mark.anyio
@@ -521,11 +638,14 @@ async def test_backfill_workflow_continues_after_item_failure(
     assert result.results[1].status == "created"
 
 
-def _sync_activity_error(cause: BaseException) -> ActivityError:
-    try:
-        raise cause
-    except BaseException as exc:
+async def _run_workflow_with_activity_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    cause: BaseException,
+) -> BaseException:
+    async def fake_execute_activity(*_args: Any, **_kwargs: Any) -> Any:
         try:
+            raise cause
+        except BaseException as exc:
             raise ActivityError(
                 "Activity task failed",
                 scheduled_event_id=1,
@@ -535,16 +655,6 @@ def _sync_activity_error(cause: BaseException) -> ActivityError:
                 activity_id="activity-id",
                 retry_state=None,
             ) from exc
-        except ActivityError as activity_error:
-            return activity_error
-
-
-async def _run_workflow_with_activity_failure(
-    monkeypatch: pytest.MonkeyPatch,
-    cause: BaseException,
-) -> BaseException:
-    async def fake_execute_activity(*_args: Any, **_kwargs: Any) -> Any:
-        raise _sync_activity_error(cause)
 
     monkeypatch.setattr(
         "tracecat.registry.sync.workflow.workflow.execute_activity",
@@ -568,7 +678,10 @@ async def test_registry_sync_workflow_reraises_exhausted_activity_failure(
 ) -> None:
     with pytest.raises(ApplicationError) as activity_failure:
         _raise_registry_sync_failure(
-            ActionDiscoveryError("Failed to discover actions: worker lost")
+            ActionDiscoveryError("Failed to discover actions: worker lost"),
+            RegistrySyncRequest(
+                repository_id=uuid4(), origin=_GIT_ORIGIN, origin_type="git"
+            ),
         )
     cause = activity_failure.value
 

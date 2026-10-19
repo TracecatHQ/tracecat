@@ -19,13 +19,8 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.common import RETRY_POLICIES
     from tracecat.executor.activities import ExecutorActivities
-    from tracecat.runtime.errors import (
-        RetryDisposition,
-        RuntimeErrorClassification,
-        RuntimeErrorKind,
-    )
     from tracecat.storage.object import StoredObject, StoredObjectValidator
-    from tracecat.temporal.errors import application_error_from_classification
+    from tracecat.temporal.errors import activity_timeout_error
     from tracecat.temporal.patches import ExecuteRegistryToolWorkflowPatch
 
 
@@ -35,18 +30,6 @@ def _activity_error_message(error: ActivityError) -> str:
     if cause is not None:
         return str(cause)
     return str(error)
-
-
-def _activity_timeout_error(cause: TemporalTimeoutError) -> ApplicationError:
-    # Queueing, setup, persistence, or a lost worker can exhaust this budget;
-    # it does not prove that the workload exceeded its own resource limit.
-    classification = RuntimeErrorClassification.platform(
-        kind=RuntimeErrorKind.EXECUTOR_ACTIVITY_TIMED_OUT,
-        message="Tracecat executor activity timed out",
-        retry_disposition=RetryDisposition.NON_RETRYABLE,
-        cause=cause,
-    )
-    return application_error_from_classification(classification)
 
 
 @workflow.defn
@@ -88,7 +71,9 @@ class ExecuteRegistryToolWorkflow:
                 raise
             if classify_timeout and isinstance(e.cause, TemporalTimeoutError):
                 # Do not retry a tool whose side effects may already have occurred.
-                raise _activity_timeout_error(e.cause) from e
+                raise activity_timeout_error(
+                    e.cause, "Tracecat executor activity timed out"
+                ) from e
             raise ApplicationError(
                 _activity_error_message(e),
                 non_retryable=True,
