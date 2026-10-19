@@ -26,6 +26,7 @@ from tracecat.integrations import router as integrations_router
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.organization import router as organization_router
 from tracecat.pagination import CursorPaginatedResponse
+from tracecat.registry.repositories import router as registry_repos_router
 from tracecat.settings import router as settings_router
 from tracecat.vcs import router as vcs_router
 from tracecat.workflow.executions import router as workflow_executions_router
@@ -668,6 +669,13 @@ def test_vcs_credential_routes_accept_org_actors() -> None:
     for endpoint, role_param in endpoints:
         role = get_type_hints(endpoint, include_extras=True)[role_param]
         assert role == vcs_router.OrgActorRole
+
+
+def test_registry_repository_sync_route_accepts_org_actors() -> None:
+    role = get_type_hints(
+        registry_repos_router.sync_registry_repository, include_extras=True
+    )["role"]
+    assert role == registry_repos_router.OrgActorRole
 
 
 def test_draft_workflow_execution_route_remains_user_only() -> None:
