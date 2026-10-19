@@ -75,12 +75,166 @@ async def test_discovery_prefers_saml_for_mapped_domains(
     response = await service.discover("user@acme.com")
 
     assert response.method == AuthDiscoveryMethod.SAML
-    setting_reader.assert_awaited_once_with(
+    setting_reader.assert_any_await(
         "saml_enabled",
         organization_id=organization.id,
         session=session,
         default=True,
     )
+
+
+def _settings_reader(values: dict[str, object]):
+    async def _read(
+        key: str, *, organization_id: uuid.UUID, session: object, default: object
+    ) -> object:
+        return values.get(key, default)
+
+    return _read
+
+
+@pytest.mark.anyio
+async def test_discovery_org_hint_without_saml_setup_falls_back_to_oidc(
+    session: AsyncSession,
+    organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invite links carry an org hint; orgs that never set up SAML use OIDC."""
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+    )
+    service = AuthDiscoveryService(session)
+
+    response = await service.discover(
+        "invitee@external-guest.example", org_slug=organization.slug
+    )
+
+    assert response.method == AuthDiscoveryMethod.OIDC
+    assert response.next_url is None
+    assert response.organization_slug == organization.slug
+
+
+@pytest.mark.anyio
+async def test_discovery_mapped_domain_without_saml_idp_falls_back_to_oidc(
+    session: AsyncSession,
+    organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _create_domain(session, organization.id, "no-idp.com")
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+    )
+    monkeypatch.setattr(
+        auth_discovery_module,
+        "get_setting_from_bypass_session",
+        _settings_reader({"saml_enabled": True, "saml_idp_metadata_url": None}),
+    )
+    service = AuthDiscoveryService(session)
+
+    response = await service.discover("user@no-idp.com")
+
+    assert response.method == AuthDiscoveryMethod.OIDC
+
+
+@pytest.mark.anyio
+async def test_discovery_keeps_saml_when_enforced_without_idp(
+    session: AsyncSession,
+    organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+    )
+    monkeypatch.setattr(
+        auth_discovery_module,
+        "get_setting_from_bypass_session",
+        _settings_reader({"saml_enabled": True, "saml_enforced": True}),
+    )
+    service = AuthDiscoveryService(session)
+
+    response = await service.discover(
+        "user@external-guest.example", org_slug=organization.slug
+    )
+
+    assert response.method == AuthDiscoveryMethod.SAML
+
+
+@pytest.mark.anyio
+async def test_discovery_uses_saml_when_org_idp_is_configured(
+    session: AsyncSession,
+    organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+    monkeypatch.setattr(config, "SAML_IDP_METADATA_URL", None)
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+    )
+    monkeypatch.setattr(
+        auth_discovery_module,
+        "get_setting_from_bypass_session",
+        _settings_reader(
+            {
+                "saml_enabled": True,
+                "saml_idp_metadata_url": "https://idp.example.com/metadata",
+            }
+        ),
+    )
+    service = AuthDiscoveryService(session)
+
+    response = await service.discover(
+        "user@external-guest.example", org_slug=organization.slug
+    )
+
+    assert response.method == AuthDiscoveryMethod.SAML
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("multi_tenant", "expected"),
+    [
+        (False, AuthDiscoveryMethod.SAML),
+        (True, AuthDiscoveryMethod.OIDC),
+    ],
+)
+async def test_discovery_env_idp_metadata_only_applies_to_single_tenant(
+    session: AsyncSession,
+    organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+    multi_tenant: bool,
+    expected: AuthDiscoveryMethod,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", multi_tenant)
+    monkeypatch.setattr(
+        config, "SAML_IDP_METADATA_URL", "https://idp.example.com/metadata"
+    )
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+    )
+    monkeypatch.setattr(
+        auth_discovery_module,
+        "get_setting_from_bypass_session",
+        _settings_reader({"saml_enabled": True}),
+    )
+    service = AuthDiscoveryService(session)
+
+    response = await service.discover(
+        "user@external-guest.example", org_slug=organization.slug
+    )
+
+    assert response.method == expected
 
 
 @pytest.mark.anyio
