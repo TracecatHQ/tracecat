@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: "Get forensics"
+  description: "Get forensic evidence (sandbox behaviors, network activity, dropped files, and IOCs) for a threat or campaign with GET /v2/forensics. Provide exactly one of threatId or campaignId."
+  display_group: Proofpoint TAP
+  doc_url: https://help.proofpoint.com/Threat_Insight_Dashboard/API_Documentation/Forensics_API
+  namespace: tools.proofpoint_tap
+  name: get_forensics
+  secrets:
+    - name: proofpoint_tap
+      keys: ["PROOFPOINT_TAP_SERVICE_PRINCIPAL", "PROOFPOINT_TAP_SERVICE_SECRET"]
+  expects:
+    threatId:
+      type: str | None
+      description: "Threat ID to get forensics for. Provide exactly one of threatId or campaignId."
+      default: null
+    campaignId:
+      type: str | None
+      description: "Campaign ID to get forensics for. Provide exactly one of threatId or campaignId."
+      default: null
+    includeCampaignForensics:
+      type: bool | None
+      description: "Whether to include forensics for the campaign the threat belongs to. Only valid with threatId. Defaults to false."
+      default: null
+    base_url:
+      type: str | None
+      description: "Proofpoint TAP API base URL. Defaults to https://tap-api-v2.proofpoint.com."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.proofpoint_tap.base_url || "https://tap-api-v2.proofpoint.com" }}/v2/forensics
+        method: GET
+        params:
+          threatId: ${{ inputs.threatId }}
+          campaignId: ${{ inputs.campaignId }}
+          includeCampaignForensics: ${{ inputs.includeCampaignForensics }}
+        auth:
+          username: ${{ SECRETS.proofpoint_tap.PROOFPOINT_TAP_SERVICE_PRINCIPAL }}
+          password: ${{ SECRETS.proofpoint_tap.PROOFPOINT_TAP_SERVICE_SECRET }}
+  returns: ${{ steps.request.result }}
