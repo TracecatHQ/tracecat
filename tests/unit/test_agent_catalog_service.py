@@ -711,19 +711,20 @@ async def test_resolve_catalog_id_by_model_prefers_enabled_platform_over_disable
 
 
 @pytest.mark.anyio
-async def test_resolve_catalog_id_by_model_workspace_override_replaces_org(
+async def test_resolve_catalog_id_by_model_workspace_subset_narrows_org(
     session: AsyncSession,
     svc_organization: Organization,
     svc_workspace,
 ) -> None:
-    """A workspace override fully replaces the org-level enabled set."""
+    """A workspace subset narrows the org-level enabled set."""
     service = AgentCatalogService(session=session)
     row_a = _catalog(svc_organization.id)
     row_b = _catalog(svc_organization.id, "openai", "gpt-4.1")
     session.add_all([row_a, row_b])
     await session.flush()
-    # Org level enables A; the workspace override enables only B.
+    # Org level enables both; the workspace subset keeps only B.
     session.add(_enable(org_id=svc_organization.id, catalog_id=row_a.id))
+    session.add(_enable(org_id=svc_organization.id, catalog_id=row_b.id))
     session.add(
         _enable(
             org_id=svc_organization.id,

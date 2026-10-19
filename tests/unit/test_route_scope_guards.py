@@ -247,10 +247,19 @@ async def test_skill_scope_guards(endpoint: AsyncEndpoint, required_scope: str) 
         agent_catalog_router.list_catalog,
         agent_catalog_router.get_catalog_entry,
         agent_catalog_router.get_workspace_models,
+        agent_catalog_router.get_workspace_model_access,
     ],
 )
 async def test_agent_catalog_read_scope_guards(endpoint: AsyncEndpoint) -> None:
     await _assert_endpoint_requires_scope(endpoint, "agent:read")
+
+
+@pytest.mark.anyio
+async def test_workspace_model_access_update_requires_agent_update() -> None:
+    """Saving a workspace's model subset needs agent:update."""
+    await _assert_endpoint_requires_scope(
+        agent_catalog_router.update_workspace_model_access, "agent:update"
+    )
 
 
 @pytest.mark.anyio

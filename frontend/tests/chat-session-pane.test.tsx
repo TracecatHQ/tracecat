@@ -15,6 +15,7 @@ import type {
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
+  AGENT_EXECUTE_REQUIRED_MESSAGE,
   ChatSessionPane,
   MessagePart,
 } from "@/components/chat/chat-session-pane"
@@ -890,6 +891,212 @@ describe("ChatSessionPane", () => {
         ],
       })
     )
+  })
+
+  function mockApprovalThenReply(sendMessage: jest.Mock) {
+    mockUseVercelChat.mockReturnValue({
+      sendMessage,
+      setMessages: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [
+        {
+          id: "msg-approval",
+          role: "assistant",
+          parts: [
+            {
+              type: "data-approval-request",
+              data: [
+                {
+                  tool_call_id: "tc-1",
+                  tool_name: "core__cases__list_cases",
+                  args: { limit: 100 },
+                },
+              ],
+            },
+          ],
+        },
+        {
+          id: "msg-user",
+          role: "user",
+          parts: [{ type: "text", text: "List open cases" }],
+        },
+        {
+          id: "msg-reply",
+          role: "assistant",
+          parts: [{ type: "text", text: "There are no open cases." }],
+        },
+      ],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+  }
+
+  function renderPaneWithPendingMessage() {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture()}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            pendingMessage="Queued message"
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+  }
+
+  it("blocks sending, retrying and approving without agent:execute", () => {
+    // Viewers read sessions but cannot run the agent.
+    const sendMessage = jest.fn().mockResolvedValue(undefined)
+    mockUseScopeCheck.mockImplementation((scope) => scope !== "agent:execute")
+    mockApprovalThenReply(sendMessage)
+
+    renderPaneWithPendingMessage()
+
+    expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled()
+    expect(screen.getByText(AGENT_EXECUTE_REQUIRED_MESSAGE)).toBeInTheDocument()
+    expect(
+      screen.getByPlaceholderText(AGENT_EXECUTE_REQUIRED_MESSAGE)
+    ).toBeDisabled()
+    expect(
+      screen.queryByRole("button", { name: "Retry" })
+    ).not.toBeInTheDocument()
+    expect(sendMessage).not.toHaveBeenCalled()
+  })
+
+  it("does not let a role without agent:execute stop a running turn", () => {
+    // Cancelling a turn is a session mutation that needs agent:execute.
+    mockUseScopeCheck.mockImplementation((scope) => scope !== "agent:execute")
+    mockUseVercelChat.mockReturnValue({
+      sendMessage: jest.fn(),
+      setMessages: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [],
+      status: "streaming",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture()}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    expect(screen.getByRole("button", { name: "Stop" })).toBeDisabled()
+  })
+
+  it("does not let a role without agent:execute remove a session's tools", () => {
+    // Changing a session's tools is a session update that needs agent:execute.
+    mockUseScopeCheck.mockImplementation((scope) => scope !== "agent:execute")
+    const action = {
+      id: "action-1",
+      name: "core.cases.list_cases",
+      action: "core.cases.list_cases",
+      default_title: "List cases",
+      description: "List all cases",
+      namespace: "core.cases",
+      type: "template" as const,
+      origin: "tracecat://test",
+      availability: { locked: false, missing_entitlements: [] },
+    }
+    mockUseBuilderRegistryActions.mockReturnValue({
+      registryActions: [action],
+      registryActionsIsLoading: false,
+      registryActionsError: null,
+      getRegistryAction: (key: string) =>
+        key === action.action ? action : undefined,
+    })
+    const updateChat = jest.fn()
+    mockUseUpdateChat.mockReturnValue({
+      updateChat,
+      isUpdating: false,
+      updateError: null,
+    })
+    mockUseVercelChat.mockReturnValue({
+      sendMessage: jest.fn(),
+      setMessages: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture({ tools: ["core.cases.list_cases"] })}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            toolsEnabled
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    const remove = screen.getByRole("button", { name: /remove list cases/i })
+    expect(remove).toBeDisabled()
+    fireEvent.click(remove)
+    expect(updateChat).not.toHaveBeenCalled()
+  })
+
+  it("hides Retry while the composer is disabled", () => {
+    // Retry starts a run; with no usable model it would fail and hide the reply.
+    mockApprovalThenReply(jest.fn().mockResolvedValue(undefined))
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture()}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            inputDisabled
+            inputDisabledPlaceholder="No usable model"
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    expect(screen.getByText("There are no open cases.")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Retry" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("lets a role with agent:execute send, retry and approve", () => {
+    // Editors and admins run the agent.
+    const sendMessage = jest.fn().mockResolvedValue(undefined)
+    mockApprovalThenReply(sendMessage)
+
+    renderPaneWithPendingMessage()
+
+    expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled()
+    expect(
+      screen.queryByText(AGENT_EXECUTE_REQUIRED_MESSAGE)
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument()
+    expect(sendMessage).toHaveBeenCalledWith({ text: "Queued message" })
   })
 
   it("submits selected approval decisions without requiring the full batch", async () => {

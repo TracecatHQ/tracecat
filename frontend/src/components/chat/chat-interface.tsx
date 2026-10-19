@@ -22,7 +22,10 @@ import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
 import type { ChatHistoryScope } from "@/components/chat/chat-history-dropdown"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
-import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+import {
+  AGENT_EXECUTE_REQUIRED_MESSAGE,
+  ChatSessionPane,
+} from "@/components/chat/chat-session-pane"
 import { NoMessages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -65,6 +68,12 @@ import {
 } from "@/hooks/use-chat"
 import { useChatPresetManager } from "@/hooks/use-chat-preset-manager"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import {
+  type ChatModelNotice,
+  getModelUnavailableMessage,
+  getWorkspaceModelNotice,
+  NO_DEFAULT_MODEL_MESSAGE,
+} from "@/lib/chat-readiness"
 import { getApiErrorDetail } from "@/lib/errors"
 import { useChatReadiness } from "@/lib/hooks"
 import { useQueryClient } from "@/lib/query"
@@ -202,6 +211,9 @@ export function ChatInterface({
   // and the picker would offer to connect a server on a page the role cannot
   // open.
   const canReadIntegrations = useScopeCheck("integration:read")
+  // `undefined` while scopes load: creation and its controls wait until the
+  // scope resolves; only a resolved denial shows the reason.
+  const canExecuteAgents = useScopeCheck("agent:execute")
   const sessionMcpEnabled =
     canReadIntegrations === true && entityType === "copilot"
   const inWorkspaceChat = surface === "workspace-chat"
@@ -275,6 +287,7 @@ export function ChatInterface({
       setSelectedChatId(firstChatId)
       onChatSelect?.(firstChatId)
     } else if (
+      canExecuteAgents === true &&
       !deferSessionCreation &&
       backendSelectionReady &&
       chats.length === 0 &&
@@ -309,6 +322,7 @@ export function ChatInterface({
     autoCreateAttempted,
     backendOverride,
     backendSelectionReady,
+    canExecuteAgents,
     isDraftChat,
     inWorkspaceChat,
     deferSessionCreation,
@@ -316,6 +330,7 @@ export function ChatInterface({
 
   const handleCreateChat = async () => {
     if (!backendSelectionReady || createChatPending) return
+    if (canExecuteAgents !== true) return
     setNewChatDialogOpen(false)
 
     if (deferSessionCreation) {
@@ -344,7 +359,12 @@ export function ChatInterface({
     selectedTools?: string[],
     selectedMcpIntegrations?: string[]
   ) => {
-    if (!deferSessionCreation || !backendSelectionReady || createChatPending) {
+    if (
+      !deferSessionCreation ||
+      !backendSelectionReady ||
+      createChatPending ||
+      canExecuteAgents !== true
+    ) {
       return null
     }
 
@@ -506,7 +526,11 @@ export function ChatInterface({
                         size="sm"
                         variant="ghost"
                         className="size-6 p-0"
-                        disabled={createChatPending || !backendSelectionReady}
+                        disabled={
+                          createChatPending ||
+                          !backendSelectionReady ||
+                          canExecuteAgents !== true
+                        }
                       >
                         <Plus className="h-4 w-4" />
                       </Button>
@@ -534,7 +558,11 @@ export function ChatInterface({
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                   <AlertDialogAction
-                    disabled={createChatPending || !backendSelectionReady}
+                    disabled={
+                      createChatPending ||
+                      !backendSelectionReady ||
+                      canExecuteAgents !== true
+                    }
                     onClick={() => void handleCreateChat()}
                   >
                     Start new chat
@@ -703,8 +731,10 @@ function ChatBody({
   const {
     ready: chatReady,
     loading: chatReadyLoading,
+    reason: chatReadyReason,
     modelInfo,
   } = useChatReadiness(
+    workspaceId,
     selectedPreset
       ? {
           modelOverride: {
@@ -715,6 +745,7 @@ function ChatBody({
         }
       : undefined
   )
+  const cannotExecuteAgents = useScopeCheck("agent:execute") === false
 
   if (chatError) {
     return (
@@ -748,14 +779,33 @@ function ChatBody({
     )
   }
 
-  // Render active chat session when ready
-  if ((!chatReady || !modelInfo) && !chat?.is_readonly) {
-    // Render configuration required state
+  // Model setup only blocks starting a chat. A role that cannot run agents
+  // sees that denial instead, and an existing chat keeps its transcript with
+  // the composer disabled.
+  const modelUnavailable = (!chatReady || !modelInfo) && !chat?.is_readonly
+  if (modelUnavailable && !chatId && !cannotExecuteAgents) {
+    const workspaceReason = getWorkspaceModelNotice(chatReadyReason)
     if (surface === "workspace-chat") {
       return (
         <ChatEmptyHero>
-          <NoDefaultModelComposer />
+          <NoDefaultModelComposer workspaceReason={workspaceReason} />
         </ChatEmptyHero>
+      )
+    }
+
+    if (workspaceReason) {
+      return (
+        <>
+          <NoMessages />
+          <div className="rounded-md border border-border bg-muted/40 p-4">
+            <h4 className="mb-1 text-sm font-medium text-foreground">
+              {workspaceReason.title}
+            </h4>
+            <p className="text-xs text-muted-foreground">
+              {workspaceReason.message}
+            </p>
+          </div>
+        </>
       )
     }
 
@@ -772,7 +822,7 @@ function ChatBody({
                 No default model
               </h4>
               <p className="text-xs text-muted-foreground">
-                Select a default model in agent settings to enable chat.
+                {NO_DEFAULT_MODEL_MESSAGE}
               </p>
             </div>
             <ChevronDown className="size-4 rotate-[-90deg] text-muted-foreground" />
@@ -784,6 +834,16 @@ function ChatBody({
 
   if (!chatId) {
     if (!draftMode || !onCreateSessionBeforeSend) {
+      // No session exists and this role cannot create one.
+      if (cannotExecuteAgents) {
+        return (
+          <div className="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground">
+            <p className="max-w-xs text-pretty">
+              {AGENT_EXECUTE_REQUIRED_MESSAGE}
+            </p>
+          </div>
+        )
+      }
       return (
         <div className="flex h-full items-center justify-center">
           <CenteredSpinner />
@@ -838,6 +898,8 @@ function ChatBody({
       presetSelector={presetSelector}
       pendingMessage={pendingMessage ?? undefined}
       onPendingMessageSent={onPendingMessageSent}
+      inputDisabled={modelUnavailable}
+      inputDisabledPlaceholder={getModelUnavailableMessage(chatReadyReason)}
       surface={surface}
       onMessagesChange={onMessagesChange}
       onData={onData}
@@ -851,7 +913,11 @@ function ChatBody({
  * real prompt input but is non-interactive, with a CTA linking to agent
  * settings where a default model can be selected.
  */
-function NoDefaultModelComposer() {
+function NoDefaultModelComposer({
+  workspaceReason,
+}: {
+  workspaceReason: ChatModelNotice | null
+}) {
   return (
     <div className="space-y-3">
       <PromptInput
@@ -861,7 +927,11 @@ function NoDefaultModelComposer() {
       >
         <PromptInputBody>
           <PromptInputTextarea
-            placeholder="Select a default model to start chatting..."
+            placeholder={
+              workspaceReason
+                ? "Enable a workspace model to start chatting..."
+                : "Select a default model to start chatting..."
+            }
             readOnly
             tabIndex={-1}
             aria-disabled="true"
@@ -877,16 +947,22 @@ function NoDefaultModelComposer() {
           />
         </PromptInputFooter>
       </PromptInput>
-      <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-        <span>No default model configured.</span>
-        <Link
-          href="/organization/settings/agent"
-          className="inline-flex items-center gap-0.5 font-medium text-foreground underline-offset-4 hover:underline"
-        >
-          Select one in agent settings
-          <ArrowRight className="size-3" />
-        </Link>
-      </div>
+      {workspaceReason ? (
+        <p className="text-center text-xs text-muted-foreground">
+          {workspaceReason.message}
+        </p>
+      ) : (
+        <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+          <span>No default model configured.</span>
+          <Link
+            href="/organization/settings/agent"
+            className="inline-flex items-center gap-0.5 font-medium text-foreground underline-offset-4 hover:underline"
+          >
+            Select one in agent settings
+            <ArrowRight className="size-3" />
+          </Link>
+        </div>
+      )}
     </div>
   )
 }

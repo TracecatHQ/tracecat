@@ -356,12 +356,11 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
 
 ORG_MEMBER_SCOPES: frozenset[str] = frozenset(
     {
-        # Baseline org access; workspace/resource access requires workspace membership
+        # Baseline org access; workspace/resource access, agents included,
+        # requires a workspace role
         "org:read",
         "org:member:read",
         "org:registry:read",
-        "agent:read",
-        "agent:execute",
         "org:secret:read",
     }
 )

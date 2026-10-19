@@ -1005,13 +1005,10 @@ function AgentModelSelect({
   field: ControllerRenderProps<FieldValues>
 }) {
   const workspaceId = useWorkspaceId()
-  const { models, providers, modelsLoading, modelsError } =
+  const { models, modelsLoading, modelsError } =
     useWorkspaceAgentModels(workspaceId)
   const selection = (field.value ?? {}) as ModelSelectionValue
-  const options = useMemo(
-    () => buildEnabledModelOptions(models, providers),
-    [models, providers]
-  )
+  const options = useMemo(() => buildEnabledModelOptions(models), [models])
   function handleChange(selectedOption: (typeof options)[number]) {
     field.onChange({
       model_name: selectedOption.modelName,

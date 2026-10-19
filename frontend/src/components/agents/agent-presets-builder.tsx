@@ -73,11 +73,15 @@ import {
 } from "@/components/agents/agent-preset-rail-tools"
 import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
 import { SlackChannelPanel } from "@/components/agents/external-channels/slack-channel-panel"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   ChatHistoryDropdown,
   type ChatHistoryScope,
 } from "@/components/chat/chat-history-dropdown"
-import { ChatSessionPane } from "@/components/chat/chat-session-pane"
+import {
+  AGENT_EXECUTE_REQUIRED_MESSAGE,
+  ChatSessionPane,
+} from "@/components/chat/chat-session-pane"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getModelProviderIconId, ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -430,7 +434,7 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
   const { registryActions, registryActionsError } = useRegistryActions({
     staleTime: 5 * 60 * 1000,
   })
-  const { models, providers } = useWorkspaceAgentModels(workspaceId)
+  const { models } = useWorkspaceAgentModels(workspaceId)
   const enabledModelsLoaded = models !== undefined
 
   const { mcpIntegrations, mcpIntegrationsError } =
@@ -481,8 +485,8 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
   } = useAgentPreset(workspaceId, activePresetId)
 
   const enabledModelOptions = useMemo(
-    () => buildEnabledModelOptions(models, providers),
-    [models, providers]
+    () => buildEnabledModelOptions(models),
+    [models]
   )
 
   if (presetsIsLoading) {
@@ -574,7 +578,7 @@ export function AgentPresetArtifactView({
   const { registryActions, registryActionsError } = useRegistryActions({
     staleTime: 5 * 60 * 1000,
   })
-  const { models, providers } = useWorkspaceAgentModels(workspaceId)
+  const { models } = useWorkspaceAgentModels(workspaceId)
   const enabledModelsLoaded = models !== undefined
   const { mcpIntegrations, mcpIntegrationsError } =
     useListMcpIntegrations(workspaceId)
@@ -582,8 +586,8 @@ export function AgentPresetArtifactView({
     useUpdateAgentPreset(workspaceId)
 
   const enabledModelOptions = useMemo(
-    () => buildEnabledModelOptions(models, providers),
-    [models, providers]
+    () => buildEnabledModelOptions(models),
+    [models]
   )
 
   return (
@@ -617,6 +621,16 @@ export function AgentPresetArtifactView({
   )
 }
 
+/** Shown in place of a chat when the user's role lacks `agent:execute`. */
+function AgentExecuteRequiredNotice() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground">
+      <AlertCircle className="size-5 text-amber-500" />
+      <p className="max-w-xs text-pretty">{AGENT_EXECUTE_REQUIRED_MESSAGE}</p>
+    </div>
+  )
+}
+
 function AgentPresetChatPane({
   preset,
   workspaceId,
@@ -635,6 +649,8 @@ function AgentPresetChatPane({
   trailing: ReactNode
 }) {
   const { user } = useAuth()
+  // `undefined` while scopes load: creation waits, nothing is disabled.
+  const canExecuteAgents = useScopeCheck("agent:execute")
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
   const [historyScope, setHistoryScope] = useState<ChatHistoryScope>("team")
 
@@ -715,7 +731,8 @@ function AgentPresetChatPane({
   }, [effectiveModelConfig, selectedModel])
 
   const canStartChat = Boolean(
-    preset &&
+    canExecuteAgents === true &&
+      preset &&
       effectiveModelConfig &&
       (!enabledModelsLoaded || selectedModel !== null || hasLegacyModelConfig)
   )
@@ -723,7 +740,7 @@ function AgentPresetChatPane({
     canStartChat && !activeChatId && !chatsLoading && !createChatPending
 
   const handleCreateChat = async () => {
-    if (!preset || createChatPending) {
+    if (!preset || createChatPending || canExecuteAgents !== true) {
       return
     }
 
@@ -744,7 +761,8 @@ function AgentPresetChatPane({
   }
 
   const handlePresetVersionChange = async (nextVersionId: string | null) => {
-    if (!activeChatId || chat?.is_readonly) return
+    // Changing the pinned version updates the session, which needs agent:execute.
+    if (!activeChatId || chat?.is_readonly || canExecuteAgents !== true) return
     try {
       await updateChat({
         chatId: activeChatId,
@@ -780,6 +798,15 @@ function AgentPresetChatPane({
           </Empty>
         </div>
       )
+    }
+
+    if (
+      canExecuteAgents === false &&
+      !activeChatId &&
+      !chatsLoading &&
+      !chatsError
+    ) {
+      return <AgentExecuteRequiredNotice />
     }
 
     if (selectedVersionConfigIsLoading) {
@@ -882,7 +909,13 @@ function AgentPresetChatPane({
             selectedVersionId={selectedVersionId}
             currentVersionId={preset.current_version_id ?? null}
             onSelect={handlePresetVersionChange}
-            disabled={!activeChatId || !chat || chat.is_readonly || isUpdating}
+            disabled={
+              !activeChatId ||
+              !chat ||
+              chat.is_readonly ||
+              isUpdating ||
+              canExecuteAgents !== true
+            }
             triggerClassName="h-7 w-[10.5rem] text-xs shadow-none"
           />
         ) : null}

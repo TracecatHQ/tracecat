@@ -42174,6 +42174,272 @@ export const $WorkflowUpdate = {
   title: "WorkflowUpdate",
 } as const
 
+export const $WorkspaceAgentModelAccessRead = {
+  properties: {
+    inherit_all: {
+      type: "boolean",
+      title: "Inherit All",
+      description:
+        "True when the workspace has no subset and uses every organization-enabled model.",
+    },
+    catalog_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Catalog Ids",
+      description:
+        "Catalog IDs in the workspace's subset. Empty when inherit_all is true.",
+    },
+    candidates: {
+      items: {
+        $ref: "#/components/schemas/WorkspaceAgentModelCandidate",
+      },
+      type: "array",
+      title: "Candidates",
+      description:
+        "Models enabled for the organization. Provider URLs are left out: they can carry credentials, and a candidate may sit outside the workspace's subset.",
+    },
+  },
+  type: "object",
+  required: ["inherit_all", "catalog_ids", "candidates"],
+  title: "WorkspaceAgentModelAccessRead",
+  description:
+    "A workspace's model subset and the organization models it can pick from.",
+} as const
+
+export const $WorkspaceAgentModelAccessUpdate = {
+  properties: {
+    inherit_all: {
+      type: "boolean",
+      title: "Inherit All",
+    },
+    catalog_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Catalog Ids",
+    },
+  },
+  type: "object",
+  required: ["inherit_all"],
+  title: "WorkspaceAgentModelAccessUpdate",
+  description:
+    "Replace a workspace's model subset, or clear it to inherit every org model.",
+} as const
+
+export const $WorkspaceAgentModelCandidate = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    custom_provider_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Provider Id",
+    },
+    organization_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Organization Id",
+    },
+    model_provider: {
+      type: "string",
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      title: "Model Name",
+    },
+    model_metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Metadata",
+    },
+    custom_provider_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Provider Name",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "custom_provider_id",
+    "organization_id",
+    "model_provider",
+    "model_name",
+    "model_metadata",
+  ],
+  title: "WorkspaceAgentModelCandidate",
+  description:
+    "Catalog entry a workspace can pick, labelled with its custom provider.",
+} as const
+
+export const $WorkspaceAgentModelListResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/WorkspaceAgentModelRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    default_catalog_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Catalog Id",
+      description:
+        "The organization's default model, if it is enabled for this workspace.",
+    },
+    has_org_default: {
+      type: "boolean",
+      title: "Has Org Default",
+      description:
+        "Whether the organization has a default model, enabled here or not.",
+      default: false,
+    },
+    workspace_subset_disabled: {
+      type: "boolean",
+      title: "Workspace Subset Disabled",
+      description:
+        "True when the workspace has a model subset and the organization has disabled every model in it.",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "WorkspaceAgentModelListResponse",
+  description: "Models a workspace can use, and its default model.",
+} as const
+
+export const $WorkspaceAgentModelRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    custom_provider_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Provider Id",
+    },
+    organization_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Organization Id",
+    },
+    model_provider: {
+      type: "string",
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      title: "Model Name",
+    },
+    model_metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Metadata",
+    },
+    custom_provider_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Provider Name",
+    },
+    custom_provider_base_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Provider Base Url",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "custom_provider_id",
+    "organization_id",
+    "model_provider",
+    "model_name",
+    "model_metadata",
+  ],
+  title: "WorkspaceAgentModelRead",
+  description:
+    "Catalog entry a workspace can use, with its provider's runtime URL.",
+} as const
+
 export const $WorkspaceCreate = {
   properties: {
     name: {
