@@ -230,8 +230,8 @@ describe("exact-first case search UI", () => {
   it("shows dates without unsupported hierarchy labels or controls", async () => {
     setup(false)
     await waitFor(() => expect(casesSearchCases).toHaveBeenCalledTimes(1))
-    expect(screen.queryByText("Parent cases only")).not.toBeInTheDocument()
-    expect(screen.queryByText("Including sub-cases")).not.toBeInTheDocument()
+    expect(screen.queryByText("Parents only")).not.toBeInTheDocument()
+    expect(screen.queryByText("All cases")).not.toBeInTheDocument()
     expect(screen.queryByRole("switch")).not.toBeInTheDocument()
   })
 

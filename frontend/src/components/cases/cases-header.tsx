@@ -861,7 +861,7 @@ export function CasesHeader({
               )}
             >
               <ListTreeIcon className="size-3.5 text-muted-foreground" />
-              {includesSubCases ? "Including sub-cases" : "Parent cases only"}
+              {includesSubCases ? "All cases" : "Parents only"}
             </button>
           )}
         </fieldset>
