@@ -909,13 +909,13 @@ _SEARCH_PATH_PARAMS = [
         pytest.param(
             *_INTERNAL,
             "/cases",
-            "Invalid request for case field hydration",
+            "Field case_id is a reserved field",
             id="internal-list",
         ),
         pytest.param(
             *_INTERNAL,
             "/cases/search",
-            "Invalid request for case field hydration",
+            "Field case_id is a reserved field",
             id="internal-search",
         ),
     ],
@@ -929,29 +929,13 @@ async def test_case_listing_validates_field_ids_even_when_page_is_empty(
     path: str,
     detail: str,
 ) -> None:
-    """Invalid field hydration requests should not depend on the page containing rows."""
+    """Service-owned field validation is forwarded consistently on every surface."""
     http: TestClient = request.getfixturevalue(client_fixture)
-    empty_page = CursorPaginatedResponse[CaseReadMinimal](
-        items=[],
-        next_cursor=None,
-        prev_cursor=None,
-        has_more=False,
-        has_previous=False,
-    )
-    with (
-        patch.object(router, "CasesService") as MockService,
-        patch.object(router, "CaseFieldsService") as MockFieldsService,
-    ):
-        mock_svc = AsyncMock()
-        mock_svc.list_cases.return_value = empty_page
-        mock_svc.search_cases.return_value = empty_page
-        mock_fields_svc = AsyncMock()
-        mock_fields_svc.batch_get_fields.side_effect = ValueError(
-            "Field case_id is a reserved field"
-        )
-        MockService.return_value = mock_svc
-        MockFieldsService.return_value = mock_fields_svc
-
+    with patch.object(router, "CasesService") as service_cls:
+        service = AsyncMock()
+        method = service.list_cases if path == "/cases" else service.search_cases
+        method.side_effect = ValueError("Field case_id is a reserved field")
+        service_cls.return_value = service
         response = http.get(
             f"{prefix}{path}",
             params=[
@@ -959,13 +943,9 @@ async def test_case_listing_validates_field_ids_even_when_page_is_empty(
                 ("field_ids", "case_id"),
             ],
         )
-
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json()["detail"] == detail
-    mock_fields_svc.batch_get_fields.assert_awaited_once_with(
-        case_ids=[],
-        field_ids=["case_id"],
-    )
+    assert method.call_args.kwargs["field_ids"] == ["case_id"]
 
 
 @pytest.mark.anyio

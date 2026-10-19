@@ -3682,13 +3682,23 @@ async def test_set_case_dropdown_value_not_entitled(monkeypatch):
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
 @pytest.mark.parametrize("order_by", [None, "assignee", "tags"])
 async def test_search_cases(monkeypatch, order_by):
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="service",
+        service_id="tracecat-mcp",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"case:read"}),
+    )
+
+    async def resolve(_workspace_id):
+        return workspace_id, role
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", resolve)
     case_id = uuid.uuid4()
     now = datetime.now(UTC)
-
-    from tracecat.pagination import CursorPaginatedResponse
 
     search_result = CursorPaginatedResponse(
         items=[
@@ -3728,7 +3738,7 @@ async def test_search_cases(monkeypatch, order_by):
     )
 
     result = await _tool(mcp_server.search_cases)(
-        workspace_id=str(uuid.uuid4()),
+        workspace_id=str(workspace_id),
         status="new,in_progress",
         priority="critical",
         search_term="phishing",
