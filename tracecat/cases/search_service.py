@@ -15,6 +15,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
+from tracecat.cases import text_search_indexes
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.durations.schemas import CaseDurationRead
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus, CaseTaskStatus
@@ -415,6 +416,7 @@ class CaseSearchService(BaseWorkspaceService):
                 case_lexical_context=(
                     lexical.mode.value,
                     lexical.columns,
+                    text_search_indexes.CASE_SEARCH_GENERATION,
                 )
             )
 

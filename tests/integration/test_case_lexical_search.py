@@ -30,7 +30,7 @@ from tracecat.cases.service import CasesService
 from tracecat.db.engine import get_async_session
 from tracecat.db.models import Case, Organization, Workspace
 from tracecat.executor.action_gateway.app import create_app
-from tracecat.pagination import PaginationError
+from tracecat.pagination import PaginationError, PaginationErrorCode
 from tracecat.query.errors import TracecatQueryTimeoutError
 from tracecat.query.lexical_types import SearchMode
 from tracecat.tiers import defaults as tier_defaults
@@ -261,6 +261,22 @@ async def test_filters_precede_relevance_pages_and_explicit_sorts(
                     {**request, **changed, "cursor": first_body["next_cursor"]}
                 )
             )
+
+    with patch(
+        "tracecat.cases.text_search_indexes.CASE_SEARCH_GENERATION",
+        "synthetic-next-generation",
+    ):
+        with pytest.raises(PaginationError) as stale:
+            await lexical_service.query_cases(
+                CaseSearchRequest.model_validate(
+                    {**request, "cursor": first_body["next_cursor"]}
+                )
+            )
+        assert stale.value.code == PaginationErrorCode.CURSOR_MISMATCH
+        fresh = await lexical_service.query_cases(
+            CaseSearchRequest.model_validate(request)
+        )
+        assert fresh.items[0].id == phrase.id
 
 
 async def test_selected_columns_and_literal_identifiers_are_not_fuzzy(
