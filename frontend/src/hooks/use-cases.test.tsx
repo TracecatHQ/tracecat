@@ -212,3 +212,124 @@ it("applies a cleared search immediately", async () => {
     expect.objectContaining({ searchTerm: "phishing", cursor: undefined })
   )
 })
+describe("case search aggregate counts", () => {
+  it("opts out of row counts on initial and continuation pages and uses only aggregate totals", async () => {
+    let resolveCounts!: (value: CasesSearchCaseAggregatesResponse) => void
+    const counts = new CancelablePromise<CasesSearchCaseAggregatesResponse>(
+      (resolve) => {
+        resolveCounts = resolve
+      }
+    )
+    jest.mocked(casesSearchCaseAggregates).mockImplementation(() => counts)
+    jest.mocked(casesSearchCases).mockImplementation((request) =>
+      resolved<CasesSearchCasesResponse>({
+        items: [
+          {
+            ...CASE,
+            id: request.cursor
+              ? "00000000-0000-4000-8000-000000000043"
+              : CASE.id,
+          },
+        ],
+        has_more: !request.cursor,
+        next_cursor: request.cursor ? null : "synthetic-continuation",
+        // A cached legacy page total must not become another count source.
+        total_estimate: request.cursor ? null : 999,
+      })
+    )
+    const { result } = setup()
+    await advance()
+    expect(casesSearchCases).toHaveBeenCalledTimes(1)
+    expect(casesSearchCaseAggregates).toHaveBeenCalledTimes(1)
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({ includeCount: false, cursor: undefined })
+    )
+    expect(result.current.totalFilteredCaseEstimate).toBeNull()
+    act(() =>
+      resolveCounts({
+        total: 12,
+        status_groups: { new: 12 },
+      })
+    )
+    await advance()
+    expect(result.current.totalFilteredCaseEstimate).toBe(12)
+    expect(result.current.stageCounts?.new).toBe(12)
+    act(() => result.current.fetchNextPage())
+    await advance()
+    expect(result.current.cases).toHaveLength(2)
+    expect(casesSearchCases).toHaveBeenCalledTimes(2)
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        includeCount: false,
+        cursor: "synthetic-continuation",
+      })
+    )
+    expect(casesSearchCaseAggregates).toHaveBeenCalledTimes(1)
+    expect(result.current.totalFilteredCaseEstimate).toBe(12)
+    expect(result.current.stageCounts?.new).toBe(12)
+  })
+
+  it("keeps successful rows when population counts exhaust retries", async () => {
+    jest.mocked(casesSearchCases).mockImplementation(() =>
+      resolved<CasesSearchCasesResponse>({
+        items: [CASE],
+        has_more: true,
+        next_cursor: "synthetic-next-page",
+        total_estimate: null,
+      })
+    )
+    jest.mocked(casesSearchCaseAggregates).mockImplementation(
+      () =>
+        new CancelablePromise((_resolve, reject) =>
+          reject(
+            Object.assign(new Error("Synthetic count failure"), {
+              status: 500,
+            })
+          )
+        )
+    )
+    const { result } = setup()
+    await advance(8000)
+    expect(casesSearchCaseAggregates).toHaveBeenCalledTimes(4)
+    expect(result.current).toMatchObject({
+      cases: [CASE],
+      error: null,
+      isLoading: false,
+      totalFilteredCaseEstimate: null,
+      stageCounts: null,
+      isCountsLoading: false,
+      isCountsFetching: false,
+      isCountsError: true,
+    })
+    act(() => result.current.setSearchQuery(CASE.short_id))
+    await advance(300)
+    expect(result.current).toMatchObject({ isCountsError: false })
+  })
+
+  it("discards stale totals after a successful count refresh fails", async () => {
+    jest.mocked(casesSearchCaseAggregates).mockImplementation(() =>
+      resolved<CasesSearchCaseAggregatesResponse>({
+        total: 12,
+        status_groups: { new: 12 },
+      })
+    )
+    const { result } = setup()
+    await advance()
+    expect(result.current.totalFilteredCaseEstimate).toBe(12)
+    jest.mocked(casesSearchCaseAggregates).mockImplementation(
+      () =>
+        new CancelablePromise((_resolve, reject) =>
+          reject(
+            Object.assign(new Error("Synthetic count refresh failure"), {
+              status: 500,
+            })
+          )
+        )
+    )
+    act(() => result.current.refetch())
+    await advance(8000)
+    expect(result.current.isCountsError).toBe(true)
+    expect(result.current.totalFilteredCaseEstimate).toBeNull()
+    expect(result.current.stageCounts).toBeNull()
+  })
+})

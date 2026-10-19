@@ -422,6 +422,7 @@ interface CasesHeaderProps {
   // Selection props
   totalCaseCount?: number
   displayCaseCount?: number | null
+  isCountsError?: boolean
   selectedCount?: number
   onSelectAll?: () => void
   onDeselectAll?: () => void
@@ -483,6 +484,7 @@ export function CasesHeader({
   onDropdownSortDirectionChange,
   totalCaseCount = 0,
   displayCaseCount = null,
+  isCountsError = false,
   selectedCount = 0,
   onSelectAll,
   onDeselectAll,
@@ -567,6 +569,7 @@ export function CasesHeader({
     createdAfter.type === "preset" &&
     createdAfter.value === DEFAULT_CREATED_PRESET
 
+  const countNoun = displayCaseCount === 1 ? "case" : "cases"
   const includesSubCases = effectiveHierarchy === "all"
   const hierarchyLabel = includesSubCases
     ? "Includes sub-cases"
@@ -661,10 +664,10 @@ export function CasesHeader({
               onToggle={onToggleColumn}
             />
           )}
-          {(displayCaseCount ?? totalCaseCount) > 0 && (
+          {(displayCaseCount === null || displayCaseCount > 0) && (
             <span className="text-xs text-muted-foreground">
               {displayCaseCount ?? totalCaseCount}{" "}
-              {(displayCaseCount ?? totalCaseCount) === 1 ? "case" : "cases"}
+              {displayCaseCount === null ? "loaded" : countNoun}
             </span>
           )}
         </div>
@@ -677,6 +680,7 @@ export function CasesHeader({
       >
         {scopeDescription}
         {isSearchPending && <span> · Updating search…</span>}
+        {isCountsError && <span> · Case count unavailable</span>}
       </p>
 
       {/* Row 2: Filter dropdowns */}

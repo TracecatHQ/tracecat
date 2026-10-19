@@ -258,6 +258,10 @@ async def list_cases(
     ),
     include_durations: bool = Query(False, description="Include case duration values"),
     include_payload: bool = Query(False, description="Include case payload"),
+    include_count: bool = Query(
+        True,
+        description="Include the exact filtered total_estimate for compatibility. Set false when fetching aggregate counts separately; total_estimate will be null.",
+    ),
     hierarchy: CaseHierarchyFilter = Query(
         "all",
         description="Return every case, or only top-level cases without a parent.",
@@ -275,6 +279,7 @@ async def list_cases(
             sort=sort,
             include_durations=include_durations,
             include_payload=include_payload,
+            include_count=include_count,
             hierarchy=hierarchy,
         )
     except (ValueError, TracecatValidationError) as e:
@@ -414,6 +419,10 @@ async def search_cases(
     ),
     include_durations: bool = Query(False, description="Include case duration values"),
     include_payload: bool = Query(False, description="Include case payload"),
+    include_count: bool = Query(
+        True,
+        description="Include the exact filtered total_estimate for compatibility. Set false on all pages when fetching aggregate counts separately; total_estimate will be null.",
+    ),
     hierarchy: CaseHierarchyFilter = Query(
         "all",
         description="Return every case, or only top-level cases without a parent.",
@@ -461,6 +470,7 @@ async def search_cases(
             sort=sort,
             include_durations=include_durations,
             include_payload=include_payload,
+            include_count=include_count,
             parent_id=parent_id,
             hierarchy=hierarchy,
         )

@@ -86,6 +86,7 @@ jest.mock("@/components/cases/cases-accordion", () => ({
 }))
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
+
 const CASE: CaseReadMinimal = {
   id: "00000000-0000-4000-8000-000000000042",
   short_id: "CASE-0042",
@@ -138,6 +139,7 @@ function Harness({ hierarchyEnabled = true }: { hierarchyEnabled?: boolean }) {
       stageCounts={search.stageCounts}
       isCountsLoading={search.isCountsLoading}
       isCountsFetching={search.isCountsFetching}
+      isCountsError={search.isCountsError}
       hasNextPage={search.hasNextPage}
       isFetchingNextPage={search.isFetchingNextPage}
       onLoadMore={search.fetchNextPage}
@@ -190,7 +192,21 @@ describe("exact-first case search UI", () => {
     )
   })
 
-  it("keeps the view filters visible without a scope selector", async () => {
+  it("keeps the view filters visible and continues through an empty page", async () => {
+    jest.mocked(casesSearchCases).mockImplementation(
+      (request) =>
+        new CancelablePromise((resolve) =>
+          resolve(
+            request.cursor
+              ? { items: [CASE], has_more: false }
+              : {
+                  items: [],
+                  has_more: true,
+                  next_cursor: "synthetic-continuation",
+                }
+          )
+        )
+    )
     setup()
     await waitFor(() => expect(casesSearchCases).toHaveBeenCalledTimes(1))
     expect(
@@ -202,6 +218,16 @@ describe("exact-first case search UI", () => {
     expect(
       screen.getByRole("group", { name: "Current view filters" })
     ).not.toBeDisabled()
+    expect(
+      screen.queryByText("No cases match the current filters.")
+    ).not.toBeInTheDocument()
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Load more cases" })
+    )
+    await screen.findByRole("button", { name: "CASE-0042" })
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cursor: "synthetic-continuation" })
+    )
   })
 
   it("shows dates without unsupported hierarchy labels or controls", async () => {
@@ -273,6 +299,47 @@ describe("exact-first case search UI", () => {
     expect(
       screen.queryByText(/Outside current filters/)
     ).not.toBeInTheDocument()
+  })
+
+  it("keeps the promoted result out of ordinary status-group counts", async () => {
+    mockCasesResponse({
+      items: [
+        { ...CASE, is_exact_match: true },
+        {
+          ...CASE,
+          id: "00000000-0000-4000-8000-000000000043",
+          short_id: "CASE-0043",
+          status: "new",
+        },
+      ],
+      has_more: false,
+    })
+    jest.mocked(casesSearchCaseAggregates).mockImplementation(
+      () =>
+        new CancelablePromise((resolve) =>
+          resolve({
+            total: 2,
+            status_groups: {
+              new: 1,
+              in_progress: 0,
+              on_hold: 0,
+              resolved: 0,
+              closed: 1,
+              other: 0,
+              unknown: 0,
+            },
+          })
+        )
+    )
+    setup()
+    await screen.findByRole("region", { name: "Exact match" })
+    await waitFor(() =>
+      expect(screen.getByTestId("ordinary-results")).toHaveAttribute(
+        "data-closed-count",
+        "0"
+      )
+    )
+    expect(screen.getByText("2 cases")).toBeInTheDocument()
   })
 
   it("clears the promoted result without changing the saved date constraint", async () => {

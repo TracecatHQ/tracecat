@@ -16246,6 +16246,10 @@ export type CasesListCasesData = {
    */
   hierarchy?: "all" | "top_level"
   /**
+   * Include the exact filtered total_estimate for compatibility. Set false when fetching aggregate counts separately; total_estimate will be null.
+   */
+  includeCount?: boolean
+  /**
    * Include case duration values
    */
   includeDurations?: boolean
@@ -16321,6 +16325,10 @@ export type CasesSearchCasesData = {
    * Return every case, or only top-level cases without a parent.
    */
   hierarchy?: "all" | "top_level"
+  /**
+   * Include the exact filtered total_estimate for compatibility. Set false on all pages when fetching aggregate counts separately; total_estimate will be null.
+   */
+  includeCount?: boolean
   /**
    * Include case duration values
    */

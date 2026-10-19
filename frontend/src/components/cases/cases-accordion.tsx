@@ -455,14 +455,10 @@ export function CasesAccordion({
           const StatusIcon = config.icon
           const aggregateKey = config.aggregateKey
           const globalCount = aggregateKey ? stageCounts?.[aggregateKey] : null
-          const hasGlobalCount = typeof globalCount === "number"
-          const groupCount =
-            singleFilteredGroup === groupKey &&
-            typeof totalFilteredCaseEstimate === "number"
-              ? totalFilteredCaseEstimate
-              : hasGlobalCount
-                ? globalCount
-                : groupCases.length
+          const filteredCount =
+            singleFilteredGroup === groupKey ? totalFilteredCaseEstimate : null
+          const knownCount = filteredCount ?? globalCount
+          const groupCount = knownCount ?? groupCases.length
 
           return (
             <AccordionPrimitive.Item
@@ -504,6 +500,7 @@ export function CasesAccordion({
                     <span className="text-xs font-medium">{config.label}</span>
                     <span className="text-xs text-muted-foreground">
                       {groupCount}
+                      {typeof knownCount !== "number" && " loaded"}
                     </span>
                     {(isCountsLoading || isCountsFetching) && (
                       <Loader2Icon className="size-3 animate-spin text-muted-foreground" />

@@ -11,7 +11,7 @@ from sqlalchemy import cast, func, or_, select
 from sqlalchemy.dialects.postgresql import UUID, insert
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import raiseload, selectinload
+from sqlalchemy.orm import load_only, raiseload, selectinload
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.sql.base import ExecutableOption
 from sqlalchemy.sql.elements import ColumnElement
@@ -584,6 +584,7 @@ class CasesService(BaseWorkspaceService):
         case_id: uuid.UUID | None = None,
         promote_exact_match: bool = False,
         match_none: bool = False,
+        include_count: bool = True,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """Search cases with cursor-based pagination and filtering.
 
@@ -593,6 +594,12 @@ class CasesService(BaseWorkspaceService):
         can enable ``promote_exact_match`` to place the referenced case before
         ordinary text matches. Only view filters may be bypassed, and counts
         retain their filtered-population meaning.
+
+        ``include_count`` defaults to True to preserve the exact
+        ``total_estimate`` used by API/workflow callers. Clients that fetch
+        population aggregates separately can opt out on every page, including
+        continuations; their ``total_estimate`` is None. Detail hydration is
+        restricted to returned rows, excluding the pagination lookahead row.
         """
         include_case_addons = await self.has_entitlement(Entitlement.CASE_ADDONS)
         parent_id, top_level_only = await self.hierarchy.resolve_filters(
@@ -639,42 +646,43 @@ class CasesService(BaseWorkspaceService):
                 filters=view_filters,
             )
 
-        # Base query - eagerly load tags, assignee, and dropdown values.
+        # Keep pagination independent of detail flags and exclude large text /
+        # JSON columns. Wildcard raiseload suppresses model-default selectin
+        # relationships, including table_rows and unrelated nested collections.
         stmt = (
             select(Case)
             .where(Case.workspace_id == self.workspace_id)
-            .options(selectinload(Case.tags))
-            .options(selectinload(Case.assignee))
             .options(
-                selectinload(Case.dropdown_values).selectinload(
-                    CaseDropdownValue.definition
-                )
-            )
-            .options(
-                selectinload(Case.dropdown_values).selectinload(
-                    CaseDropdownValue.option
-                )
+                load_only(
+                    Case.id,
+                    Case.workspace_id,
+                    Case.case_number,
+                    Case.created_at,
+                    Case.updated_at,
+                    Case.summary,
+                    Case.status,
+                    Case.priority,
+                    Case.severity,
+                    Case.assignee_id,
+                    Case.parent_id,
+                    raiseload=True,
+                ),
+                raiseload("*"),
             )
         )
-        if include_case_addons and include_durations:
-            stmt = stmt.options(selectinload(Case.durations))
 
         if exact_match is not None:
             stmt = stmt.where(sa.or_(sa.and_(*filters), exact_match.predicate))
         else:
             stmt = stmt.where(*filters)
 
-        # Compute total count with applied filters (workspace scoped)
-        count_stmt = (
-            select(func.count())
-            .select_from(Case)
-            .where(Case.workspace_id == self.workspace_id)
-        )
-        for clause in filters:
-            count_stmt = count_stmt.where(clause)
-
-        total_count = await self.session.scalar(count_stmt)
-        total_estimate = int(total_count or 0)
+        total_estimate: int | None = None
+        if include_count:
+            # Preserve the legacy exact filtered count. The UI can use the
+            # aggregate endpoint as its sole population-count source instead.
+            count_stmt = select(func.count()).select_from(Case).where(*filters)
+            total_count = await self.session.scalar(count_stmt)
+            total_estimate = int(total_count or 0)
 
         # Determine sort column and direction
         sort_column = order_by or "created_at"
@@ -737,6 +745,44 @@ class CasesService(BaseWorkspaceService):
             order_by=ordering,
         )
         cases = case_page.items
+
+        hydration_options: list[ExecutableOption] = [
+            load_only(Case.id, Case.payload, raiseload=True)
+            if include_payload
+            else load_only(Case.id, raiseload=True),
+            raiseload("*"),
+            selectinload(Case.tags),
+            selectinload(Case.assignee),
+        ]
+        if include_case_addons:
+            hydration_options.extend(
+                [
+                    selectinload(Case.dropdown_values).selectinload(
+                        CaseDropdownValue.definition
+                    ),
+                    selectinload(Case.dropdown_values).selectinload(
+                        CaseDropdownValue.option
+                    ),
+                ]
+            )
+            if include_durations:
+                hydration_options.append(selectinload(Case.durations))
+        if cases:
+            # SQLAlchemy's identity map hydrates the already-paginated objects
+            # without replacing their order or loading the lookahead case.
+            hydration_stmt = (
+                select(Case)
+                .where(
+                    Case.workspace_id == self.workspace_id,
+                    Case.id.in_([case.id for case in cases]),
+                )
+                .options(*hydration_options)
+            )
+            hydrated = (await self.session.scalars(hydration_stmt)).all()
+            hydrated_ids = {case.id for case in hydrated}
+            # A deletion can occur between statement snapshots. Omit missing
+            # rows instead of accessing relationships that were never loaded.
+            cases = [case for case in cases if case.id in hydrated_ids]
 
         # Fetch task counts and sub-case relationships for response hydration.
         task_counts = await self.get_task_counts([case.id for case in cases])
@@ -925,8 +971,9 @@ class CasesService(BaseWorkspaceService):
         include_durations: bool = False,
         include_payload: bool = False,
         hierarchy: CaseHierarchyFilter = "all",
+        include_count: bool = True,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
-        """List cases with a simplified default search query."""
+        """List cases, including the legacy exact count unless opted out."""
         return await self.search_cases(
             params=CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
             order_by=order_by,
@@ -934,6 +981,7 @@ class CasesService(BaseWorkspaceService):
             include_durations=include_durations,
             include_payload=include_payload,
             hierarchy=hierarchy,
+            include_count=include_count,
         )
 
     async def get_case(
