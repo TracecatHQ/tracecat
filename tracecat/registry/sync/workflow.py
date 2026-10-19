@@ -30,7 +30,7 @@ from typing import Never
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError, TimeoutError
 
 with workflow.unsafe.imports_passed_through():
     import tempfile
@@ -47,7 +47,10 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.registry.sync.runner import (
         ActionDiscoveryError,
+        GitCloneError,
+        PackageInstallError,
         RegistrySyncRunner,
+        RegistrySyncRunnerError,
         RegistrySyncValidationError,
     )
     from tracecat.registry.sync.schemas import (
@@ -55,6 +58,7 @@ with workflow.unsafe.imports_passed_through():
         RegistryArtifactsBackfillItemResult,
         RegistryArtifactsBackfillRequest,
         RegistryArtifactsBackfillResult,
+        RegistrySyncFailureDiagnostic,
         RegistrySyncRequest,
         RegistrySyncResult,
     )
@@ -63,8 +67,18 @@ with workflow.unsafe.imports_passed_through():
         RuntimeErrorClassification,
         RuntimeErrorKind,
     )
+    from tracecat.sanitization import redact_sensitive_text
     from tracecat.storage import blob
-    from tracecat.temporal.errors import raise_application_error_from_classification
+    from tracecat.temporal.errors import (
+        application_error_from_classification,
+        build_error_transport_detail,
+        extract_error_classification,
+        raise_application_error_from_classification,
+    )
+
+# Leave the workflow time to report the final activity failure before the
+# caller's 20-minute execution timeout expires.
+_SYNC_ACTIVITY_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(minutes=18)
 
 
 @workflow.defn
@@ -103,17 +117,17 @@ class RegistrySyncWorkflow:
                 sync_registry_activity,
                 request,
                 start_to_close_timeout=timedelta(minutes=15),
+                schedule_to_close_timeout=_SYNC_ACTIVITY_SCHEDULE_TO_CLOSE_TIMEOUT,
                 retry_policy=RetryPolicy(
                     maximum_attempts=3,
                     initial_interval=timedelta(seconds=5),
                 ),
             )
         except ActivityError as exc:
-            # Fail the workflow with the non-retryable cause so the workflow
-            # retry policy does not rerun deterministic content failures.
-            if isinstance(exc.cause, ApplicationError) and exc.cause.non_retryable:
-                raise exc.cause  # noqa: B904
-            raise
+            # Activity retries are exhausted. Fail the workflow non-retryably so
+            # the caller's workflow retry policy cannot rerun the sync and hide
+            # the final activity failure behind the execution timeout.
+            raise _terminal_sync_failure(exc) from None
 
         workflow.logger.info(
             "RegistrySyncWorkflow completed",
@@ -197,6 +211,61 @@ def _raise_registry_sync_validation_error(
     )
 
 
+def _terminal_sync_failure(exc: ActivityError) -> BaseException:
+    """Build the non-retryable workflow failure for an exhausted sync activity."""
+    cause = exc.cause
+    if isinstance(cause, TimeoutError):
+        return application_error_from_classification(
+            RuntimeErrorClassification.platform(
+                kind=RuntimeErrorKind.EXECUTOR_ACTIVITY_TIMED_OUT,
+                message="Registry sync timed out",
+                retry_disposition=RetryDisposition.NON_RETRYABLE,
+                cause=cause,
+            )
+        )
+    if isinstance(cause, ApplicationError):
+        if cause.non_retryable:
+            return cause
+        if extract_error_classification(cause) is not None:
+            return ApplicationError(
+                cause.message,
+                *cause.details,
+                type=cause.type,
+                non_retryable=True,
+            )
+    return exc
+
+
+def _raise_registry_sync_failure(exc: RegistrySyncRunnerError) -> Never:
+    """Raise a retryable sync failure with a redacted diagnostic for the caller."""
+    match exc:
+        case GitCloneError():
+            owner_classification = RuntimeErrorClassification.user
+            message = "Registry repository clone failed"
+        case PackageInstallError():
+            owner_classification = RuntimeErrorClassification.user
+            message = "Registry package installation failed"
+        case ActionDiscoveryError():
+            owner_classification = RuntimeErrorClassification.platform
+            message = "Registry action discovery failed"
+        case _:
+            owner_classification = RuntimeErrorClassification.platform
+            message = "Registry sync failed"
+    classification = owner_classification(
+        kind=RuntimeErrorKind.REGISTRY_SYNC_FAILED,
+        message=message,
+        retry_disposition=RetryDisposition.RETRYABLE,
+        cause=exc,
+    )
+    raise_application_error_from_classification(
+        classification,
+        build_error_transport_detail(
+            classification,
+            RegistrySyncFailureDiagnostic(detail=redact_sensitive_text(str(exc))),
+        ),
+    )
+
+
 @activity.defn
 async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncResult:
     """Execute registry sync with nsjail sandboxing.
@@ -237,7 +306,9 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
             # Some discovery failures are deterministic content errors, such as
             # template parsing failures. Keep transient subprocess failures retryable.
             _raise_registry_sync_validation_error(str(exc), cause=exc)
-        raise
+        _raise_registry_sync_failure(exc)
+    except RegistrySyncRunnerError as exc:
+        _raise_registry_sync_failure(exc)
 
     if result.validation_errors:
         error_count = sum(len(errs) for errs in result.validation_errors.values())

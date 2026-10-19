@@ -34,6 +34,14 @@ class SyncErrorCode(StrEnum):
     IMPORT_FAILED = "import_failed"
 
 
+class RegistrySyncFailureDiagnostic(BaseModel):
+    """Redacted failure detail carried alongside a registry sync classification."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    detail: str
+
+
 class SyncResultSuccess(BaseModel):
     """Successful sync result containing actions and metadata."""
 

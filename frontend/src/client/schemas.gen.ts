@@ -28244,6 +28244,7 @@ export const $RuntimeErrorKind = {
     "tenant.entitlement.denied",
     "integration.rate_limited",
     "registry.sync.validation_failed",
+    "registry.sync.failed",
     "registry.lock.invalid_data",
     "registry.lock.action_ambiguous",
     "runtime.unclassified",

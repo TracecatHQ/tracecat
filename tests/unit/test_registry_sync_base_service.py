@@ -39,11 +39,13 @@ from tracecat.registry.sync.artifact import RegistryArtifactBuildResult
 from tracecat.registry.sync.base_service import ArtifactsBuildResult
 from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
 from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
+from tracecat.registry.sync.runner import ActionDiscoveryError
 from tracecat.registry.sync.service import (
     RegistryActionShadowsBuiltinError,
     RegistrySyncError,
     RegistrySyncService,
 )
+from tracecat.registry.sync.workflow import _raise_registry_sync_failure
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.runtime.errors import (
@@ -671,11 +673,15 @@ async def test_sync_via_temporal_surfaces_unclassified_activity_failure(
         RegistryRepositoryCreate(origin=DEFAULT_REGISTRY_ORIGIN)
     )
 
-    message = (
+    detail = (
         "Failed to discover actions: Sandboxed registry discovery failed: "
         "RuntimeError: worker lost"
     )
-    app_error = ApplicationError(message)
+    try:
+        _raise_registry_sync_failure(ActionDiscoveryError(detail))
+    except ApplicationError as exc:
+        app_error = exc
+    message = f"Registry action discovery failed: {detail}"
     try:
         raise ActivityError(
             "Registry sync activity failed",
@@ -705,6 +711,7 @@ async def test_sync_via_temporal_surfaces_unclassified_activity_failure(
         await sync_service.sync_repository_v2(repo, commit=False)
 
     assert "Workflow execution failed" not in str(exc_info.value)
+    assert "unclassified" not in str(exc_info.value)
 
 
 @pytest.mark.anyio

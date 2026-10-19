@@ -8,23 +8,32 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    TimeoutError,
+    TimeoutType,
+)
 
 from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.registry.actions.schemas import RegistryActionValidationErrorInfo
 from tracecat.registry.sync.runner import (
     ActionDiscoveryError,
+    GitCloneError,
+    PackageInstallError,
     RegistrySyncValidationError,
 )
 from tracecat.registry.sync.schemas import (
     RegistryArtifactsBackfillItem,
     RegistryArtifactsBackfillItemResult,
     RegistryArtifactsBackfillRequest,
+    RegistrySyncFailureDiagnostic,
     RegistrySyncRequest,
 )
 from tracecat.registry.sync.workflow import (
     RegistryArtifactsBackfillWorkflow,
     RegistrySyncWorkflow,
+    _raise_registry_sync_failure,
     backfill_registry_artifacts_activity,
     sync_registry_activity,
 )
@@ -33,7 +42,11 @@ from tracecat.runtime.errors import (
     RuntimeErrorKind,
     RuntimeErrorOwner,
 )
-from tracecat.temporal.errors import extract_error_classifications
+from tracecat.temporal.errors import (
+    extract_error_classification,
+    extract_error_classifications,
+    extract_error_diagnostics,
+)
 
 
 def _assert_registry_validation_classification(error: ApplicationError) -> None:
@@ -125,18 +138,57 @@ async def test_sync_registry_activity_raises_non_retryable_error_for_content_dis
     assert "list[str]" in str(exc)
 
 
+def _registry_sync_failure_detail(error: ApplicationError) -> str:
+    classification = extract_error_classification(error)
+    assert classification is not None
+    (diagnostic,) = extract_error_diagnostics(error, classification)
+    return RegistrySyncFailureDiagnostic.model_validate(diagnostic).detail
+
+
 @pytest.mark.anyio
-async def test_sync_registry_activity_keeps_transient_discovery_errors_retryable(
+@pytest.mark.parametrize(
+    ("runner_error", "owner", "message", "detail"),
+    [
+        pytest.param(
+            ActionDiscoveryError(
+                "Failed to discover actions: Sync subprocess timed out after 300s"
+            ),
+            RuntimeErrorOwner.PLATFORM,
+            "Registry action discovery failed",
+            "Failed to discover actions: Sync subprocess timed out after 300s",
+            id="discovery",
+        ),
+        pytest.param(
+            GitCloneError(
+                "Git clone failed: https://user:synthetic-password@git.example.com/r.git"
+            ),
+            RuntimeErrorOwner.USER,
+            "Registry repository clone failed",
+            "Git clone failed: https://git.example.com/r.git",
+            id="git_clone_redacted",
+        ),
+        pytest.param(
+            PackageInstallError("Package installation failed: resolver error"),
+            RuntimeErrorOwner.USER,
+            "Registry package installation failed",
+            "Package installation failed: resolver error",
+            id="package_install",
+        ),
+    ],
+)
+async def test_sync_registry_activity_classifies_retryable_failures(
     monkeypatch: pytest.MonkeyPatch,
+    runner_error: Exception,
+    owner: RuntimeErrorOwner,
+    message: str,
+    detail: str,
 ) -> None:
-    """Transient discovery failures should bubble up so Temporal can retry them."""
+    """Retryable sync failures carry a redacted diagnostic past the interceptor."""
 
     class _FakeRunner:
         async def run(self, request: RegistrySyncRequest) -> None:
             del request
-            raise ActionDiscoveryError(
-                "Failed to discover actions: Sync subprocess timed out after 300s"
-            )
+            raise runner_error
 
     monkeypatch.setattr(
         "tracecat.registry.sync.workflow.RegistrySyncRunner", _FakeRunner
@@ -148,8 +200,19 @@ async def test_sync_registry_activity_keeps_transient_discovery_errors_retryable
         origin_type="builtin",
     )
 
-    with pytest.raises(ActionDiscoveryError, match="timed out"):
+    with pytest.raises(ApplicationError) as exc_info:
         await sync_registry_activity(request)
+
+    error = exc_info.value
+    classification = extract_error_classification(error)
+    assert classification is not None
+    assert classification.owner is owner
+    assert classification.kind is RuntimeErrorKind.REGISTRY_SYNC_FAILED
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert error.message == message
+    assert error.non_retryable is False
+    assert error.__cause__ is None
+    assert _registry_sync_failure_detail(error) == detail
 
 
 @pytest.mark.anyio
@@ -406,18 +469,10 @@ def _sync_activity_error(cause: BaseException) -> ActivityError:
             return activity_error
 
 
-@pytest.mark.anyio
-@pytest.mark.parametrize("non_retryable", [True, False])
-async def test_registry_sync_workflow_fails_non_retryably_on_content_errors(
+async def _run_workflow_with_activity_failure(
     monkeypatch: pytest.MonkeyPatch,
-    non_retryable: bool,
-) -> None:
-    cause = ApplicationError(
-        "Failed to discover actions: Registry dependencies conflict with "
-        "Tracecat's runtime: ImportError: cannot import name 'x' from 'y'",
-        non_retryable=non_retryable,
-    )
-
+    cause: BaseException,
+) -> BaseException:
     async def fake_execute_activity(*_args: Any, **_kwargs: Any) -> Any:
         raise _sync_activity_error(cause)
 
@@ -432,11 +487,57 @@ async def test_registry_sync_workflow_fails_non_retryably_on_content_errors(
     request: Any = SimpleNamespace(
         repository_id=uuid4(), origin="custom_actions", origin_type="git"
     )
-
-    with pytest.raises((ApplicationError, ActivityError)) as exc_info:
+    with pytest.raises(BaseException) as exc_info:
         await RegistrySyncWorkflow().run(request)
+    return exc_info.value
 
-    if non_retryable:
-        assert exc_info.value is cause
-    else:
-        assert isinstance(exc_info.value, ActivityError)
+
+@pytest.mark.anyio
+async def test_registry_sync_workflow_reraises_non_retryable_activity_cause(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cause = ApplicationError("Registry dependencies conflict", non_retryable=True)
+
+    assert await _run_workflow_with_activity_failure(monkeypatch, cause) is cause
+
+
+@pytest.mark.anyio
+async def test_registry_sync_workflow_fails_non_retryably_after_activity_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with pytest.raises(ApplicationError) as activity_failure:
+        _raise_registry_sync_failure(
+            ActionDiscoveryError("Failed to discover actions: worker lost")
+        )
+    cause = activity_failure.value
+
+    error = await _run_workflow_with_activity_failure(monkeypatch, cause)
+
+    assert isinstance(error, ApplicationError)
+    assert error.non_retryable is True
+    assert error.message == cause.message
+    assert error.type == RuntimeErrorKind.REGISTRY_SYNC_FAILED.value
+    assert extract_error_classification(error) == extract_error_classification(cause)
+    assert _registry_sync_failure_detail(error) == (
+        "Failed to discover actions: worker lost"
+    )
+
+
+@pytest.mark.anyio
+async def test_registry_sync_workflow_classifies_activity_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cause = TimeoutError(
+        "activity timeout",
+        type=TimeoutType.SCHEDULE_TO_CLOSE,
+        last_heartbeat_details=[],
+    )
+
+    error = await _run_workflow_with_activity_failure(monkeypatch, cause)
+
+    assert isinstance(error, ApplicationError)
+    assert error.non_retryable is True
+    assert error.message == "Registry sync timed out"
+    classification = extract_error_classification(error)
+    assert classification is not None
+    assert classification.kind is RuntimeErrorKind.EXECUTOR_ACTIVITY_TIMED_OUT

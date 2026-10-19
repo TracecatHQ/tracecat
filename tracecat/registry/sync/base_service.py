@@ -11,10 +11,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, Self, cast
 
 import aiofiles
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped
 from temporalio.client import WorkflowFailureError
-from temporalio.exceptions import ActivityError, ChildWorkflowError
 
 from tracecat import config
 from tracecat.auth.types import PlatformRole, Role
@@ -39,17 +39,23 @@ from tracecat.registry.sync.artifact import (
     upload_squashfs_venv,
 )
 from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
-from tracecat.registry.sync.schemas import RegistrySyncRequest
+from tracecat.registry.sync.schemas import (
+    RegistrySyncFailureDiagnostic,
+    RegistrySyncRequest,
+)
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
 from tracecat.registry.versions.schemas import (
     RegistryVersionCreate,
     RegistryVersionManifest,
 )
-from tracecat.runtime.errors import RuntimeErrorKind
+from tracecat.runtime.errors import RuntimeErrorClassification, RuntimeErrorKind
 from tracecat.secrets.service import SecretsService
 from tracecat.service import BaseService
 from tracecat.storage import blob
-from tracecat.temporal.errors import extract_error_classifications
+from tracecat.temporal.errors import (
+    extract_error_classifications,
+    extract_error_diagnostics,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -738,13 +744,14 @@ class BaseRegistrySyncService[
                 ),
             )
         except WorkflowFailureError as exc:
+            classifications = extract_error_classifications(
+                exc,
+                include_implicit_context=False,
+            )
             validation_failure = next(
                 (
                     classification
-                    for classification in extract_error_classifications(
-                        exc,
-                        include_implicit_context=False,
-                    )
+                    for classification in classifications
                     if classification.kind
                     is RuntimeErrorKind.REGISTRY_SYNC_VALIDATION_FAILED
                 ),
@@ -753,7 +760,7 @@ class BaseRegistrySyncService[
             if validation_failure is not None:
                 raise self._sync_error_cls()(validation_failure.message) from exc
 
-            detail = _workflow_failure_detail(exc)
+            detail = _workflow_failure_detail(exc, classifications)
             self.logger.error(
                 "Registry sync workflow failed",
                 repository=origin,
@@ -868,11 +875,18 @@ class BaseRegistrySyncService[
         )
 
 
-def _workflow_failure_detail(exc: WorkflowFailureError) -> str:
-    """Return the innermost failure message, skipping Temporal wrapper errors."""
-    current: BaseException | None = exc.cause
-    while current is not None:
-        if not isinstance(current, ActivityError | ChildWorkflowError) and str(current):
-            return str(current)
-        current = current.__cause__
-    return str(exc)
+def _workflow_failure_detail(
+    exc: WorkflowFailureError,
+    classifications: Sequence[RuntimeErrorClassification],
+) -> str:
+    """Return the classified sync failure with its redacted diagnostic."""
+    if not classifications:
+        return str(exc.cause or exc)
+    classification = classifications[0]
+    for diagnostic in extract_error_diagnostics(exc, classification):
+        try:
+            parsed = RegistrySyncFailureDiagnostic.model_validate(diagnostic)
+        except ValidationError:
+            continue
+        return f"{classification.message}: {parsed.detail}"
+    return classification.message
