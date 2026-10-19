@@ -6,26 +6,92 @@ icon: "lock"
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
-## Overview
-
 A form turns a workflow's [Input schema](/automations/workflows#input-schema) into a page that workspace members fill in. Each submission starts the workflow with trigger type `form`.
 
-The Input schema supplies each field's name, type, and default, and a field is required when its input has no default. The form config controls presentation only.
+The Input schema sets each field's name, type, and default. A field is required when its input has no default. The form config only controls how the form looks.
 
 ## Create a form
 
-| Where | Steps | Result |
-| --- | --- | --- |
-| `Forms` in the workspace sidebar | Click `New form` and pick a workflow. | An offline form. Fix any problems the `Config` tab shows, then switch it to `Online` in the form's header. |
-| `Form` tab of the trigger panel in the workflow builder | Publish the workflow, then turn on `Enable form`. | An online form, with its `Requester link` and an `Edit in Forms` link. |
+<Steps>
+  <Step title="Publish the workflow">
+    Add an Input schema to the workflow and publish it. A form goes online only when its workflow is published.
+  </Step>
+  <Step title="Create the form">
+    Open `Forms` in the workspace sidebar, click `New form`, and pick the workflow. New forms start offline.
 
-A form goes online only when its workflow is published. An online form reads the published Input schema and starts the published workflow definition. Before the first publish, the form reads the draft Input schema so you can prepare it offline.
+    ![Forms list](/img/triggers/forms-list.png)
+  </Step>
+  <Step title="Lay out the form">
+    Edit the YAML on the form's `Config` tab. The `Preview` pane updates as you type, and the editor marks each problem on its line. See [Form config](#form-config) for every key.
 
-Tracecat checks the config against the published Input schema on every render and submit. When a publish removes or retypes an input the config uses, the form stops accepting submissions until you fix the config.
+    ![Form config and preview](/img/triggers/form-config.png)
+  </Step>
+  <Step title="Turn the form online">
+    Switch the toggle in the form's header to `Online`.
+  </Step>
+  <Step title="Share the link">
+    Click `Open` and share the form's URL, `/forms/{form_id}`. Members with `form:read` in the workspace can open it.
+  </Step>
+</Steps>
+
+<Tip>
+  To create a form from the workflow builder, open the trigger panel, go to the `Form` tab, and turn on `Enable form`. The tab shows the `Requester link` and an `Edit in Forms` link to the config.
+
+  ![Form tab in the trigger panel](/img/triggers/builder-form-tab.png)
+</Tip>
+
+An online form reads the published Input schema and starts the published workflow definition. Before the first publish, the form reads the draft Input schema so you can prepare it offline. When a publish removes or retypes an input the config uses, the form stops accepting submissions until you fix the config.
+
+<Note>
+  Don't see `Forms` in the sidebar? It needs `form:read` plus `form:update` or `form:submission:read`. See [Permissions](#permissions).
+</Note>
+
+## Fill in a form
+
+1. Open `/forms` to see the online forms you can fill in, grouped by workspace, or open a shared form link.
+
+   ![Forms catalog for requesters](/img/triggers/requester-catalog.png)
+
+2. Fill in the fields and click `Submit`.
+
+   ![Requester form](/img/triggers/form-fill-in.png)
+
+3. Note the reference, such as `FRM-8F3C2A1C`, shown with the form's `success_message`. Find past submissions on the `My submissions` tab of `/forms`.
+
+   ![Submitted form](/img/triggers/form-submitted.png)
+
+A member without `form:submit` sees the form read-only. An offline form shows `This form isn't accepting requests`. A member who holds `form:read` and no `workspace:read` lands on `/forms` when they open Tracecat.
+
+## Activity
+
+The `Activity` tab of a form shows `Views` and `Submissions` counts and lists submissions newest first. Each row shows the submitter, the reference, the run status, and a `Run` link. Expand a submission to read its answers. Tracecat counts one view per user per form every five minutes.
+
+![Form activity](/img/triggers/form-activity.png)
+
+Tracecat keeps submissions until you delete them. Deleting a submission removes its stored answers and files and leaves the workflow run and its inputs in place. To delete old submissions on a [schedule](/automations/triggers/schedules), list them with `core.forms.list_submissions` and `submitted_before`, then delete each with `core.forms.delete_submission`. See [Forms actions](/automations/core-actions/form-actions/forms).
+
+## What the workflow receives
+
+`TRIGGER` holds one key per input, validated against the Input schema. For the [example config](#form-config):
+
+```json
+{
+  "model": "pro",
+  "justification": "Current laptop is five years old",
+  "for_someone_else": false,
+  "recipient": null,
+  "requester": { "user_id": "5b0f4c1e-7a2d-4e83-9c16-3d8a2f6b9e01", "email": "maya.okafor@example.com", "first_name": "Maya", "last_name": "Okafor" },
+  "cost_center": "IT-000"
+}
+```
+
+An answered field holds its [widget's value](#widgets). An optional field left empty, a conditional field the requester could not see, and a hidden field hold the input's default. An autofill input holds the value Tracecat fills in.
+
+`ENV.workflow.trigger_type` is `form`. The run records the requester as the user who triggered it and executes with the workflow runner's permissions, as a webhook run does, so a requester needs no workflow or action scopes.
 
 ## Form config
 
-Edit the config as YAML on the form's `Config` tab. The `Preview` pane updates as you type, and the editor marks each problem on its line. Tracecat refuses to save a config with errors. Saving replaces the whole config and drops YAML comments. Every key is optional, and Tracecat rejects keys outside this reference.
+Every key is optional, and Tracecat rejects keys outside this reference. Tracecat refuses to save a config with errors. Saving replaces the whole config and drops YAML comments.
 
 | Key | Description |
 | --- | --- |
@@ -172,43 +238,6 @@ The `file` widget lets requesters attach files. A `dict` input takes one file. A
 Tracecat accepts a file when the workspace attachment settings allow its extension and MIME type, it matches `accept`, its content matches its declared type, and it is not empty and at most `TRACECAT__MAX_ATTACHMENT_SIZE_BYTES` (20 MB by default). One requester holds at most 20 uploaded files on one form before submitting. An uploaded file that no submission claims within 24 hours expires. Tracecat deletes expired files every 10 minutes.
 
 Read a file's content in the workflow with [`core.forms.download_file`](/automations/core-actions/form-actions/forms), passing `${{ TRIGGER.quote.id }}` as `file_id`. The requester who uploaded a file can download it before and after submitting. A member with `form:submission:read` can download every submitted file from the `Activity` tab. Deleting a submission, its form, or the form's workflow deletes its files.
-
-## What requesters see
-
-Requesters need `form:read` in the form's workspace and can open every online form in that workspace.
-
-| Page | Shows |
-| --- | --- |
-| `/forms` | The `Forms` tab lists online forms from every workspace where you hold `form:read`, grouped by workspace. |
-| `/forms?tab=submissions` | The `My submissions` tab lists your own submissions with the form, a reference, and the time. |
-| `/forms/{form_id}` | The form. This is the link you share. |
-
-After submitting, the requester sees the `success_message` and a reference such as `FRM-8F3C2A1C`. A member without `form:submit` sees the form read-only. An offline form shows `This form isn't accepting requests`. A member who holds `form:read` and no `workspace:read` lands on `/forms` when they open Tracecat.
-
-## What the workflow receives
-
-`TRIGGER` holds one key per input, validated against the Input schema. For the example form:
-
-```json
-{
-  "model": "pro",
-  "justification": "Current laptop is five years old",
-  "for_someone_else": false,
-  "recipient": null,
-  "requester": { "user_id": "5b0f4c1e-7a2d-4e83-9c16-3d8a2f6b9e01", "email": "maya.okafor@example.com", "first_name": "Maya", "last_name": "Okafor" },
-  "cost_center": "IT-000"
-}
-```
-
-An answered field holds its [widget's value](#widgets). An optional field left empty, a conditional field the requester could not see, and a hidden field hold the input's default. An autofill input holds the value Tracecat fills in.
-
-`ENV.workflow.trigger_type` is `form`. The run records the requester as the user who triggered it and executes with the workflow runner's permissions, as a webhook run does, so a requester needs no workflow or action scopes.
-
-## Activity
-
-The `Activity` tab of a form shows `Views` and `Submissions` counts and lists submissions newest first. Expand a submission to read its answers. Each row shows the submitter, the run status, and a `Run` link. Tracecat counts one view per user per form every five minutes.
-
-Tracecat keeps submissions until you delete them. Deleting a submission removes its stored answers and files and leaves the workflow run and its inputs in place. To delete old submissions, run a workflow on a [schedule](/automations/triggers/schedules) that lists them with `core.forms.list_submissions` and `submitted_before`, then deletes each with `core.forms.delete_submission`. See [Forms actions](/automations/core-actions/form-actions/forms) for both steps.
 
 ## Permissions
 
