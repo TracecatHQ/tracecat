@@ -100,11 +100,7 @@ When you sync a registry, Tracecat:
 ## Dependency conflicts
 
 When Tracecat syncs your registry, it imports your actions alongside Tracecat's own runtime packages, and your registry's dependencies take precedence.
-If your registry pins a package that Tracecat also uses, such as `opentelemetry-api` or `pydantic`, to an incompatible version, the sync fails with an error like:
-
-```
-Registry dependencies conflict with Tracecat's runtime: ImportError: cannot import name '_ExtendedAttributes' from 'opentelemetry.util.types'
-```
+If your registry pins a package that Tracecat also uses to an incompatible version, the sync fails with a dependency conflict error.
 
 To fix it:
 
