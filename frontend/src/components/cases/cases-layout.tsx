@@ -35,6 +35,7 @@ import type {
   SortDirection,
 } from "@/components/filters/filter-multi-select"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import type { CaseDateFilterValue, UseCasesFilters } from "@/hooks/use-cases"
 import { useEntitlements } from "@/hooks/use-entitlements"
@@ -546,8 +547,20 @@ export function CasesLayout({
         {cases.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
             <p className="text-sm text-muted-foreground">
-              No cases match the current filters.
+              {hasNextPage
+                ? "No cases loaded yet."
+                : "No cases match the current filters."}
             </p>
+            {hasNextPage && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isFetchingNextPage}
+                onClick={onLoadMore}
+              >
+                {isFetchingNextPage ? "Loading cases..." : "Load more cases"}
+              </Button>
+            )}
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">

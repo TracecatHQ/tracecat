@@ -327,7 +327,7 @@ async def test_deletion_between_page_read_and_hydration_does_not_read_unloaded_s
             and " IN (" in str(state.statement)
         ):
             state.session.connection().execute(
-                delete(Case).where(Case.id == synthetic_search_cases.ids[0])
+                delete(Case).where(Case.id.in_(synthetic_search_cases.ids[:2]))
             )
             deleted = True
 
@@ -339,8 +339,16 @@ async def test_deletion_between_page_read_and_hydration_does_not_read_unloaded_s
     finally:
         event.remove(session.sync_session, "do_orm_execute", delete_before_hydration)
     assert deleted
-    assert [item.id for item in page.items] == [synthetic_search_cases.ids[1]]
+    assert page.items == []
     assert page.has_more and page.next_cursor is not None
+    following = await CasesService(session, svc_role).search_cases(
+        CursorPaginationParams(limit=2, cursor=page.next_cursor),
+        sort="asc",
+        include_count=False,
+    )
+    assert [item.id for item in following.items] == list(
+        synthetic_search_cases.ids[2:4]
+    )
 
 
 async def test_list_count_opt_out_and_empty_page_are_compatible(
