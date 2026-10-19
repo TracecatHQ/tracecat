@@ -198,11 +198,21 @@ class RegistryArtifactsBackfillWorkflow:
 def _raise_registry_sync_validation_error(
     message: str,
     *,
+    request: RegistrySyncRequest,
     cause: BaseException | None = None,
 ) -> Never:
-    """Raise an attributed, non-retryable registry content failure."""
+    """Raise an attributed, non-retryable registry content failure.
+
+    The built-in registry's content ships with Tracecat, so its failures stay
+    platform-owned.
+    """
+    owner_classification = (
+        RuntimeErrorClassification.platform
+        if request.origin_type == "builtin"
+        else RuntimeErrorClassification.user
+    )
     raise_application_error_from_classification(
-        RuntimeErrorClassification.user(
+        owner_classification(
             kind=RuntimeErrorKind.REGISTRY_SYNC_VALIDATION_FAILED,
             message=message,
             retry_disposition=RetryDisposition.NON_RETRYABLE,
@@ -300,12 +310,12 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
     except RegistrySyncValidationError as exc:
         # Validation failures are caused by repository content, not worker
         # capacity. Fail fast so users see the actionable error immediately.
-        _raise_registry_sync_validation_error(str(exc), cause=exc)
+        _raise_registry_sync_validation_error(str(exc), request=request, cause=exc)
     except ActionDiscoveryError as exc:
         if exc.non_retryable:
             # Some discovery failures are deterministic content errors, such as
             # template parsing failures. Keep transient subprocess failures retryable.
-            _raise_registry_sync_validation_error(str(exc), cause=exc)
+            _raise_registry_sync_validation_error(str(exc), request=request, cause=exc)
         _raise_registry_sync_failure(exc)
     except RegistrySyncRunnerError as exc:
         _raise_registry_sync_failure(exc)
@@ -322,7 +332,8 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
         _raise_registry_sync_validation_error(
             "Registry sync validation failed: "
             f"{error_count} validation error(s). "
-            f"First error in '{first_action}': {first_detail}"
+            f"First error in '{first_action}': {first_detail}",
+            request=request,
         )
 
     logger.info(

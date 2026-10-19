@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import gc
+import json
+import subprocess
+import sys
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import timedelta
@@ -22,13 +25,13 @@ from tracecat.registry.sync.runner import (
     RegistrySyncRunner,
     _ResolvedPackage,
 )
-from tracecat.registry.sync.sandbox import NsjailExecutor
+from tracecat.registry.sync.sandbox import NsjailExecutor, RegistrySyncSandbox
 from tracecat.registry.sync.schemas import RegistrySyncRequest
 from tracecat.registry.sync.workflow import (
     RegistrySyncWorkflow,
     sync_registry_activity,
 )
-from tracecat.runtime.errors import RuntimeErrorOwner
+from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
 from tracecat.sandbox.types import SandboxErrorCode, SandboxResult
 from tracecat.temporal.errors import extract_error_classifications
 from tracecat.workflow.executions.enums import TemporalSearchAttr
@@ -209,3 +212,100 @@ async def test_sandbox_install_failure_reaches_caller_through_interceptor(
     assert attempts == 3
     latest = await env.client.get_workflow_handle(workflow_id).describe()
     assert latest.run_id == handle.result_run_id
+
+
+_RUN_DISCOVERY_SCRIPT = """
+import json, runpy, sys
+namespace = runpy.run_path("script.py")
+with open("inputs.json", encoding="utf-8") as file:
+    inputs = json.load(file)
+json.dump(namespace["main"](**inputs), sys.stdout)
+"""
+
+
+@pytest.mark.anyio
+async def test_builtin_discovery_import_failure_is_platform_owned(
+    env: WorkflowEnvironment,
+    test_worker_factory,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A broken bundled runtime fails fast and still reaches platform reporting."""
+    attempts = 0
+    package_path = tmp_path / "registry"
+    package_path.mkdir()
+    site_packages = tmp_path / "sandbox-install" / "cache" / "site-packages"
+    site_packages.mkdir(parents=True)
+    # A regular package shadows the installed OpenTelemetry namespace package,
+    # so Tracecat's own discovery imports fail like a conflicting dependency.
+    shadow = tmp_path / "shadow"
+    (shadow / "opentelemetry").mkdir(parents=True)
+    (shadow / "opentelemetry" / "__init__.py").write_text("")
+
+    async def _resolved_package(
+        _self: RegistrySyncRunner, *_args: object
+    ) -> _ResolvedPackage:
+        return _ResolvedPackage(package_path, None)
+
+    async def _installed(_self: RegistrySyncSandbox, **_kwargs: object) -> Path:
+        nonlocal attempts
+        attempts += 1
+        return site_packages
+
+    async def _run_discovery_script(
+        _self: NsjailExecutor, job_dir: Path, *_args: object, **_kwargs: object
+    ) -> SandboxResult:
+        completed = subprocess.run(
+            [sys.executable, "-c", _RUN_DISCOVERY_SCRIPT],
+            cwd=job_dir,
+            env={"PYTHONPATH": ":".join([str(shadow), *sys.path])},
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return SandboxResult(success=True, output=json.loads(completed.stdout))
+
+    monkeypatch.setattr(
+        config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
+    )
+    monkeypatch.setattr("tracecat.registry.sync.sandbox.sandbox_cgroup", lambda: None)
+    monkeypatch.setattr(
+        RegistrySyncRunner, "_resolve_sandboxed_package", _resolved_package
+    )
+    monkeypatch.setattr(
+        RegistrySyncRunner, "_load_prebuilt_actions", lambda _self, _request: None
+    )
+    monkeypatch.setattr(RegistrySyncSandbox, "install_package", _installed)
+    monkeypatch.setattr(NsjailExecutor, "execute", _run_discovery_script)
+    task_queue = f"registry-sync-boundary-{uuid.uuid4()}"
+    workflow_id = f"registry-sync-{uuid.uuid4()}"
+    request = RegistrySyncRequest(
+        repository_id=uuid.uuid4(),
+        origin="tracecat_registry",
+        origin_type="builtin",
+    )
+
+    async with test_worker_factory(
+        env.client,
+        activities=[sync_registry_activity],
+        workflows=[RegistrySyncWorkflow],
+        task_queue=task_queue,
+    ):
+        handle = await env.client.start_workflow(
+            RegistrySyncWorkflow.run,
+            request,
+            id=workflow_id,
+            task_queue=task_queue,
+            execution_timeout=timedelta(minutes=20),
+        )
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await handle.result()
+
+    classifications = extract_error_classifications(
+        exc_info.value, include_implicit_context=False
+    )
+    assert classifications[0].owner is RuntimeErrorOwner.PLATFORM
+    assert classifications[0].kind is RuntimeErrorKind.REGISTRY_SYNC_VALIDATION_FAILED
+    detail = _workflow_failure_detail(exc_info.value, classifications)
+    assert "Registry dependencies conflict with Tracecat's runtime" in detail
+    assert attempts == 1

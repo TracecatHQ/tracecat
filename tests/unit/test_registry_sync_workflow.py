@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 import pytest
@@ -56,11 +56,13 @@ def _caused_by(error: Exception, cause: Exception) -> Exception:
     return error
 
 
-def _assert_registry_validation_classification(error: ApplicationError) -> None:
+def _assert_registry_validation_classification(
+    error: ApplicationError, owner: RuntimeErrorOwner = RuntimeErrorOwner.USER
+) -> None:
     classification = extract_error_classifications(error)
 
     assert len(classification) == 1
-    assert classification[0].owner is RuntimeErrorOwner.USER
+    assert classification[0].owner is owner
     assert classification[0].kind is RuntimeErrorKind.REGISTRY_SYNC_VALIDATION_FAILED
     assert classification[0].retry_disposition is RetryDisposition.NON_RETRYABLE
     assert error.type == RuntimeErrorKind.REGISTRY_SYNC_VALIDATION_FAILED.value
@@ -96,8 +98,8 @@ async def test_sync_registry_activity_raises_validation_application_error(
 
     request = RegistrySyncRequest(
         repository_id=uuid4(),
-        origin="tracecat_registry",
-        origin_type="builtin",
+        origin="git+ssh://git@git.example.test/acme/registry.git",
+        origin_type="git",
     )
 
     with pytest.raises(
@@ -110,8 +112,17 @@ async def test_sync_registry_activity_raises_validation_application_error(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("origin_type", "owner"),
+    [
+        pytest.param("git", RuntimeErrorOwner.USER, id="git"),
+        pytest.param("builtin", RuntimeErrorOwner.PLATFORM, id="builtin"),
+    ],
+)
 async def test_sync_registry_activity_raises_non_retryable_error_for_content_discovery_failure(
     monkeypatch: pytest.MonkeyPatch,
+    origin_type: Literal["builtin", "git"],
+    owner: RuntimeErrorOwner,
 ) -> None:
     """Discovery/template-load failures should surface immediately, not retry to timeout."""
 
@@ -132,15 +143,15 @@ async def test_sync_registry_activity_raises_non_retryable_error_for_content_dis
 
     request = RegistrySyncRequest(
         repository_id=uuid4(),
-        origin="tracecat_registry",
-        origin_type="builtin",
+        origin="git+ssh://git@git.example.test/acme/registry.git",
+        origin_type=origin_type,
     )
 
     with pytest.raises(ApplicationError) as exc_info:
         await sync_registry_activity(request)
 
     exc = exc_info.value
-    _assert_registry_validation_classification(exc)
+    _assert_registry_validation_classification(exc, owner)
     assert "example_template.yml" in str(exc)
     assert "list[str]" in str(exc)
 
