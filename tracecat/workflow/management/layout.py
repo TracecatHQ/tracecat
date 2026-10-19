@@ -38,6 +38,15 @@ class GeneratedWorkflowLayout(TypedDict):
 NODE_HEIGHT = 300
 """Vertical distance between the tops of consecutive rows."""
 
+TRIGGER_NODE_HEIGHT = 280
+"""Rendered height of the trigger node with webhook, case triggers and schedules."""
+
+ACTION_NODE_HEIGHT = 80
+"""Rendered height of a typical action node."""
+
+FIRST_ROW_Y = NODE_HEIGHT + TRIGGER_NODE_HEIGHT - ACTION_NODE_HEIGHT
+"""Top of the first action row, leaving the same gap below the trigger as between rows."""
+
 NODE_WIDTH = 256
 """Rendered width of a builder node (matches the frontend ``w-64``)."""
 
@@ -405,7 +414,7 @@ def auto_generate_layout(
                 {
                     "ref": ref,
                     "x": float(round((columns[ref] - origin) * COLUMN_WIDTH)),
-                    "y": float((row_index + 1) * NODE_HEIGHT),
+                    "y": float(FIRST_ROW_Y + row_index * NODE_HEIGHT),
                 }
             )
     return layout

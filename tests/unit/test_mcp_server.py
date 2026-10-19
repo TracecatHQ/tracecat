@@ -649,9 +649,9 @@ def test_auto_generate_layout_keeps_linear_chain_vertical():
 
     assert {x for x, _ in positions.values()} == {0.0}
     assert [positions[ref][1] for ref in ("fetch", "enrich", "notify")] == [
-        300.0,
-        600.0,
-        900.0,
+        500.0,
+        800.0,
+        1100.0,
     ]
 
 
@@ -695,7 +695,7 @@ def test_auto_generate_layout_places_error_path_below_source():
         ]
     )
 
-    assert positions["on_error"] == (positions["call_api"][0], 600.0)
+    assert positions["on_error"] == (positions["call_api"][0], 800.0)
 
 
 def test_auto_generate_layout_orders_success_before_error_paths():
@@ -823,8 +823,8 @@ def test_build_import_data_from_workflow_yaml_replaces_supplied_layout():
         "trigger": {"x": 0, "y": 0},
         "viewport": {"x": 1, "y": 2, "zoom": 0.5},
         "actions": [
-            {"ref": "fetch", "x": 0.0, "y": 300.0},
-            {"ref": "notify", "x": 0.0, "y": 600.0},
+            {"ref": "fetch", "x": 0.0, "y": 500.0},
+            {"ref": "notify", "x": 0.0, "y": 800.0},
         ],
     }
 
@@ -854,10 +854,10 @@ def test_relayout_edit_document_only_when_graph_changes():
 
     positions = {item.ref: (item.x, item.y) for item in relaid.layout.actions}
     assert positions == {
-        "fetch_events": (0.0, 300.0),
-        "classify": (0.0, 600.0),
-        "build_alert": (0.0, 900.0),
-        "notify_owner": (0.0, 1200.0),
+        "fetch_events": (0.0, 500.0),
+        "classify": (0.0, 800.0),
+        "build_alert": (0.0, 1100.0),
+        "notify_owner": (0.0, 1400.0),
     }
     assert relaid.layout.viewport == original.layout.viewport
 
@@ -912,9 +912,9 @@ def test_auto_generate_layout_round_trips_through_extract():
     assert action_positions is not None
     assert "step1" in action_positions
     assert "step2" in action_positions
-    # step1 at depth 0 → y=300, step2 at depth 1 → y=600
-    assert action_positions["step1"][1] == 300
-    assert action_positions["step2"][1] == 600
+    # step1 at depth 0 → y=500, step2 at depth 1 → y=800
+    assert action_positions["step1"][1] == 500
+    assert action_positions["step2"][1] == 800
 
 
 @pytest.mark.anyio
@@ -8352,3 +8352,19 @@ async def test_lock_workflow_action_rejects_unusable_run(
             execution_id="wf_example/exec_bad",
         )
     assert updates == []
+
+
+def test_auto_generate_layout_leaves_room_below_trigger():
+    layout = layout_module.auto_generate_layout(
+        [
+            {"ref": "first", "depends_on": []},
+            {"ref": "second", "depends_on": ["first"]},
+        ]
+    )
+    first, second = layout["actions"]
+    trigger_gap = first["y"] - (
+        layout["trigger"]["y"] + layout_module.TRIGGER_NODE_HEIGHT
+    )
+    row_gap = second["y"] - (first["y"] + layout_module.ACTION_NODE_HEIGHT)
+
+    assert trigger_gap == row_gap > 0
