@@ -1,0 +1,66 @@
+type: action
+definition:
+  title: Get record statistics
+  description: Compute counts, averages, and grouped statistics over a table with the Aggregate API.
+  display_group: ServiceNow
+  doc_url: https://www.servicenow.com/docs/r/api-reference/rest-apis/c_AggregateAPI.html#aggregate-GET-stats
+  namespace: tools.servicenow
+  name: get_record_stats
+  secrets:
+  - type: oauth
+    provider_id: servicenow
+    grant_type: client_credentials
+  expects:
+    table_name:
+      type: str
+      description: Table name, e.g. incident, problem, change_request, sc_req_item, sc_task, or sn_si_incident.
+    sysparm_query:
+      type: str | None
+      description: Encoded query used to filter the result set, e.g. active=true^priority=1^ORDERBYDESCsys_created_on.
+      default: null
+    sysparm_count:
+      type: bool | None
+      description: Return the number of matching records.
+      default: null
+    sysparm_group_by:
+      type: str | None
+      description: Comma-separated fields to group results by.
+      default: null
+    sysparm_avg_fields:
+      type: str | None
+      description: Comma-separated fields to average.
+      default: null
+    sysparm_having:
+      type: str | None
+      description: Additional query applied to the aggregates, e.g. count^priority^>^3.
+      default: null
+    sysparm_order_by:
+      type: str | None
+      description: Field to order grouped results by.
+      default: null
+    sysparm_display_value:
+      type: enum["true", "false", "all"] | None
+      description: Return display values (true), actual values (false), or both (all).
+      default: null
+    base_url:
+      type: str | None
+      description: ServiceNow instance URL, e.g. https://<instance>.service-now.com. Defaults to the `servicenow.base_url` workspace variable.
+      default: null
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.servicenow.base_url }}/api/now/stats/${{ FN.url_encode(inputs.table_name) }}
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.servicenow_oauth.SERVICENOW_SERVICE_TOKEN }}
+        Accept: application/json
+      params:
+        sysparm_query: ${{ inputs.sysparm_query }}
+        sysparm_count: ${{ inputs.sysparm_count }}
+        sysparm_group_by: ${{ inputs.sysparm_group_by }}
+        sysparm_avg_fields: ${{ inputs.sysparm_avg_fields }}
+        sysparm_having: ${{ inputs.sysparm_having }}
+        sysparm_order_by: ${{ inputs.sysparm_order_by }}
+        sysparm_display_value: ${{ inputs.sysparm_display_value }}
+  returns: ${{ steps.request.result }}

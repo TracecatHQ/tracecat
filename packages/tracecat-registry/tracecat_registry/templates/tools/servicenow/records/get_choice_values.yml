@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Get choice values
+  description: List the active choice values for a choice field, such as incident state or close_code, from the sys_choice table.
+  display_group: ServiceNow
+  doc_url: https://www.servicenow.com/docs/r/api-reference/rest-apis/c_TableAPI.html#table-GET
+  namespace: tools.servicenow
+  name: get_choice_values
+  secrets:
+  - type: oauth
+    provider_id: servicenow
+    grant_type: client_credentials
+  expects:
+    table_name:
+      type: str
+      description: Table name, e.g. incident.
+    element:
+      type: str
+      description: Field name, e.g. state, category, or close_code.
+    sysparm_limit:
+      type: int | None
+      description: Maximum number of records to return.
+      default: null
+    base_url:
+      type: str | None
+      description: ServiceNow instance URL, e.g. https://<instance>.service-now.com. Defaults to the `servicenow.base_url` workspace variable.
+      default: null
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.servicenow.base_url }}/api/now/table/sys_choice
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.servicenow_oauth.SERVICENOW_SERVICE_TOKEN }}
+        Accept: application/json
+      params:
+        sysparm_query: name=${{ inputs.table_name }}^element=${{ inputs.element }}^inactive=false^ORDERBYsequence
+        sysparm_fields: label,value,dependent_value,language,sequence
+        sysparm_limit: ${{ inputs.sysparm_limit }}
+  returns: ${{ steps.request.result }}
