@@ -251,3 +251,55 @@ finally:
 
     assert result.returncode == 0, result.stderr
     assert "terminate called" not in result.stderr
+
+
+def test_execute_sql_explains_out_of_memory(monkeypatch: pytest.MonkeyPatch) -> None:
+    limit = 4096 * 1024 * 1024
+    closed: list[bool] = []
+
+    class OutOfMemoryConnection:
+        def execute(self, sql: str) -> None:
+            raise duckdb_action.duckdb.OutOfMemoryException(
+                "Out of Memory Error: Failed to allocate block of 33554432 bytes"
+                " (bad allocation)\n\nPossible solutions: ..."
+            )
+
+        def close(self) -> None:
+            closed.append(True)
+
+    monkeypatch.setattr(duckdb_action, "_connect", OutOfMemoryConnection)
+    monkeypatch.setattr(duckdb_action.resource, "getrlimit", lambda _: (limit, limit))
+
+    with pytest.raises(RuntimeError) as exc_info:
+        duckdb_action.execute_sql("SELECT 1")
+
+    message = str(exc_info.value)
+    assert "address-space cap 4096 MiB" in message
+    assert "Failed to allocate block of 33554432 bytes (bad allocation)" in message
+    assert "Possible solutions" not in message
+    assert "Running the same query again will fail the same way" in message
+    assert isinstance(
+        exc_info.value.__cause__, duckdb_action.duckdb.OutOfMemoryException
+    )
+    assert closed == [True]
+
+
+def test_execute_sql_out_of_memory_without_address_space_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class OutOfMemoryConnection:
+        def execute(self, sql: str) -> None:
+            raise duckdb_action.duckdb.OutOfMemoryException("Out of Memory Error")
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(duckdb_action, "_connect", OutOfMemoryConnection)
+    monkeypatch.setattr(
+        duckdb_action.resource,
+        "getrlimit",
+        lambda _: (duckdb_action.resource.RLIM_INFINITY,) * 2,
+    )
+
+    with pytest.raises(RuntimeError, match="in the action sandbox: Out of Memory"):
+        duckdb_action.execute_sql("SELECT 1")

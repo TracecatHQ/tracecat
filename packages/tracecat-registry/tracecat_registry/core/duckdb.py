@@ -74,6 +74,24 @@ def _cap_malloc_arenas() -> None:
         pass
 
 
+def _out_of_memory_message(exc: duckdb.OutOfMemoryException) -> str:
+    """Explain a DuckDB OOM so callers (often agents) narrow the query instead of retrying."""
+    cap = ""
+    if resource is not None:
+        soft_limit, _ = resource.getrlimit(resource.RLIMIT_AS)
+        if soft_limit != resource.RLIM_INFINITY:
+            cap = f" (address-space cap {soft_limit // (1024 * 1024)} MiB)"
+    detail = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+    return (
+        f"DuckDB ran out of memory in the action sandbox{cap}: {detail}. "
+        "Running the same query again will fail the same way. Reduce the data "
+        "the query reads: use a narrower glob, prefix, or date range, query "
+        "fewer files at a time and combine the results, or select only the "
+        "fields you need. JSON objects whose keys vary between rows use far "
+        "more memory than objects with a fixed set of keys."
+    )
+
+
 def _thread_limit() -> int | None:
     """Thread count that fits the process address-space cap, or None when uncapped.
 
@@ -232,5 +250,7 @@ def execute_sql(
             return con.rowcount
         rows = con.fetchall()
         return _rows_to_json(columns, rows)
+    except duckdb.OutOfMemoryException as exc:
+        raise RuntimeError(_out_of_memory_message(exc)) from exc
     finally:
         con.close()
