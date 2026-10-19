@@ -128,12 +128,20 @@ function TraceCollapsibleTrigger({
 function TraceCollapsibleContent({
   className,
   children,
+  animated = false,
   ...props
-}: Omit<ComponentProps<typeof CollapsibleContent>, "asChild">) {
+}: Omit<ComponentProps<typeof CollapsibleContent>, "asChild"> & {
+  /** Slide open and closed instead of snapping. */
+  animated?: boolean
+}) {
   return (
     <CollapsibleContent
       data-slot="trace-collapsible-content"
-      className="min-w-0"
+      className={cn(
+        "min-w-0",
+        animated &&
+          "overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down"
+      )}
       {...props}
     >
       <div

@@ -1,6 +1,7 @@
 "use client"
 
 import { type ChatStatus, isToolUIPart, type UIMessage } from "ai"
+import { useState } from "react"
 import type { ApprovalDecision } from "@/client"
 import {
   isActivityPart,
@@ -151,6 +152,8 @@ type AgentTurnProps = {
   status?: ChatStatus
   /** Whether the turn is still streaming. Live turns draw every step. */
   isLive: boolean
+  /** Whether a later prompt follows this turn. */
+  isSuperseded?: boolean
   lastMessageId?: string
   cancelledMessageIds?: ReadonlySet<string>
   interruptedToolCallIds?: ReadonlySet<string>
@@ -160,13 +163,15 @@ type AgentTurnProps = {
 
 /**
  * The agent's answer to one prompt. Once it finishes, the steps fold into a
- * single "Worked for" line above the answer.
+ * single "Worked for" line above the answer. A turn watched live stays open
+ * until the next prompt, so finishing doesn't pull its steps out of view.
  */
 export function AgentTurn({
   messages,
   startedAt,
   status,
   isLive,
+  isSuperseded = false,
   lastMessageId,
   cancelledMessageIds,
   interruptedToolCallIds,
@@ -175,6 +180,17 @@ export function AgentTurn({
   const { foldFinishedTurns } = useChatVerbosityPolicy()
   const split =
     isLive || !foldFinishedTurns ? null : splitFinishedTurn(messages)
+  const [open, setOpen] = useState(false)
+  const [previous, setPrevious] = useState({ isLive, isSuperseded })
+  if (previous.isLive !== isLive || previous.isSuperseded !== isSuperseded) {
+    setPrevious({ isLive, isSuperseded })
+    if (previous.isLive && !isLive && !isSuperseded) {
+      setOpen(true)
+    }
+    if (!previous.isSuperseded && isSuperseded) {
+      setOpen(false)
+    }
+  }
 
   // Each thought is its own history row, so it took as long as the gap since
   // the row or tool result before it.
@@ -239,7 +255,7 @@ export function AgentTurn({
   return (
     <>
       <Trace>
-        <TraceCollapsible>
+        <TraceCollapsible open={open} onOpenChange={setOpen}>
           <div className="border-b pb-2">
             <TraceCollapsibleTrigger>
               <TraceLine>
@@ -247,7 +263,10 @@ export function AgentTurn({
               </TraceLine>
             </TraceCollapsibleTrigger>
           </div>
-          <TraceCollapsibleContent className="ml-0 space-y-2 border-l-0 pl-0 text-foreground">
+          <TraceCollapsibleContent
+            animated
+            className="ml-0 space-y-2 border-l-0 pl-0 text-foreground"
+          >
             {renderMessages(split.work, "work")}
           </TraceCollapsibleContent>
         </TraceCollapsible>

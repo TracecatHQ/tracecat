@@ -103,6 +103,37 @@ describe("AgentTurn", () => {
     expect(screen.getByText("Thought for 3 seconds")).toBeInTheDocument()
   })
 
+  it("keeps a turn watched live open until the next prompt", () => {
+    const thread = [PROMPT, THOUGHT, TOOL_CALL, ANSWER_MESSAGE]
+    const [, turn] = groupThread(thread)
+    if (turn?.kind !== "turn") {
+      throw new Error("Expected an agent turn after the prompt")
+    }
+    const renderAt = (isLive: boolean, isSuperseded: boolean) => (
+      <ChatVerbosityContext.Provider value="default">
+        <AgentTurn
+          messages={turn.messages}
+          startedAt={turn.startedAt}
+          isLive={isLive}
+          isSuperseded={isSuperseded}
+          status={isLive ? "streaming" : "ready"}
+          lastMessageId={thread.at(-1)?.id}
+        />
+      </ChatVerbosityContext.Provider>
+    )
+    const { rerender } = render(renderAt(true, false))
+    rerender(renderAt(false, false))
+
+    expect(screen.getByText("Worked for 16s")).toBeInTheDocument()
+    expect(screen.getByText("Ran core.table.list_tables")).toBeInTheDocument()
+
+    rerender(renderAt(false, true))
+
+    expect(
+      screen.queryByText("Ran core.table.list_tables")
+    ).not.toBeInTheDocument()
+  })
+
   it("times a turn that ends with an untimed marker", () => {
     const cancelled: UIMessage = {
       id: "cancelled",

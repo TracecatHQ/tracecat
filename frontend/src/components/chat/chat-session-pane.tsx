@@ -1408,6 +1408,7 @@ export function ChatSessionPane({
                         blockIndex === threadBlocks.length - 1 &&
                         isGeneratingTurn
                       }
+                      isSuperseded={blockIndex < threadBlocks.length - 1}
                       lastMessageId={lastMessageId}
                       cancelledMessageIds={cancelledTurnMessageIds}
                       interruptedToolCallIds={interruptedToolCallIds}
