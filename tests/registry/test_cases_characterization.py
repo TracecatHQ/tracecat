@@ -86,6 +86,7 @@ from tracecat.cases.enums import (
     CasePriority,
     CaseSeverity,
 )
+from tracecat.cases.router import cases_router
 from tracecat.cases.schemas import CaseFieldCreate
 from tracecat.cases.service import CaseFieldsService
 from tracecat.contexts import ctx_role
@@ -102,6 +103,8 @@ from tracecat.validation.common import json_schema_to_pydantic
 _CASE_FIELDS_SCHEMA_LOCK_ID = 0x7472616365636174  # "tracecat" in hex
 _ACTION_GATEWAY_SOCKET = "/tmp/tracecat-test-action-gateway.sock"
 app = create_action_gateway_app()
+# Exercise public and internal case routes with the same real test database.
+app.include_router(cases_router)
 
 
 def _case_items(
@@ -2041,6 +2044,22 @@ async def test_list_cases_payload_selection_end_to_end(
     assert full[0].get("payload") == payload
     assert (await get_case(case_id=str(created["id"])))["payload"] == payload
 
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as public:
+        response = await public.get(
+            "/cases",
+            params=[("payload_fields", "alert_id"), ("payload_fields", "score")],
+        )
+        assert response.status_code == 200
+        assert response.json()["items"][0]["payload"] == {
+            "alert_id": "demo-alert-001",
+            "score": 42,
+        }
+        response = await public.get("/cases?payload_fields=&include_payload=true")
+        assert response.status_code == 200
+        assert response.json()["items"][0]["payload"] == {"": "literal-empty-key"}
+
 
 @pytest.mark.anyio
 async def test_search_cases_payload_selection_pagination_end_to_end(
@@ -2098,3 +2117,26 @@ async def test_search_cases_payload_selection_pagination_end_to_end(
     assert [
         str(case["id"]) for case in first["items"] + following["items"]
     ] == created_ids
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as public:
+        response = await public.get(
+            "/cases/search",
+            params=[
+                ("payload_fields", "alert_id"),
+                ("payload_fields", "nullable"),
+                ("sort", "asc"),
+            ],
+        )
+        assert response.status_code == 200
+        assert [case["payload"] for case in response.json()["items"]] == [
+            {"alert_id": "demo-alert-001", "nullable": None},
+            None,
+            {},
+        ]
+        response = await public.get(
+            "/cases/search?payload_fields=&include_payload=true&sort=asc"
+        )
+        assert response.status_code == 200
+        assert [case["payload"] for case in response.json()["items"]] == [{}, None, {}]
