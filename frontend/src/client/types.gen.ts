@@ -11306,6 +11306,16 @@ export type UserScopesRead = {
 }
 
 /**
+ * Identity fields returned by the org-scoped user email search.
+ */
+export type UserSearchRead = {
+  id: string
+  email: string
+  first_name?: string | null
+  last_name?: string | null
+}
+
+/**
  * Summary of a user for inbox item context.
  */
 export type UserSummary = {
@@ -14057,7 +14067,7 @@ export type UsersSearchUserData = {
   workspaceId?: string | null
 }
 
-export type UsersSearchUserResponse = UserRead
+export type UsersSearchUserResponse = UserSearchRead
 
 export type OrganizationGetOrganizationResponse =
   tracecat__organization__schemas__OrgRead
@@ -19657,7 +19667,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: UserRead
+        200: UserSearchRead
         /**
          * Validation Error
          */
