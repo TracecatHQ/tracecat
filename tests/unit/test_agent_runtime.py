@@ -3016,6 +3016,35 @@ class TestClaudeAgentRuntimeParallelApprovals:
         interrupt.assert_awaited_once()
 
     @pytest.mark.anyio
+    async def test_hook_interrupts_after_assistant_message_finishes(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        runtime, interrupt = self._make_runtime(mock_socket_writer)
+        runtime._root_message_done.clear()
+
+        hook = asyncio.create_task(
+            runtime._pre_tool_use_hook(
+                input_data=make_hook_input(
+                    tool_name="mcp__tracecat-registry__core__http_request",
+                    tool_input={"url": "https://example.com"},
+                    tool_use_id="call-1",
+                ),
+                tool_use_id="call-1",
+                context=make_hook_context(),
+            )
+        )
+        await asyncio.sleep(0.05)
+        # Siblings may still be streaming, so the turn stays alive.
+        interrupt.assert_not_awaited()
+
+        runtime._root_message_done.set()
+        result = await asyncio.wait_for(hook, timeout=1)
+
+        assert get_hook_output(result).get("permissionDecision") == "deny"
+        interrupt.assert_awaited_once()
+
+    @pytest.mark.anyio
     async def test_subagent_assistant_messages_are_skipped(
         self,
         mock_socket_writer: MagicMock,

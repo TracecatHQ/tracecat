@@ -4184,7 +4184,7 @@ class TestAgentPresetService:
         assert unrestricted.namespaces is None
         assert agent_config.tool_approvals == preset.tool_approvals
         assert agent_config.retries == preset.retries
-        assert agent_config.model_settings == {"parallel_tool_calls": False}
+        assert agent_config.model_settings == {}
 
     async def test_create_preset_with_tool_approvals(
         self,

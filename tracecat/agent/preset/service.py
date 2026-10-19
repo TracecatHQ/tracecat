@@ -2453,9 +2453,6 @@ class AgentPresetService(BaseWorkspaceService):
                 },
             )
         effective_actions = list(policy.actions)
-        # Only disable parallel tool calls if tools will be present
-        if effective_actions or mcp_servers:
-            model_settings["parallel_tool_calls"] = False
         agents = AgentSubagentsConfig.model_validate(version.agents)
         if resolve_dependencies_from_heads:
             resolved_agents = await resolve_agents_config(
