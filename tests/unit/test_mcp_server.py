@@ -168,8 +168,17 @@ def _fake_ctx(
 
 @pytest.fixture
 def resolved_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def _resolve(_workspace_id: Any) -> tuple[uuid.UUID, SimpleNamespace]:
-        return uuid.uuid4(), SimpleNamespace()
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="service",
+        service_id="tracecat-mcp",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"case:read"}),
+    )
+
+    async def _resolve(_workspace_id: Any) -> tuple[uuid.UUID, Role]:
+        return workspace_id, role
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
 
@@ -4055,8 +4064,8 @@ async def test_search_cases_passes_hierarchy_filters(monkeypatch):
 
     captured: dict[str, Any] = {}
 
-    async def _search_cases(params, **kwargs):
-        captured.update(kwargs)
+    async def _query_cases(request):
+        captured.update(request.model_dump())
         return CursorPaginatedResponse(
             items=[],
             next_cursor=None,
@@ -4070,7 +4079,7 @@ async def test_search_cases_passes_hierarchy_filters(monkeypatch):
         "CasesService",
         SimpleNamespace(
             with_session=lambda role: _AsyncContext(
-                SimpleNamespace(search_cases=_search_cases)
+                SimpleNamespace(query_cases=_query_cases)
             )
         ),
     )
@@ -4087,7 +4096,7 @@ async def test_search_cases_passes_hierarchy_filters(monkeypatch):
 async def test_search_cases_maps_entitlement_error(monkeypatch):
     from tracecat.exceptions import EntitlementRequired
 
-    async def _search_cases(params, **kwargs):
+    async def _query_cases(request):
         raise EntitlementRequired("case_addons")
 
     monkeypatch.setattr(
@@ -4095,7 +4104,7 @@ async def test_search_cases_maps_entitlement_error(monkeypatch):
         "CasesService",
         SimpleNamespace(
             with_session=lambda role: _AsyncContext(
-                SimpleNamespace(search_cases=_search_cases)
+                SimpleNamespace(query_cases=_query_cases)
             )
         ),
     )

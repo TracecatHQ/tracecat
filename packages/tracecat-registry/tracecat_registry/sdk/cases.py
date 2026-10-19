@@ -354,7 +354,7 @@ class CasesClient:
         if is_set(payload_fields) and payload_fields:
             params["payload_fields"] = payload_fields
         if is_set(payload_paths) and payload_paths:
-            params["payload_paths"] = orjson.dumps(payload_paths).decode()
+            params["payload_paths"] = payload_paths
 
         for name, value in (
             ("short_id", short_id),
