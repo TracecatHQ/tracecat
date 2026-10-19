@@ -6,7 +6,6 @@ For end-to-end integration tests, see test_cases_characterization.py.
 
 import base64
 import uuid
-from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
@@ -1391,44 +1390,3 @@ async def test_list_cases_by_row_paginate_returns_response(
 async def test_list_cases_by_row_rejects_large_limit() -> None:
     with pytest.raises(TracecatValidationError):
         await list_cases_by_row(table_id="t", row_id="r", limit=10_000)
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize("action", [list_cases, search_cases])
-@pytest.mark.parametrize("paginate", [False, True])
-@pytest.mark.parametrize("include_payload", [False, True])
-async def test_case_actions_select_payload_without_changing_output_shape(
-    mock_cases_client: AsyncMock,
-    action: Callable[..., Awaitable[object]],
-    paginate: bool,
-    include_payload: bool,
-) -> None:
-    """Both action output modes preserve a selected payload and continuation data."""
-    page = {
-        "items": [{"payload": {"alert_id": "demo-alert-001"}}],
-        "next_cursor": "next-page",
-    }
-    mock_cases_client.list_cases.return_value = page
-    mock_cases_client.search_cases.return_value = page
-    result = await action(
-        payload_fields=["alert_id"], include_payload=include_payload, paginate=paginate
-    )
-    assert result == (page if paginate else page["items"])
-    client_call = mock_cases_client.method_calls[0]
-    assert client_call.kwargs["payload_fields"] == ["alert_id"]
-    assert client_call.kwargs.get("include_payload", False) is include_payload
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize("action", [list_cases, search_cases])
-async def test_case_actions_omit_empty_payload_selector(
-    mock_cases_client: AsyncMock,
-    action: Callable[..., Awaitable[object]],
-) -> None:
-    mock_cases_client.list_cases.return_value = {"items": []}
-    mock_cases_client.search_cases.return_value = {"items": []}
-    await action(payload_fields=[], include_payload=True)
-    assert mock_cases_client.method_calls[0].kwargs == {
-        "limit": 100,
-        "include_payload": True,
-    }

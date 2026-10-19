@@ -1991,41 +1991,99 @@ class TestEdgeCases:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("search", [False, True])
-@pytest.mark.parametrize("paginate", [False, True])
-async def test_payload_selection_through_case_actions(
-    db,
-    session: AsyncSession,
-    cases_ctx: Role,
-    search: bool,
-    paginate: bool,
+async def test_list_cases_payload_selection_end_to_end(
+    session: AsyncSession, cases_ctx: Role
 ) -> None:
-    """Exercise action, client, gateway, database, and typed response together."""
-    payload = {"alert_id": "demo-alert-001", "nullable": None, "raw_event": "unused"}
+    """List through the action, client, gateway, and database without changing storage."""
+    payload = {
+        "alert_id": "demo-alert-001",
+        "score": 42,
+        "nullable": None,
+        "nested": {"ip": "192.0.2.1"},
+        "items": [1, "two", None],
+        "alert.source.ip": "literal-key",
+        "quoted'key": False,
+        "raw_event": "unused " * 4096,
+    }
     created = await create_case(
         summary="Synthetic payload selection", description="Example", payload=payload
     )
-    action = search_cases if search else list_cases
+    default = _case_items(await list_cases())
+    assert len(default) == 1 and default[0].get("payload") is None
+
     selected = _case_items(
-        await action(
-            limit=1,
-            paginate=paginate,
-            payload_fields=["alert_id", "nullable", "missing"],
+        await list_cases(
+            payload_fields=[
+                "alert_id",
+                "score",
+                "nullable",
+                "nested",
+                "items",
+                "alert.source.ip",
+                "quoted'key",
+                "missing",
+                "alert_id",
+            ],
+            include_payload=True,
         )
     )
     TypeAdapter(list[types.CaseReadMinimal]).validate_python(selected)
-    assert len(selected) == 1
-    assert str(selected[0]["id"]) == str(created["id"])
     assert selected[0].get("payload") == {
-        "alert_id": "demo-alert-001",
-        "nullable": None,
+        key: value for key, value in payload.items() if key != "raw_event"
     }
-    full = _case_items(
-        await action(
-            limit=1, paginate=paginate, include_payload=True, payload_fields=[]
-        )
-    )
+    missing = _case_items(await list_cases(payload_fields=["missing"]))
+    assert missing[0].get("payload") == {}
+    full = _case_items(await list_cases(include_payload=True, payload_fields=[]))
     assert full[0].get("payload") == payload
-    default = _case_items(await action(limit=1, paginate=paginate))
-    assert default[0].get("payload") is None
     assert (await get_case(case_id=str(created["id"])))["payload"] == payload
+
+
+@pytest.mark.anyio
+async def test_search_cases_payload_selection_pagination_end_to_end(
+    session: AsyncSession, cases_ctx: Role
+) -> None:
+    """Selected, null, and empty payloads retain case order and continuation metadata."""
+    payloads = [
+        {"alert_id": "demo-alert-001", "nullable": None, "raw_event": "unused"},
+        None,
+        {},
+    ]
+    created_ids = []
+    for payload in payloads:
+        created = await create_case(
+            summary="Synthetic payload page", description="Example", payload=payload
+        )
+        created_ids.append(str(created["id"]))
+
+    first = await search_cases(
+        search_term="Synthetic payload page",
+        limit=2,
+        paginate=True,
+        order_by="created_at",
+        sort="asc",
+        payload_fields=["alert_id", "nullable", "missing"],
+    )
+    assert not isinstance(first, list)
+    assert first["has_more"] and first["next_cursor"]
+    assert first["total_estimate"] == 3
+    assert [case.get("payload") for case in first["items"]] == [
+        {"alert_id": "demo-alert-001", "nullable": None},
+        None,
+    ]
+    following = await search_cases(
+        search_term="Synthetic payload page",
+        limit=2,
+        paginate=True,
+        order_by="created_at",
+        sort="asc",
+        cursor=first["next_cursor"],
+        payload_fields=["alert_id", "nullable", "missing"],
+        include_payload=False,
+    )
+    assert not isinstance(following, list)
+    assert not following["has_more"]
+    assert following["total_estimate"] == 3
+    assert [case.get("payload") for case in following["items"]] == [{}]
+    assert [
+        str(case["id"]) for case in first["items"] + following["items"]
+    ] == created_ids
