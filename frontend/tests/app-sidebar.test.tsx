@@ -48,17 +48,17 @@ jest.mock("@/components/sidebar/sidebar-user-nav", () => ({
       title: string
       href: string
       isActive?: boolean
+      locked?: boolean
     }[]
   }) => (
     <nav>
       {manageItems.map((item) => (
-        <a
-          href={item.href}
-          data-active={item.isActive ? "true" : "false"}
-          key={item.href}
-        >
-          {item.title}
-        </a>
+        <span key={item.href}>
+          <a href={item.href} data-active={item.isActive ? "true" : "false"}>
+            {item.title}
+          </a>
+          {item.locked ? <span>Requires upgrade</span> : null}
+        </span>
       ))}
     </nav>
   ),
