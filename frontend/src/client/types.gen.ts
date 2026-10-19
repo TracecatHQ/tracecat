@@ -16277,7 +16277,7 @@ export type CasesListCasesData = {
     | "tasks"
     | null
   /**
-   * Return only these literal top-level payload keys, automatically including the subset regardless of include_payload. Dots are literal; nested values are returned whole. Missing keys are omitted and null values preserved. An empty list acts as omitted.
+   * Return only these literal top-level payload keys, automatically including the subset regardless of include_payload. Dots are literal; nested values are returned whole. Missing keys are omitted and null values preserved. An empty list acts as omitted; an empty string selects the literal empty key.
    */
   payloadFields?: Array<string> | null
   /**
@@ -16369,7 +16369,7 @@ export type CasesSearchCasesData = {
    */
   parentId?: string | null
   /**
-   * Return only these literal top-level payload keys, automatically including the subset regardless of include_payload. Dots are literal; nested values are returned whole. Missing keys are omitted and null values preserved. An empty list acts as omitted.
+   * Return only these literal top-level payload keys, automatically including the subset regardless of include_payload. Dots are literal; nested values are returned whole. Missing keys are omitted and null values preserved. An empty list acts as omitted; an empty string selects the literal empty key.
    */
   payloadFields?: Array<string> | null
   /**

@@ -203,7 +203,7 @@ async def list_cases(
             "Return only these literal top-level payload keys, automatically including "
             "the subset regardless of include_payload. Dots are literal; nested values "
             "are returned whole. Missing keys are omitted and null values preserved. "
-            "An empty list acts as omitted."
+            "An empty list acts as omitted; an empty string selects the literal empty key."
         ),
     ),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
@@ -339,7 +339,7 @@ async def search_cases(
             "Return only these literal top-level payload keys, automatically including "
             "the subset regardless of include_payload. Dots are literal; nested values "
             "are returned whole. Missing keys are omitted and null values preserved. "
-            "An empty list acts as omitted."
+            "An empty list acts as omitted; an empty string selects the literal empty key."
         ),
     ),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:

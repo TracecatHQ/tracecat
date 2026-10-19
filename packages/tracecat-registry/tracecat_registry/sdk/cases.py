@@ -215,7 +215,8 @@ class CasesClient:
             sort: Sort direction.
             include_payload: Return the full payload without a non-empty selector.
             payload_fields: Literal top-level keys to return. Includes the subset
-                automatically, overriding include_payload. An empty list is omitted.
+                automatically, overriding include_payload. An empty list is omitted;
+                an empty string selects the literal empty key.
 
         Returns:
             Paginated list of cases with cursor metadata.
@@ -265,6 +266,7 @@ class CasesClient:
 
         A non-empty payload_fields list returns only those literal top-level keys,
         overriding include_payload. Empty or unset selectors keep the flag's behavior.
+        An empty string in the selector selects the literal empty key.
         """
         params: dict[str, Any] = {"limit": limit}
         if is_set(cursor):

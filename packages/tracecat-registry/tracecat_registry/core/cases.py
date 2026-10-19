@@ -627,7 +627,8 @@ async def list_cases(
             "Return only these top-level payload keys, e.g. ['alert_id', 'score']. "
             "Automatically includes the subset regardless of include_payload. "
             "Dots are literal; selected objects are returned whole. Missing keys "
-            "are omitted and null values preserved. An empty list acts as omitted."
+            "are omitted and null values preserved. An empty list acts as omitted; "
+            "an empty string selects the literal empty key."
         ),
     ] = None,
 ) -> list[types.CaseReadMinimal] | types.CaseListResponse:
@@ -741,7 +742,8 @@ async def search_cases(
             "Return only these top-level payload keys, e.g. ['alert_id', 'score']. "
             "Automatically includes the subset regardless of include_payload. "
             "Dots are literal; selected objects are returned whole. Missing keys "
-            "are omitted and null values preserved. An empty list acts as omitted."
+            "are omitted and null values preserved. An empty list acts as omitted; "
+            "an empty string selects the literal empty key."
         ),
     ] = None,
 ) -> list[types.CaseReadMinimal] | types.CaseListResponse:

@@ -1996,6 +1996,7 @@ async def test_list_cases_payload_selection_end_to_end(
 ) -> None:
     """List through the action, client, gateway, and database without changing storage."""
     payload = {
+        "": "literal-empty-key",
         "alert_id": "demo-alert-001",
         "score": 42,
         "nullable": None,
@@ -2014,6 +2015,7 @@ async def test_list_cases_payload_selection_end_to_end(
     selected = _case_items(
         await list_cases(
             payload_fields=[
+                "",
                 "alert_id",
                 "score",
                 "nullable",
@@ -2031,6 +2033,8 @@ async def test_list_cases_payload_selection_end_to_end(
     assert selected[0].get("payload") == {
         key: value for key, value in payload.items() if key != "raw_event"
     }
+    empty_key = _case_items(await list_cases(payload_fields=[""], include_payload=True))
+    assert empty_key[0].get("payload") == {"": "literal-empty-key"}
     missing = _case_items(await list_cases(payload_fields=["missing"]))
     assert missing[0].get("payload") == {}
     full = _case_items(await list_cases(include_payload=True, payload_fields=[]))
@@ -2054,6 +2058,13 @@ async def test_search_cases_payload_selection_pagination_end_to_end(
             summary="Synthetic payload page", description="Example", payload=payload
         )
         created_ids.append(str(created["id"]))
+
+    empty_key = _case_items(
+        await search_cases(
+            limit=1, sort="asc", payload_fields=[""], include_payload=True
+        )
+    )
+    assert empty_key[0].get("payload") == {}
 
     first = await search_cases(
         search_term="Synthetic payload page",
