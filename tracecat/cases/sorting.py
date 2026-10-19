@@ -28,6 +28,15 @@ def case_relationship_sort_key(
     must also scope their outer Case select to the authorized workspace.
     Explicit String types let the paginator serialize and bind text cursor
     values without guessing, including names that resemble dates.
+
+    Args:
+        workspace_id: Authorized workspace anchoring the lookup. The caller
+            must also scope its outer Case select to this workspace.
+        field: Relationship to sort by: "assignee" or "tags".
+
+    Returns:
+        A correlated SQL string expression that evaluates to NULL when the
+        case has no matching relationship.
     """
     if field == "assignee":
         return (
