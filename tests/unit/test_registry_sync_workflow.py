@@ -167,7 +167,8 @@ def _registry_sync_failure_detail(error: ApplicationError) -> str:
         ),
         pytest.param(
             GitCloneError(
-                "Git clone failed: https://user:synthetic-password@git.example.com/r.git"
+                "Git clone failed: https://user:synthetic-password@git.example.com/r.git",
+                user_owned=True,
             ),
             RuntimeErrorOwner.USER,
             "Registry repository clone failed",
@@ -175,11 +176,27 @@ def _registry_sync_failure_detail(error: ApplicationError) -> str:
             id="git_clone_redacted",
         ),
         pytest.param(
-            PackageInstallError("Package installation failed: resolver error"),
+            PackageInstallError(
+                "Package installation failed: resolver error", user_owned=True
+            ),
             RuntimeErrorOwner.USER,
             "Registry package installation failed",
             "Package installation failed: resolver error",
             id="package_install",
+        ),
+        pytest.param(
+            PackageInstallError("Package installation failed: resolver error"),
+            RuntimeErrorOwner.PLATFORM,
+            "Registry package installation failed",
+            "Package installation failed: resolver error",
+            id="package_install_platform",
+        ),
+        pytest.param(
+            GitCloneError("Failed to retrieve SSH key: database unavailable"),
+            RuntimeErrorOwner.PLATFORM,
+            "Registry repository clone failed",
+            "Failed to retrieve SSH key: database unavailable",
+            id="git_clone_platform",
         ),
         pytest.param(
             ArtifactBuildError("Sandboxed registry packaging failed: mksquashfs"),
@@ -192,7 +209,8 @@ def _registry_sync_failure_detail(error: ApplicationError) -> str:
             _caused_by(
                 PackageInstallError(
                     "Sandboxed registry package installation failed: "
-                    "Sandbox infrastructure failed before producing a result"
+                    "Sandbox infrastructure failed before producing a result",
+                    user_owned=True,
                 ),
                 SandboxInfrastructureError("nsjail launch failed"),
             ),
@@ -204,7 +222,10 @@ def _registry_sync_failure_detail(error: ApplicationError) -> str:
         ),
         pytest.param(
             _caused_by(
-                GitCloneError("Sandboxed Git clone failed: nsjail launch failed"),
+                GitCloneError(
+                    "Sandboxed Git clone failed: nsjail launch failed",
+                    user_owned=True,
+                ),
                 SandboxInfrastructureError("nsjail launch failed"),
             ),
             RuntimeErrorOwner.PLATFORM,

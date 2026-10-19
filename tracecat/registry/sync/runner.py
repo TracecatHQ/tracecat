@@ -33,7 +33,11 @@ import aiofiles
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.exceptions import RegistrySyncContentError
+from tracecat.exceptions import (
+    RegistryError,
+    RegistrySyncContentError,
+    TracecatCredentialsNotFoundError,
+)
 from tracecat.git.utils import parse_git_url
 from tracecat.logger import logger
 from tracecat.registry.artifact_keys import get_artifact_s3_key
@@ -62,7 +66,15 @@ if TYPE_CHECKING:
 
 
 class RegistrySyncRunnerError(Exception):
-    """Base exception for registry sync runner errors."""
+    """Base exception for registry sync runner errors.
+
+    Failures are platform-owned unless the raise site knows the user's
+    repository or registry settings caused them.
+    """
+
+    def __init__(self, message: str, *, user_owned: bool = False) -> None:
+        super().__init__(message)
+        self.user_owned = user_owned
 
 
 class GitCloneError(RegistrySyncRunnerError):
@@ -238,7 +250,11 @@ class RegistrySyncRunner:
                 timeout_seconds=self.install_timeout,
             )
         except (RegistryArtifactBuildError, SandboxInfrastructureError) as exc:
-            raise PackageInstallError(str(exc)) from exc
+            raise PackageInstallError(
+                str(exc),
+                user_owned=request.origin_type != "builtin"
+                and isinstance(exc, RegistryArtifactBuildError),
+            ) from exc
         logger.info(
             "Registry package installed",
             site_packages_path=str(installed_site_packages),
@@ -325,7 +341,10 @@ class RegistrySyncRunner:
                     timeout_seconds=self.clone_timeout,
                 )
             except Exception as exc:
-                raise GitCloneError(f"Sandboxed Git clone failed: {exc}") from exc
+                raise GitCloneError(
+                    f"Sandboxed Git clone failed: {exc}",
+                    user_owned=isinstance(exc, RegistryError),
+                ) from exc
         finally:
             ssh_key = ""
         return _ResolvedPackage(package_path, commit_sha)
@@ -479,7 +498,8 @@ class RegistrySyncRunner:
             except Exception as exc:
                 raise GitCloneError(
                     f"Failed to retrieve SSH key for git operations: {exc}. "
-                    "Ensure a 'github-ssh-key' secret exists in your organization."
+                    "Ensure a 'github-ssh-key' secret exists in your organization.",
+                    user_owned=isinstance(exc, TracecatCredentialsNotFoundError),
                 ) from exc
         return secret.get_secret_value()
 
@@ -551,12 +571,15 @@ class RegistrySyncRunner:
                 process.kill()
                 raise GitCloneError(
                     f"Git clone timed out after {git_timeout}s. "
-                    "Check SSH key permissions and network connectivity."
+                    "Check SSH key permissions and network connectivity.",
+                    user_owned=True,
                 ) from e
 
             if process.returncode != 0:
                 error_msg = stderr.decode().strip()
-                raise GitCloneError(f"Failed to clone repository: {error_msg}")
+                raise GitCloneError(
+                    f"Failed to clone repository: {error_msg}", user_owned=True
+                )
 
             # Fetch and checkout the specific commit if provided
             if commit_sha:
@@ -576,12 +599,15 @@ class RegistrySyncRunner:
                     process.kill()
                     raise GitCloneError(
                         f"Git fetch timed out after {git_timeout}s. "
-                        "Check SSH key permissions and network connectivity."
+                        "Check SSH key permissions and network connectivity.",
+                        user_owned=True,
                     ) from e
 
                 if process.returncode != 0:
                     error_msg = stderr.decode().strip()
-                    raise GitCloneError(f"Failed to fetch commit: {error_msg}")
+                    raise GitCloneError(
+                        f"Failed to fetch commit: {error_msg}", user_owned=True
+                    )
 
                 checkout_cmd = ["git", "checkout", commit_sha]
                 process = await asyncio.create_subprocess_exec(
@@ -598,12 +624,15 @@ class RegistrySyncRunner:
                 except TimeoutError as e:
                     process.kill()
                     raise GitCloneError(
-                        f"Git checkout timed out after {git_timeout}s."
+                        f"Git checkout timed out after {git_timeout}s.",
+                        user_owned=True,
                     ) from e
 
                 if process.returncode != 0:
                     error_msg = stderr.decode().strip()
-                    raise GitCloneError(f"Failed to checkout commit: {error_msg}")
+                    raise GitCloneError(
+                        f"Failed to checkout commit: {error_msg}", user_owned=True
+                    )
 
             # Get the resolved commit SHA (verify the checkout worked)
             rev_parse_cmd = ["git", "rev-parse", "HEAD"]

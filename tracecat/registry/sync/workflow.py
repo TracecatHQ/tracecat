@@ -237,22 +237,20 @@ def _raise_registry_sync_failure(exc: RegistrySyncRunnerError) -> Never:
     """Raise a retryable sync failure with a redacted diagnostic for the caller."""
     match exc:
         case GitCloneError():
-            owner_classification = RuntimeErrorClassification.user
             message = "Registry repository clone failed"
         case PackageInstallError():
-            owner_classification = RuntimeErrorClassification.user
             message = "Registry package installation failed"
         case ActionDiscoveryError():
-            owner_classification = RuntimeErrorClassification.platform
             message = "Registry action discovery failed"
         case ArtifactBuildError():
-            owner_classification = RuntimeErrorClassification.platform
             message = "Registry artifact build failed"
         case _:
-            owner_classification = RuntimeErrorClassification.platform
             message = "Registry sync failed"
-    if _is_sandbox_infrastructure_failure(exc):
-        owner_classification = RuntimeErrorClassification.platform
+    owner_classification = (
+        RuntimeErrorClassification.user
+        if exc.user_owned and not _is_sandbox_infrastructure_failure(exc)
+        else RuntimeErrorClassification.platform
+    )
     classification = owner_classification(
         kind=RuntimeErrorKind.REGISTRY_SYNC_FAILED,
         message=message,

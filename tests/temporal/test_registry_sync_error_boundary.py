@@ -7,6 +7,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from datetime import timedelta
 from pathlib import Path
+from typing import Literal
 
 import pytest
 from temporalio.client import WorkflowFailureError
@@ -16,7 +17,11 @@ from tracecat import config
 from tracecat.dsl._converter import get_data_converter
 from tracecat.executor.enums import ExecutorBackendType
 from tracecat.registry.sync.base_service import _workflow_failure_detail
-from tracecat.registry.sync.runner import ActionDiscoveryError, RegistrySyncRunner
+from tracecat.registry.sync.runner import (
+    ActionDiscoveryError,
+    RegistrySyncRunner,
+    _ResolvedPackage,
+)
 from tracecat.registry.sync.sandbox import NsjailExecutor
 from tracecat.registry.sync.schemas import RegistrySyncRequest
 from tracecat.registry.sync.workflow import (
@@ -109,17 +114,22 @@ async def test_retryable_sync_failure_reaches_caller_through_interceptor(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("error_code", "owner"),
+    ("origin_type", "error_code", "owner"),
     [
-        pytest.param(None, RuntimeErrorOwner.USER, id="workload"),
+        pytest.param("git", None, RuntimeErrorOwner.USER, id="git_workload"),
         pytest.param(
+            "git",
             SandboxErrorCode.INFRASTRUCTURE_FAILURE,
             RuntimeErrorOwner.PLATFORM,
-            id="infrastructure",
+            id="git_infrastructure",
+        ),
+        pytest.param(
+            "builtin", None, RuntimeErrorOwner.PLATFORM, id="builtin_workload"
         ),
     ],
 )
 async def test_sandbox_install_failure_reaches_caller_through_interceptor(
+    origin_type: Literal["builtin", "git"],
     error_code: SandboxErrorCode | None,
     owner: RuntimeErrorOwner,
     env: WorkflowEnvironment,
@@ -146,21 +156,25 @@ async def test_sandbox_install_failure_reaches_caller_through_interceptor(
             error_code=error_code,
         )
 
-    async def _package_path(_self: RegistrySyncRunner) -> Path:
-        return package_path
+    async def _resolved_package(
+        _self: RegistrySyncRunner, *_args: object
+    ) -> _ResolvedPackage:
+        return _ResolvedPackage(package_path, None)
 
     monkeypatch.setattr(
         config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
     )
     monkeypatch.setattr("tracecat.registry.sync.sandbox.sandbox_cgroup", lambda: None)
     monkeypatch.setattr(NsjailExecutor, "execute_install", _failed_install)
-    monkeypatch.setattr(RegistrySyncRunner, "_get_builtin_package_path", _package_path)
+    monkeypatch.setattr(
+        RegistrySyncRunner, "_resolve_sandboxed_package", _resolved_package
+    )
     task_queue = f"registry-sync-boundary-{uuid.uuid4()}"
     workflow_id = f"registry-sync-{uuid.uuid4()}"
     request = RegistrySyncRequest(
         repository_id=uuid.uuid4(),
-        origin="tracecat_registry",
-        origin_type="builtin",
+        origin="git+ssh://git@git.example.test/acme/registry.git",
+        origin_type=origin_type,
     )
 
     async with test_worker_factory(

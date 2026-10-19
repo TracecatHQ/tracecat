@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 from uuid import UUID, uuid4
 
 import pytest
@@ -9,7 +10,11 @@ from pydantic import SecretStr
 
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.exceptions import RegistryError, RegistrySyncContentError
+from tracecat.exceptions import (
+    RegistryError,
+    RegistrySyncContentError,
+    TracecatCredentialsNotFoundError,
+)
 from tracecat.executor.enums import ExecutorBackendType
 from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.registry.actions.schemas import (
@@ -36,6 +41,7 @@ from tracecat.registry.sync.runner import (
     RegistrySyncRunner,
     RegistrySyncRunnerError,
     RegistrySyncValidationError,
+    _ResolvedPackage,
     _SandboxedBackend,
     _UnsandboxedBackend,
 )
@@ -364,9 +370,18 @@ async def test_runner_wraps_sandbox_clone_failures(mocker) -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("origin_type", "user_owned"),
+    [
+        pytest.param("git", True, id="git"),
+        pytest.param("builtin", False, id="builtin"),
+    ],
+)
 async def test_runner_wraps_sandbox_install_failures(
     tmp_path: Path,
     mocker,
+    origin_type: Literal["builtin", "git"],
+    user_owned: bool,
 ) -> None:
     package_path = tmp_path / "registry"
     package_path.mkdir()
@@ -383,13 +398,13 @@ async def test_runner_wraps_sandbox_install_failures(
     runner = _make_sandboxed_runner(mocker, RegistrySyncSandbox())
     mocker.patch.object(
         runner,
-        "_get_builtin_package_path",
-        mocker.AsyncMock(return_value=package_path),
+        "_resolve_sandboxed_package",
+        mocker.AsyncMock(return_value=_ResolvedPackage(package_path, None)),
     )
     request = RegistrySyncRequest(
         repository_id=uuid4(),
-        origin="tracecat_registry",
-        origin_type="builtin",
+        origin="git+ssh://git@git.example.test/acme/registry.git",
+        origin_type=origin_type,
     )
 
     with pytest.raises(
@@ -398,6 +413,7 @@ async def test_runner_wraps_sandbox_install_failures(
     ) as exc_info:
         await runner.run(request)
     assert isinstance(exc_info.value.__cause__, RegistryArtifactBuildError)
+    assert exc_info.value.user_owned is user_owned
 
 
 @pytest.mark.anyio
@@ -620,6 +636,41 @@ async def test_fetch_registry_ssh_key_uses_role_scoped_service_session(mocker) -
     assert ssh_key == "fake-key\n"
     with_session.assert_called_once()
     secrets_service.get_ssh_key.assert_awaited_once_with(target="registry")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error", "user_owned"),
+    [
+        pytest.param(
+            TracecatCredentialsNotFoundError("SSH key not found"),
+            True,
+            id="missing_key",
+        ),
+        pytest.param(ConnectionError("database unavailable"), False, id="db_outage"),
+    ],
+)
+async def test_fetch_registry_ssh_key_failure_ownership(
+    mocker,
+    error: Exception,
+    user_owned: bool,
+) -> None:
+    secrets_service = mocker.Mock()
+    secrets_service.get_ssh_key = mocker.AsyncMock(side_effect=error)
+
+    @asynccontextmanager
+    async def fake_with_session(*, role: Role):
+        del role
+        yield secrets_service
+
+    mocker.patch(
+        "tracecat.registry.sync.runner.SecretsService.with_session",
+        side_effect=fake_with_session,
+    )
+
+    with pytest.raises(GitCloneError) as exc_info:
+        await RegistrySyncRunner()._fetch_registry_ssh_key(uuid4())
+    assert exc_info.value.user_owned is user_owned
 
 
 @pytest.mark.anyio
