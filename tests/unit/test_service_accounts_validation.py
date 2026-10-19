@@ -78,6 +78,7 @@ def test_workspace_service_account_assignable_scope_allows_supported_api_key_sco
         "workspace:member:update",
         "workspace:service_account:read",
         "org:registry:update",
+        "org:member:read",
     ],
 )
 def test_workspace_service_account_assignable_scope_rejects_user_only_scopes(
@@ -96,6 +97,7 @@ def test_workspace_service_account_assignable_scope_rejects_user_only_scopes(
     "scope_name",
     [
         "org:read",
+        "org:member:read",
         "org:secret:read",
         "org:secret:create",
         "org:settings:read",

@@ -502,6 +502,33 @@ class TestCreateInvitationGroups:
         assert invited.groups == []
 
     @pytest.mark.anyio
+    async def test_members_list_accepts_org_service_account(
+        self, session: AsyncSession, org: Organization, admin: User
+    ) -> None:
+        role_id = await _role_id(session, org.id, "organization-admin")
+        await InvitationService(
+            session, role=_admin_role(org.id, admin.id)
+        ).create_invitation(
+            InvitationCreate(
+                email="sa-visible@example.com",
+                grants=[InvitationGrant(role_id=role_id)],
+            )
+        )
+        service_account_role = Role(
+            type="service_account",
+            organization_id=org.id,
+            service_id="tracecat-api",
+            service_account_id=uuid.uuid4(),
+            scopes=frozenset({"org:member:read"}),
+        )
+
+        members = await list_org_members(role=service_account_role, session=session)
+
+        emails = {member.email for member in members}
+        assert admin.email in emails
+        assert "sa-visible@example.com" in emails
+
+    @pytest.mark.anyio
     async def test_members_list_hides_invitation_groups_without_entitlement(
         self,
         session: AsyncSession,

@@ -499,6 +499,14 @@ def test_delete_organization_route_remains_user_only() -> None:
     assert delete_organization_role == organization_router.OrgUserRole
 
 
+def test_list_org_members_route_accepts_org_actors() -> None:
+    role = get_type_hints(organization_router.list_org_members, include_extras=True)[
+        "role"
+    ]
+
+    assert role == organization_router.OrgActorRole
+
+
 def test_git_settings_routes_accept_org_actors() -> None:
     endpoints = [
         settings_router.get_git_settings,
