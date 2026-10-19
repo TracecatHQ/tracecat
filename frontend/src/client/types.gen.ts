@@ -2938,6 +2938,8 @@ export type CaseSearchRequest = {
   field_ids?: Array<string> | null
   include_durations?: boolean
   include_payload?: boolean
+  payload_fields?: Array<string> | null
+  payload_paths?: Array<Array<string>> | null
   include_count?: boolean
   /**
    * Place complete case references before filtered text matches within the authorized workspace.

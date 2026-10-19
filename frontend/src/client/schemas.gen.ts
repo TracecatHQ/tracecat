@@ -10974,6 +10974,37 @@ export const $CaseSearchRequest = {
       title: "Include Payload",
       default: false,
     },
+    payload_fields: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Payload Fields",
+    },
+    payload_paths: {
+      anyOf: [
+        {
+          items: {
+            items: {
+              type: "string",
+            },
+            type: "array",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Payload Paths",
+    },
     include_count: {
       type: "boolean",
       title: "Include Count",
