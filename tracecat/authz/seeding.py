@@ -647,7 +647,7 @@ async def seed_system_roles_for_org(
     )
     role_result = await session.execute(role_stmt)
 
-    role_scope_values = []
+    role_scope_links: list[tuple[UUID, UUID]] = []
     preset_role_ids: list[UUID] = []
     missing_scope_count = 0
     for role_id, role_slug in role_result.tuples().all():
@@ -667,10 +667,15 @@ async def seed_system_roles_for_org(
                 )
                 missing_scope_count += 1
                 continue
-            role_scope_values.append({"role_id": role_id, "scope_id": scope_id})
+            role_scope_links.append((role_id, scope_id))
 
-    if role_scope_values:
-        role_scope_stmt = pg_insert(RoleScope).values(role_scope_values)
+    if role_scope_links:
+        role_scope_stmt = pg_insert(RoleScope).values(
+            [
+                {"role_id": role_id, "scope_id": scope_id}
+                for role_id, scope_id in role_scope_links
+            ]
+        )
         role_scope_stmt = role_scope_stmt.on_conflict_do_nothing(
             index_elements=["role_id", "scope_id"]
         )
@@ -681,25 +686,22 @@ async def seed_system_roles_for_org(
     # a definition, or one an older app version re-seeded.
     removed_link_count = 0
     if preset_role_ids:
-        stale_links_stmt = delete(RoleScope).where(
-            RoleScope.role_id.in_(preset_role_ids)
+        stale_links_stmt = (
+            delete(RoleScope)
+            .where(RoleScope.role_id.in_(preset_role_ids))
+            .returning(RoleScope.role_id)
         )
-        if role_scope_values:
+        if role_scope_links:
             stale_links_stmt = stale_links_stmt.where(
-                tuple_(RoleScope.role_id, RoleScope.scope_id).not_in(
-                    [
-                        (value["role_id"], value["scope_id"])
-                        for value in role_scope_values
-                    ]
-                )
+                tuple_(RoleScope.role_id, RoleScope.scope_id).not_in(role_scope_links)
             )
         result = await session.execute(stale_links_stmt)
-        removed_link_count = result.rowcount or 0  # pyright: ignore[reportAttributeAccessIssue]
+        removed_link_count = len(result.all())
 
     logger.info(
         "System roles seeded for organization",
         organization_id=str(org_id),
-        role_scope_count=len(role_scope_values),
+        role_scope_count=len(role_scope_links),
         removed_link_count=removed_link_count,
         missing_scope_count=missing_scope_count,
     )
