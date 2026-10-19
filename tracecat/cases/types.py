@@ -9,6 +9,9 @@ from tracecat.cases.enums import CaseFieldKind
 from tracecat.query.resolver import ResolvedAggregationField
 from tracecat.tables.enums import SqlType
 
+# Requested object keys; None selects the complete value at a key.
+type PayloadSelection = dict[str, PayloadSelection | None]
+
 
 @dataclass(frozen=True, slots=True)
 class CaseFieldJoinSpec:

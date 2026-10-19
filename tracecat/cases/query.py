@@ -9,8 +9,13 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.sql.selectable import FromClause
 
-from tracecat.cases.constants import RESERVED_CASE_FIELDS
+from tracecat.cases.constants import (
+    MAX_PAYLOAD_PATH_KEYS,
+    MAX_PAYLOAD_PATHS,
+    RESERVED_CASE_FIELDS,
+)
 from tracecat.cases.enums import (
     CaseFieldKind,
     CasePriority,
@@ -19,6 +24,7 @@ from tracecat.cases.enums import (
 from tracecat.cases.types import (
     CaseFieldJoinSpec,
     CustomFieldDefinition,
+    PayloadSelection,
     ResolvedCaseAggregationField,
 )
 from tracecat.db.models import (
@@ -569,4 +575,77 @@ def _invalid_custom_field(
 ) -> TracecatValidationError:
     return TracecatValidationError(
         f"Case custom field {field.name!r} is invalid: {message}"
+    )
+
+
+def case_payload_projection(
+    fields: Sequence[str],
+    paths: Sequence[Sequence[str]] = (),
+) -> ColumnElement[dict[str, Any] | None]:
+    """Select object paths in PostgreSQL, keeping the original nesting and nulls."""
+    if len(paths) > MAX_PAYLOAD_PATHS:
+        raise TracecatValidationError(
+            f"At most {MAX_PAYLOAD_PATHS} payload paths may be selected"
+        )
+    selection: PayloadSelection = dict.fromkeys(fields)
+    for path in paths:
+        if not 1 <= len(path) <= MAX_PAYLOAD_PATH_KEYS:
+            raise TracecatValidationError(
+                f"Payload paths must contain 1 to {MAX_PAYLOAD_PATH_KEYS} keys"
+            )
+        node = selection
+        for key in path[:-1]:
+            if key in node and node[key] is None:
+                break  # A selected parent already includes every descendant.
+            child = node.setdefault(key, {})
+            assert child is not None
+            node = child
+        else:
+            node[path[-1]] = None
+
+    selected = _payload_object_projection(
+        Case.payload.expression, selection, Case.__table__
+    )
+    return sa.case(
+        (
+            sa.func.jsonb_typeof(Case.payload) == "object",
+            sa.func.coalesce(selected, sa.literal({}, type_=postgresql.JSONB)),
+        ),
+        else_=None,
+    )
+
+
+def _payload_object_projection(
+    payload: ColumnElement[Any], selection: PayloadSelection, parent: FromClause
+) -> ColumnElement[dict[str, Any] | None]:
+    # Guard each level: array indexes and traversal through scalar values do not
+    # match object keys. Whole arrays/scalars are still selectable as leaves.
+    empty = sa.literal({}, type_=postgresql.JSONB)
+    source = sa.case((sa.func.jsonb_typeof(payload) == "object", payload), else_=empty)
+    entries = sa.func.jsonb_each(source).table_valued("key", "value").alias()
+    branches = [
+        (
+            entries.c.key == key,
+            _payload_object_projection(entries.c.value, child, entries),
+        )
+        for key, child in selection.items()
+        if child is not None
+    ]
+    value = sa.case(*branches, else_=entries.c.value) if branches else entries.c.value
+    selected = (
+        sa.select(entries.c.key, value.label("value"))
+        .where(entries.c.key.in_(list(selection)))
+        .correlate(parent)
+        # Keep this level separate: flattening duplicates the nested expression
+        # in both the aggregate and NULL filter, growing work at every depth.
+        .offset(0)
+        .subquery()
+    )
+    # SQL NULL marks a missing descendant; a JSON null remains a selected value.
+    # Aggregate siblings together so selecting two paths cannot overwrite either.
+    return (
+        sa.select(sa.func.jsonb_object_agg(selected.c.key, selected.c.value))
+        .where(selected.c.value.is_not(None))
+        .correlate(parent)
+        .scalar_subquery()
     )

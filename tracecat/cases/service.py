@@ -82,7 +82,11 @@ from tracecat.cases.exact_search import (
 )
 from tracecat.cases.hierarchy import TOP_LEVEL, CaseHierarchyService
 from tracecat.cases.mentions import MentionToken, parse_mentions
-from tracecat.cases.query import CaseFieldResolver, referenced_dropdown_refs
+from tracecat.cases.query import (
+    CaseFieldResolver,
+    case_payload_projection,
+    referenced_dropdown_refs,
+)
 from tracecat.cases.schemas import (
     CaseAggregateRequest,
     CaseAggregateResponse,
@@ -585,6 +589,8 @@ class CasesService(BaseWorkspaceService):
         promote_exact_match: bool = False,
         match_none: bool = False,
         include_count: bool = True,
+        payload_fields: Sequence[str] | None = None,
+        payload_paths: Sequence[Sequence[str]] | None = None,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """Search cases with cursor-based pagination and filtering.
 
@@ -600,7 +606,16 @@ class CasesService(BaseWorkspaceService):
         population aggregates separately can opt out on every page, including
         continuations; their ``total_estimate`` is None. Detail hydration is
         restricted to returned rows, excluding the pagination lookahead row.
+
+        ``payload_fields`` includes only the requested top-level payload keys,
+        and ``payload_paths`` selects nested object keys while preserving their shape.
+        Both selectors combine and override ``include_payload``. Empty lists act as omitted.
         """
+        payload_projection = (
+            case_payload_projection(payload_fields or (), payload_paths or ())
+            if payload_fields or payload_paths
+            else None
+        )
         include_case_addons = await self.has_entitlement(Entitlement.CASE_ADDONS)
         parent_id, top_level_only = await self.hierarchy.resolve_filters(
             parent_id=parent_id, hierarchy=hierarchy
@@ -748,7 +763,7 @@ class CasesService(BaseWorkspaceService):
 
         hydration_options: list[ExecutableOption] = [
             load_only(Case.id, Case.payload, raiseload=True)
-            if include_payload
+            if include_payload and payload_projection is None
             else load_only(Case.id, raiseload=True),
             raiseload("*"),
             selectinload(Case.tags),
@@ -767,6 +782,7 @@ class CasesService(BaseWorkspaceService):
             )
             if include_durations:
                 hydration_options.append(selectinload(Case.durations))
+        selected_payloads: dict[uuid.UUID, dict[str, Any] | None] = {}
         if cases:
             # SQLAlchemy's identity map hydrates the already-paginated objects
             # without replacing their order or loading the lookahead case.
@@ -778,8 +794,22 @@ class CasesService(BaseWorkspaceService):
                 )
                 .options(*hydration_options)
             )
-            hydrated = (await self.session.scalars(hydration_stmt)).all()
-            hydrated_ids = {case.id for case in hydrated}
+            if payload_projection is not None:
+                # Keep projected values separate from Case.payload so a partial
+                # read never replaces the full object in the session identity map.
+                selected_stmt = hydration_stmt.add_columns(
+                    payload_projection.label("selected_payload")
+                )
+                hydrated_rows = (
+                    (await self.session.execute(selected_stmt)).tuples().all()
+                )
+                selected_payloads = {
+                    case.id: payload for case, payload in hydrated_rows
+                }
+                hydrated_ids = set(selected_payloads)
+            else:
+                hydrated = (await self.session.scalars(hydration_stmt)).all()
+                hydrated_ids = {case.id for case in hydrated}
             # A deletion can occur between statement snapshots. Omit missing
             # rows instead of accessing relationships that were never loaded.
             cases = [case for case in cases if case.id in hydrated_ids]
@@ -822,6 +852,12 @@ class CasesService(BaseWorkspaceService):
                     for d in case.durations
                 ]
 
+            payload: dict[str, Any] | None = None
+            if payload_projection is not None:
+                payload = selected_payloads[case.id]
+            elif include_payload:
+                payload = case.payload
+
             case_items.append(
                 CaseReadMinimal(
                     id=case.id,
@@ -847,7 +883,7 @@ class CasesService(BaseWorkspaceService):
                     tags=tag_reads,
                     dropdown_values=dropdown_reads,
                     durations=duration_reads,
-                    payload=case.payload if include_payload else None,
+                    payload=payload,
                     num_tasks_completed=task_counts[case.id]["completed"],
                     num_tasks_total=task_counts[case.id]["total"],
                     parent=hierarchies.get(case.id, TOP_LEVEL).parent,
@@ -972,6 +1008,8 @@ class CasesService(BaseWorkspaceService):
         include_payload: bool = False,
         hierarchy: CaseHierarchyFilter = "all",
         include_count: bool = True,
+        payload_fields: Sequence[str] | None = None,
+        payload_paths: Sequence[Sequence[str]] | None = None,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """List cases, including the legacy exact count unless opted out."""
         return await self.search_cases(
@@ -982,6 +1020,8 @@ class CasesService(BaseWorkspaceService):
             include_payload=include_payload,
             hierarchy=hierarchy,
             include_count=include_count,
+            payload_fields=payload_fields,
+            payload_paths=payload_paths,
         )
 
     async def get_case(

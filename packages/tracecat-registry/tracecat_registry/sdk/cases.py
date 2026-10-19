@@ -6,6 +6,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
+import orjson
+
 from tracecat_registry import types
 from tracecat_registry.sdk.types import (
     UNSET,
@@ -203,6 +205,8 @@ class CasesClient:
         sort: Literal["asc", "desc"] | Unset = UNSET,
         include_rows: bool | Unset = UNSET,
         include_payload: bool | Unset = UNSET,
+        payload_fields: list[str] | Unset = UNSET,
+        payload_paths: list[list[str]] | Unset = UNSET,
     ) -> types.CaseListResponse:
         """List cases using default server-side filtering.
 
@@ -212,6 +216,13 @@ class CasesClient:
             reverse: Reverse pagination direction.
             order_by: Column to order by.
             sort: Sort direction.
+            include_payload: Return the full payload without a non-empty selector.
+            payload_fields: Literal top-level keys to return. Includes the subset
+                automatically, overriding include_payload. An empty list is omitted;
+                an empty string selects the literal empty key.
+            payload_paths: Up to 100 nested object paths (1 to 32 literal keys each),
+                combined with payload_fields. Preserves nesting; selected parents
+                include their whole value. Arrays are selected whole, without indexes.
 
         Returns:
             Paginated list of cases with cursor metadata.
@@ -229,6 +240,10 @@ class CasesClient:
             params["include_rows"] = include_rows
         if is_set(include_payload):
             params["include_payload"] = include_payload
+        if is_set(payload_fields) and payload_fields:
+            params["payload_fields"] = payload_fields
+        if is_set(payload_paths) and payload_paths:
+            params["payload_paths"] = orjson.dumps(payload_paths).decode()
 
         return await self._client.get("/cases", params=params)
 
@@ -253,8 +268,17 @@ class CasesClient:
         updated_before: datetime | str | Unset = UNSET,
         include_rows: bool | Unset = UNSET,
         include_payload: bool | Unset = UNSET,
+        payload_fields: list[str] | Unset = UNSET,
+        payload_paths: list[list[str]] | Unset = UNSET,
     ) -> types.CaseListResponse:
-        """Search cases with filtering and pagination."""
+        """Search cases with filtering and pagination.
+
+        Either non-empty selector returns the selected subset. payload_fields
+        and payload_paths combine and override include_payload. Up to 100 paths
+        preserve object nesting and contain 1 to 32 literal keys each. Arrays are
+        selected whole. Empty or unset selectors keep the flag's behavior.
+        An empty string in the selector selects the literal empty key.
+        """
         params: dict[str, Any] = {"limit": limit}
         if is_set(cursor):
             params["cursor"] = cursor
@@ -306,6 +330,10 @@ class CasesClient:
             params["include_rows"] = include_rows
         if is_set(include_payload):
             params["include_payload"] = include_payload
+        if is_set(payload_fields) and payload_fields:
+            params["payload_fields"] = payload_fields
+        if is_set(payload_paths) and payload_paths:
+            params["payload_paths"] = orjson.dumps(payload_paths).decode()
 
         return await self._client.get("/cases/search", params=params)
 

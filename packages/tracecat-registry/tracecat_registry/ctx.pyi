@@ -311,6 +311,9 @@ class _CasesAsync:
         order_by: str | Unset = ...,
         sort: Literal["asc", "desc"] | Unset = ...,
         include_rows: bool | Unset = ...,
+        include_payload: bool | Unset = ...,
+        payload_fields: list[str] | Unset = ...,
+        payload_paths: list[list[str]] | Unset = ...,
     ) -> types.CaseListResponse: ...
     async def search_cases(
         self,
@@ -332,6 +335,9 @@ class _CasesAsync:
         updated_after: datetime | str | Unset = ...,
         updated_before: datetime | str | Unset = ...,
         include_rows: bool | Unset = ...,
+        include_payload: bool | Unset = ...,
+        payload_fields: list[str] | Unset = ...,
+        payload_paths: list[list[str]] | Unset = ...,
     ) -> types.CaseListResponse: ...
     async def list_comments(
         self,
@@ -644,6 +650,9 @@ class _Cases:
         order_by: str | Unset = ...,
         sort: Literal["asc", "desc"] | Unset = ...,
         include_rows: bool | Unset = ...,
+        include_payload: bool | Unset = ...,
+        payload_fields: list[str] | Unset = ...,
+        payload_paths: list[list[str]] | Unset = ...,
     ) -> types.CaseListResponse: ...
     def search_cases(
         self,
@@ -665,6 +674,9 @@ class _Cases:
         updated_after: datetime | str | Unset = ...,
         updated_before: datetime | str | Unset = ...,
         include_rows: bool | Unset = ...,
+        include_payload: bool | Unset = ...,
+        payload_fields: list[str] | Unset = ...,
+        payload_paths: list[list[str]] | Unset = ...,
     ) -> types.CaseListResponse: ...
     def list_comments(
         self,
