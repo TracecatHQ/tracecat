@@ -113,21 +113,6 @@ function isDateFilterActive(filter: CaseDateFilterValue): boolean {
   return filter.value.from !== undefined
 }
 
-function getDateScopeLabel(filter: CaseDateFilterValue, label: string): string {
-  if (filter.type === "preset") {
-    if (!filter.value) return `${label}: any time`
-    const days = { "1d": 1, "3d": 3, "1w": 7, "1m": 30 }[filter.value]
-    return `${label} in last ${days} ${days === 1 ? "day" : "days"}`
-  }
-  const { from, to } = filter.value
-  if (from && to) {
-    return `${label} from ${format(from, "MMM d, yyyy")} to ${format(to, "MMM d, yyyy")}`
-  }
-  if (from) return `${label} from ${format(from, "MMM d, yyyy")}`
-  if (to) return `${label} through ${format(to, "MMM d, yyyy")}`
-  return `${label}: any time`
-}
-
 interface DateFilterSelectProps {
   placeholder: string
   icon: typeof ClockIcon | typeof CalendarIcon
@@ -571,16 +556,6 @@ export function CasesHeader({
 
   const countNoun = displayCaseCount === 1 ? "case" : "cases"
   const includesSubCases = effectiveHierarchy === "all"
-  const hierarchyLabel = includesSubCases
-    ? "Includes sub-cases"
-    : "Top-level cases only"
-  const createdLabel = getDateScopeLabel(createdAfter, "Created")
-  const updatedLabel = getDateScopeLabel(updatedAfter, "Updated")
-  const scopeDescription = [
-    createdLabel,
-    updatedLabel,
-    ...(onIncludeSubCasesChange ? [hierarchyLabel] : []),
-  ].join(" · ")
 
   const hasFilters =
     searchQuery.trim().length > 0 ||
@@ -673,14 +648,13 @@ export function CasesHeader({
         </div>
       </header>
 
-      <p
-        id="case-search-scope"
-        role="status"
-        className="px-4 pt-2 text-xs text-muted-foreground"
-      >
-        {scopeDescription}
-        {isSearchPending && <span> · Updating search…</span>}
-        {isCountsError && <span> · Case count unavailable</span>}
+      <p id="case-search-scope" role="status" className="sr-only">
+        {[
+          isSearchPending && "Updating search…",
+          isCountsError && "Case count unavailable",
+        ]
+          .filter(Boolean)
+          .join(" · ")}
       </p>
 
       {/* Row 2: Filter dropdowns */}
@@ -881,16 +855,13 @@ export function CasesHeader({
               disabled={Boolean(appliedSearchQuery)}
               onClick={() => onIncludeSubCasesChange(!includeSubCases)}
               className={cn(
-                "flex h-6 items-center gap-1.5 rounded-md border border-dashed px-2 text-xs transition-colors",
-                includesSubCases
-                  ? "border-solid bg-muted text-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                "flex h-6 items-center gap-1.5 rounded-md border border-input bg-transparent px-2 text-xs font-medium transition-colors",
+                "hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50",
+                includesSubCases && "border-primary/50 bg-primary/5"
               )}
             >
-              <ListTreeIcon className="size-3.5" />
-              {includesSubCases
-                ? "Including sub-cases"
-                : "Top-level cases only"}
+              <ListTreeIcon className="size-3.5 text-muted-foreground" />
+              {includesSubCases ? "All cases" : "Parents only"}
             </button>
           )}
         </fieldset>

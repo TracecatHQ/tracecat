@@ -212,9 +212,6 @@ describe("exact-first case search UI", () => {
     expect(
       screen.queryByRole("combobox", { name: "Case search scope" })
     ).not.toBeInTheDocument()
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Created in last 30 days"
-    )
     expect(
       screen.getByRole("group", { name: "Current view filters" })
     ).not.toBeDisabled()
@@ -233,11 +230,8 @@ describe("exact-first case search UI", () => {
   it("shows dates without unsupported hierarchy labels or controls", async () => {
     setup(false)
     await waitFor(() => expect(casesSearchCases).toHaveBeenCalledTimes(1))
-    const scope = screen.getByRole("status")
-    expect(scope).toHaveTextContent("Created in last 30 days")
-    expect(scope).toHaveTextContent("Updated: any time")
-    expect(scope).not.toHaveTextContent("Top-level cases only")
-    expect(scope).not.toHaveTextContent("Includes sub-cases")
+    expect(screen.queryByText("Parents only")).not.toBeInTheDocument()
+    expect(screen.queryByText("All cases")).not.toBeInTheDocument()
     expect(screen.queryByRole("switch")).not.toBeInTheDocument()
   })
 
@@ -362,8 +356,8 @@ describe("exact-first case search UI", () => {
         screen.queryByRole("region", { name: "Exact match" })
       ).not.toBeInTheDocument()
     )
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Created in last 30 days"
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({ startTime: expect.any(String) })
     )
   })
 })

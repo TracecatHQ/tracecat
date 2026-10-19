@@ -134,6 +134,7 @@ from tracecat.cases.event_schemas import (
     TaskAssigneeChangedEventRead,
 )
 from tracecat.cases.schemas import (
+    CaseBatchResponse,
     CaseCommentCreate,
     CaseCommentRead,
     CaseCommentThreadRead,
@@ -143,6 +144,8 @@ from tracecat.cases.schemas import (
     CaseFieldRead,
     CaseFieldReadMinimal,
     CaseFieldUpdate,
+    CaseHierarchyFilter,
+    CaseParentRead,
     CaseReadMinimal,
     CaseTaskCreate,
     CaseTaskUpdate,
@@ -1177,6 +1180,8 @@ class CaseFullResponse(BaseModel):
     fields: list[CaseFieldRead] = Field(default_factory=list)
     tags: list[CaseTagRead] = Field(default_factory=list)
     dropdown_values: list[CaseDropdownValueRead] = Field(default_factory=list)
+    parent: CaseParentRead | None = None
+    num_sub_cases: int = 0
 
 
 class CaseTaskResponse(BaseModel):
@@ -3590,6 +3595,8 @@ def _case_full_payload(
     fields: list[CaseFieldRead] | None = None,
     tags: list[CaseTagRead] | None = None,
     dropdown_values: list[CaseDropdownValueRead] | None = None,
+    parent: CaseParentRead | None = None,
+    num_sub_cases: int = 0,
 ) -> CaseFullResponse:
     """Serialize a case to a full MCP-friendly dict."""
     assignee = None
@@ -3614,6 +3621,8 @@ def _case_full_payload(
         fields=fields or [],
         tags=tags or [],
         dropdown_values=dropdown_values or [],
+        parent=parent,
+        num_sub_cases=num_sub_cases,
     )
 
 
@@ -6698,6 +6707,8 @@ async def search_cases(
     severity: str | None = None,
     order_by: str | None = None,
     sort: str | None = None,
+    parent_id: uuid.UUID | None = None,
+    hierarchy: CaseHierarchyFilter = "all",
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """Search cases with filtering and sorting.
 
@@ -6718,11 +6729,19 @@ async def search_cases(
         order_by: Column to order by. One of: created_at, updated_at,
             priority, severity, status, tasks.
         sort: Sort direction. One of: asc, desc.
+        parent_id: Return only the sub-cases of this parent case UUID.
+            Requires the case add-ons entitlement.
+        hierarchy: ``all`` (default) returns parent cases and sub-cases;
+            ``top_level`` returns only cases without a parent. Cannot be
+            combined with ``parent_id``.
 
-    Returns a paginated JSON array of case objects.
+    Returns a paginated JSON array of case objects. Each case includes
+    ``parent`` (set on sub-cases) and ``num_sub_cases``.
     """
 
     try:
+        if parent_id is not None:
+            parent_id = _coerce_uuid_arg(parent_id, "parent_id")
         _, role = await _resolve_workspace_role(workspace_id)
 
         parsed_status: list[CaseStatus] | None = None
@@ -6752,8 +6771,14 @@ async def search_cases(
                 severity=parsed_severity,
                 order_by=cast(Any, order_by),
                 sort=cast(Any, sort),
+                parent_id=parent_id,
+                hierarchy=hierarchy,
             )
             return result
+    except EntitlementRequired as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -6773,7 +6798,8 @@ async def get_case(
         workspace_id: The workspace ID.
         case_id: Case UUID.
 
-    Returns JSON with full case details.
+    Returns JSON with full case details, including ``parent`` (set on
+    sub-cases) and ``num_sub_cases``.
     """
 
     try:
@@ -6810,11 +6836,14 @@ async def get_case(
                 dropdown_values = await dropdown_service.list_values_for_case(case_id)
                 dropdown_reads = dropdown_values
 
+            hierarchy = (await svc.hierarchy.get_hierarchy([case])).get(case.id)
             return _case_full_payload(
                 case,
                 fields=final_fields,
                 tags=tag_reads,
                 dropdown_values=dropdown_reads,
+                parent=hierarchy.parent if hierarchy else None,
+                num_sub_cases=hierarchy.num_sub_cases if hierarchy else 0,
             )
     except ToolError:
         raise
@@ -6839,6 +6868,7 @@ async def create_case(
     tags: list[str] | None = None,
     create_missing_tags: bool = False,
     dropdown_values: list[CaseDropdownValueInput] | None = None,
+    parent_id: uuid.UUID | None = None,
 ) -> CaseCreatedResponse:
     """Create a new case.
 
@@ -6863,6 +6893,8 @@ async def create_case(
             exactly one of `definition_id`/`definition_ref` and at most one
             of `option_id`/`option_ref` (omit both to clear). Requires the
             case add-ons entitlement.
+        parent_id: Optional UUID of a top-level case to create this case
+            under as a sub-case. Requires the case add-ons entitlement.
 
     Returns JSON with a confirmation message and the created case ID.
     """
@@ -6870,6 +6902,8 @@ async def create_case(
     try:
         if assignee_id is not None:
             assignee_id = _coerce_uuid_arg(assignee_id, "assignee_id")
+        if parent_id is not None:
+            parent_id = _coerce_uuid_arg(parent_id, "parent_id")
         _, role = await _resolve_workspace_role(workspace_id)
 
         params = CaseCreate(
@@ -6882,6 +6916,7 @@ async def create_case(
             fields=fields,
             payload=payload,
             dropdown_values=dropdown_values,
+            parent_id=parent_id,
         )
 
         async with CasesService.with_session(role=role) as svc:
@@ -7020,6 +7055,96 @@ async def update_case(
     except Exception as e:
         logger.error("Failed to update case", error=str(e))
         raise ToolError(f"Failed to update case: {e}") from None
+
+
+@mcp.tool()
+async def set_case_parent(
+    workspace_id: uuid.UUID,
+    case_ids: list[uuid.UUID],
+    parent_id: uuid.UUID,
+) -> CaseBatchResponse:
+    """Group cases as sub-cases of a top-level parent case.
+
+    Sub-cases are one level deep: the parent must be a top-level case, and a
+    case that has its own sub-cases cannot be grouped. Cases already under
+    another parent are moved. Requires the case add-ons entitlement.
+
+    Args:
+        workspace_id: The workspace ID.
+        case_ids: UUIDs of the cases to group (1-1000).
+        parent_id: UUID of the top-level parent case.
+
+    Returns per-case results with ``success`` and ``error``, plus aggregate
+    counts.
+    """
+
+    try:
+        parsed_ids = [_coerce_uuid_arg(case_id, "case_ids") for case_id in case_ids]
+        parent_id = _coerce_uuid_arg(parent_id, "parent_id")
+        _validate_case_batch_ids(parsed_ids)
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with CasesService.with_session(role=role) as svc:
+            return await svc.batch_set_parent(parsed_ids, parent_id)
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        EntitlementRequired,
+        TracecatNotFoundError,
+        TracecatValidationError,
+        ValueError,
+    ) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to set case parent", error=str(e))
+        raise ToolError(f"Failed to set case parent: {e}") from None
+
+
+@mcp.tool()
+async def clear_case_parent(
+    workspace_id: uuid.UUID,
+    case_ids: list[uuid.UUID],
+) -> CaseBatchResponse:
+    """Remove sub-cases from their parent case, returning them to the top
+    level. Cases without a parent are left unchanged. Requires the case
+    add-ons entitlement.
+
+    Args:
+        workspace_id: The workspace ID.
+        case_ids: UUIDs of the sub-cases to ungroup (1-1000).
+
+    Returns per-case results with ``success`` and ``error``, plus aggregate
+    counts.
+    """
+
+    try:
+        parsed_ids = [_coerce_uuid_arg(case_id, "case_ids") for case_id in case_ids]
+        _validate_case_batch_ids(parsed_ids)
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with CasesService.with_session(role=role) as svc:
+            return await svc.batch_clear_parent(parsed_ids)
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except (
+        EntitlementRequired,
+        TracecatNotFoundError,
+        TracecatValidationError,
+        ValueError,
+    ) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to clear case parent", error=str(e))
+        raise ToolError(f"Failed to clear case parent: {e}") from None
+
+
+def _validate_case_batch_ids(case_ids: list[uuid.UUID]) -> None:
+    if not 1 <= len(case_ids) <= 1000:
+        raise ToolError("case_ids must contain between 1 and 1000 case IDs")
 
 
 # ---------------------------------------------------------------------------
