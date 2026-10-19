@@ -47,6 +47,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.registry.sync.runner import (
         ActionDiscoveryError,
+        ArtifactBuildError,
         GitCloneError,
         PackageInstallError,
         RegistrySyncRunner,
@@ -248,6 +249,9 @@ def _raise_registry_sync_failure(exc: RegistrySyncRunnerError) -> Never:
         case ActionDiscoveryError():
             owner_classification = RuntimeErrorClassification.platform
             message = "Registry action discovery failed"
+        case ArtifactBuildError():
+            owner_classification = RuntimeErrorClassification.platform
+            message = "Registry artifact build failed"
         case _:
             owner_classification = RuntimeErrorClassification.platform
             message = "Registry sync failed"

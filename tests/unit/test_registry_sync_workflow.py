@@ -19,6 +19,7 @@ from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.registry.actions.schemas import RegistryActionValidationErrorInfo
 from tracecat.registry.sync.runner import (
     ActionDiscoveryError,
+    ArtifactBuildError,
     GitCloneError,
     PackageInstallError,
     RegistrySyncValidationError,
@@ -173,6 +174,13 @@ def _registry_sync_failure_detail(error: ApplicationError) -> str:
             "Registry package installation failed",
             "Package installation failed: resolver error",
             id="package_install",
+        ),
+        pytest.param(
+            ArtifactBuildError("Sandboxed registry packaging failed: mksquashfs"),
+            RuntimeErrorOwner.PLATFORM,
+            "Registry artifact build failed",
+            "Sandboxed registry packaging failed: mksquashfs",
+            id="artifact_build",
         ),
     ],
 )

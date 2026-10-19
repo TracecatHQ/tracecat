@@ -23,23 +23,30 @@ from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
-from tracecat.registry.sync.artifact import RegistryArtifactBuildResult
+from tracecat.registry.sync.artifact import (
+    RegistryArtifactBuildError,
+    RegistryArtifactBuildResult,
+)
 from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
 from tracecat.registry.sync.runner import (
     ActionDiscoveryError,
+    ArtifactBuildError,
     GitCloneError,
+    PackageInstallError,
     RegistrySyncRunner,
     RegistrySyncRunnerError,
     RegistrySyncValidationError,
     _SandboxedBackend,
     _UnsandboxedBackend,
 )
+from tracecat.registry.sync.sandbox import RegistrySyncSandbox
 from tracecat.registry.sync.schemas import (
     RegistrySyncRequest,
     SyncErrorCode,
     SyncResultSuccess,
 )
 from tracecat.registry.versions.schemas import RegistryVersionManifest
+from tracecat.sandbox.types import SandboxResult
 
 
 def _make_artifact_result(tmp_path: Path) -> RegistryArtifactBuildResult:
@@ -352,6 +359,109 @@ async def test_runner_wraps_sandbox_clone_failures(mocker) -> None:
     )
 
     with pytest.raises(GitCloneError, match="host key verification failed"):
+        await runner.run(request)
+
+
+@pytest.mark.anyio
+async def test_runner_wraps_sandbox_install_failures(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    package_path = tmp_path / "registry"
+    package_path.mkdir()
+    (package_path / "pyproject.toml").write_text("[project]\nname='registry'\n")
+    mocker.patch("tracecat.registry.sync.sandbox.sandbox_cgroup", return_value=None)
+    mocker.patch(
+        "tracecat.registry.sync.sandbox.NsjailExecutor.execute_install",
+        mocker.AsyncMock(
+            return_value=SandboxResult(
+                success=False, error="No solution found when resolving dependencies"
+            )
+        ),
+    )
+    runner = _make_sandboxed_runner(mocker, RegistrySyncSandbox())
+    mocker.patch.object(
+        runner,
+        "_get_builtin_package_path",
+        mocker.AsyncMock(return_value=package_path),
+    )
+    request = RegistrySyncRequest(
+        repository_id=uuid4(),
+        origin="tracecat_registry",
+        origin_type="builtin",
+    )
+
+    with pytest.raises(
+        PackageInstallError,
+        match="installation failed: No solution found when resolving dependencies",
+    ) as exc_info:
+        await runner.run(request)
+    assert isinstance(exc_info.value.__cause__, RegistryArtifactBuildError)
+
+
+@pytest.mark.anyio
+async def test_runner_wraps_sandbox_packaging_failures(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    sandbox = mocker.Mock(
+        install_package=mocker.AsyncMock(return_value=tmp_path / "site-packages"),
+        package_site_packages=mocker.AsyncMock(
+            side_effect=RegistryArtifactBuildError(
+                "Sandboxed registry packaging failed: mksquashfs exited 1"
+            )
+        ),
+    )
+    runner = _make_sandboxed_runner(mocker, sandbox)
+    mocker.patch.object(
+        runner,
+        "_get_builtin_package_path",
+        mocker.AsyncMock(return_value=tmp_path),
+    )
+    mocker.patch.object(
+        runner,
+        "_discover_sandboxed_actions",
+        mocker.AsyncMock(return_value=SyncResultSuccess(actions=[])),
+    )
+    request = RegistrySyncRequest(
+        repository_id=uuid4(),
+        origin="tracecat_registry",
+        origin_type="builtin",
+    )
+
+    with pytest.raises(ArtifactBuildError, match="mksquashfs exited 1"):
+        await runner.run(request)
+
+
+@pytest.mark.anyio
+async def test_runner_wraps_unsandboxed_artifact_build_failures(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    mocker.patch.object(
+        config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.DIRECT
+    )
+    mocker.patch(
+        "tracecat.registry.sync.runner.build_artifact_from_path",
+        mocker.AsyncMock(
+            side_effect=RegistryArtifactBuildError(
+                "Failed to install package: resolver error"
+            )
+        ),
+    )
+    runner = RegistrySyncRunner()
+    mocker.patch.object(
+        runner,
+        "_get_builtin_package_path",
+        mocker.AsyncMock(return_value=tmp_path),
+    )
+    request = RegistrySyncRequest(
+        repository_id=uuid4(),
+        origin="tracecat_registry",
+        origin_type="builtin",
+    )
+
+    with pytest.raises(ArtifactBuildError, match="resolver error"):
         await runner.run(request)
 
 

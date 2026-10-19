@@ -72,6 +72,10 @@ class PackageInstallError(RegistrySyncRunnerError):
     """Raised when package installation fails."""
 
 
+class ArtifactBuildError(RegistrySyncRunnerError):
+    """Raised when building the registry artifact fails."""
+
+
 class ActionDiscoveryError(RegistrySyncRunnerError):
     """Raised when action discovery fails."""
 
@@ -226,11 +230,14 @@ class RegistrySyncRunner:
         self._log_resolved_package(request, resolved, sandboxed=True)
         output_dir = work_dir / "artifact"
 
-        installed_site_packages = await sandbox.install_package(
-            package_path=resolved.path,
-            output_dir=output_dir,
-            timeout_seconds=self.install_timeout,
-        )
+        try:
+            installed_site_packages = await sandbox.install_package(
+                package_path=resolved.path,
+                output_dir=output_dir,
+                timeout_seconds=self.install_timeout,
+            )
+        except RegistryArtifactBuildError as exc:
+            raise PackageInstallError(str(exc)) from exc
         logger.info(
             "Registry package installed",
             site_packages_path=str(installed_site_packages),
@@ -246,11 +253,14 @@ class RegistrySyncRunner:
             )
         self._raise_for_validation_errors(discovery)
 
-        artifact_result = await sandbox.package_site_packages(
-            site_packages=installed_site_packages,
-            output_dir=output_dir,
-            timeout_seconds=self.install_timeout,
-        )
+        try:
+            artifact_result = await sandbox.package_site_packages(
+                site_packages=installed_site_packages,
+                output_dir=output_dir,
+                timeout_seconds=self.install_timeout,
+            )
+        except RegistryArtifactBuildError as exc:
+            raise ArtifactBuildError(str(exc)) from exc
         self._log_built_artifact(artifact_result)
         return await self._finalize_sync(
             request=request,
@@ -634,7 +644,7 @@ class RegistrySyncRunner:
             RegistryArtifactBuildResult with build metadata.
 
         Raises:
-            RegistryArtifactBuildError: If build fails.
+            ArtifactBuildError: If install or packaging fails.
         """
         output_dir.mkdir(parents=True, exist_ok=True)
         logger.warning(
@@ -642,7 +652,10 @@ class RegistrySyncRunner:
             "sandboxed",
             disable_nsjail=True,
         )
-        return await build_artifact_from_path(package_path, output_dir)
+        try:
+            return await build_artifact_from_path(package_path, output_dir)
+        except RegistryArtifactBuildError as exc:
+            raise ArtifactBuildError(str(exc)) from exc
 
     @staticmethod
     def _resolve_package_name(
