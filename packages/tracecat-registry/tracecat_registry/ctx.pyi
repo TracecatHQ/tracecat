@@ -313,6 +313,7 @@ class _CasesAsync:
         include_rows: bool | Unset = ...,
         include_payload: bool | Unset = ...,
         payload_fields: list[str] | Unset = ...,
+        payload_paths: list[list[str]] | Unset = ...,
     ) -> types.CaseListResponse: ...
     async def search_cases(
         self,
@@ -336,6 +337,7 @@ class _CasesAsync:
         include_rows: bool | Unset = ...,
         include_payload: bool | Unset = ...,
         payload_fields: list[str] | Unset = ...,
+        payload_paths: list[list[str]] | Unset = ...,
     ) -> types.CaseListResponse: ...
     async def list_comments(
         self,
@@ -650,6 +652,7 @@ class _Cases:
         include_rows: bool | Unset = ...,
         include_payload: bool | Unset = ...,
         payload_fields: list[str] | Unset = ...,
+        payload_paths: list[list[str]] | Unset = ...,
     ) -> types.CaseListResponse: ...
     def search_cases(
         self,
@@ -673,6 +676,7 @@ class _Cases:
         include_rows: bool | Unset = ...,
         include_payload: bool | Unset = ...,
         payload_fields: list[str] | Unset = ...,
+        payload_paths: list[list[str]] | Unset = ...,
     ) -> types.CaseListResponse: ...
     def list_comments(
         self,

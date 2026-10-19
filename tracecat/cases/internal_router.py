@@ -22,7 +22,7 @@ from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.users import search_users
 from tracecat.authz.controls import require_scope
-from tracecat.cases.dependencies import ExecutorCaseIDPath
+from tracecat.cases.dependencies import ExecutorCaseIDPath, PayloadPathsQuery
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.durations.schemas import CaseDurationMetric
@@ -173,6 +173,7 @@ async def list_cases(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
+    payload_paths: PayloadPathsQuery,
     limit: int = Query(
         config.TRACECAT__LIMIT_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
@@ -219,6 +220,7 @@ async def list_cases(
             include_durations=include_durations,
             include_payload=include_payload,
             payload_fields=payload_fields,
+            payload_paths=payload_paths,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for list cases: {e}")
@@ -271,6 +273,7 @@ async def search_cases(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
+    payload_paths: PayloadPathsQuery,
     limit: int = Query(
         config.TRACECAT__LIMIT_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
@@ -388,6 +391,7 @@ async def search_cases(
             include_durations=include_durations,
             include_payload=include_payload,
             payload_fields=payload_fields,
+            payload_paths=payload_paths,
         )
         if include_rows and cases.items:
             rows_service = CaseTableRowsService(session, role)

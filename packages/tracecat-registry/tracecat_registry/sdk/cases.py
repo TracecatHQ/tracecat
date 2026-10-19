@@ -6,6 +6,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
+import orjson
+
 from tracecat_registry import types
 from tracecat_registry.sdk.types import (
     UNSET,
@@ -204,6 +206,7 @@ class CasesClient:
         include_rows: bool | Unset = UNSET,
         include_payload: bool | Unset = UNSET,
         payload_fields: list[str] | Unset = UNSET,
+        payload_paths: list[list[str]] | Unset = UNSET,
     ) -> types.CaseListResponse:
         """List cases using default server-side filtering.
 
@@ -217,6 +220,9 @@ class CasesClient:
             payload_fields: Literal top-level keys to return. Includes the subset
                 automatically, overriding include_payload. An empty list is omitted;
                 an empty string selects the literal empty key.
+            payload_paths: Nested object paths (1 to 32 literal keys each), combined
+                with payload_fields. Preserves nesting; selected parents include
+                their whole value. Arrays are selected whole, without index traversal.
 
         Returns:
             Paginated list of cases with cursor metadata.
@@ -236,6 +242,8 @@ class CasesClient:
             params["include_payload"] = include_payload
         if is_set(payload_fields) and payload_fields:
             params["payload_fields"] = payload_fields
+        if is_set(payload_paths) and payload_paths:
+            params["payload_paths"] = orjson.dumps(payload_paths).decode()
 
         return await self._client.get("/cases", params=params)
 
@@ -261,11 +269,14 @@ class CasesClient:
         include_rows: bool | Unset = UNSET,
         include_payload: bool | Unset = UNSET,
         payload_fields: list[str] | Unset = UNSET,
+        payload_paths: list[list[str]] | Unset = UNSET,
     ) -> types.CaseListResponse:
         """Search cases with filtering and pagination.
 
         A non-empty payload_fields list returns only those literal top-level keys,
-        overriding include_payload. Empty or unset selectors keep the flag's behavior.
+        combined with payload_paths, overriding include_payload. Paths preserve
+        object nesting and contain 1 to 32 literal keys. Arrays are selected whole.
+        Empty or unset selectors keep the flag's behavior.
         An empty string in the selector selects the literal empty key.
         """
         params: dict[str, Any] = {"limit": limit}
@@ -321,6 +332,8 @@ class CasesClient:
             params["include_payload"] = include_payload
         if is_set(payload_fields) and payload_fields:
             params["payload_fields"] = payload_fields
+        if is_set(payload_paths) and payload_paths:
+            params["payload_paths"] = orjson.dumps(payload_paths).decode()
 
         return await self._client.get("/cases/search", params=params)
 

@@ -619,7 +619,9 @@ async def list_cases(
     ] = False,
     include_payload: Annotated[
         bool,
-        Doc("Return the full payload when payload_fields is omitted or empty."),
+        Doc(
+            "Return the full payload when both payload selectors are omitted or empty."
+        ),
     ] = False,
     payload_fields: Annotated[
         list[str] | None,
@@ -629,6 +631,16 @@ async def list_cases(
             "Dots are literal; selected objects are returned whole. Missing keys "
             "are omitted and null values preserved. An empty list acts as omitted; "
             "an empty string selects the literal empty key."
+        ),
+    ] = None,
+    payload_paths: Annotated[
+        list[list[str]] | None,
+        Doc(
+            "Nested object paths, e.g. [['alert', 'source', 'ip']]. Each path "
+            "contains 1 to 32 literal keys. Preserves nesting and combines with "
+            "payload_fields, including the subset automatically. Selected parents "
+            "include their whole value; missing paths are omitted and nulls preserved. "
+            "Arrays are selected whole, without index traversal. An empty list is omitted."
         ),
     ] = None,
 ) -> list[types.CaseReadMinimal] | types.CaseListResponse:
@@ -650,6 +662,8 @@ async def list_cases(
         params["include_payload"] = include_payload
     if payload_fields:
         params["payload_fields"] = payload_fields
+    if payload_paths:
+        params["payload_paths"] = payload_paths
     response = await ctx.cases.aio.list_cases(**params)
     if paginate:
         return response
@@ -734,7 +748,9 @@ async def search_cases(
     ] = False,
     include_payload: Annotated[
         bool,
-        Doc("Return the full payload when payload_fields is omitted or empty."),
+        Doc(
+            "Return the full payload when both payload selectors are omitted or empty."
+        ),
     ] = False,
     payload_fields: Annotated[
         list[str] | None,
@@ -744,6 +760,16 @@ async def search_cases(
             "Dots are literal; selected objects are returned whole. Missing keys "
             "are omitted and null values preserved. An empty list acts as omitted; "
             "an empty string selects the literal empty key."
+        ),
+    ] = None,
+    payload_paths: Annotated[
+        list[list[str]] | None,
+        Doc(
+            "Nested object paths, e.g. [['alert', 'source', 'ip']]. Each path "
+            "contains 1 to 32 literal keys. Preserves nesting and combines with "
+            "payload_fields, including the subset automatically. Selected parents "
+            "include their whole value; missing paths are omitted and nulls preserved. "
+            "Arrays are selected whole, without index traversal. An empty list is omitted."
         ),
     ] = None,
 ) -> list[types.CaseReadMinimal] | types.CaseListResponse:
@@ -788,6 +814,8 @@ async def search_cases(
         params["include_payload"] = include_payload
     if payload_fields:
         params["payload_fields"] = payload_fields
+    if payload_paths:
+        params["payload_paths"] = payload_paths
     response = await ctx.cases.aio.search_cases(**params)
     if paginate:
         return response

@@ -22,6 +22,7 @@ from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.users import search_users
 from tracecat.authz.controls import require_scope
+from tracecat.cases.dependencies import PayloadPathsQuery
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.enums import (
     CasePriority,
@@ -234,6 +235,7 @@ async def list_cases(
     *,
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
+    payload_paths: PayloadPathsQuery,
     limit: int = Query(
         config.TRACECAT__LIMIT_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
@@ -289,6 +291,7 @@ async def list_cases(
             include_durations=include_durations,
             include_payload=include_payload,
             payload_fields=payload_fields,
+            payload_paths=payload_paths,
             include_count=include_count,
             hierarchy=hierarchy,
         )
@@ -358,6 +361,7 @@ async def search_cases(
     *,
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
+    payload_paths: PayloadPathsQuery,
     limit: int = Query(
         config.TRACECAT__LIMIT_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
@@ -490,6 +494,7 @@ async def search_cases(
             include_durations=include_durations,
             include_payload=include_payload,
             payload_fields=payload_fields,
+            payload_paths=payload_paths,
             include_count=include_count,
             parent_id=parent_id,
             hierarchy=hierarchy,

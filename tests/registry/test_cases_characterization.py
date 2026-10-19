@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, cast, get_args
 
 import httpx
+import orjson
 import pytest
 import sqlalchemy as sa
 from httpx import ASGITransport
@@ -1998,17 +1999,32 @@ async def test_list_cases_payload_selection_end_to_end(
     session: AsyncSession, cases_ctx: Role
 ) -> None:
     """List through the action, client, gateway, and database without changing storage."""
-    payload = {
+    payload: dict[str, Any] = {
         "": "literal-empty-key",
         "alert_id": "demo-alert-001",
         "score": 42,
         "nullable": None,
-        "nested": {"ip": "192.0.2.1"},
+        "nested": {
+            "source": {
+                "ip": "192.0.2.1",
+                "port": 443,
+                "nullable": None,
+                "empty": {},
+                "values": [{"value": 1}, None],
+                "unused": "omit this sibling",
+            },
+            "name": "Synthetic source",
+        },
+        "odd.key": {"": {"quoted'key": False, "unused": True}},
         "items": [1, "two", None],
         "alert.source.ip": "literal-key",
         "quoted'key": False,
         "raw_event": "unused " * 4096,
     }
+    deep_object: dict[str, Any] = {"leaf": "deep value"}
+    for index in reversed(range(30)):
+        deep_object = {f"key_{index}": deep_object}
+    payload["deep"] = deep_object
     created = await create_case(
         summary="Synthetic payload selection", description="Example", payload=payload
     )
@@ -2023,6 +2039,8 @@ async def test_list_cases_payload_selection_end_to_end(
                 "score",
                 "nullable",
                 "nested",
+                "odd.key",
+                "deep",
                 "items",
                 "alert.source.ip",
                 "quoted'key",
@@ -2038,9 +2056,68 @@ async def test_list_cases_payload_selection_end_to_end(
     }
     empty_key = _case_items(await list_cases(payload_fields=[""], include_payload=True))
     assert empty_key[0].get("payload") == {"": "literal-empty-key"}
+    paths = [
+        ["nested", "source", "ip"],
+        ["nested", "source", "port"],
+        ["nested", "source", "nullable"],
+        ["nested", "source", "empty"],
+        ["nested", "source", "values"],
+        ["nested", "source", "ip"],
+        ["nested", "source", "missing"],
+        ["nested", "missing", "ip"],
+        ["items", "0"],
+        ["score", "value"],
+        ["nullable", "value"],
+        ["odd.key", "", "quoted'key"],
+    ]
+    expected_nested = {
+        "nested": {
+            "source": {
+                "ip": "192.0.2.1",
+                "port": 443,
+                "nullable": None,
+                "empty": {},
+                "values": [{"value": 1}, None],
+            }
+        },
+        "odd.key": {"": {"quoted'key": False}},
+    }
+    nested = _case_items(await list_cases(payload_paths=paths, include_payload=True))
+    assert nested[0].get("payload") == expected_nested
+    deepest = _case_items(
+        await list_cases(
+            payload_paths=[["deep", *[f"key_{i}" for i in range(30)], "leaf"]]
+        )
+    )
+    assert deepest[0].get("payload") == {"deep": deep_object}
+    with pytest.raises(SDKValidationError):
+        await list_cases(payload_paths=[[]])
+    # Parent selections win in either order, including top-level field selectors.
+    for overlapping in [
+        [["nested", "source", "ip"], ["nested", "source"]],
+        [["nested", "source"], ["nested", "source", "ip"]],
+    ]:
+        parent = _case_items(await list_cases(payload_paths=overlapping))
+        assert parent[0].get("payload") == {
+            "nested": {"source": payload["nested"]["source"]}
+        }
+    parent = _case_items(
+        await list_cases(payload_fields=["nested", "items"], payload_paths=paths)
+    )
+    assert parent[0].get("payload") == {
+        "nested": payload["nested"],
+        "items": payload["items"],
+        "odd.key": {"": {"quoted'key": False}},
+    }
+    missing_path = _case_items(
+        await list_cases(payload_paths=[["nested", "missing", "ip"]])
+    )
+    assert missing_path[0].get("payload") == {}
     missing = _case_items(await list_cases(payload_fields=["missing"]))
     assert missing[0].get("payload") == {}
-    full = _case_items(await list_cases(include_payload=True, payload_fields=[]))
+    full = _case_items(
+        await list_cases(include_payload=True, payload_fields=[], payload_paths=[])
+    )
     assert full[0].get("payload") == payload
     assert (await get_case(case_id=str(created["id"])))["payload"] == payload
 
@@ -2059,6 +2136,27 @@ async def test_list_cases_payload_selection_end_to_end(
         response = await public.get("/cases?payload_fields=&include_payload=true")
         assert response.status_code == 200
         assert response.json()["items"][0]["payload"] == {"": "literal-empty-key"}
+        response = await public.get(
+            "/cases",
+            params={"payload_paths": orjson.dumps(paths).decode()},
+        )
+        assert response.status_code == 200
+        assert response.json()["items"][0]["payload"] == expected_nested
+        for include_payload, expected in [("true", payload), ("false", None)]:
+            response = await public.get(
+                "/cases",
+                params={"payload_paths": "[]", "include_payload": include_payload},
+            )
+            assert response.status_code == 200
+            assert response.json()["items"][0]["payload"] == expected
+        for invalid in [
+            "not-json",
+            "[[]]",
+            "[[0]]",
+            orjson.dumps([["a"] * 33]).decode(),
+        ]:
+            response = await public.get("/cases", params={"payload_paths": invalid})
+            assert response.status_code == 422
 
 
 @pytest.mark.anyio
@@ -2067,7 +2165,15 @@ async def test_search_cases_payload_selection_pagination_end_to_end(
 ) -> None:
     """Selected, null, and empty payloads retain case order and continuation metadata."""
     payloads = [
-        {"alert_id": "demo-alert-001", "nullable": None, "raw_event": "unused"},
+        {
+            "alert_id": "demo-alert-001",
+            "alert": {
+                "source": {"ip": "192.0.2.1", "port": 443, "unused": True},
+                "unused": True,
+            },
+            "nullable": None,
+            "raw_event": "unused",
+        },
         None,
         {},
     ]
@@ -2092,12 +2198,17 @@ async def test_search_cases_payload_selection_pagination_end_to_end(
         order_by="created_at",
         sort="asc",
         payload_fields=["alert_id", "nullable", "missing"],
+        payload_paths=[["alert", "source", "ip"], ["alert", "source", "port"]],
     )
     assert not isinstance(first, list)
     assert first["has_more"] and first["next_cursor"]
     assert first["total_estimate"] == 3
     assert [case.get("payload") for case in first["items"]] == [
-        {"alert_id": "demo-alert-001", "nullable": None},
+        {
+            "alert_id": "demo-alert-001",
+            "nullable": None,
+            "alert": {"source": {"ip": "192.0.2.1", "port": 443}},
+        },
         None,
     ]
     following = await search_cases(
@@ -2108,6 +2219,7 @@ async def test_search_cases_payload_selection_pagination_end_to_end(
         sort="asc",
         cursor=first["next_cursor"],
         payload_fields=["alert_id", "nullable", "missing"],
+        payload_paths=[["alert", "source", "ip"], ["alert", "source", "port"]],
         include_payload=False,
     )
     assert not isinstance(following, list)
@@ -2126,12 +2238,17 @@ async def test_search_cases_payload_selection_pagination_end_to_end(
             params=[
                 ("payload_fields", "alert_id"),
                 ("payload_fields", "nullable"),
+                ("payload_paths", '[["alert","source","ip"]]'),
                 ("sort", "asc"),
             ],
         )
         assert response.status_code == 200
         assert [case["payload"] for case in response.json()["items"]] == [
-            {"alert_id": "demo-alert-001", "nullable": None},
+            {
+                "alert_id": "demo-alert-001",
+                "nullable": None,
+                "alert": {"source": {"ip": "192.0.2.1"}},
+            },
             None,
             {},
         ]

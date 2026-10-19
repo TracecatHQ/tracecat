@@ -11930,6 +11930,7 @@ export const formsListIntakeSubmissions = (
  * @param data.payloadFields Return only these literal top-level payload keys, automatically including the subset regardless of include_payload. Dots are literal; nested values are returned whole. Missing keys are omitted and null values preserved. An empty list acts as omitted; an empty string selects the literal empty key.
  * @param data.includeCount Include the exact filtered total_estimate for compatibility. Set false when fetching aggregate counts separately; total_estimate will be null.
  * @param data.hierarchy Return every case, or only top-level cases without a parent.
+ * @param data.payloadPaths JSON-encoded object paths, e.g. [["alert","source","ip"]]. Each path contains 1 to 32 literal keys. Preserves nesting, combines with payload_fields, and includes the subset automatically. Selected parents include their whole value. Missing paths are omitted; nulls are preserved. Arrays can be selected whole, without index traversal. An empty list acts as omitted.
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
@@ -11955,6 +11956,7 @@ export const casesListCases = (
       payload_fields: data.payloadFields,
       include_count: data.includeCount,
       hierarchy: data.hierarchy,
+      payload_paths: data.payloadPaths,
     },
     errors: {
       422: "Validation Error",
@@ -12021,6 +12023,7 @@ export const casesCreateCase = (
  * @param data.includeCount Include the exact filtered total_estimate for compatibility. Set false on all pages when fetching aggregate counts separately; total_estimate will be null.
  * @param data.hierarchy Return every case, or only top-level cases without a parent.
  * @param data.parentId Return only the sub-cases of this parent case
+ * @param data.payloadPaths JSON-encoded object paths, e.g. [["alert","source","ip"]]. Each path contains 1 to 32 literal keys. Preserves nesting, combines with payload_fields, and includes the subset automatically. Selected parents include their whole value. Missing paths are omitted; nulls are preserved. Arrays can be selected whole, without index traversal. An empty list acts as omitted.
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
@@ -12062,6 +12065,7 @@ export const casesSearchCases = (
       include_count: data.includeCount,
       hierarchy: data.hierarchy,
       parent_id: data.parentId,
+      payload_paths: data.payloadPaths,
     },
     errors: {
       422: "Validation Error",
