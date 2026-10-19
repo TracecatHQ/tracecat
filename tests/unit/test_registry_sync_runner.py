@@ -46,7 +46,8 @@ from tracecat.registry.sync.schemas import (
     SyncResultSuccess,
 )
 from tracecat.registry.versions.schemas import RegistryVersionManifest
-from tracecat.sandbox.types import SandboxResult
+from tracecat.sandbox.exceptions import SandboxInfrastructureError
+from tracecat.sandbox.types import SandboxErrorCode, SandboxResult
 
 
 def _make_artifact_result(tmp_path: Path) -> RegistryArtifactBuildResult:
@@ -397,6 +398,43 @@ async def test_runner_wraps_sandbox_install_failures(
     ) as exc_info:
         await runner.run(request)
     assert isinstance(exc_info.value.__cause__, RegistryArtifactBuildError)
+
+
+@pytest.mark.anyio
+async def test_runner_keeps_sandbox_install_infrastructure_failures_typed(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    package_path = tmp_path / "registry"
+    package_path.mkdir()
+    (package_path / "pyproject.toml").write_text("[project]\nname='registry'\n")
+    mocker.patch("tracecat.registry.sync.sandbox.sandbox_cgroup", return_value=None)
+    mocker.patch(
+        "tracecat.registry.sync.sandbox.NsjailExecutor.execute_install",
+        mocker.AsyncMock(
+            return_value=SandboxResult(
+                success=False,
+                error="Sandbox infrastructure failed before producing a result",
+                error_code=SandboxErrorCode.INFRASTRUCTURE_FAILURE,
+                exit_code=255,
+            )
+        ),
+    )
+    runner = _make_sandboxed_runner(mocker, RegistrySyncSandbox())
+    mocker.patch.object(
+        runner,
+        "_get_builtin_package_path",
+        mocker.AsyncMock(return_value=package_path),
+    )
+    request = RegistrySyncRequest(
+        repository_id=uuid4(),
+        origin="tracecat_registry",
+        origin_type="builtin",
+    )
+
+    with pytest.raises(PackageInstallError) as exc_info:
+        await runner.run(request)
+    assert isinstance(exc_info.value.__cause__, SandboxInfrastructureError)
 
 
 @pytest.mark.anyio

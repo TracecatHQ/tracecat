@@ -25,7 +25,7 @@ from tracecat.registry.sync.workflow import (
     sync_registry_activity,
 )
 from tracecat.runtime.errors import RuntimeErrorOwner
-from tracecat.sandbox.types import SandboxResult
+from tracecat.sandbox.types import SandboxErrorCode, SandboxResult
 from tracecat.temporal.errors import extract_error_classifications
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
@@ -113,7 +113,20 @@ async def test_retryable_sync_failure_reaches_caller_through_interceptor(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error_code", "owner"),
+    [
+        pytest.param(None, RuntimeErrorOwner.USER, id="workload"),
+        pytest.param(
+            SandboxErrorCode.INFRASTRUCTURE_FAILURE,
+            RuntimeErrorOwner.PLATFORM,
+            id="infrastructure",
+        ),
+    ],
+)
 async def test_sandbox_install_failure_reaches_caller_through_interceptor(
+    error_code: SandboxErrorCode | None,
+    owner: RuntimeErrorOwner,
     env: WorkflowEnvironment,
     test_worker_factory,
     monkeypatch: pytest.MonkeyPatch,
@@ -135,6 +148,7 @@ async def test_sandbox_install_failure_reaches_caller_through_interceptor(
                 "No solution found when resolving dependencies: "
                 f"registry depends on missing-pkg (Authorization: {secret})"
             ),
+            error_code=error_code,
         )
 
     async def _package_path(_self: RegistrySyncRunner) -> Path:
@@ -178,7 +192,7 @@ async def test_sandbox_install_failure_reaches_caller_through_interceptor(
     classifications = extract_error_classifications(
         failure, include_implicit_context=False
     )
-    assert classifications[0].owner is RuntimeErrorOwner.USER
+    assert classifications[0].owner is owner
     detail = _workflow_failure_detail(failure, classifications)
     assert detail.startswith("Registry package installation failed: ")
     assert "No solution found when resolving dependencies" in detail

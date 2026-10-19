@@ -34,14 +34,16 @@ from tracecat.registry.sync.schemas import (
     SyncResultSuccess,
 )
 from tracecat.sandbox.cgroup import sandbox_cgroup
-from tracecat.sandbox.exceptions import SandboxTimeoutError
+from tracecat.sandbox.exceptions import SandboxInfrastructureError, SandboxTimeoutError
 from tracecat.sandbox.executor import NsjailExecutor
 from tracecat.sandbox.types import (
     ResourceLimits,
     SandboxBindMount,
     SandboxConfig,
+    SandboxErrorCode,
     SandboxNetworkPurpose,
     SandboxNetworkRequest,
+    SandboxResult,
 )
 from tracecat.sandbox.wrapper import INSTALL_SCRIPT, WRAPPER_SCRIPT
 from tracecat.ssh import add_ssh_key_to_agent, temporary_ssh_agent
@@ -289,6 +291,15 @@ def _hash_file(path: Path) -> str:
         while chunk := file.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _raise_for_infrastructure_failure(result: SandboxResult, phase: str) -> None:
+    """Keep NsJail launch failures distinct from workload failures."""
+    if result.error_code is SandboxErrorCode.INFRASTRUCTURE_FAILURE:
+        detail = result.error or "Sandbox infrastructure failed"
+        raise SandboxInfrastructureError(
+            f"Sandboxed registry {phase} failed: {str(detail)[:2000]}"
+        )
 
 
 def _validate_installed_site_packages(site_packages: Path) -> None:
@@ -565,6 +576,7 @@ class RegistrySyncSandbox:
             )
 
         if not result.success:
+            _raise_for_infrastructure_failure(result, "Git clone")
             detail = result.error or result.stderr or "Unknown Git clone error"
             raise RegistryError(f"Sandboxed Git clone failed: {str(detail)[:2000]}")
         try:
@@ -614,6 +626,7 @@ class RegistrySyncSandbox:
             timeout_seconds=timeout_seconds,
         )
         if not result.success:
+            _raise_for_infrastructure_failure(result, "package installation")
             detail = result.error or result.stderr or "Unknown installation error"
             raise RegistryArtifactBuildError(
                 f"Sandboxed registry package installation failed: {str(detail)[:2000]}"
@@ -673,6 +686,7 @@ class RegistrySyncSandbox:
             script_name="wrapper.py",
         )
         if not result.success:
+            _raise_for_infrastructure_failure(result, "packaging")
             detail = result.error or result.stderr or "Unknown packaging error"
             raise RegistryArtifactBuildError(
                 f"Sandboxed registry packaging failed: {str(detail)[:2000]}"
@@ -777,6 +791,7 @@ class RegistrySyncSandbox:
                 log_raw_crash_stderr=True,
             )
             if not result.success:
+                _raise_for_infrastructure_failure(result, "discovery")
                 detail = result.error or result.stderr or "Unknown discovery error"
                 raise RegistryError(f"Sandboxed registry discovery failed: {detail}")
 

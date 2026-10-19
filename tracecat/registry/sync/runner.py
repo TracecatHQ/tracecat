@@ -53,6 +53,7 @@ from tracecat.registry.sync.schemas import (
     SyncResultSuccess,
 )
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
+from tracecat.sandbox.exceptions import SandboxInfrastructureError
 from tracecat.secrets.service import SecretsService
 from tracecat.storage import blob
 
@@ -236,7 +237,7 @@ class RegistrySyncRunner:
                 output_dir=output_dir,
                 timeout_seconds=self.install_timeout,
             )
-        except RegistryArtifactBuildError as exc:
+        except (RegistryArtifactBuildError, SandboxInfrastructureError) as exc:
             raise PackageInstallError(str(exc)) from exc
         logger.info(
             "Registry package installed",
@@ -259,7 +260,7 @@ class RegistrySyncRunner:
                 output_dir=output_dir,
                 timeout_seconds=self.install_timeout,
             )
-        except RegistryArtifactBuildError as exc:
+        except (RegistryArtifactBuildError, SandboxInfrastructureError) as exc:
             raise ArtifactBuildError(str(exc)) from exc
         self._log_built_artifact(artifact_result)
         return await self._finalize_sync(

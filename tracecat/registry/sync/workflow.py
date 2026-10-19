@@ -68,6 +68,7 @@ with workflow.unsafe.imports_passed_through():
         RuntimeErrorClassification,
         RuntimeErrorKind,
     )
+    from tracecat.sandbox.exceptions import SandboxInfrastructureError
     from tracecat.sanitization import redact_sensitive_text
     from tracecat.storage import blob
     from tracecat.temporal.errors import (
@@ -255,6 +256,9 @@ def _raise_registry_sync_failure(exc: RegistrySyncRunnerError) -> Never:
         case _:
             owner_classification = RuntimeErrorClassification.platform
             message = "Registry sync failed"
+    if isinstance(exc.__cause__, SandboxInfrastructureError):
+        # NsJail failed before the workload started; the platform owns it.
+        owner_classification = RuntimeErrorClassification.platform
     classification = owner_classification(
         kind=RuntimeErrorKind.REGISTRY_SYNC_FAILED,
         message=message,

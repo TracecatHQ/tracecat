@@ -43,11 +43,17 @@ from tracecat.runtime.errors import (
     RuntimeErrorKind,
     RuntimeErrorOwner,
 )
+from tracecat.sandbox.exceptions import SandboxInfrastructureError
 from tracecat.temporal.errors import (
     extract_error_classification,
     extract_error_classifications,
     extract_error_diagnostics,
 )
+
+
+def _caused_by(error: Exception, cause: Exception) -> Exception:
+    error.__cause__ = cause
+    return error
 
 
 def _assert_registry_validation_classification(error: ApplicationError) -> None:
@@ -181,6 +187,30 @@ def _registry_sync_failure_detail(error: ApplicationError) -> str:
             "Registry artifact build failed",
             "Sandboxed registry packaging failed: mksquashfs",
             id="artifact_build",
+        ),
+        pytest.param(
+            _caused_by(
+                PackageInstallError(
+                    "Sandboxed registry package installation failed: "
+                    "Sandbox infrastructure failed before producing a result"
+                ),
+                SandboxInfrastructureError("nsjail launch failed"),
+            ),
+            RuntimeErrorOwner.PLATFORM,
+            "Registry package installation failed",
+            "Sandboxed registry package installation failed: "
+            "Sandbox infrastructure failed before producing a result",
+            id="package_install_infrastructure",
+        ),
+        pytest.param(
+            _caused_by(
+                GitCloneError("Sandboxed Git clone failed: nsjail launch failed"),
+                SandboxInfrastructureError("nsjail launch failed"),
+            ),
+            RuntimeErrorOwner.PLATFORM,
+            "Registry repository clone failed",
+            "Sandboxed Git clone failed: nsjail launch failed",
+            id="git_clone_infrastructure",
         ),
     ],
 )
