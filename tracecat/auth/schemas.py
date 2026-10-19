@@ -45,6 +45,15 @@ class UserReadMinimal(BaseModel):
     last_name: str | None = None
 
 
+class UserSearchRead(BaseModel):
+    """Identity fields returned by the org-scoped user email search."""
+
+    id: uuid.UUID
+    email: EmailStr
+    first_name: str | None = None
+    last_name: str | None = None
+
+
 class UserCreate(schemas.BaseUserCreate):
     first_name: str | None = None
     last_name: str | None = None
