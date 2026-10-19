@@ -31,6 +31,7 @@ class SyncErrorCode(StrEnum):
 
     PACKAGE_NOT_FOUND = "package_not_found"
     TEMPLATE_LOAD_FAILED = "template_load_failed"
+    IMPORT_FAILED = "import_failed"
 
 
 class SyncResultSuccess(BaseModel):
@@ -66,6 +67,8 @@ class SyncResultError(BaseModel):
         if isinstance(exc, ModuleNotFoundError):
             # Wrong `git_repo_package_name`.
             error_code = SyncErrorCode.PACKAGE_NOT_FOUND
+        elif isinstance(exc, ImportError):
+            error_code = SyncErrorCode.IMPORT_FAILED
         elif isinstance(exc, RegistryTemplateLoadError):
             error_code = SyncErrorCode.TEMPLATE_LOAD_FAILED
         return cls(error=str(exc), error_code=error_code)

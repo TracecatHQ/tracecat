@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import stat
+import sys
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -15,9 +16,14 @@ from tracecat.exceptions import RegistryError, RegistrySyncContentError
 from tracecat.registry.sync.artifact import (
     RegistryArtifactBuildError,
 )
-from tracecat.registry.sync.sandbox import _PACKAGING_SCRIPT, RegistrySyncSandbox
+from tracecat.registry.sync.sandbox import (
+    _DISCOVERY_SCRIPT,
+    _PACKAGING_SCRIPT,
+    RegistrySyncSandbox,
+)
 from tracecat.registry.sync.schemas import (
     SyncErrorCode,
+    SyncResultAdapter,
     SyncResultError,
     SyncResultSuccess,
 )
@@ -696,3 +702,27 @@ async def test_registry_discovery_raises_typed_content_error(
         )
 
     assert exc_info.value.code == SyncErrorCode.PACKAGE_NOT_FOUND
+
+
+def test_registry_discovery_script_reports_import_conflicts_as_content_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(sys.modules, "tracecat.registry.sync.entrypoint", None)
+    namespace: dict[str, object] = {}
+    exec(compile(_DISCOVERY_SCRIPT, "script.py", "exec"), namespace)
+    main = cast(Callable[..., object], namespace["main"])
+
+    result = SyncResultAdapter.validate_python(
+        main(
+            origin="tracecat_registry",
+            package_name="tracecat_registry",
+            repository_id=str(uuid4()),
+        )
+    )
+
+    assert isinstance(result, SyncResultError)
+    assert result.error_code == SyncErrorCode.IMPORT_FAILED
+    assert "conflict with Tracecat's runtime" in result.error
+    assert "tracecat.registry.sync.entrypoint" in result.error
+    content_error = result.to_exception()
+    assert isinstance(content_error, RegistrySyncContentError)

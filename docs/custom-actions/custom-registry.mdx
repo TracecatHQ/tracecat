@@ -97,6 +97,21 @@ When you sync a registry, Tracecat:
   Even if there were no changes to the workflow itself.
 </Info>
 
+## Dependency conflicts
+
+When Tracecat syncs your registry, it imports your actions alongside Tracecat's own runtime packages, and your registry's dependencies take precedence.
+If your registry pins a package that Tracecat also uses, such as `opentelemetry-api` or `pydantic`, to an incompatible version, the sync fails with an error like:
+
+```
+Registry dependencies conflict with Tracecat's runtime: ImportError: cannot import name '_ExtendedAttributes' from 'opentelemetry.util.types'
+```
+
+To fix it:
+
+- Remove the pin, or widen it to include the version Tracecat uses. Tracecat's pinned versions are in the [`uv.lock`](https://github.com/TracecatHQ/tracecat/blob/main/uv.lock) for your release.
+- If a transitive dependency adds the pin, run `uv tree --invert --package <package>` to find which dependency pulls it in.
+- Avoid upper bounds on shared packages, so your registry keeps syncing when Tracecat upgrades them.
+
 ## FAQ
 
 <AccordionGroup>
@@ -120,6 +135,7 @@ When you sync a registry, Tracecat:
 
   <Accordion title="How can I add new Python dependencies?">
     You must specify new dependencies in the `dependencies` section of the `pyproject.toml` file.
+    Keep versions compatible with Tracecat's runtime packages. See [dependency conflicts](#dependency-conflicts).
   </Accordion>
 
   <Accordion title="Can I test actions without syncing on every change?">

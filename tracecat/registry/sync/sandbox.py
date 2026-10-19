@@ -28,6 +28,7 @@ from tracecat.registry.sync.artifact import (
 )
 from tracecat.registry.sync.schemas import (
     RegistryCloneResult,
+    SyncErrorCode,
     SyncResultAdapter,
     SyncResultError,
     SyncResultSuccess,
@@ -237,8 +238,15 @@ _DISCOVERY_SCRIPT = """
 import asyncio
 from uuid import UUID
 
-from tracecat.registry.sync.entrypoint import load_and_serialize_installed_actions
-from tracecat.registry.sync.schemas import SyncResultError
+try:
+    from tracecat.registry.sync.entrypoint import load_and_serialize_installed_actions
+    from tracecat.registry.sync.schemas import SyncResultError
+except ImportError as exc:
+    # Registry dependencies are importable ahead of Tracecat's own, so an
+    # incompatible version can break Tracecat imports. Retrying cannot fix it.
+    _IMPORT_ERROR = exc
+else:
+    _IMPORT_ERROR = None
 
 
 def main(
@@ -249,6 +257,14 @@ def main(
     validate=False,
     organization_id=None,
 ):
+    if _IMPORT_ERROR is not None:
+        return {
+            "error": (
+                "Registry dependencies conflict with Tracecat's runtime: "
+                f"{type(_IMPORT_ERROR).__name__}: {_IMPORT_ERROR}"
+            ),
+            "error_code": "__IMPORT_FAILED_CODE__",
+        }
     try:
         result = asyncio.run(
             load_and_serialize_installed_actions(
@@ -263,7 +279,7 @@ def main(
     except Exception as exc:
         return SyncResultError.from_exception(exc).model_dump(mode="json")
     return result.model_dump(mode="json")
-"""
+""".replace("__IMPORT_FAILED_CODE__", SyncErrorCode.IMPORT_FAILED.value)
 
 
 def _hash_file(path: Path) -> str:

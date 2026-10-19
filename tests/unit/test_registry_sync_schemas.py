@@ -51,6 +51,13 @@ def test_registry_sync_result_accepts_legacy_tarball_uri() -> None:
             RegistryTemplateLoadError("Failed to load template action from a.yml: bad"),
             SyncErrorCode.TEMPLATE_LOAD_FAILED,
         ),
+        (
+            ImportError(
+                "cannot import name '_ExtendedAttributes' from "
+                "'opentelemetry.util.types' (/pythonpath/1/opentelemetry/util/types.py)"
+            ),
+            SyncErrorCode.IMPORT_FAILED,
+        ),
         (RegistryError("Sync subprocess timed out after 300.0s"), None),
         (RuntimeError("git clone failed"), None),
     ],

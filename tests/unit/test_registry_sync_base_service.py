@@ -9,7 +9,7 @@ from packaging.version import Version
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import WorkflowFailureError
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from tests.shared import capture_application_error
 from tracecat import config
@@ -637,6 +637,74 @@ async def test_sync_via_temporal_reads_validation_classification_through_activit
         await sync_service.sync_repository_v2(repo, commit=False)
 
     assert "workflow failed" not in str(exc_info.value).lower()
+
+
+@pytest.mark.anyio
+async def test_sync_via_temporal_surfaces_unclassified_activity_failure(
+    session: AsyncSession,
+    mock_org_id: uuid.UUID,
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", True)
+
+    session.add(
+        Organization(
+            id=mock_org_id,
+            name="Sync Test Org",
+            slug=f"sync-test-{mock_org_id.hex[:8]}",
+            is_active=True,
+        )
+    )
+    await session.flush()
+
+    role = Role(
+        type="service",
+        user_id=mock_org_id,
+        organization_id=mock_org_id,
+        workspace_id=uuid.uuid4(),
+        service_id="tracecat-runner",
+    )
+
+    repos_service = RegistryReposService(session, role)
+    repo = await repos_service.create_repository(
+        RegistryRepositoryCreate(origin=DEFAULT_REGISTRY_ORIGIN)
+    )
+
+    message = (
+        "Failed to discover actions: Sandboxed registry discovery failed: "
+        "RuntimeError: worker lost"
+    )
+    app_error = ApplicationError(message)
+    try:
+        raise ActivityError(
+            "Registry sync activity failed",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="test-worker",
+            activity_type="sync_registry_activity",
+            activity_id="registry-sync-activity",
+            retry_state=None,
+        ) from app_error
+    except ActivityError as activity_error:
+        workflow_error = WorkflowFailureError(cause=activity_error)
+
+    mock_client = mocker.Mock()
+    mock_client.execute_workflow = mocker.AsyncMock(side_effect=workflow_error)
+    mocker.patch(
+        "tracecat.dsl.client.get_temporal_client",
+        mocker.AsyncMock(return_value=mock_client),
+    )
+
+    sync_service = RegistrySyncService(session, role)
+
+    with pytest.raises(
+        RegistrySyncError,
+        match=message,
+    ) as exc_info:
+        await sync_service.sync_repository_v2(repo, commit=False)
+
+    assert "Workflow execution failed" not in str(exc_info.value)
 
 
 @pytest.mark.anyio

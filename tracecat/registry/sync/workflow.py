@@ -96,11 +96,16 @@ class RegistrySyncWorkflow:
         # Execute the sync activity with start_to_close timeout only.
         # We don't use heartbeat_timeout because the subprocess operations
         # (package install, action discovery) can take several minutes without
-        # natural checkpoints for heartbeating.
+        # natural checkpoints for heartbeating. Bounded retries let the last
+        # activity failure reach the caller instead of a workflow timeout.
         result = await workflow.execute_activity(
             sync_registry_activity,
             request,
             start_to_close_timeout=timedelta(minutes=15),
+            retry_policy=RetryPolicy(
+                maximum_attempts=3,
+                initial_interval=timedelta(seconds=5),
+            ),
         )
 
         workflow.logger.info(

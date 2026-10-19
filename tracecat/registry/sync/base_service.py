@@ -14,6 +14,7 @@ import aiofiles
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped
 from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import ActivityError, ChildWorkflowError
 
 from tracecat import config
 from tracecat.auth.types import PlatformRole, Role
@@ -752,13 +753,14 @@ class BaseRegistrySyncService[
             if validation_failure is not None:
                 raise self._sync_error_cls()(validation_failure.message) from exc
 
+            detail = _workflow_failure_detail(exc)
             self.logger.error(
                 "Registry sync workflow failed",
                 repository=origin,
-                error=str(exc),
+                error=detail,
             )
             raise self._sync_error_cls()(
-                f"Registry sync workflow failed: {exc}"
+                f"Registry sync workflow failed: {detail}"
             ) from exc
         except Exception as exc:
             self.logger.error(
@@ -864,3 +866,13 @@ class BaseRegistrySyncService[
             artifact_uri=artifact_uri,
             commit_sha=commit_sha,
         )
+
+
+def _workflow_failure_detail(exc: WorkflowFailureError) -> str:
+    """Return the innermost failure message, skipping Temporal wrapper errors."""
+    current: BaseException | None = exc.cause
+    while current is not None:
+        if not isinstance(current, ActivityError | ChildWorkflowError) and str(current):
+            return str(current)
+        current = current.__cause__
+    return str(exc)
