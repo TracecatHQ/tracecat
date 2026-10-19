@@ -279,6 +279,16 @@
   Update a case. Only provided fields are changed.
 </ResponseField>
 
+<ResponseField name="set_case_parent" type="tool">
+  Group cases as sub-cases of a top-level parent case.
+
+  Sub-cases are one level deep: the parent must be a top-level case, and a case that has its own sub-cases cannot be grouped. Cases already under another parent are moved. Requires the case add-ons entitlement.
+</ResponseField>
+
+<ResponseField name="clear_case_parent" type="tool">
+  Remove sub-cases from their parent case, returning them to the top level. Cases without a parent are left unchanged. Requires the case add-ons entitlement.
+</ResponseField>
+
 <ResponseField name="list_case_comments" type="tool">
   List all comments for a case.
 </ResponseField>

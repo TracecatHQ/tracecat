@@ -3792,10 +3792,14 @@ async def test_get_case(monkeypatch):
     async def _has_entitlement(_ent):
         return False
 
+    async def _get_hierarchy(_cases):
+        return {}
+
     cases_service = SimpleNamespace(
         get_case=_get_case,
         fields=fields_svc,
         session=SimpleNamespace(),
+        hierarchy=SimpleNamespace(get_hierarchy=_get_hierarchy),
     )
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
@@ -3822,6 +3826,199 @@ async def test_get_case(monkeypatch):
     assert len(payload["fields"]) == 1
     assert payload["fields"][0]["id"] == "my_field"
     assert payload["fields"][0]["value"] == "hello"
+    assert payload["parent"] is None
+    assert payload["num_sub_cases"] == 0
+
+
+@pytest.mark.anyio
+async def test_get_case_includes_hierarchy(monkeypatch):
+    from tracecat.cases.hierarchy import CaseHierarchy
+    from tracecat.cases.schemas import CaseParentRead
+
+    case_id = uuid.uuid4()
+    parent_id = uuid.uuid4()
+    now = datetime.now(UTC)
+    case = SimpleNamespace(
+        id=case_id,
+        short_id="CASE-0002",
+        created_at=now,
+        updated_at=now,
+        summary="Child alert",
+        status=SimpleNamespace(value="new"),
+        priority=SimpleNamespace(value="low"),
+        severity=SimpleNamespace(value="low"),
+        description="",
+        assignee=None,
+        payload=None,
+        tags=[],
+    )
+
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    async def _get_case(_case_id, **_kwargs):
+        return case
+
+    async def _empty_dict(*_args):
+        return {}
+
+    async def _empty_list():
+        return []
+
+    async def _get_hierarchy(cases):
+        return {
+            c.id: CaseHierarchy(
+                parent=CaseParentRead(
+                    id=parent_id, short_id="CASE-0001", summary="Parent incident"
+                )
+            )
+            for c in cases
+        }
+
+    async def _has_entitlement(_ent):
+        return False
+
+    cases_service = SimpleNamespace(
+        get_case=_get_case,
+        fields=SimpleNamespace(
+            get_fields=_empty_dict,
+            list_fields=_empty_list,
+            get_field_schema=_empty_dict,
+        ),
+        session=SimpleNamespace(),
+        hierarchy=SimpleNamespace(get_hierarchy=_get_hierarchy),
+    )
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseDropdownValuesService",
+        lambda session, role: SimpleNamespace(has_entitlement=_has_entitlement),
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.get_case)(
+            workspace_id=str(uuid.uuid4()), case_id=str(case_id)
+        )
+    )
+    assert payload["parent"]["short_id"] == "CASE-0001"
+    assert payload["num_sub_cases"] == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("resolved_workspace")
+async def test_search_cases_passes_hierarchy_filters(monkeypatch):
+    from tracecat.pagination import CursorPaginatedResponse
+
+    captured: dict[str, Any] = {}
+
+    async def _search_cases(params, **kwargs):
+        captured.update(kwargs)
+        return CursorPaginatedResponse(
+            items=[],
+            next_cursor=None,
+            prev_cursor=None,
+            has_more=False,
+            has_previous=False,
+        )
+
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(
+            with_session=lambda role: _AsyncContext(
+                SimpleNamespace(search_cases=_search_cases)
+            )
+        ),
+    )
+    parent_id = uuid.uuid4()
+    await _tool(mcp_server.search_cases)(
+        workspace_id=str(uuid.uuid4()), parent_id=str(parent_id)
+    )
+    assert captured["parent_id"] == parent_id
+    assert captured["hierarchy"] == "all"
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("resolved_workspace")
+async def test_search_cases_maps_entitlement_error(monkeypatch):
+    from tracecat.exceptions import EntitlementRequired
+
+    async def _search_cases(params, **kwargs):
+        raise EntitlementRequired("case_addons")
+
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(
+            with_session=lambda role: _AsyncContext(
+                SimpleNamespace(search_cases=_search_cases)
+            )
+        ),
+    )
+    with pytest.raises(ToolError, match="case_addons"):
+        await _tool(mcp_server.search_cases)(
+            workspace_id=str(uuid.uuid4()), parent_id=str(uuid.uuid4())
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("resolved_workspace")
+async def test_set_and_clear_case_parent(monkeypatch):
+    from tracecat.cases.schemas import CaseBatchItemResult, CaseBatchResponse
+
+    calls: list[tuple[str, list[uuid.UUID], uuid.UUID | None]] = []
+
+    def _response(ids: list[uuid.UUID]) -> CaseBatchResponse:
+        return CaseBatchResponse(
+            results=[CaseBatchItemResult(case_id=i, success=True) for i in ids],
+            succeeded=len(ids),
+            failed=0,
+        )
+
+    async def _set(ids, parent_id):
+        calls.append(("set", ids, parent_id))
+        return _response(ids)
+
+    async def _clear(ids):
+        calls.append(("clear", ids, None))
+        return _response(ids)
+
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(
+            with_session=lambda role: _AsyncContext(
+                SimpleNamespace(batch_set_parent=_set, batch_clear_parent=_clear)
+            )
+        ),
+    )
+    child_id = uuid.uuid4()
+    parent_id = uuid.uuid4()
+    payload = _payload(
+        await _tool(mcp_server.set_case_parent)(
+            workspace_id=str(uuid.uuid4()),
+            case_ids=[str(child_id)],
+            parent_id=str(parent_id),
+        )
+    )
+    assert payload["succeeded"] == 1
+    payload = _payload(
+        await _tool(mcp_server.clear_case_parent)(
+            workspace_id=str(uuid.uuid4()), case_ids=[str(child_id)]
+        )
+    )
+    assert payload["results"][0]["case_id"] == str(child_id)
+    assert calls == [("set", [child_id], parent_id), ("clear", [child_id], None)]
+
+    with pytest.raises(ToolError, match="between 1 and 1000"):
+        await _tool(mcp_server.clear_case_parent)(
+            workspace_id=str(uuid.uuid4()), case_ids=[]
+        )
 
 
 # ---------------------------------------------------------------------------

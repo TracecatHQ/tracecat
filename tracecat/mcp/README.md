@@ -130,6 +130,19 @@ stored config whole. Submissions are not exposed over MCP.
 - `add_workflow_tag(workspace_id, workflow_id, tag_id)`
 - `remove_workflow_tag(workspace_id, workflow_id, tag_id)`
 
+## Sub-case tools
+
+- `search_cases(..., parent_id=None, hierarchy="all")` lists a parent's sub-cases with `parent_id`, or only top-level cases with `hierarchy="top_level"`
+- `create_case(..., parent_id=None)` creates the case as a sub-case of a top-level case
+- `set_case_parent(workspace_id, case_ids, parent_id)` groups cases under a top-level parent case
+- `clear_case_parent(workspace_id, case_ids)` returns sub-cases to the top level
+
+Notes:
+
+- Sub-case tools and the `parent_id` arguments require the case add-ons entitlement.
+- `get_case`, `list_cases`, and `search_cases` return `parent` and `num_sub_cases` on every case.
+- Sub-cases are one level deep. Closing a parent case does not change its sub-cases.
+
 ## Case tag tools
 
 - `list_case_tags(workspace_id, limit=20, cursor=None)`
