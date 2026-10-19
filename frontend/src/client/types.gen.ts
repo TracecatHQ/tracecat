@@ -12655,9 +12655,9 @@ export type WorkspaceAgentModelAccessRead = {
    */
   catalog_ids: Array<string>
   /**
-   * Models enabled for the organization.
+   * Models enabled for the organization. Provider URLs are left out: they can carry credentials, and a candidate may sit outside the workspace's subset.
    */
-  candidates: Array<WorkspaceAgentModelRead>
+  candidates: Array<WorkspaceAgentModelCandidate>
 }
 
 /**
@@ -12666,6 +12666,21 @@ export type WorkspaceAgentModelAccessRead = {
 export type WorkspaceAgentModelAccessUpdate = {
   inherit_all: boolean
   catalog_ids?: Array<string>
+}
+
+/**
+ * Catalog entry a workspace can pick, labelled with its custom provider.
+ */
+export type WorkspaceAgentModelCandidate = {
+  id: string
+  custom_provider_id: string | null
+  organization_id: string | null
+  model_provider: string
+  model_name: string
+  model_metadata: {
+    [key: string]: unknown
+  } | null
+  custom_provider_name?: string | null
 }
 
 /**
@@ -12688,7 +12703,7 @@ export type WorkspaceAgentModelListResponse = {
 }
 
 /**
- * Catalog entry seen from a workspace, labelled with its custom provider.
+ * Catalog entry a workspace can use, with its provider's runtime URL.
  */
 export type WorkspaceAgentModelRead = {
   id: string

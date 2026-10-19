@@ -8,7 +8,7 @@ import { z } from "zod"
 import type {
   ApiError,
   WorkspaceAgentModelAccessRead,
-  WorkspaceAgentModelRead,
+  WorkspaceAgentModelCandidate,
   WorkspaceRead,
 } from "@/client"
 import { getWorkspaceModelAccess, updateWorkspaceModelAccess } from "@/client"
@@ -101,7 +101,7 @@ function getProviderDisplayLabel(provider: string): string {
   }
 }
 
-function getModelSourceLabel(entry: WorkspaceAgentModelRead): string {
+function getModelSourceLabel(entry: WorkspaceAgentModelCandidate): string {
   if (entry.custom_provider_id) {
     return entry.custom_provider_name ?? "Custom"
   }

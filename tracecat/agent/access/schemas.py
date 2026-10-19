@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
-from tracecat.agent.catalog.schemas import WorkspaceAgentModelRead
+from tracecat.agent.catalog.schemas import WorkspaceAgentModelCandidate
 
 
 class AgentModelAccessCreate(BaseModel):
@@ -42,8 +42,12 @@ class WorkspaceAgentModelAccessRead(BaseModel):
     catalog_ids: list[UUID] = Field(
         description="Catalog IDs in the workspace's subset. Empty when inherit_all is true.",
     )
-    candidates: list[WorkspaceAgentModelRead] = Field(
-        description="Models enabled for the organization.",
+    candidates: list[WorkspaceAgentModelCandidate] = Field(
+        description=(
+            "Models enabled for the organization. Provider URLs are left out: "
+            "they can carry credentials, and a candidate may sit outside the "
+            "workspace's subset."
+        ),
     )
 
 

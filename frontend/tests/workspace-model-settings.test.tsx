@@ -55,7 +55,6 @@ const ACCESS: WorkspaceAgentModelAccessRead = {
       model_name: "model-two",
       model_metadata: {},
       custom_provider_name: "Synthetic gateway",
-      custom_provider_base_url: "https://gateway.example.com/v1",
     },
   ],
 }

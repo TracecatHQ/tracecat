@@ -42153,11 +42153,12 @@ export const $WorkspaceAgentModelAccessRead = {
     },
     candidates: {
       items: {
-        $ref: "#/components/schemas/WorkspaceAgentModelRead",
+        $ref: "#/components/schemas/WorkspaceAgentModelCandidate",
       },
       type: "array",
       title: "Candidates",
-      description: "Models enabled for the organization.",
+      description:
+        "Models enabled for the organization. Provider URLs are left out: they can carry credentials, and a candidate may sit outside the workspace's subset.",
     },
   },
   type: "object",
@@ -42187,6 +42188,83 @@ export const $WorkspaceAgentModelAccessUpdate = {
   title: "WorkspaceAgentModelAccessUpdate",
   description:
     "Replace a workspace's model subset, or clear it to inherit every org model.",
+} as const
+
+export const $WorkspaceAgentModelCandidate = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    custom_provider_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Provider Id",
+    },
+    organization_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Organization Id",
+    },
+    model_provider: {
+      type: "string",
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      title: "Model Name",
+    },
+    model_metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Metadata",
+    },
+    custom_provider_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Provider Name",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "custom_provider_id",
+    "organization_id",
+    "model_provider",
+    "model_name",
+    "model_metadata",
+  ],
+  title: "WorkspaceAgentModelCandidate",
+  description:
+    "Catalog entry a workspace can pick, labelled with its custom provider.",
 } as const
 
 export const $WorkspaceAgentModelListResponse = {
@@ -42318,7 +42396,7 @@ export const $WorkspaceAgentModelRead = {
   ],
   title: "WorkspaceAgentModelRead",
   description:
-    "Catalog entry seen from a workspace, labelled with its custom provider.",
+    "Catalog entry a workspace can use, with its provider's runtime URL.",
 } as const
 
 export const $WorkspaceCreate = {

@@ -16,6 +16,7 @@ from tracecat.agent.access.schemas import (
 )
 from tracecat.agent.catalog.schemas import (
     AgentCatalogRead,
+    WorkspaceAgentModelCandidate,
     WorkspaceAgentModelListResponse,
     WorkspaceAgentModelRead,
 )
@@ -337,9 +338,15 @@ class AgentModelAccessService(BaseOrgService):
                 .order_by(AgentModelAccess.catalog_id)
             )
         )
-        candidates = await self._list_labelled_models(
+        models = await self._list_labelled_models(
             effective_catalog_ids(self.organization_id, None)
         )
+        candidates = [
+            WorkspaceAgentModelCandidate.model_validate(
+                model.model_dump(exclude={"custom_provider_base_url"})
+            )
+            for model in models
+        ]
         return WorkspaceAgentModelAccessRead(
             inherit_all=not catalog_ids,
             catalog_ids=catalog_ids,

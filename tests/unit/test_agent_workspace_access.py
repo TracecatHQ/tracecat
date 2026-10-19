@@ -567,6 +567,46 @@ async def test_workspace_models_carry_custom_provider_labels(
     assert models.has_org_default is False
 
 
+async def test_model_access_candidates_never_carry_provider_urls(
+    session: AsyncSession,
+) -> None:
+    """Subset candidates omit provider URLs, which can embed credentials.
+
+    Candidates span every org-enabled model, including ones outside the
+    workspace's subset, and the route accepts workspace API keys.
+    """
+    org = await _org(session)
+    workspace = await _workspace(session, org)
+    admin = await _workspace_user(session, org, workspace, "workspace-admin")
+    provider = AgentCustomProvider(
+        organization_id=org.id,
+        display_name="Synthetic gateway",
+        base_url="https://user:secret@gateway.example.com/v1",
+    )
+    session.add(provider)
+    await session.flush()
+    catalog = AgentCatalog(
+        organization_id=org.id,
+        custom_provider_id=provider.id,
+        model_provider="custom-model-provider",
+        model_name="synthetic-model",
+        model_metadata={},
+    )
+    session.add(catalog)
+    await session.flush()
+    session.add(AgentModelAccess(organization_id=org.id, catalog_id=catalog.id))
+    await session.commit()
+    role = await _resolve_role(session, admin, workspace.id)
+
+    access = await agent_catalog_router.get_workspace_model_access(
+        workspace_id=workspace.id, role=role, session=session
+    )
+
+    (candidate,) = access.candidates
+    assert candidate.custom_provider_name == "Synthetic gateway"
+    assert "custom_provider_base_url" not in access.model_dump_json()
+
+
 @pytest.mark.parametrize("endpoint", ORG_READ_ENDPOINTS)
 async def test_org_agent_routes_are_admin_only(
     session: AsyncSession, endpoint: OrgEndpoint

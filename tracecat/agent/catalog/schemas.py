@@ -26,10 +26,15 @@ class AgentCatalogListResponse(BaseModel):
     next_cursor: str | None = None
 
 
-class WorkspaceAgentModelRead(AgentCatalogRead):
-    """Catalog entry seen from a workspace, labelled with its custom provider."""
+class WorkspaceAgentModelCandidate(AgentCatalogRead):
+    """Catalog entry a workspace can pick, labelled with its custom provider."""
 
     custom_provider_name: str | None = None
+
+
+class WorkspaceAgentModelRead(WorkspaceAgentModelCandidate):
+    """Catalog entry a workspace can use, with its provider's runtime URL."""
+
     custom_provider_base_url: str | None = None
 
 
