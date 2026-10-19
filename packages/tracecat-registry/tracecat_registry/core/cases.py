@@ -636,7 +636,7 @@ async def list_cases(
     payload_paths: Annotated[
         list[list[str]] | None,
         Doc(
-            "Nested object paths, e.g. [['alert', 'source', 'ip']]. Each path "
+            "Up to 100 nested object paths, e.g. [['alert', 'source', 'ip']]. Each path "
             "contains 1 to 32 literal keys. Preserves nesting and combines with "
             "payload_fields, including the subset automatically. Selected parents "
             "include their whole value; missing paths are omitted and nulls preserved. "
@@ -765,7 +765,7 @@ async def search_cases(
     payload_paths: Annotated[
         list[list[str]] | None,
         Doc(
-            "Nested object paths, e.g. [['alert', 'source', 'ip']]. Each path "
+            "Up to 100 nested object paths, e.g. [['alert', 'source', 'ip']]. Each path "
             "contains 1 to 32 literal keys. Preserves nesting and combines with "
             "payload_fields, including the subset automatically. Selected parents "
             "include their whole value; missing paths are omitted and nulls preserved. "

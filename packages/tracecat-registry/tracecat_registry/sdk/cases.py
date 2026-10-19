@@ -220,9 +220,9 @@ class CasesClient:
             payload_fields: Literal top-level keys to return. Includes the subset
                 automatically, overriding include_payload. An empty list is omitted;
                 an empty string selects the literal empty key.
-            payload_paths: Nested object paths (1 to 32 literal keys each), combined
-                with payload_fields. Preserves nesting; selected parents include
-                their whole value. Arrays are selected whole, without index traversal.
+            payload_paths: Up to 100 nested object paths (1 to 32 literal keys each),
+                combined with payload_fields. Preserves nesting; selected parents
+                include their whole value. Arrays are selected whole, without indexes.
 
         Returns:
             Paginated list of cases with cursor metadata.
@@ -273,10 +273,10 @@ class CasesClient:
     ) -> types.CaseListResponse:
         """Search cases with filtering and pagination.
 
-        A non-empty payload_fields list returns only those literal top-level keys,
-        combined with payload_paths, overriding include_payload. Paths preserve
-        object nesting and contain 1 to 32 literal keys. Arrays are selected whole.
-        Empty or unset selectors keep the flag's behavior.
+        Either non-empty selector returns the selected subset. payload_fields
+        and payload_paths combine and override include_payload. Up to 100 paths
+        preserve object nesting and contain 1 to 32 literal keys each. Arrays are
+        selected whole. Empty or unset selectors keep the flag's behavior.
         An empty string in the selector selects the literal empty key.
         """
         params: dict[str, Any] = {"limit": limit}

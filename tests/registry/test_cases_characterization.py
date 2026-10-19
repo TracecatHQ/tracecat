@@ -2090,8 +2090,11 @@ async def test_list_cases_payload_selection_end_to_end(
         )
     )
     assert deepest[0].get("payload") == {"deep": deep_object}
-    with pytest.raises(SDKValidationError):
-        await list_cases(payload_paths=[[]])
+    for invalid_paths in [[[]], [["alert_id"]] * 101]:
+        with pytest.raises(SDKValidationError):
+            await list_cases(payload_paths=invalid_paths)
+    maximum_paths = _case_items(await list_cases(payload_paths=[["alert_id"]] * 100))
+    assert maximum_paths[0].get("payload") == {"alert_id": "demo-alert-001"}
     # Parent selections win in either order, including top-level field selectors.
     for overlapping in [
         [["nested", "source", "ip"], ["nested", "source"]],
@@ -2154,6 +2157,7 @@ async def test_list_cases_payload_selection_end_to_end(
             "[[]]",
             "[[0]]",
             orjson.dumps([["a"] * 33]).decode(),
+            orjson.dumps([["alert_id"]] * 101).decode(),
         ]:
             response = await public.get("/cases", params={"payload_paths": invalid})
             assert response.status_code == 422
@@ -2229,6 +2233,15 @@ async def test_search_cases_payload_selection_pagination_end_to_end(
     assert [
         str(case["id"]) for case in first["items"] + following["items"]
     ] == created_ids
+
+    paths_only = _case_items(
+        await search_cases(sort="asc", payload_paths=[["alert", "source", "ip"]])
+    )
+    assert [case.get("payload") for case in paths_only] == [
+        {"alert": {"source": {"ip": "192.0.2.1"}}},
+        None,
+        {},
+    ]
 
     async with httpx.AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"

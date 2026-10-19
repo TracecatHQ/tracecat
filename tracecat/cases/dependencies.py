@@ -7,12 +7,18 @@ from pydantic import Field, TypeAdapter, ValidationError
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_422_UNPROCESSABLE_CONTENT
 
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
+from tracecat.cases.constants import MAX_PAYLOAD_PATH_KEYS, MAX_PAYLOAD_PATHS
 from tracecat.cases.service import CasesService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 
 _PAYLOAD_PATHS_ADAPTER = TypeAdapter(
-    list[Annotated[list[str], Field(min_length=1, max_length=32)]]
+    Annotated[
+        list[
+            Annotated[list[str], Field(min_length=1, max_length=MAX_PAYLOAD_PATH_KEYS)]
+        ],
+        Field(max_length=MAX_PAYLOAD_PATHS),
+    ]
 )
 
 
@@ -21,7 +27,7 @@ def payload_paths_query(
         str | None,
         Query(
             description=(
-                'JSON-encoded object paths, e.g. [["alert","source","ip"]]. '
+                'JSON-encoded array of up to 100 object paths, e.g. [["alert","source","ip"]]. '
                 "Each path contains 1 to 32 literal keys. Preserves nesting, combines "
                 "with payload_fields, and includes the subset automatically. Selected "
                 "parents include their whole value. Missing paths are omitted; nulls "
