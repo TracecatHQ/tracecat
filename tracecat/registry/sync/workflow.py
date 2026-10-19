@@ -74,7 +74,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.temporal.errors import (
         application_error_from_classification,
         build_error_transport_detail,
-        extract_error_classification,
         raise_application_error_from_classification,
     )
 
@@ -126,10 +125,9 @@ class RegistrySyncWorkflow:
                 ),
             )
         except ActivityError as exc:
-            # Activity retries are exhausted. Fail the workflow non-retryably so
-            # the caller's workflow retry policy cannot rerun the sync and hide
-            # the final activity failure behind the execution timeout.
-            raise _terminal_sync_failure(exc) from None
+            if isinstance(exc.cause, TimeoutError):
+                raise _sync_timeout_failure(exc.cause) from None
+            raise
 
         workflow.logger.info(
             "RegistrySyncWorkflow completed",
@@ -213,29 +211,26 @@ def _raise_registry_sync_validation_error(
     )
 
 
-def _terminal_sync_failure(exc: ActivityError) -> BaseException:
-    """Build the non-retryable workflow failure for an exhausted sync activity."""
-    cause = exc.cause
-    if isinstance(cause, TimeoutError):
-        return application_error_from_classification(
-            RuntimeErrorClassification.platform(
-                kind=RuntimeErrorKind.EXECUTOR_ACTIVITY_TIMED_OUT,
-                message="Registry sync timed out",
-                retry_disposition=RetryDisposition.NON_RETRYABLE,
-                cause=cause,
-            )
+def _sync_timeout_failure(cause: TimeoutError) -> ApplicationError:
+    """Classify an exhausted sync activity deadline for the caller."""
+    return application_error_from_classification(
+        RuntimeErrorClassification.platform(
+            kind=RuntimeErrorKind.EXECUTOR_ACTIVITY_TIMED_OUT,
+            message="Registry sync timed out",
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
+            cause=cause,
         )
-    if isinstance(cause, ApplicationError):
-        if cause.non_retryable:
-            return cause
-        if extract_error_classification(cause) is not None:
-            return ApplicationError(
-                cause.message,
-                *cause.details,
-                type=cause.type,
-                non_retryable=True,
-            )
-    return exc
+    )
+
+
+def _is_sandbox_infrastructure_failure(exc: BaseException) -> bool:
+    """Return whether NsJail failed before the workload started."""
+    current = exc.__cause__
+    while current is not None:
+        if isinstance(current, SandboxInfrastructureError):
+            return True
+        current = current.__cause__
+    return False
 
 
 def _raise_registry_sync_failure(exc: RegistrySyncRunnerError) -> Never:
@@ -256,8 +251,7 @@ def _raise_registry_sync_failure(exc: RegistrySyncRunnerError) -> Never:
         case _:
             owner_classification = RuntimeErrorClassification.platform
             message = "Registry sync failed"
-    if isinstance(exc.__cause__, SandboxInfrastructureError):
-        # NsJail failed before the workload started; the platform owns it.
+    if _is_sandbox_infrastructure_failure(exc):
         owner_classification = RuntimeErrorClassification.platform
     classification = owner_classification(
         kind=RuntimeErrorKind.REGISTRY_SYNC_FAILED,

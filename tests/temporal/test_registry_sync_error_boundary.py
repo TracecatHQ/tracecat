@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 from temporalio.client import WorkflowFailureError
-from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 
 from tracecat import config
@@ -86,10 +85,6 @@ async def test_retryable_sync_failure_reaches_caller_through_interceptor(
             id=workflow_id,
             task_queue=task_queue,
             execution_timeout=timedelta(minutes=20),
-            retry_policy=RetryPolicy(
-                maximum_attempts=2,
-                initial_interval=timedelta(seconds=5),
-            ),
         )
         with pytest.raises(WorkflowFailureError) as exc_info:
             await handle.result()
@@ -180,10 +175,6 @@ async def test_sandbox_install_failure_reaches_caller_through_interceptor(
             id=workflow_id,
             task_queue=task_queue,
             execution_timeout=timedelta(minutes=20),
-            retry_policy=RetryPolicy(
-                maximum_attempts=2,
-                initial_interval=timedelta(seconds=5),
-            ),
         )
         with pytest.raises(WorkflowFailureError) as exc_info:
             await handle.result()

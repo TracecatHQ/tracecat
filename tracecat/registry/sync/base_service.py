@@ -662,8 +662,6 @@ class BaseRegistrySyncService[
         commit: bool = True,
         promote: bool = True,
     ) -> BaseSyncResult[VersionT]:
-        from temporalio.common import RetryPolicy
-
         from tracecat.dsl.client import get_temporal_client
         from tracecat.registry.sync.workflow import RegistrySyncWorkflow
 
@@ -738,10 +736,6 @@ class BaseRegistrySyncService[
                 id=workflow_id,
                 task_queue=config.TRACECAT__EXECUTOR_QUEUE,
                 execution_timeout=timedelta(minutes=20),
-                retry_policy=RetryPolicy(
-                    maximum_attempts=2,
-                    initial_interval=timedelta(seconds=5),
-                ),
             )
         except WorkflowFailureError as exc:
             classifications = extract_error_classifications(

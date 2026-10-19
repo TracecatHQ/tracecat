@@ -531,16 +531,7 @@ async def _run_workflow_with_activity_failure(
 
 
 @pytest.mark.anyio
-async def test_registry_sync_workflow_reraises_non_retryable_activity_cause(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    cause = ApplicationError("Registry dependencies conflict", non_retryable=True)
-
-    assert await _run_workflow_with_activity_failure(monkeypatch, cause) is cause
-
-
-@pytest.mark.anyio
-async def test_registry_sync_workflow_fails_non_retryably_after_activity_retries(
+async def test_registry_sync_workflow_reraises_exhausted_activity_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with pytest.raises(ApplicationError) as activity_failure:
@@ -551,12 +542,10 @@ async def test_registry_sync_workflow_fails_non_retryably_after_activity_retries
 
     error = await _run_workflow_with_activity_failure(monkeypatch, cause)
 
-    assert isinstance(error, ApplicationError)
-    assert error.non_retryable is True
-    assert error.message == cause.message
-    assert error.type == RuntimeErrorKind.REGISTRY_SYNC_FAILED.value
-    assert extract_error_classification(error) == extract_error_classification(cause)
-    assert _registry_sync_failure_detail(error) == (
+    assert isinstance(error, ActivityError)
+    assert error.cause is cause
+    assert extract_error_classification(cause) is not None
+    assert _registry_sync_failure_detail(cause) == (
         "Failed to discover actions: worker lost"
     )
 

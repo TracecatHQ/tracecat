@@ -27,9 +27,10 @@ from tracecat.registry.sync.schemas import (
     SyncResultError,
     SyncResultSuccess,
 )
-from tracecat.sandbox.exceptions import SandboxTimeoutError
+from tracecat.sandbox.exceptions import SandboxInfrastructureError, SandboxTimeoutError
 from tracecat.sandbox.types import (
     SandboxConfig,
+    SandboxErrorCode,
     SandboxNetworkPurpose,
     SandboxResult,
 )
@@ -267,6 +268,36 @@ async def test_registry_clone_stops_when_keyscan_fails(
         )
 
     execute.assert_awaited_once()
+    temporary_agent.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_registry_clone_keeps_keyscan_infrastructure_failure_typed(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    execute = mocker.AsyncMock(
+        return_value=SandboxResult(
+            success=False,
+            error="Sandbox infrastructure failed before producing a result",
+            error_code=SandboxErrorCode.INFRASTRUCTURE_FAILURE,
+        )
+    )
+    mocker.patch(
+        "tracecat.registry.sync.sandbox.NsjailExecutor",
+        return_value=mocker.Mock(execute=execute),
+    )
+    temporary_agent = mocker.patch("tracecat.registry.sync.sandbox.temporary_ssh_agent")
+
+    with pytest.raises(SandboxInfrastructureError, match="SSH host key scan failed"):
+        await RegistrySyncSandbox().clone_repository(
+            git_url="git+ssh://git@git.example.test/acme/registry.git",
+            commit_sha="a" * 40,
+            ssh_key="fake-private-key",
+            work_dir=tmp_path / "sync",
+            timeout_seconds=90,
+        )
+
     temporary_agent.assert_not_called()
 
 

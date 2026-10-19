@@ -434,6 +434,7 @@ class RegistrySyncSandbox:
             ) from exc
 
         if not result.success:
+            _raise_for_infrastructure_failure(result, "SSH host key scan")
             detail = result.error or result.stderr or "Unknown ssh-keyscan error"
             raise RegistryError(
                 f"Sandboxed SSH host key scan failed: {str(detail)[:2000]}"
