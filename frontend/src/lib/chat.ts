@@ -899,5 +899,62 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
       finalMessages.push({ ...message, parts: newParts })
     }
   }
-  return finalMessages
+  return mergeAdjacentApprovalRequests(finalMessages)
+}
+
+function isApprovalRequestPart(
+  part: ai.UIMessagePart<ai.UIDataTypes, ai.UITools> | undefined
+): part is ai.UIMessagePart<ai.UIDataTypes, ai.UITools> & {
+  type: "data-approval-request"
+  data: ApprovalCard[]
+} {
+  return (
+    part?.type === "data-approval-request" &&
+    "data" in part &&
+    isApprovalCardArray(part.data)
+  )
+}
+
+/**
+ * Parallel calls stream one approval request each. Join back-to-back requests
+ * so the calls can be decided together.
+ */
+function mergeAdjacentApprovalRequests(
+  messages: ai.UIMessage[]
+): ai.UIMessage[] {
+  const merged: ai.UIMessage[] = []
+  for (const message of messages) {
+    const parts: ai.UIMessagePart<ai.UIDataTypes, ai.UITools>[] = []
+    for (const part of message.parts) {
+      const last = parts.at(-1)
+      const previous = merged.at(-1)
+      const target =
+        last ??
+        (previous?.role === message.role ? previous.parts.at(-1) : undefined)
+      if (isApprovalRequestPart(part) && isApprovalRequestPart(target)) {
+        const seen = new Set(target.data.map((a) => a.tool_call_id))
+        const joined = {
+          ...target,
+          data: [
+            ...target.data,
+            ...part.data.filter((a) => !seen.has(a.tool_call_id)),
+          ],
+        }
+        if (last) {
+          parts[parts.length - 1] = joined
+        } else if (previous) {
+          merged[merged.length - 1] = {
+            ...previous,
+            parts: [...previous.parts.slice(0, -1), joined],
+          }
+        }
+        continue
+      }
+      parts.push(part)
+    }
+    if (parts.length > 0) {
+      merged.push({ ...message, parts })
+    }
+  }
+  return merged
 }

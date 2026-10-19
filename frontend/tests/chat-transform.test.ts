@@ -86,6 +86,46 @@ describe("transformMessages", () => {
     expect(transformed).toEqual([messages[1]])
   })
 
+  it("joins approval requests streamed back to back into one batch", () => {
+    const approval = (n: number) => ({
+      tool_call_id: `toolu_0${n}`,
+      tool_name: "core.transform.reshape",
+      args: { value: { n } },
+    })
+    const messages = [
+      {
+        id: "msg-1",
+        role: "assistant",
+        parts: [
+          { type: "text", text: "Running all three." },
+          { type: "data-approval-request", data: [approval(1)] },
+          { type: "data-approval-request", data: [approval(2)] },
+        ],
+      },
+      {
+        id: "msg-2",
+        role: "assistant",
+        parts: [{ type: "data-approval-request", data: [approval(3)] }],
+      },
+    ] as ai.UIMessage[]
+
+    const transformed = transformMessages(messages)
+
+    expect(transformed).toEqual([
+      {
+        id: "msg-1",
+        role: "assistant",
+        parts: [
+          { type: "text", text: "Running all three." },
+          {
+            type: "data-approval-request",
+            data: [approval(1), approval(2), approval(3)],
+          },
+        ],
+      },
+    ])
+  })
+
   it("deduplicates replayed pending approval parts by tool call id", () => {
     const messages = [
       {
