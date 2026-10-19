@@ -4272,11 +4272,15 @@ export const tagsDeleteTag = (
 
 /**
  * Search User
- * Search for a user by email.
+ * Find a member of the caller's organization by email.
+ *
+ * Users outside the caller's organization return 404, the same as an unknown
+ * email, so the route cannot be used to enumerate accounts. Platform admins
+ * are scoped the same way; platform-wide lookups go through ``/admin/users``.
  * @param data The data for the request.
  * @param data.email
  * @param data.workspaceId
- * @returns UserRead Successful Response
+ * @returns UserSearchRead Successful Response
  * @throws ApiError
  */
 export const usersSearchUser = (
