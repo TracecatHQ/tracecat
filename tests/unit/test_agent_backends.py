@@ -1373,3 +1373,42 @@ async def test_handle_construction_failure_is_definitive_before_submission():
                 uuid4(), WorkflowApprovalSubmission(approvals={}, new_stream_id=uuid4())
             )
     assert caught.value.__context__ is None
+
+
+@pytest.mark.anyio
+async def test_default_backend_runs_sessions_up_to_timeout_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.agent.backends.default.config.TRACECAT__AGENT_SANDBOX_TIMEOUT",
+        5400,
+    )
+    workspace_id = uuid4()
+    args = await DefaultBackend().build_workflow_args(
+        SessionWorkflowContext(
+            session_id=uuid4(),
+            backend_id="default",
+            harness_type=None,
+            title="Chat",
+            entity_type=AgentSessionEntity.WORKSPACE_CHAT,
+            entity_id=workspace_id,
+            tools=None,
+            agent_preset_id=None,
+            agent_preset_version_id=None,
+            role=Role(
+                type="user",
+                workspace_id=workspace_id,
+                organization_id=uuid4(),
+                user_id=uuid4(),
+                service_id="tracecat-api",
+            ),
+            config=AgentConfig(
+                model_name="claude-sonnet-4-5", model_provider="anthropic"
+            ),
+            prompt="hello",
+            run_id=uuid4(),
+            stream_id=uuid4(),
+        )
+    )
+
+    assert args.agent_args.timeout_seconds == 5400

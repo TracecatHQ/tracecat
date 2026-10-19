@@ -45,6 +45,9 @@ class DefaultBackend(AgentBackend[AgentWorkflowArgs, AgentOutput]):
             active_stream_id=context.stream_id,
             curr_run_id=context.run_id,
             config=context.config,
+            # Interactive sessions have no per-action timeout, so they run up to
+            # the deployment ceiling instead of the action default.
+            timeout_seconds=config.TRACECAT__AGENT_SANDBOX_TIMEOUT,
         )
         return AgentWorkflowArgs(
             role=context.role,
