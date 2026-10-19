@@ -30,7 +30,7 @@ from typing import Never
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     import tempfile
@@ -98,15 +98,22 @@ class RegistrySyncWorkflow:
         # (package install, action discovery) can take several minutes without
         # natural checkpoints for heartbeating. Bounded retries let the last
         # activity failure reach the caller instead of a workflow timeout.
-        result = await workflow.execute_activity(
-            sync_registry_activity,
-            request,
-            start_to_close_timeout=timedelta(minutes=15),
-            retry_policy=RetryPolicy(
-                maximum_attempts=3,
-                initial_interval=timedelta(seconds=5),
-            ),
-        )
+        try:
+            result = await workflow.execute_activity(
+                sync_registry_activity,
+                request,
+                start_to_close_timeout=timedelta(minutes=15),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=3,
+                    initial_interval=timedelta(seconds=5),
+                ),
+            )
+        except ActivityError as exc:
+            # Fail the workflow with the non-retryable cause so the workflow
+            # retry policy does not rerun deterministic content failures.
+            if isinstance(exc.cause, ApplicationError) and exc.cause.non_retryable:
+                raise exc.cause  # noqa: B904
+            raise
 
         workflow.logger.info(
             "RegistrySyncWorkflow completed",

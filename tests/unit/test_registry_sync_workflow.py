@@ -24,6 +24,7 @@ from tracecat.registry.sync.schemas import (
 )
 from tracecat.registry.sync.workflow import (
     RegistryArtifactsBackfillWorkflow,
+    RegistrySyncWorkflow,
     backfill_registry_artifacts_activity,
     sync_registry_activity,
 )
@@ -385,3 +386,57 @@ async def test_backfill_workflow_continues_after_item_failure(
     assert result.results[0].status == "failed"
     assert result.results[0].error == "RuntimeError: corrupt tarball"
     assert result.results[1].status == "created"
+
+
+def _sync_activity_error(cause: BaseException) -> ActivityError:
+    try:
+        raise cause
+    except BaseException as exc:
+        try:
+            raise ActivityError(
+                "Activity task failed",
+                scheduled_event_id=1,
+                started_event_id=2,
+                identity="test",
+                activity_type="sync_registry_activity",
+                activity_id="activity-id",
+                retry_state=None,
+            ) from exc
+        except ActivityError as activity_error:
+            return activity_error
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("non_retryable", [True, False])
+async def test_registry_sync_workflow_fails_non_retryably_on_content_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    non_retryable: bool,
+) -> None:
+    cause = ApplicationError(
+        "Failed to discover actions: Registry dependencies conflict with "
+        "Tracecat's runtime: ImportError: cannot import name 'x' from 'y'",
+        non_retryable=non_retryable,
+    )
+
+    async def fake_execute_activity(*_args: Any, **_kwargs: Any) -> Any:
+        raise _sync_activity_error(cause)
+
+    monkeypatch.setattr(
+        "tracecat.registry.sync.workflow.workflow.execute_activity",
+        fake_execute_activity,
+    )
+    monkeypatch.setattr(
+        "tracecat.registry.sync.workflow.workflow.logger",
+        SimpleNamespace(info=lambda *_args, **_kwargs: None),
+    )
+    request: Any = SimpleNamespace(
+        repository_id=uuid4(), origin="custom_actions", origin_type="git"
+    )
+
+    with pytest.raises((ApplicationError, ActivityError)) as exc_info:
+        await RegistrySyncWorkflow().run(request)
+
+    if non_retryable:
+        assert exc_info.value is cause
+    else:
+        assert isinstance(exc_info.value, ActivityError)
