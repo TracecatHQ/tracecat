@@ -276,14 +276,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         visible: canViewWorkflows === true,
       },
       {
-        title: "Forms",
-        url: `${basePath}/forms`,
-        icon: ClipboardListIcon,
-        isActive: pathname?.startsWith(`${basePath}/forms`),
-        visible:
-          formsVisible && canReadForms === true && canBuildForms === true,
-      },
-      {
         title: "Cases",
         url: `${basePath}/cases`,
         icon: LayersIcon,
@@ -303,6 +295,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         icon: Pyramid,
         isActive: pathname?.startsWith(`${basePath}/skills`),
         visible: canViewAgents === true,
+      },
+      {
+        title: "Forms",
+        url: `${basePath}/forms`,
+        icon: ClipboardListIcon,
+        isActive: pathname?.startsWith(`${basePath}/forms`),
+        visible:
+          formsVisible && canReadForms === true && canBuildForms === true,
       },
     ],
     [
