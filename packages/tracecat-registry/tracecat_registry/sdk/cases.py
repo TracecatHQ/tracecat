@@ -203,6 +203,7 @@ class CasesClient:
         sort: Literal["asc", "desc"] | Unset = UNSET,
         include_rows: bool | Unset = UNSET,
         include_payload: bool | Unset = UNSET,
+        payload_fields: list[str] | Unset = UNSET,
     ) -> types.CaseListResponse:
         """List cases using default server-side filtering.
 
@@ -212,6 +213,9 @@ class CasesClient:
             reverse: Reverse pagination direction.
             order_by: Column to order by.
             sort: Sort direction.
+            include_payload: Return the full payload without a non-empty selector.
+            payload_fields: Literal top-level keys to return. Includes the subset
+                automatically, overriding include_payload. An empty list is omitted.
 
         Returns:
             Paginated list of cases with cursor metadata.
@@ -229,6 +233,8 @@ class CasesClient:
             params["include_rows"] = include_rows
         if is_set(include_payload):
             params["include_payload"] = include_payload
+        if is_set(payload_fields) and payload_fields:
+            params["payload_fields"] = payload_fields
 
         return await self._client.get("/cases", params=params)
 
@@ -253,8 +259,13 @@ class CasesClient:
         updated_before: datetime | str | Unset = UNSET,
         include_rows: bool | Unset = UNSET,
         include_payload: bool | Unset = UNSET,
+        payload_fields: list[str] | Unset = UNSET,
     ) -> types.CaseListResponse:
-        """Search cases with filtering and pagination."""
+        """Search cases with filtering and pagination.
+
+        A non-empty payload_fields list returns only those literal top-level keys,
+        overriding include_payload. Empty or unset selectors keep the flag's behavior.
+        """
         params: dict[str, Any] = {"limit": limit}
         if is_set(cursor):
             params["cursor"] = cursor
@@ -306,6 +317,8 @@ class CasesClient:
             params["include_rows"] = include_rows
         if is_set(include_payload):
             params["include_payload"] = include_payload
+        if is_set(payload_fields) and payload_fields:
+            params["payload_fields"] = payload_fields
 
         return await self._client.get("/cases/search", params=params)
 

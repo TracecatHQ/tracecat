@@ -1988,3 +1988,44 @@ class TestEdgeCases:
                 content_base64=content,
                 content_type="text/plain",
             )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("search", [False, True])
+@pytest.mark.parametrize("paginate", [False, True])
+async def test_payload_selection_through_case_actions(
+    db,
+    session: AsyncSession,
+    cases_ctx: Role,
+    search: bool,
+    paginate: bool,
+) -> None:
+    """Exercise action, client, gateway, database, and typed response together."""
+    payload = {"alert_id": "demo-alert-001", "nullable": None, "raw_event": "unused"}
+    created = await create_case(
+        summary="Synthetic payload selection", description="Example", payload=payload
+    )
+    action = search_cases if search else list_cases
+    selected = _case_items(
+        await action(
+            limit=1,
+            paginate=paginate,
+            payload_fields=["alert_id", "nullable", "missing"],
+        )
+    )
+    TypeAdapter(list[types.CaseReadMinimal]).validate_python(selected)
+    assert len(selected) == 1
+    assert str(selected[0]["id"]) == str(created["id"])
+    assert selected[0].get("payload") == {
+        "alert_id": "demo-alert-001",
+        "nullable": None,
+    }
+    full = _case_items(
+        await action(
+            limit=1, paginate=paginate, include_payload=True, payload_fields=[]
+        )
+    )
+    assert full[0].get("payload") == payload
+    default = _case_items(await action(limit=1, paginate=paginate))
+    assert default[0].get("payload") is None
+    assert (await get_case(case_id=str(created["id"])))["payload"] == payload

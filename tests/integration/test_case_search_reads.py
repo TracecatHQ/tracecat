@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import delete, event
+from sqlalchemy import delete, event, inspect, null, select, update
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import ORMExecuteState
@@ -307,10 +307,12 @@ async def test_disabled_addons_skip_dropdown_duration_and_hierarchy_queries(
     assert "case_table_row" not in statements
 
 
+@pytest.mark.parametrize("payload_fields", [None, ["synthetic_blob"]])
 async def test_deletion_between_page_read_and_hydration_does_not_read_unloaded_state(
     session: AsyncSession,
     svc_role: Role,
     synthetic_search_cases: SyntheticSearchCases,
+    payload_fields: list[str] | None,
 ) -> None:
     deleted = False
 
@@ -334,7 +336,10 @@ async def test_deletion_between_page_read_and_hydration_does_not_read_unloaded_s
     event.listen(session.sync_session, "do_orm_execute", delete_before_hydration)
     try:
         page = await CasesService(session, svc_role).search_cases(
-            CursorPaginationParams(limit=2), sort="asc", include_count=False
+            CursorPaginationParams(limit=2),
+            sort="asc",
+            include_count=False,
+            payload_fields=payload_fields,
         )
     finally:
         event.remove(session.sync_session, "do_orm_execute", delete_before_hydration)
@@ -345,6 +350,7 @@ async def test_deletion_between_page_read_and_hydration_does_not_read_unloaded_s
         CursorPaginationParams(limit=2, cursor=page.next_cursor),
         sort="asc",
         include_count=False,
+        payload_fields=payload_fields,
     )
     assert [item.id for item in following.items] == list(
         synthetic_search_cases.ids[2:4]
@@ -362,3 +368,160 @@ async def test_list_count_opt_out_and_empty_page_are_compatible(
     assert len(queries) == 1
     counted = await service.list_cases(limit=2)
     assert counted.total_estimate == 0
+
+
+@pytest.mark.parametrize("include_payload", [False, True])
+async def test_selected_payload_is_bounded_and_does_not_replace_stored_payload(
+    session: AsyncSession,
+    svc_role: Role,
+    synthetic_search_cases: SyntheticSearchCases,
+    include_payload: bool,
+) -> None:
+    """Projection shares the detail read and never populates a partial ORM payload."""
+    payload = {
+        "alert_id": "demo-alert-001",
+        "score": 42,
+        "nullable": None,
+        "nested": {"ip": "192.0.2.1"},
+        "items": [1, "two", None],
+        "alert.source.ip": "literal-key",
+        "quoted'key": False,
+        "raw_event": "unused " * 10000,
+    }
+    await session.execute(
+        update(Case)
+        .where(Case.id.in_(synthetic_search_cases.ids))
+        .values(payload=payload)
+    )
+    session.expunge_all()
+    service = CasesService(session, svc_role)
+    fields = [
+        "alert_id",
+        "score",
+        "nullable",
+        "nested",
+        "items",
+        "alert.source.ip",
+        "quoted'key",
+        "missing",
+        "alert_id",
+    ]
+    expected = {key: value for key, value in payload.items() if key != "raw_event"}
+    with capture_search_queries(session) as queries:
+        page = await service.search_cases(
+            CursorPaginationParams(limit=2),
+            sort="asc",
+            include_count=False,
+            include_payload=include_payload,
+            payload_fields=fields,
+        )
+    assert [item.id for item in page.items] == list(synthetic_search_cases.ids[:2])
+    assert page.has_more and page.next_cursor
+    assert page.total_estimate is None
+    assert all(item.payload == expected for item in page.items)
+    main_query = next(q for q in queries if "_tracecat_page_key_0" in q.statement)
+    assert '"case".payload' not in main_query.statement
+    payload_queries = [q for q in queries if '"case".payload' in q.statement]
+    assert len(payload_queries) == 1
+    query = payload_queries[0]
+    assert "jsonb_object_agg" in query.statement
+    assert "jsonb_each" in query.statement
+    assert '"case".payload AS' not in query.statement
+    assert {
+        value
+        for value in query.parameters
+        if isinstance(value, uuid.UUID) and value != svc_role.workspace_id
+    } == set(synthetic_search_cases.ids[:2])
+    assert not population_counts(queries)
+    # A subsequent full read in this same session must still return everything.
+    case = await service.get_case(page.items[0].id)
+    assert case is not None
+    assert case.payload == payload
+    state = inspect(case)
+    assert state is not None
+    assert not state.attrs.payload.history.has_changes()
+    assert (
+        await session.scalar(select(Case.payload).where(Case.id == case.id)) == payload
+    )
+
+
+@pytest.mark.parametrize(
+    ("stored_payload", "expected"),
+    [
+        (None, None),
+        ({}, {}),
+        ({"nullable": None}, {"nullable": None}),
+        ({"unselected": "value"}, {}),
+    ],
+)
+async def test_selected_payload_missing_and_null_values(
+    session: AsyncSession,
+    svc_role: Role,
+    synthetic_search_cases: SyntheticSearchCases,
+    stored_payload: dict[str, object] | None,
+    expected: dict[str, object] | None,
+) -> None:
+    await session.execute(
+        update(Case)
+        .where(Case.id == synthetic_search_cases.ids[0])
+        .values(payload=stored_payload)
+    )
+    session.expunge_all()
+    page = await CasesService(session, svc_role).list_cases(
+        limit=1, sort="asc", payload_fields=["nullable", "missing"]
+    )
+    assert page.items[0].payload == expected
+
+
+async def test_selected_payload_sql_null(
+    session: AsyncSession,
+    svc_role: Role,
+    synthetic_search_cases: SyntheticSearchCases,
+) -> None:
+    await session.execute(
+        update(Case)
+        .where(Case.id == synthetic_search_cases.ids[0])
+        .values(payload=null())
+    )
+    session.expunge_all()
+    page = await CasesService(session, svc_role).list_cases(
+        limit=1, sort="asc", payload_fields=["missing"]
+    )
+    assert page.items[0].payload is None
+
+
+@pytest.mark.parametrize("include_payload", [False, True])
+async def test_empty_payload_selector_preserves_flag_behavior(
+    session: AsyncSession,
+    svc_role: Role,
+    synthetic_search_cases: SyntheticSearchCases,
+    include_payload: bool,
+) -> None:
+    page = await CasesService(session, svc_role).list_cases(
+        limit=1, include_payload=include_payload, payload_fields=[]
+    )
+    assert len(page.items) == 1
+    assert bool(page.items[0].payload) is include_payload
+
+
+async def test_payload_selection_keeps_case_order_counts_and_continuation(
+    session: AsyncSession,
+    svc_role: Role,
+    synthetic_search_cases: SyntheticSearchCases,
+) -> None:
+    service = CasesService(session, svc_role)
+    baseline = await service.list_cases(limit=5, sort="asc")
+    ids: list[uuid.UUID] = []
+    cursor = None
+    while True:
+        page = await service.list_cases(
+            limit=2, sort="asc", cursor=cursor, payload_fields=["missing"]
+        )
+        assert page.total_estimate == baseline.total_estimate == 5
+        assert all(item.payload == {} for item in page.items)
+        ids.extend(item.id for item in page.items)
+        if not page.has_more:
+            break
+        assert page.next_cursor
+        cursor = page.next_cursor
+    assert ids == [item.id for item in baseline.items]

@@ -570,3 +570,25 @@ def _invalid_custom_field(
     return TracecatValidationError(
         f"Case custom field {field.name!r} is invalid: {message}"
     )
+
+
+def case_payload_projection(
+    fields: Sequence[str],
+) -> ColumnElement[dict[str, Any] | None]:
+    """Select literal top-level payload keys without dropping explicit nulls."""
+    entries = sa.func.jsonb_each(Case.payload).table_valued("key", "value")
+    selected = (
+        sa.select(sa.func.jsonb_object_agg(entries.c.key, entries.c.value))
+        .where(entries.c.key.in_(list(dict.fromkeys(fields))))
+        .correlate(Case)
+        .scalar_subquery()
+    )
+    # jsonb_each only accepts objects. Both SQL NULL and JSON null stay null;
+    # an object with no matching keys becomes {}, preserving missing vs null.
+    return sa.case(
+        (
+            sa.func.jsonb_typeof(Case.payload) == "object",
+            sa.func.coalesce(selected, sa.literal({}, type_=postgresql.JSONB)),
+        ),
+        else_=None,
+    )

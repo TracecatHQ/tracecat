@@ -266,3 +266,35 @@ async def test_list_linked_cases_uses_table_row_path(
         "/tables/table-id/rows/row-id/cases",
         params={"limit": 5, "sort": "asc", "exclude_case_id": "CASE-0001"},
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("method", ["list", "search"])
+@pytest.mark.parametrize("fields", [["alert_id", "alert.source.ip", "key & value"], []])
+async def test_payload_selector_round_trips_through_gateway_query(
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    fields: list[str],
+) -> None:
+    """Exercise the real HTTP encoding of repeated literal payload keys."""
+    requests: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        suffix = "/search" if method == "search" else ""
+        assert request.url.path == f"/internal/cases{suffix}"
+        assert request.url.params.get_list("payload_fields") == fields
+        assert request.url.params["include_payload"] == "true"
+        return httpx.Response(200, json={"items": []})
+
+    def create_transport(*, uds: str) -> httpx.MockTransport:
+        assert uds == "/tmp/payload-selector-test.sock"
+        return httpx.MockTransport(handle)
+
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", create_transport)
+    client = TracecatClient(action_gateway_socket="/tmp/payload-selector-test.sock")
+    if method == "list":
+        await client.cases.list_cases(payload_fields=fields, include_payload=True)
+    else:
+        await client.cases.search_cases(payload_fields=fields, include_payload=True)
+    assert len(requests) == 1

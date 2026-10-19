@@ -617,6 +617,19 @@ async def list_cases(
         bool,
         Doc("If true, return cursor pagination metadata along with items."),
     ] = False,
+    include_payload: Annotated[
+        bool,
+        Doc("Return the full payload when payload_fields is omitted or empty."),
+    ] = False,
+    payload_fields: Annotated[
+        list[str] | None,
+        Doc(
+            "Return only these top-level payload keys, e.g. ['alert_id', 'score']. "
+            "Automatically includes the subset regardless of include_payload. "
+            "Dots are literal; selected objects are returned whole. Missing keys "
+            "are omitted and null values preserved. An empty list acts as omitted."
+        ),
+    ] = None,
 ) -> list[types.CaseReadMinimal] | types.CaseListResponse:
     if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise TracecatValidationError(
@@ -632,6 +645,10 @@ async def list_cases(
         params["order_by"] = order_by
     if sort is not None:
         params["sort"] = sort
+    if include_payload:
+        params["include_payload"] = include_payload
+    if payload_fields:
+        params["payload_fields"] = payload_fields
     response = await ctx.cases.aio.list_cases(**params)
     if paginate:
         return response
@@ -714,6 +731,19 @@ async def search_cases(
         bool,
         Doc("If true, return cursor pagination metadata along with items."),
     ] = False,
+    include_payload: Annotated[
+        bool,
+        Doc("Return the full payload when payload_fields is omitted or empty."),
+    ] = False,
+    payload_fields: Annotated[
+        list[str] | None,
+        Doc(
+            "Return only these top-level payload keys, e.g. ['alert_id', 'score']. "
+            "Automatically includes the subset regardless of include_payload. "
+            "Dots are literal; selected objects are returned whole. Missing keys "
+            "are omitted and null values preserved. An empty list acts as omitted."
+        ),
+    ] = None,
 ) -> list[types.CaseReadMinimal] | types.CaseListResponse:
     """Search cases based on various criteria."""
     if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
@@ -752,6 +782,10 @@ async def search_cases(
         params["order_by"] = order_by
     if sort is not None:
         params["sort"] = sort
+    if include_payload:
+        params["include_payload"] = include_payload
+    if payload_fields:
+        params["payload_fields"] = payload_fields
     response = await ctx.cases.aio.search_cases(**params)
     if paginate:
         return response

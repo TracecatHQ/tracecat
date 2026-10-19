@@ -16277,6 +16277,10 @@ export type CasesListCasesData = {
     | "tasks"
     | null
   /**
+   * Return only these literal top-level payload keys, automatically including the subset regardless of include_payload. Dots are literal; nested values are returned whole. Missing keys are omitted and null values preserved. An empty list acts as omitted.
+   */
+  payloadFields?: Array<string> | null
+  /**
    * Reverse pagination direction
    */
   reverse?: boolean
@@ -16364,6 +16368,10 @@ export type CasesSearchCasesData = {
    * Return only the sub-cases of this parent case
    */
   parentId?: string | null
+  /**
+   * Return only these literal top-level payload keys, automatically including the subset regardless of include_payload. Dots are literal; nested values are returned whole. Missing keys are omitted and null values preserved. An empty list acts as omitted.
+   */
+  payloadFields?: Array<string> | null
   /**
    * Filter by case priority
    */

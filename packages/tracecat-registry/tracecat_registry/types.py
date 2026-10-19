@@ -138,7 +138,7 @@ class CaseRead(TypedDict):
 class CaseReadMinimal(TypedDict):
     """Minimal case information returned by search operations.
 
-    Contains core case fields without description, payload, or custom fields.
+    Contains core case fields without description, plus an optional payload.
     """
 
     id: UUID
@@ -155,6 +155,7 @@ class CaseReadMinimal(TypedDict):
     updated_at: datetime
     num_tasks_completed: int
     num_tasks_total: int
+    payload: NotRequired[dict[str, Any] | None]
 
 
 class CaseListResponse(TypedDict):
