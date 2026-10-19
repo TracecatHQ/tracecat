@@ -70,6 +70,8 @@ ORG_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES: frozenset[str] = (
     | frozenset(
         {
             "org:read",
+            # Lets access-review tools list organization members.
+            "org:member:read",
             "org:secret:read",
             "org:secret:create",
             "org:secret:update",
