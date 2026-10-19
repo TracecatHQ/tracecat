@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: "List top clickers"
+  description: "List the users who clicked the most malicious URLs over a time window with GET /v2/people/top-clickers."
+  display_group: Proofpoint TAP
+  doc_url: https://help.proofpoint.com/Threat_Insight_Dashboard/API_Documentation/People_API
+  namespace: tools.proofpoint_tap
+  name: list_top_clickers
+  secrets:
+    - name: proofpoint_tap
+      keys: ["PROOFPOINT_TAP_SERVICE_PRINCIPAL", "PROOFPOINT_TAP_SERVICE_SECRET"]
+  expects:
+    window:
+      type: int
+      description: "Number of days to report on. Valid values: 14, 30, 90."
+    size:
+      type: int | None
+      description: "Maximum number of people per page. Defaults to 100; maximum 200."
+      default: null
+    page:
+      type: int | None
+      description: "Page of results to return, starting at 1. Defaults to 1."
+      default: null
+    base_url:
+      type: str | None
+      description: "Proofpoint TAP API base URL. Defaults to https://tap-api-v2.proofpoint.com."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.proofpoint_tap.base_url || "https://tap-api-v2.proofpoint.com" }}/v2/people/top-clickers
+        method: GET
+        params:
+          window: ${{ inputs.window }}
+          size: ${{ inputs.size }}
+          page: ${{ inputs.page }}
+        auth:
+          username: ${{ SECRETS.proofpoint_tap.PROOFPOINT_TAP_SERVICE_PRINCIPAL }}
+          password: ${{ SECRETS.proofpoint_tap.PROOFPOINT_TAP_SERVICE_SECRET }}
+  returns: ${{ steps.request.result }}

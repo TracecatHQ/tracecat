@@ -602,6 +602,8 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.pan_os": createIconRenderer(PaloAltoIcon),
     "tools.pan_prisma": createIconRenderer(PaloAltoIcon),
     "tools.pan_strata": createIconRenderer(PaloAltoIcon),
+    "tools.proofpoint_tap": createIconRenderer(ProofpointIcon),
+    "tools.proofpoint_threat_protection": createIconRenderer(ProofpointIcon),
     "tools.runreveal": createIconRenderer(RunRevealIcon),
     "tools.sentry": createIconRenderer(SentryIcon),
     "tools.slack_sdk": createIconRenderer(SlackIcon),
@@ -991,6 +993,11 @@ export const providerIcons: Record<
       <PaloAltoIcon {...rest} />
     </div>
   ),
+  proofpoint_threat_protection: ({ className, ...rest }) => (
+    <div className={className}>
+      <ProofpointIcon {...rest} />
+    </div>
+  ),
   jamf: createCatalogIconRenderer("jamf_mcp"),
   google_chronicle: createCatalogIconRenderer("google_cloud_secops_mcp"),
   rapid7: createCatalogIconRenderer("rapid7_mcp"),
@@ -1149,6 +1156,11 @@ export const secretIcons: Record<
   fortisiem: ({ className, ...rest }) => (
     <div className={className}>
       <FortinetIcon {...rest} />
+    </div>
+  ),
+  proofpoint_tap: ({ className, ...rest }) => (
+    <div className={className}>
+      <ProofpointIcon {...rest} />
     </div>
   ),
   jamf: createCatalogIconRenderer("jamf_mcp"),
@@ -2934,6 +2946,23 @@ export function PaloAltoIcon({ className, ...rest }: IconProps) {
       <path
         fill="#F04E23"
         d="m10.278 15.443 1.705 1.705-3.426 3.426-3.427-3.426 8.592-8.591-1.705-1.705 3.426-3.426 3.427 3.426-8.592 8.591zM0 12.017l3.426 3.426 8.591-8.59-3.426-3.427L0 12.017zm11.983 5.13 3.426 3.427L24 11.983l-3.426-3.426-8.591 8.59z"
+      />
+    </svg>
+  )
+}
+
+export function ProofpointIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      role="img"
+      viewBox="-4.3 6.9 29.1 29.1"
+      className={cn("text-[#022F2D] dark:text-white", className)}
+      {...rest}
+    >
+      <title>Proofpoint</title>
+      <path
+        fill="currentColor"
+        d="M14.8587 17.8897C14.8587 21.6478 13.0474 23.8784 10.27 23.8784C7.26834 23.8784 5.53751 21.74 5.53751 17.8897C5.53751 13.7454 7.18784 11.607 10.1895 11.607C13.1911 11.607 14.8874 13.7742 14.8587 17.8897ZM0 36H5.49151V25.3482C6.88307 27.4521 9.06242 28.5357 11.7766 28.5357C16.7333 28.5357 20.4997 24.2934 20.4997 17.6418C20.4997 10.9902 16.831 6.92664 11.7133 6.92664C8.97042 6.92664 7.02683 8.01026 5.3995 10.3735V7.6356H0V35.9942V36Z"
       />
     </svg>
   )

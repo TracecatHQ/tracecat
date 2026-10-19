@@ -301,6 +301,8 @@
               "tools/phishlabs",
               "tools/pipe0",
               "tools/project_discovery",
+              "tools/proofpoint_tap",
+              "tools/proofpoint_threat_protection",
               "tools/pymongo",
               "tools/rapid7",
               "tools/recorded_future",

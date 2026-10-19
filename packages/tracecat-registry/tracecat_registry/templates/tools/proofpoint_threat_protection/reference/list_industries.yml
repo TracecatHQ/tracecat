@@ -1,0 +1,26 @@
+type: action
+definition:
+  title: "List industries"
+  description: "Get a list of available industries/verticals for use in filtering and comparison operations. Calls GET /api/v1/dash/reports/industries."
+  display_group: Proofpoint Threat Protection
+  doc_url: https://help.proofpoint.com/Threat_Insight_Dashboard/API_Documentation/Reports_API
+  namespace: tools.proofpoint_threat_protection
+  name: list_industries
+  secrets:
+    - type: oauth
+      provider_id: proofpoint_threat_protection
+      grant_type: client_credentials
+  expects:
+    base_url:
+      type: str | None
+      description: "Proofpoint Threat Protection API base URL. Defaults to https://threatprotection-api.proofpoint.com."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.proofpoint_threat_protection.base_url || "https://threatprotection-api.proofpoint.com" }}/api/v1/dash/reports/industries
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.proofpoint_threat_protection_oauth.PROOFPOINT_THREAT_PROTECTION_SERVICE_TOKEN }}
+  returns: ${{ steps.request.result }}
