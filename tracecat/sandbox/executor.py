@@ -132,8 +132,9 @@ _NSJAIL_POLICY_VIOLATION_EXIT_CODES = {128 + signal.SIGSYS}
 # Python has other structural causes (os.abort(), native assertion failures,
 # glibc heap-corruption checks), and the exit code alone cannot separate them
 # without inspecting stderr text, which this codebase forbids.
+_NSJAIL_SIGKILL_EXIT_CODE = 128 + signal.SIGKILL
 _NSJAIL_RESOURCE_LIMIT_EXIT_CODES = {
-    128 + signal.SIGKILL,
+    _NSJAIL_SIGKILL_EXIT_CODE,
     128 + signal.SIGXCPU,
     128 + signal.SIGXFSZ,
 }
@@ -189,6 +190,8 @@ def _classify_missing_nsjail_result(
     *,
     result_file_exists: bool,
     workload_started: bool,
+    oom_killed: bool | None = None,
+    limit_elapsed: bool = False,
 ) -> SandboxErrorCode:
     """Classify an NsJail exit that did not produce a usable result.
 
@@ -201,8 +204,14 @@ def _classify_missing_nsjail_result(
     - ``None`` or a negative parent return code: infrastructure failure.
     - ``255`` without a start marker or result file: infrastructure failure.
     - ``255`` with a start marker or result file: workload failure.
+    - ``SIGKILL`` with no OOM kill in the sandbox cgroup and no elapsed CPU
+      or wall limit: infrastructure failure. Something outside the sandbox,
+      such as a node shutdown, killed the workload.
     - Child policy/resource signals: policy or resource failure, respectively.
     - Every other missing-result exit: workload failure.
+
+    ``oom_killed`` is ``None`` when the cgroup's OOM counter is unavailable;
+    ``SIGKILL`` then stays a resource-limit failure.
     """
     if returncode is None or returncode < 0:
         return SandboxErrorCode.INFRASTRUCTURE_FAILURE
@@ -214,9 +223,29 @@ def _classify_missing_nsjail_result(
         return SandboxErrorCode.INFRASTRUCTURE_FAILURE
     if returncode in _NSJAIL_POLICY_VIOLATION_EXIT_CODES:
         return SandboxErrorCode.POLICY_VIOLATION
+    if (
+        returncode == _NSJAIL_SIGKILL_EXIT_CODE
+        and oom_killed is False
+        and not limit_elapsed
+    ):
+        return SandboxErrorCode.INFRASTRUCTURE_FAILURE
     if returncode in _NSJAIL_RESOURCE_LIMIT_EXIT_CODES:
         return SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED
     return SandboxErrorCode.WORKLOAD_FAILURE
+
+
+def _sandbox_limit_elapsed(
+    execution_time_ms: float,
+    *,
+    cpu_seconds: int,
+    wall_seconds: int,
+) -> bool:
+    """Return whether a run lasted long enough to reach its CPU or wall limit.
+
+    ``RLIMIT_CPU`` sends ``SIGXCPU`` before any ``SIGKILL``, so only a workload
+    that survives ``SIGXCPU`` past both limits' shorter bound could reach here.
+    """
+    return execution_time_ms / 1000 >= min(cpu_seconds, wall_seconds)
 
 
 def _missing_nsjail_result_message(
@@ -312,6 +341,34 @@ class NsjailExecutor:
         self.cache_dir = Path(cache_dir)
         self.cgroup_mount = cgroup_mount
         self.package_cache = self.cache_dir / "packages"
+
+    def _oom_kill_count(self) -> int | None:
+        """Return the sandbox cgroup subtree's OOM kill count, if readable.
+
+        ``memory.events`` is hierarchical, so the parent counts kills in every
+        per-run child cgroup nsjail creates and removes.
+        """
+        if self.cgroup_mount is None:
+            return None
+        try:
+            events = (self.cgroup_mount / "memory.events").read_text()
+        except OSError:
+            return None
+        for line in events.splitlines():
+            key, _, value = line.partition(" ")
+            if key == "oom_kill":
+                try:
+                    return int(value)
+                except ValueError:
+                    return None
+        return None
+
+    def _oom_killed_since(self, before: int | None) -> bool | None:
+        """Return whether the subtree recorded an OOM kill after ``before``."""
+        after = self._oom_kill_count()
+        if before is None or after is None:
+            return None
+        return after > before
 
     def _build_config(
         self,
@@ -618,6 +675,7 @@ class NsjailExecutor:
             job_dir=str(job_dir),
             cache_key=cache_key,
         )
+        oom_kills_before = self._oom_kill_count()
         completed = await invoke_nsjail(
             nsjail_path=self.nsjail_path,
             job_dir=job_dir,
@@ -674,10 +732,17 @@ class NsjailExecutor:
                 execution_time_ms=execution_time_ms,
             )
 
+        oom_killed = self._oom_killed_since(oom_kills_before)
         error_code = _classify_missing_nsjail_result(
             returncode,
             result_file_exists=result_file_exists,
             workload_started=workload_started,
+            oom_killed=oom_killed,
+            limit_elapsed=_sandbox_limit_elapsed(
+                execution_time_ms,
+                cpu_seconds=config.resources.cpu_seconds,
+                wall_seconds=config.resources.timeout_seconds,
+            ),
         )
         error_msg = _missing_nsjail_result_message(error_code, stderr=stderr)
         # nsjail startup output can fill the prefix before Python emits a fatal
@@ -697,6 +762,7 @@ class NsjailExecutor:
             stderr_tail_truncated=len(stderr) > _FAILURE_STDERR_TAIL_CHARS,
             workload_started=workload_started,
             result_file_exists=result_file_exists,
+            oom_killed=oom_killed,
             execution_time_ms=execution_time_ms,
             memory_mb=config.resources.memory_mb,
             max_processes=config.resources.max_processes,
@@ -1020,6 +1086,7 @@ class NsjailExecutor:
             registry_paths=config.registry_paths,
             tracecat_app=str(config.tracecat_app_dir),
         )
+        oom_kills_before = self._oom_kill_count()
         completed = await invoke_nsjail(
             nsjail_path=self.nsjail_path,
             job_dir=job_dir,
@@ -1073,16 +1140,24 @@ class NsjailExecutor:
                     logger.info("Subprocess output", output=python_logs[:2000])
             return outcome.result
 
+        oom_killed = self._oom_killed_since(oom_kills_before)
         error_code = _classify_missing_nsjail_result(
             returncode,
             result_file_exists=result_file_exists,
             workload_started=workload_started,
+            oom_killed=oom_killed,
+            limit_elapsed=_sandbox_limit_elapsed(
+                execution_time_ms,
+                cpu_seconds=config.resources.cpu_seconds,
+                wall_seconds=int(config.timeout_seconds),
+            ),
         )
         error_msg = _missing_nsjail_result_message(error_code, stderr=stderr)
         logger.error(
             "Action sandbox execution did not produce a usable result",
             error_code=error_code,
             returncode=returncode,
+            oom_killed=oom_killed,
             stderr=stderr[-2000:],
         )
         return SandboxResult(

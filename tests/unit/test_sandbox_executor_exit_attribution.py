@@ -258,3 +258,145 @@ async def test_script_crash_does_not_log_injected_secrets(
     for secret in env_vars.values():
         assert secret not in str(log_error.call_args)
     assert log_error.call_args.kwargs["returncode"] == 1
+
+
+@pytest.mark.parametrize(
+    ("returncode", "oom_killed", "limit_elapsed", "expected_code"),
+    [
+        pytest.param(
+            128 + signal.SIGKILL,
+            False,
+            False,
+            SandboxErrorCode.INFRASTRUCTURE_FAILURE,
+            id="sigkill-without-oom-is-external",
+        ),
+        pytest.param(
+            128 + signal.SIGKILL,
+            True,
+            False,
+            SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
+            id="sigkill-with-oom-is-memory-limit",
+        ),
+        pytest.param(
+            128 + signal.SIGKILL,
+            None,
+            False,
+            SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
+            id="sigkill-without-oom-evidence-stays-resource-limit",
+        ),
+        pytest.param(
+            128 + signal.SIGKILL,
+            False,
+            True,
+            SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
+            id="sigkill-at-cpu-or-wall-limit",
+        ),
+        pytest.param(
+            128 + signal.SIGXCPU,
+            False,
+            False,
+            SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
+            id="sigxcpu-needs-no-oom-evidence",
+        ),
+    ],
+)
+def test_classify_sigkill_uses_oom_and_limit_evidence(
+    returncode: int,
+    oom_killed: bool | None,
+    limit_elapsed: bool,
+    expected_code: SandboxErrorCode,
+) -> None:
+    assert (
+        _classify_missing_nsjail_result(
+            returncode,
+            result_file_exists=False,
+            workload_started=True,
+            oom_killed=oom_killed,
+            limit_elapsed=limit_elapsed,
+        )
+        is expected_code
+    )
+
+
+def _write_oom_kills(cgroup: Path, count: int) -> None:
+    (cgroup / "memory.events").write_text(
+        f"low 0\nhigh 0\nmax 0\noom 0\noom_kill {count}\noom_group_kill 0\n"
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("oom_during_run", "expected_code"),
+    [
+        pytest.param(
+            False, SandboxErrorCode.INFRASTRUCTURE_FAILURE, id="external-kill"
+        ),
+        pytest.param(
+            True, SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED, id="cgroup-oom-kill"
+        ),
+    ],
+)
+async def test_action_sigkill_attribution_reads_cgroup_oom_kills(
+    tmp_path: Path,
+    mocker: MockerFixture,
+    oom_during_run: bool,
+    expected_code: SandboxErrorCode,
+) -> None:
+    """A SIGKILL from outside the sandbox (e.g. node shutdown) is not a user limit."""
+    cgroup = tmp_path / "cgroup"
+    cgroup.mkdir()
+    _write_oom_kills(cgroup, 3)
+
+    async def killed_workload(**_: object) -> NsjailCompletedProcess:
+        if oom_during_run:
+            _write_oom_kills(cgroup, 4)
+        return NsjailCompletedProcess(
+            returncode=128 + signal.SIGKILL,
+            stdout=b"",
+            stderr=b"",
+            workload_started=True,
+        )
+
+    mocker.patch("tracecat.sandbox.executor.invoke_nsjail", side_effect=killed_workload)
+    mocker.patch("tracecat.sandbox.executor.logger.error")
+    executor = NsjailExecutor(cache_dir=str(tmp_path / "cache"), cgroup_mount=cgroup)
+    mocker.patch.object(executor, "_build_action_config", return_value="")
+    mocker.patch.object(executor, "_build_action_env_map", return_value={})
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    action_config = ActionSandboxConfig(
+        registry_paths=[],
+        tracecat_app_dir=tmp_path,
+        site_packages_dir=None,
+    )
+
+    result = await executor.execute_action(job_dir, action_config)
+
+    assert result.success is False
+    assert result.exit_code == 128 + signal.SIGKILL
+    assert result.error_code is expected_code
+
+
+@pytest.mark.anyio
+async def test_script_sigkill_without_oom_kill_is_infrastructure_failure(
+    tmp_path: Path, mocker: MockerFixture
+) -> None:
+    cgroup = tmp_path / "cgroup"
+    cgroup.mkdir()
+    _write_oom_kills(cgroup, 0)
+    mocker.patch(
+        "tracecat.sandbox.executor.invoke_nsjail",
+        return_value=NsjailCompletedProcess(
+            returncode=128 + signal.SIGKILL,
+            stdout=b"",
+            stderr=b"",
+            workload_started=True,
+        ),
+    )
+    mocker.patch("tracecat.sandbox.executor.logger.error")
+    executor = NsjailExecutor(cache_dir=str(tmp_path / "cache"), cgroup_mount=cgroup)
+    mocker.patch.object(executor, "_build_config", return_value="")
+
+    result = await executor.execute(tmp_path, SandboxConfig())
+
+    assert result.error_code is SandboxErrorCode.INFRASTRUCTURE_FAILURE
