@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   ApiError,
-  type UserRead,
+  type UserSearchRead,
   usersSearchUser,
   type WorkspaceRead,
 } from "@/client"
@@ -67,7 +67,7 @@ export function AddWorkspaceMember({
   })
 
   const onSubmit = async (values: AddUser) => {
-    let userToAdd: UserRead
+    let userToAdd: UserSearchRead
     try {
       // Check if the user exists
       userToAdd = await usersSearchUser({

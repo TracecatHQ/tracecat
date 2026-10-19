@@ -28989,6 +28989,47 @@ export const $UserScopesRead = {
   description: "Read schema for a user's effective scopes.",
 } as const
 
+export const $UserSearchRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+  },
+  type: "object",
+  required: ["id", "email"],
+  title: "UserSearchRead",
+  description: "Identity fields returned by the org-scoped user email search.",
+} as const
+
 export const $UserSummary = {
   properties: {
     id: {
