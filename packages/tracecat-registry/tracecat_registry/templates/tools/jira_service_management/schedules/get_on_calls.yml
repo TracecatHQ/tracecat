@@ -1,0 +1,49 @@
+type: action
+definition:
+  title: Get on-call participants
+  description: >-
+    Retrieve who is currently on-call for a schedule, optionally at a specific
+    point in time. Set flat to true to return only user IDs, or false for
+    detailed participant objects (users, teams, escalations).
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk-ops/rest/v2/api-group-schedule-on-calls/#api-rest-v1-schedules-scheduleid-on-calls-get
+  namespace: tools.jira_service_management
+  name: get_on_calls
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+    schedule_id:
+      type: str
+      description: Identifier of the schedule.
+    date:
+      type: str | None
+      description: >-
+        Point in time (ISO 8601) to query on-call responders for.
+        Defaults to the current time when omitted.
+      default: null
+    flat:
+      type: bool | None
+      description: >-
+        When true, returns a flattened list of on-call user IDs.
+        When false, returns detailed participant objects.
+      default: null
+  steps:
+    - ref: get_on_calls
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/jsm/ops/api/v1/schedules/${{ inputs.schedule_id }}/on-calls
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+        params:
+          date: ${{ inputs.date }}
+          flat: ${{ inputs.flat }}
+  returns: ${{ steps.get_on_calls.result.data }}

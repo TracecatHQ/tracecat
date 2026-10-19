@@ -1,0 +1,78 @@
+type: action
+definition:
+  title: Update heartbeat
+  description: >-
+    Update the configuration of an existing heartbeat, identified by name.
+    Only supplied fields are changed. The heartbeat name itself cannot be changed.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk-ops/rest/v2/api-group-heartbeats/#api-v1-teams-teamid-heartbeats-patch
+  namespace: tools.jira_service_management
+  name: update_heartbeat
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+    team_id:
+      type: str
+      description: Identifier of the team that owns the heartbeat.
+    name:
+      type: str
+      description: Name of the heartbeat to update.
+    interval:
+      type: int | None
+      description: Number of interval units before the heartbeat expires and an alert is raised.
+      default: null
+    interval_unit:
+      type: str | None
+      description: Unit of the interval. One of "minutes", "hours", or "days".
+      default: null
+    description:
+      type: str | None
+      description: Detailed description of the heartbeat.
+      default: null
+    enabled:
+      type: bool | None
+      description: Whether the heartbeat is active.
+      default: null
+    alert_message:
+      type: str | None
+      description: Message of the alert raised when the heartbeat expires.
+      default: null
+    alert_tags:
+      type: list[str] | None
+      description: Tags applied to the alert raised when the heartbeat expires.
+      default: null
+    alert_priority:
+      type: str | None
+      description: Priority (P1, P2, P3, P4, P5) of the alert raised when the heartbeat expires.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.transform.reshape
+      args:
+        value:
+          interval: ${{ inputs.interval }}
+          intervalUnit: ${{ inputs.interval_unit }}
+          description: ${{ inputs.description }}
+          enabled: ${{ inputs.enabled }}
+          alertMessage: ${{ inputs.alert_message }}
+          alertTags: ${{ inputs.alert_tags }}
+          alertPriority: ${{ inputs.alert_priority }}
+    - ref: update_heartbeat
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/jsm/ops/api/v1/teams/${{ inputs.team_id }}/heartbeats
+        method: PATCH
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+        params:
+          name: ${{ inputs.name }}
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.update_heartbeat.result.data }}

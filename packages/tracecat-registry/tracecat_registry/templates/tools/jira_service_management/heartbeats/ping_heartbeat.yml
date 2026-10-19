@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: Ping heartbeat
+  description: >-
+    Send a ping to a heartbeat to signal that the monitored system is alive.
+    Each ping resets the heartbeat's expiration timer, preventing the expiry alert.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk-ops/rest/v2/api-group-heartbeats/#api-v1-teams-teamid-heartbeats-ping-post
+  namespace: tools.jira_service_management
+  name: ping_heartbeat
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+    team_id:
+      type: str
+      description: Identifier of the team that owns the heartbeat.
+    name:
+      type: str
+      description: Name of the heartbeat to ping.
+  steps:
+    - ref: ping_heartbeat
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/jsm/ops/api/v1/teams/${{ inputs.team_id }}/heartbeats/ping
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+        params:
+          name: ${{ inputs.name }}
+  returns: ${{ steps.ping_heartbeat.result.data }}

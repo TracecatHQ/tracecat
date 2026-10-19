@@ -1,0 +1,44 @@
+type: action
+definition:
+  title: List alert logs
+  description: >-
+    Retrieve a paginated list of alert activity logs for audit purposes,
+    including creation, acknowledgment, assignment, and other events.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk-ops/rest/v2/api-group-alerts/#api-rest-v1-alerts-id-logs-get
+  namespace: tools.jira_service_management
+  name: list_alert_logs
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+    alert_id:
+      type: str
+      description: Identifier of the alert.
+    after:
+      type: str | None
+      description: Pagination cursor - key of the last record from the previous page.
+      default: null
+    size:
+      type: int | None
+      description: Maximum number of logs to retrieve.
+      default: null
+  steps:
+    - ref: list_alert_logs
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/jsm/ops/api/v1/alerts/${{ inputs.alert_id }}/logs
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+        params:
+          after: ${{ inputs.after }}
+          size: ${{ inputs.size }}
+  returns: ${{ steps.list_alert_logs.result.data }}

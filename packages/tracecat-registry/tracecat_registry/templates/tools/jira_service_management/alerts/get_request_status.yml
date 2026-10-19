@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Get alert request status
+  description: >-
+    Track status and details of an asynchronous alert request.
+    Alert creation, deletion, and action requests are processed asynchronously;
+    use this endpoint to check their status.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk-ops/rest/v2/api-group-alerts/#api-rest-v1-alerts-requests-id-get
+  namespace: tools.jira_service_management
+  name: get_request_status
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+    request_id:
+      type: str
+      description: Identifier of the request (returned in the original async response).
+  steps:
+    - ref: get_request_status
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/jsm/ops/api/v1/alerts/requests/${{ inputs.request_id }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+  returns: ${{ steps.get_request_status.result.data }}

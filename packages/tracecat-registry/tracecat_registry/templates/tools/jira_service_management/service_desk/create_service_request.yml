@@ -1,0 +1,95 @@
+type: action
+definition:
+  title: Create service request
+  description: >-
+    Create a customer service request in Jira Service Management.
+    Unlike the standard Jira create issue API, this creates a proper service
+    request with queue placement, SLA tracking, and customer visibility.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-post
+  namespace: tools.jira_service_management
+  name: create_service_request
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    service_desk_id:
+      type: str
+      description: The ID of the service desk to create the request in.
+    request_type_id:
+      type: str
+      description: >-
+        The ID of the request type. Use the get_request_types action
+        to discover valid IDs for a service desk.
+    summary:
+      type: str
+      description: Brief one-line summary of the service request.
+    description:
+      type: str | None
+      description: Detailed description of the service request.
+      default: null
+    request_field_values:
+      type: dict[str, Any]
+      description: >-
+        Additional field values for the request, keyed by Jira field ID.
+        For example:
+        ```
+        {
+          "customfield_10000": "New value",
+          "priority": {"id": "3"}
+        }
+        ```
+      default: {}
+    raise_on_behalf_of:
+      type: str | None
+      description: >-
+        Account ID of the customer to raise the request on behalf of.
+        Requires the agent to have the "Add customers" permission.
+      default: null
+    request_participants:
+      type: list[str]
+      description: >-
+        List of account IDs to add as request participants.
+        Requires the agent to have the "Add request participants" permission.
+      default: []
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+  steps:
+    # Build the requestFieldValues with summary and description
+    - ref: base_field_values
+      action: core.transform.reshape
+      args:
+        value:
+          summary: ${{ inputs.summary }}
+          description: ${{ inputs.description }}
+    # Merge base fields with any additional custom fields
+    - ref: merged_field_values
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.merge([steps.base_field_values.result, inputs.request_field_values]) }}
+    # Build the request payload
+    - ref: build_payload
+      action: core.transform.reshape
+      args:
+        value:
+          serviceDeskId: ${{ inputs.service_desk_id }}
+          requestTypeId: ${{ inputs.request_type_id }}
+          requestFieldValues: ${{ steps.merged_field_values.result }}
+          raiseOnBehalfOf: ${{ inputs.raise_on_behalf_of }}
+          requestParticipants: ${{ inputs.request_participants }}
+    # Create the service request
+    - ref: create_request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/servicedeskapi/request
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+          X-ExperimentalApi: opt-in
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.create_request.result.data }}

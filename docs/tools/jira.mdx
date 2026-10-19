@@ -14,8 +14,9 @@ Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-grou
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
 
 ### Input fields
@@ -34,7 +35,7 @@ ID or key of the issue to add a comment to.
 
 <ParamField path="base_url" type="string | null">
 
-Jira tenant URL (e.g. https://your-domain.atlassian.net).
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
 
 Default: `null`.
 
@@ -50,8 +51,9 @@ Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-grou
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
 
 ### Input fields
@@ -70,7 +72,7 @@ Jira user ID (e.g. 1234567890)
 
 <ParamField path="base_url" type="string | null">
 
-Jira tenant URL (e.g. https://your-domain.atlassian.net)
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
 
 Default: `null`.
 
@@ -86,8 +88,9 @@ Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-grou
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
 
 ### Input fields
@@ -124,7 +127,7 @@ Brief one-line summary of the incident.
 
 <ParamField path="base_url" type="string | null">
 
-Jira tenant URL (e.g. https://your-domain.atlassian.net).
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
 
 Default: `null`.
 
@@ -160,15 +163,16 @@ Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-grou
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
 
 ### Input fields
 
 <ParamField path="base_url" type="string | null">
 
-Jira tenant URL (e.g. https://your-domain.atlassian.net)
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
 
 Default: `null`.
 
@@ -184,8 +188,9 @@ Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-grou
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
 
 ### Input fields
@@ -198,7 +203,7 @@ ID or key of the issue to get.
 
 <ParamField path="base_url" type="string | null">
 
-Jira tenant URL (e.g. https://your-domain.atlassian.net)
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
 
 Default: `null`.
 
@@ -222,8 +227,9 @@ Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-grou
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
 
 ### Input fields
@@ -236,7 +242,7 @@ Jira priority scheme ID.
 
 <ParamField path="base_url" type="string | null">
 
-Jira tenant URL (e.g. https://your-domain.atlassian.net)
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
 
 Default: `null`.
 
@@ -260,15 +266,16 @@ Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-grou
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
 
 ### Input fields
 
 <ParamField path="base_url" type="string | null">
 
-Jira tenant URL (e.g. https://your-domain.atlassian.net)
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
 
 Default: `null`.
 
@@ -292,15 +299,16 @@ Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-grou
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
 
 ### Input fields
 
 <ParamField path="base_url" type="string | null">
 
-Jira tenant URL (e.g. https://your-domain.atlassian.net)
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
 
 Default: `null`.
 
@@ -324,8 +332,9 @@ Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-grou
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
 
 ### Input fields
@@ -338,7 +347,7 @@ ID or key of the issue to get transitions for.
 
 <ParamField path="base_url" type="string | null">
 
-Jira tenant URL (e.g. https://your-domain.atlassian.net).
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
 
 Default: `null`.
 
@@ -354,8 +363,9 @@ Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-grou
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
 
 ### Input fields
@@ -368,11 +378,30 @@ Jira username (e.g. john.doe@example.com)
 
 <ParamField path="base_url" type="string | null">
 
-Jira tenant URL (e.g. https://your-domain.atlassian.net)
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
 
 Default: `null`.
 
 </ParamField>
+
+## Resolve Jira authentication
+
+Action ID: `tools.jira.resolve_auth_type`
+
+Return which Jira credential is configured: `oauth` for the Atlassian OAuth integration or `basic` for a Jira API token. Raises if both or neither are configured.
+
+Reference: [https://developer.atlassian.com/cloud/jira/platform/security-overview/](https://developer.atlassian.com/cloud/jira/platform/security-overview/)
+
+### Secrets
+
+Optional secrets:
+
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
+- `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
+
+### Input fields
+
+This action does not take input fields.
 
 ## Search issues
 
@@ -384,8 +413,9 @@ Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-grou
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
 
 ### Input fields
@@ -398,7 +428,7 @@ JQL query to search for issues.
 
 <ParamField path="base_url" type="string | null">
 
-Jira tenant URL (e.g. https://your-domain.atlassian.net)
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
 
 Default: `null`.
 
@@ -438,8 +468,9 @@ Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-grou
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
 
 ### Input fields
@@ -458,7 +489,7 @@ ID or key of the issue to update.
 
 <ParamField path="base_url" type="string | null">
 
-Jira tenant URL (e.g. https://your-domain.atlassian.net).
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
 
 Default: `null`.
 
@@ -474,8 +505,9 @@ Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-grou
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
 
 ### Input fields
@@ -498,7 +530,7 @@ ID or key of the issue to update.
 
 <ParamField path="base_url" type="string | null">
 
-Jira tenant URL (e.g. https://your-domain.atlassian.net).
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
 
 Default: `null`.
 
@@ -514,8 +546,9 @@ Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-grou
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
 
 ### Input fields
@@ -534,7 +567,7 @@ ID of the transition to perform.
 
 <ParamField path="base_url" type="string | null">
 
-Jira tenant URL (e.g. https://your-domain.atlassian.net).
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
 
 Default: `null`.
 
@@ -550,8 +583,9 @@ Reference: [https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-grou
 
 ### Secrets
 
-Required secrets:
+Optional secrets:
 
+- `atlassian_oauth`: OAuth token `ATLASSIAN_USER_TOKEN`.
 - `jira`: required values `JIRA_USEREMAIL`, `JIRA_API_TOKEN`.
 
 ### Input fields
@@ -582,7 +616,7 @@ Jira issue key or ID to upload the attachment to (e.g., "PROJ-123").
 
 <ParamField path="base_url" type="string | null">
 
-Jira tenant URL (e.g. https://your-domain.atlassian.net).
+Jira tenant URL (e.g. https://your-domain.atlassian.net). With Atlassian OAuth, use https://api.atlassian.com/ex/jira/&#123;cloudId&#125;.
 
 Default: `null`.
 
