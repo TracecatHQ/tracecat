@@ -163,7 +163,6 @@ import {
   useUpdateChat,
 } from "@/hooks/use-chat"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import { useIsAtLeastWidth } from "@/hooks/use-is-at-least-width"
 import { useSkillLibrary } from "@/hooks/use-skill-library"
 import { useSkills } from "@/hooks/use-skills"
 import {
@@ -202,8 +201,6 @@ const RESERVED_SUBAGENT_ALIASES = new Set([
   "task",
 ])
 const AGENT_PRESET_TAB_QUERY_PARAM = "tab"
-/** Artifact panels at least this wide put the setup rail beside the editor. */
-const ARTIFACT_SPLIT_MIN_WIDTH = 960
 
 function AgentPresetLoadError({
   title,
@@ -564,8 +561,7 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
 }
 
 /**
- * Embeds the preset builder in the workspace chat artifact panel. Wide panels
- * use the split layout; narrow ones stack the setup rail under the editor.
+ * Embeds the preset builder in surfaces that need a stacked, narrow layout.
  */
 export function AgentPresetArtifactView({
   preset,
@@ -593,40 +589,35 @@ export function AgentPresetArtifactView({
     () => buildEnabledModelOptions(models),
     [models]
   )
-  // A callback ref, because the container mounts after the hook first runs.
-  const [container, setContainer] = useState<HTMLDivElement | null>(null)
-  const railBeside = useIsAtLeastWidth(container, ARTIFACT_SPLIT_MIN_WIDTH)
 
   return (
-    <div ref={setContainer} className="size-full min-h-0">
-      <AgentPresetForm
-        key={preset.id}
-        preset={preset}
-        mode="edit"
-        workspaceId={workspaceId}
-        agentPresets={presets ?? []}
-        onCreate={async () => {
-          throw new Error("Agent artifacts cannot create presets.")
-        }}
-        onUpdate={async (presetId, payload) => {
-          return await updateAgentPreset({
-            presetId,
-            ...payload,
-          })
-        }}
-        isSaving={updateAgentPresetIsPending}
-        registryActions={registryActions}
-        registryLoading={registryActions === undefined}
-        mcpLoading={mcpIntegrations === undefined}
-        toolsLoadError={Boolean(registryActionsError || mcpIntegrationsError)}
-        enabledModelOptions={enabledModelOptions}
-        enabledModelsLoaded={enabledModelsLoaded}
-        mcpIntegrations={mcpIntegrations ?? EMPTY_MCP_INTEGRATIONS}
-        layout={railBeside ? "split" : "stacked"}
-        initialTab={parseAgentPresetSideTab(initialTab) ?? "configuration"}
-        onTabChange={onTabChange}
-      />
-    </div>
+    <AgentPresetForm
+      key={preset.id}
+      preset={preset}
+      mode="edit"
+      workspaceId={workspaceId}
+      agentPresets={presets ?? []}
+      onCreate={async () => {
+        throw new Error("Agent artifacts cannot create presets.")
+      }}
+      onUpdate={async (presetId, payload) => {
+        return await updateAgentPreset({
+          presetId,
+          ...payload,
+        })
+      }}
+      isSaving={updateAgentPresetIsPending}
+      registryActions={registryActions}
+      registryLoading={registryActions === undefined}
+      mcpLoading={mcpIntegrations === undefined}
+      toolsLoadError={Boolean(registryActionsError || mcpIntegrationsError)}
+      enabledModelOptions={enabledModelOptions}
+      enabledModelsLoaded={enabledModelsLoaded}
+      mcpIntegrations={mcpIntegrations ?? EMPTY_MCP_INTEGRATIONS}
+      layout="stacked"
+      initialTab={parseAgentPresetSideTab(initialTab) ?? "configuration"}
+      onTabChange={onTabChange}
+    />
   )
 }
 
@@ -1716,7 +1707,6 @@ function AgentPresetForm({
   // Fixed ids keep the left pane mounted when the rail toggles.
   const body = (
     <ResizablePanelGroup
-      key={stacked ? "stacked" : "split"}
       direction={stacked ? "vertical" : "horizontal"}
       className="h-full"
     >
