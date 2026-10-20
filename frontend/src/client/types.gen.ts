@@ -3347,6 +3347,10 @@ export type ChatMessage = {
   cancelled?: {
     [key: string]: unknown
   } | null
+  /**
+   * When the agent runtime recorded the message
+   */
+  created_at?: string | null
 }
 
 /**

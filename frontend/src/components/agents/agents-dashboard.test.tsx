@@ -28,6 +28,11 @@ const mockReplace = jest.fn()
 const mockUseWorkflowReferences = jest.fn()
 const mockUseListMcpIntegrations = jest.fn()
 
+jest.mock("@/components/ai-elements/code-block", () => ({
+  CodeBlock: ({ code }: { code: string }) => <pre>{code}</pre>,
+  CodeBlockCopyButton: () => null,
+}))
+
 jest.mock("@/client", () => ({
   ...jest.requireActual("@/client"),
   agentFoldersGetFolder: jest.fn(),

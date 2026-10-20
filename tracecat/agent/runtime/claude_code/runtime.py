@@ -121,6 +121,7 @@ CLAUDE_PROJECT_DIR_MAX_LENGTH = 200
 _SESSION_FRAME_MARGIN = 4096
 CLAUDE_PROJECT_DIR_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
 LOG_PREVIEW_CHARS = 8000
+ROOT_MESSAGE_DONE_TIMEOUT_SECONDS = 120.0
 
 
 def _claude_project_dir_name(cwd: Path) -> str:
@@ -363,6 +364,9 @@ class ClaudeAgentRuntime:
         self._explicit_subagent_aliases: set[str] = set()
         self._registry_mcp_server_names: set[str] = {REGISTRY_MCP_SERVER_NAME}
         self._pending_approval_tool_ids: set[str] = set()
+        # Set while no root assistant message is streaming.
+        self._root_message_done = asyncio.Event()
+        self._root_message_done.set()
         self.client: ClaudeSDKClient | None = None
         self._was_interrupted: bool = False
         self._interrupt_requested: str | None = None
@@ -1110,6 +1114,19 @@ class ClaudeAgentRuntime:
         subagent-originated ones) still get their event emitted here.
         """
         await self._emit_approval_request(tool_name, tool_input, tool_use_id)
+
+        # The CLI runs a tool as soon as its block streams, so interrupting now
+        # would cut off the parallel calls the model has yet to write.
+        try:
+            await asyncio.wait_for(
+                self._root_message_done.wait(),
+                timeout=ROOT_MESSAGE_DONE_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            logger.warning(
+                "Assistant message still streaming, interrupting anyway",
+                tool_name=tool_name,
+            )
 
         logger.info("Approval request streamed, interrupting", tool_name=tool_name)
 
@@ -1924,6 +1941,13 @@ class ClaudeAgentRuntime:
                             if not first_stream_event_logged:
                                 first_stream_event_logged = True
                                 log_benchmark_phase("runtime_first_stream_event")
+
+                            if message.parent_tool_use_id is None:
+                                event_type = message.event.get("type")
+                                if event_type == "message_start":
+                                    self._root_message_done.clear()
+                                elif event_type == "message_stop":
+                                    self._root_message_done.set()
 
                             # Partial streaming delta - forward to UI.
                             # ping events are upstream keep-alives with no content

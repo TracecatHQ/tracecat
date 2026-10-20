@@ -810,6 +810,11 @@ function isApprovalCardMessage(m: UIMessage): boolean {
   )
 }
 
+/** The approval submission this tab sent; the server never stores it. */
+function isContinueMessage(m: UIMessage): boolean {
+  return m.parts.length > 0 && m.parts.every((p) => p.type === "data-continue")
+}
+
 /**
  * Adopt the server transcript wholesale at quiescent boundaries.
  *
@@ -845,10 +850,10 @@ export function useAdoptServerTranscript({
       adoptedSignatureRef.current = serverSignature
       return
     }
-    // A resolved approval drops its card from the server transcript, so exclude
-    // approval-card-only messages from the finalize-race length guard.
+    // A resolved approval drops its card from the server transcript, and the
+    // submission is never stored, so neither counts in the finalize-race guard.
     const liveComparableLength = liveMessages.filter(
-      (m) => !isApprovalCardMessage(m)
+      (m) => !isApprovalCardMessage(m) && !isContinueMessage(m)
     ).length
     if (serverMessages.length < liveComparableLength) return
     adoptedSignatureRef.current = serverSignature

@@ -12472,6 +12472,19 @@ export const $ChatMessage = {
       title: "Cancelled",
       description: "Turn-cancelled marker data (for kind=CANCELLED)",
     },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+      description: "When the agent runtime recorded the message",
+    },
   },
   type: "object",
   required: ["id"],

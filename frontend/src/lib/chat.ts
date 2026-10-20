@@ -72,6 +72,87 @@ export function getCancelledPartToolCallIds(data: unknown): string[] {
   return toolCallIds.filter((id): id is string => typeof id === "string")
 }
 
+const NO_INTERRUPTED_TOOL_CALL_IDS: ReadonlySet<string> = new Set()
+
+/**
+ * Tool call IDs that the cancelled markers in these messages say an interrupt
+ * aborted. Shares one empty set so memoized parts skip re-rendering.
+ */
+export function collectInterruptedToolCallIds(
+  messages: readonly Pick<ai.UIMessage, "parts">[]
+): ReadonlySet<string> {
+  const toolCallIds = new Set<string>()
+  for (const { parts } of messages) {
+    for (const part of parts) {
+      if (part.type === CANCELLED_DATA_PART_TYPE) {
+        for (const toolCallId of getCancelledPartToolCallIds(part.data)) {
+          toolCallIds.add(toolCallId)
+        }
+      }
+    }
+  }
+  return toolCallIds.size > 0 ? toolCallIds : NO_INTERRUPTED_TOOL_CALL_IDS
+}
+
+/**
+ * Whether a part counts as assistant content when attributing a cancelled
+ * marker to the message the user stopped. Structural parts (step-start) and
+ * data-* markers can share a message with the live-streamed cancelled marker,
+ * and must not stop the marker from tagging the preceding content message
+ * that holds the interrupted tool calls.
+ */
+function isCancelAttributionContentPart(
+  part: ai.UIMessage["parts"][number]
+): boolean {
+  if (part.type === "step-start" || part.type.startsWith("data-")) {
+    return false
+  }
+  if (part.type === "text" || part.type === "reasoning") {
+    return typeof part.text === "string" && part.text.trim().length > 0
+  }
+  return true
+}
+
+/**
+ * Messages whose turn the user stopped, plus the tool calls those interrupts
+ * aborted. The live stream appends the cancelled marker to the assistant
+ * message itself, while reloaded history keeps it as a standalone message
+ * after the content, so both tag the stopped content message.
+ */
+export function collectCancelledTurns(
+  messages: readonly Pick<ai.UIMessage, "id" | "parts">[]
+): {
+  cancelledTurnMessageIds: ReadonlySet<string>
+  interruptedToolCallIds: ReadonlySet<string>
+} {
+  const ids = new Set<string>()
+  let lastContentMessageId: string | null = null
+  for (const message of messages) {
+    let hasCancelledPart = false
+    let hasContentParts = false
+    for (const part of message.parts ?? []) {
+      if (part.type === CANCELLED_DATA_PART_TYPE) {
+        hasCancelledPart = true
+      } else if (isCancelAttributionContentPart(part)) {
+        hasContentParts = true
+      }
+    }
+    if (hasCancelledPart) {
+      ids.add(message.id)
+      if (!hasContentParts && lastContentMessageId) {
+        ids.add(lastContentMessageId)
+      }
+    }
+    if (hasContentParts) {
+      lastContentMessageId = message.id
+    }
+  }
+  return {
+    cancelledTurnMessageIds: ids,
+    interruptedToolCallIds: collectInterruptedToolCallIds(messages),
+  }
+}
+
 /**
  * Error strings the Claude SDK records for tool calls that were aborted by a
  * user interrupt rather than failing on their own.
@@ -277,6 +358,7 @@ export function toUIMessage(message: UIMessage): ai.UIMessage {
   return {
     id: message.id,
     role: message.role,
+    ...(message.metadata != null ? { metadata: message.metadata } : {}),
     parts: message.parts.map(
       (part): ai.UIMessagePart<ai.UIDataTypes, ai.UITools> => {
         // Type-narrowing with guards ensures proper typing
@@ -454,6 +536,11 @@ export type CompactionData = {
   pre_tokens?: number
 }
 
+/** A `data-compaction` payload, or an empty one if malformed. */
+export function getCompactionData(data: unknown): CompactionData {
+  return data && typeof data === "object" ? (data as CompactionData) : {}
+}
+
 /**
  * Per-toolCallId lifecycle bookkeeping accumulated in the population pass of
  * {@link transformMessages}. Positions are `"msgIndex-partIndex"` string keys.
@@ -470,6 +557,8 @@ type ToolCallTrace = {
   closePos?: string
   /** Position of the most recent approval-request part naming this call. */
   lastApprovalPos?: string
+  /** Whether this chat already sent a decision for the call. */
+  isDecided?: boolean
 }
 
 /** Validate the custom approval data-part payload at the generated `unknown` boundary. */
@@ -522,12 +611,14 @@ export type ToolDenial = {
   reason: string | null
 }
 
+type AnyToolPart = ai.ToolUIPart | ai.DynamicToolUIPart
+
 type ToolResultPart = Extract<
-  ai.ToolUIPart,
+  AnyToolPart,
   { state: "output-available" | "output-error" }
 >
 
-function isToolResultPart(part: ai.ToolUIPart): part is ToolResultPart {
+function isToolResultPart(part: AnyToolPart): part is ToolResultPart {
   return part.state === "output-available" || part.state === "output-error"
 }
 
@@ -536,7 +627,7 @@ function isToolResultPart(part: ai.ToolUIPart): part is ToolResultPart {
  * call's result with `callProviderMetadata.tracecat.approval = "rejected"`,
  * since the result itself is error text written for the model.
  */
-export function getToolDenial(part: ai.ToolUIPart): ToolDenial | null {
+export function getToolDenial(part: AnyToolPart): ToolDenial | null {
   if (!isToolResultPart(part)) {
     return null
   }
@@ -549,6 +640,22 @@ export function getToolDenial(part: ai.ToolUIPart): ToolDenial | null {
   return { reason: reason || null }
 }
 
+/** The decisions an approval submission sent, as loose records. */
+function getSubmittedDecisions(
+  part: ai.UIMessage["parts"][number]
+): Record<string, unknown>[] {
+  if (part.type !== "data-continue") {
+    return []
+  }
+  const decisions = (part as { data?: { decisions?: unknown } }).data?.decisions
+  return Array.isArray(decisions)
+    ? decisions.filter(
+        (decision): decision is Record<string, unknown> =>
+          Boolean(decision) && typeof decision === "object"
+      )
+    : []
+}
+
 /**
  * Tag the results of calls this chat denied, as reloaded history does.
  *
@@ -556,46 +663,67 @@ export function getToolDenial(part: ai.ToolUIPart): ToolDenial | null {
  * session's saved history, which carries the tag, replaces it. The user's
  * decision is in the approval submission, so it tags the result meanwhile.
  */
-export function markLiveDenials(messages: ai.UIMessage[]): ai.UIMessage[] {
+export function markLiveDenials(
+  messages: ai.UIMessage[],
+  sentDecisions: readonly Record<string, unknown>[] = []
+): ai.UIMessage[] {
   const reasons = new Map<string, string>()
-  for (const message of messages) {
-    for (const part of message.parts) {
-      if (part.type !== "data-continue") {
-        continue
-      }
-      const decisions = (part as { data?: { decisions?: unknown } }).data
-        ?.decisions
-      for (const decision of Array.isArray(decisions) ? decisions : []) {
-        if (!decision || typeof decision !== "object") {
-          continue
-        }
-        const { action, tool_call_id, reason } = decision as Record<
-          string,
-          unknown
-        >
-        if (action === "deny" && typeof tool_call_id === "string") {
-          reasons.set(tool_call_id, typeof reason === "string" ? reason : "")
-        }
-      }
+  const overrides = new Map<string, unknown>()
+  // A submission stays in the transcript only until the saved history
+  // replaces it, so decisions this tab sent are passed in as well.
+  const decisions = [
+    ...sentDecisions,
+    ...messages.flatMap((message) =>
+      message.parts.flatMap((part) => getSubmittedDecisions(part))
+    ),
+  ]
+  for (const decision of decisions) {
+    const { action, tool_call_id, reason, override_args } = decision
+    if (typeof tool_call_id !== "string") continue
+    if (action === "deny") {
+      reasons.set(tool_call_id, typeof reason === "string" ? reason : "")
+    } else if (action === "override" && override_args) {
+      overrides.set(tool_call_id, override_args)
     }
   }
-  if (reasons.size === 0) {
+  if (reasons.size === 0 && overrides.size === 0) {
     return messages
   }
+  const resultIds = new Set(
+    messages.flatMap((message) =>
+      message.parts.flatMap((part) =>
+        ai.isToolUIPart(part) && isToolResultPart(part) ? [part.toolCallId] : []
+      )
+    )
+  )
   return messages.map((message) => {
     let tagged = false
     const parts = message.parts.map((part) => {
+      // Show the arguments the call ran with, not the ones it asked for.
+      if (ai.isToolUIPart(part) && overrides.has(part.toolCallId)) {
+        tagged = true
+        return { ...part, input: overrides.get(part.toolCallId) } as typeof part
+      }
       if (
         !ai.isToolUIPart(part) ||
-        !isToolResultPart(part) ||
         !reasons.has(part.toolCallId) ||
-        getToolDenial(part)
+        getToolDenial(part) ||
+        (!isToolResultPart(part) && resultIds.has(part.toolCallId))
       ) {
         return part
       }
       tagged = true
+      // The continuation replays a denied call before its result arrives,
+      // so show the decision instead of a running call meanwhile.
+      const result = isToolResultPart(part)
+        ? part
+        : ({
+            ...part,
+            state: "output-error",
+            errorText: "Tool execution was denied by user approval.",
+          } as unknown as typeof part)
       return {
-        ...part,
+        ...result,
         callProviderMetadata: {
           ...part.callProviderMetadata,
           tracecat: {
@@ -657,6 +785,19 @@ export function getAssistantText(parts: UIMessage["parts"]): string {
   }, "")
 }
 /**
+ * Whether a message is a prompt that starts a turn. An approval submission is
+ * a user message too, but it continues the turn it answers.
+ */
+export function isUserPrompt(
+  message: Pick<ai.UIMessage, "role" | "parts">
+): boolean {
+  return (
+    message.role === "user" &&
+    message.parts.some((part) => part.type === "text")
+  )
+}
+
+/**
  * Transforms UI messages by managing tool call state visibility.
  *
  * Implements a state machine that tracks tool call lifecycle:
@@ -667,7 +808,7 @@ export function getAssistantText(parts: UIMessage["parts"]): string {
  * Visibility rules:
  * - Streaming tool inputs remain visible
  * - Completed tool calls collapse their input and approval parts
- * - Pending approvals (without output) remain visible
+ * - Pending approvals (without output) remain visible, and draw their call
  * - Duplicate DB/stream seam copies render once: latest output wins, otherwise
  *   the latest occurrence wins
  * - A call renders in the card that opened it, even when its output arrives in
@@ -766,12 +907,16 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
             trace.approvalPos = posKey
           }
         }
+      } else if (part.type === "data-continue") {
+        for (const { tool_call_id: toolCallId } of getSubmittedDecisions(
+          part
+        )) {
+          if (typeof toolCallId === "string") {
+            getTrace(toolCallId).isDecided = true
+          }
+        }
       } else if (part.type === "data-compaction") {
-        const phase =
-          part.data &&
-          typeof part.data === "object" &&
-          "phase" in part.data &&
-          (part.data as CompactionData).phase
+        const { phase } = getCompactionData(part.data)
 
         if (phase === "started") {
           if (pendingCompactionStartPos) {
@@ -793,6 +938,19 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
   for (const { openPos, closePos } of traces.values()) {
     if (openPos && closePos) {
       closedAt.set(openPos, closePos)
+    }
+  }
+
+  // Calls still waiting on a card; the card draws them until they are decided.
+  const awaitingCard = new Set<string>()
+  for (const [toolCallId, trace] of traces) {
+    if (
+      !trace.hasOutput &&
+      !trace.isDecided &&
+      trace.lastApprovalPos &&
+      !ignorePos.has(trace.lastApprovalPos)
+    ) {
+      awaitingCard.add(toolCallId)
     }
   }
 
@@ -821,6 +979,7 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
         continue
       }
       if (ignorePos.has(posKey)) continue
+      if (ai.isToolUIPart(part) && awaitingCard.has(part.toolCallId)) continue
       if (
         part.type === "data-approval-request" &&
         isApprovalCardArray(part.data)
@@ -828,6 +987,7 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
         const remaining = part.data.filter(
           ({ tool_call_id: toolCallId }) =>
             !traces.get(toolCallId)?.hasOutput &&
+            !traces.get(toolCallId)?.isDecided &&
             traces.get(toolCallId)?.lastApprovalPos === posKey
         )
         if (remaining.length === 0) {
@@ -852,5 +1012,62 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
       finalMessages.push({ ...message, parts: newParts })
     }
   }
-  return finalMessages
+  return mergeAdjacentApprovalRequests(finalMessages)
+}
+
+function isApprovalRequestPart(
+  part: ai.UIMessagePart<ai.UIDataTypes, ai.UITools> | undefined
+): part is ai.UIMessagePart<ai.UIDataTypes, ai.UITools> & {
+  type: "data-approval-request"
+  data: ApprovalCard[]
+} {
+  return (
+    part?.type === "data-approval-request" &&
+    "data" in part &&
+    isApprovalCardArray(part.data)
+  )
+}
+
+/**
+ * Parallel calls stream one approval request each. Join back-to-back requests
+ * so the calls can be decided together.
+ */
+function mergeAdjacentApprovalRequests(
+  messages: ai.UIMessage[]
+): ai.UIMessage[] {
+  const merged: ai.UIMessage[] = []
+  for (const message of messages) {
+    const parts: ai.UIMessagePart<ai.UIDataTypes, ai.UITools>[] = []
+    for (const part of message.parts) {
+      const last = parts.at(-1)
+      const previous = merged.at(-1)
+      const target =
+        last ??
+        (previous?.role === message.role ? previous.parts.at(-1) : undefined)
+      if (isApprovalRequestPart(part) && isApprovalRequestPart(target)) {
+        const seen = new Set(target.data.map((a) => a.tool_call_id))
+        const joined = {
+          ...target,
+          data: [
+            ...target.data,
+            ...part.data.filter((a) => !seen.has(a.tool_call_id)),
+          ],
+        }
+        if (last) {
+          parts[parts.length - 1] = joined
+        } else if (previous) {
+          merged[merged.length - 1] = {
+            ...previous,
+            parts: [...previous.parts.slice(0, -1), joined],
+          }
+        }
+        continue
+      }
+      parts.push(part)
+    }
+    if (parts.length > 0) {
+      merged.push({ ...message, parts })
+    }
+  }
+  return merged
 }
