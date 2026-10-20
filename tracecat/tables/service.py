@@ -110,6 +110,13 @@ _RETRYABLE_DB_EXCEPTIONS = (
 )
 _TABLE_ROW_READ_BATCH_SIZE = 5_000
 _TABLE_SYSTEM_COLUMNS = frozenset({"id", "created_at", "updated_at"})
+_UPDATED_AT_COLUMN = "updated_at"
+
+
+def _updated_at_now() -> sa.FunctionElement[Any]:
+    """Timestamp for row writes; later than ``created_at`` within a transaction."""
+    return sa.func.statement_timestamp()
+
 
 DYNAMIC_WORKSPACE_TENANT_COLUMN = "__tc_workspace_id"
 DYNAMIC_WORKSPACE_RLS_POLICY = "rls_policy_dynamic_workspace"
@@ -1188,7 +1195,12 @@ class BaseTablesService(BaseWorkspaceService):
             )
         else:
             # For upsert operations
-            table_obj = sa.table(sanitized_table_name, *cols, schema=schema_name)
+            table_obj = sa.table(
+                sanitized_table_name,
+                *cols,
+                sa.column(_UPDATED_AT_COLUMN),
+                schema=schema_name,
+            )
             pg_stmt = insert(table_obj)
             pg_stmt = pg_stmt.values(**value_clauses)
 
@@ -1200,7 +1212,7 @@ class BaseTablesService(BaseWorkspaceService):
                 raise ValueError("Data to upsert must contain the unique index column")
 
             # Define what gets updated on conflict
-            update_dict = {
+            update_dict: dict[str, sa.ColumnElement[Any]] = {
                 col: pg_stmt.excluded[col]
                 for col in value_clauses.keys()
                 if col not in index  # Don't update the unique columns
@@ -1214,6 +1226,8 @@ class BaseTablesService(BaseWorkspaceService):
             needs_indexing = existed is None or bool(
                 self.search.selected_names(collection, table).intersection(update_dict)
             )
+            if update_dict:
+                update_dict[_UPDATED_AT_COLUMN] = _updated_at_now()
             stmt = pg_stmt.on_conflict_do_update(
                 index_elements=index, set_=update_dict
             ).returning(*self._visible_columns(table))
@@ -1267,9 +1281,16 @@ class BaseTablesService(BaseWorkspaceService):
             )
 
         stmt = (
-            sa.update(sa.table(sanitized_table_name, *cols, schema=schema_name))
+            sa.update(
+                sa.table(
+                    sanitized_table_name,
+                    *cols,
+                    sa.column(_UPDATED_AT_COLUMN),
+                    schema=schema_name,
+                )
+            )
             .where(sa.column("id") == row_id)
-            .values(**value_clauses)
+            .values(**value_clauses, **{_UPDATED_AT_COLUMN: _updated_at_now()})
             .returning(*self._visible_columns(table))
         )
 
@@ -1356,9 +1377,16 @@ class BaseTablesService(BaseWorkspaceService):
             )
 
         stmt = (
-            sa.update(sa.table(sanitized_table_name, *cols, schema=schema_name))
+            sa.update(
+                sa.table(
+                    sanitized_table_name,
+                    *cols,
+                    sa.column(_UPDATED_AT_COLUMN),
+                    schema=schema_name,
+                )
+            )
             .where(sa.column("id").in_(row_ids))
-            .values(**value_clauses)
+            .values(**value_clauses, **{_UPDATED_AT_COLUMN: _updated_at_now()})
         )
 
         changed_ids = (
@@ -1908,6 +1936,8 @@ class BaseTablesService(BaseWorkspaceService):
                 )
                 for col in col_set
             ]
+            if upsert:
+                cols.append(sa.column(_UPDATED_AT_COLUMN))
             table_obj = sa.table(sanitized_table_name, *cols, schema=schema_name)
 
             if not upsert:
@@ -1947,6 +1977,7 @@ class BaseTablesService(BaseWorkspaceService):
                     )
 
                 if update_dict:
+                    update_dict[table_obj.c[_UPDATED_AT_COLUMN]] = _updated_at_now()
                     stmt = pg_stmt.on_conflict_do_update(
                         index_elements=index,
                         set_=update_dict,
@@ -2688,10 +2719,14 @@ class TableEditorService(BaseWorkspaceService):
                 column_name, coerced_value, type_=column_type
             )
 
+        update_values: dict[str, Any] = dict(value_clauses)
+        if _UPDATED_AT_COLUMN in col_map and _UPDATED_AT_COLUMN not in update_values:
+            cols.append(sa.column(_UPDATED_AT_COLUMN))
+            update_values[_UPDATED_AT_COLUMN] = _updated_at_now()
         stmt = (
             sa.update(sa.table(self.table_name, *cols, schema=self.schema_name))
             .where(sa.column("id") == row_id)
-            .values(**value_clauses)
+            .values(**update_values)
             .returning(*visible_columns)
         )
 
