@@ -330,6 +330,9 @@ async def test_search_cases_canonical_gateway_body_and_detail_flags(
         )
         assert orjson.loads(request.content) == {
             "limit": 7,
+            "search_term": "powershell encoded",
+            "search_mode": "full_text",
+            "search_columns": ["description"],
             "short_id": "CASE-0042",
             "case_id": workspace_case_id,
             "parent_id": parent_id,
@@ -355,6 +358,9 @@ async def test_search_cases_canonical_gateway_body_and_detail_flags(
     client = TracecatClient(action_gateway_socket="/tmp/synthetic-case-search.sock")
     response = await client.cases.search_cases(
         limit=7,
+        search_term="powershell encoded",
+        search_mode="full_text",
+        search_columns=["description"],
         short_id="CASE-0042",
         case_id=workspace_case_id,
         parent_id=parent_id,

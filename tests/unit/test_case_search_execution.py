@@ -284,6 +284,17 @@ async def test_workspace_identity_and_max_depth_are_conjunctive(
     assert response.status_code == 200, response.text
     assert [item["id"] for item in response.json()["items"]] == [str(local.id)]
     assert parse_case_short_id(" CASE-0042 ") == 42
+    await add_case(service)
+    # The shipped facade's third positional argument remains an exact short ID.
+    positional = await service.search_cases(
+        CursorPaginationParams(), "Synthetic", local.short_id
+    )
+    assert [item.id for item in positional.items] == [local.id]
+    assert positional.total_estimate == 1
+    no_text_match = await service.search_cases(
+        CursorPaginationParams(), "unmatched lookup text", local.short_id
+    )
+    assert no_text_match.items == []
 
 
 @pytest.mark.parametrize(

@@ -2801,6 +2801,11 @@ export type CasePriority =
 export type CaseQuery = {
   filters?: Filter | null
   search_term?: string | null
+  /**
+   * Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.
+   */
+  search_mode?: SearchMode | null
+  search_columns?: Array<"summary" | "description"> | null
   short_id?: string | null
   case_id?: string | null
   hierarchy?: "all" | "top_level"
@@ -2852,6 +2857,7 @@ export type CaseReadMinimal = {
   is_outside_filters?: boolean
   id: string
   short_id: string
+  search_match?: CaseSearchMatchRead | null
   created_at: string
   updated_at: string
   summary: string
@@ -2888,7 +2894,17 @@ export type CaseSearchAggregateRead = {
   status_groups: CaseStatusGroupCounts
 }
 
+/**
+ * Bounded lexical metadata beside case fields; excerpts are untrusted text.
+ */
+export type CaseSearchMatchRead = {
+  score?: number | null
+  matched_columns?: Array<"summary" | "description" | "id" | "short_id">
+  excerpts?: Array<string>
+}
+
 export type CaseSearchOrder =
+  | "relevance"
   | "created_at"
   | "updated_at"
   | "priority"
@@ -2918,6 +2934,11 @@ export type CaseSearchRequest = {
   reverse?: boolean
   filters?: Filter | null
   search_term?: string | null
+  /**
+   * Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.
+   */
+  search_mode?: SearchMode | null
+  search_columns?: Array<"summary" | "description"> | null
   short_id?: string | null
   case_id?: string | null
   hierarchy?: "all" | "top_level"
@@ -9302,6 +9323,11 @@ export type SearchIndexStatus = {
   backfill_complete?: boolean
   partial?: boolean
 }
+
+/**
+ * Explicit lexical modes; omitted table mode remains a legacy policy.
+ */
+export type SearchMode = "full_text" | "literal"
 
 /**
  * Workspace availability states controlling search and indexing.
@@ -16607,18 +16633,9 @@ export type CasesSearchCasesData = {
    */
   matchNone?: boolean
   /**
-   * Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks, assignee, tags). Default: created_at
+   * Full-text defaults to relevance; legacy/literal defaults to created_at. Explicit columns preserve their ordering.
    */
-  orderBy?:
-    | "created_at"
-    | "updated_at"
-    | "priority"
-    | "severity"
-    | "status"
-    | "tasks"
-    | "assignee"
-    | "tags"
-    | null
+  orderBy?: CaseSearchOrder | null
   /**
    * Return only the sub-cases of this parent case
    */
@@ -16643,6 +16660,14 @@ export type CasesSearchCasesData = {
    * Reverse pagination direction
    */
   reverse?: boolean
+  /**
+   * Selected text fields; omitted searches both.
+   */
+  searchColumns?: Array<"summary" | "description"> | null
+  /**
+   * Explicit full_text or literal; omitted mode preserves legacy search.
+   */
+  searchMode?: SearchMode | null
   /**
    * Text to search for in case summary, description, short ID, or case UUID
    */
@@ -16717,6 +16742,14 @@ export type CasesSearchCaseAggregatesData = {
    * Filter by case priority
    */
   priority?: Array<CasePriority> | null
+  /**
+   * Selected text fields; omitted searches both.
+   */
+  searchColumns?: Array<"summary" | "description"> | null
+  /**
+   * Explicit full_text or literal; omitted mode preserves legacy search.
+   */
+  searchMode?: SearchMode | null
   /**
    * Text to search for in case summary, description, short ID, or case UUID
    */

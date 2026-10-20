@@ -12085,6 +12085,8 @@ export const casesQueryCases = (
  * @param data.cursor Cursor for pagination
  * @param data.reverse Reverse pagination direction
  * @param data.searchTerm Text to search for in case summary, description, short ID, or case UUID
+ * @param data.searchMode Explicit full_text or literal; omitted mode preserves legacy search.
+ * @param data.searchColumns Selected text fields; omitted searches both.
  * @param data.shortId Search by exact case short ID (e.g. 42 or CASE-0042)
  * @param data.caseId Filter by exact case UUID
  * @param data.promoteExactMatch Place a complete case reference first, even outside view filters. Workspace authorization and explicit identity/relationship constraints remain strict. Filtered counts exclude cases outside the view.
@@ -12099,7 +12101,7 @@ export const casesQueryCases = (
  * @param data.updatedAfter Return cases updated at or after this timestamp
  * @param data.updatedBefore Return cases updated at or before this timestamp
  * @param data.assigneeId Filter by assignee ID or 'unassigned'
- * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks, assignee, tags). Default: created_at
+ * @param data.orderBy Full-text defaults to relevance; legacy/literal defaults to created_at. Explicit columns preserve their ordering.
  * @param data.sort Direction to sort (asc or desc)
  * @param data.includeRows Include linked table rows
  * @param data.fieldIds Include only the requested custom field IDs
@@ -12127,6 +12129,8 @@ export const casesSearchCases = (
       cursor: data.cursor,
       reverse: data.reverse,
       search_term: data.searchTerm,
+      search_mode: data.searchMode,
+      search_columns: data.searchColumns,
       short_id: data.shortId,
       case_id: data.caseId,
       promote_exact_match: data.promoteExactMatch,
@@ -12191,6 +12195,8 @@ export const casesQueryCaseAggregates = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.searchTerm Text to search for in case summary, description, short ID, or case UUID
+ * @param data.searchMode Explicit full_text or literal; omitted mode preserves legacy search.
+ * @param data.searchColumns Selected text fields; omitted searches both.
  * @param data.shortId
  * @param data.caseId
  * @param data.status Filter by case status
@@ -12219,6 +12225,8 @@ export const casesSearchCaseAggregates = (
     },
     query: {
       search_term: data.searchTerm,
+      search_mode: data.searchMode,
+      search_columns: data.searchColumns,
       short_id: data.shortId,
       case_id: data.caseId,
       status: data.status,
