@@ -12,6 +12,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.selectable import FromClause
 
 from tracecat.cases.constants import (
+    MAX_PAYLOAD_FIELDS,
     MAX_PAYLOAD_PATH_KEYS,
     MAX_PAYLOAD_PATHS,
     RESERVED_CASE_FIELDS,
@@ -583,6 +584,10 @@ def case_payload_projection(
     paths: Sequence[Sequence[str]] = (),
 ) -> ColumnElement[dict[str, Any] | None]:
     """Select object paths in PostgreSQL, keeping the original nesting and nulls."""
+    if len(fields) > MAX_PAYLOAD_FIELDS:
+        raise TracecatValidationError(
+            f"At most {MAX_PAYLOAD_FIELDS} payload fields may be selected"
+        )
     if len(paths) > MAX_PAYLOAD_PATHS:
         raise TracecatValidationError(
             f"At most {MAX_PAYLOAD_PATHS} payload paths may be selected"

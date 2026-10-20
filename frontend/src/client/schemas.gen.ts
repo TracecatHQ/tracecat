@@ -10981,6 +10981,7 @@ export const $CaseSearchRequest = {
             type: "string",
           },
           type: "array",
+          maxItems: 100,
         },
         {
           type: "null",
@@ -10996,8 +10997,11 @@ export const $CaseSearchRequest = {
               type: "string",
             },
             type: "array",
+            maxItems: 32,
+            minItems: 1,
           },
           type: "array",
+          maxItems: 100,
         },
         {
           type: "null",

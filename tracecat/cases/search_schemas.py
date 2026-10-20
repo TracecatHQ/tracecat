@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from tracecat.cases.constants import (
+    MAX_PAYLOAD_FIELDS,
+    MAX_PAYLOAD_PATH_KEYS,
+    MAX_PAYLOAD_PATHS,
+)
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.pagination import CursorPaginationParams
 from tracecat.query.filters import Filter
@@ -88,8 +93,15 @@ class CaseSearchRequest(CaseQuery, CursorPaginationParams):
     field_ids: list[str] | None = Field(default=None)
     include_durations: bool = Field(default=False)
     include_payload: bool = Field(default=False)
-    payload_fields: list[str] | None = Field(default=None)
-    payload_paths: list[list[str]] | None = Field(default=None)
+    payload_fields: list[str] | None = Field(
+        default=None, max_length=MAX_PAYLOAD_FIELDS
+    )
+    payload_paths: (
+        list[
+            Annotated[list[str], Field(min_length=1, max_length=MAX_PAYLOAD_PATH_KEYS)]
+        ]
+        | None
+    ) = Field(default=None, max_length=MAX_PAYLOAD_PATHS)
     include_count: bool = Field(default=True)
     promote_exact_match: bool = Field(
         default=False,

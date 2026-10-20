@@ -7,8 +7,13 @@ from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 
 from tracecat import config
+from tracecat.cases.constants import (
+    MAX_PAYLOAD_FIELDS,
+    MAX_PAYLOAD_PATH_KEYS,
+    MAX_PAYLOAD_PATHS,
+)
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.query import CaseFieldResolver
+from tracecat.cases.query import CaseFieldResolver, case_payload_projection
 from tracecat.cases.search_adapters import (
     iter_case_filter_conditions,
     legacy_case_filters,
@@ -145,7 +150,7 @@ def test_request_rejects_unsupported_finite_options(field: str) -> None:
         CaseSearchRequest.model_validate({field: "unsupported"})
 
 
-def test_query_retains_shared_filter_limits() -> None:
+def test_query_retains_shared_filter_and_projection_limits() -> None:
     with pytest.raises(ValidationError, match="maximum condition count"):
         CaseQuery.model_validate(
             {
@@ -167,6 +172,22 @@ def test_query_retains_shared_filter_limits() -> None:
                 }
             }
         )
+
+    fields = [f"synthetic_field_{index}" for index in range(MAX_PAYLOAD_FIELDS)]
+    paths = [["synthetic"] * MAX_PAYLOAD_PATH_KEYS] * MAX_PAYLOAD_PATHS
+    request = CaseSearchRequest(payload_fields=fields, payload_paths=paths)
+    assert request.payload_fields == fields
+    assert request.payload_paths == paths
+    for selectors in (
+        {"payload_fields": [*fields, "one_too_many"]},
+        {"payload_paths": [*paths, ["one_too_many"]]},
+        {"payload_paths": [[]]},
+        {"payload_paths": [["synthetic"] * (MAX_PAYLOAD_PATH_KEYS + 1)]},
+    ):
+        with pytest.raises(ValidationError):
+            CaseSearchRequest.model_validate(selectors)
+    with pytest.raises(TracecatValidationError, match="payload fields"):
+        case_payload_projection([*fields, "one_too_many"])
 
 
 @pytest.mark.parametrize(
