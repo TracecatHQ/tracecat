@@ -34,7 +34,10 @@ export function CaseFilterSummary({
         title="Remove condition"
         onClick={() => onChange(null)}
       >
-        <span className="truncate">{label} ×</span>
+        <span className="min-w-0 truncate">{label}</span>
+        <span className="shrink-0" aria-hidden="true">
+          ×
+        </span>
       </Button>
     )
   }

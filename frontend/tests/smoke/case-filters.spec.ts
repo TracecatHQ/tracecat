@@ -311,4 +311,8 @@ test("analyst builds, persists and clears grouped conditions through the real ca
   await expect(
     page.getByText(`${seed.prefix} low`, { exact: true })
   ).toHaveCount(0)
+  const remove = page.getByRole("button", { name: /^Remove Summary is one of/ })
+  await expect(remove.getByText("×", { exact: true })).toBeVisible()
+  await remove.click()
+  await showRows(5)
 })
