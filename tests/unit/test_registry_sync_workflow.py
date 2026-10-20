@@ -701,8 +701,13 @@ async def test_registry_sync_workflow_classifies_activity_timeout(
 
 
 @pytest.mark.anyio
-async def test_bundled_registry_load_failure_in_custom_sync_is_platform_owned(
+@pytest.mark.parametrize(
+    "code",
+    [SyncErrorCode.BUILTIN_REGISTRY_LOAD_FAILED, SyncErrorCode.RUNTIME_IMPORT_FAILED],
+)
+async def test_tracecat_load_failure_in_custom_sync_is_platform_owned(
     monkeypatch: pytest.MonkeyPatch,
+    code: SyncErrorCode,
 ) -> None:
     class _FakeRunner:
         async def run(self, request: RegistrySyncRequest) -> None:
@@ -711,7 +716,7 @@ async def test_bundled_registry_load_failure_in_custom_sync_is_platform_owned(
                 "Failed to discover actions: bundled registry failed"
             ) from RegistrySyncContentError(
                 "Tracecat's bundled registry failed to load: ImportError: x",
-                code=SyncErrorCode.BUILTIN_REGISTRY_LOAD_FAILED,
+                code=code,
             )
 
     monkeypatch.setattr(

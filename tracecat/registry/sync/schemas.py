@@ -34,6 +34,7 @@ class SyncErrorCode(StrEnum):
     TEMPLATE_LOAD_FAILED = "template_load_failed"
     IMPORT_FAILED = "import_failed"
     BUILTIN_REGISTRY_LOAD_FAILED = "builtin_registry_load_failed"
+    RUNTIME_IMPORT_FAILED = "runtime_import_failed"
 
 
 class RegistrySyncFailureDiagnostic(BaseModel):

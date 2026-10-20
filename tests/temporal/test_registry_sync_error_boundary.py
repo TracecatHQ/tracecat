@@ -320,5 +320,5 @@ async def test_builtin_discovery_import_failure_is_platform_owned(
     assert (
         failure.classification.kind is RuntimeErrorKind.REGISTRY_SYNC_VALIDATION_FAILED
     )
-    assert "Registry dependencies conflict with Tracecat's runtime" in failure.detail
+    assert "Tracecat's runtime failed to import" in failure.detail
     assert attempts == 1

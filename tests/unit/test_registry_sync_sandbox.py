@@ -622,7 +622,9 @@ async def test_registry_discovery_runs_without_network_or_worker_environment(
             "commit_sha",
             "validate",
             "organization_id",
+            "registry_site_packages",
         }
+        assert inputs["registry_site_packages"] == "/pythonpath/1"
         return SandboxResult(
             success=True,
             output=SyncResultSuccess(actions=[]).model_dump(mode="json"),
@@ -859,41 +861,41 @@ async def test_registry_discovery_raises_typed_content_error(
     assert exc_info.value.code == SyncErrorCode.PACKAGE_NOT_FOUND
 
 
-def test_registry_discovery_script_reports_import_conflicts_as_content_errors(
+@pytest.mark.parametrize(
+    ("error_type", "from_registry", "error_code"),
+    [
+        pytest.param(ImportError, True, SyncErrorCode.IMPORT_FAILED, id="import"),
+        pytest.param(AttributeError, True, SyncErrorCode.IMPORT_FAILED, id="attribute"),
+        pytest.param(
+            ImportError, False, SyncErrorCode.RUNTIME_IMPORT_FAILED, id="trusted"
+        ),
+    ],
+)
+def test_registry_discovery_script_attributes_bootstrap_import_failures(
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setitem(sys.modules, "tracecat.registry.sync.entrypoint", None)
-    namespace: dict[str, object] = {}
-    exec(compile(_DISCOVERY_SCRIPT, "script.py", "exec"), namespace)
-    main = cast(Callable[..., object], namespace["main"])
-
-    result = SyncResultAdapter.validate_python(
-        main(
-            origin="tracecat_registry",
-            package_name="tracecat_registry",
-            repository_id=str(uuid4()),
-        )
-    )
-
-    assert isinstance(result, SyncResultError)
-    assert result.error_code == SyncErrorCode.IMPORT_FAILED
-    assert "conflict with Tracecat's runtime" in result.error
-    assert "tracecat.registry.sync.entrypoint" in result.error
-    content_error = result.to_exception()
-    assert isinstance(content_error, RegistrySyncContentError)
-
-
-def test_registry_discovery_script_reports_attribute_error_conflicts(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    error_type: type[Exception],
+    from_registry: bool,
+    error_code: SyncErrorCode,
 ) -> None:
     module_name = "tracecat.registry.sync.entrypoint"
+    registry_site_packages = tmp_path / "registry-site-packages"
+    root = registry_site_packages if from_registry else tmp_path / "trusted"
+    dependency = ModuleType("shared_dep")
+    dependency.__file__ = str(root / "shared_dep" / "__init__.py")
 
     class _ConflictingFinder:
         @staticmethod
         def find_spec(name: str, *_args: object, **_kwargs: object) -> None:
-            if name == module_name:
-                raise AttributeError("module 'shared_dep' has no attribute 'helper'")
-            return None
+            if name != module_name:
+                return None
+            if error_type is AttributeError:
+                raise AttributeError("no attribute 'helper'", obj=dependency)
+            raise ImportError(
+                "cannot import name 'helper'",
+                name="shared_dep",
+                path=dependency.__file__,
+            )
 
     monkeypatch.delitem(sys.modules, module_name, raising=False)
     monkeypatch.setattr(sys, "meta_path", [_ConflictingFinder(), *sys.meta_path])
@@ -903,12 +905,14 @@ def test_registry_discovery_script_reports_attribute_error_conflicts(
 
     result = SyncResultAdapter.validate_python(
         main(
-            origin="tracecat_registry",
-            package_name="tracecat_registry",
+            origin="git+ssh://git@git.example.test/acme/registry.git",
+            package_name="registry",
             repository_id=str(uuid4()),
+            registry_site_packages=str(registry_site_packages),
         )
     )
 
     assert isinstance(result, SyncResultError)
-    assert result.error_code == SyncErrorCode.IMPORT_FAILED
-    assert "AttributeError" in result.error
+    assert result.error_code == error_code
+    assert error_type.__name__ in result.error
+    assert isinstance(result.to_exception(), RegistrySyncContentError)

@@ -99,6 +99,12 @@ SYNC_ACTIVITY_RETRY_POLICY = RetryPolicy(
 # Failures that typed causes prove are deterministic and caused by the
 # registry's content or settings. Clone and install process failures are not
 # included: Git and uv report a bad repository and a network outage alike.
+_PLATFORM_CONTENT_CODES = frozenset(
+    {
+        SyncErrorCode.BUILTIN_REGISTRY_LOAD_FAILED,
+        SyncErrorCode.RUNTIME_IMPORT_FAILED,
+    }
+)
 _DETERMINISTIC_USER_ERRORS: tuple[type[BaseException], ...] = (
     RegistrySyncContentError,
     RegistrySyncSettingsError,
@@ -238,7 +244,7 @@ def classify_sync_failure(
     )
     builtin_failure = request.origin_type == "builtin" or any(
         isinstance(error, RegistrySyncContentError)
-        and error.code is SyncErrorCode.BUILTIN_REGISTRY_LOAD_FAILED
+        and error.code in _PLATFORM_CONTENT_CODES
         for error in chain
     )
     user_owned = deterministic and not builtin_failure

@@ -257,7 +257,25 @@ def main(processors, memory):
 
 _DISCOVERY_SCRIPT = """
 import asyncio
+import sys
 from uuid import UUID
+
+
+def _from_registry_packages(exc, registry_site_packages):
+    # Only a module installed by the registry makes this a dependency conflict.
+    if not registry_site_packages:
+        return False
+    prefix = registry_site_packages.rstrip("/") + "/"
+    # getattr: ImportError.path/name and AttributeError.obj are optional.
+    paths = [getattr(exc, "path", None)]
+    module = sys.modules.get(getattr(exc, "name", None) or "")
+    paths.append(getattr(module, "__file__", None))
+    paths.append(getattr(getattr(exc, "obj", None), "__file__", None))
+    tb = exc.__traceback__
+    while tb is not None:
+        paths.append(tb.tb_frame.f_code.co_filename)
+        tb = tb.tb_next
+    return any(isinstance(path, str) and path.startswith(prefix) for path in paths)
 
 
 def main(
@@ -267,6 +285,7 @@ def main(
     commit_sha=None,
     validate=False,
     organization_id=None,
+    registry_site_packages=None,
 ):
     try:
         from tracecat.registry.sync.entrypoint import (
@@ -274,6 +293,14 @@ def main(
         )
         from tracecat.registry.sync.schemas import SyncResultError
     except (ImportError, AttributeError) as exc:
+        if not _from_registry_packages(exc, registry_site_packages):
+            return {
+                "error": (
+                    "Tracecat's runtime failed to import: "
+                    f"{type(exc).__name__}: {exc}"
+                ),
+                "error_code": "runtime_import_failed",
+            }
         # Registry dependencies are importable ahead of Tracecat's own, so an
         # incompatible version can break Tracecat imports. Retrying cannot fix it.
         return {
@@ -795,6 +822,9 @@ class RegistrySyncSandbox:
                 "commit_sha": commit_sha,
                 "validate": validate,
                 "organization_id": str(organization_id) if organization_id else None,
+                # NsJail mounts python_path_dirs[i] at /pythonpath/{i}; the
+                # registry's site-packages is second in the list below.
+                "registry_site_packages": "/pythonpath/1",
             }
             (job_dir / "script.py").write_text(_DISCOVERY_SCRIPT, encoding="utf-8")
             (job_dir / "wrapper.py").write_text(WRAPPER_SCRIPT, encoding="utf-8")
