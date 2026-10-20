@@ -6,7 +6,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, Self, cast
 
@@ -655,10 +655,11 @@ class BaseRegistrySyncService[
         commit: bool = True,
         promote: bool = True,
     ) -> BaseSyncResult[VersionT]:
-        from temporalio.common import RetryPolicy
-
         from tracecat.dsl.client import get_temporal_client
-        from tracecat.registry.sync.workflow import RegistrySyncWorkflow
+        from tracecat.registry.sync.workflow import (
+            REGISTRY_SYNC_WORKFLOW_EXECUTION_TIMEOUT,
+            RegistrySyncWorkflow,
+        )
 
         origin = str(db_repo.origin)
         repo_id = db_repo.id
@@ -730,11 +731,7 @@ class BaseRegistrySyncService[
                 request,
                 id=workflow_id,
                 task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-                execution_timeout=timedelta(minutes=20),
-                retry_policy=RetryPolicy(
-                    maximum_attempts=2,
-                    initial_interval=timedelta(seconds=5),
-                ),
+                execution_timeout=REGISTRY_SYNC_WORKFLOW_EXECUTION_TIMEOUT,
             )
         except WorkflowFailureError as exc:
             validation_failure = next(

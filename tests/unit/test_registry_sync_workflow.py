@@ -23,7 +23,9 @@ from tracecat.registry.sync.schemas import (
     RegistrySyncRequest,
 )
 from tracecat.registry.sync.workflow import (
+    REGISTRY_SYNC_WORKFLOW_EXECUTION_TIMEOUT,
     RegistryArtifactsBackfillWorkflow,
+    RegistrySyncWorkflow,
     backfill_registry_artifacts_activity,
     sync_registry_activity,
 )
@@ -385,3 +387,37 @@ async def test_backfill_workflow_continues_after_item_failure(
     assert result.results[0].status == "failed"
     assert result.results[0].error == "RuntimeError: corrupt tarball"
     assert result.results[1].status == "created"
+
+
+@pytest.mark.anyio
+async def test_registry_sync_workflow_bounds_activity_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Retries must end before the workflow times out, or the real error is lost."""
+    captured: dict[str, Any] = {}
+
+    async def fake_execute_activity(*_args: Any, **kwargs: Any) -> Any:
+        captured.update(kwargs)
+        return SimpleNamespace(actions=[], artifact_uri=None)
+
+    monkeypatch.setattr(
+        "tracecat.registry.sync.workflow.workflow.execute_activity",
+        fake_execute_activity,
+    )
+    monkeypatch.setattr(
+        "tracecat.registry.sync.workflow.workflow.logger",
+        SimpleNamespace(info=lambda *_args, **_kwargs: None),
+    )
+
+    await RegistrySyncWorkflow().run(
+        RegistrySyncRequest(
+            repository_id=uuid4(),
+            origin="git+ssh://git@git.example.test/acme/registry.git",
+            origin_type="git",
+        )
+    )
+
+    assert captured["retry_policy"].maximum_attempts == 2
+    assert (
+        captured["schedule_to_close_timeout"] < REGISTRY_SYNC_WORKFLOW_EXECUTION_TIMEOUT
+    )

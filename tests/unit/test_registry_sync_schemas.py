@@ -47,6 +47,8 @@ def test_registry_sync_result_accepts_legacy_tarball_uri() -> None:
             ModuleNotFoundError("No module named 'internal_registry'"),
             SyncErrorCode.PACKAGE_NOT_FOUND,
         ),
+        # Provenance decides IMPORT_FAILED inside the discovery jail.
+        (ImportError("cannot import name 'helper' from 'shared_dep'"), None),
         (
             RegistryTemplateLoadError("Failed to load template action from a.yml: bad"),
             SyncErrorCode.TEMPLATE_LOAD_FAILED,
