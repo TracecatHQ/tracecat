@@ -142,6 +142,7 @@ function ActionSessionThread({
           startedAt={block.startedAt}
           status={status}
           isLive={isRunning && blockIndex === blocks.length - 1}
+          isSuperseded={blockIndex < blocks.length - 1}
           lastMessageId={lastMessageId}
           cancelledMessageIds={cancelledTurnMessageIds}
           interruptedToolCallIds={interruptedToolCallIds}
