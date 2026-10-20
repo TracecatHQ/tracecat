@@ -300,7 +300,7 @@ def main(
         # Import failures in Tracecat's own code stay generic so they page us.
         if (
             error.error_code is None
-            and isinstance(exc, ImportError)
+            and isinstance(exc, (ImportError, AttributeError))
             and _from_registry_packages(exc, registry_site_packages)
         ):
             error = error.model_copy(update={"error_code": SyncErrorCode.IMPORT_FAILED})

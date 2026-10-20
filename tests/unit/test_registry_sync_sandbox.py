@@ -782,20 +782,26 @@ def test_discovery_script_reports_registry_dependency_conflicts(
     assert isinstance(result.to_exception(), RegistrySyncContentError)
 
 
+@pytest.mark.parametrize("error_type", [ImportError, AttributeError])
 @pytest.mark.parametrize("from_registry", [True, False])
 def test_discovery_script_attributes_action_load_import_failures(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    error_type: type[Exception],
     from_registry: bool,
 ) -> None:
     registry_site_packages = tmp_path / "registry-site-packages"
     root = registry_site_packages if from_registry else tmp_path / "trusted"
+    dependency = ModuleType("shared_dep")
+    dependency.__file__ = str(root / "shared_dep" / "__init__.py")
 
     async def load_and_serialize_installed_actions(**_kwargs: object) -> None:
+        if error_type is AttributeError:
+            raise AttributeError("no attribute 'helper'", obj=dependency)
         raise ImportError(
             "cannot import name 'helper'",
             name="shared_dep",
-            path=str(root / "shared_dep" / "__init__.py"),
+            path=dependency.__file__,
         )
 
     entrypoint = ModuleType("tracecat.registry.sync.entrypoint")
