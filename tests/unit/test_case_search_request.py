@@ -251,9 +251,13 @@ def test_metadata_walk_visits_negated_conditions() -> None:
 
 
 @pytest.mark.anyio
-async def test_legacy_filters_do_not_add_a_level_to_the_explicit_tree(
-    svc_role: Role,
-) -> None:
+async def test_legacy_filters_do_not_add_a_level_to_the_explicit_tree() -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=WORKSPACE_ID,
+        organization_id=UUID("00000000-0000-4000-8000-000000000003"),
+    )
     query = CaseQuery.model_validate(
         {
             "filters": {
@@ -278,7 +282,7 @@ async def test_legacy_filters_do_not_add_a_level_to_the_explicit_tree(
     hierarchy = AsyncMock()
     hierarchy.resolve_filters.return_value = (None, False)
     service = CaseSearchService(
-        AsyncMock(), svc_role, fields=AsyncMock(), hierarchy=hierarchy
+        AsyncMock(), role, fields=AsyncMock(), hierarchy=hierarchy
     )
     with patch(
         "tracecat.cases.search_service.compile_filter", wraps=compile_filter

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import sqlalchemy as sa
+from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -387,7 +388,8 @@ async def test_parent_filter_rejects_top_level_hierarchy(
     cases_service: CasesService,
 ) -> None:
     parent_id = (await _create(cases_service, "Parent")).id
-    with pytest.raises(TracecatValidationError, match="cannot be combined"):
+    # The shared request rejects conflicting constraints before query execution.
+    with pytest.raises(ValidationError, match="cannot be combined"):
         await cases_service.search_cases(
             CursorPaginationParams(limit=10),
             parent_id=parent_id,
