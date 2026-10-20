@@ -371,6 +371,11 @@ async def test_list_count_opt_out_and_empty_page_are_compatible(
     assert len(queries) == 1
     counted = await service.list_cases(limit=2)
     assert counted.total_estimate == 0
+    # Field validation must still run after the canonical query returns no rows.
+    with pytest.raises(ValueError, match="Field case_id is a reserved field"):
+        await service.query_cases(
+            CaseSearchRequest(field_ids=["case_id"], include_count=False)
+        )
 
 
 async def test_canonical_result_flags_and_selected_page_hydration(

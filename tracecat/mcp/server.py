@@ -6856,7 +6856,6 @@ async def search_cases(
     include_durations: bool = False,
     include_payload: bool = False,
     include_count: bool = True,
-    reverse: bool = False,
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """Search cases with filtering and sorting.
 
@@ -6898,7 +6897,6 @@ async def search_cases(
         include_durations: Include durations when entitled.
         include_payload: Include payload.
         include_count: Include exact total_estimate.
-        reverse: Legacy pagination direction; continuation cursors encode direction.
 
     Returns a paginated JSON array of case objects. Each case includes
     ``parent`` (set on sub-cases) and ``num_sub_cases``.
@@ -6928,7 +6926,6 @@ async def search_cases(
                     max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
                 ),
                 "cursor": cursor,
-                "reverse": reverse,
                 "search_term": search_term,
                 "short_id": short_id,
                 "case_id": case_id,

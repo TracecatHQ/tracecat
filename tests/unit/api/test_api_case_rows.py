@@ -8,10 +8,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.types import Role
-from tracecat.cases import router as cases_router
+from tracecat.cases import search_service
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.rows import internal_router as internal_case_rows_router
 from tracecat.cases.rows import router as case_rows_router
+from tracecat.cases.rows.hydration import CaseRowHydrator
 from tracecat.cases.rows.schemas import (
     MAX_CASE_ROW_BATCH_SIZE,
     CaseLinkedTableRead,
@@ -23,8 +24,10 @@ from tracecat.cases.rows.schemas import (
 )
 from tracecat.cases.rows.service import MAX_LINKED_ROWS_PER_CASE
 from tracecat.cases.schemas import CaseReadMinimal
+from tracecat.cases.search_service import CaseSearchService
+from tracecat.cases.service import CasesService
 from tracecat.exceptions import TracecatNotFoundError
-from tracecat.pagination import CursorPaginatedResponse
+from tracecat.pagination import CursorPaginatedResponse, Page
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnRead
 
@@ -59,23 +62,37 @@ def _duplicate_case_row_link_error() -> IntegrityError:
 
 
 @pytest.mark.anyio
-async def test_list_cases_include_rows_hydration_error_is_sanitized(
-    client: TestClient, test_admin_role: Role
+@pytest.mark.parametrize("error_boundary", ["service", "hydrator"])
+async def test_list_cases_include_rows_errors_are_sanitized(
+    client: TestClient, test_admin_role: Role, error_boundary: str
 ) -> None:
-    with patch.object(cases_router, "CasesService") as service_cls:
-        service = AsyncMock()
-        service.list_cases.side_effect = RuntimeError("sensitive error details")
-        service_cls.return_value = service
+    failure = AsyncMock(side_effect=RuntimeError("sensitive error details"))
+    target, method = (
+        (CasesService, "list_cases")
+        if error_boundary == "service"
+        else (CaseRowHydrator, "hydrate_case_rows")
+    )
+    with (
+        patch.object(CasesService, "has_entitlement", return_value=False),
+        patch.object(CaseSearchService, "prepare_query", return_value=[]),
+        patch.object(search_service, "paginate", return_value=Page(items=[])),
+        patch.object(target, method, new=failure),
+    ):
         response = client.get(
             "/cases",
             params={
                 "workspace_id": str(test_admin_role.workspace_id),
                 "include_rows": "true",
+                "include_count": "false",
             },
         )
     assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
     assert response.json()["detail"] == "Failed to retrieve cases"
-    assert service.list_cases.call_args.kwargs["include_rows"] is True
+    if error_boundary == "hydrator":
+        failure.assert_awaited_once_with(case_ids=[], include_row_data=True)
+    else:
+        failure.assert_awaited_once()
+        assert failure.call_args.kwargs["include_rows"] is True
 
 
 _ROW_LIMIT_ERROR = f"A case can have at most {MAX_LINKED_ROWS_PER_CASE} linked rows"

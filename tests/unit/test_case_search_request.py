@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
 import pytest
@@ -7,6 +8,7 @@ from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 
 from tracecat import config
+from tracecat.auth.types import Role
 from tracecat.cases.constants import (
     MAX_PAYLOAD_FIELDS,
     MAX_PAYLOAD_PATH_KEYS,
@@ -19,12 +21,14 @@ from tracecat.cases.search_adapters import (
     legacy_case_filters,
 )
 from tracecat.cases.search_schemas import CaseQuery, CaseSearchRequest
+from tracecat.cases.search_service import CaseSearchService
 from tracecat.db.models import Case
 from tracecat.exceptions import TracecatValidationError
 from tracecat.query.compiler import compile_filter
 from tracecat.query.filters import (
     MAX_FILTER_CONDITIONS,
     MAX_FILTER_VALUES,
+    AndClause,
     Condition,
     FilterOp,
 )
@@ -246,7 +250,10 @@ def test_metadata_walk_visits_negated_conditions() -> None:
     assert list(iter_case_filter_conditions(None)) == []
 
 
-def test_legacy_filters_do_not_add_a_level_to_the_explicit_tree() -> None:
+@pytest.mark.anyio
+async def test_legacy_filters_do_not_add_a_level_to_the_explicit_tree(
+    svc_role: Role,
+) -> None:
     query = CaseQuery.model_validate(
         {
             "filters": {
@@ -264,13 +271,27 @@ def test_legacy_filters_do_not_add_a_level_to_the_explicit_tree() -> None:
     )
     legacy = legacy_case_filters(status=CaseStatus.NEW)
     assert query.filters is not None and legacy is not None
-    resolver = CaseFieldResolver(WORKSPACE_ID, {})
-    statement = sa.select(Case.id).where(
-        Case.workspace_id == WORKSPACE_ID,
-        compile_filter(query.filters, resolver),
-        compile_filter(legacy, resolver),
+    # The authored tree is already at the allowed depth; wrapping both trees
+    # in another filter group would reject an otherwise valid request.
+    with pytest.raises(ValidationError, match="maximum depth"):
+        AndClause.model_validate({"and": [query.filters, legacy]})
+    hierarchy = AsyncMock()
+    hierarchy.resolve_filters.return_value = (None, False)
+    service = CaseSearchService(
+        AsyncMock(), svc_role, fields=AsyncMock(), hierarchy=hierarchy
     )
-
+    with patch(
+        "tracecat.cases.search_service.compile_filter", wraps=compile_filter
+    ) as compiler:
+        predicates = await service.prepare_query(
+            query, case_addons_enabled=False, legacy_filters=legacy
+        )
+    assert [call.args[0] for call in compiler.call_args_list] == [
+        query.filters,
+        legacy,
+    ]
+    assert len(predicates) == 3  # Workspace scope and two independent trees.
+    statement = sa.select(Case.id).where(*predicates)
     compiled = statement.compile(dialect=postgresql.dialect())
     assert " AND " in str(compiled)
     assert "synthetic" in compiled.params.values()

@@ -3793,6 +3793,7 @@ async def test_search_cases_forwards_canonical_request(
     )
     response = await _tool(mcp_server.search_cases)(
         workspace_id=workspace_id,
+        cursor="synthetic-previous-cursor",
         short_id="CASE-0042",
         case_id=case_id,
         parent_id=parent_id,
@@ -3808,10 +3809,12 @@ async def test_search_cases_forwards_canonical_request(
         order_by="short_id",
         sort="asc",
     )
+    assert "reverse" not in inspect.signature(_tool(mcp_server.search_cases)).parameters
     assert response is result
     assert query.await_args is not None
     request = query.await_args.args[0]
     assert isinstance(request, CaseSearchRequest)
+    assert request.cursor == "synthetic-previous-cursor"
     assert request.case_id == case_id and request.parent_id == parent_id
     assert request.model_dump(mode="json", exclude_none=True)["filters"] == filters
     assert (

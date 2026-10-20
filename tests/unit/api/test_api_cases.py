@@ -3,7 +3,7 @@
 import uuid
 from datetime import UTC, datetime
 from types import ModuleType
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 import pytest
 from asyncpg import DuplicateColumnError
@@ -920,7 +920,7 @@ _SEARCH_PATH_PARAMS = [
         ),
     ],
 )
-async def test_case_listing_validates_field_ids_even_when_page_is_empty(
+async def test_case_listing_translates_field_validation_errors(
     request: pytest.FixtureRequest,
     test_admin_role: Role,
     client_fixture: str,
@@ -975,7 +975,7 @@ async def test_case_search_rejects_unresolved_tags(
                     "Unknown case tag filter: 'missing-tag'"
                 )
             ),
-        ),
+        ) as resolver,
     ):
         response = http.get(
             f"{prefix}{path}",
@@ -983,6 +983,9 @@ async def test_case_search_rejects_unresolved_tags(
             + [("tags", tag) for tag in tags],
         )
 
+    resolver.assert_awaited_once_with(
+        session=ANY, workspace_id=test_admin_role.workspace_id, tags=tags
+    )
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json()["detail"] == "Unknown case tag filter: 'missing-tag'"
     service_cls.return_value.search_cases.assert_not_called()
