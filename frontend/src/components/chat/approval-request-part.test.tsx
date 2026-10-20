@@ -73,9 +73,7 @@ describe("ApprovalRequestPart in the prompt box", () => {
     )
     const box = screen.getByRole("region", { name: "Approvals required" })
     expect(screen.queryByText("Approve rest")).not.toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Submit decisions" })
-    ).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Submit" })).toBeDisabled()
 
     fireEvent.keyDown(box, { key: "Enter" })
     expect(onSubmit).not.toHaveBeenCalled()
@@ -86,6 +84,29 @@ describe("ApprovalRequestPart in the prompt box", () => {
     await waitFor(() =>
       expect(onSubmit).toHaveBeenCalledWith([
         { tool_call_id: "call-1", action: "approve" },
+      ])
+    )
+  })
+
+  it("denies every call in a batch on Escape", async () => {
+    const onSubmit = jest.fn().mockResolvedValue(["call-1", "call-2"])
+    render(
+      <ApprovalRequestPart
+        variant="composer"
+        approvals={[approval("call-1", 1), approval("call-2", 2)]}
+        onSubmit={onSubmit}
+      />
+    )
+
+    fireEvent.keyDown(
+      screen.getByRole("region", { name: "Approvals required" }),
+      { key: "Escape" }
+    )
+
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith([
+        expect.objectContaining({ tool_call_id: "call-1", action: "deny" }),
+        expect.objectContaining({ tool_call_id: "call-2", action: "deny" }),
       ])
     )
   })

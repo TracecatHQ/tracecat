@@ -370,9 +370,13 @@ export function ApprovalRequestPart({
       } else if (hasSelectedPendingDecision) {
         void handleSubmit()
       }
-    } else if (event.key === "Escape" && lone && !decisionsLocked) {
+    } else if (event.key === "Escape" && !decisionsLocked) {
       event.preventDefault()
-      denyLone()
+      if (lone) {
+        denyLone()
+      } else {
+        denyBatch()
+      }
     }
   }
 
@@ -437,7 +441,7 @@ export function ApprovalRequestPart({
                               : { action: "approve" }
                         )
                       }
-                      className="h-[26px] border-l px-[11px] text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50 aria-pressed:bg-foreground aria-pressed:text-background"
+                      className="h-[26px] border-l px-[11px] text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50 aria-pressed:bg-primary aria-pressed:text-primary-foreground"
                     >
                       {isEditing ? "Approve with edits" : "Approve"}
                     </button>
@@ -478,22 +482,45 @@ export function ApprovalRequestPart({
     )
   }
 
-  const batchSubmit = (
-    <Button
-      type="button"
-      size="icon"
-      aria-label="Submit decisions"
-      title="Submit decisions (Enter)"
-      onClick={handleSubmit}
-      disabled={decisionsLocked || !hasSelectedPendingDecision}
-      className="size-7 rounded-full bg-foreground text-background hover:bg-foreground/85"
-    >
-      {submitting ? (
-        <Loader2 className="size-3.5 animate-spin" />
-      ) : (
-        <CornerDownLeftIcon className="size-3.5" />
-      )}
-    </Button>
+  function denyBatch() {
+    const denials: Record<string, DecisionState> = {}
+    for (const approval of pending) {
+      const decision = decisions[approval.tool_call_id]
+      denials[approval.tool_call_id] =
+        decision?.action === "deny" ? decision : { action: "deny" }
+    }
+    void send(denials)
+  }
+
+  const batchButtons = (
+    <div className="flex items-center gap-2">
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={decisionsLocked}
+        onClick={denyBatch}
+        className={DECISION_BUTTON_CLASS}
+      >
+        Deny
+        {isComposer && <Kbd>Esc</Kbd>}
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        onClick={handleSubmit}
+        disabled={decisionsLocked || !hasSelectedPendingDecision}
+        className={cn(DECISION_BUTTON_CLASS, PRIMARY_BUTTON_CLASS)}
+      >
+        {submitting && <Loader2 className="size-3 animate-spin" />}
+        Submit
+        {isComposer && (
+          <Kbd inverted>
+            <CornerDownLeftIcon className="size-3" />
+          </Kbd>
+        )}
+      </Button>
+    </div>
   )
 
   function renderLoneDecisionButtons() {
@@ -572,7 +599,7 @@ export function ApprovalRequestPart({
             <div className="mt-1 max-h-64 overflow-auto">
               {renderBatchRows("")}
             </div>
-            <footer className="mt-1 flex justify-end">{batchSubmit}</footer>
+            <footer className="mt-2 flex justify-end">{batchButtons}</footer>
           </>
         )}
         {decidedElsewhere && (
@@ -681,7 +708,7 @@ export function ApprovalRequestPart({
           </div>
           {renderBatchRows("px-3.5")}
           <footer className="flex justify-end border-t px-3.5 py-2">
-            {batchSubmit}
+            {batchButtons}
           </footer>
         </section>
       )}
@@ -713,7 +740,7 @@ function Kbd({
       className={cn(
         "ml-1 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded px-1 font-sans text-[10.5px] font-medium",
         inverted
-          ? "bg-background/20 text-background/80"
+          ? "bg-primary-foreground/20 text-primary-foreground/90"
           : "bg-muted text-muted-foreground"
       )}
     >
@@ -724,7 +751,7 @@ function Kbd({
 
 const DECISION_BUTTON_CLASS = "h-[30px] rounded-[7px] px-3.5 text-[12.5px]"
 const PRIMARY_BUTTON_CLASS =
-  "bg-foreground text-background hover:bg-foreground/85"
+  "bg-primary text-primary-foreground hover:bg-primary/90"
 
 /** The amber pause mark and what the card is waiting on. */
 function ApprovalStatus({ children }: { children: ReactNode }) {

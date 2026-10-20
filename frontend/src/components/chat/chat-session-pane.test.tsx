@@ -1019,7 +1019,7 @@ function renderServerBackedPane() {
 
 /** The approval batch's Submit, shown in place of the prompt box. */
 function approvalSubmit(): HTMLElement {
-  return screen.getByRole("button", { name: "Submit decisions" })
+  return screen.getByRole("button", { name: "Submit" })
 }
 
 describe("ChatSessionPane approvals decided elsewhere", () => {

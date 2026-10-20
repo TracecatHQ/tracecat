@@ -1074,9 +1074,7 @@ describe("ChatSessionPane", () => {
     )
 
     const firstCard = screen.getByTestId("approval-card-tc-1")
-    const approvalSubmit = screen.getByRole("button", {
-      name: "Submit decisions",
-    })
+    const approvalSubmit = screen.getByRole("button", { name: "Submit" })
 
     expect(approvalSubmit).toBeDisabled()
 
