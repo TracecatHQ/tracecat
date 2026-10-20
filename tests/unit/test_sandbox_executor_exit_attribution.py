@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
+import errno
 import signal
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 from pytest_mock import MockerFixture
 
+from tracecat.sandbox.exceptions import SandboxInfrastructureError
 from tracecat.sandbox.executor import (
     ActionSandboxConfig,
     NsjailExecutor,
@@ -17,9 +21,12 @@ from tracecat.sandbox.executor import (
 )
 from tracecat.sandbox.nsjail_protocol import (
     NsjailCompletedProcess,
+    invoke_nsjail,
     nsjail_termination_signal,
 )
+from tracecat.sandbox.shutdown import worker_shutting_down
 from tracecat.sandbox.types import SandboxConfig, SandboxErrorCode
+from tracecat.temporal.worker_lifecycle import install_worker_shutdown_signal_handlers
 
 _NSJAIL_PREAMBLE = (
     "[I][2026-01-01T00:00:00+0000] Mount: '/host/tmp/job' -> '/work' type:'' options:''\n"
@@ -268,16 +275,14 @@ def _evidence(
     *,
     termination_signal: int | None = signal.SIGKILL,
     oom_kills: int | None = 0,
-    cpu_usec: int | None = 50_000,
-    elapsed_seconds: float = 2.0,
+    time_limit_kill: bool = False,
+    worker_shutting_down: bool = True,
 ) -> SigkillEvidence:
     return SigkillEvidence(
         termination_signal=termination_signal,
         oom_kills=oom_kills,
-        cpu_usec=cpu_usec,
-        elapsed_seconds=elapsed_seconds,
-        cpu_limit_seconds=3,
-        wall_limit_seconds=20,
+        time_limit_kill=time_limit_kill,
+        worker_shutting_down=worker_shutting_down,
     )
 
 
@@ -287,12 +292,17 @@ def _evidence(
         pytest.param(
             _evidence(),
             SandboxErrorCode.INFRASTRUCTURE_FAILURE,
-            id="external-sigkill",
+            id="sigkill-during-worker-shutdown",
         ),
         pytest.param(
             None,
             SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
             id="no-evidence",
+        ),
+        pytest.param(
+            _evidence(worker_shutting_down=False),
+            SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
+            id="worker-not-shutting-down",
         ),
         pytest.param(
             _evidence(termination_signal=None),
@@ -310,19 +320,9 @@ def _evidence(
             id="oom-counter-unreadable",
         ),
         pytest.param(
-            _evidence(cpu_usec=3_316_574, elapsed_seconds=0.7),
+            _evidence(time_limit_kill=True),
             SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
-            id="threaded-cpu-limit-before-wall-time",
-        ),
-        pytest.param(
-            _evidence(cpu_usec=None),
-            SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
-            id="cpu-counter-unreadable",
-        ),
-        pytest.param(
-            _evidence(elapsed_seconds=20.0),
-            SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
-            id="wall-time-limit",
+            id="nsjail-time-limit-kill",
         ),
     ],
 )
@@ -377,71 +377,115 @@ def test_nsjail_termination_signal_reads_nsjail_log(
     assert nsjail_termination_signal(nsjail_log) == expected_signal
 
 
-def _write_run_cgroup_stats(root: Path, *, oom_kills: int, cpu_usec: int) -> None:
+@pytest.mark.anyio
+async def test_nsjail_log_creation_failure_is_infrastructure_error(
+    tmp_path: Path, mocker: MockerFixture
+) -> None:
+    mocker.patch(
+        "tracecat.sandbox.nsjail_protocol.tempfile.TemporaryFile",
+        side_effect=OSError(errno.EMFILE, "Too many open files"),
+    )
+    create_process = mocker.patch("asyncio.create_subprocess_exec")
+
+    with pytest.raises(SandboxInfrastructureError):
+        await invoke_nsjail(
+            nsjail_path=tmp_path / "nsjail",
+            job_dir=tmp_path,
+            config_text="",
+            env={},
+            timeout_seconds=1,
+            timeout_message="timed out",
+        )
+    create_process.assert_not_called()
+
+
+def _write_run_cgroup_oom_kills(root: Path, oom_kills: int) -> None:
     (run_cgroup,) = (path for path in root.iterdir() if path.name.startswith("run-"))
     (run_cgroup / "memory.events").write_text(
         f"low 0\nhigh 0\nmax 0\noom 0\noom_kill {oom_kills}\noom_group_kill 0\n"
     )
-    (run_cgroup / "cpu.stat").write_text(f"usage_usec {cpu_usec}\nuser_usec 0\n")
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("termination_signal", "oom_kills", "cpu_usec", "expected_code"),
+    (
+        "termination_signal",
+        "oom_kills",
+        "time_limit_kill",
+        "shutting_down",
+        "expected_code",
+    ),
     [
         pytest.param(
             signal.SIGKILL,
             0,
-            30_000,
+            False,
+            True,
             SandboxErrorCode.INFRASTRUCTURE_FAILURE,
-            id="external-kill",
+            id="sigkill-during-worker-shutdown",
+        ),
+        pytest.param(
+            signal.SIGKILL,
+            0,
+            False,
+            False,
+            SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
+            id="worker-not-shutting-down",
         ),
         pytest.param(
             signal.SIGKILL,
             1,
-            30_000,
+            False,
+            True,
             SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
             id="run-cgroup-oom-kill",
         ),
         pytest.param(
             signal.SIGKILL,
             0,
-            400_000_000,
+            True,
+            True,
             SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
-            id="run-cgroup-cpu-limit",
+            id="nsjail-time-limit-kill",
         ),
         pytest.param(
             None,
             0,
-            30_000,
+            False,
+            True,
             SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
             id="workload-exit-137",
         ),
     ],
 )
-async def test_action_sigkill_attribution_uses_run_cgroup_and_nsjail_log(
+async def test_action_sigkill_attribution_uses_trusted_evidence(
     tmp_path: Path,
     mocker: MockerFixture,
     termination_signal: int | None,
     oom_kills: int,
-    cpu_usec: int,
+    time_limit_kill: bool,
+    shutting_down: bool,
     expected_code: SandboxErrorCode,
 ) -> None:
-    """A SIGKILL from outside the sandbox (e.g. node shutdown) is not a user limit."""
+    """Only a SIGKILL while this worker shuts down is attributed to the platform."""
     cgroup = tmp_path / "cgroup"
     cgroup.mkdir()
 
     async def killed_workload(**_: object) -> NsjailCompletedProcess:
-        _write_run_cgroup_stats(cgroup, oom_kills=oom_kills, cpu_usec=cpu_usec)
+        _write_run_cgroup_oom_kills(cgroup, oom_kills)
         return NsjailCompletedProcess(
             returncode=128 + signal.SIGKILL,
             stdout=b"",
             stderr=b"",
             workload_started=True,
             termination_signal=termination_signal,
+            time_limit_kill=time_limit_kill,
         )
 
     mocker.patch("tracecat.sandbox.executor.invoke_nsjail", side_effect=killed_workload)
+    mocker.patch(
+        "tracecat.sandbox.executor.worker_shutting_down", return_value=shutting_down
+    )
     mocker.patch("tracecat.sandbox.executor.logger")
     executor = NsjailExecutor(cache_dir=str(tmp_path / "cache"), cgroup_mount=cgroup)
     build_config = mocker.patch.object(
@@ -467,14 +511,14 @@ async def test_action_sigkill_attribution_uses_run_cgroup_and_nsjail_log(
 
 
 @pytest.mark.anyio
-async def test_script_external_sigkill_is_infrastructure_failure(
+async def test_script_sigkill_during_worker_shutdown_is_infrastructure_failure(
     tmp_path: Path, mocker: MockerFixture
 ) -> None:
     cgroup = tmp_path / "cgroup"
     cgroup.mkdir()
 
     async def killed_workload(**_: object) -> NsjailCompletedProcess:
-        _write_run_cgroup_stats(cgroup, oom_kills=0, cpu_usec=30_000)
+        _write_run_cgroup_oom_kills(cgroup, 0)
         return NsjailCompletedProcess(
             returncode=128 + signal.SIGKILL,
             stdout=b"",
@@ -484,6 +528,7 @@ async def test_script_external_sigkill_is_infrastructure_failure(
         )
 
     mocker.patch("tracecat.sandbox.executor.invoke_nsjail", side_effect=killed_workload)
+    mocker.patch("tracecat.sandbox.executor.worker_shutting_down", return_value=True)
     mocker.patch("tracecat.sandbox.executor.logger")
     executor = NsjailExecutor(cache_dir=str(tmp_path / "cache"), cgroup_mount=cgroup)
     mocker.patch.object(executor, "_build_config", return_value="")
@@ -491,3 +536,30 @@ async def test_script_external_sigkill_is_infrastructure_failure(
     result = await executor.execute(tmp_path, SandboxConfig())
 
     assert result.error_code is SandboxErrorCode.INFRASTRUCTURE_FAILURE
+
+
+class _RecordingLoop:
+    def __init__(self) -> None:
+        self.handlers: dict[int, tuple[Callable[..., object], tuple[object, ...]]] = {}
+
+    def add_signal_handler(
+        self, sig: int, callback: Callable[..., object], *args: object
+    ) -> None:
+        self.handlers[sig] = (callback, args)
+
+    def remove_signal_handler(self, sig: int) -> bool:
+        return self.handlers.pop(sig, None) is not None
+
+
+def test_worker_shutdown_signal_marks_sandbox_shutdown(mocker: MockerFixture) -> None:
+    mocker.patch("tracecat.sandbox.shutdown._shutting_down", False)
+    shutdown_event = asyncio.Event()
+    loop = _RecordingLoop()
+
+    with install_worker_shutdown_signal_handlers(shutdown_event, loop=loop):
+        assert worker_shutting_down() is False
+        callback, args = loop.handlers[signal.SIGTERM]
+        callback(*args)
+
+    assert worker_shutting_down() is True
+    assert shutdown_event.is_set()

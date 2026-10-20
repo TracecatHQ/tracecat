@@ -25,6 +25,7 @@ class NsjailCompletedProcess:
     workload_started: bool
     nsjail_log: bytes = b""
     termination_signal: int | None = None
+    time_limit_kill: bool = False
 
 
 # NsJail returns 128+N both when its child exits with status 128+N and when a
@@ -34,6 +35,7 @@ _NSJAIL_SIGNALED_LINE = re.compile(
     rb"pid=\d+ \([^)]*\) terminated with signal: \S+ \((\d+)\)"
 )
 _NSJAIL_EXITED_LINE = re.compile(rb"pid=\d+ \([^)]*\) exited with status: \d+")
+_NSJAIL_TIME_LIMIT_LINE = re.compile(rb"run time >= time limit")
 _NSJAIL_LOG_MAX_BYTES = 1024 * 1024
 
 
@@ -77,8 +79,9 @@ async def invoke_nsjail(
     launcher_path: Path | None = None
     # An unlinked file outside the jail. NsJail marks every descriptor except
     # stdio close-on-exec before starting the workload, so only NsJail writes it.
-    log_file = tempfile.TemporaryFile()
+    log_file = None
     try:
+        log_file = tempfile.TemporaryFile()
         if workload_launcher_name is not None:
             if workload_launcher_script is None or workload_started_marker is None:
                 raise ValueError(
@@ -124,13 +127,15 @@ async def invoke_nsjail(
             workload_started=workload_started,
             nsjail_log=nsjail_log,
             termination_signal=nsjail_termination_signal(nsjail_log),
+            time_limit_kill=_NSJAIL_TIME_LIMIT_LINE.search(nsjail_log) is not None,
         )
     except OSError as error:
         raise SandboxInfrastructureError(
             "Sandbox host failed to prepare or launch nsjail"
         ) from error
     finally:
-        log_file.close()
+        if log_file is not None:
+            log_file.close()
         _cleanup_executor_file(config_path)
         if launcher_path is not None:
             _cleanup_executor_file(launcher_path)

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Protocol
 
 from tracecat.logger import logger
+from tracecat.sandbox.shutdown import mark_worker_shutting_down
 
 # Keep this path off volumes: Kubernetes container replacement must clear it.
 WORKER_READY_FILE = Path("/var/run/tracecat/worker-ready")
@@ -47,6 +48,7 @@ def install_worker_shutdown_signal_handlers(
 
     def request_shutdown(sig: signal.Signals) -> None:
         logger.info("Received shutdown signal", signal=sig.name)
+        mark_worker_shutting_down()
         shutdown_event.set()
 
     try:

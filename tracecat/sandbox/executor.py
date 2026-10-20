@@ -30,6 +30,7 @@ from tracecat.sandbox.networking import resolve_sandbox_network_plan
 from tracecat.sandbox.nsjail_protocol import invoke_nsjail
 from tracecat.sandbox.result_envelope import decode_result_envelope
 from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
+from tracecat.sandbox.shutdown import worker_shutting_down
 from tracecat.sandbox.types import (
     ResourceLimits,
     SandboxConfig,
@@ -193,31 +194,26 @@ os.execv("/usr/local/bin/python3", ["/usr/local/bin/python3", sys.argv[1]])
 class SigkillEvidence:
     """Trusted evidence about one run that ended with exit status 137.
 
-    ``termination_signal`` comes from NsJail's private log; ``oom_kills`` and
-    ``cpu_usec`` from the run's own cgroup. The workload controls none of them.
+    ``termination_signal`` and ``time_limit_kill`` come from NsJail's private
+    log, ``oom_kills`` from the run's own cgroup, and ``worker_shutting_down``
+    from this process's signal handler. The workload controls none of them.
+    Resource use is deliberately not evidence: a workload can lower its own
+    rlimits, so low consumption cannot rule out a limit it set itself.
     """
 
     termination_signal: int | None
     oom_kills: int | None
-    cpu_usec: int | None
-    elapsed_seconds: float
-    cpu_limit_seconds: int
-    wall_limit_seconds: int
+    time_limit_kill: bool
+    worker_shutting_down: bool
 
     @property
     def killed_outside_sandbox(self) -> bool:
-        """Whether only an external SIGKILL explains the exit.
-
-        A normal ``exit(137)``, a memory OOM kill, an ``RLIMIT_CPU`` kill (the
-        cgroup total bounds every process's CPU time, across threads), or the
-        wall time limit each rule it out.
-        """
+        """Whether a SIGKILL during this worker's shutdown explains the exit."""
         return (
             self.termination_signal == signal.SIGKILL
             and self.oom_kills == 0
-            and self.cpu_usec is not None
-            and self.cpu_usec < self.cpu_limit_seconds * 1_000_000
-            and self.elapsed_seconds < self.wall_limit_seconds
+            and not self.time_limit_kill
+            and self.worker_shutting_down
         )
 
 
@@ -793,10 +789,8 @@ class NsjailExecutor:
         kill_evidence = SigkillEvidence(
             termination_signal=completed.termination_signal,
             oom_kills=oom_kills,
-            cpu_usec=cpu_usec,
-            elapsed_seconds=execution_time_ms / 1000,
-            cpu_limit_seconds=config.resources.cpu_seconds,
-            wall_limit_seconds=config.resources.timeout_seconds,
+            time_limit_kill=completed.time_limit_kill,
+            worker_shutting_down=worker_shutting_down(),
         )
         error_code = _classify_missing_nsjail_result(
             returncode,
@@ -1234,10 +1228,8 @@ class NsjailExecutor:
         kill_evidence = SigkillEvidence(
             termination_signal=completed.termination_signal,
             oom_kills=oom_kills,
-            cpu_usec=cpu_usec,
-            elapsed_seconds=execution_time_ms / 1000,
-            cpu_limit_seconds=config.resources.cpu_seconds,
-            wall_limit_seconds=int(config.timeout_seconds),
+            time_limit_kill=completed.time_limit_kill,
+            worker_shutting_down=worker_shutting_down(),
         )
         error_code = _classify_missing_nsjail_result(
             returncode,
