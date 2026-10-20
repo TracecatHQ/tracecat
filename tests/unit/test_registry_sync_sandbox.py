@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import stat
+import sys
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -15,9 +16,14 @@ from tracecat.exceptions import RegistryError, RegistrySyncContentError
 from tracecat.registry.sync.artifact import (
     RegistryArtifactBuildError,
 )
-from tracecat.registry.sync.sandbox import _PACKAGING_SCRIPT, RegistrySyncSandbox
+from tracecat.registry.sync.sandbox import (
+    _DISCOVERY_SCRIPT,
+    _PACKAGING_SCRIPT,
+    RegistrySyncSandbox,
+)
 from tracecat.registry.sync.schemas import (
     SyncErrorCode,
+    SyncResultAdapter,
     SyncResultError,
     SyncResultSuccess,
 )
@@ -461,7 +467,9 @@ async def test_registry_discovery_runs_without_network_or_worker_environment(
             "commit_sha",
             "validate",
             "organization_id",
+            "registry_site_packages",
         }
+        assert inputs["registry_site_packages"] == "/pythonpath/1"
         return SandboxResult(
             success=True,
             output=SyncResultSuccess(actions=[]).model_dump(mode="json"),
@@ -696,3 +704,79 @@ async def test_registry_discovery_raises_typed_content_error(
         )
 
     assert exc_info.value.code == SyncErrorCode.PACKAGE_NOT_FOUND
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    ["import", "attribute", "missing_submodule", "registry_frame", "trusted"],
+)
+def test_discovery_script_reports_registry_dependency_conflicts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    scenario: str,
+) -> None:
+    module_name = "tracecat.registry.sync.entrypoint"
+    registry_site_packages = tmp_path / "registry-site-packages"
+    from_registry = scenario != "trusted"
+    root = registry_site_packages if from_registry else tmp_path / "trusted"
+    dependency = ModuleType("shared_dep")
+    dependency.__file__ = str(root / "shared_dep" / "__init__.py")
+    dependency.__path__ = [str(root / "shared_dep")]
+    monkeypatch.setitem(sys.modules, "shared_dep", dependency)
+
+    class _ConflictingFinder:
+        @staticmethod
+        def find_spec(name: str, *_args: object, **_kwargs: object) -> None:
+            if name != module_name:
+                return None
+            match scenario:
+                case "attribute":
+                    raise AttributeError("no attribute 'helper'", obj=dependency)
+                case "missing_submodule":
+                    # The shadowing parent lacks the submodule; only its path says so.
+                    raise ModuleNotFoundError(
+                        "No module named 'shared_dep.sub'", name="shared_dep.sub"
+                    )
+                case "registry_frame":
+                    # Registry code raises while importing; only its frame says so.
+                    exec(
+                        compile(
+                            "raise ImportError('cannot import name helper')",
+                            str(root / "shared_dep" / "compat.py"),
+                            "exec",
+                        ),
+                        {},
+                    )
+                case _:
+                    pass
+            raise ImportError(
+                "cannot import name 'helper'",
+                name="shared_dep",
+                path=dependency.__file__,
+            )
+
+    monkeypatch.delitem(sys.modules, module_name, raising=False)
+    monkeypatch.setattr(sys, "meta_path", [_ConflictingFinder(), *sys.meta_path])
+    namespace: dict[str, object] = {}
+    exec(compile(_DISCOVERY_SCRIPT, "script.py", "exec"), namespace)
+    main = cast(Callable[..., object], namespace["main"])
+
+    def run() -> object:
+        return main(
+            origin="git+ssh://git@git.example.test/acme/registry.git",
+            package_name="registry",
+            repository_id=str(uuid4()),
+            registry_site_packages=str(registry_site_packages),
+        )
+
+    if not from_registry:
+        # Tracecat's own import failures keep the generic path, which pages us.
+        with pytest.raises(ImportError):
+            run()
+        return
+
+    result = SyncResultAdapter.validate_python(run())
+    assert isinstance(result, SyncResultError)
+    assert result.error_code == SyncErrorCode.IMPORT_FAILED
+    assert result.error.startswith("Registry dependencies conflict")
+    assert isinstance(result.to_exception(), RegistrySyncContentError)

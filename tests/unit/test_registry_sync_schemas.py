@@ -48,6 +48,10 @@ def test_registry_sync_result_accepts_legacy_tarball_uri() -> None:
             SyncErrorCode.PACKAGE_NOT_FOUND,
         ),
         (
+            ImportError("cannot import name 'helper' from 'shared_dep'"),
+            SyncErrorCode.IMPORT_FAILED,
+        ),
+        (
             RegistryTemplateLoadError("Failed to load template action from a.yml: bad"),
             SyncErrorCode.TEMPLATE_LOAD_FAILED,
         ),
