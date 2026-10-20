@@ -13,6 +13,7 @@ import {
   casesListCaseFilterFields,
 } from "@/client"
 import { CancelablePromise } from "@/client/core/CancelablePromise"
+import { $CasePriority, $CaseSeverity } from "@/client/schemas.gen"
 import { CaseFilterEditor } from "@/components/cases/case-filter-editor"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 import { WorkspaceIdProvider } from "@/providers/workspace-id"
@@ -23,16 +24,49 @@ const metadata: CaseFilterMetadata = {
   max_conditions: 50,
   max_values: 1000,
   fields: [
-    ...["priority", "severity"]
-      .map((field) => ({
-        field,
-        label: field,
-        kind: "enum" as const,
-        operators: ["eq", "gte", "lt"] as const,
-        choices: ["unknown", "low", "high", "other"],
-        range_choices: ["low", "high"],
-      }))
-      .map((field) => ({ ...field, operators: [...field.operators] })),
+    {
+      field: "priority",
+      label: "Priority",
+      kind: "enum",
+      operators: [
+        "eq",
+        "ne",
+        "in",
+        "not_in",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "is_null",
+      ],
+      choices: [...$CasePriority.enum],
+      range_choices: ["low", "medium", "high", "critical"],
+    },
+    {
+      field: "severity",
+      label: "Severity",
+      kind: "enum",
+      operators: [
+        "eq",
+        "ne",
+        "in",
+        "not_in",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "is_null",
+      ],
+      choices: [...$CaseSeverity.enum],
+      range_choices: [
+        "informational",
+        "low",
+        "medium",
+        "high",
+        "critical",
+        "fatal",
+      ],
+    },
     {
       field: "summary",
       label: "Summary",
@@ -202,9 +236,12 @@ test("preserves unavailable saved fields until they are explicitly removed", asy
   await waitFor(() => expect(onApply).toHaveBeenLastCalledWith(null))
 })
 
-test.each(["priority", "severity"])(
-  "changing %s to a range chooses an eligible value",
-  async (field) => {
+test.each([
+  { field: "priority", first: "low", last: "critical" },
+  { field: "severity", first: "informational", last: "fatal" },
+])(
+  "changing $field to a range preserves every eligible threshold",
+  async ({ field, first, last }) => {
     const user = userEvent.setup()
     const onApply = setup({ field, op: "eq", value: "unknown" })
     await user.click(screen.getByRole("button", { name: "Conditions (1)" }))
@@ -213,7 +250,17 @@ test.each(["priority", "severity"])(
       target: { value: "gte" },
     })
     const input = screen.getByLabelText("Condition value")
-    expect(input).toHaveValue("low")
+    expect(input).toHaveValue(first)
+    const expected = metadata.fields.find((item) => item.field === field)!
+    expect(
+      within(input)
+        .getAllByRole("option")
+        .map((option) => (option as HTMLOptionElement).value)
+    ).toEqual(expected.range_choices)
+    for (const value of expected.range_choices ?? []) {
+      fireEvent.change(input, { target: { value } })
+      expect(input).toHaveValue(value)
+    }
     expect(
       within(input).queryByRole("option", { name: "unknown" })
     ).not.toBeInTheDocument()
@@ -233,7 +280,7 @@ test.each(["priority", "severity"])(
       target: { value: "lt" },
     })
     await user.click(screen.getByRole("button", { name: "Apply conditions" }))
-    expect(onApply).toHaveBeenLastCalledWith({ field, op: "lt", value: "low" })
+    expect(onApply).toHaveBeenLastCalledWith({ field, op: "lt", value: last })
   }
 )
 

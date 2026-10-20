@@ -127,8 +127,16 @@ def test_unconstrained_select_accepts_values(options: list[str] | None) -> None:
     assert category.choices is None
 
 
-@pytest.mark.parametrize("field", ["priority", "severity"])
-def test_metadata_range_choices_match_executing_resolver(field: str) -> None:
+@pytest.mark.parametrize(
+    "field,expected",
+    [
+        ("priority", ["low", "medium", "high", "critical"]),
+        ("severity", ["informational", "low", "medium", "high", "critical", "fatal"]),
+    ],
+)
+def test_metadata_range_choices_match_executing_resolver(
+    field: str, expected: list[str]
+) -> None:
     metadata = case_filter_metadata(WORKSPACE_ID, {}, [])
     advertised = next(item for item in metadata.fields if item.field == field)
     assert advertised.choices is not None
@@ -136,6 +144,10 @@ def test_metadata_range_choices_match_executing_resolver(field: str) -> None:
     assert advertised.range_choices is not None
     assert not {"unknown", "other"} & set(advertised.range_choices)
     resolver = CaseFieldResolver(WORKSPACE_ID, {})
+    resolved = resolver.resolve(field)
+    assert resolved is not None
+    assert resolved.range_choices is not None
+    assert advertised.range_choices == list(resolved.range_choices) == expected
     for op in [FilterOp.GT, FilterOp.GTE, FilterOp.LT, FilterOp.LTE]:
         for value in advertised.range_choices:
             compile_filter(Condition(field=field, op=op, value=value), resolver)
