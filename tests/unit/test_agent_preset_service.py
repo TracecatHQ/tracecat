@@ -3727,7 +3727,7 @@ class TestAgentPresetService:
         assert unrestricted.namespaces is None
         assert agent_config.tool_approvals == preset.tool_approvals
         assert agent_config.retries == preset.retries
-        assert agent_config.model_settings == {"parallel_tool_calls": False}
+        assert agent_config.model_settings == {}
 
     @pytest.mark.parametrize(
         ("requires_approval", "cleared"), [(True, None), (False, {})]

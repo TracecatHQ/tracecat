@@ -27,7 +27,7 @@
     "upgrade:next": "pnpm add next@14 react@18 react-dom@18 && pnpm add -D eslint-config-next@14 eslint@8"
   },
   "dependencies": {
-    "@ai-sdk/react": "2.0.59",
+    "@ai-sdk/react": "4.0.125",
     "@base-ui/react": "1.8.0",
     "@codemirror/autocomplete": "6.19.0",
     "@codemirror/commands": "6.8.1",
@@ -94,7 +94,7 @@
     "@xyflow/react": "12.8.6",
     "ag-grid-community": "35.0.1",
     "ag-grid-react": "35.0.1",
-    "ai": "5.0.59",
+    "ai": "7.0.122",
     "axios": "1.20.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
@@ -147,6 +147,7 @@
     "@hey-api/openapi-ts": "0.48.3",
     "@hookform/devtools": "4.4.0",
     "@playwright/test": "1.58.2",
+    "@shadcn/helpers": "0.2.0",
     "@tailwindcss/container-queries": "0.1.1",
     "@tailwindcss/typography": "0.5.19",
     "@tanstack/react-query-devtools": "5.90.2",
@@ -184,7 +185,7 @@
       }
     },
     "overrides": {
-      "@ai-sdk/provider-utils": "3.0.28",
+      "@ai-sdk/provider-utils": "5.0.51",
       "@tiptap/core": "3.30.5",
       "@tiptap/extension-bubble-menu": "3.30.5",
       "@tiptap/extension-floating-menu": "3.30.5",

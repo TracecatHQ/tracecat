@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type { UIMessage, UIMessagePart } from "ai"
 import type { ReactNode } from "react"
-import { MessagePart } from "@/components/chat/chat-session-pane"
+import { MessagePart } from "@/components/chat/message-part"
 import { SubagentStreamContext } from "@/hooks/use-subagent-stream"
 import { SubagentStreamStore } from "@/lib/subagent-stream"
 import { WorkspaceIdProvider } from "@/providers/workspace-id"
@@ -23,7 +23,6 @@ jest.mock("@/hooks/use-chat", () => ({
 
 // The real tool components pull in ESM-only syntax highlighting.
 jest.mock("@/components/ai-elements/tool", () => ({
-  getStatusBadge: () => null,
   Tool: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
   ToolContent: ({ children }: { children?: ReactNode }) => (
     <div>{children}</div>
@@ -269,10 +268,8 @@ describe("subagent tool part", () => {
     expect(screen.getByTestId("tool-state")).toHaveTextContent(
       "output-available"
     )
-    // The task stays collapsed and the child prompt is not repeated.
-    expect(
-      screen.queryByText("Summarize the open cases")
-    ).not.toBeInTheDocument()
+    // The task shows once; the child prompt is not repeated.
+    expect(screen.getAllByText("Summarize the open cases")).toHaveLength(1)
     await waitFor(() =>
       expect(mockUseGetChatVercel).toHaveBeenCalledWith({
         chatId: CHILD_ID,
