@@ -163,6 +163,7 @@ import {
   useUpdateChat,
 } from "@/hooks/use-chat"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useIsAtLeastWidth } from "@/hooks/use-is-at-least-width"
 import { useSkillLibrary } from "@/hooks/use-skill-library"
 import { useSkills } from "@/hooks/use-skills"
 import {
@@ -201,6 +202,8 @@ const RESERVED_SUBAGENT_ALIASES = new Set([
   "task",
 ])
 const AGENT_PRESET_TAB_QUERY_PARAM = "tab"
+/** Artifact panels at least this wide put the setup rail beside the editor. */
+const ARTIFACT_SPLIT_MIN_WIDTH = 960
 
 function AgentPresetLoadError({
   title,
@@ -561,7 +564,8 @@ export function AgentPresetsBuilder({ presetId }: { presetId?: string }) {
 }
 
 /**
- * Embeds the preset builder in surfaces that need a stacked, narrow layout.
+ * Embeds the preset builder in the workspace chat artifact panel. Wide panels
+ * use the split layout; narrow ones stack the setup rail under the editor.
  */
 export function AgentPresetArtifactView({
   preset,
@@ -589,35 +593,40 @@ export function AgentPresetArtifactView({
     () => buildEnabledModelOptions(models),
     [models]
   )
+  // A callback ref, because the container mounts after the hook first runs.
+  const [container, setContainer] = useState<HTMLDivElement | null>(null)
+  const railBeside = useIsAtLeastWidth(container, ARTIFACT_SPLIT_MIN_WIDTH)
 
   return (
-    <AgentPresetForm
-      key={preset.id}
-      preset={preset}
-      mode="edit"
-      workspaceId={workspaceId}
-      agentPresets={presets ?? []}
-      onCreate={async () => {
-        throw new Error("Agent artifacts cannot create presets.")
-      }}
-      onUpdate={async (presetId, payload) => {
-        return await updateAgentPreset({
-          presetId,
-          ...payload,
-        })
-      }}
-      isSaving={updateAgentPresetIsPending}
-      registryActions={registryActions}
-      registryLoading={registryActions === undefined}
-      mcpLoading={mcpIntegrations === undefined}
-      toolsLoadError={Boolean(registryActionsError || mcpIntegrationsError)}
-      enabledModelOptions={enabledModelOptions}
-      enabledModelsLoaded={enabledModelsLoaded}
-      mcpIntegrations={mcpIntegrations ?? EMPTY_MCP_INTEGRATIONS}
-      layout="stacked"
-      initialTab={parseAgentPresetSideTab(initialTab) ?? "configuration"}
-      onTabChange={onTabChange}
-    />
+    <div ref={setContainer} className="size-full min-h-0">
+      <AgentPresetForm
+        key={preset.id}
+        preset={preset}
+        mode="edit"
+        workspaceId={workspaceId}
+        agentPresets={presets ?? []}
+        onCreate={async () => {
+          throw new Error("Agent artifacts cannot create presets.")
+        }}
+        onUpdate={async (presetId, payload) => {
+          return await updateAgentPreset({
+            presetId,
+            ...payload,
+          })
+        }}
+        isSaving={updateAgentPresetIsPending}
+        registryActions={registryActions}
+        registryLoading={registryActions === undefined}
+        mcpLoading={mcpIntegrations === undefined}
+        toolsLoadError={Boolean(registryActionsError || mcpIntegrationsError)}
+        enabledModelOptions={enabledModelOptions}
+        enabledModelsLoaded={enabledModelsLoaded}
+        mcpIntegrations={mcpIntegrations ?? EMPTY_MCP_INTEGRATIONS}
+        layout={railBeside ? "split" : "stacked"}
+        initialTab={parseAgentPresetSideTab(initialTab) ?? "configuration"}
+        onTabChange={onTabChange}
+      />
+    </div>
   )
 }
 
@@ -898,7 +907,7 @@ function AgentPresetChatPane({
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border/60 px-5">
+      <div className="@container/agent-preset-bar flex h-12 shrink-0 items-center gap-1 border-b border-border/60 px-5">
         {leading}
         <span className="flex-1" />
         {preset ? (
@@ -1568,20 +1577,7 @@ function AgentPresetForm({
   )
 
   const documentPanel = (
-    <AgentPresetDocumentPanel
-      form={form}
-      workspaceId={workspaceId}
-      presetId={preset?.id ?? null}
-      currentVersionId={preset?.current_version_id ?? null}
-      getDraftPayload={getDraftPayload}
-      isSaving={isSaving}
-      canSubmit={canSubmit}
-      submitLabel={submitLabel}
-      onPublish={submit}
-      isDirty={form.formState.isDirty}
-      cutsVersion={cutsVersion}
-      onDiscard={discard}
-    />
+    <AgentPresetDocumentPanel form={form} isSaving={isSaving} />
   )
 
   // Channels lives in the URL so the Slack OAuth redirect returns to it.
@@ -1664,10 +1660,10 @@ function AgentPresetForm({
   } else {
     leftPanel = (
       <div className="flex h-full min-h-0 flex-col">
-        <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border/60 px-5">
+        <div className="@container/agent-preset-bar flex h-12 shrink-0 items-center gap-1 border-b border-border/60 px-5">
           {modeSwitch}
           <span className="flex-1" />
-          {leftMode === "channels" ? inlineActions : null}
+          {inlineActions}
           {railToggle}
         </div>
         <div className="min-h-0 flex-1">
@@ -1720,6 +1716,7 @@ function AgentPresetForm({
   // Fixed ids keep the left pane mounted when the rail toggles.
   const body = (
     <ResizablePanelGroup
+      key={stacked ? "stacked" : "split"}
       direction={stacked ? "vertical" : "horizontal"}
       className="h-full"
     >
@@ -1769,107 +1766,64 @@ function AgentPresetForm({
 
 function AgentPresetDocumentPanel({
   form,
-  workspaceId,
-  presetId,
-  currentVersionId,
-  getDraftPayload,
   isSaving,
-  canSubmit,
-  submitLabel,
-  onPublish,
-  isDirty,
-  cutsVersion,
-  onDiscard,
 }: {
   form: UseFormReturn<AgentPresetFormValues>
-  workspaceId: string
-  presetId: string | null
-  currentVersionId: string | null
-  getDraftPayload: () => AgentPresetCreate | null
   isSaving: boolean
-  canSubmit: boolean
-  submitLabel: string
-  onPublish: () => void
-  isDirty: boolean
-  cutsVersion: boolean
-  onDiscard: () => void
 }) {
-  // Context present -> the standalone route's global controls header renders
-  // the detail actions; context absent (case artifact view) -> render them
-  // inline next to the title.
-  const detail = useAgentPresetDetailContext()
   return (
     <ScrollArea className="h-full [&_[data-radix-scroll-area-viewport]>div]:!flex [&_[data-radix-scroll-area-viewport]>div]:min-h-full [&_[data-radix-scroll-area-viewport]>div]:flex-col">
       <div className="mx-auto flex w-full max-w-[700px] flex-1 flex-col gap-0 px-[clamp(16px,5vw,48px)] pt-12 pb-10">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex-1 space-y-3">
-            <FormField
-              control={form.control}
-              name="slug"
-              render={({ field }) => (
-                <FormItem className="space-y-0">
-                  <FormLabel className="sr-only">Slug</FormLabel>
-                  <FormControl>
-                    <input type="hidden" {...field} value={field.value ?? ""} />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem className="space-y-0">
-                  <FormLabel className="sr-only">Agent name</FormLabel>
-                  <FormControl>
-                    <Input
-                      className="h-auto w-full border-none bg-transparent px-0 text-[30px] font-semibold leading-tight tracking-[-0.02em] text-foreground shadow-none outline-none transition-none placeholder:text-muted-foreground/40 focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
-                      placeholder="New agent preset"
-                      disabled={isSaving}
-                      {...field}
-                      value={field.value ?? ""}
-                    />
-                  </FormControl>
-                  <FormMessage className="text-xs" />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormControl>
-                    <AutoResizeTextarea
-                      value={field.value ?? ""}
-                      onChange={field.onChange}
-                      onBlur={field.onBlur}
-                      disabled={isSaving}
-                      placeholder="Describe this agent."
-                      className="w-full resize-none overflow-hidden border-none bg-transparent px-0 text-[15px] leading-[1.55] text-muted-foreground shadow-none outline-none transition-none placeholder:text-muted-foreground/50 focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-          </div>
-          {detail ? null : (
-            <div className="flex flex-wrap items-center gap-2">
-              <AgentPresetDetailActions
-                workspaceId={workspaceId}
-                presetId={presetId}
-                currentVersionId={currentVersionId}
-                getDraftPayload={getDraftPayload}
-                isSaving={isSaving}
-                canSubmit={canSubmit}
-                submitLabel={submitLabel}
-                onPublish={onPublish}
-                isDirty={isDirty}
-                cutsVersion={cutsVersion}
-                onDiscard={onDiscard}
-              />
-            </div>
-          )}
+        <div className="space-y-3">
+          <FormField
+            control={form.control}
+            name="slug"
+            render={({ field }) => (
+              <FormItem className="space-y-0">
+                <FormLabel className="sr-only">Slug</FormLabel>
+                <FormControl>
+                  <input type="hidden" {...field} value={field.value ?? ""} />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="name"
+            render={({ field }) => (
+              <FormItem className="space-y-0">
+                <FormLabel className="sr-only">Agent name</FormLabel>
+                <FormControl>
+                  <Input
+                    className="h-auto w-full border-none bg-transparent px-0 text-[30px] font-semibold leading-tight tracking-[-0.02em] text-foreground shadow-none outline-none transition-none placeholder:text-muted-foreground/40 focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
+                    placeholder="New agent preset"
+                    disabled={isSaving}
+                    {...field}
+                    value={field.value ?? ""}
+                  />
+                </FormControl>
+                <FormMessage className="text-xs" />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="description"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <AutoResizeTextarea
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    disabled={isSaving}
+                    placeholder="Describe this agent."
+                    className="w-full resize-none overflow-hidden border-none bg-transparent px-0 text-[15px] leading-[1.55] text-muted-foreground shadow-none outline-none transition-none placeholder:text-muted-foreground/50 focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
+                  />
+                </FormControl>
+              </FormItem>
+            )}
+          />
         </div>
         <Separator className="my-8" />
         <section className="flex flex-1 flex-col">
