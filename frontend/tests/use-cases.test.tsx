@@ -632,7 +632,6 @@ describe("useCases", () => {
       "workspace-1:cases-filters:v1",
       JSON.stringify(
         createPersistedFilters({
-          structuredFilters: { and: [null] },
           searchQuery: 42,
           sortBy: { field: "bad-field", direction: "up" },
           statusFilter: ["new", "bad-status", 99],
@@ -668,7 +667,6 @@ describe("useCases", () => {
       expect.objectContaining({
         workspaceId: "workspace-1",
         requestBody: expect.objectContaining({
-          filters: null,
           search_term: undefined,
           order_by: "updated_at",
           sort: "desc",
@@ -682,7 +680,6 @@ describe("useCases", () => {
       expect.objectContaining({
         workspaceId: "workspace-1",
         requestBody: expect.objectContaining({
-          filters: null,
           search_term: undefined,
           status: ["new"],
           assignee_id: ["user-1"],

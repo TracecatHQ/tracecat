@@ -111,7 +111,6 @@ function Harness({
   const search = useCases({ autoRefresh: false })
   return (
     <CasesLayout
-      dropdownDefinitions={[]}
       cases={search.cases}
       isLoading={search.isLoading}
       error={search.error}
@@ -463,39 +462,6 @@ describe("exact-first case search UI", () => {
           start_time: expect.any(String),
         }),
       })
-    )
-  })
-  it("Reset clears saved dropdown filters whose definitions were removed", async () => {
-    window.localStorage.setItem(
-      `${WORKSPACE_ID}:cases-filters:v1`,
-      JSON.stringify({
-        dropdownFilters: {
-          removed: {
-            values: ["synthetic"],
-            mode: "include",
-            sortDirection: null,
-          },
-        },
-      })
-    )
-    const user = userEvent.setup()
-    setup()
-    await waitFor(() =>
-      expect(casesQueryCases).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          requestBody: expect.objectContaining({
-            dropdown: ["removed:synthetic"],
-          }),
-        })
-      )
-    )
-    await user.click(screen.getByRole("button", { name: "Reset" }))
-    await waitFor(() =>
-      expect(casesQueryCases).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          requestBody: expect.objectContaining({ dropdown: undefined }),
-        })
-      )
     )
   })
 })

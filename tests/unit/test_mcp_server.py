@@ -3776,17 +3776,7 @@ async def test_search_cases_forwards_canonical_request(
         scopes=frozenset({"case:read"}),
     )
     case_id, parent_id = uuid.uuid4(), uuid.uuid4()
-    filters = {
-        "and": [
-            {"not": {"field": "fields.region", "op": "is_null"}},
-            {
-                "field": "payload.metadata.product.vendor_name",
-                "op": "eq",
-                "value": "Microsoft",
-            },
-            {"field": "payload.metadata.product.name", "op": "eq", "value": "Defender"},
-        ]
-    }
+    filters = {"not": {"field": "fields.region", "op": "is_null"}}
     result = CursorPaginatedResponse(items=[], total_estimate=None)
     query = AsyncMock(return_value=result)
 

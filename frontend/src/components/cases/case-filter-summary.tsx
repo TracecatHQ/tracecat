@@ -29,12 +29,12 @@ export function CaseFilterSummary({
       <Button
         variant="outline"
         size="sm"
-        className="h-auto max-w-full whitespace-normal py-0.5 text-xs"
+        className="h-auto max-w-full py-0.5 text-xs"
         aria-label={`Remove ${label}`}
         title="Remove condition"
         onClick={() => onChange(null)}
       >
-        {label} ×
+        <span className="truncate">{label} ×</span>
       </Button>
     )
   }

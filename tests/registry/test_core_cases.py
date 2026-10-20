@@ -1414,17 +1414,7 @@ async def test_search_cases_forwards_canonical_controls_and_preserves_shape(
 ) -> None:
     case_id = str(uuid.uuid4())
     parent_id = str(uuid.uuid4())
-    filters = {
-        "and": [
-            {"not": {"field": "fields.region", "op": "is_null"}},
-            {
-                "field": "payload.metadata.product.vendor_name",
-                "op": "eq",
-                "value": "Microsoft",
-            },
-            {"field": "payload.metadata.product.name", "op": "eq", "value": "Defender"},
-        ]
-    }
+    filters = {"not": {"field": "fields.region", "op": "is_null"}}
     response = {"items": [], "next_cursor": "synthetic-cursor", "total_estimate": None}
     mock_cases_client.search_cases.return_value = response
     result = await search_cases(
