@@ -273,6 +273,7 @@ const CASE_SORT_OPTIONS: Array<{
   value: CaseSortField
   label: string
   icon: ComponentType<{ className?: string }>
+  description?: string
 }> = [
   { value: "updated_at", label: "Updated", icon: ClockIcon },
   { value: "created_at", label: "Created", icon: CalendarIcon },
@@ -280,6 +281,18 @@ const CASE_SORT_OPTIONS: Array<{
   { value: "severity", label: "Severity", icon: ShieldAlertIcon },
   { value: "status", label: "Status", icon: SignalIcon },
   { value: "tasks", label: "Tasks", icon: ListIcon },
+  {
+    value: "assignee",
+    label: "Assignee",
+    icon: UserIcon,
+    description: "By email; unassigned cases last.",
+  },
+  {
+    value: "tags",
+    label: "Tags",
+    icon: TagIcon,
+    description: "First alphabetical tag; untagged cases last.",
+  },
 ]
 
 function isDefaultCaseSort(value: CaseSortValue): boolean {
@@ -310,7 +323,10 @@ function CaseSortSelect({ value, onChange }: CaseSortSelectProps) {
           })
         }
       >
-        <SelectTrigger className="h-6 w-[140px] rounded-r-none border-0 bg-transparent px-2 text-xs font-medium shadow-none focus:ring-0">
+        <SelectTrigger
+          aria-label="Case sort field"
+          className="h-6 w-[140px] rounded-r-none border-0 bg-transparent px-2 text-xs font-medium shadow-none focus:ring-1 focus:ring-inset focus:ring-ring"
+        >
           <span className="text-muted-foreground">Sort by</span>
           <span className="text-foreground">{selectedLabel}</span>
         </SelectTrigger>
@@ -318,10 +334,21 @@ function CaseSortSelect({ value, onChange }: CaseSortSelectProps) {
           {CASE_SORT_OPTIONS.map((option) => {
             const Icon = option.icon
             return (
-              <SelectItem key={option.value} value={option.value}>
-                <span className="flex items-center gap-2">
-                  <Icon className="size-3.5 text-muted-foreground" />
-                  <span>{option.label}</span>
+              <SelectItem
+                key={option.value}
+                value={option.value}
+                textValue={option.label}
+              >
+                <span className="flex flex-col gap-1">
+                  <span className="flex items-center gap-2">
+                    <Icon className="size-3.5 text-muted-foreground" />
+                    <span>{option.label}</span>
+                  </span>
+                  {option.description && (
+                    <span className="max-w-[220px] text-[11px] text-muted-foreground">
+                      {option.description}
+                    </span>
+                  )}
                 </span>
               </SelectItem>
             )
@@ -738,6 +765,7 @@ export function CasesHeader({
             allowExclude={false}
             showSort
             sortDirection={assigneeSortDirection}
+            sortDescription="By assignee email, ignoring case. Unassigned cases appear last."
             onSortDirectionChange={onAssigneeSortDirectionChange}
             emptyMessage={
               members && members.length > 0
@@ -757,6 +785,7 @@ export function CasesHeader({
             allowExclude={false}
             showSort
             sortDirection={tagSortDirection}
+            sortDescription="By the first tag alphabetically, ignoring case. Untagged cases appear last."
             onSortDirectionChange={onTagSortDirectionChange}
             emptyMessage={
               tags && tags.length > 0 ? "No matching tags." : "No tags found."

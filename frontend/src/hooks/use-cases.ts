@@ -283,7 +283,7 @@ function loadPersistedCasesFilterState(
     }
 
     const parsed = JSON.parse(storedValue) as Partial<PersistedCasesFilters>
-    return {
+    return normalizeCasesSortState({
       searchQuery: sanitizeSearchQuery(
         parsed.searchQuery,
         defaults.searchQuery
@@ -353,7 +353,7 @@ function loadPersistedCasesFilterState(
           ? parsed.includeSubCases
           : defaults.includeSubCases,
       hydratedWorkspaceId: workspaceId,
-    }
+    })
   } catch (error) {
     console.error(error)
     try {
@@ -362,6 +362,34 @@ function loadPersistedCasesFilterState(
       console.error(removeError)
     }
     return { ...defaults, hydratedWorkspaceId: workspaceId }
+  }
+}
+
+function normalizeCasesSortState(
+  state: CasesFilterStateSnapshot
+): CasesFilterStateSnapshot {
+  // Preserve the effective order of legacy page-local sorts, then synchronize
+  // their controls with the single canonical server sort.
+  let sortBy = state.sortBy
+  if (state.assigneeSortDirection) {
+    sortBy = { field: "assignee", direction: state.assigneeSortDirection }
+  } else if (state.tagSortDirection) {
+    sortBy = { field: "tags", direction: state.tagSortDirection }
+  } else if (state.prioritySortDirection) {
+    sortBy = { field: "priority", direction: state.prioritySortDirection }
+  } else if (state.severitySortDirection) {
+    sortBy = { field: "severity", direction: state.severitySortDirection }
+  }
+  return {
+    ...state,
+    sortBy,
+    prioritySortDirection:
+      sortBy.field === "priority" ? sortBy.direction : null,
+    severitySortDirection:
+      sortBy.field === "severity" ? sortBy.direction : null,
+    assigneeSortDirection:
+      sortBy.field === "assignee" ? sortBy.direction : null,
+    tagSortDirection: sortBy.field === "tags" ? sortBy.direction : null,
   }
 }
 
@@ -404,7 +432,9 @@ function isCaseSortField(value: unknown): value is CaseSortField {
     value === "priority" ||
     value === "severity" ||
     value === "status" ||
-    value === "tasks"
+    value === "tasks" ||
+    value === "assignee" ||
+    value === "tags"
   )
 }
 
@@ -657,40 +687,27 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   const [priorityMode, setPriorityMode] = useState<FilterMode>(
     initialFilterState.priorityMode
   )
-  const [prioritySortDirection, setPrioritySortDirectionState] =
-    useState<SortDirection>(initialFilterState.prioritySortDirection)
   const [severityFilter, setSeverityFilter] = useState<CaseSeverity[]>(
     initialFilterState.severityFilter
   )
   const [severityMode, setSeverityMode] = useState<FilterMode>(
     initialFilterState.severityMode
   )
-  const [severitySortDirection, setSeveritySortDirectionState] =
-    useState<SortDirection>(initialFilterState.severitySortDirection)
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>(
     initialFilterState.assigneeFilter
   )
   const [assigneeMode, setAssigneeModeState] = useState<FilterMode>(
     initialFilterState.assigneeMode
   )
-  const [assigneeSortDirection, setAssigneeSortDirectionState] =
-    useState<SortDirection>(initialFilterState.assigneeSortDirection)
   const [tagFilter, setTagFilter] = useState<string[]>(
     initialFilterState.tagFilter
   )
   const [tagMode, setTagModeState] = useState<FilterMode>(
     initialFilterState.tagMode
   )
-  const [tagSortDirection, setTagSortDirectionState] = useState<SortDirection>(
-    initialFilterState.tagSortDirection
-  )
 
   const setSortBy = useCallback((value: CaseSortValue) => {
     setSortByState(value)
-    setPrioritySortDirectionState(null)
-    setSeveritySortDirectionState(null)
-    setAssigneeSortDirectionState(null)
-    setTagSortDirectionState(null)
     setDropdownFilters((prev) => {
       const next: Record<string, DropdownFilterState> = {}
       for (const [ref, state] of Object.entries(prev)) {
@@ -700,33 +717,43 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     })
   }, [])
 
-  const setPrioritySortDirection = useCallback((direction: SortDirection) => {
-    setPrioritySortDirectionState(direction)
-    if (direction) {
-      setSortByState({ field: "priority", direction })
-      setSeveritySortDirectionState(null)
-    } else {
-      setSortByState(DEFAULT_CASE_SORT)
-    }
-  }, [])
+  const setPrioritySortDirection = useCallback(
+    (direction: SortDirection) => {
+      if (direction) {
+        setSortBy({ field: "priority", direction })
+      } else {
+        setSortBy(DEFAULT_CASE_SORT)
+      }
+    },
+    [setSortBy]
+  )
 
-  const setSeveritySortDirection = useCallback((direction: SortDirection) => {
-    setSeveritySortDirectionState(direction)
-    if (direction) {
-      setSortByState({ field: "severity", direction })
-      setPrioritySortDirectionState(null)
-    } else {
-      setSortByState(DEFAULT_CASE_SORT)
-    }
-  }, [])
+  const setSeveritySortDirection = useCallback(
+    (direction: SortDirection) => {
+      if (direction) {
+        setSortBy({ field: "severity", direction })
+      } else {
+        setSortBy(DEFAULT_CASE_SORT)
+      }
+    },
+    [setSortBy]
+  )
 
-  const setAssigneeSortDirection = useCallback((direction: SortDirection) => {
-    setAssigneeSortDirectionState(direction)
-  }, [])
+  const setAssigneeSortDirection = useCallback(
+    (direction: SortDirection) => {
+      setSortBy(
+        direction ? { field: "assignee", direction } : DEFAULT_CASE_SORT
+      )
+    },
+    [setSortBy]
+  )
 
-  const setTagSortDirection = useCallback((direction: SortDirection) => {
-    setTagSortDirectionState(direction)
-  }, [])
+  const setTagSortDirection = useCallback(
+    (direction: SortDirection) => {
+      setSortBy(direction ? { field: "tags", direction } : DEFAULT_CASE_SORT)
+    },
+    [setSortBy]
+  )
   const [dropdownFilters, setDropdownFilters] = useState<
     Record<string, DropdownFilterState>
   >(initialFilterState.dropdownFilters)
@@ -768,16 +795,12 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     setStatusMode(nextFilterState.statusMode)
     setPriorityFilter(nextFilterState.priorityFilter)
     setPriorityMode(nextFilterState.priorityMode)
-    setPrioritySortDirectionState(nextFilterState.prioritySortDirection)
     setSeverityFilter(nextFilterState.severityFilter)
     setSeverityMode(nextFilterState.severityMode)
-    setSeveritySortDirectionState(nextFilterState.severitySortDirection)
     setAssigneeFilter(nextFilterState.assigneeFilter)
     setAssigneeModeState(nextFilterState.assigneeMode)
-    setAssigneeSortDirectionState(nextFilterState.assigneeSortDirection)
     setTagFilter(nextFilterState.tagFilter)
     setTagModeState(nextFilterState.tagMode)
-    setTagSortDirectionState(nextFilterState.tagSortDirection)
     setDropdownFilters(nextFilterState.dropdownFilters)
     setUpdatedAfter(nextFilterState.updatedAfter)
     setCreatedAfter(nextFilterState.createdAfter)
@@ -799,16 +822,19 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         statusMode,
         priorityFilter,
         priorityMode,
-        prioritySortDirection,
+        prioritySortDirection:
+          sortBy.field === "priority" ? sortBy.direction : null,
         severityFilter,
         severityMode,
-        severitySortDirection,
+        severitySortDirection:
+          sortBy.field === "severity" ? sortBy.direction : null,
         assigneeFilter,
         assigneeMode,
-        assigneeSortDirection,
+        assigneeSortDirection:
+          sortBy.field === "assignee" ? sortBy.direction : null,
         tagFilter,
         tagMode,
-        tagSortDirection,
+        tagSortDirection: sortBy.field === "tags" ? sortBy.direction : null,
         dropdownFilters,
         updatedAfter,
         createdAfter,
@@ -823,16 +849,12 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     statusMode,
     priorityFilter,
     priorityMode,
-    prioritySortDirection,
     severityFilter,
     severityMode,
-    severitySortDirection,
     assigneeFilter,
     assigneeMode,
-    assigneeSortDirection,
     tagFilter,
     tagMode,
-    tagSortDirection,
     dropdownFilters,
     updatedAfter,
     createdAfter,
@@ -970,14 +992,15 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   ])
 
   const serverSortParams = useMemo(() => {
-    if (prioritySortDirection) {
-      return { orderBy: "priority" as const, sort: prioritySortDirection }
-    }
-    if (severitySortDirection) {
-      return { orderBy: "severity" as const, sort: severitySortDirection }
-    }
     return { orderBy: sortBy.field, sort: sortBy.direction }
-  }, [prioritySortDirection, severitySortDirection, sortBy])
+  }, [sortBy])
+  const prioritySortDirection =
+    sortBy.field === "priority" ? sortBy.direction : null
+  const severitySortDirection =
+    sortBy.field === "severity" ? sortBy.direction : null
+  const assigneeSortDirection =
+    sortBy.field === "assignee" ? sortBy.direction : null
+  const tagSortDirection = sortBy.field === "tags" ? sortBy.direction : null
 
   const filtersKey = useMemo(
     () =>
@@ -1119,31 +1142,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     return deduped
   }, [visibleRowsData?.pages])
 
-  const sortedCases = useMemo(() => {
-    if (assigneeSortDirection) {
-      const multiplier = assigneeSortDirection === "asc" ? 1 : -1
-      return [...flattenedCases].sort((a, b) => {
-        const aName = a.assignee?.email ?? ""
-        const bName = b.assignee?.email ?? ""
-        return multiplier * aName.localeCompare(bName)
-      })
-    }
-
-    if (tagSortDirection) {
-      const multiplier = tagSortDirection === "asc" ? 1 : -1
-      return [...flattenedCases].sort((a, b) => {
-        const aTag = a.tags?.[0]?.name ?? ""
-        const bTag = b.tags?.[0]?.name ?? ""
-        if (!aTag && bTag) return 1
-        if (aTag && !bTag) return -1
-        return multiplier * aTag.localeCompare(bTag)
-      })
-    }
-
-    return flattenedCases
-  }, [flattenedCases, assigneeSortDirection, tagSortDirection])
-
-  const cases = sortedCases
+  const cases = flattenedCases
 
   const totalFilteredCaseEstimate = hasImpossibleEnumFilter
     ? 0
