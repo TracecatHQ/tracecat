@@ -1,10 +1,5 @@
 import * as aiSdk from "@ai-sdk/react"
-import {
-  type ChatOnDataCallback,
-  type ChatStatus,
-  DefaultChatTransport,
-  type UIMessage,
-} from "ai"
+import type { ChatOnDataCallback, ChatStatus, UIMessage } from "ai"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   type AgentBackendRead,
@@ -34,7 +29,12 @@ import {
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import { getBaseUrl } from "@/lib/api"
-import { type ModelInfo, toServerUIMessage } from "@/lib/chat"
+import {
+  CHAT_MESSAGES_THROTTLE_MS,
+  CoalescingChatTransport,
+  type ModelInfo,
+  toServerUIMessage,
+} from "@/lib/chat"
 import {
   type QueryClient,
   type UseQueryResult,
@@ -643,7 +643,8 @@ export function useVercelChat({
     // Reconnects are started below so sends can wait for them.
     resume: false,
     messages,
-    transport: new DefaultChatTransport({
+    experimental_throttle: CHAT_MESSAGES_THROTTLE_MS,
+    transport: new CoalescingChatTransport({
       api: apiEndpoint,
       credentials: "include",
       prepareReconnectToStreamRequest: ({ id }) => {
