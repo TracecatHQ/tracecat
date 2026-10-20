@@ -289,6 +289,9 @@ class CasesClient:
         filters accepts the server's AND/OR/NOT JSON filter tree. Tags support
         in (any), AND of contains (all), NOT in (none), and is_null (untagged).
         Scalar exclusions omit unset values unless ORed with is_null.
+        Payload equality uses field="payload.metadata.product.vendor_name", op="eq",
+        value="Microsoft". Combine leaves with and/or/not. JSON scalar types are
+        preserved; is_null matches missing paths, not explicit JSON null.
         Exact IDs and compatibility criteria are ANDed with the filter tree.
         Returned details are independent of matching.
         Explicit full_text uses required words/per-field phrases and defaults to

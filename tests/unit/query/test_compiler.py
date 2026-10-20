@@ -82,6 +82,7 @@ KIND_OPS: Mapping[FieldKind, frozenset[FilterOp]] = {
         }
     ),
     FieldKind.TAG: frozenset({FilterOp.CONTAINS, FilterOp.IN, FilterOp.IS_NULL}),
+    FieldKind.JSON_SCALAR: frozenset({FilterOp.EQ, FilterOp.NE, FilterOp.IS_NULL}),
 }
 
 
@@ -110,6 +111,8 @@ class _NativeStatus(StrEnum):
 
 def _expression(kind: FieldKind) -> ColumnElement[Any]:
     match kind:
+        case FieldKind.JSON_SCALAR:
+            return sa.column("value", postgresql.JSONB())
         case FieldKind.NUMBER:
             return sa.column("value", sa.Numeric())
         case FieldKind.BOOLEAN:

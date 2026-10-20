@@ -10053,6 +10053,78 @@ export const $CaseFieldUpdate = {
   description: "Update a case field.",
 } as const
 
+export const $CaseFilterField = {
+  properties: {
+    field: {
+      type: "string",
+      title: "Field",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+    },
+    kind: {
+      $ref: "#/components/schemas/FieldKind",
+    },
+    operators: {
+      items: {
+        $ref: "#/components/schemas/FilterOp",
+      },
+      type: "array",
+      title: "Operators",
+    },
+    choices: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Choices",
+    },
+    input_type: {
+      type: "string",
+      enum: ["text", "number", "date", "datetime-local"],
+      title: "Input Type",
+      default: "text",
+    },
+  },
+  type: "object",
+  required: ["field", "label", "kind", "operators"],
+  title: "CaseFilterField",
+  description:
+    "Server-defined operators and input metadata for one searchable field.",
+} as const
+
+export const $CaseFilterMetadata = {
+  properties: {
+    fields: {
+      items: {
+        $ref: "#/components/schemas/CaseFilterField",
+      },
+      type: "array",
+      title: "Fields",
+    },
+    max_depth: {
+      type: "integer",
+      title: "Max Depth",
+    },
+    max_conditions: {
+      type: "integer",
+      title: "Max Conditions",
+    },
+  },
+  type: "object",
+  required: ["fields", "max_depth", "max_conditions"],
+  title: "CaseFilterMetadata",
+  description: "Discoverable filter fields and shared query limits.",
+} as const
+
 export const $CaseLinkedTableRead = {
   properties: {
     table_id: {
@@ -10144,6 +10216,8 @@ export const $CaseQuery = {
           type: "null",
         },
       ],
+      description:
+        'AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.',
     },
     search_term: {
       anyOf: [
@@ -10804,6 +10878,8 @@ export const $CaseSearchRequest = {
           type: "null",
         },
       ],
+      description:
+        'AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.',
     },
     search_term: {
       anyOf: [
@@ -17265,6 +17341,22 @@ export const $FieldDiff = {
   type: "object",
   required: ["field", "old", "new"],
   title: "FieldDiff",
+} as const
+
+export const $FieldKind = {
+  type: "string",
+  enum: [
+    "text",
+    "number",
+    "boolean",
+    "temporal",
+    "enum",
+    "uuid",
+    "tag",
+    "json_scalar",
+  ],
+  title: "FieldKind",
+  description: "Value families understood by the shared filter compiler.",
 } as const
 
 export const $FileUIPart = {

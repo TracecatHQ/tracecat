@@ -22,6 +22,7 @@ class FieldKind(StrEnum):
     ENUM = "enum"
     UUID = "uuid"
     TAG = "tag"
+    JSON_SCALAR = "json_scalar"
 
 
 type NormalizedFilterScalar = FilterScalar | Enum

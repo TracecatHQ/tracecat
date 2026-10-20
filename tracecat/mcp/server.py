@@ -6886,7 +6886,10 @@ async def search_cases(
         filters: Shared AND/OR/NOT JSON filter tree. Tag in matches any tag,
             AND of contains requires all, NOT in excludes selected tags, and
             is_null matches untagged cases. Scalar exclusions omit unset values
-            unless ORed with is_null.
+            unless ORed with is_null. Payload equality uses
+            field="payload.metadata.product.vendor_name", op="eq", value="Microsoft".
+            Combine with and/or/not; JSON scalar types are preserved. is_null
+            matches missing paths, not explicit JSON null.
         hierarchy: Return all cases or top-level cases.
         parent_id: Return sub-cases of this parent UUID.
         tags: Legacy tag IDs or refs with any-tag semantics.

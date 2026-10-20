@@ -318,6 +318,11 @@ async def test_search_cases_canonical_gateway_body_and_detail_flags(
         "or": [
             {"field": "priority", "op": "eq", "value": "critical"},
             {"field": "fields.risk_score", "op": "gte", "value": 80},
+            {
+                "field": "payload.metadata.product.vendor_name",
+                "op": "eq",
+                "value": "Microsoft",
+            },
         ]
     }
     requests: list[httpx.Request] = []

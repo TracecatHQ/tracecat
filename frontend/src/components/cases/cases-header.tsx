@@ -27,6 +27,7 @@ import type {
   CaseDurationDefinitionRead,
   CaseFieldReadMinimal,
   CasePriority,
+  CaseQuery,
   CaseSeverity,
   CaseStatus,
   CasesSearchCasesData,
@@ -39,6 +40,7 @@ import {
   STATUSES,
 } from "@/components/cases/case-categories"
 import { CaseColumnPicker } from "@/components/cases/case-column-picker"
+import { CaseFilterEditor } from "@/components/cases/case-filter-editor"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import {
   type CaseSortField,
@@ -53,6 +55,7 @@ import {
   type SortDirection,
 } from "@/components/filters/filter-multi-select"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Input } from "@/components/ui/input"
 import {
@@ -390,6 +393,7 @@ function CaseSortSelect({
 }
 
 interface CasesHeaderProps {
+  structuredFilters?: CaseQuery["filters"]
   searchQuery: string
   searchMode?: "full_text" | "literal"
   onSearchModeChange?: (mode: "full_text" | "literal") => void
@@ -441,6 +445,7 @@ interface CasesHeaderProps {
   visibleColumnIds?: string[]
   onToggleColumn?: (columnId: string) => void
   dropdownFilters: Record<string, DropdownFilterState>
+  onStructuredFiltersChange?: (filters: CaseQuery["filters"]) => void
   onDropdownFilterChange: (ref: string, values: string[]) => void
   onDropdownModeChange: (ref: string, mode: FilterMode) => void
   onDropdownSortDirectionChange: (ref: string, direction: SortDirection) => void
@@ -455,6 +460,7 @@ interface CasesHeaderProps {
 
 /** Case search, visible scope, and the current view's filter controls. */
 export function CasesHeader({
+  structuredFilters,
   searchQuery,
   searchMode = "full_text",
   onSearchModeChange,
@@ -506,6 +512,7 @@ export function CasesHeader({
   visibleColumnIds,
   onToggleColumn,
   dropdownFilters,
+  onStructuredFiltersChange,
   onDropdownFilterChange,
   onDropdownModeChange,
   onDropdownSortDirectionChange,
@@ -600,6 +607,7 @@ export function CasesHeader({
   const includesSubCases = effectiveHierarchy === "all"
 
   const hasFilters =
+    Boolean(structuredFilters) ||
     searchQuery.trim().length > 0 ||
     !isDefaultCaseSort(sortBy) ||
     statusFilter.length > 0 ||
@@ -613,6 +621,7 @@ export function CasesHeader({
     (includeSubCases && onIncludeSubCasesChange !== undefined)
 
   const handleReset = () => {
+    onStructuredFiltersChange?.(null)
     onSearchChange("")
     onSearchModeChange?.("full_text")
     onStatusChange([])
@@ -899,6 +908,37 @@ export function CasesHeader({
               />
             )
           })}
+
+          {dropdownDefinitions &&
+            Object.entries(dropdownFilters)
+              .filter(
+                ([ref, state]) =>
+                  state.values.length > 0 &&
+                  !dropdownDefinitions.some(
+                    (definition) => definition.ref === ref
+                  )
+              )
+              .map(([ref, state]) => (
+                <Button
+                  key={ref}
+                  variant="outline"
+                  size="sm"
+                  className="h-6 text-xs"
+                  onClick={() => onDropdownFilterChange(ref, [])}
+                >
+                  Unavailable dropdown {ref}: {state.values.join(", ")} ×
+                </Button>
+              ))}
+
+          {onStructuredFiltersChange && (
+            <CaseFilterEditor
+              value={structuredFilters ?? null}
+              onChange={onStructuredFiltersChange}
+              members={members}
+              tags={tags}
+              dropdowns={dropdownDefinitions}
+            />
+          )}
 
           <DateFilterSelect
             placeholder="Updated"

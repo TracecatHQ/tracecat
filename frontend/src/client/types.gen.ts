@@ -2739,6 +2739,29 @@ export type CaseFieldUpdate = {
 }
 
 /**
+ * Server-defined operators and input metadata for one searchable field.
+ */
+export type CaseFilterField = {
+  field: string
+  label: string
+  kind: FieldKind
+  operators: Array<FilterOp>
+  choices?: Array<string> | null
+  input_type?: "text" | "number" | "date" | "datetime-local"
+}
+
+export type input_type = "text" | "number" | "date" | "datetime-local"
+
+/**
+ * Discoverable filter fields and shared query limits.
+ */
+export type CaseFilterMetadata = {
+  fields: Array<CaseFilterField>
+  max_depth: number
+  max_conditions: number
+}
+
+/**
  * One table with at least one row linked to a case.
  *
  * ``row_count`` counts links, including links whose source row was deleted.
@@ -2799,6 +2822,9 @@ export type CasePriority =
  * unset values explicitly with an ``or`` containing ``is_null``.
  */
 export type CaseQuery = {
+  /**
+   * AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.
+   */
   filters?: Filter | null
   search_term?: string | null
   /**
@@ -2932,6 +2958,9 @@ export type CaseSearchRequest = {
    * Reverse pagination direction
    */
   reverse?: boolean
+  /**
+   * AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.
+   */
   filters?: Filter | null
   search_term?: string | null
   /**
@@ -5169,6 +5198,19 @@ export type FieldDiff = {
   old: unknown
   new: unknown
 }
+
+/**
+ * Value families understood by the shared filter compiler.
+ */
+export type FieldKind =
+  | "text"
+  | "number"
+  | "boolean"
+  | "temporal"
+  | "enum"
+  | "uuid"
+  | "tag"
+  | "json_scalar"
 
 /**
  * A file part of a message.
@@ -16572,6 +16614,12 @@ export type CasesCreateCaseData = {
 
 export type CasesCreateCaseResponse = CaseRead
 
+export type CasesListCaseFilterFieldsData = {
+  workspaceId: string
+}
+
+export type CasesListCaseFilterFieldsResponse = CaseFilterMetadata
+
 export type CasesQueryCasesData = {
   requestBody: CaseSearchRequest
   workspaceId: string
@@ -24246,6 +24294,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: CaseRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/search/fields": {
+    get: {
+      req: CasesListCaseFilterFieldsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseFilterMetadata
         /**
          * Validation Error
          */

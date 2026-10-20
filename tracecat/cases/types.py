@@ -48,3 +48,4 @@ class CustomFieldDefinition:
     physical_name: str
     sql_type: SqlType
     kind: CaseFieldKind | None
+    options: tuple[str, ...] | None

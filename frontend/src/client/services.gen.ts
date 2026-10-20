@@ -373,6 +373,8 @@ import type {
   CasesLinkCaseRowResponse,
   CasesListCaseDropdownValuesData,
   CasesListCaseDropdownValuesResponse,
+  CasesListCaseFilterFieldsData,
+  CasesListCaseFilterFieldsResponse,
   CasesListCaseLinkedTablesData,
   CasesListCaseLinkedTablesResponse,
   CasesListCaseRowsData,
@@ -12044,6 +12046,29 @@ export const casesCreateCase = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Case Filter Fields
+ * List filterable workspace fields with authoritative operators and limits.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns CaseFilterMetadata Successful Response
+ * @throws ApiError
+ */
+export const casesListCaseFilterFields = (
+  data: CasesListCaseFilterFieldsData
+): CancelablePromise<CasesListCaseFilterFieldsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/cases/search/fields",
+    path: {
+      workspace_id: data.workspaceId,
+    },
     errors: {
       422: "Validation Error",
     },
