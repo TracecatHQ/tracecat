@@ -582,24 +582,40 @@ function getSubmittedDecisions(
  * session's saved history, which carries the tag, replaces it. The user's
  * decision is in the approval submission, so it tags the result meanwhile.
  */
-export function markLiveDenials(messages: ai.UIMessage[]): ai.UIMessage[] {
+export function markLiveDenials(
+  messages: ai.UIMessage[],
+  sentDecisions: readonly Record<string, unknown>[] = []
+): ai.UIMessage[] {
   const reasons = new Map<string, string>()
-  for (const message of messages) {
-    for (const part of message.parts) {
-      for (const decision of getSubmittedDecisions(part)) {
-        const { action, tool_call_id, reason } = decision
-        if (action === "deny" && typeof tool_call_id === "string") {
-          reasons.set(tool_call_id, typeof reason === "string" ? reason : "")
-        }
-      }
+  const overrides = new Map<string, unknown>()
+  // A submission stays in the transcript only until the saved history
+  // replaces it, so decisions this tab sent are passed in as well.
+  const decisions = [
+    ...sentDecisions,
+    ...messages.flatMap((message) =>
+      message.parts.flatMap((part) => getSubmittedDecisions(part))
+    ),
+  ]
+  for (const decision of decisions) {
+    const { action, tool_call_id, reason, override_args } = decision
+    if (typeof tool_call_id !== "string") continue
+    if (action === "deny") {
+      reasons.set(tool_call_id, typeof reason === "string" ? reason : "")
+    } else if (action === "override" && override_args) {
+      overrides.set(tool_call_id, override_args)
     }
   }
-  if (reasons.size === 0) {
+  if (reasons.size === 0 && overrides.size === 0) {
     return messages
   }
   return messages.map((message) => {
     let tagged = false
     const parts = message.parts.map((part) => {
+      // Show the arguments the call ran with, not the ones it asked for.
+      if (ai.isToolUIPart(part) && overrides.has(part.toolCallId)) {
+        tagged = true
+        return { ...part, input: overrides.get(part.toolCallId) } as typeof part
+      }
       if (
         !ai.isToolUIPart(part) ||
         !isToolResultPart(part) ||

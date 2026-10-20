@@ -1017,15 +1017,9 @@ function renderServerBackedPane() {
   )
 }
 
-/** The approval batch's Submit, not the composer's icon button of that name. */
+/** The approval batch's Submit, shown in place of the prompt box. */
 function approvalSubmit(): HTMLElement {
-  const button = screen
-    .getAllByRole("button", { name: "Submit decisions" })
-    .find((candidate) => candidate.textContent?.trim() === "Submit decisions")
-  if (!button) {
-    throw new Error("Approval submit button not found")
-  }
-  return button
+  return screen.getByRole("button", { name: "Submit" })
 }
 
 describe("ChatSessionPane approvals decided elsewhere", () => {
@@ -1192,7 +1186,7 @@ describe("ChatSessionPane approvals decided elsewhere", () => {
     // The first card never shows this tab's unsent denial as its decision.
     await waitFor(() =>
       expect(
-        card("first").queryByPlaceholderText("Reason, sent to the agent")
+        screen.queryByPlaceholderText("Reason, sent to the agent")
       ).not.toBeInTheDocument()
     )
     expect(

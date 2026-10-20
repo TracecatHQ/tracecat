@@ -43,7 +43,7 @@ function TraceLine({
       className={cn(
         "flex w-fit min-w-0 max-w-full items-center gap-2 text-sm text-muted-foreground transition-colors",
         "[:is(a,button)>&]:cursor-pointer [:is(a,button):hover>&]:text-foreground",
-        "data-[status=error]:text-destructive [:is(a,button):hover>&]:data-[status=error]:text-destructive",
+        "data-[status=error]:text-destructive dark:data-[status=error]:text-red-400 [:is(a,button):hover>&]:data-[status=error]:text-destructive dark:[:is(a,button):hover>&]:data-[status=error]:text-red-400",
         "data-[status=pending]:opacity-60",
         className
       )}
@@ -112,7 +112,7 @@ function TraceCollapsibleTrigger({
     <CollapsibleTrigger
       data-slot="trace-collapsible-trigger"
       className={cn(
-        "group/trace-trigger flex w-fit min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-md text-left text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring has-[[data-status=error]]:text-destructive",
+        "group/trace-trigger flex w-fit min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-md text-left text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring has-[[data-status=error]]:text-destructive dark:has-[[data-status=error]]:text-red-400",
         className
       )}
       {...props}

@@ -1074,12 +1074,7 @@ describe("ChatSessionPane", () => {
     )
 
     const firstCard = screen.getByTestId("approval-card-tc-1")
-    const approvalSubmit = screen
-      .getAllByRole("button", { name: "Submit decisions" })
-      .find((button) => button.textContent?.trim() === "Submit decisions")
-    if (!approvalSubmit) {
-      throw new Error("Approval submit button not found")
-    }
+    const approvalSubmit = screen.getByRole("button", { name: "Submit" })
 
     expect(approvalSubmit).toBeDisabled()
 
@@ -3017,7 +3012,7 @@ describe("ChatSessionPane", () => {
 
       renderSubject()
 
-      expect(screen.getAllByText(TOOL_LABEL)).toHaveLength(1)
+      expect(screen.getAllByTestId("approval-waiting-tc-1")).toHaveLength(1)
       expect(screen.getAllByText("Approve")).toHaveLength(1)
     })
 

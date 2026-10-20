@@ -1284,6 +1284,18 @@ def convert_chat_messages_to_ui(
         and message.approval is not None
         and message.approval.status == ApprovalStatus.REJECTED
     }
+    # A call approved with edited arguments ran with those, so show them.
+    approved_overrides: dict[str, dict[str, Any]] = {
+        message.approval.tool_call_id: override_args
+        for message in messages
+        if message.kind == MessageKind.APPROVAL_REQUEST
+        and message.approval is not None
+        and message.approval.status == ApprovalStatus.APPROVED
+        and isinstance(message.approval.decision, dict)
+        and isinstance(
+            override_args := message.approval.decision.get("override_args"), dict
+        )
+    }
 
     for chat_message in messages:
         # Handle compaction status badges from DB (kind=COMPACTION)
@@ -1410,7 +1422,9 @@ def convert_chat_messages_to_ui(
                         tool_input = tool_input.get("args", tool_input)
                     # Normalize MCP registry prefix
                     tool_name = normalize_mcp_tool_name(tool_name)
-                    tool_input = sanitize_agent_tool_input(tool_name, tool_input)
+                    tool_input = sanitize_agent_tool_input(
+                        tool_name, approved_overrides.get(part.id, tool_input)
+                    )
                     tool_part = MutableToolPart(
                         type=f"tool-{tool_name}",
                         tool_call_id=part.id,
