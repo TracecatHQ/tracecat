@@ -107,6 +107,8 @@ export const ApprovalComposerContext = createContext<{
   /** Calls the prompt box is answering. */
   composerIds: ReadonlySet<string>
   sentIds: ReadonlySet<string>
+  /** Sent calls the user denied. */
+  deniedIds: ReadonlySet<string>
 } | null>(null)
 
 export function ApprovalRequestPart({
@@ -659,6 +661,7 @@ export function ApprovalRequestPart({
         pending.map((approval) => {
           const actionId = reconstructActionType(approval.tool_name)
           const sent = composerContext.sentIds.has(approval.tool_call_id)
+          const denied = composerContext.deniedIds.has(approval.tool_call_id)
           return (
             <div
               key={approval.tool_call_id}
@@ -671,7 +674,13 @@ export function ApprovalRequestPart({
               <Tool>
                 <ToolHeader
                   title={actionId}
-                  state={sent ? "input-available" : "approval-requested"}
+                  state={
+                    denied
+                      ? "output-denied"
+                      : sent
+                        ? "input-available"
+                        : "approval-requested"
+                  }
                   icon={getIcon(actionId, TOOL_ICON_PROPS)}
                 />
                 <ToolContent>

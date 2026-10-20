@@ -695,10 +695,21 @@ export function ChatSessionPane({
   const [sentApprovalIds, setSentApprovalIds] = useState<ReadonlySet<string>>(
     () => new Set()
   )
+  const [deniedApprovalIds, setDeniedApprovalIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set())
   const handleSubmitComposerApprovals = useCallback(
     async (decisionPayload: ApprovalDecision[]): Promise<string[]> => {
       const sentIds = await handleSubmitApprovals(decisionPayload)
+      const sent = new Set(sentIds)
+      const deniedIds = decisionPayload
+        .filter(
+          ({ action, tool_call_id }) =>
+            action === "deny" && sent.has(tool_call_id)
+        )
+        .map(({ tool_call_id }) => tool_call_id)
       setSentApprovalIds((prev) => new Set([...prev, ...sentIds]))
+      setDeniedApprovalIds((prev) => new Set([...prev, ...deniedIds]))
       return sentIds
     },
     [handleSubmitApprovals]
@@ -1029,8 +1040,9 @@ export function ChatSessionPane({
               composerApprovals.map(({ tool_call_id }) => tool_call_id)
             ),
             sentIds: sentApprovalIds,
+            deniedIds: deniedApprovalIds,
           },
-    [composerApprovals, isReadonly, sentApprovalIds]
+    [composerApprovals, deniedApprovalIds, isReadonly, sentApprovalIds]
   )
   const lastMessageId = messages.at(-1)?.id
 

@@ -1332,6 +1332,88 @@ describe("ChatSessionPane", () => {
     ).toBeEnabled()
   })
 
+  it("shows a denied call as denied as soon as the batch is sent", async () => {
+    const sendMessage = jest.fn().mockResolvedValue(undefined)
+
+    mockUseVercelChat.mockReturnValue({
+      sendMessage,
+      setMessages: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [
+        {
+          id: "msg-approval",
+          role: "assistant",
+          parts: [
+            {
+              type: "data-approval-request",
+              data: [
+                {
+                  tool_call_id: "tc-1",
+                  tool_name: "core__http_request",
+                  args: { url: "https://example.com" },
+                },
+                {
+                  tool_call_id: "tc-2",
+                  tool_name: "core__http_request",
+                  args: { url: "https://example.org" },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture()}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    fireEvent.click(
+      within(screen.getByTestId("approval-card-tc-1")).getByRole("button", {
+        name: "Approve",
+      })
+    )
+    fireEvent.click(
+      within(screen.getByTestId("approval-card-tc-2")).getByRole("button", {
+        name: "Deny",
+      })
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }))
+
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledTimes(1)
+    })
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("approval-card-tc-2")).getByText(
+          "Denied core.http_request"
+        )
+      ).toBeInTheDocument()
+    )
+    expect(
+      within(screen.getByTestId("approval-card-tc-1")).getByText(
+        "Running core.http_request"
+      )
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId("approval-card-tc-2")).queryByText(/^Running/)
+    ).not.toBeInTheDocument()
+  })
+
   it("mounts previously submitted approval cards without actions", () => {
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
