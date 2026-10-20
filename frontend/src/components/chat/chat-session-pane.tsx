@@ -56,7 +56,11 @@ import {
   SourcesTrigger,
 } from "@/components/ai-elements/sources"
 import { AgentTurn, groupThread } from "@/components/chat/agent-turn"
-import { ApprovalsAlreadyDecidedError } from "@/components/chat/approval-request-part"
+import {
+  ApprovalComposerContext,
+  ApprovalRequestPart,
+  ApprovalsAlreadyDecidedError,
+} from "@/components/chat/approval-request-part"
 import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
 import { ChatToolsPicker } from "@/components/chat/chat-tools-picker"
 import {
@@ -97,6 +101,7 @@ import {
   ENTITY_TO_INVALIDATION,
   getPendingApprovalIds,
   getSessionLastError,
+  isApprovalCardArray,
   type ModelInfo,
   markLiveDenials,
   toUIMessage,
@@ -653,6 +658,18 @@ export function ChatSessionPane({
     [clearError, fetchPendingApprovalIds, isReadonly, sendMessage]
   )
 
+  const [sentApprovalIds, setSentApprovalIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  )
+  const handleSubmitComposerApprovals = useCallback(
+    async (decisionPayload: ApprovalDecision[]): Promise<string[]> => {
+      const sentIds = await handleSubmitApprovals(decisionPayload)
+      setSentApprovalIds((prev) => new Set([...prev, ...sentIds]))
+      return sentIds
+    },
+    [handleSubmitApprovals]
+  )
+
   useEffect(() => {
     onMessagesChange?.(messages)
   }, [messages, onMessagesChange])
@@ -948,6 +965,27 @@ export function ChatSessionPane({
     () => groupThread(transformedMessages),
     [transformedMessages]
   )
+  const approvalComposerContext = useMemo(
+    () => (isReadonly ? null : { sentIds: sentApprovalIds }),
+    [isReadonly, sentApprovalIds]
+  )
+  // The latest turn's undecided calls, answered from the prompt box.
+  const composerApprovals = useMemo(() => {
+    const lastBlock = threadBlocks.at(-1)
+    if (isReadonly || lastBlock?.kind !== "turn") return []
+    return lastBlock.messages
+      .flatMap((message) => message.parts)
+      .flatMap((part) =>
+        part.type === "data-approval-request" && isApprovalCardArray(part.data)
+          ? part.data
+          : []
+      )
+      .filter(
+        (approval) =>
+          (!approval.status || approval.status === "pending") &&
+          !sentApprovalIds.has(approval.tool_call_id)
+      )
+  }, [isReadonly, sentApprovalIds, threadBlocks])
   const lastMessageId = messages.at(-1)?.id
 
   // Response actions go on the latest message on screen when it is the
@@ -1192,7 +1230,7 @@ export function ChatSessionPane({
       ? presetSelector.label
       : null
 
-  const promptComposer = (
+  const promptBox = (
     <div ref={promptInputContainerRef} className={promptCenterClass}>
       {isReadonly ? (
         <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
@@ -1311,6 +1349,20 @@ export function ChatSessionPane({
       </MentionPopover>
     </div>
   )
+
+  const promptComposer =
+    composerApprovals.length > 0 && !isGeneratingTurn ? (
+      <div ref={promptInputContainerRef} className={promptCenterClass}>
+        <ApprovalRequestPart
+          key={composerApprovals.map((a) => a.tool_call_id).join(":")}
+          variant="composer"
+          approvals={composerApprovals}
+          onSubmit={handleSubmitComposerApprovals}
+        />
+      </div>
+    ) : (
+      promptBox
+    )
 
   const isEmptyConversation =
     !displayedError &&
@@ -1453,7 +1505,9 @@ export function ChatSessionPane({
   return (
     <ChatVerbosityContext.Provider value={verbosity}>
       <SubagentStreamContext.Provider value={subagentStreamContext}>
-        {conversationView}
+        <ApprovalComposerContext.Provider value={approvalComposerContext}>
+          {conversationView}
+        </ApprovalComposerContext.Provider>
       </SubagentStreamContext.Provider>
     </ChatVerbosityContext.Provider>
   )

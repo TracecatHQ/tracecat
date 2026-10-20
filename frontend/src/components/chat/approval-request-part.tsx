@@ -4,14 +4,19 @@ import {
   ChevronRightIcon,
   CirclePauseIcon,
   CopyIcon,
+  CornerDownLeftIcon,
   Loader2,
   PencilIcon,
 } from "lucide-react"
 import {
+  createContext,
+  type KeyboardEvent,
   type ReactNode,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react"
 import type { ApprovalDecision } from "@/client"
@@ -89,17 +94,30 @@ function approvalStateKey(approval: ApprovalCard): string {
 /** The approvals being submitted were already decided on another surface. */
 export class ApprovalsAlreadyDecidedError extends Error {}
 
+/**
+ * Set where the prompt box takes over pending approvals, so the thread only
+ * marks those calls as waiting, or running once the prompt box sent them.
+ */
+export const ApprovalComposerContext = createContext<{
+  sentIds: ReadonlySet<string>
+} | null>(null)
+
 export function ApprovalRequestPart({
   approvals,
   onSubmit,
   canSubmit = true,
+  variant = "inline",
 }: {
   approvals: ApprovalCard[]
   /** Resolves with the tool call IDs whose decisions it sent. */
   onSubmit?: (decisions: ApprovalDecision[]) => Promise<string[]>
   /** False until the backend has saved the pause the decisions answer. */
   canSubmit?: boolean
+  /** "composer" draws the pending calls in place of the prompt box. */
+  variant?: "inline" | "composer"
 }) {
+  const composerContext = useContext(ApprovalComposerContext)
+  const sectionRef = useRef<HTMLElement>(null)
   const [decisions, setDecisions] = useState<Record<string, DecisionState>>({})
   const [submittedDecisions, setSubmittedDecisions] = useState<
     Record<string, DecisionState>
@@ -246,6 +264,12 @@ export function ApprovalRequestPart({
 
   const disabled = !onSubmit || decidedElsewhere || submitting
 
+  useEffect(() => {
+    if (variant === "composer") {
+      sectionRef.current?.focus({ preventScroll: true })
+    }
+  }, [variant, approvalsKey])
+
   if (!approvals.length) {
     return null
   }
@@ -256,9 +280,6 @@ export function ApprovalRequestPart({
       !submittedDecisions[approval.tool_call_id] &&
       !sendingIds.has(approval.tool_call_id)
   )
-  const pendingDecided = pending.filter(
-    (approval) => decisions[approval.tool_call_id]?.action
-  ).length
 
   function toggleEditing(approval: ApprovalCard) {
     const isEditing = decisions[approval.tool_call_id]?.action === "override"
@@ -315,6 +336,256 @@ export function ApprovalRequestPart({
     )
   }
 
+  const isComposer = variant === "composer"
+  const lone = pending.length === 1 ? pending[0] : undefined
+  const loneDecision = lone ? decisions[lone.tool_call_id] : undefined
+  const loneEditing = loneDecision?.action === "override"
+  const decisionsLocked = disabled || !canSubmit
+
+  function approveLone() {
+    if (!lone) return
+    void send({
+      [lone.tool_call_id]: loneEditing ? loneDecision : { action: "approve" },
+    })
+  }
+
+  function denyLone() {
+    if (!lone) return
+    void send({ [lone.tool_call_id]: { action: "deny" } })
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
+    const target = event.target as HTMLElement
+    if (
+      target.closest("input, textarea, [contenteditable=true], .cm-editor") ||
+      event.nativeEvent.isComposing
+    ) {
+      return
+    }
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault()
+      if (decisionsLocked) return
+      if (lone) {
+        approveLone()
+      } else if (hasSelectedPendingDecision) {
+        void handleSubmit()
+      }
+    } else if (event.key === "Escape" && lone && !decisionsLocked) {
+      event.preventDefault()
+      denyLone()
+    }
+  }
+
+  function renderBatchRows(rowClassName: string) {
+    return (
+      <ul className="divide-y divide-border/60">
+        {pending.map((approval) => {
+          const toolCallId = approval.tool_call_id
+          const actionId = reconstructActionType(approval.tool_name)
+          const decision = decisions[toolCallId]
+          const isEditing = decision?.action === "override"
+          const approved = decision?.action === "approve" || isEditing
+          const denied = decision?.action === "deny"
+          return (
+            <li
+              key={toolCallId}
+              data-testid={`approval-card-${toolCallId}`}
+              className={cn("space-y-2 py-2", rowClassName)}
+            >
+              <Collapsible>
+                <div className="flex items-center gap-2.5">
+                  <CollapsibleTrigger className="group flex min-w-0 flex-1 items-center gap-2 text-left">
+                    <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
+                    {getIcon(actionId, TOOL_ICON_PROPS)}
+                    <span className="shrink-0 font-mono text-[12.5px] font-medium">
+                      {actionId}
+                    </span>
+                    <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+                      {summarizeArgs(approval.args)}
+                    </span>
+                  </CollapsibleTrigger>
+                  <div
+                    role="group"
+                    aria-label={`Decision for ${actionId}`}
+                    className="flex shrink-0 overflow-hidden rounded-[7px] border"
+                  >
+                    <button
+                      type="button"
+                      aria-pressed={denied}
+                      disabled={disabled}
+                      onClick={() =>
+                        setDecision(
+                          toolCallId,
+                          denied ? { action: undefined } : { action: "deny" }
+                        )
+                      }
+                      className="h-[26px] px-[11px] text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50 aria-pressed:bg-muted aria-pressed:text-foreground"
+                    >
+                      Deny
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={approved}
+                      disabled={disabled}
+                      onClick={() =>
+                        setDecision(
+                          toolCallId,
+                          isEditing
+                            ? decision
+                            : approved
+                              ? { action: undefined }
+                              : { action: "approve" }
+                        )
+                      }
+                      className="h-[26px] border-l px-[11px] text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50 aria-pressed:bg-foreground aria-pressed:text-background"
+                    >
+                      {isEditing ? "Approve with edits" : "Approve"}
+                    </button>
+                  </div>
+                </div>
+                <CollapsibleContent>
+                  <div className="space-y-1 pl-[50px] pt-2">
+                    {isEditing ? (
+                      renderEditor(approval)
+                    ) : (
+                      <ApprovalArgs args={approval.args} />
+                    )}
+                    {hasArgs(approval.args) && renderEditButton(approval)}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+              {denied && (
+                <div className="pl-[50px]">
+                  <Input
+                    aria-label={`Deny reason for ${actionId}`}
+                    value={decision.reason ?? ""}
+                    onChange={(event) =>
+                      setDecision(toolCallId, {
+                        action: "deny",
+                        reason: event.target.value,
+                      })
+                    }
+                    placeholder="Reason, sent to the agent"
+                    disabled={disabled}
+                    className="h-7 text-xs"
+                  />
+                </div>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    )
+  }
+
+  const batchSubmit = (
+    <Button
+      type="button"
+      size="icon"
+      aria-label="Submit decisions"
+      title="Submit decisions (Enter)"
+      onClick={handleSubmit}
+      disabled={decisionsLocked || !hasSelectedPendingDecision}
+      className="size-7 rounded-full bg-foreground text-background hover:bg-foreground/85"
+    >
+      {submitting ? (
+        <Loader2 className="size-3.5 animate-spin" />
+      ) : (
+        <CornerDownLeftIcon className="size-3.5" />
+      )}
+    </Button>
+  )
+
+  function renderLoneDecisionButtons() {
+    return (
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={decisionsLocked}
+          onClick={denyLone}
+          className={DECISION_BUTTON_CLASS}
+        >
+          Deny
+          {isComposer && <Kbd>Esc</Kbd>}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          disabled={decisionsLocked}
+          onClick={approveLone}
+          className={cn(DECISION_BUTTON_CLASS, PRIMARY_BUTTON_CLASS)}
+        >
+          {loneEditing ? "Approve with edits" : "Approve"}
+          {isComposer && (
+            <Kbd inverted>
+              <CornerDownLeftIcon className="size-3" />
+            </Kbd>
+          )}
+        </Button>
+      </div>
+    )
+  }
+
+  if (isComposer) {
+    if (!pending.length) {
+      return null
+    }
+    return (
+      <section
+        ref={sectionRef}
+        tabIndex={-1}
+        onKeyDown={handleKeyDown}
+        data-testid={
+          lone ? `approval-card-${lone.tool_call_id}` : "approval-batch"
+        }
+        aria-label={lone ? "Approval required" : "Approvals required"}
+        className="rounded-[14px] border bg-background px-3.5 pb-3 pt-3 shadow-sm outline-none"
+      >
+        {lone ? (
+          <>
+            <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
+              {getIcon(reconstructActionType(lone.tool_name), TOOL_ICON_PROPS)}
+              <span className="truncate font-mono text-xs">
+                {reconstructActionType(lone.tool_name)}
+              </span>
+            </div>
+            <p className="mt-2 text-sm font-medium">Allow this tool call?</p>
+            <div className="mt-2 max-h-48 overflow-auto">
+              {loneEditing ? (
+                renderEditor(lone)
+              ) : (
+                <ApprovalArgs args={lone.args} />
+              )}
+            </div>
+            <footer className="mt-3 flex flex-wrap items-center justify-between gap-2">
+              <div>{hasArgs(lone.args) && renderEditButton(lone)}</div>
+              {renderLoneDecisionButtons()}
+            </footer>
+          </>
+        ) : (
+          <>
+            <p className="text-sm font-medium">
+              Allow {pending.length} tool calls?
+            </p>
+            <div className="mt-1 max-h-64 overflow-auto">
+              {renderBatchRows("")}
+            </div>
+            <footer className="mt-1 flex justify-end">{batchSubmit}</footer>
+          </>
+        )}
+        {decidedElsewhere && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            This approval was already decided elsewhere.
+          </p>
+        )}
+      </section>
+    )
+  }
+
+  const waitingInComposer = composerContext !== null && Boolean(onSubmit)
+
   return (
     <div className="space-y-1">
       {approvals
@@ -340,206 +611,77 @@ export function ApprovalRequestPart({
             </div>
           )
         })}
-      {pending.length === 1 &&
+      {waitingInComposer &&
         pending.map((approval) => {
-          const toolCallId = approval.tool_call_id
           const actionId = reconstructActionType(approval.tool_name)
-          const decision = decisions[toolCallId]
-          const isEditing = decision?.action === "override"
+          const sent = composerContext.sentIds.has(approval.tool_call_id)
           return (
-            <section
-              key={toolCallId}
-              data-testid={`approval-card-${toolCallId}`}
-              aria-label="Approval required"
-              className="my-2 rounded-[10px] border bg-background"
+            <div
+              key={approval.tool_call_id}
+              data-testid={
+                sent
+                  ? `approval-card-${approval.tool_call_id}`
+                  : `approval-waiting-${approval.tool_call_id}`
+              }
             >
-              <header className="flex items-center justify-between gap-3 border-b px-3.5 py-2.5">
-                <div className="flex min-w-0 items-center gap-2.5">
-                  {getIcon(actionId, TOOL_ICON_PROPS)}
-                  <span className="truncate font-mono text-[13px] font-medium">
-                    {actionId}
-                  </span>
-                </div>
-                <ApprovalStatus>Needs your approval</ApprovalStatus>
-              </header>
-              <div className="px-3.5 py-3">
-                {isEditing ? (
-                  renderEditor(approval)
-                ) : (
-                  <ApprovalArgs args={approval.args} />
-                )}
-              </div>
-              <footer className="flex flex-wrap items-center justify-between gap-2 px-3.5 pb-3">
-                <div>
-                  {hasArgs(approval.args) && renderEditButton(approval)}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={disabled || !canSubmit}
-                    onClick={() =>
-                      void send({ [toolCallId]: { action: "deny" } })
-                    }
-                    className={DECISION_BUTTON_CLASS}
-                  >
-                    Deny
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={disabled || !canSubmit}
-                    onClick={() =>
-                      void send({
-                        [toolCallId]: isEditing
-                          ? decision
-                          : { action: "approve" },
-                      })
-                    }
-                    className={cn(DECISION_BUTTON_CLASS, PRIMARY_BUTTON_CLASS)}
-                  >
-                    {isEditing ? "Approve with edits" : "Approve"}
-                  </Button>
-                </div>
-              </footer>
-            </section>
+              <Tool>
+                <ToolHeader
+                  title={actionId}
+                  state={sent ? "input-available" : "approval-requested"}
+                  icon={getIcon(actionId, TOOL_ICON_PROPS)}
+                />
+                <ToolContent>
+                  <ToolInput input={approval.args} />
+                </ToolContent>
+              </Tool>
+            </div>
           )
         })}
-      {pending.length > 1 && (
+      {!waitingInComposer && lone && (
+        <section
+          key={lone.tool_call_id}
+          data-testid={`approval-card-${lone.tool_call_id}`}
+          aria-label="Approval required"
+          className="my-2 rounded-[10px] border bg-background"
+        >
+          <header className="flex items-center justify-between gap-3 border-b px-3.5 py-2.5">
+            <div className="flex min-w-0 items-center gap-2.5">
+              {getIcon(reconstructActionType(lone.tool_name), TOOL_ICON_PROPS)}
+              <span className="truncate font-mono text-[13px] font-medium">
+                {reconstructActionType(lone.tool_name)}
+              </span>
+            </div>
+            <ApprovalStatus>Needs your approval</ApprovalStatus>
+          </header>
+          <div className="px-3.5 py-3">
+            {loneEditing ? (
+              renderEditor(lone)
+            ) : (
+              <ApprovalArgs args={lone.args} />
+            )}
+          </div>
+          <footer className="flex flex-wrap items-center justify-between gap-2 px-3.5 pb-3">
+            <div>{hasArgs(lone.args) && renderEditButton(lone)}</div>
+            {renderLoneDecisionButtons()}
+          </footer>
+        </section>
+      )}
+      {!waitingInComposer && pending.length > 1 && (
         <section
           data-testid="approval-batch"
           aria-label="Approvals required"
+          onKeyDown={handleKeyDown}
           className="my-2 rounded-[10px] border bg-background"
         >
-          <div className="flex items-center justify-between gap-3 border-b px-3.5 py-3">
+          <div className="flex items-center justify-between gap-3 border-b px-3.5 py-2.5">
             <span className="text-sm font-medium">
               {pending.length} tool calls
             </span>
             <ApprovalStatus>Need your approval</ApprovalStatus>
           </div>
-          <ul className="divide-y divide-border/60">
-            {pending.map((approval) => {
-              const toolCallId = approval.tool_call_id
-              const actionId = reconstructActionType(approval.tool_name)
-              const decision = decisions[toolCallId]
-              const isEditing = decision?.action === "override"
-              const approved = decision?.action === "approve" || isEditing
-              const denied = decision?.action === "deny"
-              return (
-                <li
-                  key={toolCallId}
-                  data-testid={`approval-card-${toolCallId}`}
-                  className="space-y-2 px-3.5 py-2.5"
-                >
-                  <Collapsible>
-                    <div className="flex items-center gap-2.5">
-                      <CollapsibleTrigger className="group flex min-w-0 flex-1 items-center gap-2.5 text-left">
-                        <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
-                        {getIcon(actionId, TOOL_ICON_PROPS)}
-                        <span className="shrink-0 font-mono text-[12.5px] font-medium">
-                          {actionId}
-                        </span>
-                        <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
-                          {summarizeArgs(approval.args)}
-                        </span>
-                      </CollapsibleTrigger>
-                      <div
-                        role="group"
-                        aria-label={`Decision for ${actionId}`}
-                        className="flex shrink-0 overflow-hidden rounded-[7px] border"
-                      >
-                        <button
-                          type="button"
-                          aria-pressed={denied}
-                          disabled={disabled}
-                          onClick={() =>
-                            setDecision(toolCallId, { action: "deny" })
-                          }
-                          className="h-[26px] px-[11px] text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50 aria-pressed:bg-muted aria-pressed:text-foreground"
-                        >
-                          Deny
-                        </button>
-                        <button
-                          type="button"
-                          aria-pressed={approved}
-                          disabled={disabled}
-                          onClick={() =>
-                            setDecision(
-                              toolCallId,
-                              isEditing ? decision : { action: "approve" }
-                            )
-                          }
-                          className="h-[26px] border-l px-[11px] text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50 aria-pressed:bg-foreground aria-pressed:text-background"
-                        >
-                          {isEditing ? "Approve with edits" : "Approve"}
-                        </button>
-                      </div>
-                    </div>
-                    <CollapsibleContent>
-                      <div className="space-y-1 pl-[54px] pt-2">
-                        {isEditing ? (
-                          renderEditor(approval)
-                        ) : (
-                          <ApprovalArgs args={approval.args} />
-                        )}
-                        {hasArgs(approval.args) && renderEditButton(approval)}
-                      </div>
-                    </CollapsibleContent>
-                  </Collapsible>
-                  {denied && (
-                    <div className="pl-[54px]">
-                      <Input
-                        aria-label={`Deny reason for ${actionId}`}
-                        value={decision.reason ?? ""}
-                        onChange={(event) =>
-                          setDecision(toolCallId, {
-                            action: "deny",
-                            reason: event.target.value,
-                          })
-                        }
-                        placeholder="Reason, sent to the agent"
-                        disabled={disabled}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-          <footer className="flex flex-wrap items-center justify-between gap-2 border-t px-3.5 py-2.5">
-            <span className="text-xs text-muted-foreground">
-              {pendingDecided} of {pending.length} decided
-            </span>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={disabled || pendingDecided === pending.length}
-                onClick={() => {
-                  for (const approval of pending) {
-                    if (!decisions[approval.tool_call_id]?.action) {
-                      setDecision(approval.tool_call_id, { action: "approve" })
-                    }
-                  }
-                }}
-                className={DECISION_BUTTON_CLASS}
-              >
-                Approve rest
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                onClick={handleSubmit}
-                disabled={disabled || !canSubmit || !hasSelectedPendingDecision}
-                className={cn(DECISION_BUTTON_CLASS, PRIMARY_BUTTON_CLASS)}
-              >
-                {submitting && <Loader2 className="size-3 animate-spin" />}
-                Submit decisions
-              </Button>
-            </div>
+          {renderBatchRows("px-3.5")}
+          <footer className="flex justify-end border-t px-3.5 py-2">
+            {batchSubmit}
           </footer>
         </section>
       )}
@@ -548,12 +690,35 @@ export function ApprovalRequestPart({
           Approval submission is not available in this context.
         </p>
       )}
-      {decidedElsewhere && (
+      {decidedElsewhere && !waitingInComposer && (
         <p className="text-xs text-muted-foreground">
           This approval was already decided elsewhere.
         </p>
       )}
     </div>
+  )
+}
+
+/** A key hint inside a button; hidden from its accessible name. */
+function Kbd({
+  children,
+  inverted = false,
+}: {
+  children: ReactNode
+  inverted?: boolean
+}) {
+  return (
+    <kbd
+      aria-hidden
+      className={cn(
+        "ml-1 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded px-1 font-sans text-[10.5px] font-medium",
+        inverted
+          ? "bg-background/20 text-background/80"
+          : "bg-muted text-muted-foreground"
+      )}
+    >
+      {children}
+    </kbd>
   )
 }
 
