@@ -780,3 +780,42 @@ def test_discovery_script_reports_registry_dependency_conflicts(
     assert result.error_code == SyncErrorCode.IMPORT_FAILED
     assert result.error.startswith("Registry dependencies conflict")
     assert isinstance(result.to_exception(), RegistrySyncContentError)
+
+
+@pytest.mark.parametrize("from_registry", [True, False])
+def test_discovery_script_attributes_action_load_import_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    from_registry: bool,
+) -> None:
+    registry_site_packages = tmp_path / "registry-site-packages"
+    root = registry_site_packages if from_registry else tmp_path / "trusted"
+
+    async def load_and_serialize_installed_actions(**_kwargs: object) -> None:
+        raise ImportError(
+            "cannot import name 'helper'",
+            name="shared_dep",
+            path=str(root / "shared_dep" / "__init__.py"),
+        )
+
+    entrypoint = ModuleType("tracecat.registry.sync.entrypoint")
+    entrypoint.__dict__["load_and_serialize_installed_actions"] = (
+        load_and_serialize_installed_actions
+    )
+    monkeypatch.setitem(sys.modules, entrypoint.__name__, entrypoint)
+    monkeypatch.delitem(sys.modules, "shared_dep", raising=False)
+    namespace: dict[str, object] = {}
+    exec(compile(_DISCOVERY_SCRIPT, "script.py", "exec"), namespace)
+    main = cast(Callable[..., object], namespace["main"])
+
+    result = SyncResultAdapter.validate_python(
+        main(
+            origin="git+ssh://git@git.example.test/acme/registry.git",
+            package_name="registry",
+            repository_id=str(uuid4()),
+            registry_site_packages=str(registry_site_packages),
+        )
+    )
+
+    assert isinstance(result, SyncResultError)
+    assert result.error_code == (SyncErrorCode.IMPORT_FAILED if from_registry else None)

@@ -273,7 +273,7 @@ def main(
         from tracecat.registry.sync.entrypoint import (
             load_and_serialize_installed_actions,
         )
-        from tracecat.registry.sync.schemas import SyncResultError
+        from tracecat.registry.sync.schemas import SyncErrorCode, SyncResultError
     except (ImportError, AttributeError) as exc:
         if not _from_registry_packages(exc, registry_site_packages):
             raise
@@ -296,7 +296,15 @@ def main(
             )
         )
     except Exception as exc:
-        return SyncResultError.from_exception(exc).model_dump(mode="json")
+        error = SyncResultError.from_exception(exc)
+        # Import failures in Tracecat's own code stay generic so they page us.
+        if (
+            error.error_code is None
+            and isinstance(exc, ImportError)
+            and _from_registry_packages(exc, registry_site_packages)
+        ):
+            error = error.model_copy(update={"error_code": SyncErrorCode.IMPORT_FAILED})
+        return error.model_dump(mode="json")
     return result.model_dump(mode="json")
 """
 

@@ -67,9 +67,6 @@ class SyncResultError(BaseModel):
         if isinstance(exc, ModuleNotFoundError):
             # Wrong `git_repo_package_name`.
             error_code = SyncErrorCode.PACKAGE_NOT_FOUND
-        elif isinstance(exc, ImportError):
-            # Usually a registry dependency that conflicts with Tracecat's.
-            error_code = SyncErrorCode.IMPORT_FAILED
         elif isinstance(exc, RegistryTemplateLoadError):
             error_code = SyncErrorCode.TEMPLATE_LOAD_FAILED
         return cls(error=str(exc), error_code=error_code)
