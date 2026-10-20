@@ -385,7 +385,7 @@ function PlainOutput({
       <pre
         className={cn(
           "max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 p-2.5 pr-8 font-mono text-xs text-foreground",
-          isError && "text-destructive"
+          isError && "text-destructive dark:text-red-400"
         )}
       >
         {text}
@@ -477,7 +477,7 @@ export const ToolOutput = memo(
           {errorText ? "Error" : "Result"}
         </h4>
         {errorText && (
-          <div className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive">
+          <div className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive dark:bg-red-500/10 dark:text-red-400">
             {errorText}
           </div>
         )}
