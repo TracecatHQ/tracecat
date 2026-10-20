@@ -423,7 +423,7 @@ export function ApprovalRequestPart({
                           denied ? { action: undefined } : { action: "deny" }
                         )
                       }
-                      className="h-[26px] px-[11px] text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50 aria-pressed:bg-muted aria-pressed:text-foreground"
+                      className="h-[22px] px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50 aria-pressed:bg-muted aria-pressed:text-foreground"
                     >
                       Deny
                     </button>
@@ -738,7 +738,7 @@ function Kbd({
     <kbd
       aria-hidden
       className={cn(
-        "ml-1 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded px-1 font-sans text-[10.5px] font-medium",
+        "ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded px-1 font-sans text-[10px] font-medium",
         inverted
           ? "bg-primary-foreground/20 text-primary-foreground/90"
           : "bg-muted text-muted-foreground"
@@ -749,7 +749,7 @@ function Kbd({
   )
 }
 
-const DECISION_BUTTON_CLASS = "h-[30px] rounded-[7px] px-3.5 text-[12.5px]"
+const DECISION_BUTTON_CLASS = "h-[26px] gap-1 rounded-md px-3 text-xs"
 const PRIMARY_BUTTON_CLASS =
   "bg-primary text-primary-foreground hover:bg-primary/90"
 
