@@ -731,10 +731,13 @@ class TestCoreListCases:
 class TestCoreSearchCases:
     """Test cases for search_cases UDF behavior."""
 
-    async def test_search_cases_does_not_accept_short_id(self):
-        """short_id was never supported by the SDK; use get_case with a short ID."""
-        with pytest.raises(TypeError):
-            await search_cases(short_id="CASE-0001")  # pyright: ignore[reportCallIssue]
+    async def test_search_cases_forwards_short_id(self, mock_cases_client: AsyncMock):
+        """Exact short IDs reach the SDK and preserve item-only results."""
+        mock_cases_client.search_cases.return_value = {"items": []}
+        assert await search_cases(short_id="CASE-0001") == []
+        mock_cases_client.search_cases.assert_called_once_with(
+            limit=100, short_id="CASE-0001"
+        )
 
     async def test_search_cases_no_params(
         self, mock_cases_client: AsyncMock, mock_case_dict
@@ -1402,3 +1405,40 @@ async def test_list_cases_by_row_paginate_returns_response(
 async def test_list_cases_by_row_rejects_large_limit() -> None:
     with pytest.raises(TracecatValidationError):
         await list_cases_by_row(table_id="t", row_id="r", limit=10_000)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("paginate", [False, True])
+async def test_search_cases_forwards_canonical_controls_and_preserves_shape(
+    mock_cases_client: AsyncMock, paginate: bool
+) -> None:
+    case_id = str(uuid.uuid4())
+    parent_id = str(uuid.uuid4())
+    filters = {"not": {"field": "fields.region", "op": "is_null"}}
+    response = {"items": [], "next_cursor": "synthetic-cursor", "total_estimate": None}
+    mock_cases_client.search_cases.return_value = response
+    result = await search_cases(
+        short_id="CASE-0042",
+        case_id=case_id,
+        parent_id=parent_id,
+        filters=filters,
+        include_rows=True,
+        include_payload=True,
+        include_durations=True,
+        include_count=False,
+        field_ids=["region"],
+        paginate=paginate,
+    )
+    assert result == (response if paginate else response["items"])
+    mock_cases_client.search_cases.assert_awaited_once_with(
+        limit=100,
+        short_id="CASE-0042",
+        case_id=case_id,
+        parent_id=parent_id,
+        filters=filters,
+        include_rows=True,
+        include_payload=True,
+        include_durations=True,
+        include_count=False,
+        field_ids=["region"],
+    )

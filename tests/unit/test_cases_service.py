@@ -1819,7 +1819,8 @@ class TestCasesService:
             return sa_selectinload(attr)
 
         with patch(
-            "tracecat.cases.service.selectinload", side_effect=tracked_selectinload
+            "tracecat.cases.search_service.selectinload",
+            side_effect=tracked_selectinload,
         ):
             await cases_service.search_cases(params=params)
 
@@ -1827,7 +1828,8 @@ class TestCasesService:
 
         loader_calls.clear()
         with patch(
-            "tracecat.cases.service.selectinload", side_effect=tracked_selectinload
+            "tracecat.cases.search_service.selectinload",
+            side_effect=tracked_selectinload,
         ):
             await cases_service.search_cases(params=params, include_durations=True)
 

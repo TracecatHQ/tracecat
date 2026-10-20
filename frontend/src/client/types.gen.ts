@@ -1375,6 +1375,13 @@ export type AlertArtifact = {
   type?: "alert"
 }
 
+/**
+ * A conjunction of one or more filters.
+ */
+export type AndClause = {
+  and: Array<Filter>
+}
+
 export type AnyAttachedSubagentRef =
   | ResolvedAttachedSubagentRef
   | AttachedSubagentRef
@@ -2776,6 +2783,42 @@ export type CasePriority =
   | "critical"
   | "other"
 
+/**
+ * Matching criteria shared by case search and filtered status counts.
+ *
+ * Explicit text, identity, and hierarchy constraints are combined with
+ * ``filters`` using AND. Workspace and entitlement checks belong to the
+ * service and cannot be supplied or negated by this request.
+ *
+ * Tag membership uses existing filter nodes: ``in`` matches any tag, an
+ * ``and`` of ``contains`` conditions requires all tags, and ``not`` around
+ * ``in`` excludes the selected tags. ``is_null`` matches no tags.
+ *
+ * Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
+ * ``ne``, ``not_in``, and negated comparisons exclude unset values. Include
+ * unset values explicitly with an ``or`` containing ``is_null``.
+ */
+export type CaseQuery = {
+  filters?: Filter | null
+  search_term?: string | null
+  short_id?: string | null
+  case_id?: string | null
+  hierarchy?: "all" | "top_level"
+  parent_id?: string | null
+  status?: Array<CaseStatus> | null
+  priority?: Array<CasePriority> | null
+  severity?: Array<CaseSeverity> | null
+  assignee_id?: Array<string | "unassigned" | "__UNASSIGNED__"> | null
+  tags?: Array<string> | null
+  dropdown?: Array<string> | null
+  start_time?: string | null
+  end_time?: string | null
+  updated_after?: string | null
+  updated_before?: string | null
+}
+
+export type hierarchy = "all" | "top_level"
+
 export type CaseRead = {
   id: string
   short_id: string
@@ -2843,6 +2886,69 @@ export type CaseRef = {
 export type CaseSearchAggregateRead = {
   total: number
   status_groups: CaseStatusGroupCounts
+}
+
+export type CaseSearchOrder =
+  | "created_at"
+  | "updated_at"
+  | "priority"
+  | "severity"
+  | "status"
+  | "tasks"
+  | "id"
+  | "short_id"
+  | "assignee"
+  | "tags"
+
+/**
+ * A case query with pagination, sorting, and independent result details.
+ */
+export type CaseSearchRequest = {
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  /**
+   * Reverse pagination direction
+   */
+  reverse?: boolean
+  filters?: Filter | null
+  search_term?: string | null
+  short_id?: string | null
+  case_id?: string | null
+  hierarchy?: "all" | "top_level"
+  parent_id?: string | null
+  status?: Array<CaseStatus> | null
+  priority?: Array<CasePriority> | null
+  severity?: Array<CaseSeverity> | null
+  assignee_id?: Array<string | "unassigned" | "__UNASSIGNED__"> | null
+  tags?: Array<string> | null
+  dropdown?: Array<string> | null
+  start_time?: string | null
+  end_time?: string | null
+  updated_after?: string | null
+  updated_before?: string | null
+  order_by?: CaseSearchOrder | null
+  sort?: "asc" | "desc" | null
+  include_rows?: boolean
+  field_ids?: Array<string> | null
+  include_durations?: boolean
+  include_payload?: boolean
+  payload_fields?: Array<string> | null
+  payload_paths?: Array<Array<string>> | null
+  include_count?: boolean
+  /**
+   * Place complete case references before filtered text matches within the authorized workspace.
+   */
+  promote_exact_match?: boolean
+  /**
+   * The ordinary filter population matches no cases.
+   */
+  match_none?: boolean
 }
 
 /**
@@ -3623,6 +3729,15 @@ export type CommitInfo = {
   pr_number?: number | null
   pr_reused?: boolean
   message?: string
+}
+
+/**
+ * A predicate over one resolver-defined field.
+ */
+export type Condition = {
+  field: string
+  op: FilterOp
+  value?: FilterValue | null
 }
 
 /**
@@ -5048,6 +5163,28 @@ export type FileUIPart = {
     }
   }
 }
+
+export type Filter = Condition | AndClause | OrClause | NotClause
+
+/**
+ * Operations supported by the shared filter language.
+ */
+export type FilterOp =
+  | "eq"
+  | "ne"
+  | "in"
+  | "not_in"
+  | "gt"
+  | "gte"
+  | "lt"
+  | "lte"
+  | "contains"
+  | "starts_with"
+  | "is_null"
+
+export type FilterScalar = string | number | boolean
+
+export type FilterValue = FilterScalar | Array<FilterScalar>
 
 /**
  * An action result reused from a previous run of the workflow.
@@ -7276,6 +7413,13 @@ export type ModelUsage = {
   provider?: string
 }
 
+/**
+ * The negation of one filter.
+ */
+export type NotClause = {
+  not: Filter
+}
+
 export type OAuth2AuthorizeResponse = {
   authorization_url: string
 }
@@ -7303,6 +7447,13 @@ export type ObjectRef = {
 }
 
 export type encoding = "json" | "json+zstd" | "json+gzip"
+
+/**
+ * A disjunction of one or more filters.
+ */
+export type OrClause = {
+  or: Array<Filter>
+}
 
 /**
  * Create organization request.
@@ -16395,6 +16546,13 @@ export type CasesCreateCaseData = {
 
 export type CasesCreateCaseResponse = CaseRead
 
+export type CasesQueryCasesData = {
+  requestBody: CaseSearchRequest
+  workspaceId: string
+}
+
+export type CasesQueryCasesResponse = CursorPaginatedResponse_CaseReadMinimal_
+
 export type CasesSearchCasesData = {
   /**
    * Filter by assignee ID or 'unassigned'
@@ -16526,11 +16684,19 @@ export type CasesSearchCasesData = {
 
 export type CasesSearchCasesResponse = CursorPaginatedResponse_CaseReadMinimal_
 
+export type CasesQueryCaseAggregatesData = {
+  requestBody: CaseQuery
+  workspaceId: string
+}
+
+export type CasesQueryCaseAggregatesResponse = CaseSearchAggregateRead
+
 export type CasesSearchCaseAggregatesData = {
   /**
    * Filter by assignee ID or 'unassigned'
    */
   assigneeId?: Array<string> | null
+  caseId?: string | null
   /**
    * Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)
    */
@@ -16559,6 +16725,7 @@ export type CasesSearchCaseAggregatesData = {
    * Filter by case severity
    */
   severity?: Array<CaseSeverity> | null
+  shortId?: string | null
   /**
    * Return cases created at or after this timestamp
    */
@@ -24054,6 +24221,19 @@ export type $OpenApiTs = {
     }
   }
   "/workspaces/{workspace_id}/cases/search": {
+    post: {
+      req: CasesQueryCasesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_CaseReadMinimal_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
     get: {
       req: CasesSearchCasesData
       res: {
@@ -24069,6 +24249,19 @@ export type $OpenApiTs = {
     }
   }
   "/workspaces/{workspace_id}/cases/search/aggregate": {
+    post: {
+      req: CasesQueryCaseAggregatesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseSearchAggregateRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
     get: {
       req: CasesSearchCaseAggregatesData
       res: {
