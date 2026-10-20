@@ -157,6 +157,23 @@ def test_convert_chat_messages_to_ui_leaves_approved_call_result_untagged() -> N
     assert "callProviderMetadata" not in part
 
 
+def test_convert_chat_messages_to_ui_shows_approved_override_args() -> None:
+    """A call approved with edited arguments shows the arguments it ran with."""
+    call, approval, result = _decided_call(
+        ApprovalStatus.APPROVED, result="[]", is_error=False
+    )
+    assert approval.approval is not None
+    approval.approval.decision = {
+        "kind": "tool-approved",
+        "override_args": {"limit": 5},
+    }
+
+    messages = convert_chat_messages_to_ui([call, approval, result])
+
+    part = cast(ToolUIPartOutputAvailable, messages[0].parts[0])
+    assert part["input"] == {"limit": 5}
+
+
 def test_convert_chat_messages_to_ui_records_when_a_call_completed() -> None:
     """The merged result row's time survives, so later steps time from it."""
     called_at = datetime(2026, 1, 1, 0, 0, 2, tzinfo=UTC)
