@@ -152,6 +152,10 @@ class RegistrySyncContentError(RegistryError):
         self.code = code
 
 
+class BuiltinRegistryLoadError(RegistryError):
+    """Tracecat's bundled registry failed to load; the platform owns the fix."""
+
+
 class RegistryModuleImportError(ImportError):
     """A registry module raised a non-import error while importing.
 

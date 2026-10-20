@@ -4,12 +4,13 @@ from pathlib import Path
 import pytest
 
 from tracecat.exceptions import (
+    BuiltinRegistryLoadError,
     RegistryError,
     RegistryModuleImportError,
     RegistrySyncContentError,
     RegistryTemplateLoadError,
 )
-from tracecat.registry.repository import import_and_reload
+from tracecat.registry.repository import Repository, import_and_reload
 from tracecat.registry.sync.schemas import (
     RegistrySyncResult,
     SyncErrorCode,
@@ -117,3 +118,20 @@ def test_attribute_error_during_registry_import_is_import_failure(
     result = SyncResultError.from_exception(exc_info.value)
     assert result.error_code == SyncErrorCode.IMPORT_FAILED
     assert "AttributeError while importing" in result.error
+
+
+def test_bundled_registry_import_failure_is_not_a_custom_import_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _broken_import(_module_name: str) -> None:
+        raise ImportError("cannot import name 'helper' from 'shared_dep'")
+
+    monkeypatch.setattr(
+        "tracecat.registry.repository.import_and_reload", _broken_import
+    )
+
+    with pytest.raises(BuiltinRegistryLoadError) as exc_info:
+        Repository()._load_base_template_actions()
+
+    result = SyncResultError.from_exception(exc_info.value)
+    assert result.error_code == SyncErrorCode.BUILTIN_REGISTRY_LOAD_FAILED

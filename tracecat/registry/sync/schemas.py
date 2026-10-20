@@ -16,6 +16,7 @@ from uuid import UUID
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, TypeAdapter
 
 from tracecat.exceptions import (
+    BuiltinRegistryLoadError,
     RegistryError,
     RegistrySyncContentError,
     RegistryTemplateLoadError,
@@ -32,6 +33,7 @@ class SyncErrorCode(StrEnum):
     PACKAGE_NOT_FOUND = "package_not_found"
     TEMPLATE_LOAD_FAILED = "template_load_failed"
     IMPORT_FAILED = "import_failed"
+    BUILTIN_REGISTRY_LOAD_FAILED = "builtin_registry_load_failed"
 
 
 class RegistrySyncFailureDiagnostic(BaseModel):
@@ -72,7 +74,9 @@ class SyncResultError(BaseModel):
     def from_exception(cls, exc: BaseException) -> Self:
         """Build an error result, classifying known content errors by type."""
         error_code: SyncErrorCode | None = None
-        if isinstance(exc, ModuleNotFoundError):
+        if isinstance(exc, BuiltinRegistryLoadError):
+            error_code = SyncErrorCode.BUILTIN_REGISTRY_LOAD_FAILED
+        elif isinstance(exc, ModuleNotFoundError):
             # Wrong `git_repo_package_name`.
             error_code = SyncErrorCode.PACKAGE_NOT_FOUND
         elif isinstance(exc, ImportError):

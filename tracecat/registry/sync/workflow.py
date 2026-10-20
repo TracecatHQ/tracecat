@@ -64,6 +64,7 @@ with workflow.unsafe.imports_passed_through():
         RegistrySyncFailureDiagnostic,
         RegistrySyncRequest,
         RegistrySyncResult,
+        SyncErrorCode,
     )
     from tracecat.runtime.errors import (
         RetryDisposition,
@@ -235,7 +236,12 @@ def classify_sync_failure(
     deterministic = is_content or any(
         isinstance(error, _DETERMINISTIC_USER_ERRORS) for error in chain
     )
-    user_owned = deterministic and request.origin_type != "builtin"
+    builtin_failure = request.origin_type == "builtin" or any(
+        isinstance(error, RegistrySyncContentError)
+        and error.code is SyncErrorCode.BUILTIN_REGISTRY_LOAD_FAILED
+        for error in chain
+    )
+    user_owned = deterministic and not builtin_failure
 
     owner_classification = (
         RuntimeErrorClassification.user

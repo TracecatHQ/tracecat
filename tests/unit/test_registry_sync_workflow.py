@@ -698,3 +698,33 @@ async def test_registry_sync_workflow_classifies_activity_timeout(
     classification = extract_error_classification(error)
     assert classification is not None
     assert classification.kind is RuntimeErrorKind.EXECUTOR_ACTIVITY_TIMED_OUT
+
+
+@pytest.mark.anyio
+async def test_bundled_registry_load_failure_in_custom_sync_is_platform_owned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeRunner:
+        async def run(self, request: RegistrySyncRequest) -> None:
+            del request
+            raise ActionDiscoveryError(
+                "Failed to discover actions: bundled registry failed"
+            ) from RegistrySyncContentError(
+                "Tracecat's bundled registry failed to load: ImportError: x",
+                code=SyncErrorCode.BUILTIN_REGISTRY_LOAD_FAILED,
+            )
+
+    monkeypatch.setattr(
+        "tracecat.registry.sync.workflow.RegistrySyncRunner", _FakeRunner
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await sync_registry_activity(
+            RegistrySyncRequest(
+                repository_id=uuid4(), origin=_GIT_ORIGIN, origin_type="git"
+            )
+        )
+
+    _assert_registry_validation_classification(
+        exc_info.value, RuntimeErrorOwner.PLATFORM
+    )

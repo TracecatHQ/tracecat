@@ -8,7 +8,8 @@ import os
 import re
 import sys
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from timeit import default_timer
 from types import ModuleType
@@ -32,6 +33,7 @@ from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.exceptions import (
+    BuiltinRegistryLoadError,
     RegistryError,
     RegistryModuleImportError,
     RegistryTemplateLoadError,
@@ -372,9 +374,10 @@ class Repository:
         """Load all udfs and template actions into the registry."""
         # Load udfs
         logger.info("Loading base UDFs")
-        import tracecat_registry
+        with _builtin_registry_load():
+            import tracecat_registry
 
-        self._register_udfs_from_package(tracecat_registry)
+            self._register_udfs_from_package(tracecat_registry)
 
     async def load_from_origin(self, commit_sha: str | None = None) -> str | None:
         """Load the registry from the origin and return the commit sha.
@@ -734,8 +737,11 @@ class Repository:
     def _load_base_template_actions(self) -> None:
         """Load template actions from the actions/templates directory."""
 
-        module = import_and_reload(DEFAULT_REGISTRY_ORIGIN)
-        self.load_template_actions_from_package(module, origin=DEFAULT_REGISTRY_ORIGIN)
+        with _builtin_registry_load():
+            module = import_and_reload(DEFAULT_REGISTRY_ORIGIN)
+            self.load_template_actions_from_package(
+                module, origin=DEFAULT_REGISTRY_ORIGIN
+            )
 
     def load_template_actions_from_package(
         self, module: ModuleType, origin: str
@@ -842,6 +848,21 @@ class Repository:
 
 
 _import_reload_lock = threading.RLock()
+
+
+@contextmanager
+def _builtin_registry_load() -> Iterator[None]:
+    """Attribute bundled-registry import failures to the platform.
+
+    Custom-registry syncs also load the bundled registry, so its import
+    failures must not look like the custom registry's content errors.
+    """
+    try:
+        yield
+    except (ImportError, AttributeError) as exc:
+        raise BuiltinRegistryLoadError(
+            f"Tracecat's bundled registry failed to load: {type(exc).__name__}: {exc}"
+        ) from exc
 
 
 def import_and_reload(module_name: str) -> ModuleType:
