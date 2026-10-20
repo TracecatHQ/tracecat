@@ -15,13 +15,20 @@ from tracecat.cases.constants import (
 )
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.pagination import CursorPaginationParams
-from tracecat.query.filters import Filter
+from tracecat.query.filters import (
+    MAX_FILTER_CONDITIONS,
+    MAX_FILTER_DEPTH,
+    MAX_FILTER_VALUES,
+    Filter,
+    FilterOp,
+)
 from tracecat.query.lexical import (
     literal_search_pattern,
     parse_full_text_query,
     resolve_search_columns,
 )
 from tracecat.query.lexical_types import SearchMode
+from tracecat.query.resolver import FieldKind
 
 type CaseSearchOrder = Literal[
     "relevance",
@@ -36,6 +43,29 @@ type CaseSearchOrder = Literal[
     "assignee",
     "tags",
 ]
+
+
+class CaseFilterField(BaseModel):
+    """Server-defined operators and input metadata for one searchable field."""
+
+    field: str
+    label: str
+    kind: FieldKind
+    operators: list[FilterOp]
+    choices: list[str] | None = Field(default=None)
+    range_choices: list[str] | None = Field(default=None)
+    input_type: Literal["text", "number", "date", "datetime-local"] = Field(
+        default="text"
+    )
+
+
+class CaseFilterMetadata(BaseModel):
+    """Discoverable filter fields and shared query limits."""
+
+    fields: list[CaseFilterField]
+    max_depth: int = Field(default=MAX_FILTER_DEPTH)
+    max_conditions: int = Field(default=MAX_FILTER_CONDITIONS)
+    max_values: int = Field(default=MAX_FILTER_VALUES)
 
 
 class CaseQuery(BaseModel):
@@ -56,7 +86,10 @@ class CaseQuery(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    filters: Filter | None = Field(default=None)
+    filters: Filter | None = Field(
+        default=None,
+        description='AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.',
+    )
     search_term: str | None = Field(default=None, max_length=1000)
     search_mode: SearchMode | None = Field(
         default=None,

@@ -36,7 +36,9 @@ from tracecat.cases.attachments import CaseAttachmentService
 from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueInput,
 )
-from tracecat.cases.dropdowns.service import CaseDropdownValuesService
+from tracecat.cases.dropdowns.service import (
+    CaseDropdownValuesService,
+)
 from tracecat.cases.enums import (
     CaseAgentSessionInteractionOperation,
     CasePriority,
@@ -101,7 +103,13 @@ from tracecat.cases.schemas import (
     _normalize_case_field_read_type,
 )
 from tracecat.cases.search_adapters import legacy_case_filters
-from tracecat.cases.search_schemas import CaseQuery, CaseSearchOrder, CaseSearchRequest
+from tracecat.cases.search_fields import case_filter_metadata
+from tracecat.cases.search_schemas import (
+    CaseFilterMetadata,
+    CaseQuery,
+    CaseSearchOrder,
+    CaseSearchRequest,
+)
 from tracecat.cases.search_service import (
     CaseSearchService,
     parse_case_short_id,
@@ -314,6 +322,25 @@ class CasesService(BaseWorkspaceService):
     def _search_service(self) -> CaseSearchService:
         return CaseSearchService(
             self.session, self.role, fields=self.fields, hierarchy=self.hierarchy
+        )
+
+    @require_scope("case:read")
+    async def list_filter_fields(self) -> CaseFilterMetadata:
+        """Describe searchable workspace fields using the executing resolver."""
+        dropdown_refs: list[str] = []
+        if await self.has_entitlement(Entitlement.CASE_ADDONS):
+            dropdown_refs = list(
+                await self.session.scalars(
+                    select(CaseDropdownDefinition.ref)
+                    .where(CaseDropdownDefinition.workspace_id == self.workspace_id)
+                    .order_by(
+                        CaseDropdownDefinition.position,
+                        CaseDropdownDefinition.surrogate_id,
+                    )
+                )
+            )
+        return case_filter_metadata(
+            self.workspace_id, await self.fields.get_field_schema(), dropdown_refs
         )
 
     @require_scope("case:read")

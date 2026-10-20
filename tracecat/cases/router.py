@@ -62,7 +62,12 @@ from tracecat.cases.schemas import (
     CaseTaskUpdate,
     CaseUpdate,
 )
-from tracecat.cases.search_schemas import CaseQuery, CaseSearchOrder, CaseSearchRequest
+from tracecat.cases.search_schemas import (
+    CaseFilterMetadata,
+    CaseQuery,
+    CaseSearchOrder,
+    CaseSearchRequest,
+)
 from tracecat.cases.service import (
     CaseCommentsService,
     CaseFieldsService,
@@ -322,6 +327,15 @@ async def list_cases(
             detail="Failed to retrieve cases",
         ) from e
     return cases
+
+
+@cases_router.get("/search/fields")
+@require_scope("case:read")
+async def list_case_filter_fields(
+    *, role: WorkspaceActorRouteRole, session: AsyncDBSession
+) -> CaseFilterMetadata:
+    """List filterable workspace fields with authoritative operators and limits."""
+    return await CasesService(session, role).list_filter_fields()
 
 
 @cases_router.post("/search")

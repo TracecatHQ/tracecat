@@ -193,5 +193,5 @@ class TableFieldResolver:
                 return TEMPORAL_OPS
             case FieldKind.ENUM:
                 return ENUM_OPS
-            case FieldKind.UUID | FieldKind.TAG:
+            case FieldKind.UUID | FieldKind.TAG | FieldKind.JSON_SCALAR:
                 raise AssertionError(f"Unsupported table field kind: {kind}")

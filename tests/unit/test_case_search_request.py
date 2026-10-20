@@ -217,9 +217,7 @@ def test_query_uses_custom_fields_physical_types(
     assert compile_filter(query.filters, resolver) is not None
 
 
-@pytest.mark.parametrize(
-    "field", ["unknown", "fields.unknown", "payload.alert_id", "durations.total"]
-)
+@pytest.mark.parametrize("field", ["unknown", "fields.unknown", "durations.total"])
 def test_query_compiler_rejects_unknown_or_unsupported_leaves(field: str) -> None:
     query = CaseQuery(filters=Condition(field=field, op=FilterOp.EQ, value="synthetic"))
     assert query.filters is not None

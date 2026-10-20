@@ -10,8 +10,8 @@ import type { ReactNode } from "react"
 import {
   type CaseReadMinimal,
   type CasesSearchCasesResponse,
-  casesSearchCaseAggregates,
-  casesSearchCases,
+  casesQueryCaseAggregates,
+  casesQueryCases,
 } from "@/client"
 import { CancelablePromise } from "@/client/core/CancelablePromise"
 import { CasesLayout } from "@/components/cases/cases-layout"
@@ -24,8 +24,8 @@ jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush }),
 }))
 jest.mock("@/client", () => ({
-  casesSearchCases: jest.fn(),
-  casesSearchCaseAggregates: jest.fn(),
+  casesQueryCases: jest.fn(),
+  casesQueryCaseAggregates: jest.fn(),
 }))
 jest.mock("@/lib/hooks", () => ({
   useBatchDeleteCases: () => ({ batchDeleteCases: jest.fn() }),
@@ -173,7 +173,7 @@ function setup({ lexicalControls = false, hierarchyEnabled = true } = {}) {
 
 function mockCasesResponse(response: CasesSearchCasesResponse) {
   jest
-    .mocked(casesSearchCases)
+    .mocked(casesQueryCases)
     .mockImplementation(
       () => new CancelablePromise((resolve) => resolve(response))
     )
@@ -184,7 +184,7 @@ describe("exact-first case search UI", () => {
     window.localStorage.clear()
     jest.clearAllMocks()
     mockCasesResponse({ items: [], has_more: false })
-    jest.mocked(casesSearchCaseAggregates).mockImplementation(
+    jest.mocked(casesQueryCaseAggregates).mockImplementation(
       () =>
         new CancelablePromise((resolve) =>
           resolve({
@@ -204,11 +204,11 @@ describe("exact-first case search UI", () => {
   })
 
   it("keeps the view filters visible and continues through an empty page", async () => {
-    jest.mocked(casesSearchCases).mockImplementation(
+    jest.mocked(casesQueryCases).mockImplementation(
       (request) =>
         new CancelablePromise((resolve) =>
           resolve(
-            request.cursor
+            request.requestBody.cursor
               ? { items: [CASE], has_more: false }
               : {
                   items: [],
@@ -219,7 +219,7 @@ describe("exact-first case search UI", () => {
         )
     )
     setup()
-    await waitFor(() => expect(casesSearchCases).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(casesQueryCases).toHaveBeenCalledTimes(1))
     expect(
       screen.queryByRole("combobox", { name: "Case search scope" })
     ).not.toBeInTheDocument()
@@ -233,14 +233,18 @@ describe("exact-first case search UI", () => {
       await screen.findByRole("button", { name: "Load more cases" })
     )
     await screen.findByRole("button", { name: "CASE-0042" })
-    expect(casesSearchCases).toHaveBeenLastCalledWith(
-      expect.objectContaining({ cursor: "synthetic-continuation" })
+    expect(casesQueryCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        requestBody: expect.objectContaining({
+          cursor: "synthetic-continuation",
+        }),
+      })
     )
   })
 
   it("shows dates without unsupported hierarchy labels or controls", async () => {
     setup({ hierarchyEnabled: false })
-    await waitFor(() => expect(casesSearchCases).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(casesQueryCases).toHaveBeenCalledTimes(1))
     expect(screen.queryByText("Parents only")).not.toBeInTheDocument()
     expect(screen.queryByText("All cases")).not.toBeInTheDocument()
     expect(screen.queryByRole("switch")).not.toBeInTheDocument()
@@ -248,7 +252,7 @@ describe("exact-first case search UI", () => {
 
   it("uses one search request for a complete ID and keeps the view constraints", async () => {
     setup()
-    await waitFor(() => expect(casesSearchCases).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(casesQueryCases).toHaveBeenCalledTimes(1))
     mockCasesResponse({
       items: [{ ...CASE, is_exact_match: true, is_outside_filters: true }],
       has_more: false,
@@ -258,12 +262,14 @@ describe("exact-first case search UI", () => {
       target: { value: "CASE-0042" },
     })
     await screen.findByRole("region", { name: "Exact match" })
-    expect(casesSearchCases).toHaveBeenCalledTimes(2)
-    expect(jest.mocked(casesSearchCases).mock.calls.at(-1)?.[0]).toEqual(
+    expect(casesQueryCases).toHaveBeenCalledTimes(2)
+    expect(jest.mocked(casesQueryCases).mock.calls.at(-1)?.[0]).toEqual(
       expect.objectContaining({
-        searchTerm: "CASE-0042",
-        promoteExactMatch: true,
-        startTime: expect.any(String),
+        requestBody: expect.objectContaining({
+          search_term: "CASE-0042",
+          promote_exact_match: true,
+          start_time: expect.any(String),
+        }),
       })
     )
     expect(
@@ -289,8 +295,13 @@ describe("exact-first case search UI", () => {
     await user.click(await screen.findByRole("option", { name: /^Assignee/ }))
     expect(sortControl).toHaveTextContent("Assignee")
     await waitFor(() =>
-      expect(casesSearchCases).toHaveBeenLastCalledWith(
-        expect.objectContaining({ orderBy: "assignee", sort: "desc" })
+      expect(casesQueryCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          requestBody: expect.objectContaining({
+            order_by: "assignee",
+            sort: "desc",
+          }),
+        })
       )
     )
     fireEvent.keyDown(sortControl, { key: "ArrowDown" })
@@ -298,15 +309,25 @@ describe("exact-first case search UI", () => {
     expect(sortControl).toHaveTextContent("Tags")
     await user.click(screen.getByRole("button", { name: "Sort descending" }))
     await waitFor(() =>
-      expect(casesSearchCases).toHaveBeenLastCalledWith(
-        expect.objectContaining({ orderBy: "tags", sort: "asc" })
+      expect(casesQueryCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          requestBody: expect.objectContaining({
+            order_by: "tags",
+            sort: "asc",
+          }),
+        })
       )
     )
     await user.click(screen.getByRole("button", { name: "Reset" }))
     expect(sortControl).toHaveTextContent("Updated")
     await waitFor(() =>
-      expect(casesSearchCases).toHaveBeenLastCalledWith(
-        expect.objectContaining({ orderBy: "updated_at", sort: "desc" })
+      expect(casesQueryCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          requestBody: expect.objectContaining({
+            order_by: "updated_at",
+            sort: "desc",
+          }),
+        })
       )
     )
   })
@@ -322,20 +343,24 @@ describe("exact-first case search UI", () => {
     fireEvent.keyDown(sortControl, { key: "ArrowDown" })
     await user.click(await screen.findByRole("option", { name: /^Tags/ }))
     await waitFor(() =>
-      expect(casesSearchCases).toHaveBeenLastCalledWith(
-        expect.objectContaining({ orderBy: "tags" })
+      expect(casesQueryCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          requestBody: expect.objectContaining({ order_by: "tags" }),
+        })
       )
     )
     await user.click(screen.getByRole("button", { name: "Reset" }))
     expect(searchInput).toHaveValue("")
     fireEvent.change(searchInput, { target: { value: "next words" } })
     await waitFor(() =>
-      expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect(casesQueryCases).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          searchTerm: "next words",
-          searchMode: "full_text",
-          orderBy: "relevance",
-          sort: "desc",
+          requestBody: expect.objectContaining({
+            search_term: "next words",
+            search_mode: "full_text",
+            order_by: "relevance",
+            sort: "desc",
+          }),
         })
       )
     )
@@ -383,7 +408,7 @@ describe("exact-first case search UI", () => {
       ],
       has_more: false,
     })
-    jest.mocked(casesSearchCaseAggregates).mockImplementation(
+    jest.mocked(casesQueryCaseAggregates).mockImplementation(
       () =>
         new CancelablePromise((resolve) =>
           resolve({
@@ -413,7 +438,7 @@ describe("exact-first case search UI", () => {
 
   it("clears the promoted result without changing the saved date constraint", async () => {
     setup()
-    await waitFor(() => expect(casesSearchCases).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(casesQueryCases).toHaveBeenCalledTimes(1))
     mockCasesResponse({
       items: [{ ...CASE, is_exact_match: true, is_outside_filters: true }],
       has_more: false,
@@ -431,8 +456,12 @@ describe("exact-first case search UI", () => {
         screen.queryByRole("region", { name: "Exact match" })
       ).not.toBeInTheDocument()
     )
-    expect(casesSearchCases).toHaveBeenLastCalledWith(
-      expect.objectContaining({ startTime: expect.any(String) })
+    expect(casesQueryCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        requestBody: expect.objectContaining({
+          start_time: expect.any(String),
+        }),
+      })
     )
   })
 })
