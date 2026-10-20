@@ -1,5 +1,5 @@
 import type * as ai from "ai"
-import { transformMessages } from "@/lib/chat"
+import { markLiveDenials, transformMessages } from "@/lib/chat"
 
 describe("transformMessages", () => {
   it("keeps completed tool parts that already contain their input", () => {
@@ -295,4 +295,49 @@ describe("transformMessages", () => {
       ])
     }
   )
+})
+
+describe("markLiveDenials", () => {
+  it("shows a call's edited arguments and tags denials this tab sent", () => {
+    const messages = [
+      {
+        id: "msg-1",
+        role: "assistant",
+        parts: [
+          {
+            type: "dynamic-tool",
+            toolName: "core__transform__reshape",
+            toolCallId: "edited",
+            state: "output-available",
+            input: { value: "original" },
+            output: "edited",
+          },
+          {
+            type: "dynamic-tool",
+            toolName: "core__transform__reshape",
+            toolCallId: "denied",
+            state: "output-error",
+            input: { value: 1 },
+            errorText: "denied",
+          },
+        ],
+      },
+    ] as ai.UIMessage[]
+
+    const [message] = markLiveDenials(messages, [
+      {
+        tool_call_id: "edited",
+        action: "override",
+        override_args: { value: "edited" },
+      },
+      { tool_call_id: "denied", action: "deny", reason: "No" },
+    ])
+
+    expect(message.parts[0]).toMatchObject({ input: { value: "edited" } })
+    expect(message.parts[1]).toMatchObject({
+      callProviderMetadata: {
+        tracecat: { approval: "rejected", reason: "No" },
+      },
+    })
+  })
 })

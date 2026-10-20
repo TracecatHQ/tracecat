@@ -621,6 +621,7 @@ export function ChatSessionPane({
       : null
   }, [chat?.id, queryClient, workspaceId])
 
+  const [sentDecisions, setSentDecisions] = useState<ApprovalDecision[]>([])
   const handleSubmitApprovals = useCallback(
     async (decisionPayload: ApprovalDecision[]): Promise<string[]> => {
       if (isReadonly || !decisionPayload.length) return []
@@ -643,6 +644,7 @@ export function ChatSessionPane({
       try {
         clearError()
         await sendMessage(makeContinueMessage(decisions))
+        setSentDecisions((prev) => [...prev, ...decisions])
         return decisions.map(({ tool_call_id }) => tool_call_id)
       } catch (error) {
         console.error("Failed to submit approvals", error)
@@ -951,8 +953,8 @@ export function ChatSessionPane({
   )
 
   const transformedMessages = useMemo(
-    () => transformMessages(markLiveDenials(messages)),
-    [messages]
+    () => transformMessages(markLiveDenials(messages, sentDecisions)),
+    [messages, sentDecisions]
   )
 
   // Reads the merged thread so a continuation folded into an earlier card

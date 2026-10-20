@@ -808,8 +808,9 @@ function getToolDisplay(toolName: string, input: unknown): ToolDisplay {
   const target = targetedTool
     ? getNonEmptyString(record?.[targetedTool.targetKey])
     : null
-  if (targetedTool && target) {
-    return { title: target, icon, verbs: targetedTool.verbs }
+  if (targetedTool) {
+    // The target streams in with the input, so name the action meanwhile.
+    return { title: target ?? "", icon, verbs: targetedTool.verbs }
   }
   return { title: getToolTitle(toolName, input), icon }
 }
