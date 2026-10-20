@@ -152,10 +152,18 @@ async def test_retryable_sync_failure_reaches_caller_through_interceptor(
         pytest.param(
             "git",
             None,
-            RuntimeErrorOwner.USER,
-            RetryDisposition.NON_RETRYABLE,
+            RuntimeErrorOwner.PLATFORM,
+            RetryDisposition.RETRYABLE,
             "No solution found when resolving dependencies",
             id="git_workload",
+        ),
+        pytest.param(
+            "git",
+            SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
+            RuntimeErrorOwner.PLATFORM,
+            RetryDisposition.RETRYABLE,
+            "Sandboxed registry package installation stopped by the sandbox",
+            id="git_phase_limit",
         ),
         pytest.param(
             "git",

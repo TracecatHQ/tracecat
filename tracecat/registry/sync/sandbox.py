@@ -20,14 +20,13 @@ from pydantic import ValidationError
 
 import tracecat
 from tracecat import config
-from tracecat.exceptions import RegistryError, RegistrySyncSourceError
+from tracecat.exceptions import RegistryError, RegistrySyncSettingsError
 from tracecat.git.types import GitUrl
 from tracecat.git.utils import parse_git_url
 from tracecat.logger import logger
 from tracecat.registry.sync.artifact import (
     RegistryArtifactBuildError,
     RegistryArtifactBuildResult,
-    RegistryPackageInstallError,
 )
 from tracecat.registry.sync.schemas import (
     RegistryCloneResult,
@@ -302,19 +301,27 @@ def _raise_for_failed_result(
 ) -> Never:
     """Raise the typed error for a failed registry jail.
 
-    NsJail launch failures stay distinct from workload failures and never quote
-    sandbox output.
+    Infrastructure failures and NsJail-enforced limits (including the phase
+    timeout) keep their typed sandbox error and never quote sandbox output.
     """
-    if result.error_code is SandboxErrorCode.INFRASTRUCTURE_FAILURE:
-        logger.warning(
-            "Registry sync sandbox failed before the workload started",
-            phase=phase,
-            error=result.error,
-        )
-        raise_for_sandbox_error_code(
-            result.error_code,
-            f"Sandboxed registry {phase} failed before the workload started",
-        )
+    match result.error_code:
+        case None | SandboxErrorCode.WORKLOAD_FAILURE:
+            pass
+        case SandboxErrorCode.INFRASTRUCTURE_FAILURE:
+            logger.warning(
+                "Registry sync sandbox failed before the workload started",
+                phase=phase,
+                error=result.error,
+            )
+            raise_for_sandbox_error_code(
+                result.error_code,
+                f"Sandboxed registry {phase} failed before the workload started",
+            )
+        case error_code:
+            raise_for_sandbox_error_code(
+                error_code,
+                f"Sandboxed registry {phase} stopped by the sandbox ({error_code})",
+            )
     detail = result.error or result.stderr or f"Unknown {phase} error"
     raise workload_error(f"Sandboxed registry {phase} failed: {str(detail)[:2000]}")
 
@@ -365,18 +372,18 @@ def _validate_git_ssh_target(git_url: GitUrl) -> _ValidatedGitSshTarget:
         host = git_url.host
         port = ""
     if not _SSH_HOST_PATTERN.fullmatch(host):
-        raise RegistrySyncSourceError("Registry sync Git host is invalid")
+        raise RegistrySyncSettingsError("Registry sync Git host is invalid")
     if port and (not port.isdigit() or not 1 <= int(port) <= 65535):
-        raise RegistrySyncSourceError("Registry sync Git port is invalid")
+        raise RegistrySyncSettingsError("Registry sync Git port is invalid")
     if not _SSH_USER_PATTERN.fullmatch(git_url.user):
-        raise RegistrySyncSourceError("Registry sync Git SSH user is invalid")
+        raise RegistrySyncSettingsError("Registry sync Git SSH user is invalid")
     if not _GIT_PATH_PATTERN.fullmatch(f"{git_url.org}/{git_url.repo}"):
-        raise RegistrySyncSourceError("Registry sync Git repository path is invalid")
+        raise RegistrySyncSettingsError("Registry sync Git repository path is invalid")
     if any(
         segment in {"", ".", ".."}
         for segment in [*git_url.org.split("/"), git_url.repo]
     ):
-        raise RegistrySyncSourceError("Registry sync Git repository path is invalid")
+        raise RegistrySyncSettingsError("Registry sync Git repository path is invalid")
     destination_host = f"[{host}]:{port}" if port else host
     return _ValidatedGitSshTarget(
         host=host,
@@ -481,13 +488,13 @@ class RegistrySyncSandbox:
         try:
             parsed_url = parse_git_url(git_url)
         except ValueError as exc:
-            raise RegistrySyncSourceError(
+            raise RegistrySyncSettingsError(
                 "Invalid Git SSH URL for registry sync"
             ) from exc
         target = _validate_git_ssh_target(parsed_url)
 
         if commit_sha is not None and not _GIT_OBJECT_ID_PATTERN.fullmatch(commit_sha):
-            raise RegistrySyncSourceError("Registry sync commit SHA is invalid")
+            raise RegistrySyncSettingsError("Registry sync commit SHA is invalid")
         requested_commit = commit_sha or parsed_url.ref
 
         normalized_url = GitUrl(
@@ -566,38 +573,33 @@ class RegistrySyncSandbox:
                 env_vars[f"GIT_CONFIG_VALUE_{index}"] = value
 
             executor = NsjailExecutor(cgroup_mount=sandbox_cgroup())
-            try:
-                result = await executor.execute(
-                    job_dir,
-                    SandboxConfig(
-                        network=SandboxNetworkRequest(SandboxNetworkPurpose.REGISTRY),
-                        resources=ResourceLimits(
-                            timeout_seconds=timeout_seconds,
-                            cpu_seconds=timeout_seconds,
-                            memory_mb=1024,
-                            max_file_size_mb=512,
-                        ),
-                        env_vars=env_vars,
-                        bind_mounts=[
-                            SandboxBindMount(
-                                source=agent_socket.parent,
-                                destination=sandbox_agent_dir,
-                            ),
-                            SandboxBindMount(
-                                source=known_hosts_path,
-                                destination=sandbox_known_hosts,
-                            ),
-                        ],
+            result = await executor.execute(
+                job_dir,
+                SandboxConfig(
+                    network=SandboxNetworkRequest(SandboxNetworkPurpose.REGISTRY),
+                    resources=ResourceLimits(
+                        timeout_seconds=timeout_seconds,
+                        cpu_seconds=timeout_seconds,
+                        memory_mb=1024,
+                        max_file_size_mb=512,
                     ),
-                    script_name="wrapper.py",
-                )
-            except SandboxTimeoutError as exc:
-                raise RegistrySyncSourceError(
-                    f"Sandboxed Git clone timed out after {timeout_seconds}s"
-                ) from exc
+                    env_vars=env_vars,
+                    bind_mounts=[
+                        SandboxBindMount(
+                            source=agent_socket.parent,
+                            destination=sandbox_agent_dir,
+                        ),
+                        SandboxBindMount(
+                            source=known_hosts_path,
+                            destination=sandbox_known_hosts,
+                        ),
+                    ],
+                ),
+                script_name="wrapper.py",
+            )
 
         if not result.success:
-            _raise_for_failed_result(result, "Git clone", RegistrySyncSourceError)
+            _raise_for_failed_result(result, "Git clone", RegistryError)
         try:
             clone_result = RegistryCloneResult.model_validate(result.output)
         except ValidationError as exc:
@@ -646,7 +648,7 @@ class RegistrySyncSandbox:
         )
         if not result.success:
             _raise_for_failed_result(
-                result, "package installation", RegistryPackageInstallError
+                result, "package installation", RegistryArtifactBuildError
             )
         _validate_installed_site_packages(site_packages)
         return site_packages

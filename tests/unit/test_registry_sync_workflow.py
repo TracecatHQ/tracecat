@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import builtins
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal
@@ -19,14 +18,13 @@ from temporalio.exceptions import (
 from tracecat.exceptions import (
     RegistryError,
     RegistrySyncContentError,
-    RegistrySyncSourceError,
+    RegistrySyncSettingsError,
     TracecatCredentialsNotFoundError,
 )
 from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.registry.actions.schemas import RegistryActionValidationErrorInfo
 from tracecat.registry.sync.artifact import (
     RegistryArtifactBuildError,
-    RegistryPackageInstallError,
 )
 from tracecat.registry.sync.runner import (
     ActionDiscoveryError,
@@ -59,7 +57,9 @@ from tracecat.runtime.errors import (
 from tracecat.sandbox.exceptions import (
     SandboxInfrastructureError,
     SandboxTimeoutError,
+    SandboxWorkloadError,
 )
+from tracecat.sandbox.types import SandboxErrorCode
 from tracecat.temporal.errors import (
     extract_error_classification,
     extract_error_classifications,
@@ -181,11 +181,6 @@ def _registry_sync_failure_detail(error: ApplicationError) -> str:
 _GIT_ORIGIN = "git+ssh://git@git.example.test/acme/registry.git"
 
 
-def _with_cause(error: BaseException, cause: BaseException) -> BaseException:
-    error.__cause__ = cause
-    return error
-
-
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     ("runner_error", "cause", "origin_type", "owner", "retry", "message", "detail"),
@@ -206,26 +201,23 @@ def _with_cause(error: BaseException, cause: BaseException) -> BaseException:
             GitCloneError(
                 "Git clone failed: https://user:synthetic-password@git.example.com/r.git"
             ),
-            RegistrySyncSourceError("Repository not found"),
+            RegistrySyncSettingsError("Registry sync Git host is invalid"),
             "git",
             RuntimeErrorOwner.USER,
             RetryDisposition.NON_RETRYABLE,
             "Registry repository clone failed",
             "Git clone failed: https://git.example.com/r.git",
-            id="git_source_redacted",
+            id="git_settings_redacted",
         ),
         pytest.param(
-            GitCloneError("Git clone timed out after 120s."),
-            _with_cause(
-                RegistrySyncSourceError("Git clone timed out after 120s."),
-                builtins.TimeoutError(),
-            ),
+            GitCloneError("Failed to clone repository: remote: 503"),
+            RegistryError("Failed to clone repository: remote: 503"),
             "git",
-            RuntimeErrorOwner.USER,
+            RuntimeErrorOwner.PLATFORM,
             RetryDisposition.RETRYABLE,
             "Registry repository clone failed",
-            "Git clone timed out after 120s.",
-            id="git_source_timeout",
+            "Failed to clone repository: remote: 503",
+            id="git_command_failure",
         ),
         pytest.param(
             GitCloneError("Sandboxed Git clone failed: clone timed out"),
@@ -235,7 +227,7 @@ def _with_cause(error: BaseException, cause: BaseException) -> BaseException:
             RetryDisposition.RETRYABLE,
             "Registry repository clone failed",
             "Sandboxed Git clone failed: clone timed out",
-            id="git_untyped_timeout",
+            id="git_timeout",
         ),
         pytest.param(
             GitCloneError("Sandboxed Git clone returned invalid output"),
@@ -278,34 +270,27 @@ def _with_cause(error: BaseException, cause: BaseException) -> BaseException:
             id="git_clone_infrastructure",
         ),
         pytest.param(
-            PackageInstallError("Package installation failed: resolver error"),
-            RegistryPackageInstallError("resolver error"),
-            "git",
-            RuntimeErrorOwner.USER,
-            RetryDisposition.NON_RETRYABLE,
-            "Registry package installation failed",
-            "Package installation failed: resolver error",
-            id="package_install",
-        ),
-        pytest.param(
-            PackageInstallError("Package installation failed: resolver error"),
-            RegistryPackageInstallError("resolver error"),
-            "builtin",
-            RuntimeErrorOwner.PLATFORM,
-            RetryDisposition.RETRYABLE,
-            "Registry package installation failed",
-            "Package installation failed: resolver error",
-            id="builtin_package_install",
-        ),
-        pytest.param(
-            PackageInstallError("Installed site-packages path is unsafe"),
-            RegistryArtifactBuildError("Installed site-packages path is unsafe"),
+            PackageInstallError("Package installation failed: 503 from index"),
+            RegistryArtifactBuildError("Package installation failed: 503 from index"),
             "git",
             RuntimeErrorOwner.PLATFORM,
             RetryDisposition.RETRYABLE,
             "Registry package installation failed",
-            "Installed site-packages path is unsafe",
-            id="package_install_layout",
+            "Package installation failed: 503 from index",
+            id="package_install_failure",
+        ),
+        pytest.param(
+            PackageInstallError("Sandboxed registry package installation stopped"),
+            SandboxWorkloadError(
+                "Sandboxed registry package installation stopped",
+                error_code=SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
+            ),
+            "git",
+            RuntimeErrorOwner.PLATFORM,
+            RetryDisposition.RETRYABLE,
+            "Registry package installation failed",
+            "Sandboxed registry package installation stopped",
+            id="package_install_phase_limit",
         ),
         pytest.param(
             ArtifactBuildError("Sandboxed registry packaging failed: mksquashfs"),

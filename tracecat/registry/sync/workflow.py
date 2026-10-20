@@ -39,7 +39,7 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat.exceptions import (
         RegistrySyncContentError,
-        RegistrySyncSourceError,
+        RegistrySyncSettingsError,
         TracecatCredentialsNotFoundError,
     )
     from tracecat.logger import logger
@@ -48,7 +48,6 @@ with workflow.unsafe.imports_passed_through():
         parse_s3_uri,
     )
     from tracecat.registry.sync.artifact import (
-        RegistryPackageInstallError,
         build_squashfs_sidecar_from_tarball,
         download_tarball_venv,
     )
@@ -71,7 +70,6 @@ with workflow.unsafe.imports_passed_through():
         RuntimeErrorClassification,
         RuntimeErrorKind,
     )
-    from tracecat.sandbox.exceptions import SandboxTimeoutError
     from tracecat.sanitization import redact_sensitive_text
     from tracecat.storage import blob
     from tracecat.temporal.error_chain import iter_error_chain
@@ -97,17 +95,13 @@ SYNC_ACTIVITY_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=5),
 )
 
-# Failures caused by the repository's content, Git source, SSH secret, or
-# dependencies. Anything else is a platform failure.
-_USER_CAUSED_ERRORS: tuple[type[BaseException], ...] = (
+# Failures that typed causes prove are deterministic and caused by the
+# registry's content or settings. Clone and install process failures are not
+# included: Git and uv report a bad repository and a network outage alike.
+_DETERMINISTIC_USER_ERRORS: tuple[type[BaseException], ...] = (
     RegistrySyncContentError,
-    RegistrySyncSourceError,
-    RegistryPackageInstallError,
+    RegistrySyncSettingsError,
     TracecatCredentialsNotFoundError,
-)
-_TIMEOUT_ERRORS: tuple[type[BaseException], ...] = (
-    TimeoutError,
-    SandboxTimeoutError,
 )
 
 
@@ -229,21 +223,19 @@ def classify_sync_failure(
 ) -> RuntimeErrorClassification:
     """Decide who owns a registry sync failure and whether to retry it.
 
-    The built-in registry ships with Tracecat, so its failures are always
-    platform-owned. Other registries own failures caused by their content, Git
-    source, SSH secret, or dependencies. Content failures, and user failures
-    other than timeouts, fail the same way every time and are not retried.
+    Only typed, deterministic causes (registry content, invalid Git settings, a
+    missing SSH secret) fail fast; they are user-owned except for the built-in
+    registry, which ships with Tracecat. Everything else, including clone and
+    install process failures, is platform-owned and retried.
     """
     chain = tuple(iter_error_chain(exc, include_implicit_context=False))
     is_content = isinstance(exc, RegistrySyncValidationError) or any(
         isinstance(error, RegistrySyncContentError) for error in chain
     )
-    user_caused = is_content or any(
-        isinstance(error, _USER_CAUSED_ERRORS) for error in chain
+    deterministic = is_content or any(
+        isinstance(error, _DETERMINISTIC_USER_ERRORS) for error in chain
     )
-    user_owned = user_caused and request.origin_type != "builtin"
-    timed_out = any(isinstance(error, _TIMEOUT_ERRORS) for error in chain)
-    fails_every_time = is_content or (user_owned and not timed_out)
+    user_owned = deterministic and request.origin_type != "builtin"
 
     owner_classification = (
         RuntimeErrorClassification.user
@@ -259,7 +251,7 @@ def classify_sync_failure(
         message=redact_sensitive_text(str(exc)) if is_content else exc.summary,
         retry_disposition=(
             RetryDisposition.NON_RETRYABLE
-            if fails_every_time
+            if deterministic
             else RetryDisposition.RETRYABLE
         ),
         cause=exc,

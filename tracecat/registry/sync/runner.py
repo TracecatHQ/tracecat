@@ -33,7 +33,7 @@ import aiofiles
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.exceptions import RegistryError, RegistrySyncSourceError
+from tracecat.exceptions import RegistryError
 from tracecat.git.utils import parse_git_url
 from tracecat.logger import logger
 from tracecat.registry.artifact_keys import get_artifact_s3_key
@@ -512,8 +512,7 @@ class RegistrySyncRunner:
             Tuple of (path to cloned repository, resolved commit SHA).
 
         Raises:
-            RegistrySyncSourceError: If a Git command fails or times out.
-            RegistryError: If the checked-out commit cannot be resolved.
+            RegistryError: If a Git command fails or times out.
         """
         clone_path = work_dir / "repo"
         clone_path.mkdir(parents=True, exist_ok=True)
@@ -560,16 +559,14 @@ class RegistrySyncRunner:
                 )
             except TimeoutError as e:
                 process.kill()
-                raise RegistrySyncSourceError(
+                raise RegistryError(
                     f"Git clone timed out after {git_timeout}s. "
                     "Check SSH key permissions and network connectivity."
                 ) from e
 
             if process.returncode != 0:
                 error_msg = stderr.decode().strip()
-                raise RegistrySyncSourceError(
-                    f"Failed to clone repository: {error_msg}"
-                )
+                raise RegistryError(f"Failed to clone repository: {error_msg}")
 
             # Fetch and checkout the specific commit if provided
             if commit_sha:
@@ -587,16 +584,14 @@ class RegistrySyncRunner:
                     )
                 except TimeoutError as e:
                     process.kill()
-                    raise RegistrySyncSourceError(
+                    raise RegistryError(
                         f"Git fetch timed out after {git_timeout}s. "
                         "Check SSH key permissions and network connectivity."
                     ) from e
 
                 if process.returncode != 0:
                     error_msg = stderr.decode().strip()
-                    raise RegistrySyncSourceError(
-                        f"Failed to fetch commit: {error_msg}"
-                    )
+                    raise RegistryError(f"Failed to fetch commit: {error_msg}")
 
                 checkout_cmd = ["git", "checkout", commit_sha]
                 process = await asyncio.create_subprocess_exec(
@@ -612,15 +607,13 @@ class RegistrySyncRunner:
                     )
                 except TimeoutError as e:
                     process.kill()
-                    raise RegistrySyncSourceError(
+                    raise RegistryError(
                         f"Git checkout timed out after {git_timeout}s."
                     ) from e
 
                 if process.returncode != 0:
                     error_msg = stderr.decode().strip()
-                    raise RegistrySyncSourceError(
-                        f"Failed to checkout commit: {error_msg}"
-                    )
+                    raise RegistryError(f"Failed to checkout commit: {error_msg}")
 
             # Get the resolved commit SHA (verify the checkout worked)
             rev_parse_cmd = ["git", "rev-parse", "HEAD"]

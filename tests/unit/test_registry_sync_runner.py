@@ -30,7 +30,6 @@ from tracecat.registry.constants import (
 from tracecat.registry.sync.artifact import (
     RegistryArtifactBuildError,
     RegistryArtifactBuildResult,
-    RegistryPackageInstallError,
 )
 from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
 from tracecat.registry.sync.runner import (
@@ -379,7 +378,7 @@ async def test_runner_wraps_sandbox_clone_failures(mocker) -> None:
 @pytest.mark.parametrize(
     ("error_code", "cause_type"),
     [
-        pytest.param(None, RegistryPackageInstallError, id="workload"),
+        pytest.param(None, RegistryArtifactBuildError, id="workload"),
         pytest.param(
             SandboxErrorCode.INFRASTRUCTURE_FAILURE,
             SandboxInfrastructureError,

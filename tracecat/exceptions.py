@@ -152,8 +152,8 @@ class RegistrySyncContentError(RegistryError):
         self.code = code
 
 
-class RegistrySyncSourceError(RegistryError):
-    """Registry sync failed on the repository's Git source or settings."""
+class RegistrySyncSettingsError(RegistryError):
+    """Registry Git settings are invalid; retrying cannot fix them."""
 
 
 class BuiltinRegistryHasNoSelectionError(RegistryError):

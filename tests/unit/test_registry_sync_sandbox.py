@@ -15,7 +15,7 @@ import pytest
 from tracecat.exceptions import (
     RegistryError,
     RegistrySyncContentError,
-    RegistrySyncSourceError,
+    RegistrySyncSettingsError,
 )
 from tracecat.registry.sync.artifact import (
     RegistryArtifactBuildError,
@@ -31,7 +31,11 @@ from tracecat.registry.sync.schemas import (
     SyncResultError,
     SyncResultSuccess,
 )
-from tracecat.sandbox.exceptions import SandboxInfrastructureError, SandboxTimeoutError
+from tracecat.sandbox.exceptions import (
+    SandboxInfrastructureError,
+    SandboxTimeoutError,
+    SandboxWorkloadError,
+)
 from tracecat.sandbox.types import (
     SandboxConfig,
     SandboxErrorCode,
@@ -271,7 +275,7 @@ async def test_registry_clone_stops_when_keyscan_fails(
             timeout_seconds=90,
         )
 
-    assert not isinstance(exc_info.value, RegistrySyncSourceError)
+    assert not isinstance(exc_info.value, RegistrySyncSettingsError)
     execute.assert_awaited_once()
     temporary_agent.assert_not_called()
 
@@ -311,7 +315,7 @@ async def test_registry_clone_keeps_keyscan_infrastructure_failure_typed(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("clone_outcome", "error"),
+    ("clone_outcome", "error_type", "error"),
     [
         pytest.param(
             {
@@ -320,20 +324,30 @@ async def test_registry_clone_keeps_keyscan_infrastructure_failure_typed(
                     error="RuntimeError: Git command failed: clone: not found",
                 )
             },
+            RegistryError,
             "Git clone failed: RuntimeError: Git command failed",
             id="workload",
         ),
         pytest.param(
-            {"side_effect": SandboxTimeoutError("synthetic clone timeout")},
-            "Git clone timed out after 90s",
-            id="timeout",
+            {
+                "return_value": SandboxResult(
+                    success=False,
+                    error="Sandbox workload exceeded a resource limit",
+                    error_code=SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
+                    exit_code=137,
+                )
+            },
+            SandboxWorkloadError,
+            "Git clone stopped by the sandbox",
+            id="phase_timeout",
         ),
     ],
 )
-async def test_registry_clone_attributes_git_failures_to_source(
+async def test_registry_clone_failures_are_not_attributed_to_settings(
     tmp_path: Path,
     mocker,
     clone_outcome: dict[str, object],
+    error_type: type[Exception],
     error: str,
 ) -> None:
     @asynccontextmanager
@@ -362,7 +376,7 @@ async def test_registry_clone_attributes_git_failures_to_source(
         "tracecat.registry.sync.sandbox.add_ssh_key_to_agent", mocker.AsyncMock()
     )
 
-    with pytest.raises(RegistrySyncSourceError, match=error):
+    with pytest.raises(error_type, match=error) as exc_info:
         await RegistrySyncSandbox().clone_repository(
             git_url="git+ssh://git@git.example.test/acme/registry.git",
             commit_sha="a" * 40,
@@ -370,6 +384,8 @@ async def test_registry_clone_attributes_git_failures_to_source(
             work_dir=tmp_path / "sync",
             timeout_seconds=90,
         )
+
+    assert not isinstance(exc_info.value, RegistrySyncSettingsError)
 
 
 @pytest.mark.anyio
@@ -399,7 +415,7 @@ async def test_registry_clone_rejects_invalid_ssh_target_before_keyscan(
     executor_cls = mocker.patch("tracecat.registry.sync.sandbox.NsjailExecutor")
     temporary_agent = mocker.patch("tracecat.registry.sync.sandbox.temporary_ssh_agent")
 
-    with pytest.raises(RegistrySyncSourceError, match=error):
+    with pytest.raises(RegistrySyncSettingsError, match=error):
         await RegistrySyncSandbox().clone_repository(
             git_url=git_url,
             commit_sha="a" * 40,
