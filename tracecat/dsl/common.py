@@ -267,7 +267,6 @@ class DSLInput(BaseModel):
             )
 
         self._all_action_expressions_valid(valid_action_refs)
-        self._validate_acyclic()
         self._validate_scatter_gather_scopes()
         return self
 
@@ -282,23 +281,6 @@ class DSLInput(BaseModel):
                             f"Action '{action.ref}' has an expression in field '{key2loc(key)}' that references unknown action '{dep}'"
                         )
 
-    def _validate_acyclic(self) -> None:
-        """Validate that action dependencies form a DAG."""
-        adj = self._to_adjacency()
-        indegrees = {action.ref: len(action.depends_on) for action in self.actions}
-        queue = deque(ref for ref, indegree in indegrees.items() if indegree == 0)
-        while queue:
-            ref = queue.popleft()
-            for next_ref in adj[ref]:
-                indegrees[next_ref] -= 1
-                if indegrees[next_ref] == 0:
-                    queue.append(next_ref)
-        if blocked := sorted(ref for ref, indegree in indegrees.items() if indegree):
-            raise TracecatDSLError(
-                "Cycle detected in workflow dependencies. Actions in or downstream"
-                f" of the cycle: {', '.join(repr(ref) for ref in blocked)}"
-            )
-
     def _validate_scatter_gather_scopes(self) -> None:
         """Validate control-flow scope boundaries.
 
@@ -307,7 +289,6 @@ class DSLInput(BaseModel):
         - We need to map all actions to a scope.
         - Traverse the graph and map out the scopes
         - Outer scope ACTIONS cannot reference inner scope ACTIONS
-        - We need to validate that no actions outside the scope reference actions inside the scope.
         - We need to validate that no actions outside the scope reference actions inside the scope.
         """
         # Find scope open and close actions
@@ -720,8 +701,8 @@ class DSLInput(BaseModel):
     ) -> tuple[dict[str, str], dict[str, str | None], dict[str, str]]:
         """Assign scope IDs to actions using topological sort.
 
-        Returns a mapping of action ref -> scope ID.
-        Raises TracecatDSLError if an action is assigned to multiple scopes.
+        Returns action ref -> scope ID, scope -> parent scope, and scope -> opener action.
+        Raises TracecatDSLError on scope conflicts or dependency cycles.
         """
 
         stmts = {a.ref: a for a in self.actions}
@@ -756,10 +737,8 @@ class DSLInput(BaseModel):
                         f"already in {scopes[action_ref]!r}, trying to assign to {scope!r}"
                     )
 
-        n_visited = 0
         while queue:
             ref, curr_scope = queue.popleft()
-            n_visited += 1
 
             # Check for conflict. If the action hasn't been assigned a scope, assign it.
             # Otherwise, if we somehow end up in a different scope, raise an error.
@@ -800,9 +779,11 @@ class DSLInput(BaseModel):
                 if indegrees[next_ref] == 0:
                     queue.append((next_ref, next_scope))
 
-        # Check if we have cycles
-        if n_visited != len(self.actions):
-            raise TracecatDSLError("Cycle detected in control-flow workflow")
+        if blocked := sorted(ref for ref, indegree in indegrees.items() if indegree):
+            raise TracecatDSLError(
+                "Cycle detected in workflow dependencies. Actions in or downstream"
+                f" of the cycle: {', '.join(repr(ref) for ref in blocked)}"
+            )
 
         return scopes, scope_hierarchy, scope_openers
 
