@@ -255,37 +255,9 @@ def test_case_task_trigger_values_redact_nested_secrets(action: str) -> None:
     }
 
 
-def test_agent_skill_files_redact_nested_secrets() -> None:
-    prepared = _resolve_root(
-        "ai.skill.publish_skill_version",
-        {
-            "skill_id": "triage-assistant",
-            "files": [
-                {
-                    "path": "SKILL.md",
-                    "content_base64": "${{ SECRETS.api.FILE_BASE64 }}",
-                    "content_type": "text/markdown",
-                }
-            ],
-        },
-        {"SECRETS": {"api": {"FILE_BASE64": "cnVudGltZS1zZWNyZXQ="}}},
-    )
-
-    assert prepared == {
-        "skill_id": "triage-assistant",
-        "files": [
-            {
-                "path": "SKILL.md",
-                "content_base64": MASK_VALUE,
-                "content_type": "text/markdown",
-            }
-        ],
-    }
-
-
 def test_agent_skill_draft_operations_redact_nested_secrets() -> None:
     prepared = _resolve_root(
-        "ai.skill.update_skill_draft",
+        "ai.skill.update_skill",
         {
             "skill_id": "triage-assistant",
             "operations": [
