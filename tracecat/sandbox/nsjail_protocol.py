@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import re
 import tempfile
+from collections import deque
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,18 +38,46 @@ _NSJAIL_SIGNALED_LINE = re.compile(
 )
 _NSJAIL_EXITED_LINE = re.compile(rb"pid=\d+ \([^)]*\) exited with status: \d+")
 _NSJAIL_TIME_LIMIT_LINE = re.compile(rb"run time >= time limit")
-_NSJAIL_LOG_MAX_BYTES = 1024 * 1024
+_NSJAIL_LOG_TAIL_BYTES = 1024 * 1024
 
 
-def nsjail_termination_signal(nsjail_log: bytes) -> int | None:
-    """Return the signal that killed the jailed process, per NsJail's log."""
+@dataclass(frozen=True, slots=True)
+class NsjailLogScan:
+    """Termination records from a full NsJail log, plus a bounded tail."""
+
+    tail: bytes
+    termination_signal: int | None
+    time_limit_kill: bool
+
+
+def scan_nsjail_log(lines: Iterable[bytes]) -> NsjailLogScan:
+    """Scan every NsJail log line; the termination record is written last."""
+    tail: deque[bytes] = deque()
+    tail_bytes = 0
     termination_signal: int | None = None
-    for line in nsjail_log.splitlines():
+    time_limit_kill = False
+    for line in lines:
         if match := _NSJAIL_SIGNALED_LINE.search(line):
             termination_signal = int(match.group(1))
         elif _NSJAIL_EXITED_LINE.search(line):
             termination_signal = None
-    return termination_signal
+        if _NSJAIL_TIME_LIMIT_LINE.search(line):
+            time_limit_kill = True
+        kept = line[-_NSJAIL_LOG_TAIL_BYTES:]
+        tail.append(kept)
+        tail_bytes += len(kept)
+        while tail_bytes > _NSJAIL_LOG_TAIL_BYTES:
+            tail_bytes -= len(tail.popleft())
+    return NsjailLogScan(
+        tail=b"".join(tail),
+        termination_signal=termination_signal,
+        time_limit_kill=time_limit_kill,
+    )
+
+
+def nsjail_termination_signal(nsjail_log: bytes) -> int | None:
+    """Return the signal that killed the jailed process, per NsJail's log."""
+    return scan_nsjail_log(nsjail_log.splitlines(keepends=True)).termination_signal
 
 
 def _cleanup_executor_file(path: Path) -> None:
@@ -119,15 +149,15 @@ async def invoke_nsjail(
             workload_started = True
             stderr = stderr.replace(workload_started_marker, b"", 1)
         log_file.seek(0)
-        nsjail_log = log_file.read(_NSJAIL_LOG_MAX_BYTES)
+        log_scan = scan_nsjail_log(log_file)
         return NsjailCompletedProcess(
             returncode=process.returncode,
             stdout=stdout,
             stderr=stderr,
             workload_started=workload_started,
-            nsjail_log=nsjail_log,
-            termination_signal=nsjail_termination_signal(nsjail_log),
-            time_limit_kill=_NSJAIL_TIME_LIMIT_LINE.search(nsjail_log) is not None,
+            nsjail_log=log_scan.tail,
+            termination_signal=log_scan.termination_signal,
+            time_limit_kill=log_scan.time_limit_kill,
         )
     except OSError as error:
         raise SandboxInfrastructureError(

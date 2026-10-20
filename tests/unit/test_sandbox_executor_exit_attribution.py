@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import errno
+import io
 import signal
 from collections.abc import Callable
 from pathlib import Path
@@ -23,6 +24,7 @@ from tracecat.sandbox.nsjail_protocol import (
     NsjailCompletedProcess,
     invoke_nsjail,
     nsjail_termination_signal,
+    scan_nsjail_log,
 )
 from tracecat.sandbox.shutdown import worker_shutting_down
 from tracecat.sandbox.types import SandboxConfig, SandboxErrorCode
@@ -375,6 +377,19 @@ def test_nsjail_termination_signal_reads_nsjail_log(
     nsjail_log: bytes, expected_signal: int | None
 ) -> None:
     assert nsjail_termination_signal(nsjail_log) == expected_signal
+
+
+def test_nsjail_log_scan_keeps_termination_record_after_noisy_log() -> None:
+    warning = b"[W][t] Maximum number of UDP flows reached, dropping packet\n"
+    final = b"[I][t] pid=9 ([STANDALONE MODE]) terminated with signal: SIGKILL (9)\n"
+    noisy_log = io.BytesIO(warning * (2 * 1024 * 1024 // len(warning)) + final)
+
+    scan = scan_nsjail_log(noisy_log)
+
+    assert scan.termination_signal == signal.SIGKILL
+    assert scan.time_limit_kill is False
+    assert len(scan.tail) <= 1024 * 1024
+    assert scan.tail.endswith(final)
 
 
 @pytest.mark.anyio
