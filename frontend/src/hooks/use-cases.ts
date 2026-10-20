@@ -27,6 +27,7 @@ import type {
   SortDirection,
 } from "@/components/filters/filter-multi-select"
 import type { CaseHierarchyFilter } from "@/hooks/use-case-search-infinite"
+import { restoreCaseFilter } from "@/lib/case-filters"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useInfiniteQuery, useQuery } from "@/lib/query"
 import { withAbortSignal } from "@/lib/query-cancellation"
@@ -300,7 +301,7 @@ function loadPersistedCasesFilterState(
 
     const parsed = JSON.parse(storedValue) as Partial<PersistedCasesFilters>
     return normalizeCasesSortState({
-      structuredFilters: parsed.structuredFilters ?? null,
+      structuredFilters: restoreCaseFilter(parsed.structuredFilters),
       searchMode: parsed.searchMode === "literal" ? "literal" : "full_text",
       searchOrder:
         parsed.searchOrder === "column" || parsed.searchOrder === "relevance"

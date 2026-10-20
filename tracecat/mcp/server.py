@@ -6888,6 +6888,8 @@ async def search_cases(
             is_null matches untagged cases. Scalar exclusions omit unset values
             unless ORed with is_null. Payload equality uses
             field="payload.metadata.product.vendor_name", op="eq", value="Microsoft".
+            Payload paths support only eq/ne/is_null. Use dot-separated literal
+            keys or numeric array indices; keys containing dots are unsupported.
             Combine with and/or/not; JSON scalar types are preserved. is_null
             matches missing paths, not explicit JSON null.
         hierarchy: Return all cases or top-level cases.

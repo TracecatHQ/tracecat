@@ -37,7 +37,6 @@ from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueInput,
 )
 from tracecat.cases.dropdowns.service import (
-    CaseDropdownDefinitionsService,
     CaseDropdownValuesService,
 )
 from tracecat.cases.enums import (
@@ -330,12 +329,16 @@ class CasesService(BaseWorkspaceService):
         """Describe searchable workspace fields using the executing resolver."""
         dropdown_refs: list[str] = []
         if await self.has_entitlement(Entitlement.CASE_ADDONS):
-            dropdown_refs = [
-                definition.ref
-                for definition in await CaseDropdownDefinitionsService(
-                    self.session, self.role
-                ).list_definitions()
-            ]
+            dropdown_refs = list(
+                await self.session.scalars(
+                    select(CaseDropdownDefinition.ref)
+                    .where(CaseDropdownDefinition.workspace_id == self.workspace_id)
+                    .order_by(
+                        CaseDropdownDefinition.position,
+                        CaseDropdownDefinition.surrogate_id,
+                    )
+                )
+            )
         return case_filter_metadata(
             self.workspace_id, await self.fields.get_field_schema(), dropdown_refs
         )

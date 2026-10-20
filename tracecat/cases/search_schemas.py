@@ -15,7 +15,13 @@ from tracecat.cases.constants import (
 )
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.pagination import CursorPaginationParams
-from tracecat.query.filters import Filter, FilterOp
+from tracecat.query.filters import (
+    MAX_FILTER_CONDITIONS,
+    MAX_FILTER_DEPTH,
+    MAX_FILTER_VALUES,
+    Filter,
+    FilterOp,
+)
 from tracecat.query.lexical import (
     literal_search_pattern,
     parse_full_text_query,
@@ -56,8 +62,9 @@ class CaseFilterMetadata(BaseModel):
     """Discoverable filter fields and shared query limits."""
 
     fields: list[CaseFilterField]
-    max_depth: int
-    max_conditions: int
+    max_depth: int = Field(default=MAX_FILTER_DEPTH)
+    max_conditions: int = Field(default=MAX_FILTER_CONDITIONS)
+    max_values: int = Field(default=MAX_FILTER_VALUES)
 
 
 class CaseQuery(BaseModel):

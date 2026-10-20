@@ -110,3 +110,18 @@ def test_deleted_custom_select_option_is_rejected() -> None:
             Condition(field="fields.category", op=FilterOp.EQ, value="deleted"),
             resolver,
         )
+
+
+@pytest.mark.parametrize("options", [None, []])
+def test_unconstrained_select_accepts_values(options: list[str] | None) -> None:
+    schema = {"category": {"type": "SELECT", "options": options}}
+    resolver = CaseFieldResolver(WORKSPACE_ID, schema)
+    compile_filter(
+        Condition(field="fields.category", op=FilterOp.EQ, value="synthetic"),
+        resolver,
+    )
+    metadata = case_filter_metadata(WORKSPACE_ID, schema, [])
+    category = next(
+        field for field in metadata.fields if field.field == "fields.category"
+    )
+    assert category.choices is None

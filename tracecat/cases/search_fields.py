@@ -74,7 +74,9 @@ def case_filter_metadata(
             if isinstance(display_name := metadata.get("display_name"), str):
                 label = display_name
             if isinstance(options := metadata.get("options"), list):
-                choices = [option for option in options if isinstance(option, str)]
+                choices = [
+                    option for option in options if isinstance(option, str)
+                ] or None
         input_type = "text"
         if resolved.kind is FieldKind.NUMBER:
             input_type = "number"

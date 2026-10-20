@@ -295,10 +295,7 @@ class CaseFieldResolver:
         if custom_field := self._resolve_custom_field_address(field):
             expression, kind, allowed_ops = self._custom_field_expression(custom_field)
             value_type = expression.type
-            if (
-                custom_field.sql_type is SqlType.SELECT
-                and custom_field.options is not None
-            ):
+            if custom_field.sql_type is SqlType.SELECT and custom_field.options:
                 value_type = sa.Enum(*custom_field.options, native_enum=False)
             return ResolvedField(
                 expr=_joined_field_predicate_factory(

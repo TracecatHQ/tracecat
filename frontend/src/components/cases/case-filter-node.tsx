@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { format } from "date-fns"
+import { useRef, useState } from "react"
 import type { CaseFilterField, Condition, Filter } from "@/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -41,6 +42,15 @@ export function FilterNode({
     const type = typeof condition?.value
     return type === "number" || type === "boolean" ? type : "text"
   })
+  const childKeys = useRef(new WeakMap<Filter, number>())
+  const nextChildKey = useRef(0)
+  function childKey(child: Filter): number {
+    const existing = childKeys.current.get(child)
+    if (existing !== undefined) return existing
+    const key = nextChildKey.current++
+    childKeys.current.set(child, key)
+    return key
+  }
   if (condition) {
     const field = fields.find(
       (item) =>
@@ -59,7 +69,8 @@ export function FilterNode({
       const actualType = typeof condition.value
       if (actualType === "number" || actualType === "boolean")
         valueType = actualType
-      else if (condition.value === "") valueType = payloadValueType
+      else if (condition.value === "" || condition.value == null)
+        valueType = payloadValueType
     }
     let choices = field?.choices
     if (field?.kind === "boolean" || valueType === "boolean")
@@ -75,7 +86,21 @@ export function FilterNode({
       // Payload numbers need a JSON number to retain equality type semantics.
       if (field?.kind === "json_scalar" && valueType === "number" && raw !== "")
         return Number(raw)
+      if (inputType === "datetime-local" && raw !== "") {
+        const instant = new Date(raw)
+        if (!Number.isNaN(instant.getTime())) return instant.toISOString()
+      }
       return raw
+    }
+    function displayValue(raw: Condition["value"]): string {
+      if (Array.isArray(raw)) return raw.join(", ")
+      const value = String(raw ?? "")
+      if (inputType === "datetime-local" && value !== "") {
+        const instant = new Date(value)
+        if (!Number.isNaN(instant.getTime()))
+          return format(instant, "yyyy-MM-dd'T'HH:mm:ss.SSS")
+      }
+      return value
     }
     return (
       <div className="flex flex-wrap items-center gap-2 py-1">
@@ -137,12 +162,18 @@ export function FilterNode({
           onChange={(event) => {
             const op = event.target.value as Condition["op"]
             let value = condition.value
-            if (op === "is_null") value = null
-            else if (op === "in" || op === "not_in")
+            if (op === "is_null") {
+              if (field?.kind === "json_scalar") setPayloadValueType(valueType)
+              value = null
+            } else if (op === "in" || op === "not_in")
               value = Array.isArray(value) ? value : [value ?? ""]
             else if (Array.isArray(value)) value = value[0] ?? ""
-            else if (value === null || value === undefined)
+            else if (value === null || value === undefined) {
               value = field?.choices?.[0] ?? ""
+              if (field?.kind === "boolean" || valueType === "boolean")
+                value = true
+              else if (valueType === "number") value = 0
+            }
             update({ ...condition, op, value })
           }}
         >
@@ -227,11 +258,7 @@ export function FilterNode({
                 step="any"
                 required={inputType !== "text"}
                 placeholder={isList ? "Comma-separated values" : "Value"}
-                value={
-                  Array.isArray(condition.value)
-                    ? condition.value.join(", ")
-                    : String(condition.value ?? "")
-                }
+                value={displayValue(condition.value)}
                 onChange={(event) =>
                   update({
                     ...condition,
@@ -318,18 +345,19 @@ export function FilterNode({
       </div>
       {children.map((child, index) => (
         <FilterNode
-          key={index}
+          key={childKey(child)}
           node={child}
           fields={fields}
           depth={depth + 1}
           maxDepth={maxDepth}
           canAdd={canAdd}
           choiceLabels={choiceLabels}
-          onChange={(next) =>
+          onChange={(next) => {
+            childKeys.current.set(next, childKey(child))
             replaceChildren(
               children.map((item, i) => (i === index ? next : item))
             )
-          }
+          }}
           onRemove={() =>
             replaceChildren(children.filter((_, i) => i !== index))
           }

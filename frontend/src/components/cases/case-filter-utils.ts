@@ -20,8 +20,15 @@ export function conditionCount(node: Filter): number {
 /** Recognize the explicit comparison-or-unset representation. */
 export function includeUnsetCondition(node: Filter): Condition | null {
   if (!("or" in node) || node.or.length !== 2) return null
-  const [condition, unset] = node.or
+  const condition = node.or.find(
+    (child) => "field" in child && child.op !== "is_null"
+  )
+  const unset = node.or.find(
+    (child) => "field" in child && child.op === "is_null"
+  )
   if (
+    condition &&
+    unset &&
     "field" in condition &&
     "field" in unset &&
     unset.op === "is_null" &&

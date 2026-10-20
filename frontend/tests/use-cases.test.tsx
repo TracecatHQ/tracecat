@@ -6,10 +6,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type {
   CaseReadMinimal,
   CaseStatus,
-  CasesSearchCaseAggregatesResponse,
-  CasesSearchCasesResponse,
+  CasesQueryCaseAggregatesResponse,
+  CasesQueryCasesResponse,
 } from "@/client"
-import { casesSearchCaseAggregates, casesSearchCases } from "@/client"
+import { casesQueryCaseAggregates, casesQueryCases } from "@/client"
 import { useCases } from "@/hooks/use-cases"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
@@ -18,16 +18,16 @@ jest.mock("@/providers/workspace-id", () => ({
 }))
 
 jest.mock("@/client", () => ({
-  casesSearchCases: jest.fn(),
-  casesSearchCaseAggregates: jest.fn(),
+  casesQueryCases: jest.fn(),
+  casesQueryCaseAggregates: jest.fn(),
 }))
 
-const mockSearchCases = casesSearchCases as jest.MockedFunction<
-  typeof casesSearchCases
+const mockSearchCases = casesQueryCases as jest.MockedFunction<
+  typeof casesQueryCases
 >
 const mockSearchCaseAggregates =
-  casesSearchCaseAggregates as jest.MockedFunction<
-    typeof casesSearchCaseAggregates
+  casesQueryCaseAggregates as jest.MockedFunction<
+    typeof casesQueryCaseAggregates
   >
 
 function createPersistedFilters(overrides: Record<string, unknown> = {}) {
@@ -173,11 +173,12 @@ describe("useCases", () => {
   })
 
   afterEach(() => {
+    jest.restoreAllMocks()
     jest.useRealTimers()
   })
 
   it("uses paginated rows and separate global counts", async () => {
-    const firstPage: CasesSearchCasesResponse = {
+    const firstPage: CasesQueryCasesResponse = {
       items: Array.from({ length: 100 }, (_, index) => createCase(index + 1)),
       next_cursor: "cursor-page-2",
       prev_cursor: null,
@@ -186,7 +187,7 @@ describe("useCases", () => {
       total_estimate: 1000,
     }
 
-    const aggregate: CasesSearchCaseAggregatesResponse = {
+    const aggregate: CasesQueryCaseAggregatesResponse = {
       total: 1000,
       status_groups: {
         new: 700,
@@ -226,7 +227,9 @@ describe("useCases", () => {
     expect(mockSearchCases).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace-1",
-        limit: 100,
+        requestBody: expect.objectContaining({
+          limit: 100,
+        }),
       })
     )
 
@@ -239,7 +242,7 @@ describe("useCases", () => {
   })
 
   it("hydrates persisted filters before issuing case queries", async () => {
-    const firstPage: CasesSearchCasesResponse = {
+    const firstPage: CasesQueryCasesResponse = {
       items: [createCase(1)],
       next_cursor: null,
       prev_cursor: null,
@@ -248,7 +251,7 @@ describe("useCases", () => {
       total_estimate: 1,
     }
 
-    const aggregate: CasesSearchCaseAggregatesResponse = {
+    const aggregate: CasesQueryCaseAggregatesResponse = {
       total: 1,
       status_groups: {
         new: 1,
@@ -294,8 +297,10 @@ describe("useCases", () => {
     expect(mockSearchCases).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace-1",
-        searchTerm: "persisted query",
-        updatedAfter: expect.stringContaining("T"),
+        requestBody: expect.objectContaining({
+          search_term: "persisted query",
+          updated_after: expect.stringContaining("T"),
+        }),
       })
     )
 
@@ -303,14 +308,16 @@ describe("useCases", () => {
     expect(mockSearchCaseAggregates).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace-1",
-        searchTerm: "persisted query",
-        updatedAfter: expect.stringContaining("T"),
+        requestBody: expect.objectContaining({
+          search_term: "persisted query",
+          updated_after: expect.stringContaining("T"),
+        }),
       })
     )
   })
 
   it("forwards selected field IDs and duration hydration flags", async () => {
-    const firstPage: CasesSearchCasesResponse = {
+    const firstPage: CasesQueryCasesResponse = {
       items: [createCase(1)],
       next_cursor: null,
       prev_cursor: null,
@@ -319,7 +326,7 @@ describe("useCases", () => {
       total_estimate: 1,
     }
 
-    const aggregate: CasesSearchCaseAggregatesResponse = {
+    const aggregate: CasesQueryCaseAggregatesResponse = {
       total: 1,
       status_groups: {
         new: 1,
@@ -354,8 +361,10 @@ describe("useCases", () => {
     expect(mockSearchCases).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace-1",
-        fieldIds: ["priority_reason"],
-        includeDurations: true,
+        requestBody: expect.objectContaining({
+          field_ids: ["priority_reason"],
+          include_durations: true,
+        }),
       })
     )
   })
@@ -363,7 +372,7 @@ describe("useCases", () => {
   it("does not expose cached default-query rows before persisted filters hydrate", () => {
     jest.useFakeTimers().setSystemTime(new Date("2026-03-12T12:00:00Z"))
 
-    const cachedDefaultPage: CasesSearchCasesResponse = {
+    const cachedDefaultPage: CasesQueryCasesResponse = {
       items: [createCase(1), createCase(2)],
       next_cursor: null,
       prev_cursor: null,
@@ -382,7 +391,7 @@ describe("useCases", () => {
 
     const defaultFiltersKey = JSON.stringify({
       apiQueryParams: {
-        startTime: new Date("2026-02-10T12:00:00.000Z").toISOString(),
+        start_time: new Date("2026-02-10T12:00:00.000Z").toISOString(),
       },
       hasImpossibleEnumFilter: false,
     })
@@ -407,7 +416,7 @@ describe("useCases", () => {
           resolved: 0,
           other: 0,
         },
-      } satisfies CasesSearchCaseAggregatesResponse
+      } satisfies CasesQueryCaseAggregatesResponse
     )
 
     window.localStorage.setItem(
@@ -421,12 +430,12 @@ describe("useCases", () => {
     )
 
     mockSearchCases.mockImplementation(
-      () => new Promise(() => undefined) as ReturnType<typeof casesSearchCases>
+      () => new Promise(() => undefined) as ReturnType<typeof casesQueryCases>
     )
     mockSearchCaseAggregates.mockImplementation(
       () =>
         new Promise(() => undefined) as ReturnType<
-          typeof casesSearchCaseAggregates
+          typeof casesQueryCaseAggregates
         >
     )
 
@@ -442,7 +451,7 @@ describe("useCases", () => {
   })
 
   it("falls back to defaults when localStorage access throws", async () => {
-    const firstPage: CasesSearchCasesResponse = {
+    const firstPage: CasesQueryCasesResponse = {
       items: [createCase(1)],
       next_cursor: null,
       prev_cursor: null,
@@ -451,7 +460,7 @@ describe("useCases", () => {
       total_estimate: 1,
     }
 
-    const aggregate: CasesSearchCaseAggregatesResponse = {
+    const aggregate: CasesQueryCaseAggregatesResponse = {
       total: 1,
       status_groups: {
         new: 1,
@@ -513,7 +522,7 @@ describe("useCases", () => {
   })
 
   it("sanitizes malformed persisted dropdown filters", async () => {
-    const firstPage: CasesSearchCasesResponse = {
+    const firstPage: CasesQueryCasesResponse = {
       items: [createCase(1)],
       next_cursor: null,
       prev_cursor: null,
@@ -522,7 +531,7 @@ describe("useCases", () => {
       total_estimate: 1,
     }
 
-    const aggregate: CasesSearchCaseAggregatesResponse = {
+    const aggregate: CasesQueryCaseAggregatesResponse = {
       total: 1,
       status_groups: {
         new: 1,
@@ -583,19 +592,23 @@ describe("useCases", () => {
     expect(mockSearchCases).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace-1",
-        dropdown: ["valid:keep-me"],
+        requestBody: expect.objectContaining({
+          dropdown: ["valid:keep-me"],
+        }),
       })
     )
     expect(mockSearchCaseAggregates).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace-1",
-        dropdown: ["valid:keep-me"],
+        requestBody: expect.objectContaining({
+          dropdown: ["valid:keep-me"],
+        }),
       })
     )
   })
 
   it("sanitizes malformed persisted scalar filters", async () => {
-    const firstPage: CasesSearchCasesResponse = {
+    const firstPage: CasesQueryCasesResponse = {
       items: [createCase(1)],
       next_cursor: null,
       prev_cursor: null,
@@ -604,7 +617,7 @@ describe("useCases", () => {
       total_estimate: 1,
     }
 
-    const aggregate: CasesSearchCaseAggregatesResponse = {
+    const aggregate: CasesQueryCaseAggregatesResponse = {
       total: 1,
       status_groups: {
         new: 1,
@@ -619,6 +632,7 @@ describe("useCases", () => {
       "workspace-1:cases-filters:v1",
       JSON.stringify(
         createPersistedFilters({
+          structuredFilters: { and: [null] },
           searchQuery: 42,
           sortBy: { field: "bad-field", direction: "up" },
           statusFilter: ["new", "bad-status", 99],
@@ -653,27 +667,33 @@ describe("useCases", () => {
     expect(mockSearchCases).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace-1",
-        searchTerm: undefined,
-        orderBy: "updated_at",
-        sort: "desc",
-        status: ["new"],
-        assigneeId: ["user-1"],
-        tags: ["tag-1"],
+        requestBody: expect.objectContaining({
+          filters: null,
+          search_term: undefined,
+          order_by: "updated_at",
+          sort: "desc",
+          status: ["new"],
+          assignee_id: ["user-1"],
+          tags: ["tag-1"],
+        }),
       })
     )
     expect(mockSearchCaseAggregates).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace-1",
-        searchTerm: undefined,
-        status: ["new"],
-        assigneeId: ["user-1"],
-        tags: ["tag-1"],
+        requestBody: expect.objectContaining({
+          filters: null,
+          search_term: undefined,
+          status: ["new"],
+          assignee_id: ["user-1"],
+          tags: ["tag-1"],
+        }),
       })
     )
   })
 
   it("clears rows when enum exclude filters match no records", async () => {
-    const firstPage: CasesSearchCasesResponse = {
+    const firstPage: CasesQueryCasesResponse = {
       items: [createCase(1)],
       next_cursor: null,
       prev_cursor: null,
@@ -682,7 +702,7 @@ describe("useCases", () => {
       total_estimate: 1,
     }
 
-    const aggregate: CasesSearchCaseAggregatesResponse = {
+    const aggregate: CasesQueryCaseAggregatesResponse = {
       total: 1,
       status_groups: {
         new: 1,
@@ -727,7 +747,7 @@ describe("useCases", () => {
   })
 
   it("resets sortBy when clearing priority or severity sorting", async () => {
-    const firstPage: CasesSearchCasesResponse = {
+    const firstPage: CasesQueryCasesResponse = {
       items: [createCase(1)],
       next_cursor: null,
       prev_cursor: null,
@@ -736,7 +756,7 @@ describe("useCases", () => {
       total_estimate: 1,
     }
 
-    const aggregate: CasesSearchCaseAggregatesResponse = {
+    const aggregate: CasesQueryCaseAggregatesResponse = {
       total: 1,
       status_groups: {
         new: 1,

@@ -2757,8 +2757,9 @@ export type input_type = "text" | "number" | "date" | "datetime-local"
  */
 export type CaseFilterMetadata = {
   fields: Array<CaseFilterField>
-  max_depth: number
-  max_conditions: number
+  max_depth?: number
+  max_conditions?: number
+  max_values?: number
 }
 
 /**

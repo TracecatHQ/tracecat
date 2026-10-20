@@ -10113,14 +10113,21 @@ export const $CaseFilterMetadata = {
     max_depth: {
       type: "integer",
       title: "Max Depth",
+      default: 4,
     },
     max_conditions: {
       type: "integer",
       title: "Max Conditions",
+      default: 50,
+    },
+    max_values: {
+      type: "integer",
+      title: "Max Values",
+      default: 1000,
     },
   },
   type: "object",
-  required: ["fields", "max_depth", "max_conditions"],
+  required: ["fields"],
   title: "CaseFilterMetadata",
   description: "Discoverable filter fields and shared query limits.",
 } as const

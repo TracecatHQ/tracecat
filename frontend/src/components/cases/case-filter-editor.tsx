@@ -9,6 +9,7 @@ import {
   type Filter,
   type WorkspaceMember,
 } from "@/client"
+import { $CaseFilterMetadata } from "@/client/schemas.gen"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -144,8 +145,15 @@ export function CaseFilterEditor({
                   fields={fields}
                   choiceLabels={choiceLabels}
                   depth={1}
-                  maxDepth={metadata.data.max_depth}
-                  canAdd={conditionCount(draft) < metadata.data.max_conditions}
+                  maxDepth={
+                    metadata.data.max_depth ??
+                    $CaseFilterMetadata.properties.max_depth.default
+                  }
+                  canAdd={
+                    conditionCount(draft) <
+                    (metadata.data.max_conditions ??
+                      $CaseFilterMetadata.properties.max_conditions.default)
+                  }
                 />
               )}
               {!draft && (

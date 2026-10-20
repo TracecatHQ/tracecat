@@ -639,9 +639,10 @@ export function CasesHeader({
     onTagModeChange("include")
     onTagSortDirectionChange?.(null)
     // Reset dropdown filters
-    const refs = dropdownDefinitions
-      ? dropdownDefinitions.map((d) => d.ref)
-      : Object.keys(dropdownFilters)
+    const refs = new Set([
+      ...(dropdownDefinitions?.map((d) => d.ref) ?? []),
+      ...Object.keys(dropdownFilters),
+    ])
     for (const ref of refs) {
       onDropdownFilterChange(ref, [])
       onDropdownModeChange(ref, "include")
