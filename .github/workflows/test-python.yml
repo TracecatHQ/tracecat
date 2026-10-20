@@ -237,6 +237,15 @@ jobs:
           echo "Timed out waiting for Temporal search attributes: ${missing[*]}"
           exit 1
 
+      - name: Build sandbox test image
+        if: matrix.test_group == 'unit-sandbox'
+        timeout-minutes: 20
+        run: |
+          # Keep image builds out of individual smoke-test deadlines and avoid
+          # concurrent xdist workers rebuilding the same Compose service image.
+          docker build --target test --tag tracecat-sandbox-test:ci .
+          echo "TRACECAT_TEST_SANDBOX_IMAGE=tracecat-sandbox-test:ci" >> "$GITHUB_ENV"
+
       - name: Run tests
         env:
           TRACECAT__SYSTEM_PATH: "/usr/local/bin:/usr/bin:/bin"

@@ -713,6 +713,7 @@ def _run_nsjail_harness_in_docker_or_skip(
     compose_env.setdefault("ADDRESS", "0.0.0.0")
     compose_env.setdefault("LOG_LEVEL", "INFO")
     compose_env.setdefault("TRACECAT__APP_ENV", "development")
+    sandbox_image = os.environ.get("TRACECAT_TEST_SANDBOX_IMAGE")
     tests_mount = f"{repo_root / 'tests'}:/app/tests:ro"
     fd, override_name = tempfile.mkstemp(
         prefix=override_prefix,
@@ -727,8 +728,14 @@ def _run_nsjail_harness_in_docker_or_skip(
                 "  api:",
                 '    user: "0:0"',
                 "    cgroup: private",
-                "    build:",
-                "      target: test",
+                *(
+                    [
+                        f"    image: {json.dumps(sandbox_image)}",
+                        "    build: !reset null",
+                    ]
+                    if sandbox_image
+                    else ["    build:", "      target: test"]
+                ),
                 "    cap_add:",
                 "      - SYS_ADMIN",
                 "    security_opt:",
@@ -758,7 +765,7 @@ def _run_nsjail_harness_in_docker_or_skip(
                 "run",
                 "--rm",
                 "--no-deps",
-                "--build",
+                *(["--pull", "never"] if sandbox_image else ["--build"]),
                 "-T",
                 "--entrypoint",
                 "python",

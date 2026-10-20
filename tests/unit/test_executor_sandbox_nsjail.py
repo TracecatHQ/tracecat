@@ -195,6 +195,7 @@ def _run_executor_action_smoke_in_docker_or_skip(smoke_case: SmokeCase) -> None:
     compose_env.setdefault("TRACECAT__APP_ENV", "development")
     compose_env.setdefault("TRACECAT__SERVICE_KEY", "test-service-key")
 
+    sandbox_image = os.environ.get("TRACECAT_TEST_SANDBOX_IMAGE")
     tests_mount = f"{repo_root / 'tests'}:/app/tests:ro"
     device_lines = (
         [
@@ -224,8 +225,14 @@ def _run_executor_action_smoke_in_docker_or_skip(smoke_case: SmokeCase) -> None:
                 "  executor:",
                 '    user: "0:0"',
                 "    cgroup: private",
-                "    build:",
-                "      target: test",
+                *(
+                    [
+                        f"    image: {json.dumps(sandbox_image)}",
+                        "    build: !reset null",
+                    ]
+                    if sandbox_image
+                    else ["    build:", "      target: test"]
+                ),
                 "    privileged: true",
                 "    security_opt:",
                 "      - seccomp:unconfined",
@@ -234,6 +241,9 @@ def _run_executor_action_smoke_in_docker_or_skip(smoke_case: SmokeCase) -> None:
                 *device_lines,
                 "    volumes:",
                 f"      - {json.dumps(tests_mount)}",
+                # Replace the shared dev cache with a per-container anonymous
+                # volume. Parallel Docker volume population otherwise races.
+                "      - /var/lib/tracecat/sandbox-cache",
                 "    environment:",
                 f'      {_DOCKER_CHILD_ENV}: "1"',
                 '      TRACECAT__EXECUTOR_BACKEND: "nsjail"',
@@ -257,7 +267,7 @@ def _run_executor_action_smoke_in_docker_or_skip(smoke_case: SmokeCase) -> None:
                 "run",
                 "--rm",
                 "--no-deps",
-                "--build",
+                *(["--pull", "never"] if sandbox_image else ["--build"]),
                 "-T",
                 "--entrypoint",
                 "python",
