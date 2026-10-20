@@ -2747,6 +2747,7 @@ export type CaseFilterField = {
   kind: FieldKind
   operators: Array<FilterOp>
   choices?: Array<string> | null
+  range_choices?: Array<string> | null
   input_type?: "text" | "number" | "date" | "datetime-local"
 }
 

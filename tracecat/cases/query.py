@@ -473,6 +473,7 @@ def _ranked_enum_field[
         kind=FieldKind.ENUM,
         allowed_ops=RANKED_ENUM_OPS,
         value_type=column.type,
+        range_choices=tuple(str(member.value) for member in ranks),
     )
 
 

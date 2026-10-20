@@ -6,6 +6,13 @@ import { includeUnsetCondition } from "./case-filter-utils"
 
 const fields: CaseFilterField[] = [
   {
+    field: "fields.score",
+    label: "Score",
+    kind: "number",
+    input_type: "number",
+    operators: ["eq", "gte", "is_null"],
+  },
+  {
     field: "payload.<path>",
     label: "Payload",
     kind: "json_scalar",
@@ -100,16 +107,20 @@ test.each(["fields.active", "payload.active"])(
   }
 )
 
-test("preserves numeric payload type through an unset round trip", () => {
-  setup({ field: "payload.score", op: "eq", value: 5 })
-  fireEvent.change(screen.getByLabelText("Condition operator"), {
-    target: { value: "is_null" },
-  })
-  fireEvent.change(screen.getByLabelText("Condition operator"), {
-    target: { value: "eq" },
-  })
-  expect(draft()).toEqual({ field: "payload.score", op: "eq", value: 0 })
-})
+test.each(["payload.score", "fields.score"])(
+  "restores a numeric value through an unset round trip for %s",
+  (field) => {
+    setup({ field, op: "eq", value: 5 })
+    fireEvent.change(screen.getByLabelText("Condition operator"), {
+      target: { value: "is_null" },
+    })
+    fireEvent.change(screen.getByLabelText("Condition operator"), {
+      target: { value: "eq" },
+    })
+    expect(draft()).toEqual({ field, op: "eq", value: 0 })
+    expect(screen.getByLabelText("Condition value")).toBeValid()
+  }
+)
 
 test("row identity survives edits, include-unset wrapping, group toggles and sibling removal", () => {
   setup({

@@ -1,4 +1,4 @@
-import type { Condition, Filter } from "@/client"
+import type { CaseFilterField, Condition, Filter } from "@/client"
 
 /** Return immediate children of a boolean group. */
 export function childrenOf(node: Filter): Filter[] {
@@ -56,4 +56,43 @@ export const OP_LABELS: Record<Condition["op"], string> = {
 /** Start a new condition with an existing built-in status. */
 export function newCondition(): Condition {
   return { field: "status", op: "eq", value: "new" }
+}
+
+/** Count all submitted scalar and list values, including empty strings and duplicates. */
+export function filterValueCount(node: Filter): number {
+  if ("field" in node) {
+    if (Array.isArray(node.value)) return node.value.length
+    return node.value == null ? 0 : 1
+  }
+  return childrenOf(node).reduce(
+    (total, child) => total + filterValueCount(child),
+    0
+  )
+}
+
+/** Return the server's eligible values for the selected comparison. */
+export function fieldChoices(
+  field: CaseFilterField | undefined,
+  op: Condition["op"]
+) {
+  if (["gt", "gte", "lt", "lte"].includes(op))
+    return field?.range_choices ?? field?.choices
+  return field?.choices
+}
+
+/** Keep saved unranked comparisons visible, but require correction before applying. */
+export function hasInvalidRangeChoice(
+  node: Filter,
+  fields: CaseFilterField[]
+): boolean {
+  if ("field" in node) {
+    const field = fields.find((item) => item.field === node.field)
+    if (!field?.range_choices || !["gt", "gte", "lt", "lte"].includes(node.op))
+      return false
+    return (
+      typeof node.value !== "string" ||
+      !field.range_choices.includes(node.value)
+    )
+  }
+  return childrenOf(node).some((child) => hasInvalidRangeChoice(child, fields))
 }

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
   childrenOf,
+  fieldChoices,
   includeUnsetCondition,
   newCondition,
   OP_LABELS,
@@ -72,7 +73,7 @@ export function FilterNode({
       else if (condition.value === "" || condition.value == null)
         valueType = payloadValueType
     }
-    let choices = field?.choices
+    let choices = fieldChoices(field, condition.op)
     if (field?.kind === "boolean" || valueType === "boolean")
       choices = ["true", "false"]
     const isList = condition.op === "in" || condition.op === "not_in"
@@ -162,6 +163,7 @@ export function FilterNode({
           value={condition.op}
           onChange={(event) => {
             const op = event.target.value as Condition["op"]
+            const nextChoices = fieldChoices(field, op)
             let value = condition.value
             if (op === "is_null") {
               if (field?.kind === "json_scalar") setPayloadValueType(valueType)
@@ -170,11 +172,18 @@ export function FilterNode({
               value = Array.isArray(value) ? value : [value ?? ""]
             else if (Array.isArray(value)) value = value[0] ?? ""
             else if (value === null || value === undefined) {
-              value = field?.choices?.[0] ?? ""
+              value = nextChoices?.[0] ?? ""
               if (field?.kind === "boolean" || valueType === "boolean")
                 value = true
-              else if (valueType === "number") value = 0
+              else if (field?.kind === "number" || valueType === "number")
+                value = 0
             }
+            if (
+              field?.range_choices &&
+              ["gt", "gte", "lt", "lte"].includes(op) &&
+              !nextChoices?.includes(String(value))
+            )
+              value = nextChoices?.[0] ?? ""
             update({ ...condition, op, value })
           }}
         >

@@ -94,6 +94,9 @@ def case_filter_metadata(
                 kind=resolved.kind,
                 operators=sorted(resolved.allowed_ops),
                 choices=choices,
+                range_choices=list(resolved.range_choices)
+                if resolved.range_choices is not None
+                else None,
                 input_type=input_type,
             )
         )

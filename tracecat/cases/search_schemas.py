@@ -53,6 +53,7 @@ class CaseFilterField(BaseModel):
     kind: FieldKind
     operators: list[FilterOp]
     choices: list[str] | None = Field(default=None)
+    range_choices: list[str] | None = Field(default=None)
     input_type: Literal["text", "number", "date", "datetime-local"] = Field(
         default="text"
     )

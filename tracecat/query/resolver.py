@@ -43,13 +43,15 @@ class ResolvedField:
     ``expr`` may be a direct SQL expression or a factory for fields whose
     predicate needs a correlated EXISTS query. Factories that accept non-null
     values must provide ``value_type`` so the compiler can normalize those
-    values exactly as it does for direct expressions.
+    values exactly as it does for direct expressions. ``range_choices`` lists
+    the enum values with a defined rank for ordered comparisons.
     """
 
     expr: FilterExpression
     kind: FieldKind
     allowed_ops: frozenset[FilterOp]
     value_type: TypeEngine[Any] | None = None
+    range_choices: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)

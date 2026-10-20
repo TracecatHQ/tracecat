@@ -24,7 +24,12 @@ import { useQuery } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 import { FilterNode } from "./case-filter-node"
 import { CaseFilterSummary } from "./case-filter-summary"
-import { conditionCount, newCondition } from "./case-filter-utils"
+import {
+  conditionCount,
+  filterValueCount,
+  hasInvalidRangeChoice,
+  newCondition,
+} from "./case-filter-utils"
 
 /** Edit the generated server filter tree, keeping drafts separate from applied queries. */
 export function CaseFilterEditor({
@@ -78,6 +83,14 @@ export function CaseFilterEditor({
       }
     return field
   })
+  const maxValues =
+    metadata.data?.max_values ??
+    $CaseFilterMetadata.properties.max_values.default
+  const tooManyValues = draft ? filterValueCount(draft) > maxValues : false
+  const invalidRangeChoice = draft
+    ? hasInvalidRangeChoice(draft, fields)
+    : false
+  const invalidDraft = tooManyValues || invalidRangeChoice
   return (
     <>
       {value && (
@@ -118,6 +131,7 @@ export function CaseFilterEditor({
             className="contents"
             onSubmit={(event) => {
               event.preventDefault()
+              if (!metadata.data || invalidDraft) return
               onChange(draft)
               setOpen(false)
             }}
@@ -131,6 +145,17 @@ export function CaseFilterEditor({
                 payload.metadata.product.vendor_name. For payloads, unset means
                 a missing path; an explicit JSON null is present.
               </p>
+              {tooManyValues && (
+                <p role="alert" className="text-xs text-destructive">
+                  Conditions can contain at most {maxValues} values in total.
+                  Remove values before applying.
+                </p>
+              )}
+              {invalidRangeChoice && (
+                <p role="alert" className="text-xs text-destructive">
+                  Choose an available comparison value before applying.
+                </p>
+              )}
               {metadata.isLoading && <p className="text-xs">Loading fields…</p>}
               {metadata.error && (
                 <p role="alert" className="text-xs text-destructive">
@@ -168,7 +193,11 @@ export function CaseFilterEditor({
               )}
             </DialogBody>
             <DialogFooter>
-              <Button type="submit" size="sm" disabled={!metadata.data}>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={!metadata.data || invalidDraft}
+              >
                 Apply conditions
               </Button>
             </DialogFooter>

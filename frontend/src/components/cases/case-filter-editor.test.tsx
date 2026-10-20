@@ -21,7 +21,24 @@ jest.mock("@/client", () => ({ casesListCaseFilterFields: jest.fn() }))
 const metadata: CaseFilterMetadata = {
   max_depth: 4,
   max_conditions: 50,
+  max_values: 1000,
   fields: [
+    ...["priority", "severity"]
+      .map((field) => ({
+        field,
+        label: field,
+        kind: "enum" as const,
+        operators: ["eq", "gte", "lt"] as const,
+        choices: ["unknown", "low", "high", "other"],
+        range_choices: ["low", "high"],
+      }))
+      .map((field) => ({ ...field, operators: [...field.operators] })),
+    {
+      field: "summary",
+      label: "Summary",
+      kind: "text",
+      operators: ["eq", "in", "not_in"],
+    },
     {
       field: "status",
       label: "Status",
@@ -183,4 +200,125 @@ test("preserves unavailable saved fields until they are explicitly removed", asy
     })
   )
   await waitFor(() => expect(onApply).toHaveBeenLastCalledWith(null))
+})
+
+test.each(["priority", "severity"])(
+  "changing %s to a range chooses an eligible value",
+  async (field) => {
+    const user = userEvent.setup()
+    const onApply = setup({ field, op: "eq", value: "unknown" })
+    await user.click(screen.getByRole("button", { name: "Conditions (1)" }))
+    await screen.findByLabelText("Condition field")
+    fireEvent.change(screen.getByLabelText("Condition operator"), {
+      target: { value: "gte" },
+    })
+    const input = screen.getByLabelText("Condition value")
+    expect(input).toHaveValue("low")
+    expect(
+      within(input).queryByRole("option", { name: "unknown" })
+    ).not.toBeInTheDocument()
+    expect(
+      within(input).queryByRole("option", { name: "other" })
+    ).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText("Condition operator"), {
+      target: { value: "eq" },
+    })
+    expect(
+      within(input).getByRole("option", { name: "unknown" })
+    ).toBeInTheDocument()
+    expect(
+      within(input).getByRole("option", { name: "other" })
+    ).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText("Condition operator"), {
+      target: { value: "lt" },
+    })
+    await user.click(screen.getByRole("button", { name: "Apply conditions" }))
+    expect(onApply).toHaveBeenLastCalledWith({ field, op: "lt", value: "low" })
+  }
+)
+
+test("preserves a saved unranked range value but blocks Apply until corrected", async () => {
+  const user = userEvent.setup()
+  const onApply = setup({ field: "priority", op: "gte", value: "unknown" })
+  await user.click(screen.getByRole("button", { name: "Conditions (1)" }))
+  await screen.findByRole("option", { name: "unknown (unavailable)" })
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "Choose an available comparison value"
+  )
+  const apply = screen.getByRole("button", { name: "Apply conditions" })
+  expect(apply).toBeDisabled()
+  fireEvent.submit(apply.closest("form")!)
+  expect(onApply).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText("Condition value"), {
+    target: { value: "high" },
+  })
+  expect(apply).toBeEnabled()
+  await user.click(apply)
+  expect(onApply).toHaveBeenLastCalledWith({
+    field: "priority",
+    op: "gte",
+    value: "high",
+  })
+})
+
+test("rejects 1001 values, guards submission, and accepts exactly 1000 after editing", async () => {
+  const user = userEvent.setup()
+  const onApply = setup({
+    field: "summary",
+    op: "in",
+    value: Array(1001).fill("synthetic"),
+  })
+  await user.click(screen.getByRole("button", { name: "Conditions (1)" }))
+  await screen.findByLabelText("Condition value")
+  expect(screen.getByRole("alert")).toHaveTextContent("at most 1000 values")
+  const apply = screen.getByRole("button", { name: "Apply conditions" })
+  expect(apply).toBeDisabled()
+  fireEvent.submit(apply.closest("form")!)
+  expect(onApply).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText("Condition value"), {
+    target: { value: Array(1000).fill("synthetic").join(",") },
+  })
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  expect(apply).toBeEnabled()
+  await user.click(apply)
+  expect(onApply).toHaveBeenLastCalledWith({
+    field: "summary",
+    op: "in",
+    value: Array(1000).fill("synthetic"),
+  })
+})
+
+test("counts values across nested lists and scalar conditions against the live limit", async () => {
+  jest
+    .mocked(casesListCaseFilterFields)
+    .mockImplementation(
+      () =>
+        new CancelablePromise((resolve) =>
+          resolve({ ...metadata, max_values: 3 })
+        )
+    )
+  const user = userEvent.setup()
+  const onApply = setup({
+    and: [
+      { field: "summary", op: "in", value: ["first", "second"] },
+      {
+        or: [
+          { field: "summary", op: "not_in", value: ["third"] },
+          { field: "status", op: "eq", value: "new" },
+        ],
+      },
+    ],
+  })
+  await user.click(screen.getByRole("button", { name: "Conditions (3)" }))
+  await screen.findByRole("alert")
+  expect(screen.getByRole("alert")).toHaveTextContent("at most 3 values")
+  const apply = screen.getByRole("button", { name: "Apply conditions" })
+  expect(apply).toBeDisabled()
+  fireEvent.change(screen.getAllByLabelText("Condition value")[0], {
+    target: { value: "first" },
+  })
+  expect(apply).toBeEnabled()
+  await user.click(apply)
+  expect(onApply.mock.calls.at(-1)?.[0].and[0].value).toEqual(["first"])
+  expect(onApply.mock.calls.at(-1)?.[0].and[1].or[0].value).toEqual(["third"])
 })

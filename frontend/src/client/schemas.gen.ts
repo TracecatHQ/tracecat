@@ -10087,6 +10087,20 @@ export const $CaseFilterField = {
       ],
       title: "Choices",
     },
+    range_choices: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Range Choices",
+    },
     input_type: {
       type: "string",
       enum: ["text", "number", "date", "datetime-local"],
