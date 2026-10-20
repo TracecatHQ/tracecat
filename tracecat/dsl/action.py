@@ -79,7 +79,9 @@ from tracecat.runtime.errors import (
     RuntimeErrorOwner,
 )
 from tracecat.secrets import secrets_manager
+from tracecat.storage.backends.s3 import S3ObjectStorage
 from tracecat.storage.collection import (
+    get_collection_page,
     materialize_collection_values,
     store_collection,
 )
@@ -306,11 +308,21 @@ class SynchronizeCollectionObjectActivityInput(BaseModel):
     collection: list[StoredObject]
     key: str
     """Storage key prefix for the collection."""
+    parts: list[CollectionObject] = Field(default_factory=list)
+    """Stored parts holding leading items, read before `collection`."""
+
+
+class StoreCollectionPartActivityInput(BaseModel):
+    items: list[StoredObject]
+    key: str
+    """Storage key prefix for the part."""
 
 
 class FinalizeGatherActivityInput(BaseModel):
     collection: list[StoredObject]
     key: str
+    parts: list[CollectionObject] = Field(default_factory=list)
+    """Stored parts holding leading items, read before `collection`."""
     drop_nulls: bool = False
     error_strategy: StreamErrorHandlingStrategy = StreamErrorHandlingStrategy.PARTITION
 
@@ -349,6 +361,8 @@ class EvaluateTemplatedObjectActivityInput(BaseModel):
     obj: Any
     operand: ExecutionContext
     key: str
+    inline_threshold_bytes: int | None = None
+    """Externalize results above this size, if lower than the configured threshold."""
 
 
 class EvaluateForEachActivityInput(BaseModel):
@@ -425,6 +439,18 @@ async def _store_collection_as_refs(prefix: str, items: list[Any]) -> Collection
         stored = await storage.store(collection_item_key(prefix, i), item)
         refs.append(_dump_chunk_ref(stored))
     return await store_collection(prefix, refs, element_kind="stored_object")
+
+
+async def _load_collection_input(
+    parts: list[CollectionObject], collection: list[StoredObject]
+) -> list[StoredObject]:
+    """Return the StoredObjects held in `parts`, followed by `collection`."""
+    items: list[StoredObject] = []
+    for part in parts:
+        page = await get_collection_page(part)
+        items.extend(StoredObjectValidator.validate_python(item) for item in page)
+    items.extend(collection)
+    return items
 
 
 async def _store_list_result(key: str, items: list[Any]) -> StoredObject:
@@ -799,8 +825,17 @@ class DSLActivities:
             materialized = run_sync(materialize_context(input.operand))
         with activity_error_boundary(_expression_error_classification):
             result = eval_templated_object(input.obj, operand=materialized)
+        storage = get_object_storage()
+        if (
+            input.inline_threshold_bytes is not None
+            and isinstance(storage, S3ObjectStorage)
+            and input.inline_threshold_bytes < storage.threshold_bytes
+        ):
+            storage = S3ObjectStorage(
+                bucket=storage.bucket, threshold_bytes=input.inline_threshold_bytes
+            )
         with activity_error_boundary(_result_persistence_error_classification):
-            return run_sync(get_object_storage().store(input.key, result))
+            return run_sync(storage.store(input.key, result))
 
     @staticmethod
     @activity.defn
@@ -885,9 +920,11 @@ class DSLActivities:
         # Guard CollectionObject: only use chunked storage when externalization
         # is enabled. Fall back to inline list for non-externalized deployments.
         storage = get_object_storage()
+        with activity_error_boundary(_materialization_error_classification):
+            collection = await _load_collection_input(input.parts, input.collection)
         if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
             refs: list[dict[str, Any]] = []
-            for i, obj in enumerate(input.collection):
+            for i, obj in enumerate(collection):
                 with activity_error_boundary(_materialization_error_classification):
                     value = await storage.retrieve(obj)
                 with activity_error_boundary(_result_persistence_error_classification):
@@ -903,8 +940,25 @@ class DSLActivities:
                 )
 
         with activity_error_boundary(_materialization_error_classification):
-            values = [await storage.retrieve(obj) for obj in input.collection]
+            values = [await storage.retrieve(obj) for obj in collection]
         return InlineObject(data=values, typename="list")
+
+    @staticmethod
+    @activity.defn
+    async def store_collection_part_activity(
+        input: StoreCollectionPartActivityInput,
+    ) -> CollectionObject:
+        """Store StoredObject handles as a collection without materializing them.
+
+        Keeps aggregate activity inputs (gathers, looped subflows) bounded: the
+        workflow passes the returned handle instead of every inline item.
+        """
+        with activity_error_boundary(_result_persistence_error_classification):
+            return await store_collection(
+                input.key,
+                [_dump_chunk_ref(item) for item in input.items],
+                element_kind="stored_object",
+            )
 
     @staticmethod
     @activity.defn
@@ -921,7 +975,8 @@ class DSLActivities:
         """
         storage = get_object_storage()
         with activity_error_boundary(_materialization_error_classification):
-            values = [await storage.retrieve(obj) for obj in input.collection]
+            collection = await _load_collection_input(input.parts, input.collection)
+            values = [await storage.retrieve(obj) for obj in collection]
 
         if input.drop_nulls:
             values = [v for v in values if v is not None]

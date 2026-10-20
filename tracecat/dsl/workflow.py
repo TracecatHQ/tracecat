@@ -90,7 +90,11 @@ with workflow.unsafe.imports_passed_through():
         resolve_time_anchor_activity,
         resolve_workflow_concurrency_limits_enabled_activity,
     )
-    from tracecat.dsl.scheduler import DSLScheduler, PlatformExecutionError
+    from tracecat.dsl.scheduler import (
+        DSLScheduler,
+        PlatformExecutionError,
+        bound_collection_activity_input,
+    )
     from tracecat.dsl.schemas import (
         ROOT_STREAM,
         ActionStatement,
@@ -1464,13 +1468,14 @@ class DSLWorkflow:
 
         # Synchronize by converting Sequence[StoredObject] -> CollectionObject
         stream_id = ctx_stream_id.get()
+        key = action_collection_prefix(
+            str(self.workspace_id), self.wf_exec_id, stream_id, task.ref
+        )
+        results, parts = await bound_collection_activity_input(all_results, key)
         collection = await workflow.execute_activity(
             DSLActivities.synchronize_collection_object_activity,
             SynchronizeCollectionObjectActivityInput(
-                collection=all_results,
-                key=action_collection_prefix(
-                    str(self.workspace_id), self.wf_exec_id, stream_id, task.ref
-                ),
+                collection=results, parts=parts, key=key
             ),
             start_to_close_timeout=timedelta(seconds=60),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],

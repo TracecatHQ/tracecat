@@ -20,12 +20,14 @@ with workflow.unsafe.imports_passed_through():
     from pydantic_core import to_json
     from temporalio.exceptions import ApplicationError
 
+    from tracecat import config
     from tracecat.concurrency import cooperative
     from tracecat.contexts import ctx_stream_id
     from tracecat.dsl.action import (
         DSLActivities,
         EvaluateTemplatedObjectActivityInput,
         FinalizeGatherActivityInput,
+        StoreCollectionPartActivityInput,
     )
     from tracecat.dsl.common import (
         RETRY_POLICIES,
@@ -91,6 +93,69 @@ with workflow.unsafe.imports_passed_through():
         extract_error_classification,
     )
     from tracecat.temporal.patches import WorkflowPatch
+
+
+COLLECTION_ACTIVITY_INPUT_BUDGET_BYTES = 1024 * 1024
+"""Max serialized size of StoredObjects passed inline to one aggregate activity.
+
+Temporal rejects activity inputs over 2 MiB and workflow task completions over
+4 MiB, which a wide gather of small inline results can exceed in sum.
+"""
+
+
+GATHER_ITEM_INLINE_THRESHOLD_BYTES = 1024
+"""Gather items above this size are externalized so wide gathers stay small in history."""
+
+
+def _partition_by_size(
+    items: Sequence[StoredObject], budget_bytes: int
+) -> list[list[StoredObject]] | None:
+    """Split items into size-bounded parts, or return None if they fit as-is."""
+    sizes = [len(StoredObjectValidator.dump_json(item)) for item in items]
+    if sum(sizes) <= budget_bytes:
+        return None
+    parts: list[list[StoredObject]] = []
+    current: list[StoredObject] = []
+    current_size = 0
+    for item, size in zip(items, sizes, strict=True):
+        if current and current_size + size > budget_bytes:
+            parts.append(current)
+            current, current_size = [], 0
+        current.append(item)
+        current_size += size
+    if current:
+        parts.append(current)
+    return parts
+
+
+async def bound_collection_activity_input(
+    items: Sequence[StoredObject], key: str
+) -> tuple[list[StoredObject], list[CollectionObject]]:
+    """Keep an aggregate activity input bounded regardless of fan-out width.
+
+    Returns `(items, [])` when the items fit the inline budget. Otherwise stores
+    them as size-bounded collection parts, one activity at a time so no single
+    workflow task carries them all, and returns `([], parts)`.
+    """
+    if not config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
+        return list(items), []
+    partitions = _partition_by_size(items, COLLECTION_ACTIVITY_INPUT_BUDGET_BYTES)
+    if partitions is None or not workflow.patched(
+        WorkflowPatch.BOUND_COLLECTION_ACTIVITY_INPUT
+    ):
+        return list(items), []
+    parts: list[CollectionObject] = []
+    for i, partition in enumerate(partitions):
+        part = await workflow.execute_activity(
+            DSLActivities.store_collection_part_activity,
+            arg=StoreCollectionPartActivityInput(
+                items=partition, key=f"{key}/parts/{i}"
+            ),
+            start_to_close_timeout=timedelta(seconds=120),
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+        )
+        parts.append(part)
+    return [], parts
 
 
 def _get_collection_size(stored: StoredObject) -> int:
@@ -1633,6 +1698,7 @@ class DSLScheduler:
                         str(stream_id),
                         gather_ref,
                     ),
+                    inline_threshold_bytes=GATHER_ITEM_INLINE_THRESHOLD_BYTES,
                 ),
                 start_to_close_timeout=timedelta(seconds=60),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -1714,16 +1780,19 @@ class DSLScheduler:
             if item != Sentinel.GATHER_UNSET
         ]
 
+        key = action_collection_prefix(
+            self.workspace_id,
+            self.wf_exec_id,
+            str(parent_stream_id),
+            gather_ref,
+        )
+        stored_items, parts = await bound_collection_activity_input(stored_items, key)
         finalized = await workflow.execute_activity(
             DSLActivities.finalize_gather_activity,
             arg=FinalizeGatherActivityInput(
                 collection=stored_items,
-                key=action_collection_prefix(
-                    self.workspace_id,
-                    self.wf_exec_id,
-                    str(parent_stream_id),
-                    gather_ref,
-                ),
+                parts=parts,
+                key=key,
                 drop_nulls=gather_args.drop_nulls,
                 error_strategy=gather_args.error_strategy,
             ),

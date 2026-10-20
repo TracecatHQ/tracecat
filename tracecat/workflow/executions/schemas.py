@@ -663,6 +663,19 @@ class EventFailure(BaseModel):
         return sanitized
 
     @staticmethod
+    def from_terminated_event(
+        event: temporalio.api.history.v1.HistoryEvent,
+    ) -> EventFailure:
+        """Build a failure from a WORKFLOW_EXECUTION_TERMINATED event's reason."""
+        reason = event.workflow_execution_terminated_event_attributes.reason.strip()
+        message = (
+            f"Workflow terminated: {reason}"
+            if reason
+            else "Workflow terminated without a reason."
+        )
+        return EventFailure(message=EventFailure.sanitize_error_text(message) or "")
+
+    @staticmethod
     async def from_history_event(
         event: temporalio.api.history.v1.HistoryEvent,
         *,

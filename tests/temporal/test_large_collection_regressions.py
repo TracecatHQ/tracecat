@@ -32,6 +32,7 @@ from tests.shared import TEST_WF_ID, generate_test_exec_id, to_data
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.dsl import scheduler
 from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.enums import WaitStrategy
 from tracecat.dsl.schemas import ActionStatement, GatherArgs, ScatterArgs
@@ -500,3 +501,114 @@ async def test_scatter_gather_massive_payload_50x2mb_e2e(
     assert last["idx"] == MASSIVE_ITEM_COUNT - 1
     assert first["payload"].startswith(sentinel)
     assert last["payload"].startswith(sentinel)
+
+
+WIDE_GATHER_ITEM_COUNT = 1000
+WIDE_GATHER_ITEM_SIZE_BYTES = 15 * 1024
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.regression
+@pytest.mark.parametrize(
+    ("item_count", "input_budget_bytes"),
+    [
+        pytest.param(WIDE_GATHER_ITEM_COUNT, None, id="default-budget"),
+        pytest.param(200, 16 * 1024, id="stored-parts"),
+    ],
+)
+async def test_wide_gather_of_small_inline_results_completes(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    item_count: int,
+    input_budget_bytes: int | None,
+) -> None:
+    """Regression: a gather whose inline items sum past Temporal's limits completes.
+
+    Each per-stream result stays below the externalization threshold, so it is
+    passed inline. 1,000 x 15 KB sums to ~15 MB, well over the 2 MB activity
+    input limit, and previously terminated the workflow. The stored-parts case
+    shrinks the activity input budget so the gather input is split into parts.
+    """
+    _configure_storage_credentials(monkeypatch)
+    if input_budget_bytes is not None:
+        monkeypatch.setattr(
+            scheduler, "COLLECTION_ACTIVITY_INPUT_BUDGET_BYTES", input_budget_bytes
+        )
+    monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", False)
+    monkeypatch.setattr(
+        config, "TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES", 128 * 1024
+    )
+    sentinel = f"__wide-gather-sentinel-{uuid.uuid4().hex}__"
+    items = _build_large_items(
+        item_count=item_count,
+        item_size_bytes=WIDE_GATHER_ITEM_SIZE_BYTES,
+        sentinel=sentinel,
+    )
+    storage = get_object_storage()
+    trigger_inputs = await storage.store(
+        f"tests/regression/wide-gather/{uuid.uuid4().hex}/trigger.json",
+        {"items": items},
+    )
+
+    dsl = DSLInput(
+        title="Wide gather of small inline results",
+        description="Gather many small results whose sum exceeds activity limits",
+        entrypoint=DSLEntrypoint(ref="scatter"),
+        actions=[
+            ActionStatement(
+                ref="scatter",
+                action="core.transform.scatter",
+                args=ScatterArgs(collection="${{ TRIGGER.items }}").model_dump(),
+            ),
+            ActionStatement(
+                ref="reshape",
+                action="core.transform.reshape",
+                depends_on=["scatter"],
+                args={"value": "${{ ACTIONS.scatter.result }}"},
+            ),
+            ActionStatement(
+                ref="gather",
+                action="core.transform.gather",
+                depends_on=["reshape"],
+                args=GatherArgs(items="${{ ACTIONS.reshape.result }}").model_dump(),
+            ),
+        ],
+    )
+
+    wf_exec_id = generate_test_exec_id(
+        f"{test_wide_gather_of_small_inline_results_completes.__name__}-{uuid.uuid4().hex[:8]}"
+    )
+    run_args = DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID)
+    run_args.trigger_inputs = trigger_inputs
+    result = await _run_workflow(
+        temporal_client=temporal_client,
+        worker_factory=test_worker_factory,
+        executor_worker_factory=test_executor_worker_factory,
+        wf_exec_id=wf_exec_id,
+        run_args=run_args,
+    )
+
+    raw_context = await to_data(result)
+    gather_stored = StoredObjectValidator.validate_python(
+        raw_context["ACTIONS"]["gather"]["result"]
+    )
+    assert isinstance(gather_stored, CollectionObject)
+    assert gather_stored.count == item_count
+    for index in (0, item_count // 2, item_count - 1):
+        item = await storage.retrieve(gather_stored.at(index))
+        assert item["idx"] == index
+        assert item["payload"].startswith(sentinel)
+
+    parts_prefix = (
+        f"{test_role.workspace_id}/{wf_exec_id}/actions/<root>:0/gather/parts/"
+    )
+    async with blob.get_storage_client() as s3_client:
+        listing = await s3_client.list_objects_v2(
+            Bucket=gather_stored.manifest_ref.bucket, Prefix=parts_prefix
+        )
+    assert bool(listing.get("Contents")) == (input_budget_bytes is not None)
