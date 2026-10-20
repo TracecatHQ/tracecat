@@ -22,6 +22,13 @@ from tracecat.workflow.executions.enums import (
 from tracecat.workflow.schedules.schemas import ScheduleUpdate
 
 
+def _overlap_policy() -> temporalio.client.ScheduleOverlapPolicy:
+    """Overlap policy configured through TRACECAT__SCHEDULE_OVERLAP_POLICY."""
+    return temporalio.client.ScheduleOverlapPolicy[
+        config.TRACECAT__SCHEDULE_OVERLAP_POLICY
+    ]
+
+
 def build_schedule_search_attributes(role: Role) -> TypedSearchAttributes:
     """Build search attributes for scheduled workflows."""
     pairs = [
@@ -101,8 +108,8 @@ async def create_schedule(
             ),
             spec=temporalio.client.ScheduleSpec(**spec_kwargs),
             policy=temporalio.client.SchedulePolicy(
-                # Allow overlapping workflows to run in parallel
-                overlap=temporalio.client.ScheduleOverlapPolicy.ALLOW_ALL,
+                # ALLOW_ALL (default) runs overlapping workflows in parallel
+                overlap=_overlap_policy(),
             ),
             state=temporalio.client.ScheduleState(paused=status != "online"),
         ),
@@ -138,6 +145,10 @@ async def update_schedule(schedule_id: AnyScheduleID, params: ScheduleUpdate) ->
         action = input.description.schedule.action
         spec = input.description.schedule.spec
         state = input.description.schedule.state
+
+        # Schedules created earlier still hold the old policy in Temporal;
+        # every update re-applies the configured one.
+        input.description.schedule.policy.overlap = _overlap_policy()
 
         if "status" in set_fields:
             state.paused = set_fields["status"] != "online"
