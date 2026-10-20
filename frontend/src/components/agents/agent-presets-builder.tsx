@@ -898,59 +898,60 @@ function AgentPresetChatPane({
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <div className="@container/agent-preset-bar flex h-12 shrink-0 items-center gap-1 border-b border-border/60 px-5">
+      <div className="@container/agent-preset-bar flex min-h-12 shrink-0 flex-wrap items-center gap-1 border-b border-border/60 px-5 py-1.5">
         {leading}
-        <span className="flex-1" />
-        {preset ? (
-          <AgentPresetVersionSelect
-            versions={versions}
-            versionsIsLoading={versionsIsLoading}
-            versionsError={versionsError}
-            selectedVersionId={selectedVersionId}
-            currentVersionId={preset.current_version_id ?? null}
-            onSelect={handlePresetVersionChange}
-            disabled={
-              !activeChatId ||
-              !chat ||
-              chat.is_readonly ||
-              isUpdating ||
-              canExecuteAgents !== true
-            }
-            triggerClassName="h-7 w-[10.5rem] text-xs shadow-none"
-          />
-        ) : null}
-        {preset ? (
-          <>
-            <ChatHistoryDropdown
-              chats={chats}
-              isLoading={chatsLoading}
-              error={chatsError}
-              selectedChatId={activeChatId ?? undefined}
-              onSelectChat={(chatId) => setSelectedChatId(chatId)}
-              workspaceId={workspaceId}
-              scope={historyScope}
-              onScopeChange={handleHistoryScopeChange}
-              align="end"
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
+          {preset ? (
+            <AgentPresetVersionSelect
+              versions={versions}
+              versionsIsLoading={versionsIsLoading}
+              versionsError={versionsError}
+              selectedVersionId={selectedVersionId}
+              currentVersionId={preset.current_version_id ?? null}
+              onSelect={handlePresetVersionChange}
+              disabled={
+                !activeChatId ||
+                !chat ||
+                chat.is_readonly ||
+                isUpdating ||
+                canExecuteAgents !== true
+              }
+              triggerClassName="h-7 w-[10.5rem] text-xs shadow-none"
             />
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="text-xs"
-              disabled={createChatPending || !canStartChat}
-              onClick={() => void handleCreateChat()}
-            >
-              {createChatPending ? (
-                <Loader2 className="mr-2 size-4 animate-spin" />
-              ) : (
-                <Plus className="mr-2 size-4" />
-              )}
-              New chat
-            </Button>
-            <span aria-hidden="true" className="mx-1 h-4 w-px bg-border" />
-          </>
-        ) : null}
-        {trailing}
+          ) : null}
+          {preset ? (
+            <>
+              <ChatHistoryDropdown
+                chats={chats}
+                isLoading={chatsLoading}
+                error={chatsError}
+                selectedChatId={activeChatId ?? undefined}
+                onSelectChat={(chatId) => setSelectedChatId(chatId)}
+                workspaceId={workspaceId}
+                scope={historyScope}
+                onScopeChange={handleHistoryScopeChange}
+                align="end"
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="text-xs"
+                disabled={createChatPending || !canStartChat}
+                onClick={() => void handleCreateChat()}
+              >
+                {createChatPending ? (
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                ) : (
+                  <Plus className="mr-2 size-4" />
+                )}
+                New chat
+              </Button>
+              <span aria-hidden="true" className="mx-1 h-4 w-px bg-border" />
+            </>
+          ) : null}
+          {trailing}
+        </div>
       </div>
       <div className="flex-1 min-h-0">{renderBody()}</div>
     </div>
@@ -1651,11 +1652,12 @@ function AgentPresetForm({
   } else {
     leftPanel = (
       <div className="flex h-full min-h-0 flex-col">
-        <div className="@container/agent-preset-bar flex h-12 shrink-0 items-center gap-1 border-b border-border/60 px-5">
+        <div className="@container/agent-preset-bar flex min-h-12 shrink-0 flex-wrap items-center gap-1 border-b border-border/60 px-5 py-1.5">
           {modeSwitch}
-          <span className="flex-1" />
-          {inlineActions}
-          {railToggle}
+          <div className="ml-auto flex items-center gap-1">
+            {inlineActions}
+            {railToggle}
+          </div>
         </div>
         <div className="min-h-0 flex-1">
           {/* Mount once entitlements resolve; the panel's early return
