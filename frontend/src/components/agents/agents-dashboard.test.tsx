@@ -26,6 +26,11 @@ const mockUseScopeCheck = jest.fn<boolean, [string]>(() => true)
 const mockPush = jest.fn()
 const mockUseListMcpIntegrations = jest.fn()
 
+jest.mock("@/components/ai-elements/code-block", () => ({
+  CodeBlock: ({ code }: { code: string }) => <pre>{code}</pre>,
+  CodeBlockCopyButton: () => null,
+}))
+
 jest.mock("@/client", () => ({
   ...jest.requireActual("@/client"),
   agentFoldersGetFolder: jest.fn(),
