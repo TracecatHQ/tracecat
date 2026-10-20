@@ -1004,12 +1004,12 @@ async def _run_nstun_socket_budget_smoke_case(tmp_path: Path) -> None:
     assert result.success, result.error
     assert received_packets == _NSTUN_UDP_SOCKET_BUDGET, (
         received_packets,
-        result.stderr,
+        result.nsjail_log,
     )
-    assert "Too many FD handlers in monitor" not in result.stderr, result.stderr
-    assert "Maximum number of UDP flows reached" in result.stderr, result.stderr
-    assert "UDP/ICMP parent socket budget exhausted" not in result.stderr
-    assert "UDP/ICMP parent socket accounting underflow" not in result.stderr
+    assert "Too many FD handlers in monitor" not in result.nsjail_log, result.nsjail_log
+    assert "Maximum number of UDP flows reached" in result.nsjail_log, result.nsjail_log
+    assert "UDP/ICMP parent socket budget exhausted" not in result.nsjail_log
+    assert "UDP/ICMP parent socket accounting underflow" not in result.nsjail_log
 
 
 _CURRENT_BUILTIN_CASES = {

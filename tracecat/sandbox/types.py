@@ -223,6 +223,7 @@ class SandboxResult:
         error_code: Machine-readable failure reason.
         exit_code: Process exit code.
         execution_time_ms: Execution time in milliseconds.
+        nsjail_log: NsJail's own log, kept apart from workload output.
     """
 
     success: bool
@@ -236,3 +237,4 @@ class SandboxResult:
     error_code: SandboxErrorCode | None = None
     exit_code: int | None = None
     execution_time_ms: float | None = None
+    nsjail_log: str = ""

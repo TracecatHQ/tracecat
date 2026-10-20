@@ -772,6 +772,7 @@ class NsjailExecutor:
             include_error_code=True,
         )
         if outcome is not None:
+            outcome.result.nsjail_log = nsjail_log
             return outcome.result
 
         # Script workloads have no result-file contract: a clean zero exit is a
@@ -780,6 +781,7 @@ class NsjailExecutor:
         # Only the action path (execute_action) requires a result file.
         if returncode == 0:
             return SandboxResult(
+                nsjail_log=nsjail_log,
                 success=True,
                 output=None,
                 stdout=stdout,
@@ -834,6 +836,7 @@ class NsjailExecutor:
             max_processes=config.resources.max_processes,
         )
         return SandboxResult(
+            nsjail_log=nsjail_log,
             success=False,
             error=error_msg,
             error_code=error_code,
@@ -1225,6 +1228,7 @@ class NsjailExecutor:
                 )
                 if python_logs.strip():
                     logger.info("Subprocess output", output=python_logs[:2000])
+            outcome.result.nsjail_log = nsjail_log
             return outcome.result
 
         kill_evidence = SigkillEvidence(
@@ -1254,6 +1258,7 @@ class NsjailExecutor:
             stderr=stderr[-2000:],
         )
         return SandboxResult(
+            nsjail_log=nsjail_log,
             success=False,
             error=error_msg,
             error_code=error_code,
