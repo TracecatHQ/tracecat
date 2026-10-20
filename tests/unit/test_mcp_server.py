@@ -6,7 +6,7 @@ import json
 import re
 import sys
 import uuid
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Sequence
 from datetime import UTC, datetime, timedelta
 from types import ModuleType, SimpleNamespace
 from typing import Any, cast
@@ -649,6 +649,10 @@ def _layout_by_ref(
     return {item["ref"]: (item["x"], item["y"]) for item in layout["actions"]}
 
 
+def _row_y(row: int) -> float:
+    return float(layout_module.FIRST_ROW_Y + row * layout_module.NODE_HEIGHT)
+
+
 def test_auto_generate_layout_keeps_linear_chain_vertical():
     positions = _layout_by_ref(
         [
@@ -660,9 +664,9 @@ def test_auto_generate_layout_keeps_linear_chain_vertical():
 
     assert {x for x, _ in positions.values()} == {0.0}
     assert [positions[ref][1] for ref in ("fetch", "enrich", "notify")] == [
-        500.0,
-        800.0,
-        1100.0,
+        _row_y(0),
+        _row_y(1),
+        _row_y(2),
     ]
 
 
@@ -706,7 +710,7 @@ def test_auto_generate_layout_places_error_path_below_source():
         ]
     )
 
-    assert positions["on_error"] == (positions["call_api"][0], 800.0)
+    assert positions["on_error"] == (positions["call_api"][0], _row_y(1))
 
 
 def test_auto_generate_layout_orders_success_before_error_paths():
@@ -735,6 +739,143 @@ def test_auto_generate_layout_orders_error_paths_regardless_of_action_order():
     )
 
     assert positions["parse"][0] < positions["on_error"][0]
+
+
+def _assert_left_of(
+    positions: dict[str, tuple[float, float]],
+    left: Sequence[str],
+    right: Sequence[str],
+) -> None:
+    assert max(positions[ref][0] for ref in left) < min(
+        positions[ref][0] for ref in right
+    )
+
+
+@pytest.mark.parametrize(
+    "error_first", [False, True], ids=["success-first", "error-first"]
+)
+def test_auto_generate_layout_keeps_success_subtrees_left_of_error_subtrees(
+    error_first: bool,
+):
+    success: list[layout_module.WorkflowActionLayoutInput] = [
+        {"ref": "s1", "depends_on": ["require"]},
+        {"ref": "s2", "depends_on": ["require"]},
+        {"ref": "s1_next", "depends_on": ["s1"]},
+        {"ref": "s2_next", "depends_on": ["s2"]},
+    ]
+    error: list[layout_module.WorkflowActionLayoutInput] = [
+        {"ref": "e1", "depends_on": ["require.error"]},
+        {"ref": "e2", "depends_on": ["require.error"]},
+        {"ref": "e1_next", "depends_on": ["e1"]},
+        {"ref": "e2_next", "depends_on": ["e2"]},
+    ]
+    branches = [*error, *success] if error_first else [*success, *error]
+    positions = _layout_by_ref([{"ref": "require", "depends_on": []}, *branches])
+
+    _assert_left_of(positions, ["s1", "s2"], ["e1", "e2"])
+    _assert_left_of(positions, ["s1_next", "s2_next"], ["e1_next", "e2_next"])
+    for ref in ("s1", "s2", "e1", "e2"):
+        assert positions[f"{ref}_next"][0] == positions[ref][0]
+
+
+def test_auto_generate_layout_keeps_branch_order_above_shared_join():
+    positions = _layout_by_ref(
+        [
+            {"ref": "require", "depends_on": []},
+            {"ref": "on_error", "depends_on": ["require.error"]},
+            {"ref": "on_success", "depends_on": ["require"]},
+            {"ref": "error_next", "depends_on": ["on_error"]},
+            {"ref": "success_next", "depends_on": ["on_success"]},
+            {"ref": "join", "depends_on": ["success_next", "error_next"]},
+        ]
+    )
+
+    _assert_left_of(positions, ["on_success", "success_next"], ["on_error"])
+    _assert_left_of(positions, ["success_next"], ["error_next"])
+    assert positions["join"][0] == pytest.approx(positions["require"][0], abs=1)
+    assert positions["join"][1] == _row_y(3)
+
+
+@pytest.mark.parametrize(
+    ("success_depth", "error_depth"),
+    [(3, 1), (1, 3)],
+    ids=["deep-success", "deep-error"],
+)
+def test_auto_generate_layout_keeps_uneven_branches_on_their_side(
+    success_depth: int, error_depth: int
+):
+    actions: list[layout_module.WorkflowActionLayoutInput] = [
+        {"ref": "require", "depends_on": []},
+        {"ref": "s0", "depends_on": ["require"]},
+        {"ref": "e0", "depends_on": ["require.error"]},
+    ]
+    for i in range(1, success_depth):
+        actions.append({"ref": f"s{i}", "depends_on": [f"s{i - 1}"]})
+    for i in range(1, error_depth):
+        actions.append({"ref": f"e{i}", "depends_on": [f"e{i - 1}"]})
+    positions = _layout_by_ref(actions)
+
+    success_refs = [f"s{i}" for i in range(success_depth)]
+    error_refs = [f"e{i}" for i in range(error_depth)]
+    _assert_left_of(positions, success_refs, error_refs)
+    assert {positions[ref][0] for ref in success_refs} == {positions["s0"][0]}
+    assert {positions[ref][0] for ref in error_refs} == {positions["e0"][0]}
+
+
+def test_auto_generate_layout_orders_nested_error_branches():
+    positions = _layout_by_ref(
+        [
+            {"ref": "outer", "depends_on": []},
+            {"ref": "outer_error", "depends_on": ["outer.error"]},
+            {"ref": "inner", "depends_on": ["outer"]},
+            {"ref": "inner_error", "depends_on": ["inner.error"]},
+            {"ref": "inner_next", "depends_on": ["inner"]},
+        ]
+    )
+
+    _assert_left_of(positions, ["inner"], ["outer_error"])
+    _assert_left_of(positions, ["inner_next"], ["inner_error"])
+
+
+def test_auto_generate_layout_orders_branches_per_parent():
+    positions = _layout_by_ref(
+        [
+            {"ref": "root", "depends_on": []},
+            {"ref": "left", "depends_on": ["root"]},
+            {"ref": "right", "depends_on": ["root"]},
+            {"ref": "left_error", "depends_on": ["left.error"]},
+            {"ref": "left_success", "depends_on": ["left"]},
+            {"ref": "right_error", "depends_on": ["right.error"]},
+            {"ref": "right_success", "depends_on": ["right"]},
+        ]
+    )
+
+    xs = [
+        positions[ref][0]
+        for ref in ("left_success", "left_error", "right_success", "right_error")
+    ]
+    assert xs == sorted(xs)
+    assert len(set(xs)) == 4
+
+
+def test_auto_generate_layout_uses_compact_spacing():
+    positions = _layout_by_ref(
+        [
+            {"ref": "require", "depends_on": []},
+            {"ref": "on_success", "depends_on": ["require"]},
+            {"ref": "on_error", "depends_on": ["require.error"]},
+        ]
+    )
+
+    row_gap = positions["on_success"][1] - (
+        positions["require"][1] + layout_module.ACTION_NODE_HEIGHT
+    )
+    column_gap = (
+        positions["on_error"][0] - positions["on_success"][0] - layout_module.NODE_WIDTH
+    )
+    assert row_gap == 150
+    assert column_gap == pytest.approx(layout_module.NODE_HORIZONTAL_GAP, abs=1)
+    assert column_gap == pytest.approx(120, abs=1)
 
 
 def test_auto_generate_layout_keeps_error_handler_right_of_success_chain():
@@ -834,8 +975,8 @@ def test_build_import_data_from_workflow_yaml_replaces_supplied_layout():
         "trigger": {"x": 0, "y": 0},
         "viewport": {"x": 1, "y": 2, "zoom": 0.5},
         "actions": [
-            {"ref": "fetch", "x": 0.0, "y": 500.0},
-            {"ref": "notify", "x": 0.0, "y": 800.0},
+            {"ref": "fetch", "x": 0.0, "y": _row_y(0)},
+            {"ref": "notify", "x": 0.0, "y": _row_y(1)},
         ],
     }
 
@@ -865,10 +1006,10 @@ def test_relayout_edit_document_only_when_graph_changes():
 
     positions = {item.ref: (item.x, item.y) for item in relaid.layout.actions}
     assert positions == {
-        "fetch_events": (0.0, 500.0),
-        "classify": (0.0, 800.0),
-        "build_alert": (0.0, 1100.0),
-        "notify_owner": (0.0, 1400.0),
+        "fetch_events": (0.0, _row_y(0)),
+        "classify": (0.0, _row_y(1)),
+        "build_alert": (0.0, _row_y(2)),
+        "notify_owner": (0.0, _row_y(3)),
     }
     assert relaid.layout.viewport == original.layout.viewport
 
@@ -923,9 +1064,8 @@ def test_auto_generate_layout_round_trips_through_extract():
     assert action_positions is not None
     assert "step1" in action_positions
     assert "step2" in action_positions
-    # step1 at depth 0 → y=500, step2 at depth 1 → y=800
-    assert action_positions["step1"][1] == 500
-    assert action_positions["step2"][1] == 800
+    assert action_positions["step1"][1] == _row_y(0)
+    assert action_positions["step2"][1] == _row_y(1)
 
 
 @pytest.mark.anyio
