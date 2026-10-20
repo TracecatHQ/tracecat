@@ -158,29 +158,6 @@ class TestTagsService:
         assert tag1.id in tag_ids
         assert tag2.id in tag_ids
 
-    async def test_update_tag(
-        self, tags_service: TagsService, tag_create_params: TagCreate
-    ) -> None:
-        """Test updating a tag."""
-        # Create initial tag
-        created_tag = await tags_service.create_tag(tag_create_params)
-
-        # Update parameters
-        update_params = TagUpdate(
-            name="updated-tag",
-            color="#0000FF",
-        )
-
-        # Update tag
-        updated_tag = await tags_service.update_tag(created_tag, update_params)
-        assert updated_tag.name == update_params.name
-        assert updated_tag.color == update_params.color
-
-        # Verify updates persisted
-        retrieved_tag = await tags_service.get_tag(created_tag.id)
-        assert retrieved_tag.name == update_params.name
-        assert retrieved_tag.color == update_params.color
-
     async def test_delete_tag(
         self, tags_service: TagsService, tag_create_params: TagCreate
     ) -> None:
@@ -195,40 +172,16 @@ class TestTagsService:
         with pytest.raises(NoResultFound):
             await tags_service.get_tag(created_tag.id)
 
-    async def test_get_tag_by_ref(
+    async def test_get_tag_by_ref_or_id(
         self, tags_service: TagsService, tag_create_params: TagCreate
     ) -> None:
-        """Test retrieving a tag by its ref/slug."""
-        # Create tag
+        """get_tag_by_ref_or_id resolves both UUID strings and refs."""
         created_tag = await tags_service.create_tag(tag_create_params)
 
-        # Get by ref
-        retrieved = await tags_service.get_tag_by_ref(created_tag.ref)
-        assert retrieved.id == created_tag.id
-        assert retrieved.name == created_tag.name
-        assert retrieved.ref == "test-tag"  # slugified version
-
-    async def test_get_tag_by_ref_or_id_with_uuid(
-        self, tags_service: TagsService, tag_create_params: TagCreate
-    ) -> None:
-        """Test get_tag_by_ref_or_id with a UUID string."""
-        # Create tag
-        created_tag = await tags_service.create_tag(tag_create_params)
-
-        # Get by UUID string
-        retrieved = await tags_service.get_tag_by_ref_or_id(str(created_tag.id))
-        assert retrieved.id == created_tag.id
-
-    async def test_get_tag_by_ref_or_id_with_ref(
-        self, tags_service: TagsService, tag_create_params: TagCreate
-    ) -> None:
-        """Test get_tag_by_ref_or_id with a ref string."""
-        # Create tag
-        created_tag = await tags_service.create_tag(tag_create_params)
-
-        # Get by ref
-        retrieved = await tags_service.get_tag_by_ref_or_id(created_tag.ref)
-        assert retrieved.id == created_tag.id
+        by_id = await tags_service.get_tag_by_ref_or_id(str(created_tag.id))
+        by_ref = await tags_service.get_tag_by_ref_or_id(created_tag.ref)
+        assert by_id.id == created_tag.id
+        assert by_ref.id == created_tag.id
 
     @pytest.mark.parametrize(
         "tag_names,expected_refs",
@@ -271,14 +224,16 @@ class TestTagsService:
     async def test_update_tag_regenerates_ref(
         self, tags_service: TagsService, tag_create_params: TagCreate
     ) -> None:
-        """Test that updating tag name regenerates the ref."""
+        """Test that updating tag name and color persists and regenerates the ref."""
         # Create tag
         created_tag = await tags_service.create_tag(tag_create_params)
         original_ref = created_tag.ref
 
         # Update with new name
-        update_params = TagUpdate(name="Updated Tag Name")
+        update_params = TagUpdate(name="Updated Tag Name", color="#0000FF")
         updated_tag = await tags_service.update_tag(created_tag, update_params)
+        assert updated_tag.name == "Updated Tag Name"
+        assert updated_tag.color == "#0000FF"
 
         # Verify ref was regenerated
         assert updated_tag.ref == "updated-tag-name"
@@ -288,9 +243,10 @@ class TestTagsService:
         with pytest.raises(NoResultFound):
             await tags_service.get_tag_by_ref(original_ref)
 
-        # Verify new ref works
+        # Verify new ref works and updates persisted
         retrieved = await tags_service.get_tag_by_ref("updated-tag-name")
         assert retrieved.id == created_tag.id
+        assert retrieved.color == "#0000FF"
 
     async def test_unique_tag_names_per_workspace(
         self, tags_service: TagsService, tag_create_params: TagCreate

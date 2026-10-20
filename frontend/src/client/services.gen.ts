@@ -12,6 +12,8 @@ import type {
   ActionsDeleteActionResponse,
   ActionsGetActionData,
   ActionsGetActionResponse,
+  ActionsListActionLockStatusesData,
+  ActionsListActionLockStatusesResponse,
   ActionsListActionsData,
   ActionsListActionsResponse,
   ActionsUpdateActionData,
@@ -165,6 +167,8 @@ import type {
   AgentPresetsListAgentPresetsResponse,
   AgentPresetsListAgentPresetVersionsData,
   AgentPresetsListAgentPresetVersionsResponse,
+  AgentPresetsListAgentPresetWorkflowReferencesData,
+  AgentPresetsListAgentPresetWorkflowReferencesResponse,
   AgentPresetsListPresetTagsData,
   AgentPresetsListPresetTagsResponse,
   AgentPresetsMoveAgentPresetToFolderData,
@@ -456,10 +460,46 @@ import type {
   FoldersMoveFolderResponse,
   FoldersUpdateFolderData,
   FoldersUpdateFolderResponse,
+  FormsCreateFormData,
+  FormsCreateFormResponse,
+  FormsDeleteFormData,
+  FormsDeleteFormResponse,
+  FormsDeleteFormSubmissionData,
+  FormsDeleteFormSubmissionResponse,
+  FormsDownloadFormFileData,
+  FormsDownloadFormFileResponse,
+  FormsGetFormData,
+  FormsGetFormResponse,
+  FormsGetFormSubmissionData,
+  FormsGetFormSubmissionResponse,
+  FormsListFormSubmissionsData,
+  FormsListFormSubmissionsResponse,
+  FormsListFormsData,
+  FormsListFormsResponse,
+  FormsListIntakeFormsData,
+  FormsListIntakeFormsResponse,
+  FormsListIntakeSubmissionsData,
+  FormsListIntakeSubmissionsResponse,
+  FormsLocateIntakeFormData,
+  FormsLocateIntakeFormResponse,
+  FormsRenderFormData,
+  FormsRenderFormResponse,
+  FormsSearchFormUsersData,
+  FormsSearchFormUsersResponse,
+  FormsSubmitFormData,
+  FormsSubmitFormResponse,
+  FormsUpdateFormData,
+  FormsUpdateFormResponse,
+  FormsUploadFormFileData,
+  FormsUploadFormFileResponse,
+  FormsValidateFormData,
+  FormsValidateFormResponse,
   GetCatalogEntryData,
   GetCatalogEntryResponse,
   GetCustomProviderData,
   GetCustomProviderResponse,
+  GetWorkspaceModelAccessData,
+  GetWorkspaceModelAccessResponse,
   GetWorkspaceModelsData,
   GetWorkspaceModelsResponse,
   GraphApplyGraphOperationsData,
@@ -955,6 +995,8 @@ import type {
   UpdateCatalogEntryResponse,
   UpdateCustomProviderData,
   UpdateCustomProviderResponse,
+  UpdateWorkspaceModelAccessData,
+  UpdateWorkspaceModelAccessResponse,
   UsersGetMyScopesData,
   UsersGetMyScopesResponse,
   UsersSearchUserData,
@@ -1039,6 +1081,10 @@ import type {
   WorkflowExecutionsListWorkflowExecutionResetPointsResponse,
   WorkflowExecutionsListWorkflowExecutionsData,
   WorkflowExecutionsListWorkflowExecutionsResponse,
+  WorkflowExecutionsPreviewWorkflowExecutionRerunData,
+  WorkflowExecutionsPreviewWorkflowExecutionRerunResponse,
+  WorkflowExecutionsRerunWorkflowExecutionData,
+  WorkflowExecutionsRerunWorkflowExecutionResponse,
   WorkflowExecutionsResetWorkflowExecutionData,
   WorkflowExecutionsResetWorkflowExecutionResponse,
   WorkflowExecutionsSearchWorkflowExecutionsData,
@@ -2760,6 +2806,7 @@ export const workflowExecutionsCreateWorkflowExecution = (
  * @param data.durationLteSeconds
  * @param data.searchTerm Filter by workflow title or alias.
  * @param data.relation
+ * @param data.caseTaskId Filter by the case task that started the run.
  * @param data.workflowId
  * @param data.limit
  * @param data.cursor
@@ -2789,6 +2836,7 @@ export const workflowExecutionsSearchWorkflowExecutions = (
       duration_lte_seconds: data.durationLteSeconds,
       search_term: data.searchTerm,
       relation: data.relation,
+      case_task_id: data.caseTaskId,
       workflow_id: data.workflowId,
       limit: data.limit,
       cursor: data.cursor,
@@ -2844,6 +2892,62 @@ export const workflowExecutionsResetWorkflowExecution = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/workspaces/{workspace_id}/workflow-executions/{execution_id}/reset",
+    path: {
+      workspace_id: data.workspaceId,
+      execution_id: data.executionId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Preview Workflow Execution Rerun
+ * Match a past run's successful action results against a rerun target.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.executionId
+ * @param data.requestBody
+ * @returns WorkflowRerunPlan Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsPreviewWorkflowExecutionRerun = (
+  data: WorkflowExecutionsPreviewWorkflowExecutionRerunData
+): CancelablePromise<WorkflowExecutionsPreviewWorkflowExecutionRerunResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/workflow-executions/{execution_id}/rerun/preview",
+    path: {
+      workspace_id: data.workspaceId,
+      execution_id: data.executionId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Rerun Workflow Execution
+ * Rerun a past run, reusing results of its successful actions.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.executionId
+ * @param data.requestBody
+ * @returns WorkflowRerunResponse Successful Response
+ * @throws ApiError
+ */
+export const workflowExecutionsRerunWorkflowExecution = (
+  data: WorkflowExecutionsRerunWorkflowExecutionData
+): CancelablePromise<WorkflowExecutionsRerunWorkflowExecutionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/workflow-executions/{execution_id}/rerun",
     path: {
       workspace_id: data.workspaceId,
       execution_id: data.executionId,
@@ -3177,6 +3281,33 @@ export const actionsCreateAction = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Action Lock Statuses
+ * Whether each locked action's source run still exists.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.workflowId
+ * @returns ActionLockStatus Successful Response
+ * @throws ApiError
+ */
+export const actionsListActionLockStatuses = (
+  data: ActionsListActionLockStatusesData
+): CancelablePromise<ActionsListActionLockStatusesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/actions/lock-status",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      workflow_id: data.workflowId,
+    },
     errors: {
       422: "Validation Error",
     },
@@ -4519,11 +4650,15 @@ export const tagsDeleteTag = (
 
 /**
  * Search User
- * Search for a user by email.
+ * Find a member of the caller's organization by email.
+ *
+ * Users outside the caller's organization return 404, the same as an unknown
+ * email, so the route cannot be used to enumerate accounts. Platform admins
+ * are scoped the same way; platform-wide lookups go through ``/admin/users``.
  * @param data The data for the request.
  * @param data.email
  * @param data.workspaceId
- * @returns UserRead Successful Response
+ * @returns UserSearchRead Successful Response
  * @throws ApiError
  */
 export const usersSearchUser = (
@@ -5551,13 +5686,14 @@ export const deleteCatalogEntry = (
 
 /**
  * Get Workspace Models
- * Get models accessible to a workspace.
+ * Get models accessible to a workspace, and its default model.
  *
  * Returns the full effective set; the list is bounded by org enablement
- * and is expected to be small, so pagination is not used here.
+ * and is expected to be small, so pagination is not used here. The default
+ * is the organization's default model, if it is enabled for this workspace.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns AgentCatalogListResponse Successful Response
+ * @returns WorkspaceAgentModelListResponse Successful Response
  * @throws ApiError
  */
 export const getWorkspaceModels = (
@@ -5569,6 +5705,57 @@ export const getWorkspaceModels = (
     path: {
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Workspace Model Access
+ * Get a workspace's model subset and the organization models it can use.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns WorkspaceAgentModelAccessRead Successful Response
+ * @throws ApiError
+ */
+export const getWorkspaceModelAccess = (
+  data: GetWorkspaceModelAccessData
+): CancelablePromise<GetWorkspaceModelAccessResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent-model-access",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Workspace Model Access
+ * Replace a workspace's model subset, or clear it to inherit the org's models.
+ *
+ * Every catalog ID must be enabled for the organization.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkspaceAgentModelAccessRead Successful Response
+ * @throws ApiError
+ */
+export const updateWorkspaceModelAccess = (
+  data: UpdateWorkspaceModelAccessData
+): CancelablePromise<UpdateWorkspaceModelAccessResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/workspaces/{workspace_id}/agent-model-access",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },
@@ -6036,6 +6223,36 @@ export const agentPresetsCreateAgentPreset = (
     mediaType: "application/json",
     errors: {
       400: "Invalid agent preset configuration",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Agent Preset Workflow References
+ * Page through the workflows that run each agent preset.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_AgentPresetWorkflowReference_ Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsListAgentPresetWorkflowReferences = (
+  data: AgentPresetsListAgentPresetWorkflowReferencesData
+): CancelablePromise<AgentPresetsListAgentPresetWorkflowReferencesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/presets/workflow-references",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      400: "Invalid cursor",
       422: "Validation Error",
     },
   })
@@ -11259,6 +11476,500 @@ export const tablesGetTableSearchProgress = (
 }
 
 /**
+ * List Forms
+ * List forms. Callers without form:update only see online forms.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_FormReadMinimal_ Successful Response
+ * @throws ApiError
+ */
+export const formsListForms = (
+  data: FormsListFormsData
+): CancelablePromise<FormsListFormsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/forms",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Form
+ * Create the form of a workflow.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns FormRead Successful Response
+ * @throws ApiError
+ */
+export const formsCreateForm = (
+  data: FormsCreateFormData
+): CancelablePromise<FormsCreateFormResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/forms",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      404: "Not Found",
+      409: "Conflict",
+      422: "Unprocessable Entity",
+    },
+  })
+}
+
+/**
+ * Get Form
+ * Get a form's config, its issues, its URL and its counts.
+ *
+ * Needs form:update or form:submission:read on top of form:read; other
+ * callers get 404.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.workspaceId
+ * @returns FormRead Successful Response
+ * @throws ApiError
+ */
+export const formsGetForm = (
+  data: FormsGetFormData
+): CancelablePromise<FormsGetFormResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/forms/{form_id}",
+    path: {
+      form_id: data.formId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Form
+ * Update a form's status, config or both. The config is replaced whole.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns FormRead Successful Response
+ * @throws ApiError
+ */
+export const formsUpdateForm = (
+  data: FormsUpdateFormData
+): CancelablePromise<FormsUpdateFormResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/forms/{form_id}",
+    path: {
+      form_id: data.formId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      409: "Conflict",
+      422: "Unprocessable Entity",
+    },
+  })
+}
+
+/**
+ * Delete Form
+ * Delete a form with its submissions, views and files.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const formsDeleteForm = (
+  data: FormsDeleteFormData
+): CancelablePromise<FormsDeleteFormResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/forms/{form_id}",
+    path: {
+      form_id: data.formId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Validate Form
+ * Resolve a config, saved or not, against the inputs of a form's workflow.
+ *
+ * Needs form:update or form:submission:read on top of form:read; other
+ * callers get 404.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns FormValidateResponse Successful Response
+ * @throws ApiError
+ */
+export const formsValidateForm = (
+  data: FormsValidateFormData
+): CancelablePromise<FormsValidateFormResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/forms/{form_id}/validate",
+    path: {
+      form_id: data.formId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Render Form
+ * Get an online form as the blocks a client renders, and record the view.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.workspaceId
+ * @returns FormPreview Successful Response
+ * @throws ApiError
+ */
+export const formsRenderForm = (
+  data: FormsRenderFormData
+): CancelablePromise<FormsRenderFormResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/forms/{form_id}/render",
+    path: {
+      form_id: data.formId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      409: "Conflict",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Search Form Users
+ * Search organization members for a form's user field.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.workspaceId
+ * @param data.search
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_FormUserRead_ Successful Response
+ * @throws ApiError
+ */
+export const formsSearchFormUsers = (
+  data: FormsSearchFormUsersData
+): CancelablePromise<FormsSearchFormUsersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/forms/{form_id}/users",
+    path: {
+      form_id: data.formId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      search: data.search,
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      404: "Not Found",
+      409: "Conflict",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Submit Form
+ * Submit a form. Starts the form's workflow with the answers as inputs.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns FormSubmissionReceipt Successful Response
+ * @throws ApiError
+ */
+export const formsSubmitForm = (
+  data: FormsSubmitFormData
+): CancelablePromise<FormsSubmitFormResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/forms/{form_id}/submissions",
+    path: {
+      form_id: data.formId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      409: "Conflict",
+      422: "Unprocessable Entity",
+      503: "Service Unavailable",
+    },
+  })
+}
+
+/**
+ * List Form Submissions
+ * List a form's submissions with answers, submitter and run status.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.workspaceId
+ * @param data.submittedAfter Only submissions at or after this time.
+ * @param data.submittedBefore Only submissions before this time.
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_FormSubmissionRead_ Successful Response
+ * @throws ApiError
+ */
+export const formsListFormSubmissions = (
+  data: FormsListFormSubmissionsData
+): CancelablePromise<FormsListFormSubmissionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/forms/{form_id}/submissions",
+    path: {
+      form_id: data.formId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      submitted_after: data.submittedAfter,
+      submitted_before: data.submittedBefore,
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Upload Form File
+ * Upload a file for one of an online form's file fields.
+ *
+ * Submit the returned ID as the field's value. A file that is not submitted
+ * within 24 hours is deleted.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.workspaceId
+ * @param data.field Name of the file field the upload is for.
+ * @param data.formData
+ * @returns FormFileRead Successful Response
+ * @throws ApiError
+ */
+export const formsUploadFormFile = (
+  data: FormsUploadFormFileData
+): CancelablePromise<FormsUploadFormFileResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/forms/{form_id}/files",
+    path: {
+      form_id: data.formId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      field: data.field,
+    },
+    formData: data.formData,
+    mediaType: "multipart/form-data",
+    errors: {
+      400: "Bad Request",
+      409: "Conflict",
+      413: "Request Entity Too Large",
+      415: "Unsupported Media Type",
+      422: "Unprocessable Entity",
+      503: "Service Unavailable",
+    },
+  })
+}
+
+/**
+ * Download Form File
+ * Get a short-lived download URL for a file: one the caller uploaded, or
+ * any with form:submission:read.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.fileId
+ * @param data.workspaceId
+ * @returns FormFileDownload Successful Response
+ * @throws ApiError
+ */
+export const formsDownloadFormFile = (
+  data: FormsDownloadFormFileData
+): CancelablePromise<FormsDownloadFormFileResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/forms/{form_id}/files/{file_id}/download",
+    path: {
+      form_id: data.formId,
+      file_id: data.fileId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Form Submission
+ * Get a submission: the caller's own, or any with form:submission:read.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.submissionId
+ * @param data.workspaceId
+ * @returns FormSubmissionRead Successful Response
+ * @throws ApiError
+ */
+export const formsGetFormSubmission = (
+  data: FormsGetFormSubmissionData
+): CancelablePromise<FormsGetFormSubmissionResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/forms/{form_id}/submissions/{submission_id}",
+    path: {
+      form_id: data.formId,
+      submission_id: data.submissionId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Form Submission
+ * Delete a submission. The workflow run it started is not affected.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.submissionId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const formsDeleteFormSubmission = (
+  data: FormsDeleteFormSubmissionData
+): CancelablePromise<FormsDeleteFormSubmissionResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/forms/{form_id}/submissions/{submission_id}",
+    path: {
+      form_id: data.formId,
+      submission_id: data.submissionId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Intake Forms
+ * List online forms across the caller's workspaces.
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_FormIntakeRead_ Successful Response
+ * @throws ApiError
+ */
+export const formsListIntakeForms = (
+  data: FormsListIntakeFormsData = {}
+): CancelablePromise<FormsListIntakeFormsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/intake/forms",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Locate Intake Form
+ * Find which workspace a form belongs to.
+ *
+ * Returns 404 for an unknown form, a form in another organization, and a
+ * form in a workspace where the caller cannot read forms.
+ * @param data The data for the request.
+ * @param data.formId
+ * @returns FormIntakeLocation Successful Response
+ * @throws ApiError
+ */
+export const formsLocateIntakeForm = (
+  data: FormsLocateIntakeFormData
+): CancelablePromise<FormsLocateIntakeFormResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/intake/forms/{form_id}",
+    path: {
+      form_id: data.formId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Intake Submissions
+ * List the caller's own submissions.
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_FormIntakeSubmissionRead_ Successful Response
+ * @throws ApiError
+ */
+export const formsListIntakeSubmissions = (
+  data: FormsListIntakeSubmissionsData = {}
+): CancelablePromise<FormsListIntakeSubmissionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/intake/submissions",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Cases
  * List cases with default filtering and sorting options.
  * @param data The data for the request.
@@ -11272,7 +11983,10 @@ export const tablesGetTableSearchProgress = (
  * @param data.fieldIds Include only the requested custom field IDs
  * @param data.includeDurations Include case duration values
  * @param data.includePayload Include case payload
+ * @param data.payloadFields Return only these literal top-level payload keys, automatically including the subset regardless of include_payload. Dots are literal; nested values are returned whole. Missing keys are omitted and null values preserved. An empty list acts as omitted; an empty string selects the literal empty key.
+ * @param data.includeCount Include the exact filtered total_estimate for compatibility. Set false when fetching aggregate counts separately; total_estimate will be null.
  * @param data.hierarchy Return every case, or only top-level cases without a parent.
+ * @param data.payloadPaths JSON-encoded array of up to 100 object paths, e.g. [["alert","source","ip"]]. Each path contains 1 to 32 literal keys. Preserves nesting, combines with payload_fields, and includes the subset automatically. Selected parents include their whole value. Missing paths are omitted; nulls are preserved. Arrays can be selected whole, without index traversal. An empty list acts as omitted.
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
@@ -11295,7 +12009,10 @@ export const casesListCases = (
       field_ids: data.fieldIds,
       include_durations: data.includeDurations,
       include_payload: data.includePayload,
+      payload_fields: data.payloadFields,
+      include_count: data.includeCount,
       hierarchy: data.hierarchy,
+      payload_paths: data.payloadPaths,
     },
     errors: {
       422: "Validation Error",
@@ -11339,6 +12056,9 @@ export const casesCreateCase = (
  * @param data.reverse Reverse pagination direction
  * @param data.searchTerm Text to search for in case summary, description, short ID, or case UUID
  * @param data.shortId Search by exact case short ID (e.g. 42 or CASE-0042)
+ * @param data.caseId Filter by exact case UUID
+ * @param data.promoteExactMatch Place a complete case reference first, even outside view filters. Workspace authorization and explicit identity/relationship constraints remain strict. Filtered counts exclude cases outside the view.
+ * @param data.matchNone The ordinary filter population is empty; exact promotion may still match.
  * @param data.status Filter by case status
  * @param data.priority Filter by case priority
  * @param data.severity Filter by case severity
@@ -11355,8 +12075,11 @@ export const casesCreateCase = (
  * @param data.fieldIds Include only the requested custom field IDs
  * @param data.includeDurations Include case duration values
  * @param data.includePayload Include case payload
+ * @param data.payloadFields Return only these literal top-level payload keys, automatically including the subset regardless of include_payload. Dots are literal; nested values are returned whole. Missing keys are omitted and null values preserved. An empty list acts as omitted; an empty string selects the literal empty key.
+ * @param data.includeCount Include the exact filtered total_estimate for compatibility. Set false on all pages when fetching aggregate counts separately; total_estimate will be null.
  * @param data.hierarchy Return every case, or only top-level cases without a parent.
  * @param data.parentId Return only the sub-cases of this parent case
+ * @param data.payloadPaths JSON-encoded array of up to 100 object paths, e.g. [["alert","source","ip"]]. Each path contains 1 to 32 literal keys. Preserves nesting, combines with payload_fields, and includes the subset automatically. Selected parents include their whole value. Missing paths are omitted; nulls are preserved. Arrays can be selected whole, without index traversal. An empty list acts as omitted.
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
@@ -11375,6 +12098,9 @@ export const casesSearchCases = (
       reverse: data.reverse,
       search_term: data.searchTerm,
       short_id: data.shortId,
+      case_id: data.caseId,
+      promote_exact_match: data.promoteExactMatch,
+      match_none: data.matchNone,
       status: data.status,
       priority: data.priority,
       severity: data.severity,
@@ -11391,8 +12117,11 @@ export const casesSearchCases = (
       field_ids: data.fieldIds,
       include_durations: data.includeDurations,
       include_payload: data.includePayload,
+      payload_fields: data.payloadFields,
+      include_count: data.includeCount,
       hierarchy: data.hierarchy,
       parent_id: data.parentId,
+      payload_paths: data.payloadPaths,
     },
     errors: {
       422: "Validation Error",

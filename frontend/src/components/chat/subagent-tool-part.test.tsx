@@ -138,10 +138,9 @@ describe("subagent tool part", () => {
     expect(
       screen.getByText("Subagent exceeded its turn limit")
     ).toBeInTheDocument()
-    expect(mockUseGetChatVercel).toHaveBeenLastCalledWith({
-      chatId: sessionId,
-      workspaceId: "workspace-1",
-    })
+    expect(mockUseGetChatVercel).toHaveBeenLastCalledWith(
+      expect.objectContaining({ chatId: sessionId, workspaceId: "workspace-1" })
+    )
   })
 
   it.each([undefined, null, "", "   ", 42])(
@@ -310,10 +309,9 @@ describe("subagent tool part", () => {
     expect(screen.getByText("Stopped before completion")).toBeInTheDocument()
     expect(screen.queryByText(/Subagent cancelled/)).not.toBeInTheDocument()
     // The child's transcript stays available as the detail.
-    expect(mockUseGetChatVercel).toHaveBeenLastCalledWith({
-      chatId: CHILD_ID,
-      workspaceId: "workspace-1",
-    })
+    expect(mockUseGetChatVercel).toHaveBeenLastCalledWith(
+      expect.objectContaining({ chatId: CHILD_ID, workspaceId: "workspace-1" })
+    )
   })
 
   it("shows child tools its cancellation aborted as interrupted", async () => {
@@ -438,34 +436,45 @@ describe("subagent tool part", () => {
   })
 
   it.each([
-    { failed: true, placeholder: "Could not load transcript" },
-    { failed: false, placeholder: "No transcript available" },
-  ])(
-    "distinguishes a history request failure ($failed) from empty history",
-    ({ failed, placeholder }) => {
-      mockUseGetChatVercel.mockReturnValue({
-        chat: failed ? undefined : { id: CHILD_ID, messages: [] },
-        chatLoading: false,
-        chatError: failed ? new Error("History request failed") : null,
-      })
-      renderPart(
-        subagentPart({
-          state: "output-available",
-          output: { session_id: CHILD_ID, status: "completed" },
-        }),
-        (node) => (
-          <WorkspaceIdProvider workspaceId="workspace-1">
-            {node}
-          </WorkspaceIdProvider>
-        )
+    {
+      name: "a history request failure",
+      chat: undefined,
+      chatError: new Error("History request failed"),
+      placeholder: "Could not load transcript",
+    },
+    {
+      name: "a saved history without replies",
+      chat: { id: CHILD_ID, messages: [], last_error: "Subagent failed" },
+      chatError: null,
+      placeholder: "No transcript available",
+    },
+    {
+      name: "a history not saved yet",
+      chat: { id: CHILD_ID, messages: [] },
+      chatError: null,
+      placeholder: "Loading transcript...",
+    },
+  ])("shows $placeholder for $name", ({ chat, chatError, placeholder }) => {
+    mockUseGetChatVercel.mockReturnValue({
+      chat,
+      chatLoading: false,
+      chatError,
+    })
+    renderPart(
+      subagentPart({
+        state: "output-available",
+        output: { session_id: CHILD_ID, status: "completed" },
+      }),
+      (node) => (
+        <WorkspaceIdProvider workspaceId="workspace-1">
+          {node}
+        </WorkspaceIdProvider>
       )
+    )
 
-      expect(screen.getByText(placeholder)).toBeInTheDocument()
-      expect(
-        screen.queryByText("History request failed")
-      ).not.toBeInTheDocument()
-    }
-  )
+    expect(screen.getByText(placeholder)).toBeInTheDocument()
+    expect(screen.queryByText("History request failed")).not.toBeInTheDocument()
+  })
 
   it("offers a working retry button when transcript recovery times out", () => {
     jest.useFakeTimers()

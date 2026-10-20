@@ -22,7 +22,7 @@ from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.users import search_users
 from tracecat.authz.controls import require_scope
-from tracecat.cases.dependencies import ExecutorCaseIDPath
+from tracecat.cases.dependencies import ExecutorCaseIDPath, PayloadPathsQuery
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.durations.schemas import CaseDurationMetric
@@ -34,7 +34,7 @@ from tracecat.cases.event_schemas import (
     CaseEventsWithUsers,
     TaskAssigneeChangedEventRead,
 )
-from tracecat.cases.filters import parse_assignee_filter
+from tracecat.cases.filters import parse_assignee_filter, resolve_tag_ids
 from tracecat.cases.hierarchy import (
     TOP_LEVEL,
     CaseHierarchy,
@@ -68,7 +68,6 @@ from tracecat.cases.service import (
     CaseTasksService,
 )
 from tracecat.cases.tags.schemas import CaseTagRead
-from tracecat.cases.tags.service import CaseTagsService
 from tracecat.core.schemas import Schema
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Case
@@ -174,6 +173,7 @@ async def list_cases(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
+    payload_paths: PayloadPathsQuery,
     limit: int = Query(
         config.TRACECAT__LIMIT_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
@@ -198,6 +198,15 @@ async def list_cases(
     ),
     include_durations: bool = Query(False, description="Include case duration values"),
     include_payload: bool = Query(False, description="Include case payload"),
+    payload_fields: list[str] | None = Query(
+        None,
+        description=(
+            "Return only these literal top-level payload keys, automatically including "
+            "the subset regardless of include_payload. Dots are literal; nested values "
+            "are returned whole. Missing keys are omitted and null values preserved. "
+            "An empty list acts as omitted; an empty string selects the literal empty key."
+        ),
+    ),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     service = CasesService(session, role)
 
@@ -210,6 +219,8 @@ async def list_cases(
             sort=sort,
             include_durations=include_durations,
             include_payload=include_payload,
+            payload_fields=payload_fields,
+            payload_paths=payload_paths,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for list cases: {e}")
@@ -262,6 +273,7 @@ async def search_cases(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
+    payload_paths: PayloadPathsQuery,
     limit: int = Query(
         config.TRACECAT__LIMIT_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
@@ -324,18 +336,19 @@ async def search_cases(
     ),
     include_durations: bool = Query(False, description="Include case duration values"),
     include_payload: bool = Query(False, description="Include case payload"),
+    payload_fields: list[str] | None = Query(
+        None,
+        description=(
+            "Return only these literal top-level payload keys, automatically including "
+            "the subset regardless of include_payload. Dots are literal; nested values "
+            "are returned whole. Missing keys are omitted and null values preserved. "
+            "An empty list acts as omitted; an empty string selects the literal empty key."
+        ),
+    ),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     service = CasesService(session, role)
 
-    tag_ids: list[uuid.UUID] = []
-    if tags:
-        tags_service = CaseTagsService(session, role)
-        for tag_identifier in tags:
-            try:
-                tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
-                tag_ids.append(tag.id)
-            except NoResultFound:
-                continue
+    tag_ids = await resolve_tag_ids(tags=tags, role=role, session=session)
 
     pagination_params = CursorPaginationParams(
         limit=limit,
@@ -367,7 +380,7 @@ async def search_cases(
             severity=severity,
             assignee_ids=parsed_assignee_filters["assignee_ids"],
             include_unassigned=parsed_assignee_filters["include_unassigned"],
-            tag_ids=tag_ids if tag_ids else None,
+            tag_ids=tag_ids,
             dropdown_filters=parsed_dropdown_filters,
             start_time=start_time,
             end_time=end_time,
@@ -377,6 +390,8 @@ async def search_cases(
             sort=sort,
             include_durations=include_durations,
             include_payload=include_payload,
+            payload_fields=payload_fields,
+            payload_paths=payload_paths,
         )
         if include_rows and cases.items:
             rows_service = CaseTableRowsService(session, role)

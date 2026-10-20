@@ -20,7 +20,7 @@ Fields:
 - `${{ TRIGGER.orig_wf_exec_id }}`: the failed workflow execution ID.
 - `${{ TRIGGER.orig_wf_exec_url }}`: the failed workflow execution URL, if available.
 - `${{ TRIGGER.orig_wf_title }}`: the failed workflow title.
-- `${{ TRIGGER.trigger_type }}`: the original trigger type.
+- `${{ TRIGGER.trigger_type }}`: the original trigger type: `manual`, `scheduled`, `webhook`, `case`, or `form`.
 - `${{ TRIGGER.errors }}`: structured action error details, if available.
 
 Example payload:

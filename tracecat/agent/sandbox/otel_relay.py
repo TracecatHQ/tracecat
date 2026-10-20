@@ -1,32 +1,33 @@
-"""OTel socket ingress and detached delivery for the sandboxed agent runtime.
+"""OTel socket ingress for the sandboxed agent runtime.
 
 Each job gets a per-turn 0600 Unix socket receiver (same pattern as
 ``llm_proxy.py``) that authenticates and validates OTLP/HTTP POSTs from the
-sandboxed Claude runtime, then hands each one to a process-wide delivery pool;
+sandboxed Claude runtime, then hands each one to the worker's delivery pool;
 decrypted exporter headers are injected pool-side and never leave the host.
 Store-and-forward rather than pass-through because the most valuable batch is
 the tail flush of session-total metrics at turn end, and the producer is
 ephemeral — delivery must outlive the turn that admitted it.
 
-Accepted losses: admissions past the per-turn or global budget are shed with a
-503 to the exporter, and in-flight deliveries are lost on process shutdown.
+Accepted losses: admissions past the org's share or the pool's budget are shed
+with a 503 to the exporter, and deliveries still pending after the shutdown
+drain are cancelled.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import functools
 import os
-import random
-import time
 from collections import Counter
 from collections.abc import Iterator, Mapping
 from collections.abc import Set as AbstractSet
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final, Literal
 from uuid import UUID
 
-import httpx
 import orjson
 from google.protobuf.message import DecodeError
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
@@ -37,13 +38,18 @@ from opentelemetry.proto.resource.v1.resource_pb2 import Resource
 from opentelemetry.proto.trace.v1.trace_pb2 import Span
 from pydantic import SecretStr
 
+from tracecat.agent.otel_delivery import (
+    OtelDelivery,
+    OtelDeliveryPool,
+    Reservation,
+    ShareKey,
+    SignalPath,
+)
 from tracecat.agent.tokens import AgentOtelTokenClaims, verify_agent_otel_token
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
 
 OTEL_SOCKET_NAME = "otel.sock"
-
-SignalPath = Literal["/v1/metrics", "/v1/logs", "/v1/traces"]
 
 _TRACES_PATH: Final[SignalPath] = "/v1/traces"
 
@@ -97,8 +103,6 @@ _REJECTIONS: dict[_RejectionKind, tuple[int, str]] = {
     "collector": (503, "No Collector"),
 }
 
-_USER_AGENT = "tracecat-agent-otel-relay/1.0"
-
 _SUPPORTED_CONTENT_TYPES = frozenset(
     {
         "application/json",
@@ -106,32 +110,13 @@ _SUPPORTED_CONTENT_TYPES = frozenset(
     }
 )
 
-# Per the OTLP spec, 500 is terminal: retrying it can duplicate a batch the
-# collector already accepted.
-_RETRYABLE_STATUS_CODES = frozenset({429, 502, 503, 504})
-
-# Statuses whose Retry-After the OTLP spec says exporters must honor.
-_RETRY_AFTER_STATUS_CODES = frozenset({429, 503})
-
 # Telemetry payloads are bounded — anything larger than this almost certainly
 # indicates a misconfiguration rather than legitimate OTel data.
 MAX_BODY_SIZE = 16 * 1024 * 1024
 
-# Delivery tuning, hardcoded pending benchmarks; tests monkeypatch these.
-_TIMEOUT_SECONDS = 10.0
-_MAX_PENDING_ITEMS = 1024
-_MAX_PENDING_BYTES = 64 * 1024 * 1024
-_MAX_CONCURRENT_REQUESTS = 8
-_MAX_DELIVERY_ATTEMPTS = 3
-_RETRY_BASE_DELAY_SECONDS = 0.5
-# Cap on a collector-supplied Retry-After so it cannot pin a pool slot.
-_MAX_RETRY_AFTER_SECONDS = 30.0
 # Bound how long an admitted connection may stall the receiver mid-request.
 _HEAD_READ_TIMEOUT_SECONDS = 10.0
 _BODY_READ_TIMEOUT_SECONDS = 30.0
-
-# Fairness cap so one turn cannot consume the whole global budget.
-_MAX_PENDING_ITEMS_PER_TURN = 256
 
 # Concurrent ingress connections per receiver, hardcoded pending benchmarks.
 _MAX_CONNECTIONS_PER_TURN = 32
@@ -142,6 +127,10 @@ _MAX_HEADER_SECTION_SIZE = 8 * 1024
 # Protobuf projection is CPU work over an attacker-controlled batch. Keep it
 # off the event loop and bound the number of simultaneous rewrites per process.
 _MAX_CONCURRENT_TRACE_PROJECTIONS = 2
+_TRACE_PROJECTION_EXECUTOR = ThreadPoolExecutor(
+    max_workers=_MAX_CONCURRENT_TRACE_PROJECTIONS,
+    thread_name_prefix="otel-trace-projection",
+)
 
 _PLATFORM_SPAN_ATTRIBUTES: dict[str, frozenset[str]] = {
     "claude_code.interaction": frozenset(
@@ -240,26 +229,6 @@ class _ReceiverRequestHead:
 
 
 @dataclass(frozen=True, slots=True)
-class _OtelDelivery:
-    """A fully resolved OTLP post, safe to run after its receiver is gone.
-
-    Built at admission while the receiver's collector config and decrypted
-    headers are live, then handed to the module-level pool.
-    """
-
-    collector_url: str
-    content_type: str
-    body: bytes
-    headers: dict[str, str]
-    # Non-sensitive discriminators for delivery logging; never the payload
-    # contents and never the collector URL, whose path may carry a credential.
-    signal_path: SignalPath
-    workspace_id: WorkspaceID
-    organization_id: OrganizationID
-    session_id: UUID
-
-
-@dataclass(frozen=True, slots=True)
 class PlatformTraceParent:
     """Trusted platform parent used to join native agent spans to one trace."""
 
@@ -281,42 +250,6 @@ class _MalformedRequestError(Exception):
 
 class _RequestTooLargeError(Exception):
     """The sandbox request header section exceeds the receiver's limit."""
-
-
-# In-flight delivery tasks mapped to the byte budget each one holds, so a task
-# stranded on a closed loop can be refunded without running its finally.
-_delivery_tasks: dict[asyncio.Task[None], int] = {}
-
-# Byte budget across reserved-but-unread bodies and in-flight deliveries. Added
-# exactly once at reservation, removed exactly once by either the receiver's
-# refund or the task entry being popped.
-_pending_bytes = 0
-
-# asyncio primitives bind to their loop; keyed per loop and swept alongside
-# the closed-loop task sweep.
-_post_semaphores: dict[asyncio.AbstractEventLoop, asyncio.Semaphore] = {}
-_projection_semaphores: dict[asyncio.AbstractEventLoop, asyncio.Semaphore] = {}
-
-
-def _get_post_semaphore() -> asyncio.Semaphore:
-    loop = asyncio.get_running_loop()
-    if (sem := _post_semaphores.get(loop)) is None:
-        sem = _post_semaphores[loop] = asyncio.Semaphore(_MAX_CONCURRENT_REQUESTS)
-    return sem
-
-
-def _get_projection_semaphore() -> asyncio.Semaphore:
-    loop = asyncio.get_running_loop()
-    if (sem := _projection_semaphores.get(loop)) is None:
-        sem = _projection_semaphores[loop] = asyncio.Semaphore(
-            _MAX_CONCURRENT_TRACE_PROJECTIONS
-        )
-    return sem
-
-
-def _client_factory() -> httpx.AsyncClient:
-    """Outbound client for one delivery; tests swap in a mock transport."""
-    return httpx.AsyncClient(timeout=httpx.Timeout(_TIMEOUT_SECONDS))
 
 
 def resolve_collector_url(collector_env: Mapping[str, str], path: str) -> str | None:
@@ -693,196 +626,27 @@ def _prepare_trace_bodies(
     return _PreparedTraceBodies(tenant=tenant, platform=platform)
 
 
-def _sweep_closed_loops() -> None:
-    """Evict tasks and semaphores stranded on closed (e.g. per-test) loops.
-
-    A stranded task never runs its finally, so the sweep refunds its bytes.
-    """
-    for stranded in [t for t in _delivery_tasks if t.get_loop().is_closed()]:
-        _release_delivery_slot(stranded)
-    for closed_loop in [loop for loop in _post_semaphores if loop.is_closed()]:
-        del _post_semaphores[closed_loop]
-    for closed_loop in [loop for loop in _projection_semaphores if loop.is_closed()]:
-        del _projection_semaphores[closed_loop]
-
-
-def _reserve_pending_bytes(size: int) -> bool:
-    """Claim byte budget before the bytes exist, so a declared Content-Length
-    is charged to the pool before the receiver buffers it."""
-    global _pending_bytes
-
-    _sweep_closed_loops()
-    if _pending_bytes + size > _MAX_PENDING_BYTES:
-        return False
-    _pending_bytes += size
-    return True
-
-
-def _refund_pending_bytes(size: int) -> None:
-    """Return a reservation whose delivery never reached the pool."""
-    global _pending_bytes
-
-    _pending_bytes -= size
-
-
-def _resize_reservation(reserved: int, needed: int) -> bool:
-    """Adjust an existing reservation to the exact size about to be admitted.
-
-    Returns ``False`` only when growth is refused; the caller's ``reserved``
-    is then untouched and stays its responsibility to refund.
-    """
-    if needed > reserved:
-        return _reserve_pending_bytes(needed - reserved)
-    if needed < reserved:
-        _refund_pending_bytes(reserved - needed)
-    return True
-
-
-def _spawn_delivery(delivery: _OtelDelivery, reserved_bytes: int) -> asyncio.Task[None]:
-    """Hand one pre-reserved delivery to the pool.
-
-    Capacity is the caller's concern: ``_admit_batch`` sweeps and checks the
-    item cap for the whole batch before calling this. The caller's
-    ``reserved_bytes`` of budget transfers to the returned task.
-    """
-    task = asyncio.get_running_loop().create_task(_deliver(delivery))
-    _delivery_tasks[task] = reserved_bytes
-    task.add_done_callback(_release_delivery_slot)
-    return task
-
-
-def _release_delivery_slot(task: asyncio.Task[None]) -> None:
-    """Refund the task's byte budget. Popping here makes the refund exactly
-    once, whether it lands from the done callback or the closed-loop sweep."""
-    global _pending_bytes
-
-    _pending_bytes -= _delivery_tasks.pop(task, 0)
-
-
-def _parse_retry_after(status_code: int, header_value: str | None) -> float | None:
-    """Delay a 429/503 asked for, capped. Only the integer-seconds form is
-    honored; an http-date or malformed value falls back to normal backoff."""
-    if status_code not in _RETRY_AFTER_STATUS_CODES or header_value is None:
-        return None
-    try:
-        seconds = int(header_value.strip())
-    except ValueError:
-        return None
-    if seconds < 0:
-        return None
-    return min(float(seconds), _MAX_RETRY_AFTER_SECONDS)
-
-
-async def _deliver(delivery: _OtelDelivery) -> None:
-    """Post one admitted item with bounded concurrency and bounded retries.
-
-    Manual ``random``-jittered backoff rather than tenacity: the per-attempt
-    delay depends on the response's ``Retry-After``, which tenacity's wait
-    strategies cannot observe (same pattern as storage/utils.py and
-    integrations/service.py).
-
-    The byte budget is refunded by the task's done callback, not here, so a
-    task stranded on a closed loop is still refunded by the sweep.
-    """
-    started = time.perf_counter()
-    outbound_headers = {
-        "content-type": delivery.content_type,
-        "user-agent": _USER_AGENT,
-        **delivery.headers,
-    }
-    status_code: int | None = None
-    error_type: str | None = None
-    attempts = 0
-    # One slot spans all attempts; the socket itself is only open per post.
-    async with _get_post_semaphore():
-        for attempt in range(1, _MAX_DELIVERY_ATTEMPTS + 1):
-            attempts = attempt
-            status_code = None
-            error_type = None
-            retryable = False
-            retry_after: float | None = None
-            try:
-                async with _client_factory() as client:
-                    # Streamed so a hostile collector cannot make the host
-                    # buffer its response; only status and headers are read.
-                    async with client.stream(
-                        "POST",
-                        delivery.collector_url,
-                        headers=outbound_headers,
-                        content=delivery.body,
-                    ) as response:
-                        status_code = response.status_code
-                        retry_after = _parse_retry_after(
-                            status_code, response.headers.get("retry-after")
-                        )
-            except httpx.TransportError as exc:
-                error_type = type(exc).__name__
-                retryable = True
-            except Exception as exc:
-                error_type = type(exc).__name__
-                break
-            else:
-                if 200 <= status_code < 300:
-                    # Confirms the collector actually accepted the batch,
-                    # which the 202 written at admission cannot. No payload
-                    # contents and no collector URL on this line.
-                    logger.info(
-                        "Delivered agent OTel batch",
-                        status_code=status_code,
-                        signal_path=delivery.signal_path,
-                        workspace_id=delivery.workspace_id,
-                        organization_id=delivery.organization_id,
-                        session_id=delivery.session_id,
-                        attempts=attempts,
-                        retried=attempts > 1,
-                        duration_ms=round((time.perf_counter() - started) * 1000),
-                    )
-                    return
-                retryable = status_code in _RETRYABLE_STATUS_CODES
-
-            if not retryable or attempt == _MAX_DELIVERY_ATTEMPTS:
-                break
-            # The spec requires jitter so retrying exporters do not synchronize
-            # into a thundering herd on the collector.
-            delay = _RETRY_BASE_DELAY_SECONDS * (2.0 ** (attempt - 1))
-            delay *= random.uniform(1.0, 1.5)
-            await asyncio.sleep(retry_after if retry_after is not None else delay)
-
-    # No exception text or URL on this path: the collector endpoint is
-    # tenant-configured and may carry a credential in its path.
-    logger.warning(
-        "Failed to deliver agent OTel batch",
-        error_type=error_type,
-        status_code=status_code,
-        signal_path=delivery.signal_path,
-        workspace_id=delivery.workspace_id,
-        organization_id=delivery.organization_id,
-        session_id=delivery.session_id,
-        attempts=attempts,
-        duration_ms=round((time.perf_counter() - started) * 1000),
-    )
-
-
 class OtelSocketReceiver:
-    """Per-turn OTLP/HTTP ingress that admits into the process-wide pool."""
+    """Per-turn OTLP/HTTP ingress that admits into the worker's delivery pool."""
 
     def __init__(
         self,
         *,
         socket_path: Path,
         plan: OtelRoutingPlan,
+        pool: OtelDeliveryPool,
         expected_workspace_id: WorkspaceID,
         expected_organization_id: OrganizationID,
         expected_session_id: UUID,
     ) -> None:
         self.socket_path = socket_path
         self._plan = plan
+        self._pool = pool
         self._expected_workspace_id = expected_workspace_id
         self._expected_organization_id = expected_organization_id
         self._expected_session_id = expected_session_id
         self._server: asyncio.Server | None = None
         self._connection_tasks: set[asyncio.Task[None]] = set()
-        self._pending_items = 0
         self._accepting = False
         self._admitted: Counter[str] = Counter()
         self._rejected: Counter[str] = Counter()
@@ -904,7 +668,7 @@ class OtelSocketReceiver:
     async def stop(self) -> None:
         """Close ingress and release socket resources.
 
-        Admitted deliveries are owned by the module-level pool and deliberately
+        Admitted deliveries are owned by the worker's pool and deliberately
         outlive this receiver; nothing here waits on or cancels them.
         """
         self._accepting = False
@@ -975,9 +739,9 @@ class OtelSocketReceiver:
         receiver aggregates admissions/rejections and emits a single summary
         on stop().
         """
-        # Reservation held across the body read; refunded in finally unless a
-        # spawned task took ownership of it.
-        reserved = 0
+        # Held across the body read; closing it in finally refunds whatever
+        # the pool did not take.
+        reservation: Reservation | None = None
         try:
             try:
                 async with asyncio.timeout(_HEAD_READ_TIMEOUT_SECONDS):
@@ -1025,12 +789,14 @@ class OtelSocketReceiver:
                 await self._reject(writer, "content_type")
                 return
 
-            # Charged before the body is read, so an authed sandbox cannot
-            # buffer payloads the pool has no budget for.
-            if not _reserve_pending_bytes(head.content_length):
+            # Charged to the org's share before the body is read, so an authed
+            # sandbox cannot buffer payloads the pool has no budget for.
+            reservation = self._pool.reserve(
+                self._expected_organization_id, head.content_length
+            )
+            if reservation is None:
                 await self._reject(writer, "pool_capacity")
                 return
-            reserved = head.content_length
 
             # Resolved at admission so the delivery item stays self-contained.
             # A tenant that opted out of this signal gets no copy, even though
@@ -1061,19 +827,13 @@ class OtelSocketReceiver:
                 await self._write_response(writer, status_code=202, reason="Accepted")
                 return
 
-            needed = sum(len(delivery.body) for delivery in deliveries)
-            if not _resize_reservation(reserved, needed):
+            # A fan-out must not silently accept only the tenant or only the
+            # platform copy, so the pool admits every copy or none.
+            if not self._pool.admit(reservation, deliveries):
                 await self._reject(writer, "pool_capacity")
                 return
-            reserved = needed
-
-            if not self._admit_batch(deliveries):
-                await self._write_response(
-                    writer, status_code=503, reason="Service Unavailable"
-                )
-                return
-            # Each spawned task now owns its body's share of the reservation.
-            reserved = 0
+            for delivery in deliveries:
+                self._admitted[delivery.signal] += 1
 
             await self._write_response(writer, status_code=202, reason="Accepted")
         except (asyncio.IncompleteReadError, ConnectionError):
@@ -1084,8 +844,8 @@ class OtelSocketReceiver:
             # only omit per-request payload metadata, not the failure itself.
             logger.exception("OTel receiver error", error_type=type(exc).__name__)
         finally:
-            if reserved:
-                _refund_pending_bytes(reserved)
+            if reservation is not None:
+                reservation.close()
             try:
                 writer.close()
                 await writer.wait_closed()
@@ -1109,19 +869,20 @@ class OtelSocketReceiver:
     def _delivery(
         self,
         *,
-        collector_url: str,
+        share: ShareKey,
+        target: OtelTarget,
         content_type: str,
         body: bytes,
-        headers: dict[str, str],
         path: SignalPath,
-    ) -> _OtelDelivery:
+    ) -> OtelDelivery:
         """Bind one resolved destination to this receiver's turn identity."""
-        return _OtelDelivery(
-            collector_url=collector_url,
+        return OtelDelivery(
+            share=share,
+            signal=path,
+            url=target.url,
+            headers=target.headers,
             content_type=content_type,
             body=body,
-            headers=headers,
-            signal_path=path,
             workspace_id=self._expected_workspace_id,
             organization_id=self._expected_organization_id,
             session_id=self._expected_session_id,
@@ -1134,34 +895,39 @@ class OtelSocketReceiver:
         content_type: str,
         body: bytes,
         destinations: OtelDestinations,
-    ) -> list[_OtelDelivery]:
+    ) -> list[OtelDelivery]:
         """Build one delivery per resolved destination of an ingress body.
 
         Trace payloads are rewritten off the event loop: the tenant copy is
         canonicalized and the platform copy is projected down to allowlisted
-        spans, which may leave no platform body at all.
+        spans, which may leave no platform body at all. The tenant copy is
+        charged to the org's share and the redacted copy to the platform's.
         """
         tenant_body = body
         platform_body: bytes | None = None
         if path == _TRACES_PATH:
-            async with _get_projection_semaphore():
-                prepared = await asyncio.to_thread(
-                    _prepare_trace_bodies,
-                    body,
-                    content_type=content_type,
-                    parent=self._plan.trace_parent,
-                )
+            prepare = functools.partial(
+                _prepare_trace_bodies,
+                body,
+                content_type=content_type,
+                parent=self._plan.trace_parent,
+            )
+            # Runs in the caller's context, as asyncio.to_thread would.
+            context = contextvars.copy_context()
+            prepared = await asyncio.get_running_loop().run_in_executor(
+                _TRACE_PROJECTION_EXECUTOR, context.run, prepare
+            )
             tenant_body = prepared.tenant
             platform_body = prepared.platform
 
-        deliveries: list[_OtelDelivery] = []
+        deliveries: list[OtelDelivery] = []
         if (tenant := destinations.tenant) is not None:
             deliveries.append(
                 self._delivery(
-                    collector_url=tenant.url,
+                    share=self._expected_organization_id,
+                    target=tenant,
                     content_type=content_type,
                     body=tenant_body,
-                    headers=dict(tenant.headers),
                     path=path,
                 )
             )
@@ -1170,53 +936,14 @@ class OtelSocketReceiver:
         ) is not None and platform_body is not None:
             deliveries.append(
                 self._delivery(
-                    collector_url=platform.url,
+                    share="platform",
+                    target=platform,
                     content_type=content_type,
                     body=platform_body,
-                    headers=dict(platform.headers),
                     path=path,
                 )
             )
         return deliveries
-
-    def _admit_batch(self, deliveries: list[_OtelDelivery]) -> bool:
-        """Atomically hand every destination for one ingress to the pool.
-
-        A fan-out must not silently accept only the tenant or only the platform
-        copy. Capacity is checked for the whole batch before any task is made.
-        """
-        if self._pending_items + len(deliveries) > _MAX_PENDING_ITEMS_PER_TURN:
-            for delivery in deliveries:
-                self._shed("turn_capacity", delivery)
-            return False
-        _sweep_closed_loops()
-        if len(_delivery_tasks) + len(deliveries) > _MAX_PENDING_ITEMS:
-            for delivery in deliveries:
-                self._shed("pool_capacity", delivery)
-            return False
-
-        for delivery in deliveries:
-            task = _spawn_delivery(delivery, len(delivery.body))
-            self._pending_items += 1
-            self._admitted[delivery.signal_path] += 1
-            # Frees turn budget even after stop(); the pool owns the task itself.
-            task.add_done_callback(self._release_turn_slot)
-        return True
-
-    def _release_turn_slot(self, task: asyncio.Task[None]) -> None:
-        self._pending_items -= 1
-
-    def _shed(self, reason: str, delivery: _OtelDelivery) -> None:
-        """Log and count one shed admission. No URL, no payload."""
-        self._rejected[reason] += 1
-        logger.warning(
-            "Shed agent OTel batch; delivery capacity reached",
-            reason=reason,
-            signal_path=delivery.signal_path,
-            workspace_id=delivery.workspace_id,
-            organization_id=delivery.organization_id,
-            session_id=delivery.session_id,
-        )
 
     def _verify_inbound_auth(
         self, auth_header: str | None

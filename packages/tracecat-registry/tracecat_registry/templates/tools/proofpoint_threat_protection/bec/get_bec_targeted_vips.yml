@@ -1,0 +1,35 @@
+type: action
+definition:
+  title: "Get VIPs targeted by BEC threats"
+  description: "Get VIPs targeted by BEC threats. Calls GET /api/v1/dash/reports/bec-reports/vips-targeted-by-bec-threats."
+  display_group: Proofpoint Threat Protection
+  doc_url: https://help.proofpoint.com/Threat_Insight_Dashboard/API_Documentation/Reports_API
+  namespace: tools.proofpoint_threat_protection
+  name: get_bec_targeted_vips
+  secrets:
+    - type: oauth
+      provider_id: proofpoint_threat_protection
+      grant_type: client_credentials
+  expects:
+    start:
+      type: str
+      description: "Start time in ISO 8601 UTC format."
+    end:
+      type: str
+      description: "End time in ISO 8601 UTC format."
+    base_url:
+      type: str | None
+      description: "Proofpoint Threat Protection API base URL. Defaults to https://threatprotection-api.proofpoint.com."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.proofpoint_threat_protection.base_url || "https://threatprotection-api.proofpoint.com" }}/api/v1/dash/reports/bec-reports/vips-targeted-by-bec-threats
+        method: GET
+        params:
+          start: ${{ inputs.start }}
+          end: ${{ inputs.end }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.proofpoint_threat_protection_oauth.PROOFPOINT_THREAT_PROTECTION_SERVICE_TOKEN }}
+  returns: ${{ steps.request.result }}

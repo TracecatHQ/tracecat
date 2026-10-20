@@ -125,6 +125,13 @@ type CaseCommentDeleteMode = Literal["soft", "hard"]
 
 
 class CaseReadMinimal(Schema):
+    is_exact_match: bool = Field(
+        default=False, description="This row is the promoted exact case reference."
+    )
+    is_outside_filters: bool = Field(
+        default=False,
+        description="The promoted reference falls outside the filtered results.",
+    )
     id: uuid.UUID
     short_id: str
     created_at: datetime

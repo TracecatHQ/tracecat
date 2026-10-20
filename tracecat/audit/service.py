@@ -10,6 +10,8 @@ ENG-1514 spool.
 from __future__ import annotations
 
 import asyncio
+import functools
+import ssl
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -116,6 +118,16 @@ _DELIVERY_ATTEMPTS = 3
 _RETRY_WAIT = wait_exponential(multiplier=1, min=1, max=10)
 
 
+@functools.cache
+def _delivery_ssl_context(verify_ssl: bool) -> ssl.SSLContext:
+    """Build the TLS context once per mode instead of once per delivery.
+
+    Loading the CA bundle is synchronous CPU work on the event loop, and a bulk
+    operation can emit hundreds of audit events at once.
+    """
+    return httpx.create_ssl_context(verify=verify_ssl)
+
+
 def _is_retryable(exc: BaseException) -> bool:
     if isinstance(exc, httpx.HTTPStatusError):
         return exc.response.status_code in _RETRYABLE_STATUS_CODES
@@ -167,7 +179,8 @@ async def _deliver(delivery: _AuditDelivery) -> None:
                     attempts = attempt.retry_state.attempt_number
                     response = None
                     async with httpx.AsyncClient(
-                        timeout=10.0, verify=delivery.verify_ssl
+                        timeout=10.0,
+                        verify=_delivery_ssl_context(delivery.verify_ssl),
                     ) as client:
                         response = await client.post(
                             delivery.webhook_url,

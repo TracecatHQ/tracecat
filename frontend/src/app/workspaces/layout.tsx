@@ -21,6 +21,8 @@ import { Button } from "@/components/ui/button"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useFormsAccess } from "@/hooks/use-forms-access"
+import { useLandingWorkspace } from "@/hooks/use-landing-workspace"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
 import { AgentPresetDetailProvider } from "@/providers/agent-preset-detail"
@@ -31,6 +33,7 @@ import { WorkflowProvider } from "@/providers/workflow"
 import { WorkspaceIdProvider } from "@/providers/workspace-id"
 
 const NO_ORG_MEMBERSHIPS_DETAIL = "User has no organization memberships"
+const FORM_DEEP_LINK = /^\/workspaces\/[^/]+\/forms\/([^/?#]+)/
 
 function isNoOrgMembershipsError(error: unknown): boolean {
   if (!(error instanceof ApiError)) {
@@ -90,18 +93,13 @@ export default function WorkspaceLayout({
     return undefined
   }, [getLastWorkspaceId, workspaces])
 
-  useEffect(() => {
-    if (workspaceId && requestedWorkspaceExists) {
-      setLastWorkspaceId(workspaceId)
-    }
-  }, [requestedWorkspaceExists, setLastWorkspaceId, workspaceId])
-
-  const fallbackWorkspaceId = useMemo(() => {
-    if (!workspaces || workspaces.length === 0) {
-      return undefined
-    }
-    return lastViewedWorkspaceId ?? workspaces[0]?.id
-  }, [lastViewedWorkspaceId, workspaces])
+  // Only needed when the URL names no workspace the user belongs to.
+  // `undefined` while the landing workspace is being worked out.
+  const fallbackWorkspaceId = useLandingWorkspace({
+    workspaces,
+    lastViewedWorkspaceId,
+    enabled: !workspaceId || !requestedWorkspaceExists,
+  })
   const hasNoOrgMemberships =
     workspacesError && isNoOrgMembershipsError(workspacesError)
 
@@ -159,21 +157,28 @@ export default function WorkspaceLayout({
   let selectedWorkspaceId: string
   if (workspaceId) {
     selectedWorkspaceId = workspaceId
-  } else if (lastViewedWorkspaceId) {
-    selectedWorkspaceId = lastViewedWorkspaceId
-  } else if (workspaces.length > 0) {
-    selectedWorkspaceId = workspaces[0].id
-  } else {
+  } else if (workspaces.length === 0) {
     return (
       <ScopeProvider>
         <NoWorkspaces />
       </ScopeProvider>
     )
+  } else if (fallbackWorkspaceId) {
+    // The last-viewed workspace, else the first one the user can read.
+    selectedWorkspaceId = fallbackWorkspaceId
+  } else {
+    return <CenteredSpinner />
   }
 
   return (
     <WorkspaceIdProvider workspaceId={selectedWorkspaceId}>
       <ScopeProvider>
+        {workspaceId && (
+          <LastWorkspaceWriter
+            workspaceId={workspaceId}
+            setLastWorkspaceId={setLastWorkspaceId}
+          />
+        )}
         {workflowId ? (
           <WorkflowView
             workspaceId={selectedWorkspaceId}
@@ -201,10 +206,54 @@ export default function WorkspaceLayout({
   )
 }
 
+/**
+ * Remember the workspace in the URL as the last one viewed, only for a user
+ * who can read it: an intake-only workspace would bounce them to `/forms`.
+ */
+function LastWorkspaceWriter({
+  workspaceId,
+  setLastWorkspaceId,
+}: {
+  workspaceId: string
+  setLastWorkspaceId: (id?: string) => void
+}) {
+  const canReadWorkspace = useScopeCheck("workspace:read")
+
+  useEffect(() => {
+    if (canReadWorkspace === true) {
+      setLastWorkspaceId(workspaceId)
+    }
+  }, [canReadWorkspace, setLastWorkspaceId, workspaceId])
+
+  return null
+}
+
 function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   const params = useParams<{ workflowId?: string }>()
+  const router = useRouter()
   const canReadWorkspace = useScopeCheck("workspace:read")
+  const canReadForms = useScopeCheck("form:read")
+  const formsAccess = useFormsAccess()
   const pathname = usePathname()
+  // Intake-only users (`form:read` without `workspace:read`) belong on the
+  // requester pages, and a form's builder link maps to its requester page.
+  // Nothing happens while a scope or the flag loads, or with the flag off.
+  let intakePath: string | null = null
+  if (
+    canReadWorkspace === false &&
+    canReadForms === true &&
+    (formsAccess === "enabled" || formsAccess === "locked")
+  ) {
+    const formId = pathname?.match(FORM_DEEP_LINK)?.[1]
+    intakePath = formId ? `/forms/${formId}` : "/forms"
+  }
+
+  useEffect(() => {
+    if (intakePath) {
+      router.replace(intakePath)
+    }
+  }, [intakePath, router])
+
   const isWorkflowBuilder = !!params?.workflowId
   const isCasesPage = Boolean(pathname?.match(/\/cases(\/|$)/))
   const isInboxPage = pathname?.includes("/inbox")
@@ -217,6 +266,11 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   }
 
   if (canReadWorkspace === false) {
+    // An intake-only user is on their way to `/forms`. Hold the spinner
+    // while the Forms flag loads too, so access denied does not flash.
+    if (intakePath || (canReadForms === true && formsAccess === "loading")) {
+      return <CenteredSpinner />
+    }
     return <WorkspaceAccessDenied />
   }
 
@@ -245,8 +299,8 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
     return <>{children}</>
   }
 
-  // Tables pages have their own layout with side panels.
-  if (isTablesPage) {
+  // Tables and Forms pages have their own layouts.
+  if (isTablesPage || pathname?.match(/\/forms(\/|$)/)) {
     return <>{children}</>
   }
 

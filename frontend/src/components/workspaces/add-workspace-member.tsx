@@ -7,7 +7,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   ApiError,
-  type UserRead,
+  type UserSearchRead,
   usersSearchUser,
   type WorkspaceRead,
 } from "@/client"
@@ -149,7 +149,7 @@ function AddWorkspaceMemberForm({
 
   const onSubmit = async ({ email }: AddMemberValues) => {
     try {
-      let user: UserRead | null = null
+      let user: UserSearchRead | null = null
       try {
         user = await usersSearchUser({ email, workspaceId: workspace.id })
       } catch (error) {

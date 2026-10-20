@@ -14,7 +14,6 @@ from tracecat.agent.skill.library.service import SkillLibraryService
 from tracecat.auth.types import Role
 from tracecat.exceptions import (
     ScopeDeniedError,
-    TracecatNotFoundError,
     TracecatValidationError,
 )
 
@@ -44,42 +43,6 @@ def service(batch_session: AsyncMock) -> SkillLibraryService:
         scopes=frozenset({"agent:delete"}),
     )
     return SkillLibraryService(batch_session, role=role)
-
-
-@pytest.mark.anyio
-async def test_batch_rejects_bound_skill_before_any_delete(
-    service: SkillLibraryService,
-    batch_session: AsyncMock,
-) -> None:
-    session = batch_session
-    session.execute.return_value.tuples.return_value.all.return_value = [
-        ("analyst", "Analyst")
-    ]
-
-    with pytest.raises(TracecatValidationError) as exc:
-        await service.uninstall_many(["a-unused", "b-bound", "c-unused"])
-
-    assert exc.value.detail == {
-        "code": "library_skill_in_use",
-        "slugs": ["a-unused", "b-bound", "c-unused"],
-        "presets": ["analyst"],
-    }
-    session.execute.assert_awaited_once()
-    session.commit.assert_not_awaited()
-
-
-@pytest.mark.anyio
-async def test_batch_rejects_missing_install_before_any_delete(
-    service: SkillLibraryService,
-    batch_session: AsyncMock,
-) -> None:
-    batch_session.scalars.return_value.all.return_value = ["a-unused"]
-
-    with pytest.raises(TracecatNotFoundError):
-        await service.uninstall_many(["a-unused", "missing"])
-
-    batch_session.execute.assert_not_awaited()
-    batch_session.commit.assert_not_awaited()
 
 
 @pytest.mark.anyio

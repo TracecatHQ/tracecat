@@ -1,0 +1,62 @@
+type: action
+definition:
+  title: Update case
+  description: Update a Customer Service Management case with the Case API. Include comments or work_notes in fields to add journal entries.
+  display_group: ServiceNow
+  doc_url: https://www.servicenow.com/docs/r/api-reference/rest-apis/case-api.html#case-PUT-case
+  namespace: tools.servicenow
+  name: update_case
+  secrets:
+  - type: oauth
+    provider_id: servicenow
+    grant_type: client_credentials
+  expects:
+    id:
+      type: str
+      description: sys_id or case number.
+    fields:
+      type: dict[str, Any]
+      description: 'Field values to update, e.g. {"state": "10", "work_notes": "Investigating"}.'
+    sysparm_display_value:
+      type: enum["true", "false", "all"] | None
+      description: Return display values (true), actual values (false), or both (all).
+      default: null
+    sysparm_fields:
+      type: str | None
+      description: Comma-separated list of fields to return.
+      default: null
+    sysparm_get_case_details:
+      type: bool | None
+      description: Return the full case record in the response.
+      default: null
+    base_url:
+      type: str | None
+      description: ServiceNow instance URL, e.g. https://<instance>.service-now.com. Defaults to the `servicenow.base_url` workspace variable.
+      default: null
+  steps:
+  - ref: build_body
+    action: core.script.run_python
+    args:
+      inputs:
+        fields: ${{ inputs.fields }}
+        values: {}
+      script: |
+        def main(fields, values):
+            body = dict(fields or {})
+            body.update({k: v for k, v in values.items() if v is not None})
+            return body
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.servicenow.base_url }}/api/sn_customerservice/case/${{ FN.url_encode(inputs.id) }}
+      method: PUT
+      headers:
+        Authorization: Bearer ${{ SECRETS.servicenow_oauth.SERVICENOW_SERVICE_TOKEN }}
+        Accept: application/json
+        Content-Type: application/json
+      params:
+        sysparm_display_value: ${{ inputs.sysparm_display_value }}
+        sysparm_fields: ${{ inputs.sysparm_fields }}
+        sysparm_get_case_details: ${{ inputs.sysparm_get_case_details }}
+      payload: ${{ steps.build_body.result }}
+  returns: ${{ steps.request.result }}

@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 import stat
 import tempfile
+import threading
 import uuid
-from collections import deque
 from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,13 +18,13 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
     ExportTraceServiceRequest,
 )
 from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
-from pydantic import HttpUrl, SecretStr
+from pydantic import SecretStr
 
 from tracecat import config
-from tracecat.agent.otel_config import (
-    AgentOtelConfig,
-    ResolvedAgentOtelConfig,
-    resolve_agent_otel_config,
+from tracecat.agent.otel_delivery import (
+    DeliveryLimits,
+    OtelDeliveryPool,
+    collector_client,
 )
 from tracecat.agent.sandbox import otel_relay
 from tracecat.agent.sandbox.otel_relay import (
@@ -48,31 +48,13 @@ class _ReceiverIdentity:
     token: str
 
 
-class _ExplodingStream(httpx.AsyncByteStream):
-    """Response body that fails loudly if anything tries to consume it."""
-
-    def __init__(self) -> None:
-        self.consumed = False
-
-    async def __aiter__(self) -> AsyncIterator[bytes]:
-        self.consumed = True
-        raise AssertionError("collector response body was consumed")
-        yield b""  # pragma: no cover - unreachable, makes this an async gen
-
-
 class _MockTransport(httpx.AsyncBaseTransport):
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
-        self.outcomes: deque[int | httpx.TransportError] = deque()
-        self.response_headers: dict[str, str] = {}
-        self.body_stream: _ExplodingStream | None = None
         self.release = asyncio.Event()
         self.release.set()
         self.active_requests = 0
         self.max_active_requests = 0
-
-    def set_outcomes(self, *outcomes: int | httpx.TransportError) -> None:
-        self.outcomes.extend(outcomes)
 
     def block(self) -> None:
         self.release.clear()
@@ -90,43 +72,45 @@ class _MockTransport(httpx.AsyncBaseTransport):
         )
         try:
             await self.release.wait()
-            outcome = self.outcomes.popleft() if self.outcomes else 200
-            if isinstance(outcome, httpx.TransportError):
-                raise outcome
-            if self.body_stream is not None:
-                return httpx.Response(
-                    outcome,
-                    headers=self.response_headers,
-                    stream=self.body_stream,
-                    request=request,
-                )
-            return httpx.Response(
-                outcome,
-                headers=self.response_headers,
-                content=b"",
-                request=request,
-            )
+            return httpx.Response(200, content=b"", request=request)
         finally:
             self.active_requests -= 1
 
 
-@pytest.fixture
-def mock_transport(monkeypatch: pytest.MonkeyPatch) -> _MockTransport:
-    """Route every pool delivery through one deterministic transport."""
-    transport = _MockTransport()
-    monkeypatch.setattr(
-        otel_relay,
-        "_client_factory",
-        lambda: httpx.AsyncClient(transport=transport),
-    )
-    return transport
+type _PoolFactory = Callable[[DeliveryLimits | None], OtelDeliveryPool]
 
 
 @pytest.fixture
-def receiver_identity(monkeypatch: pytest.MonkeyPatch) -> _ReceiverIdentity:
-    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+def mock_transport() -> _MockTransport:
+    """One deterministic transport for every delivery in a test."""
+    return _MockTransport()
+
+
+@pytest.fixture
+async def make_pool(mock_transport: _MockTransport) -> AsyncIterator[_PoolFactory]:
+    """Build delivery pools over the mock transport; drain them at teardown."""
+    pools: list[OtelDeliveryPool] = []
+    async with collector_client(trust_env=False, transport=mock_transport) as client:
+
+        def make(limits: DeliveryLimits | None) -> OtelDeliveryPool:
+            pool = OtelDeliveryPool(client, limits)
+            pools.append(pool)
+            return pool
+
+        yield make
+        mock_transport.unblock()
+        for pool in pools:
+            await pool.drain()
+
+
+@pytest.fixture
+def delivery_pool(make_pool: _PoolFactory) -> OtelDeliveryPool:
+    return make_pool(None)
+
+
+def _mint_identity(organization_id: uuid.UUID | None = None) -> _ReceiverIdentity:
     workspace_id = uuid.uuid4()
-    organization_id = uuid.uuid4()
+    organization_id = organization_id or uuid.uuid4()
     session_id = uuid.uuid4()
     return _ReceiverIdentity(
         workspace_id=workspace_id,
@@ -140,21 +124,10 @@ def receiver_identity(monkeypatch: pytest.MonkeyPatch) -> _ReceiverIdentity:
     )
 
 
-@pytest.fixture(autouse=True)
-def isolated_delivery_pool(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    # Keep tests fast: short timeout, no retry backoff.
-    monkeypatch.setattr(otel_relay, "_TIMEOUT_SECONDS", 5.0)
-    monkeypatch.setattr(otel_relay, "_RETRY_BASE_DELAY_SECONDS", 0.0)
-    # The pool is module-global; a leaked task must not poison the next test.
-    otel_relay._delivery_tasks.clear()
-    otel_relay._post_semaphores.clear()
-    otel_relay._projection_semaphores.clear()
-    otel_relay._pending_bytes = 0
-    yield
-    otel_relay._delivery_tasks.clear()
-    otel_relay._post_semaphores.clear()
-    otel_relay._projection_semaphores.clear()
-    otel_relay._pending_bytes = 0
+@pytest.fixture
+def receiver_identity(monkeypatch: pytest.MonkeyPatch) -> _ReceiverIdentity:
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    return _mint_identity()
 
 
 @pytest.fixture
@@ -167,7 +140,7 @@ def short_socket_dir() -> Iterator[Path]:
 @pytest.fixture
 async def started_receiver(
     short_socket_dir: Path,
-    mock_transport: _MockTransport,
+    delivery_pool: OtelDeliveryPool,
     receiver_identity: _ReceiverIdentity,
 ) -> AsyncIterator[OtelSocketReceiver]:
     receiver = OtelSocketReceiver(
@@ -179,6 +152,7 @@ async def started_receiver(
             },
             headers={"Authorization": SecretStr("Bearer secret")},
         ),
+        pool=delivery_pool,
         expected_workspace_id=receiver_identity.workspace_id,
         expected_organization_id=receiver_identity.organization_id,
         expected_session_id=receiver_identity.session_id,
@@ -255,6 +229,7 @@ async def _start_test_receiver(
     *,
     socket_path: Path,
     identity: _ReceiverIdentity,
+    pool: OtelDeliveryPool,
 ) -> OtelSocketReceiver:
     receiver = OtelSocketReceiver(
         socket_path=socket_path,
@@ -264,6 +239,7 @@ async def _start_test_receiver(
             },
             headers={"Authorization": SecretStr("Bearer secret")},
         ),
+        pool=pool,
         expected_workspace_id=identity.workspace_id,
         expected_organization_id=identity.organization_id,
         expected_session_id=identity.session_id,
@@ -272,36 +248,38 @@ async def _start_test_receiver(
     return receiver
 
 
-@pytest.mark.anyio
-async def test_resolve_collector_url_prefers_signal_specific_endpoint() -> None:
-    url = resolve_collector_url(
-        {
-            "OTEL_EXPORTER_OTLP_ENDPOINT": "https://generic.example.com",
-            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "https://traces.example.com/v1/traces",
-        },
-        "/v1/traces",
-    )
-    assert url == "https://traces.example.com/v1/traces"
-
-
-@pytest.mark.anyio
-async def test_resolve_collector_url_falls_back_to_generic_with_path() -> None:
-    url = resolve_collector_url(
-        {"OTEL_EXPORTER_OTLP_ENDPOINT": "https://generic.example.com/"},
-        "/v1/logs",
-    )
-    assert url == "https://generic.example.com/v1/logs"
-
-
-@pytest.mark.anyio
-async def test_resolve_collector_url_returns_none_for_unknown_path() -> None:
-    assert (
-        resolve_collector_url(
+@pytest.mark.parametrize(
+    ("env", "path", "expected"),
+    [
+        pytest.param(
+            {
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "https://generic.example.com",
+                "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": (
+                    "https://traces.example.com/v1/traces"
+                ),
+            },
+            "/v1/traces",
+            "https://traces.example.com/v1/traces",
+            id="signal-specific",
+        ),
+        pytest.param(
+            {"OTEL_EXPORTER_OTLP_ENDPOINT": "https://generic.example.com/"},
+            "/v1/logs",
+            "https://generic.example.com/v1/logs",
+            id="generic-with-path",
+        ),
+        pytest.param(
             {"OTEL_EXPORTER_OTLP_ENDPOINT": "https://generic.example.com"},
             "/v1/health",
-        )
-        is None
-    )
+            None,
+            id="unknown-path",
+        ),
+    ],
+)
+def test_resolve_collector_url(
+    env: dict[str, str], path: str, expected: str | None
+) -> None:
+    assert resolve_collector_url(env, path) == expected
 
 
 def test_tenant_signal_enabled_reads_the_per_signal_exporter() -> None:
@@ -453,19 +431,26 @@ def test_non_platform_trace_body_is_not_projected() -> None:
 async def test_trace_batch_fans_out_original_and_sanitized_copies(
     short_socket_dir: Path,
     mock_transport: _MockTransport,
+    delivery_pool: OtelDeliveryPool,
     receiver_identity: _ReceiverIdentity,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    projected_off_loop: list[bool] = []
-    real_to_thread = asyncio.to_thread
+    """The tenant copy is charged to the org's share and the redacted copy to the
+    platform's, with the protobuf rewrite done off the event loop."""
+    projection_threads: list[int] = []
+    real_prepare = otel_relay._prepare_trace_bodies
 
-    async def track_to_thread(
-        func: Callable[..., object], /, *args: object, **kwargs: object
-    ) -> object:
-        projected_off_loop.append(True)
-        return await real_to_thread(func, *args, **kwargs)
+    def track_prepare(
+        body: bytes,
+        *,
+        content_type: str,
+        parent: PlatformTraceParent | None,
+    ) -> otel_relay._PreparedTraceBodies:
+        projection_threads.append(threading.get_ident())
+        return real_prepare(body, content_type=content_type, parent=parent)
 
-    monkeypatch.setattr(otel_relay.asyncio, "to_thread", track_to_thread)
+    monkeypatch.setattr(otel_relay, "_prepare_trace_bodies", track_prepare)
+    mock_transport.block()
     request = ExportTraceServiceRequest()
     resource_spans = request.resource_spans.add()
     span = resource_spans.scope_spans.add().spans.add(
@@ -497,6 +482,7 @@ async def test_trace_batch_fans_out_original_and_sanitized_copies(
                 "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-gateway.internal:4318"
             },
         ),
+        pool=delivery_pool,
         expected_workspace_id=receiver_identity.workspace_id,
         expected_organization_id=receiver_identity.organization_id,
         expected_session_id=receiver_identity.session_id,
@@ -511,12 +497,20 @@ async def test_trace_batch_fans_out_original_and_sanitized_copies(
             authorization=f"Bearer {receiver_identity.token}",
         )
         assert status == 202
-        await _wait_until(lambda: not otel_relay._delivery_tasks)
+        await _wait_until(lambda: mock_transport.active_requests == 2)
+        shares = delivery_pool._shares
+        assert shares.keys() == {receiver_identity.organization_id, "platform"}
+        assert shares[receiver_identity.organization_id].items == 1
+        assert shares["platform"].items == 1
+        mock_transport.unblock()
+        await _wait_until(lambda: not delivery_pool._tasks)
     finally:
+        mock_transport.unblock()
         await receiver.stop()
 
     assert len(mock_transport.requests) == 2
-    assert projected_off_loop == [True]
+    assert len(projection_threads) == 1
+    assert projection_threads[0] != threading.get_ident()
     requests_by_host = {
         request.url.host: request for request in mock_transport.requests
     }
@@ -545,6 +539,7 @@ async def test_trace_batch_fans_out_original_and_sanitized_copies(
 async def test_tenant_trace_opt_out_skips_tenant_delivery_but_keeps_platform(
     short_socket_dir: Path,
     mock_transport: _MockTransport,
+    delivery_pool: OtelDeliveryPool,
     receiver_identity: _ReceiverIdentity,
 ) -> None:
     request = ExportTraceServiceRequest()
@@ -574,6 +569,7 @@ async def test_tenant_trace_opt_out_skips_tenant_delivery_but_keeps_platform(
                 "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-gateway.internal:4318"
             },
         ),
+        pool=delivery_pool,
         expected_workspace_id=receiver_identity.workspace_id,
         expected_organization_id=receiver_identity.organization_id,
         expected_session_id=receiver_identity.session_id,
@@ -588,10 +584,12 @@ async def test_tenant_trace_opt_out_skips_tenant_delivery_but_keeps_platform(
             authorization=f"Bearer {receiver_identity.token}",
         )
         assert status == 202
-        await _wait_until(lambda: not otel_relay._delivery_tasks)
+        await _wait_until(lambda: not delivery_pool._tasks)
     finally:
         await receiver.stop()
 
+    # The org's reservation for the body is refunded once the copy is admitted.
+    assert delivery_pool._shares == {}
     assert len(mock_transport.requests) == 1
     assert mock_transport.requests[0].url.host == "otel-gateway.internal"
     assert not [
@@ -604,6 +602,7 @@ async def test_tenant_trace_opt_out_skips_tenant_delivery_but_keeps_platform(
 @pytest.mark.anyio
 async def test_signal_without_destination_returns_no_collector_and_refunds(
     short_socket_dir: Path,
+    delivery_pool: OtelDeliveryPool,
     receiver_identity: _ReceiverIdentity,
 ) -> None:
     """A signal opted out of every route is rejected without consuming budget."""
@@ -621,6 +620,7 @@ async def test_signal_without_destination_returns_no_collector_and_refunds(
             },
             headers={},
         ),
+        pool=delivery_pool,
         expected_workspace_id=receiver_identity.workspace_id,
         expected_organization_id=receiver_identity.organization_id,
         expected_session_id=receiver_identity.session_id,
@@ -640,8 +640,9 @@ async def test_signal_without_destination_returns_no_collector_and_refunds(
     assert status == 503
     assert reason == "No Collector"
     assert receiver._rejected["collector"] == 1
-    assert not otel_relay._delivery_tasks
-    assert otel_relay._pending_bytes == 0
+    assert not delivery_pool._tasks
+    assert delivery_pool._reserved == 0
+    assert delivery_pool._shares == {}
 
 
 @pytest.mark.anyio
@@ -824,12 +825,14 @@ async def test_receiver_rejects_unknown_path_with_404(
 async def test_receiver_returns_local_success_without_awaiting_collector(
     short_socket_dir: Path,
     mock_transport: _MockTransport,
+    delivery_pool: OtelDeliveryPool,
     receiver_identity: _ReceiverIdentity,
 ) -> None:
     mock_transport.block()
     receiver = await _start_test_receiver(
         socket_path=short_socket_dir / "async.sock",
         identity=receiver_identity,
+        pool=delivery_pool,
     )
     try:
         status, _, _ = await asyncio.wait_for(
@@ -844,7 +847,7 @@ async def test_receiver_returns_local_success_without_awaiting_collector(
         )
         assert status == 202
         await _wait_until(lambda: mock_transport.active_requests == 1)
-        assert len(otel_relay._delivery_tasks) == 1
+        assert len(delivery_pool._tasks) == 1
     finally:
         mock_transport.unblock()
         await receiver.stop()
@@ -854,6 +857,7 @@ async def test_receiver_returns_local_success_without_awaiting_collector(
 async def test_receiver_rejects_invalid_content_type_before_admission(
     started_receiver: OtelSocketReceiver,
     mock_transport: _MockTransport,
+    delivery_pool: OtelDeliveryPool,
     receiver_identity: _ReceiverIdentity,
 ) -> None:
     status, _, _ = await _send_request(
@@ -866,7 +870,7 @@ async def test_receiver_rejects_invalid_content_type_before_admission(
     )
     assert status == 415
     assert mock_transport.requests == []
-    assert not otel_relay._delivery_tasks
+    assert not delivery_pool._tasks
 
 
 @pytest.mark.anyio
@@ -892,6 +896,7 @@ async def test_receiver_canonicalizes_valid_content_type(
 async def test_receiver_rejects_oversized_body_before_admission(
     started_receiver: OtelSocketReceiver,
     mock_transport: _MockTransport,
+    delivery_pool: OtelDeliveryPool,
     receiver_identity: _ReceiverIdentity,
 ) -> None:
     status, _, _ = await _send_request(
@@ -903,22 +908,22 @@ async def test_receiver_rejects_oversized_body_before_admission(
     )
     assert status == 413
     assert mock_transport.requests == []
-    assert not otel_relay._delivery_tasks
+    assert not delivery_pool._tasks
 
 
 @pytest.mark.anyio
 async def test_pool_bounds_pending_items_and_concurrent_requests(
     short_socket_dir: Path,
     mock_transport: _MockTransport,
+    make_pool: _PoolFactory,
     receiver_identity: _ReceiverIdentity,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(otel_relay, "_MAX_PENDING_ITEMS", 5)
-    monkeypatch.setattr(otel_relay, "_MAX_CONCURRENT_REQUESTS", 2)
+    pool = make_pool(DeliveryLimits(max_items=5, posts=2))
     mock_transport.block()
     receiver = await _start_test_receiver(
         socket_path=short_socket_dir / "capacity.sock",
         identity=receiver_identity,
+        pool=pool,
     )
     try:
         statuses = []
@@ -934,165 +939,112 @@ async def test_pool_bounds_pending_items_and_concurrent_requests(
 
         await _wait_until(lambda: mock_transport.active_requests == 2)
         assert statuses == [202, 202, 202, 202, 202, 503, 503, 503]
-        assert len(otel_relay._delivery_tasks) == 5
-        assert otel_relay._pending_bytes == 5
+        assert len(pool._tasks) == 5
+        assert pool._reserved == 5
         assert mock_transport.max_active_requests == 2
 
         mock_transport.unblock()
-        await _wait_until(lambda: not otel_relay._delivery_tasks)
-        assert otel_relay._pending_bytes == 0
+        await _wait_until(lambda: not pool._tasks)
+        assert pool._reserved == 0
         assert mock_transport.max_active_requests == 2
     finally:
         mock_transport.unblock()
         await receiver.stop()
 
 
-@pytest.mark.anyio
-async def test_pool_bounds_pending_bytes(
-    short_socket_dir: Path,
-    mock_transport: _MockTransport,
-    receiver_identity: _ReceiverIdentity,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(otel_relay, "_MAX_PENDING_BYTES", 3)
-    mock_transport.block()
-    receiver = await _start_test_receiver(
-        socket_path=short_socket_dir / "bytes.sock",
-        identity=receiver_identity,
+async def _post_metric(
+    receiver: OtelSocketReceiver, identity: _ReceiverIdentity
+) -> int:
+    status, _, _ = await _send_request(
+        receiver.socket_path,
+        method="POST",
+        path="/v1/metrics",
+        body=b"x",
+        authorization=f"Bearer {identity.token}",
     )
-    try:
-        first, _, _ = await _send_request(
-            receiver.socket_path,
-            method="POST",
-            path="/v1/logs",
-            body=b"abc",
-            authorization=f"Bearer {receiver_identity.token}",
-        )
-        second, _, _ = await _send_request(
-            receiver.socket_path,
-            method="POST",
-            path="/v1/logs",
-            body=b"d",
-            authorization=f"Bearer {receiver_identity.token}",
-        )
-        assert first == 202
-        assert second == 503
-        assert otel_relay._pending_bytes == 3
-    finally:
-        mock_transport.unblock()
-        await receiver.stop()
+    return status
 
 
 @pytest.mark.anyio
-async def test_receiver_sheds_past_per_turn_cap_with_global_budget_free(
+async def test_receiver_sheds_past_the_org_share_with_pool_budget_free(
     short_socket_dir: Path,
     mock_transport: _MockTransport,
+    make_pool: _PoolFactory,
     receiver_identity: _ReceiverIdentity,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """One turn cannot monopolize the pool even when the pool has room."""
-    monkeypatch.setattr(otel_relay, "_MAX_PENDING_ITEMS_PER_TURN", 2)
-    monkeypatch.setattr(otel_relay, "_MAX_PENDING_ITEMS", 100)
+    """One org cannot monopolize the pool even when the pool has room."""
+    pool = make_pool(DeliveryLimits(share_items=2, max_items=100))
     mock_transport.block()
     receiver = await _start_test_receiver(
         socket_path=short_socket_dir / "fair.sock",
         identity=receiver_identity,
+        pool=pool,
     )
     try:
-        statuses = []
-        for _ in range(4):
-            status, _, _ = await _send_request(
-                receiver.socket_path,
-                method="POST",
-                path="/v1/metrics",
-                body=b"x",
-                authorization=f"Bearer {receiver_identity.token}",
-            )
-            statuses.append(status)
+        statuses = [await _post_metric(receiver, receiver_identity) for _ in range(4)]
 
         assert statuses == [202, 202, 503, 503]
-        # Shed by the per-turn cap, not the global one.
-        assert len(otel_relay._delivery_tasks) == 2
-        assert receiver._rejected["turn_capacity"] == 2
-        assert receiver._rejected["pool_capacity"] == 0
+        assert len(pool._tasks) == 2
+        assert receiver._rejected["pool_capacity"] == 2
     finally:
         mock_transport.unblock()
         await receiver.stop()
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    "first_outcome",
-    [
-        503,
-        httpx.ConnectError("collector unavailable"),
-    ],
-    ids=["transient-status", "transport-error"],
-)
-async def test_pool_retries_transient_failures(
-    first_outcome: int | httpx.TransportError,
-    started_receiver: OtelSocketReceiver,
+async def test_org_share_outlives_its_turn_and_spares_other_orgs(
+    short_socket_dir: Path,
     mock_transport: _MockTransport,
+    make_pool: _PoolFactory,
     receiver_identity: _ReceiverIdentity,
 ) -> None:
-    mock_transport.set_outcomes(first_outcome, 200)
-    status, _, _ = await _send_request(
-        started_receiver.socket_path,
-        method="POST",
-        path="/v1/traces",
-        body=b"trace",
-        authorization=f"Bearer {receiver_identity.token}",
+    """Deliveries a finished turn left pending still count against its org, so the
+    org's next turn is shed while another org's turn is admitted."""
+    pool = make_pool(DeliveryLimits(share_items=2))
+    mock_transport.block()
+    first_turn = await _start_test_receiver(
+        socket_path=short_socket_dir / "first.sock",
+        identity=receiver_identity,
+        pool=pool,
     )
-    assert status == 202
-    await _wait_until(lambda: not otel_relay._delivery_tasks)
-    assert len(mock_transport.requests) == 2
-    assert otel_relay._pending_bytes == 0
+    try:
+        assert [
+            await _post_metric(first_turn, receiver_identity) for _ in range(2)
+        ] == [
+            202,
+            202,
+        ]
+    finally:
+        await first_turn.stop()
 
-
-@pytest.mark.anyio
-async def test_pool_does_not_retry_terminal_status(
-    started_receiver: OtelSocketReceiver,
-    mock_transport: _MockTransport,
-    receiver_identity: _ReceiverIdentity,
-) -> None:
-    mock_transport.set_outcomes(400, 200)
-    status, _, _ = await _send_request(
-        started_receiver.socket_path,
-        method="POST",
-        path="/v1/logs",
-        body=b"log",
-        authorization=f"Bearer {receiver_identity.token}",
+    next_identity = _mint_identity(receiver_identity.organization_id)
+    other_identity = _mint_identity()
+    next_turn = await _start_test_receiver(
+        socket_path=short_socket_dir / "next.sock",
+        identity=next_identity,
+        pool=pool,
     )
-    assert status == 202
-    await _wait_until(lambda: not otel_relay._delivery_tasks)
-    assert len(mock_transport.requests) == 1
-    assert otel_relay._pending_bytes == 0
-
-
-@pytest.mark.anyio
-async def test_pool_stops_after_retry_exhaustion(
-    started_receiver: OtelSocketReceiver,
-    mock_transport: _MockTransport,
-    receiver_identity: _ReceiverIdentity,
-) -> None:
-    mock_transport.set_outcomes(503, 503, 503, 200)
-    status, _, _ = await _send_request(
-        started_receiver.socket_path,
-        method="POST",
-        path="/v1/metrics",
-        body=b"metric",
-        authorization=f"Bearer {receiver_identity.token}",
+    other_org = await _start_test_receiver(
+        socket_path=short_socket_dir / "other.sock",
+        identity=other_identity,
+        pool=pool,
     )
-    assert status == 202
-    await _wait_until(lambda: not otel_relay._delivery_tasks)
-    assert len(mock_transport.requests) == 3
-    assert otel_relay._pending_bytes == 0
+    try:
+        assert await _post_metric(next_turn, next_identity) == 503
+        assert await _post_metric(other_org, other_identity) == 202
+        assert pool._shares[receiver_identity.organization_id].items == 2
+        assert pool._shares[other_identity.organization_id].items == 1
+    finally:
+        mock_transport.unblock()
+        await next_turn.stop()
+        await other_org.stop()
 
 
 @pytest.mark.anyio
 async def test_stop_returns_promptly_and_delivery_still_completes(
     short_socket_dir: Path,
     mock_transport: _MockTransport,
+    delivery_pool: OtelDeliveryPool,
     receiver_identity: _ReceiverIdentity,
 ) -> None:
     """stop() closes ingress only; the pool owns admitted items."""
@@ -1100,6 +1052,7 @@ async def test_stop_returns_promptly_and_delivery_still_completes(
     receiver = await _start_test_receiver(
         socket_path=short_socket_dir / "detach.sock",
         identity=receiver_identity,
+        pool=delivery_pool,
     )
     status, _, _ = await _send_request(
         receiver.socket_path,
@@ -1113,24 +1066,26 @@ async def test_stop_returns_promptly_and_delivery_still_completes(
 
     # Returns while the delivery is still blocked in the transport.
     await asyncio.wait_for(receiver.stop(), timeout=0.5)
-    assert len(otel_relay._delivery_tasks) == 1
+    assert len(delivery_pool._tasks) == 1
 
     mock_transport.unblock()
-    await _wait_until(lambda: not otel_relay._delivery_tasks)
+    await _wait_until(lambda: not delivery_pool._tasks)
     assert len(mock_transport.requests) == 1
-    assert otel_relay._pending_bytes == 0
+    assert delivery_pool._reserved == 0
 
 
 @pytest.mark.anyio
 async def test_stop_closes_ingress_but_not_admitted_items(
     short_socket_dir: Path,
     mock_transport: _MockTransport,
+    delivery_pool: OtelDeliveryPool,
     receiver_identity: _ReceiverIdentity,
 ) -> None:
     mock_transport.block()
     receiver = await _start_test_receiver(
         socket_path=short_socket_dir / "ingress.sock",
         identity=receiver_identity,
+        pool=delivery_pool,
     )
     status, _, _ = await _send_request(
         receiver.socket_path,
@@ -1156,9 +1111,9 @@ async def test_stop_closes_ingress_but_not_admitted_items(
 
     # The already-admitted item is unaffected.
     mock_transport.unblock()
-    await _wait_until(lambda: not otel_relay._delivery_tasks)
+    await _wait_until(lambda: not delivery_pool._tasks)
     assert len(mock_transport.requests) == 1
-    assert otel_relay._pending_bytes == 0
+    assert delivery_pool._reserved == 0
 
 
 @pytest.mark.anyio
@@ -1177,47 +1132,11 @@ async def test_receiver_socket_is_private_replaces_stale_file_and_unlinks_on_sto
     assert stat.S_ISSOCK(socket_path.stat().st_mode)
 
 
-def test_sweep_refunds_budget_for_tasks_stranded_on_closed_loops() -> None:
-    """A task on a closed loop never runs its finally; the sweep refunds it."""
-    delivery = otel_relay._OtelDelivery(
-        collector_url="https://collector.example.com/v1/logs",
-        content_type="application/x-protobuf",
-        body=b"stranded-payload",
-        headers={},
-        signal_path="/v1/logs",
-        workspace_id=uuid.uuid4(),
-        organization_id=uuid.uuid4(),
-        session_id=uuid.uuid4(),
-    )
-
-    loop = asyncio.new_event_loop()
-
-    async def _admit_and_block() -> asyncio.Task[None] | None:
-        # Never resolves, so the task is still pending when the loop closes.
-        assert otel_relay._reserve_pending_bytes(len(delivery.body))
-        return otel_relay._spawn_delivery(delivery, len(delivery.body))
-
-    task = loop.run_until_complete(_admit_and_block())
-    assert task is not None
-    assert otel_relay._pending_bytes == len(delivery.body)
-    assert task in otel_relay._delivery_tasks
-
-    # Closed with the task still pending, so its done callback never fires.
-    loop.close()
-    assert not task.done()
-    assert otel_relay._pending_bytes == len(delivery.body)
-
-    otel_relay._sweep_closed_loops()
-
-    assert otel_relay._pending_bytes == 0
-    assert task not in otel_relay._delivery_tasks
-    assert not otel_relay._post_semaphores
-
-
 @pytest.mark.anyio
 async def test_receiver_rejects_bad_token_without_reading_body(
     started_receiver: OtelSocketReceiver,
     mock_transport: _MockTransport,
+    delivery_pool: OtelDeliveryPool,
 ) -> None:
     """The 401 lands from headers alone; no body byte is ever buffered."""
     reader, writer = await asyncio.open_unix_connection(
@@ -1243,13 +1162,14 @@ async def test_receiver_rejects_bad_token_without_reading_body(
         except Exception:
             pass
     assert mock_transport.requests == []
-    assert not otel_relay._delivery_tasks
+    assert not delivery_pool._tasks
 
 
 @pytest.mark.anyio
 async def test_receiver_rejects_oversized_content_length_headers_only(
     started_receiver: OtelSocketReceiver,
     mock_transport: _MockTransport,
+    delivery_pool: OtelDeliveryPool,
     receiver_identity: _ReceiverIdentity,
 ) -> None:
     """An over-limit declared length is a 413 before any body is read."""
@@ -1275,7 +1195,7 @@ async def test_receiver_rejects_oversized_content_length_headers_only(
         except Exception:
             pass
     assert mock_transport.requests == []
-    assert not otel_relay._delivery_tasks
+    assert not delivery_pool._tasks
 
 
 @pytest.mark.anyio
@@ -1323,6 +1243,7 @@ async def test_receiver_rejects_oversized_header_section(
 async def test_receiver_refuses_connections_over_the_cap(
     short_socket_dir: Path,
     mock_transport: _MockTransport,
+    delivery_pool: OtelDeliveryPool,
     receiver_identity: _ReceiverIdentity,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1331,6 +1252,7 @@ async def test_receiver_refuses_connections_over_the_cap(
     receiver = await _start_test_receiver(
         socket_path=short_socket_dir / "conncap.sock",
         identity=receiver_identity,
+        pool=delivery_pool,
     )
     held: list[tuple[asyncio.StreamReader, asyncio.StreamWriter]] = []
     try:
@@ -1382,15 +1304,16 @@ async def test_receiver_refuses_connections_over_the_cap(
 async def test_receiver_reserves_budget_before_reading_body(
     short_socket_dir: Path,
     mock_transport: _MockTransport,
+    make_pool: _PoolFactory,
     receiver_identity: _ReceiverIdentity,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An over-budget declared length is shed before a body byte is read."""
-    monkeypatch.setattr(otel_relay, "_MAX_PENDING_BYTES", 8)
+    pool = make_pool(DeliveryLimits(max_bytes=8))
     mock_transport.block()
     receiver = await _start_test_receiver(
         socket_path=short_socket_dir / "reserve.sock",
         identity=receiver_identity,
+        pool=pool,
     )
     try:
         first, _, _ = await _send_request(
@@ -1401,7 +1324,7 @@ async def test_receiver_reserves_budget_before_reading_body(
             authorization=f"Bearer {receiver_identity.token}",
         )
         assert first == 202
-        assert otel_relay._pending_bytes == 8
+        assert pool._reserved == 8
 
         # Head only: the 503 must land while the body is still unsent.
         reader, writer = await asyncio.open_unix_connection(str(receiver.socket_path))
@@ -1425,8 +1348,8 @@ async def test_receiver_reserves_budget_before_reading_body(
                 pass
 
         # Only the first request's reservation is still held.
-        assert otel_relay._pending_bytes == 8
-        assert len(otel_relay._delivery_tasks) == 1
+        assert pool._reserved == 8
+        assert len(pool._tasks) == 1
     finally:
         mock_transport.unblock()
         await receiver.stop()
@@ -1436,6 +1359,7 @@ async def test_receiver_reserves_budget_before_reading_body(
 async def test_receiver_refunds_reservation_on_client_disconnect(
     started_receiver: OtelSocketReceiver,
     mock_transport: _MockTransport,
+    delivery_pool: OtelDeliveryPool,
     receiver_identity: _ReceiverIdentity,
 ) -> None:
     """A body that never arrives in full must not strand its reservation."""
@@ -1449,7 +1373,7 @@ async def test_receiver_refunds_reservation_on_client_disconnect(
         + b"\r\npartial"
     )
     await writer.drain()
-    await _wait_until(lambda: otel_relay._pending_bytes == 64)
+    await _wait_until(lambda: delivery_pool._reserved == 64)
 
     writer.close()
     try:
@@ -1457,15 +1381,17 @@ async def test_receiver_refunds_reservation_on_client_disconnect(
     except Exception:
         pass
 
-    await _wait_until(lambda: otel_relay._pending_bytes == 0)
+    await _wait_until(lambda: delivery_pool._reserved == 0)
+    assert delivery_pool._shares == {}
     assert mock_transport.requests == []
-    assert not otel_relay._delivery_tasks
+    assert not delivery_pool._tasks
 
 
 @pytest.mark.anyio
 async def test_receiver_times_out_body_read_and_refunds(
     started_receiver: OtelSocketReceiver,
     mock_transport: _MockTransport,
+    delivery_pool: OtelDeliveryPool,
     receiver_identity: _ReceiverIdentity,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1493,217 +1419,7 @@ async def test_receiver_times_out_body_read_and_refunds(
         except Exception:
             pass
 
-    await _wait_until(lambda: otel_relay._pending_bytes == 0)
+    await _wait_until(lambda: delivery_pool._reserved == 0)
     assert started_receiver._rejected["timeout"] == 1
     assert mock_transport.requests == []
-    assert not otel_relay._delivery_tasks
-
-
-@pytest.mark.anyio
-async def test_pool_never_consumes_collector_response_body(
-    started_receiver: OtelSocketReceiver,
-    mock_transport: _MockTransport,
-    receiver_identity: _ReceiverIdentity,
-) -> None:
-    """A hostile collector's response body is never buffered by the host."""
-    stream = _ExplodingStream()
-    mock_transport.body_stream = stream
-    status, _, _ = await _send_request(
-        started_receiver.socket_path,
-        method="POST",
-        path="/v1/logs",
-        body=b"log",
-        authorization=f"Bearer {receiver_identity.token}",
-    )
-    assert status == 202
-    await _wait_until(lambda: not otel_relay._delivery_tasks)
-    # Delivery succeeded on the status line alone; one attempt, body untouched.
-    assert len(mock_transport.requests) == 1
-    assert stream.consumed is False
-    assert otel_relay._pending_bytes == 0
-
-
-@pytest.mark.anyio
-async def test_pool_does_not_retry_internal_server_error(
-    started_receiver: OtelSocketReceiver,
-    mock_transport: _MockTransport,
-    receiver_identity: _ReceiverIdentity,
-) -> None:
-    """500 is terminal per the OTLP spec: retrying could duplicate a batch."""
-    mock_transport.set_outcomes(500, 200)
-    status, _, _ = await _send_request(
-        started_receiver.socket_path,
-        method="POST",
-        path="/v1/logs",
-        body=b"log",
-        authorization=f"Bearer {receiver_identity.token}",
-    )
-    assert status == 202
-    await _wait_until(lambda: not otel_relay._delivery_tasks)
-    assert len(mock_transport.requests) == 1
-    assert otel_relay._pending_bytes == 0
-
-
-@pytest.mark.anyio
-async def test_pool_honors_retry_after_header(
-    started_receiver: OtelSocketReceiver,
-    mock_transport: _MockTransport,
-    receiver_identity: _ReceiverIdentity,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A 429's Retry-After replaces backoff, capped by the module limit."""
-    slept: list[float] = []
-    real_sleep = asyncio.sleep
-
-    async def _record_sleep(delay: float) -> None:
-        slept.append(delay)
-        await real_sleep(0)
-
-    monkeypatch.setattr(otel_relay.asyncio, "sleep", _record_sleep)
-    monkeypatch.setattr(otel_relay, "_MAX_RETRY_AFTER_SECONDS", 2.0)
-    mock_transport.response_headers = {"Retry-After": "9"}
-    mock_transport.set_outcomes(429, 200)
-
-    status, _, _ = await _send_request(
-        started_receiver.socket_path,
-        method="POST",
-        path="/v1/logs",
-        body=b"log",
-        authorization=f"Bearer {receiver_identity.token}",
-    )
-    assert status == 202
-    await _wait_until(lambda: not otel_relay._delivery_tasks)
-    assert len(mock_transport.requests) == 2
-    # Capped at _MAX_RETRY_AFTER_SECONDS rather than the header's 9s.
-    assert slept == [2.0]
-
-
-@pytest.mark.anyio
-async def test_pool_falls_back_to_backoff_for_malformed_retry_after(
-    started_receiver: OtelSocketReceiver,
-    mock_transport: _MockTransport,
-    receiver_identity: _ReceiverIdentity,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """An http-date Retry-After is ignored; normal jittered backoff applies."""
-    slept: list[float] = []
-    real_sleep = asyncio.sleep
-
-    async def _record_sleep(delay: float) -> None:
-        slept.append(delay)
-        await real_sleep(0)
-
-    monkeypatch.setattr(otel_relay.asyncio, "sleep", _record_sleep)
-    mock_transport.response_headers = {"Retry-After": "Wed, 21 Oct 2015 07:28:00 GMT"}
-    mock_transport.set_outcomes(503, 200)
-
-    status, _, _ = await _send_request(
-        started_receiver.socket_path,
-        method="POST",
-        path="/v1/logs",
-        body=b"log",
-        authorization=f"Bearer {receiver_identity.token}",
-    )
-    assert status == 202
-    await _wait_until(lambda: not otel_relay._delivery_tasks)
-    assert len(mock_transport.requests) == 2
-    # Base delay is monkeypatched to 0, so jitter multiplies out to zero.
-    assert slept == [0.0]
-
-
-def test_parse_retry_after_accepts_only_capped_integer_seconds() -> None:
-    assert otel_relay._parse_retry_after(429, "5") == 5.0
-    assert (
-        otel_relay._parse_retry_after(503, "600") == otel_relay._MAX_RETRY_AFTER_SECONDS
-    )
-    # Only 429/503 carry a spec-honored Retry-After.
-    assert otel_relay._parse_retry_after(500, "5") is None
-    assert otel_relay._parse_retry_after(429, "not-a-number") is None
-    assert otel_relay._parse_retry_after(503, "-1") is None
-    assert otel_relay._parse_retry_after(503, None) is None
-
-
-@pytest.mark.anyio
-async def test_retry_backoff_is_jittered(
-    started_receiver: OtelSocketReceiver,
-    mock_transport: _MockTransport,
-    receiver_identity: _ReceiverIdentity,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Two retries at the same attempt number must not share a fixed delay."""
-    slept: list[float] = []
-    real_sleep = asyncio.sleep
-
-    async def _record_sleep(delay: float) -> None:
-        slept.append(delay)
-        await real_sleep(0)
-
-    monkeypatch.setattr(otel_relay.asyncio, "sleep", _record_sleep)
-    monkeypatch.setattr(otel_relay, "_RETRY_BASE_DELAY_SECONDS", 1.0)
-
-    for _ in range(2):
-        mock_transport.set_outcomes(503, 200)
-        status, _, _ = await _send_request(
-            started_receiver.socket_path,
-            method="POST",
-            path="/v1/logs",
-            body=b"log",
-            authorization=f"Bearer {receiver_identity.token}",
-        )
-        assert status == 202
-        await _wait_until(lambda: not otel_relay._delivery_tasks)
-
-    assert len(slept) == 2
-    # Jittered into [base, 1.5 * base); a deterministic backoff would be exact.
-    assert all(1.0 <= delay < 1.5 for delay in slept)
-    assert slept[0] != slept[1]
-
-
-@pytest.mark.anyio
-async def test_resolve_disabled_telemetry_returns_empty_envs() -> None:
-    resolved = resolve_agent_otel_config(
-        org_config=AgentOtelConfig(enabled=False),
-        org_headers=None,
-    )
-    assert resolved.enabled is False
-    assert resolved.sandbox_env == {}
-    assert resolved.collector_env == {}
-    assert resolved.headers == {}
-
-
-def test_sandbox_env_carries_no_endpoint() -> None:
-    config_value = AgentOtelConfig(
-        enabled=True,
-        endpoint=HttpUrl("https://generic.example.com"),
-        traces_enabled=True,
-        log_user_prompts=True,
-        resource_attributes={"service.name": "tracecat"},
-    )
-    resolved = resolve_agent_otel_config(
-        org_config=config_value,
-        org_headers={"Authorization": "Bearer t"},
-    )
-
-    sandbox_env = resolved.sandbox_env
-    assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in sandbox_env
-    assert sandbox_env["OTEL_EXPORTER_OTLP_PROTOCOL"] == "http/protobuf"
-    assert sandbox_env["OTEL_LOGS_EXPORTER"] == "otlp"
-    assert sandbox_env["OTEL_TRACES_EXPORTER"] == "otlp"
-    assert sandbox_env["OTEL_LOG_USER_PROMPTS"] == "1"
-    assert sandbox_env["OTEL_RESOURCE_ATTRIBUTES"] == "service.name=tracecat"
-    # Tenant headers never reach the resolver's sandbox env (the activity later
-    # injects only a receiver-bearer JWT as OTEL_EXPORTER_OTLP_HEADERS).
-    assert "OTEL_EXPORTER_OTLP_HEADERS" not in sandbox_env
-    # Tenant headers and collector endpoint remain trusted-side only.
-    assert resolved.collector_env["OTEL_EXPORTER_OTLP_ENDPOINT"] == (
-        "https://generic.example.com/"
-    )
-    assert resolved.headers["Authorization"].get_secret_value() == "Bearer t"
-
-
-def test_resolved_config_default_is_disabled() -> None:
-    resolved = ResolvedAgentOtelConfig()
-    assert resolved.enabled is False
-    assert resolved.sandbox_env == {}
-    assert resolved.collector_env == {}
-    assert resolved.headers == {}
+    assert not delivery_pool._tasks

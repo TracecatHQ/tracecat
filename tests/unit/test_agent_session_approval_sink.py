@@ -5,6 +5,7 @@ import contextlib
 import uuid
 from collections.abc import Iterator
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import orjson
@@ -425,111 +426,163 @@ async def test_list_messages_sql_owns_active_run_visibility(
     }
 
 
-@pytest.mark.anyio
-async def test_replace_interrupt_with_tool_results_preserves_nul_result(
+def _assistant_tool_use(
+    tool_call_id: str,
+    *,
+    row_uuid: str | None,
+    message_id: str | None = None,
+    url: str = "https://example.com",
+    timestamp: str = "2026-03-18T00:00:00Z",
+) -> dict[str, Any]:
+    message: dict[str, Any] = {
+        "role": "assistant",
+        "content": [
+            {
+                "type": "tool_use",
+                "id": tool_call_id,
+                "name": "core__http_request",
+                "input": {"url": url},
+            }
+        ],
+    }
+    if message_id is not None:
+        message["id"] = message_id
+    content: dict[str, Any] = {
+        "sessionId": "sdk-session",
+        "type": "assistant",
+        "timestamp": timestamp,
+        "message": message,
+    }
+    if row_uuid is not None:
+        content["uuid"] = row_uuid
+    return content
+
+
+def _user_tool_result(
+    tool_call_id: str,
+    *,
+    parent_uuid: str | None,
+    content: str = "interrupted",
+    is_error: bool = True,
+    timestamp: str = "2026-03-18T00:00:01Z",
+) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "uuid": str(uuid.uuid4()),
+        "sessionId": "sdk-session",
+        "type": "user",
+        "timestamp": timestamp,
+        "message": {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tool_call_id,
+                    "content": content,
+                    "is_error": is_error,
+                }
+            ],
+        },
+    }
+    if parent_uuid is not None:
+        row["parentUuid"] = parent_uuid
+    return row
+
+
+async def _seed_history(
     session: AsyncSession,
-    svc_role: Role,
-) -> None:
+    role: Role,
+    rows: list[dict[str, Any]],
+    *,
+    curr_run_id: uuid.UUID | None = None,
+) -> AgentSession:
+    """Persist an approval chat whose SDK history is ``rows`` in order."""
     agent_session = AgentSession(
         id=uuid.uuid4(),
         title="Approval chat",
-        workspace_id=svc_role.workspace_id,
+        workspace_id=role.workspace_id,
         entity_type=AgentSessionEntity.AGENT_PRESET.value,
         entity_id=uuid.uuid4(),
         sdk_session_id="sdk-session",
+        curr_run_id=curr_run_id,
     )
-    assistant_uuid = str(uuid.uuid4())
     session.add(agent_session)
-    session.add(
-        AgentSessionHistory(
-            session_id=agent_session.id,
-            workspace_id=svc_role.workspace_id,
-            kind=MessageKind.CHAT_MESSAGE.value,
-            content={
-                "uuid": assistant_uuid,
-                "sessionId": "sdk-session",
-                "type": "assistant",
-                "timestamp": "2026-03-18T00:00:00Z",
-                "cwd": "/home/agent",
-                "version": "2.0.72",
-                "message": {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "tool_use",
-                            "id": "call_123",
-                            "name": "core__http_request",
-                            "input": {"url": "https://example.com"},
-                        }
-                    ],
-                },
-            },
+    for content in rows:
+        session.add(
+            AgentSessionHistory(
+                session_id=agent_session.id,
+                workspace_id=role.workspace_id,
+                kind=MessageKind.CHAT_MESSAGE.value,
+                curr_run_id=curr_run_id,
+                content=content,
+            )
         )
-    )
-    session.add(
-        AgentSessionHistory(
-            session_id=agent_session.id,
-            workspace_id=svc_role.workspace_id,
-            kind=MessageKind.CHAT_MESSAGE.value,
-            content={
-                "uuid": str(uuid.uuid4()),
-                "parentUuid": assistant_uuid,
-                "sessionId": "sdk-session",
-                "type": "user",
-                "timestamp": "2026-03-18T00:00:01Z",
-                "cwd": "/home/agent",
-                "version": "2.0.72",
-                "message": {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": "call_123",
-                            "content": "interrupted",
-                            "is_error": True,
-                        }
-                    ],
-                },
-            },
-        )
-    )
     await session.commit()
+    return agent_session
 
-    service = AgentSessionService(session=session, role=svc_role)
+
+async def _replace_interrupts(
+    session: AsyncSession,
+    role: Role,
+    agent_session: AgentSession,
+    results: dict[str, Any],
+) -> list[AgentSessionHistory]:
+    service = AgentSessionService(session=session, role=role)
     await service.replace_interrupt_with_tool_results(
         agent_session.id,
         [
             ToolExecutionResult(
-                tool_call_id="call_123",
+                tool_call_id=tool_call_id,
                 tool_name="core.http_request",
-                result="left\x00right",
+                result=result,
                 is_error=False,
             )
+            for tool_call_id, result in results.items()
         ],
     )
+    return list(await service.get_session_history(agent_session.id))
 
-    history = await service.get_session_history(agent_session.id)
-    tool_result_blocks = [
+
+def _is_tool_result_entry(entry: AgentSessionHistory) -> bool:
+    return any(
+        isinstance(block, dict) and block.get("type") == "tool_result"
+        for block in entry.content.get("message", {}).get("content", [])
+    )
+
+
+def _tool_result_blocks(history: list[AgentSessionHistory]) -> list[dict[str, Any]]:
+    return [
         block
         for entry in history
         for block in entry.content.get("message", {}).get("content", [])
         if isinstance(block, dict) and block.get("type") == "tool_result"
     ]
 
-    assert len(tool_result_blocks) == 1
-    [tool_result] = tool_result_blocks
+
+@pytest.mark.anyio
+async def test_replace_interrupt_with_tool_results_preserves_nul_result(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    assistant_uuid = str(uuid.uuid4())
+    agent_session = await _seed_history(
+        session,
+        svc_role,
+        [
+            _assistant_tool_use("call_123", row_uuid=assistant_uuid),
+            _user_tool_result("call_123", parent_uuid=assistant_uuid),
+        ],
+    )
+
+    history = await _replace_interrupts(
+        session, svc_role, agent_session, {"call_123": "left\x00right"}
+    )
+
+    [tool_result] = _tool_result_blocks(history)
     assert tool_result["tool_use_id"] == "call_123"
     assert tool_result["is_error"] is False
     assert tool_result["content"] == r"left\u0000right"
 
-    tool_result_entry = next(
-        entry
-        for entry in history
-        if any(
-            isinstance(block, dict) and block.get("type") == "tool_result"
-            for block in entry.content.get("message", {}).get("content", [])
-        )
-    )
+    tool_result_entry = next(entry for entry in history if _is_tool_result_entry(entry))
     assert tool_result_entry.raw_session_line is not None
     raw_entry = orjson.loads(tool_result_entry.raw_session_line)
     [raw_tool_result] = raw_entry["message"]["content"]
@@ -546,64 +599,17 @@ async def test_replace_interrupt_with_tool_results_tags_active_run_id(
     the tool_result visible while its tool_use stays hidden — a dangling result.
     """
     run_id = uuid.uuid4()
-    agent_session = AgentSession(
-        id=uuid.uuid4(),
-        title="Approval chat",
-        workspace_id=svc_role.workspace_id,
-        entity_type=AgentSessionEntity.AGENT_PRESET.value,
-        entity_id=uuid.uuid4(),
-        sdk_session_id="sdk-session",
+    agent_session = await _seed_history(
+        session,
+        svc_role,
+        [_assistant_tool_use("call_123", row_uuid=str(uuid.uuid4()))],
         curr_run_id=run_id,
     )
-    assistant_uuid = str(uuid.uuid4())
-    session.add(agent_session)
-    # Assistant tool_use row is tagged with the active run id (durability-only).
-    session.add(
-        AgentSessionHistory(
-            session_id=agent_session.id,
-            workspace_id=svc_role.workspace_id,
-            kind=MessageKind.CHAT_MESSAGE.value,
-            curr_run_id=run_id,
-            content={
-                "uuid": assistant_uuid,
-                "sessionId": "sdk-session",
-                "type": "assistant",
-                "timestamp": "2026-03-18T00:00:00Z",
-                "cwd": "/home/agent",
-                "version": "2.0.72",
-                "message": {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "tool_use",
-                            "id": "call_123",
-                            "name": "core__http_request",
-                            "input": {"url": "https://example.com"},
-                        }
-                    ],
-                },
-            },
-        )
-    )
-    await session.commit()
 
-    service = AgentSessionService(session=session, role=svc_role)
-    await service.replace_interrupt_with_tool_results(
-        agent_session.id,
-        [
-            ToolExecutionResult(
-                tool_call_id="call_123",
-                tool_name="core.http_request",
-                result={"status": "success"},
-                is_error=False,
-            )
-        ],
+    await _replace_interrupts(
+        session, svc_role, agent_session, {"call_123": {"status": "success"}}
     )
 
-    # Every persisted row for this turn — the assistant tool_use and the newly
-    # inserted tool_result — must carry the active run id. The mid-turn filter
-    # (list_messages, include_active=False) keys off this tag: a NULL on the
-    # tool_result would leave it visible while its tool_use stays hidden.
     rows = (
         await session.execute(
             select(AgentSessionHistory.curr_run_id, AgentSessionHistory.content)
@@ -616,231 +622,53 @@ async def test_replace_interrupt_with_tool_results_tags_active_run_id(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("message_id", ["msg_batch", None])
 async def test_replace_interrupt_with_tool_results_spans_split_assistant_rows(
     session: AsyncSession,
     svc_role: Role,
+    message_id: str | None,
 ) -> None:
     """Parallel tool calls span multiple single-block assistant rows.
 
     Claude Code writes one assistant JSONL row per tool_use block (sharing the
     API message id), so reconciliation must union the pending tool call IDs
     across rows and anchor the combined tool_result entry after the last one.
+    When SDK rows omit message.id, contiguous assistant rows are one batch.
     """
-    agent_session = AgentSession(
-        id=uuid.uuid4(),
-        title="Approval chat",
-        workspace_id=svc_role.workspace_id,
-        entity_type=AgentSessionEntity.AGENT_PRESET.value,
-        entity_id=uuid.uuid4(),
-        sdk_session_id="sdk-session",
-    )
-    session.add(agent_session)
-
     first_assistant_uuid = str(uuid.uuid4())
     second_assistant_uuid = str(uuid.uuid4())
-    for row_uuid, tool_call_id, url in (
-        (first_assistant_uuid, "call_1", "https://example.com"),
-        (second_assistant_uuid, "call_2", "https://example.org"),
-    ):
-        session.add(
-            AgentSessionHistory(
-                session_id=agent_session.id,
-                workspace_id=svc_role.workspace_id,
-                kind=MessageKind.CHAT_MESSAGE.value,
-                content={
-                    "uuid": row_uuid,
-                    "sessionId": "sdk-session",
-                    "type": "assistant",
-                    "timestamp": "2026-03-18T00:00:00Z",
-                    "message": {
-                        "id": "msg_batch",
-                        "role": "assistant",
-                        "content": [
-                            {
-                                "type": "tool_use",
-                                "id": tool_call_id,
-                                "name": "core__http_request",
-                                "input": {"url": url},
-                            }
-                        ],
-                    },
-                },
-            )
-        )
-    # SDK interrupt placeholders for both pending calls.
-    for tool_call_id in ("call_1", "call_2"):
-        session.add(
-            AgentSessionHistory(
-                session_id=agent_session.id,
-                workspace_id=svc_role.workspace_id,
-                kind=MessageKind.CHAT_MESSAGE.value,
-                content={
-                    "uuid": str(uuid.uuid4()),
-                    "parentUuid": second_assistant_uuid,
-                    "sessionId": "sdk-session",
-                    "type": "user",
-                    "timestamp": "2026-03-18T00:00:01Z",
-                    "message": {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": tool_call_id,
-                                "content": "interrupted",
-                                "is_error": True,
-                            }
-                        ],
-                    },
-                },
-            )
-        )
-    await session.commit()
-
-    service = AgentSessionService(session=session, role=svc_role)
-    await service.replace_interrupt_with_tool_results(
-        agent_session.id,
+    agent_session = await _seed_history(
+        session,
+        svc_role,
         [
-            ToolExecutionResult(
-                tool_call_id="call_1",
-                tool_name="core.http_request",
-                result={"status": "success"},
-                is_error=False,
+            _assistant_tool_use(
+                "call_1", row_uuid=first_assistant_uuid, message_id=message_id
             ),
-            ToolExecutionResult(
-                tool_call_id="call_2",
-                tool_name="core.http_request",
-                result={"status": "success"},
-                is_error=False,
+            _assistant_tool_use(
+                "call_2",
+                row_uuid=second_assistant_uuid,
+                message_id=message_id,
+                url="https://example.org",
             ),
+            _user_tool_result("call_1", parent_uuid=second_assistant_uuid),
+            _user_tool_result("call_2", parent_uuid=second_assistant_uuid),
         ],
     )
 
-    history = await service.get_session_history(agent_session.id)
+    history = await _replace_interrupts(
+        session,
+        svc_role,
+        agent_session,
+        {"call_1": {"status": "success"}, "call_2": {"status": "success"}},
+    )
+
     tool_result_entries = [
         entry
         for entry in history
-        if entry.content.get("type") == "user"
-        and any(
-            isinstance(block, dict) and block.get("type") == "tool_result"
-            for block in entry.content.get("message", {}).get("content", [])
-        )
+        if entry.content.get("type") == "user" and _is_tool_result_entry(entry)
     ]
-
     # The interrupt placeholders are replaced by ONE user row answering both
     # tool calls together, anchored after the last assistant row.
-    assert len(tool_result_entries) == 1
-    [entry] = tool_result_entries
-    assert entry.content.get("parentUuid") == second_assistant_uuid
-    blocks = entry.content["message"]["content"]
-    assert {block["tool_use_id"] for block in blocks} == {"call_1", "call_2"}
-    assert all(block["is_error"] is False for block in blocks)
-
-
-@pytest.mark.anyio
-async def test_replace_interrupt_with_tool_results_spans_split_rows_without_message_id(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    """When SDK rows omit message.id, contiguous assistant rows are one batch."""
-    agent_session = AgentSession(
-        id=uuid.uuid4(),
-        title="Approval chat",
-        workspace_id=svc_role.workspace_id,
-        entity_type=AgentSessionEntity.AGENT_PRESET.value,
-        entity_id=uuid.uuid4(),
-        sdk_session_id="sdk-session",
-    )
-    session.add(agent_session)
-
-    first_assistant_uuid = str(uuid.uuid4())
-    second_assistant_uuid = str(uuid.uuid4())
-    for row_uuid, tool_call_id, url in (
-        (first_assistant_uuid, "call_1", "https://example.com"),
-        (second_assistant_uuid, "call_2", "https://example.org"),
-    ):
-        session.add(
-            AgentSessionHistory(
-                session_id=agent_session.id,
-                workspace_id=svc_role.workspace_id,
-                kind=MessageKind.CHAT_MESSAGE.value,
-                content={
-                    "uuid": row_uuid,
-                    "sessionId": "sdk-session",
-                    "type": "assistant",
-                    "timestamp": "2026-03-18T00:00:00Z",
-                    "message": {
-                        "role": "assistant",
-                        "content": [
-                            {
-                                "type": "tool_use",
-                                "id": tool_call_id,
-                                "name": "core__http_request",
-                                "input": {"url": url},
-                            }
-                        ],
-                    },
-                },
-            )
-        )
-    for tool_call_id in ("call_1", "call_2"):
-        session.add(
-            AgentSessionHistory(
-                session_id=agent_session.id,
-                workspace_id=svc_role.workspace_id,
-                kind=MessageKind.CHAT_MESSAGE.value,
-                content={
-                    "uuid": str(uuid.uuid4()),
-                    "parentUuid": second_assistant_uuid,
-                    "sessionId": "sdk-session",
-                    "type": "user",
-                    "timestamp": "2026-03-18T00:00:01Z",
-                    "message": {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": tool_call_id,
-                                "content": "interrupted",
-                                "is_error": True,
-                            }
-                        ],
-                    },
-                },
-            )
-        )
-    await session.commit()
-
-    service = AgentSessionService(session=session, role=svc_role)
-    await service.replace_interrupt_with_tool_results(
-        agent_session.id,
-        [
-            ToolExecutionResult(
-                tool_call_id="call_1",
-                tool_name="core.http_request",
-                result={"status": "success"},
-                is_error=False,
-            ),
-            ToolExecutionResult(
-                tool_call_id="call_2",
-                tool_name="core.http_request",
-                result={"status": "success"},
-                is_error=False,
-            ),
-        ],
-    )
-
-    history = await service.get_session_history(agent_session.id)
-    tool_result_entries = [
-        entry
-        for entry in history
-        if entry.content.get("type") == "user"
-        and any(
-            isinstance(block, dict) and block.get("type") == "tool_result"
-            for block in entry.content.get("message", {}).get("content", [])
-        )
-    ]
-
-    assert len(tool_result_entries) == 1
     [entry] = tool_result_entries
     assert entry.content.get("parentUuid") == second_assistant_uuid
     blocks = entry.content["message"]["content"]
@@ -854,98 +682,28 @@ async def test_replace_interrupt_with_tool_results_does_not_duplicate_existing_r
     svc_role: Role,
 ) -> None:
     """Do not append a duplicate tool_result when replacement is retried."""
-    # Arrange: create the session that owns the approval continuation history.
-    agent_session = AgentSession(
-        id=uuid.uuid4(),
-        title="Approval chat",
-        workspace_id=svc_role.workspace_id,
-        entity_type=AgentSessionEntity.AGENT_PRESET.value,
-        entity_id=uuid.uuid4(),
-        sdk_session_id="sdk-session",
-    )
     assistant_uuid = str(uuid.uuid4())
-    session.add(agent_session)
-    # Arrange: persist the assistant tool_use that the replacement logic anchors
-    # on before looking for later tool_result rows.
-    session.add(
-        AgentSessionHistory(
-            session_id=agent_session.id,
-            workspace_id=svc_role.workspace_id,
-            kind=MessageKind.CHAT_MESSAGE.value,
-            content={
-                "uuid": assistant_uuid,
-                "sessionId": "sdk-session",
-                "type": "assistant",
-                "timestamp": "2026-03-18T00:00:00Z",
-                "message": {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "tool_use",
-                            "id": "call_123",
-                            "name": "core__http_request",
-                            "input": {"url": "https://example.com"},
-                        }
-                    ],
-                },
-            },
-        )
-    )
-    # Arrange: simulate an activity retry after the replacement row was already
-    # committed. The existing real tool_result should make the replacement path
-    # a no-op.
-    session.add(
-        AgentSessionHistory(
-            session_id=agent_session.id,
-            workspace_id=svc_role.workspace_id,
-            kind=MessageKind.CHAT_MESSAGE.value,
-            content={
-                "uuid": str(uuid.uuid4()),
-                "parentUuid": assistant_uuid,
-                "sessionId": "sdk-session",
-                "type": "user",
-                "timestamp": "2026-03-18T00:00:01Z",
-                "message": {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": "call_123",
-                            "content": '{"status":"already-recorded"}',
-                            "is_error": False,
-                        }
-                    ],
-                },
-            },
-        )
-    )
-    await session.commit()
-
-    service = AgentSessionService(session=session, role=svc_role)
-    await service.replace_interrupt_with_tool_results(
-        agent_session.id,
+    # Simulate an activity retry after the replacement row was already committed.
+    agent_session = await _seed_history(
+        session,
+        svc_role,
         [
-            ToolExecutionResult(
-                tool_call_id="call_123",
-                tool_name="core.http_request",
-                result={"status": "success"},
+            _assistant_tool_use("call_123", row_uuid=assistant_uuid),
+            _user_tool_result(
+                "call_123",
+                parent_uuid=assistant_uuid,
+                content='{"status":"already-recorded"}',
                 is_error=False,
-            )
+            ),
         ],
     )
 
-    history = await service.get_session_history(agent_session.id)
-    # The SQL-backed existence check should prevent appending a second
-    # tool_result for the same tool call.
-    tool_result_blocks = [
-        block
-        for entry in history
-        for block in entry.content.get("message", {}).get("content", [])
-        if isinstance(block, dict) and block.get("type") == "tool_result"
-    ]
+    history = await _replace_interrupts(
+        session, svc_role, agent_session, {"call_123": {"status": "success"}}
+    )
 
-    assert len(tool_result_blocks) == 1
-    assert tool_result_blocks[0]["content"] == '{"status":"already-recorded"}'
+    [tool_result] = _tool_result_blocks(history)
+    assert tool_result["content"] == '{"status":"already-recorded"}'
 
 
 @pytest.mark.anyio
@@ -953,87 +711,20 @@ async def test_replace_interrupt_with_tool_results_preserves_interrupt_without_a
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    agent_session = AgentSession(
-        id=uuid.uuid4(),
-        title="Approval chat",
-        workspace_id=svc_role.workspace_id,
-        entity_type=AgentSessionEntity.AGENT_PRESET.value,
-        entity_id=uuid.uuid4(),
-        sdk_session_id="sdk-session",
-    )
-    session.add(agent_session)
-    session.add(
-        AgentSessionHistory(
-            session_id=agent_session.id,
-            workspace_id=svc_role.workspace_id,
-            kind=MessageKind.CHAT_MESSAGE.value,
-            content={
-                "sessionId": "sdk-session",
-                "type": "assistant",
-                "timestamp": "2026-03-18T00:00:00Z",
-                "message": {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "tool_use",
-                            "id": "call_123",
-                            "name": "core__http_request",
-                            "input": {"url": "https://example.com"},
-                        }
-                    ],
-                },
-            },
-        )
-    )
-    session.add(
-        AgentSessionHistory(
-            session_id=agent_session.id,
-            workspace_id=svc_role.workspace_id,
-            kind=MessageKind.CHAT_MESSAGE.value,
-            content={
-                "uuid": str(uuid.uuid4()),
-                "sessionId": "sdk-session",
-                "type": "user",
-                "timestamp": "2026-03-18T00:00:01Z",
-                "message": {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": "call_123",
-                            "content": "interrupted",
-                            "is_error": True,
-                        }
-                    ],
-                },
-            },
-        )
-    )
-    await session.commit()
-
-    service = AgentSessionService(session=session, role=svc_role)
-    await service.replace_interrupt_with_tool_results(
-        agent_session.id,
+    agent_session = await _seed_history(
+        session,
+        svc_role,
         [
-            ToolExecutionResult(
-                tool_call_id="call_123",
-                tool_name="core.http_request",
-                result={"status": "success"},
-                is_error=False,
-            )
+            _assistant_tool_use("call_123", row_uuid=None),
+            _user_tool_result("call_123", parent_uuid=None),
         ],
     )
 
-    history = await service.get_session_history(agent_session.id)
-    tool_result_blocks = [
-        block
-        for entry in history
-        for block in entry.content.get("message", {}).get("content", [])
-        if isinstance(block, dict) and block.get("type") == "tool_result"
-    ]
+    history = await _replace_interrupts(
+        session, svc_role, agent_session, {"call_123": {"status": "success"}}
+    )
 
-    assert len(tool_result_blocks) == 1
-    [tool_result] = tool_result_blocks
+    [tool_result] = _tool_result_blocks(history)
     assert tool_result["tool_use_id"] == "call_123"
     assert tool_result["content"] == "interrupted"
     assert tool_result["is_error"] is True
@@ -1044,101 +735,27 @@ async def test_replace_interrupt_with_tool_results_ignores_existing_interrupt_re
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    # Arrange: create a session with the assistant tool_use that originally
-    # triggered human approval.
-    agent_session = AgentSession(
-        id=uuid.uuid4(),
-        title="Approval chat",
-        workspace_id=svc_role.workspace_id,
-        entity_type=AgentSessionEntity.AGENT_PRESET.value,
-        entity_id=uuid.uuid4(),
-        sdk_session_id="sdk-session",
-    )
+    """The SDK's approval-interrupt placeholder shares the tool_call_id but must
+    not satisfy the idempotency check, or the real approved result is skipped.
+    """
     assistant_uuid = str(uuid.uuid4())
-    session.add(agent_session)
-    session.add(
-        AgentSessionHistory(
-            session_id=agent_session.id,
-            workspace_id=svc_role.workspace_id,
-            kind=MessageKind.CHAT_MESSAGE.value,
-            content={
-                "uuid": assistant_uuid,
-                "sessionId": "sdk-session",
-                "type": "assistant",
-                "timestamp": "2026-03-18T00:00:00Z",
-                "message": {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "tool_use",
-                            "id": "call_123",
-                            "name": "core__http_request",
-                            "input": {"url": "https://example.com"},
-                        }
-                    ],
-                },
-            },
-        )
-    )
-    # This row has the same tool_call_id as the approved result, but it is only
-    # the SDK's approval-interrupt placeholder. The idempotency check must
-    # ignore it, otherwise we would skip writing the real approved result.
-    session.add(
-        AgentSessionHistory(
-            session_id=agent_session.id,
-            workspace_id=svc_role.workspace_id,
-            kind=MessageKind.CHAT_MESSAGE.value,
-            content={
-                "uuid": str(uuid.uuid4()),
-                "parentUuid": assistant_uuid,
-                "sessionId": "sdk-session",
-                "type": "user",
-                "timestamp": "2026-03-18T00:00:01Z",
-                "message": {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": "call_123",
-                            "content": "interrupted",
-                            "is_error": True,
-                        }
-                    ],
-                },
-            },
-        )
-    )
-    await session.commit()
-
-    service = AgentSessionService(session=session, role=svc_role)
-    # Act: replace the interrupted approval artifact with the actual tool
-    # execution result produced after approval.
-    await service.replace_interrupt_with_tool_results(
-        agent_session.id,
+    agent_session = await _seed_history(
+        session,
+        svc_role,
         [
-            ToolExecutionResult(
-                tool_call_id="call_123",
-                tool_name="core.http_request",
-                result={"status": "success"},
-                is_error=False,
-            )
+            _assistant_tool_use("call_123", row_uuid=assistant_uuid),
+            _user_tool_result("call_123", parent_uuid=assistant_uuid),
         ],
     )
 
-    history = await service.get_session_history(agent_session.id)
-    # Assert: the placeholder was deleted and exactly one real, non-error
-    # tool_result was inserted for the approved tool call.
-    tool_result_blocks = [
-        block
-        for entry in history
-        for block in entry.content.get("message", {}).get("content", [])
-        if isinstance(block, dict) and block.get("type") == "tool_result"
-    ]
+    history = await _replace_interrupts(
+        session, svc_role, agent_session, {"call_123": {"status": "success"}}
+    )
 
-    assert len(tool_result_blocks) == 1
-    assert tool_result_blocks[0]["tool_use_id"] == "call_123"
-    assert tool_result_blocks[0]["is_error"] is False
-    assert orjson.loads(tool_result_blocks[0]["content"]) == {"status": "success"}
+    [tool_result] = _tool_result_blocks(history)
+    assert tool_result["tool_use_id"] == "call_123"
+    assert tool_result["is_error"] is False
+    assert orjson.loads(tool_result["content"]) == {"status": "success"}
 
 
 @pytest.mark.anyio
@@ -1146,144 +763,40 @@ async def test_replace_interrupt_with_tool_results_requires_same_assistant_turn(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
-    agent_session = AgentSession(
-        id=uuid.uuid4(),
-        title="Approval chat",
-        workspace_id=svc_role.workspace_id,
-        entity_type=AgentSessionEntity.AGENT_PRESET.value,
-        entity_id=uuid.uuid4(),
-        sdk_session_id="sdk-session",
-    )
     older_assistant_uuid = str(uuid.uuid4())
     newer_assistant_uuid = str(uuid.uuid4())
-    session.add(agent_session)
-    session.add(
-        AgentSessionHistory(
-            session_id=agent_session.id,
-            workspace_id=svc_role.workspace_id,
-            kind=MessageKind.CHAT_MESSAGE.value,
-            content={
-                "uuid": older_assistant_uuid,
-                "sessionId": "sdk-session",
-                "type": "assistant",
-                "timestamp": "2026-03-18T00:00:00Z",
-                "message": {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "tool_use",
-                            "id": "call_old",
-                            "name": "core__http_request",
-                            "input": {"url": "https://old.example.com"},
-                        }
-                    ],
-                },
-            },
-        )
-    )
-    session.add(
-        AgentSessionHistory(
-            session_id=agent_session.id,
-            workspace_id=svc_role.workspace_id,
-            kind=MessageKind.CHAT_MESSAGE.value,
-            content={
-                "uuid": str(uuid.uuid4()),
-                "parentUuid": older_assistant_uuid,
-                "sessionId": "sdk-session",
-                "type": "user",
-                "timestamp": "2026-03-18T00:00:01Z",
-                "message": {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": "call_old",
-                            "content": "interrupted",
-                            "is_error": True,
-                        }
-                    ],
-                },
-            },
-        )
-    )
-    session.add(
-        AgentSessionHistory(
-            session_id=agent_session.id,
-            workspace_id=svc_role.workspace_id,
-            kind=MessageKind.CHAT_MESSAGE.value,
-            content={
-                "uuid": newer_assistant_uuid,
-                "sessionId": "sdk-session",
-                "type": "assistant",
-                "timestamp": "2026-03-18T00:00:02Z",
-                "message": {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "tool_use",
-                            "id": "call_new",
-                            "name": "core__http_request",
-                            "input": {"url": "https://new.example.com"},
-                        }
-                    ],
-                },
-            },
-        )
-    )
-    session.add(
-        AgentSessionHistory(
-            session_id=agent_session.id,
-            workspace_id=svc_role.workspace_id,
-            kind=MessageKind.CHAT_MESSAGE.value,
-            content={
-                "uuid": str(uuid.uuid4()),
-                "parentUuid": newer_assistant_uuid,
-                "sessionId": "sdk-session",
-                "type": "user",
-                "timestamp": "2026-03-18T00:00:03Z",
-                "message": {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": "call_new",
-                            "content": "interrupted",
-                            "is_error": True,
-                        }
-                    ],
-                },
-            },
-        )
-    )
-    await session.commit()
-
-    service = AgentSessionService(session=session, role=svc_role)
-    await service.replace_interrupt_with_tool_results(
-        agent_session.id,
+    agent_session = await _seed_history(
+        session,
+        svc_role,
         [
-            ToolExecutionResult(
-                tool_call_id="call_old",
-                tool_name="core.http_request",
-                result={"status": "old"},
-                is_error=False,
+            _assistant_tool_use(
+                "call_old",
+                row_uuid=older_assistant_uuid,
+                url="https://old.example.com",
             ),
-            ToolExecutionResult(
-                tool_call_id="call_new",
-                tool_name="core.http_request",
-                result={"status": "new"},
-                is_error=False,
+            _user_tool_result("call_old", parent_uuid=older_assistant_uuid),
+            _assistant_tool_use(
+                "call_new",
+                row_uuid=newer_assistant_uuid,
+                url="https://new.example.com",
+                timestamp="2026-03-18T00:00:02Z",
+            ),
+            _user_tool_result(
+                "call_new",
+                parent_uuid=newer_assistant_uuid,
+                timestamp="2026-03-18T00:00:03Z",
             ),
         ],
     )
 
-    history = await service.get_session_history(agent_session.id)
-    tool_result_blocks = [
-        block
-        for entry in history
-        for block in entry.content.get("message", {}).get("content", [])
-        if isinstance(block, dict) and block.get("type") == "tool_result"
-    ]
+    history = await _replace_interrupts(
+        session,
+        svc_role,
+        agent_session,
+        {"call_old": {"status": "old"}, "call_new": {"status": "new"}},
+    )
 
+    tool_result_blocks = _tool_result_blocks(history)
     assert len(tool_result_blocks) == 2
     assert {block["tool_use_id"] for block in tool_result_blocks} == {
         "call_old",

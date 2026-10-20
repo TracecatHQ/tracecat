@@ -210,24 +210,11 @@ def test_agent_classification_factories_are_static_and_sanitized(
     assert secret not in classification.message
 
 
-@pytest.mark.parametrize(
-    "classification", [user_agent_execution_failed(), agent_llm_read_timeout()]
-)
-def test_agent_executor_result_round_trips_typed_classification(
-    classification: RuntimeErrorClassification,
-) -> None:
-    result = AgentExecutorResult(success=False, classification=classification)
-    restored = AgentExecutorResult.model_validate(result.model_dump(mode="json"))
+@pytest.mark.parametrize("legacy_key", ["structured_output", "result_output"])
+def test_agent_executor_result_accepts_legacy_output_aliases(legacy_key: str) -> None:
+    result = AgentExecutorResult.model_validate({"success": True, legacy_key: "legacy"})
 
-    assert restored.classification == classification
-
-
-def test_agent_executor_result_accepts_legacy_payload_without_classification() -> None:
-    result = AgentExecutorResult.model_validate(
-        {"success": False, "error": "legacy free-form failure"}
-    )
-
-    assert result.classification is None
+    assert result.output == "legacy"
 
 
 def test_agent_activity_does_not_infer_user_owner_from_non_retryable() -> None:

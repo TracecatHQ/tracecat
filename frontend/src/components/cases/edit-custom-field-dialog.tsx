@@ -1,7 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
 import { ApiError, type CaseFieldReadMinimal, casesUpdateField } from "@/client"
@@ -189,7 +189,6 @@ export function EditCustomFieldDialog({
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const previousTypeRef = useRef<SqlTypeCreatable | null>(null)
 
   const form = useForm<CaseFieldFormValues>({
     resolver: zodResolver(caseFieldFormSchema),
@@ -205,30 +204,7 @@ export function EditCustomFieldDialog({
     }
     const defaults = getFormDefaults(field)
     form.reset(defaults)
-    previousTypeRef.current = defaults.type
   }, [field, form, open])
-
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-    const previousType = previousTypeRef.current
-    if (!previousType || previousType === selectedType) {
-      previousTypeRef.current = selectedType
-      return
-    }
-
-    form.setValue("default", "")
-    form.setValue("defaultMulti", [])
-    form.clearErrors("default")
-    form.clearErrors("defaultMulti")
-
-    if (!isSelectableColumnType(selectedType)) {
-      form.setValue("options", [])
-      form.clearErrors("options")
-    }
-    previousTypeRef.current = selectedType
-  }, [form, open, selectedType])
 
   const onSubmit = async (data: CaseFieldFormValues) => {
     if (!field) return

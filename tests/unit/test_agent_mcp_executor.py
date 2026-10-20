@@ -422,7 +422,4 @@ def test_build_tool_workflow_alias_attrs_uses_claude_code_prefix() -> None:
     assert len(attrs) == 1
     assert attrs[0].key.name == TemporalSearchAttr.ALIAS.value
     assert attrs[0].value == "cc:toolu_123"
-
-
-def test_build_tool_workflow_alias_attrs_skips_missing_tool_call_id() -> None:
     assert executor.build_tool_workflow_alias_attrs(None) == []

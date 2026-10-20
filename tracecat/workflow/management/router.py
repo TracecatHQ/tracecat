@@ -39,6 +39,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.common import DBConstraints
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import WebhookApiKey, Workflow
+from tracecat.dsl.common import apply_expects_order
 from tracecat.dsl.schemas import DSLConfig
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
@@ -372,9 +373,10 @@ def _build_workflow_read(workflow: Workflow) -> WorkflowRead:
         str(action.id): ActionRead.model_validate(action, from_attributes=True)
         for action in actions
     }
+    expects = apply_expects_order(workflow.expects, workflow.expects_order)
     # Add webhook/schedules
     try:
-        expects_schema = build_trigger_inputs_schema(workflow.expects)
+        expects_schema = build_trigger_inputs_schema(expects)
     except Exception as e:
         logger.warning(
             "Failed to build trigger inputs schema, falling back to None", error=e
@@ -387,7 +389,7 @@ def _build_workflow_read(workflow: Workflow) -> WorkflowRead:
         description=workflow.description,
         status=workflow.status,
         version=workflow.version,
-        expects=workflow.expects,
+        expects=expects,
         expects_schema=expects_schema,
         returns=workflow.returns,
         entrypoint=workflow.entrypoint,

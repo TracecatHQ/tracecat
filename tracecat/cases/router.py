@@ -4,7 +4,7 @@ from typing import Literal, NoReturn, TypedDict
 
 from asyncpg import DuplicateColumnError
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy.exc import DBAPIError, NoResultFound, ProgrammingError
+from sqlalchemy.exc import DBAPIError, ProgrammingError
 from starlette.status import (
     HTTP_200_OK,
     HTTP_201_CREATED,
@@ -22,6 +22,7 @@ from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.users import search_users
 from tracecat.authz.controls import require_scope
+from tracecat.cases.dependencies import PayloadPathsQuery
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.enums import (
     CasePriority,
@@ -34,7 +35,7 @@ from tracecat.cases.event_schemas import (
     CaseEventsWithUsers,
     TaskAssigneeChangedEventRead,
 )
-from tracecat.cases.filters import parse_assignee_filter
+from tracecat.cases.filters import parse_assignee_filter, resolve_tag_ids
 from tracecat.cases.hierarchy import TOP_LEVEL, CaseHierarchyService
 from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
@@ -68,7 +69,6 @@ from tracecat.cases.service import (
     CaseTasksService,
 )
 from tracecat.cases.tags.schemas import CaseTagRead
-from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Case
 from tracecat.exceptions import (
@@ -208,26 +208,6 @@ def _parse_dropdown_filter(
     return parsed_dropdown_filters
 
 
-async def _resolve_tag_ids(
-    *,
-    tags: list[str] | None,
-    role: WorkspaceActorRouteRole,
-    session: AsyncDBSession,
-) -> list[uuid.UUID] | None:
-    if not tags:
-        return None
-
-    tag_ids: list[uuid.UUID] = []
-    tags_service = CaseTagsService(session, role)
-    for tag_identifier in tags:
-        try:
-            tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
-            tag_ids.append(tag.id)
-        except NoResultFound:
-            continue
-    return tag_ids or None
-
-
 async def _parse_case_search_filters(
     *,
     role: WorkspaceActorRouteRole,
@@ -241,7 +221,7 @@ async def _parse_case_search_filters(
     return {
         "assignee_ids": include_assignees["assignee_ids"],
         "include_unassigned": include_assignees["include_unassigned"],
-        "tag_ids": await _resolve_tag_ids(tags=tags, role=role, session=session),
+        "tag_ids": await resolve_tag_ids(tags=tags, role=role, session=session),
         "dropdown_filters": _parse_dropdown_filter(dropdown),
     }
 
@@ -255,6 +235,7 @@ async def list_cases(
     *,
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
+    payload_paths: PayloadPathsQuery,
     limit: int = Query(
         config.TRACECAT__LIMIT_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
@@ -279,6 +260,19 @@ async def list_cases(
     ),
     include_durations: bool = Query(False, description="Include case duration values"),
     include_payload: bool = Query(False, description="Include case payload"),
+    payload_fields: list[str] | None = Query(
+        None,
+        description=(
+            "Return only these literal top-level payload keys, automatically including "
+            "the subset regardless of include_payload. Dots are literal; nested values "
+            "are returned whole. Missing keys are omitted and null values preserved. "
+            "An empty list acts as omitted; an empty string selects the literal empty key."
+        ),
+    ),
+    include_count: bool = Query(
+        True,
+        description="Include the exact filtered total_estimate for compatibility. Set false when fetching aggregate counts separately; total_estimate will be null.",
+    ),
     hierarchy: CaseHierarchyFilter = Query(
         "all",
         description="Return every case, or only top-level cases without a parent.",
@@ -296,6 +290,9 @@ async def list_cases(
             sort=sort,
             include_durations=include_durations,
             include_payload=include_payload,
+            payload_fields=payload_fields,
+            payload_paths=payload_paths,
+            include_count=include_count,
             hierarchy=hierarchy,
         )
     except (ValueError, TracecatValidationError) as e:
@@ -364,6 +361,7 @@ async def search_cases(
     *,
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
+    payload_paths: PayloadPathsQuery,
     limit: int = Query(
         config.TRACECAT__LIMIT_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
@@ -379,6 +377,15 @@ async def search_cases(
     short_id: str | None = Query(
         None,
         description="Search by exact case short ID (e.g. 42 or CASE-0042)",
+    ),
+    case_id: uuid.UUID | None = Query(None, description="Filter by exact case UUID"),
+    promote_exact_match: bool = Query(
+        False,
+        description="Place a complete case reference first, even outside view filters. Workspace authorization and explicit identity/relationship constraints remain strict. Filtered counts exclude cases outside the view.",
+    ),
+    match_none: bool = Query(
+        False,
+        description="The ordinary filter population is empty; exact promotion may still match.",
     ),
     status: list[CaseStatus] | None = Query(None, description="Filter by case status"),
     priority: list[CasePriority] | None = Query(
@@ -426,6 +433,19 @@ async def search_cases(
     ),
     include_durations: bool = Query(False, description="Include case duration values"),
     include_payload: bool = Query(False, description="Include case payload"),
+    payload_fields: list[str] | None = Query(
+        None,
+        description=(
+            "Return only these literal top-level payload keys, automatically including "
+            "the subset regardless of include_payload. Dots are literal; nested values "
+            "are returned whole. Missing keys are omitted and null values preserved. "
+            "An empty list acts as omitted; an empty string selects the literal empty key."
+        ),
+    ),
+    include_count: bool = Query(
+        True,
+        description="Include the exact filtered total_estimate for compatibility. Set false on all pages when fetching aggregate counts separately; total_estimate will be null.",
+    ),
     hierarchy: CaseHierarchyFilter = Query(
         "all",
         description="Return every case, or only top-level cases without a parent.",
@@ -455,6 +475,9 @@ async def search_cases(
             pagination_params,
             search_term=search_term,
             short_id=short_id,
+            case_id=case_id,
+            promote_exact_match=promote_exact_match,
+            match_none=match_none,
             status=status,
             priority=priority,
             severity=severity,
@@ -470,6 +493,9 @@ async def search_cases(
             sort=sort,
             include_durations=include_durations,
             include_payload=include_payload,
+            payload_fields=payload_fields,
+            payload_paths=payload_paths,
+            include_count=include_count,
             parent_id=parent_id,
             hierarchy=hierarchy,
         )

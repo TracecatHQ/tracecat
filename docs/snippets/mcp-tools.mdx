@@ -90,11 +90,11 @@
   Search or browse available actions and return compact context metadata.
 
   Supports three usage modes:
-  -> **Search**: provide `query` to search by name/description across all `namespaces`. Example: list_actions(workspace_id, query="send message")
+  -> **Search**: provide a literal substring `query` to search by name/description across all `namespaces`; this is not a multi-word keyword search. Example: list_actions(workspace_id, query="message")
   -> **Browse by `namespace`**: provide `namespace` without `query` to list all actions in a `namespace`. Example: list_actions(workspace_id, namespace="core")
   -> **Browse all**: omit both to list all available actions.
 
-  Common `namespaces`: `core`, `tools`, `ai`.
+  Common `namespaces`: `core`, `tools`, `ai`. Exact namespace/name matches appear before prefix and description matches. A missing first-page match does not mean the action is absent: continue with `next_cursor` while `has_more` is true.
 </ResponseField>
 
 <ResponseField name="sync_custom_registry" type="tool">
@@ -148,13 +148,31 @@
 <ResponseField name="run_workflow" type="tool">
   Run a workflow from its draft state or a published definition.
 
-  By default runs the current draft (unpublished edits) so changes can be tested before publishing. Set ``use_draft=False`` to run a published version instead.
+  By default runs the current draft (unpublished edits) so changes can be tested before publishing. Draft runs reuse the result of every locked action (see `lock_workflow_action`) instead of running it. Set ``use_draft=False`` to run a published version instead; published runs ignore locks.
+</ResponseField>
+
+<ResponseField name="list_workflow_action_runs" type="tool">
+  List an action's recent runs, to pick one for `lock_workflow_action`.
+</ResponseField>
+
+<ResponseField name="lock_workflow_action" type="tool">
+  Lock a draft action to a past run's result, or unlock it.
+
+  While locked, every draft run (`run_workflow` with `use_draft=True`) reuses the action's result from that run instead of executing it, which lets you debug downstream actions against a fixed input. Published runs ignore locks. Find a lockable run with `list_workflow_action_runs`.
 </ResponseField>
 
 <ResponseField name="list_workflow_executions" type="tool">
   List recent executions for a workflow.
 
   Use this to see run history, check which runs succeeded or failed, and find execution IDs for deeper inspection with `get_workflow_execution`.
+</ResponseField>
+
+<ResponseField name="rerun_workflow_execution" type="tool">
+  Rerun a past execution against the draft or a published version.
+
+  The new run reuses the past run's trigger inputs. Each action that succeeded in the past run and exists in the target with the same ref and action type reuses its stored result instead of running. Everything else runs. Actions inside scatter or loop scopes, and control flow actions, always run.
+
+  Call with ``dry_run=true`` first to see the match plan. Each entry in ``plan.actions`` has a status: ``fixed`` (result reused), ``excluded`` (reusable but not in ``fixed_action_refs``), ``runs`` (no reusable result), ``not_in_target`` (the target has no action with this ref), or ``action_changed`` (the target action uses a different action type). ``plan.unmatched_refs`` lists source results the target cannot use, and ``plan.inputs_error`` is set when the past inputs fail the target's input schema.
 </ResponseField>
 
 <ResponseField name="get_workflow_execution" type="tool">
@@ -195,6 +213,24 @@
   This tool replaces the whole trigger: every call sends `status`, `event_types` and `tag_filters`, so pass all three. Omitting `event_types` or `tag_filters` clears them, and omitting `status` fails the write outright because the column is non-null. Call `get_case_trigger` first and send its current values back, changing only what you mean to change. Patching `/case_trigger` through `edit_workflow` is partial, unlike this tool.
 
   Valid `event_types` values: case_created, case_updated, case_closed, case_reopened, case_viewed, priority_changed, severity_changed, status_changed, fields_changed, assignee_changed, attachment_created, attachment_deleted, tag_added, tag_removed, payload_changed, task_created, task_deleted, task_status_changed, task_priority_changed, task_workflow_changed, task_assignee_changed, dropdown_value_changed, table_row_linked, table_row_unlinked, comment_created, comment_updated, comment_deleted, comment_reply_created, comment_reply_updated, comment_reply_deleted, parent_changed, sub_cases_added, sub_cases_removed.
+</ResponseField>
+
+<ResponseField name="list_forms" type="tool">
+  List the forms of a workspace, newest first.
+
+  A form turns a workflow's input schema into a page people fill in. Submitting it runs the workflow. Callers who cannot edit forms only see online forms.
+</ResponseField>
+
+<ResponseField name="get_form" type="tool">
+  Get a form: its status, its config and the issues the config has.
+
+  `issues` lists what does not resolve against the workflow's published input schema (its draft inputs before the first publish), each with a `loc` path into the config. A form with an error-severity issue cannot be filled in until it is fixed. Find form IDs with `list_forms`.
+</ResponseField>
+
+<ResponseField name="update_form" type="tool">
+  Update the form of a workflow, creating it if the workflow has none.
+
+  The workflow's input schema (`entrypoint.expects`) supplies each field's name, type, default and whether it is required. `config` only controls presentation. Inputs left out of `layout` are appended in schema order with their default widget. A required input with no default widget, such as `dict` or `list[dict]`, needs a `user` or `file` widget or an autofill. Read the "Form Trigger" section of `tracecat://platform/dsl-reference` for the layout entries, widgets and rules.
 </ResponseField>
 
 <ResponseField name="list_workflow_tags" type="tool">
@@ -247,6 +283,16 @@
 
 <ResponseField name="update_case" type="tool">
   Update a case. Only provided fields are changed.
+</ResponseField>
+
+<ResponseField name="set_case_parent" type="tool">
+  Group cases as sub-cases of a top-level parent case.
+
+  Sub-cases are one level deep: the parent must be a top-level case, and a case that has its own sub-cases cannot be grouped. Cases already under another parent are moved. Requires the case add-ons entitlement.
+</ResponseField>
+
+<ResponseField name="clear_case_parent" type="tool">
+  Remove sub-cases from their parent case, returning them to the top level. Cases without a parent are left unchanged. Requires the case add-ons entitlement.
 </ResponseField>
 
 <ResponseField name="list_case_comments" type="tool">

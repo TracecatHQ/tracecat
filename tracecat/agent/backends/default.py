@@ -3,7 +3,7 @@
 import copy
 from typing import ClassVar
 
-from temporalio.common import Priority, WorkflowIDReusePolicy
+from temporalio.common import Priority
 from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
 from tracecat import config
@@ -27,7 +27,6 @@ class DefaultBackend(AgentBackend[AgentWorkflowArgs, AgentOutput]):
     task_queue = config.TRACECAT__AGENT_QUEUE
     priority: ClassVar[Priority] = Priority(priority_key=1)
     retry_policy = RETRY_POLICIES["workflow:fail_fast"]
-    id_reuse_policy = WorkflowIDReusePolicy.ALLOW_DUPLICATE
     name = "Open source"
     default_harness = "claude_code"
     supported_harnesses = frozenset({"claude_code"})
@@ -46,6 +45,9 @@ class DefaultBackend(AgentBackend[AgentWorkflowArgs, AgentOutput]):
             active_stream_id=context.stream_id,
             curr_run_id=context.run_id,
             config=context.config,
+            # Interactive sessions have no per-action timeout, so they run up to
+            # the deployment ceiling instead of the action default.
+            timeout_seconds=config.TRACECAT__AGENT_SANDBOX_TIMEOUT,
         )
         return AgentWorkflowArgs(
             role=context.role,

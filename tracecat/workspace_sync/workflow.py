@@ -23,14 +23,16 @@ from pydantic import ValidationError
 from slugify import slugify
 
 from tracecat.cases.enums import CaseEventType
-from tracecat.db.models import Workflow
+from tracecat.db.models import Form, Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
+from tracecat.forms.service import is_configured, stored_form_config
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import PullDiagnostic, serializable_validation_errors
 from tracecat.workflow.case_triggers.schemas import is_case_trigger_configured
 from tracecat.workflow.store.schemas import (
     RemoteCaseTrigger,
+    RemoteForm,
     RemoteWebhook,
     RemoteWorkflowDefinition,
     RemoteWorkflowSchedule,
@@ -96,11 +98,13 @@ def workflow_spec_from_orm(
     dsl: DSLInput,
     source_id: str,
     include_schedules: bool = False,
+    form: Form | None = None,
 ) -> WorkflowResourceSpec:
     """Build a :class:`WorkflowResourceSpec` from an ORM workflow and its DSL.
 
-    Carries over the folder path, tags, webhook, and a configured case trigger.
-    Schedules are included only when ``include_schedules`` is set.
+    Carries over the folder path, tags, webhook, a configured case trigger and
+    a configured form. ``form`` is passed in because ``Workflow`` has no form
+    relationship. Schedules are included only when ``include_schedules`` is set.
     """
     folder_path = workflow.folder.path if workflow.folder else None
     webhook = workflow.webhook
@@ -118,6 +122,12 @@ def workflow_spec_from_orm(
                 for event_type in workflow.case_trigger.event_types
             ],
             tag_filters=workflow.case_trigger.tag_filters,
+        )
+
+    remote_form = None
+    if form is not None and is_configured(form):
+        remote_form = RemoteForm.model_validate(
+            {**stored_form_config(form).model_dump(), "status": form.status}
         )
 
     schedules = None
@@ -149,6 +159,7 @@ def workflow_spec_from_orm(
         if webhook
         else None,
         case_trigger=case_trigger,
+        form=remote_form,
         definition=dsl,
     )
 
@@ -193,6 +204,7 @@ def workflow_spec_to_remote(
         schedules=spec.schedules,
         webhook=spec.webhook,
         case_trigger=spec.case_trigger,
+        form=spec.form,
         definition=definition,
     )
 
@@ -341,6 +353,7 @@ def workflow_spec_from_legacy(
         schedules=remote.schedules,
         webhook=remote.webhook,
         case_trigger=remote.case_trigger,
+        form=remote.form,
         definition=remote.definition,
     )
 
@@ -410,7 +423,17 @@ def parse_workflow_spec(
             workflow_title=workflow_title,
             error_type="validation",
             message=f"Validation error: {str(e)}",
-            details={"validation_errors": serializable_validation_errors(e.errors())},
+            details={
+                "validation_errors": serializable_validation_errors(
+                    [
+                        # A form can hold large inline images: don't echo them.
+                        {k: v for k, v in error.items() if k != "input"}
+                        if error["loc"][:1] == ("form",)
+                        else error
+                        for error in e.errors()
+                    ]
+                )
+            },
         )
     except Exception as e:
         return None, PullDiagnostic(

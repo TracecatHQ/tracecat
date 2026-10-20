@@ -13,7 +13,10 @@ from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent import router as agent_router
 from tracecat.agent.catalog import router as agent_catalog_router
-from tracecat.agent.catalog.schemas import AgentCatalogRead
+from tracecat.agent.catalog.schemas import (
+    WorkspaceAgentModelListResponse,
+    WorkspaceAgentModelRead,
+)
 from tracecat.auth.dependencies import (
     WorkspaceActorRouteRole,
     WorkspaceUserRouteRole,
@@ -26,6 +29,7 @@ from tracecat.integrations import router as integrations_router
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.organization import router as organization_router
 from tracecat.pagination import CursorPaginatedResponse
+from tracecat.registry.repositories import router as registry_repos_router
 from tracecat.settings import router as settings_router
 from tracecat.vcs import router as vcs_router
 from tracecat.workflow.executions import router as workflow_executions_router
@@ -498,6 +502,14 @@ def test_delete_organization_route_remains_user_only() -> None:
     assert delete_organization_role == organization_router.OrgUserRole
 
 
+def test_list_org_members_route_accepts_org_actors() -> None:
+    role = get_type_hints(organization_router.list_org_members, include_extras=True)[
+        "role"
+    ]
+
+    assert role == organization_router.OrgActorRole
+
+
 def test_git_settings_routes_accept_org_actors() -> None:
     endpoints = [
         settings_router.get_git_settings,
@@ -580,7 +592,7 @@ async def test_workspace_service_account_can_list_workspace_agent_models(
     workspace_id = role.workspace_id
     assert workspace_id is not None
     catalog_id = uuid.uuid4()
-    model = AgentCatalogRead(
+    model = WorkspaceAgentModelRead(
         id=catalog_id,
         organization_id=role.organization_id,
         custom_provider_id=None,
@@ -593,7 +605,9 @@ async def test_workspace_service_account_can_list_workspace_agent_models(
         agent_catalog_router, "AgentModelAccessService"
     ) as mock_service_cls:
         mock_svc = AsyncMock()
-        mock_svc.get_workspace_models.return_value = [model]
+        mock_svc.list_workspace_models.return_value = WorkspaceAgentModelListResponse(
+            items=[model], default_catalog_id=catalog_id, has_org_default=True
+        )
         mock_service_cls.return_value = mock_svc
 
         token = ctx_role.set(role)
@@ -604,10 +618,10 @@ async def test_workspace_service_account_can_list_workspace_agent_models(
 
     assert response.status_code == status.HTTP_200_OK
     payload = response.json()
-    assert payload["next_cursor"] is None
+    assert payload["default_catalog_id"] == str(catalog_id)
     assert [item["id"] for item in payload["items"]] == [str(catalog_id)]
     assert payload["items"][0]["model_provider"] == "anthropic"
-    mock_svc.get_workspace_models.assert_awaited_once_with(workspace_id=workspace_id)
+    mock_svc.list_workspace_models.assert_awaited_once_with(workspace_id=workspace_id)
 
 
 @pytest.mark.anyio
@@ -668,6 +682,13 @@ def test_vcs_credential_routes_accept_org_actors() -> None:
     for endpoint, role_param in endpoints:
         role = get_type_hints(endpoint, include_extras=True)[role_param]
         assert role == vcs_router.OrgActorRole
+
+
+def test_registry_repository_sync_route_accepts_org_actors() -> None:
+    role = get_type_hints(
+        registry_repos_router.sync_registry_repository, include_extras=True
+    )["role"]
+    assert role == registry_repos_router.OrgActorRole
 
 
 def test_draft_workflow_execution_route_remains_user_only() -> None:

@@ -73,6 +73,7 @@
 | Variable | Default | Description |
 | :------- | :------ | :---------- |
 | `TRACECAT__EXECUTOR_BACKEND` | `direct` | Execution mode for actions, agents, registry sync, and Python scripts. `direct` runs without nsjail; `nsjail` requires nsjail isolation. `ephemeral` is a compatibility alias for `nsjail`. |
+| `TRACECAT__EXECUTOR_CLIENT_TIMEOUT` | `300` | Maximum seconds one action function call may run. The `executor` service caps each call at this value and uses it as the action's timeout when `timeout` is `0`. A template action's total runtime and `core.script.run_python` scripts follow the action's own `timeout` instead. The Compose files and the Fargate module do not pass this variable to the `executor` service, so set it on that container directly to raise the cap. |
 | `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` | `2048` | Aggregate cgroup v2 memory limit in MiB per `core.script.run_python`, dependency-install, and custom action sandbox, shared by its processes. Applied by the nsjail backend. Exceeding it during script or action execution fails as `sandbox.resource_limit_exceeded`; an over-budget dependency installation fails as a package installation failure. The container memory limit still applies on top. See [Resource limits](/self-hosting/security#resource-limits). |
 | `TRACECAT__SANDBOX_ADDRESS_SPACE_MB` | Twice the memory budget | Per-process virtual address-space cap in MiB for action, Python, and dependency-install sandboxes. Requires nsjail. Set a positive integer to override the computed default. |
 | `TRACECAT__RESULT_EXTERNALIZATION_ENABLED` | `true` | Store large action results in blob storage instead of Temporal history. |
@@ -91,12 +92,25 @@ Set all four on the `api` service to enable [managed tunnels](/manage-platform/t
 | `TRACECAT__PANGOLIN_API_URL` | | Pangolin Integration API base URL ending in `/v1`, e.g. `https://api.pangolin.net/v1`. |
 | `TRACECAT__PANGOLIN_ORG_ID` | | Pangolin organization ID that holds every managed site, client, and resource. |
 | `TRACECAT__PANGOLIN_API_KEY` | | Pangolin organization API key with site, client, and private resource permissions. Store it in your secrets manager. |
+| `TRACECAT__PANGOLIN_API_KEY__ARN` | | AWS Secrets Manager ARN of the Pangolin API key, used instead of `TRACECAT__PANGOLIN_API_KEY`. Read by the `api` service only. |
+
+These settings control the [tunnel gateways](/manage-platform/tunnels#run-the-tunnel-gateway) that the `api` service runs. Executors read `TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE` and `TRACECAT__TUNNEL_GATEWAY_PORT` to find a tunnel's gateway.
+
+| Variable | Default | Description |
+| :------- | :------ | :---------- |
+| `TRACECAT__TUNNEL_GATEWAY_BACKEND` | `none` | `kubernetes` to have the `api` service create and reconcile one gateway per tunnel, or `none` to run gateways yourself. |
+| `TRACECAT__TUNNEL_GATEWAY_NAMESPACE` | `tracecat-tunnels` | Kubernetes namespace for gateway Secrets, Deployments, and Services. |
+| `TRACECAT__TUNNEL_GATEWAY_IMAGE` | `ghcr.io/tracecathq/tracecat-tunnel-gateway:<version>` | Gateway image. Defaults to the running Tracecat version; set `repository@sha256:<digest>` to pin an immutable image. |
+| `TRACECAT__TUNNEL_GATEWAY_BLOCKED_CIDRS` | | Comma-separated CIDRs gateways never dial, such as the cluster's pod and service ranges. |
+| `TRACECAT__TUNNEL_GATEWAY_API_URL` | `TRACECAT__API_URL` | Internal API URL that gateways load their policy from. |
+| `TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE` | `tunnel-{tunnel_id}.<TRACECAT__TUNNEL_GATEWAY_NAMESPACE>.svc.cluster.local` | Gateway hostname, with `{tunnel_id}` filled in per tunnel. |
+| `TRACECAT__TUNNEL_GATEWAY_PORT` | `8080` | Gateway proxy port. |
 
 ### Agents
 
 | Variable | Default | Description |
 | :------- | :------ | :---------- |
-| `TRACECAT__AGENT_SANDBOX_TIMEOUT` | `3600` | Ceiling in seconds for the `timeout` of `ai.agent`, `ai.action`, and `ai.preset_agent`. Tracecat clamps explicit values between `1800` and this value, and unset means `1800`. A ceiling below `1800` replaces both the floor and the default. |
+| `TRACECAT__AGENT_SANDBOX_TIMEOUT` | `3600` | Ceiling in seconds for the `timeout` of `ai.agent`, `ai.action`, and `ai.preset_agent`. Tracecat clamps explicit values between `1800` and this value, and unset means `1800`. A ceiling below `1800` replaces both the floor and the default. Agent chat sessions run up to this value. |
 | `TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT` | `3660` | Seconds the agent executor worker waits for running agent activities to finish during a planned shutdown. Defaults to `TRACECAT__AGENT_SANDBOX_TIMEOUT` plus `60`. |
 | `TRACECAT__LLM_PROXY_READ_TIMEOUT` | `600` | Seconds the sandbox LLM proxy waits for the next byte from the model gateway before failing the request with `504`. Separate from the agent timeout. |
 | `TRACECAT__AGENT_SANDBOX_MEMORY_MB` | `4096` | Cgroup v2 memory budget in MiB shared by an agent sandbox and its child processes. Requires nsjail and cgroup delegation. The outer container memory limit still applies. See [Resource limits](/self-hosting/security#resource-limits). |

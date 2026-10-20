@@ -1,0 +1,40 @@
+type: action
+definition:
+  title: "Get threat objectives industry comparison"
+  description: "Compares threat objectives against selected industry verticals. Calls GET /api/v1/dash/reports/threat-objectives-reports/industry-comparison."
+  display_group: Proofpoint Threat Protection
+  doc_url: https://help.proofpoint.com/Threat_Insight_Dashboard/API_Documentation/Reports_API
+  namespace: tools.proofpoint_threat_protection
+  name: get_threat_objectives_industry_comparison
+  secrets:
+    - type: oauth
+      provider_id: proofpoint_threat_protection
+      grant_type: client_credentials
+  expects:
+    start:
+      type: str
+      description: "Start time in ISO 8601 UTC format."
+    end:
+      type: str
+      description: "End time in ISO 8601 UTC format."
+    industries:
+      type: list[str] | None
+      description: "List of industry verticals. Maximum 3 allowed. Valid industry names. Defaults to Customer's default."
+      default: null
+    base_url:
+      type: str | None
+      description: "Proofpoint Threat Protection API base URL. Defaults to https://threatprotection-api.proofpoint.com."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.proofpoint_threat_protection.base_url || "https://threatprotection-api.proofpoint.com" }}/api/v1/dash/reports/threat-objectives-reports/industry-comparison
+        method: GET
+        params:
+          start: ${{ inputs.start }}
+          end: ${{ inputs.end }}
+          industries: ${{ inputs.industries }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.proofpoint_threat_protection_oauth.PROOFPOINT_THREAT_PROTECTION_SERVICE_TOKEN }}
+  returns: ${{ steps.request.result }}

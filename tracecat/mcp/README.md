@@ -23,6 +23,9 @@ own embedded collection truncation behavior below.
 - `validate_workflow(workspace_id, workflow_id)`
 - `publish_workflow(workspace_id, workflow_id)`
 - `run_workflow(workspace_id, workflow_id, inputs=None, use_draft=True, version=None)`
+- `rerun_workflow_execution(workspace_id, execution_id, use_draft=True, version=None, fixed_action_refs=None, rerun_from_ref=None, dry_run=False)`
+- `list_workflow_action_runs(workspace_id, workflow_id, ref, limit=10)`
+- `lock_workflow_action(workspace_id, workflow_id, ref, execution_id)`
 - `list_workflow_executions(workspace_id, workflow_id, limit=20, cursor=None)`
 - `get_workflow_execution(workspace_id, execution_id, action_refs=None, include_results=True)`
 - `get_execution_action_result(workspace_id, execution_id, action_ref, stream_id=None, max_bytes=65536, offset=0)`
@@ -110,6 +113,21 @@ truncation metadata under `truncation.collections`.
 - `get_case_trigger(workspace_id, workflow_id)`
 - `update_case_trigger(workspace_id, workflow_id, status=None, event_types=None, tag_filters=None)`
 
+## Form tools
+
+These need the `forms` feature flag and the `forms` entitlement, plus scopes:
+`list_forms` needs `form:read`; `get_form` needs `form:read` and one of
+`form:update` or `form:submission:read`, and reports a form it hides as not
+found; `update_form` needs `form:read` and `form:update`, and `form:create`
+when it creates the form.
+
+- `list_forms(workspace_id, limit=..., cursor=None)`
+- `get_form(workspace_id, form_id)`
+- `update_form(workspace_id, workflow_id, status=None, config=None)`
+
+`update_form` creates the form if the workflow has none. `config` replaces the
+stored config whole. Submissions are not exposed over MCP.
+
 ## Workflow tag tools
 
 - `list_workflow_tags(workspace_id, limit=20, cursor=None)`
@@ -119,6 +137,19 @@ truncation metadata under `truncation.collections`.
 - `list_tags_for_workflow(workspace_id, workflow_id, limit=20, cursor=None)`
 - `add_workflow_tag(workspace_id, workflow_id, tag_id)`
 - `remove_workflow_tag(workspace_id, workflow_id, tag_id)`
+
+## Sub-case tools
+
+- `search_cases(..., parent_id=None, hierarchy="all")` lists a parent's sub-cases with `parent_id`, or only top-level cases with `hierarchy="top_level"`
+- `create_case(..., parent_id=None)` creates the case as a sub-case of a top-level case
+- `set_case_parent(workspace_id, case_ids, parent_id)` groups cases under a top-level parent case
+- `clear_case_parent(workspace_id, case_ids)` returns sub-cases to the top level
+
+Notes:
+
+- Sub-case tools and the `parent_id` arguments require the case add-ons entitlement.
+- `get_case`, `list_cases`, and `search_cases` return `parent` and `num_sub_cases` on every case.
+- Sub-cases are one level deep. Closing a parent case does not change its sub-cases.
 
 ## Case tag tools
 

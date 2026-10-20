@@ -626,6 +626,7 @@ class DSLWorkflow:
             wf_run_id=uuid.UUID(wf_info.run_id, version=4),
             environment=self.runtime_config.environment,
             logical_time=self.time_anchor,
+            tunnel=self.runtime_config.tunnel,
         )
         ctx_run.set(self.run_context)
 
@@ -648,6 +649,9 @@ class DSLWorkflow:
             role=self.role,
             run_context=self.run_context,
             logger=self.logger.bind(unit="dsl-scheduler"),
+            fixed_action_results={
+                ref: fixed.result for ref, fixed in args.fixed_action_results.items()
+            },
         )
         try:
             task_exceptions = await self.scheduler.start()
@@ -1997,8 +2001,11 @@ class DSLWorkflow:
             "execute_action_activity",
             args=(arg, self.role),
             task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+            # The executor enforces the action timeout around the function call.
+            # This ceiling also allows for platform work in the activity.
             start_to_close_timeout=timedelta(
-                seconds=task.start_delay + task.retry_policy.timeout
+                seconds=task.retry_policy.timeout
+                + config.TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT
             ),
             heartbeat_timeout=timedelta(
                 seconds=config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT

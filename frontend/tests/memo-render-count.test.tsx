@@ -59,6 +59,7 @@ jest.mock("@/hooks/use-chat", () => ({
   useVercelChat: jest.fn(),
   useAdoptServerTranscript: jest.fn(),
   useGetChat: jest.fn(() => ({ chat: null })),
+  useGetChatVercel: jest.fn(() => ({ chat: undefined })),
   useUpdateChat: jest.fn(() => ({ updateChat: jest.fn(), isUpdating: false })),
   useCancelChatTurn: jest.fn(() => ({
     cancelChatTurn: jest.fn(),

@@ -207,6 +207,27 @@ describe("Fortinet registry icon mappings", () => {
   })
 })
 
+describe("Proofpoint registry icon mappings", () => {
+  it.each([
+    "tools.proofpoint_tap",
+    "tools.proofpoint_threat_protection",
+    "tools.proofpoint_tap.get_forensics",
+    "tools.proofpoint_threat_protection.list_mail_bomb_events",
+  ])("renders the Proofpoint mark for %s", (key) => {
+    expect(svgTitle(getIcon(key))).toBe("Proofpoint")
+  })
+
+  it("renders the Proofpoint mark for the proofpoint_threat_protection provider", () => {
+    const Icon = providerIcons.proofpoint_threat_protection
+    expect(svgTitle(<Icon />)).toBe("Proofpoint")
+  })
+
+  it("renders the Proofpoint mark for the proofpoint_tap secret", () => {
+    const Icon = secretIcons.proofpoint_tap
+    expect(svgTitle(<Icon />)).toBe("Proofpoint")
+  })
+})
+
 describe("Palo Alto Networks registry icon mappings", () => {
   it.each([
     "tools.pan_os",

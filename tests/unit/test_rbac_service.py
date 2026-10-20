@@ -35,6 +35,7 @@ from tracecat.authz.seeding import seed_system_roles_for_org, seed_system_scopes
 from tracecat.authz.service import (
     MembershipService,
     query_effective_scopes,
+    query_effective_scopes_by_workspace,
     workspace_membership_exists,
 )
 from tracecat.db.models import (
@@ -239,33 +240,21 @@ async def role(
 class TestRBACServiceScopes:
     """Test scope management in RBAC service."""
 
-    async def test_list_scopes_with_system_scopes(
+    async def test_list_scopes_includes_system_and_filters_by_source(
         self,
         session: AsyncSession,
         role: Role,
         seeded_scopes: list[Scope],
     ):
-        """List scopes should include system scopes."""
+        """List scopes includes system scopes and can filter by source."""
         service = RBACService(session, role=role)
         scopes = await service.list_scopes(include_system=True)
-        assert len(scopes) > 0
-        # All system scopes should be included
-        system_scope_names = {s.name for s in seeded_scopes}
-        returned_names = {s.name for s in scopes}
-        assert system_scope_names.issubset(returned_names)
+        assert {s.name for s in seeded_scopes}.issubset({s.name for s in scopes})
 
-    async def test_list_scopes_filter_by_source(
-        self,
-        session: AsyncSession,
-        role: Role,
-        seeded_scopes: list[Scope],
-    ):
-        """List scopes can filter by source."""
-        service = RBACService(session, role=role)
-        scopes = await service.list_scopes(
+        platform_scopes = await service.list_scopes(
             include_system=True, source=ScopeSource.PLATFORM
         )
-        assert all(s.source == ScopeSource.PLATFORM for s in scopes)
+        assert all(s.source == ScopeSource.PLATFORM for s in platform_scopes)
 
     async def test_create_custom_scope(
         self,
@@ -273,7 +262,7 @@ class TestRBACServiceScopes:
         role: Role,
         org: Organization,
     ):
-        """Create a custom scope."""
+        """Create and delete a custom scope."""
         service = RBACService(session, role=role)
         scope = await service.create_scope(
             name="custom:test",
@@ -285,6 +274,10 @@ class TestRBACServiceScopes:
         assert scope.source == ScopeSource.CUSTOM
         assert scope.organization_id == org.id
 
+        await service.delete_scope(scope.id)
+        with pytest.raises(TracecatNotFoundError):
+            await service.get_scope(scope.id)
+
     async def test_create_scope_invalid_format(
         self,
         session: AsyncSession,
@@ -294,19 +287,6 @@ class TestRBACServiceScopes:
         service = RBACService(session, role=role)
         with pytest.raises(TracecatValidationError):
             await service.create_scope(name="INVALID SCOPE")
-
-    async def test_delete_custom_scope(
-        self,
-        session: AsyncSession,
-        role: Role,
-    ):
-        """Delete a custom scope."""
-        service = RBACService(session, role=role)
-        scope = await service.create_scope(name="custom:delete-me")
-        await service.delete_scope(scope.id)
-
-        with pytest.raises(TracecatNotFoundError):
-            await service.get_scope(scope.id)
 
     async def test_delete_system_scope_fails(
         self,
@@ -326,29 +306,14 @@ class TestRBACServiceScopes:
 class TestRBACServiceRoles:
     """Test role management in RBAC service."""
 
-    async def test_create_custom_role(
-        self,
-        session: AsyncSession,
-        role: Role,
-        org: Organization,
-    ):
-        """Create a custom role."""
-        service = RBACService(session, role=role)
-        custom_role = await service.create_role(
-            name="Security Analyst",
-            description="A custom security analyst role",
-        )
-        assert custom_role.name == "Security Analyst"
-        assert custom_role.organization_id == org.id
-        assert custom_role.created_by == role.user_id
-
     async def test_create_role_with_scopes(
         self,
         session: AsyncSession,
         role: Role,
+        org: Organization,
         admin_assignable_scopes: list[Scope],
     ):
-        """Create a role with scopes assigned."""
+        """Create a custom role with scopes assigned."""
         service = RBACService(session, role=role)
         scope_ids = [scope.id for scope in admin_assignable_scopes[:3]]
 
@@ -356,6 +321,9 @@ class TestRBACServiceRoles:
             name="Custom Role With Scopes",
             scope_ids=scope_ids,
         )
+        assert custom_role.name == "Custom Role With Scopes"
+        assert custom_role.organization_id == org.id
+        assert custom_role.created_by == role.user_id
         assert len(custom_role.scopes) == 3
 
     async def test_create_role_rejects_unheld_scopes(
@@ -395,12 +363,12 @@ class TestRBACServiceRoles:
                 scope_ids=[privileged_role.scopes[0].id],
             )
 
-    async def test_update_role(
+    async def test_update_then_delete_role(
         self,
         session: AsyncSession,
         role: Role,
     ):
-        """Update a custom role."""
+        """Update a custom role's metadata, then delete it."""
         service = RBACService(session, role=role)
         custom_role = await service.create_role(name="Original Name")
 
@@ -412,6 +380,10 @@ class TestRBACServiceRoles:
         assert updated.name == "Updated Name"
         assert updated.description == "New description"
         assert updated.updated_at >= updated.created_at
+
+        await service.delete_role(custom_role.id)
+        with pytest.raises(TracecatNotFoundError):
+            await service.get_role(custom_role.id)
 
     async def test_update_role_serializes_with_assignment_writers(
         self,
@@ -428,19 +400,6 @@ class TestRBACServiceRoles:
             await service.update_role(custom_role.id, scope_ids=[])
 
         lock.assert_awaited_once_with(session, service.organization_id)
-
-    async def test_delete_role(
-        self,
-        session: AsyncSession,
-        role: Role,
-    ):
-        """Delete a custom role."""
-        service = RBACService(session, role=role)
-        custom_role = await service.create_role(name="To Delete")
-        await service.delete_role(custom_role.id)
-
-        with pytest.raises(TracecatNotFoundError):
-            await service.get_role(custom_role.id)
 
     async def test_delete_role_with_assignments_fails(
         self,
@@ -470,13 +429,13 @@ class TestRBACServiceRoles:
 class TestRBACServiceGroups:
     """Test group management in RBAC service."""
 
-    async def test_create_group(
+    async def test_create_and_update_group(
         self,
         session: AsyncSession,
         role: Role,
         org: Organization,
     ):
-        """Create a group."""
+        """Created and updated groups expose server-generated fields without lazy IO."""
         service = RBACService(session, role=role)
         group = await service.create_group(
             name="Engineering Team",
@@ -486,40 +445,32 @@ class TestRBACServiceGroups:
         assert group.organization_id == org.id
         assert group.created_by == role.user_id
 
-    async def test_update_group(
-        self,
-        session: AsyncSession,
-        role: Role,
-    ):
-        """Updated groups expose server-generated timestamps without lazy IO."""
-        service = RBACService(session, role=role)
-        group = await service.create_group(name="Original Group")
-
         updated = await service.update_group(
             group.id,
             name="Updated Group",
             description="New description",
         )
-
         assert updated.name == "Updated Group"
         assert updated.description == "New description"
         assert updated.updated_at >= updated.created_at
 
-    async def test_add_member_to_group(
+    async def test_add_and_remove_group_member(
         self,
         session: AsyncSession,
         role: Role,
         user: User,
     ):
-        """Add a member to a group."""
+        """Add a member to a group, then remove them."""
         service = RBACService(session, role=role)
         group = await service.create_group(name="Test Group")
 
         await service.add_group_member(group.id, user.id)
-
         members = await service.list_group_members(group.id)
         assert len(members) == 1
         assert members[0][0].id == user.id
+
+        await service.remove_group_member(group.id, user.id)
+        assert await service.list_group_members(group.id) == []
 
     async def test_add_duplicate_member_fails(
         self,
@@ -563,22 +514,6 @@ class TestRBACServiceGroups:
             match="Cannot grant scopes not held by the caller",
         ):
             await service.add_group_member(group.id, user.id)
-
-    async def test_remove_member_from_group(
-        self,
-        session: AsyncSession,
-        role: Role,
-        user: User,
-    ):
-        """Remove a member from a group."""
-        service = RBACService(session, role=role)
-        group = await service.create_group(name="Test Group")
-
-        await service.add_group_member(group.id, user.id)
-        await service.remove_group_member(group.id, user.id)
-
-        members = await service.list_group_members(group.id)
-        assert len(members) == 0
 
     async def test_remove_member_rejects_cross_org_group(
         self,
@@ -671,54 +606,13 @@ class TestRBACServiceGroups:
 class TestRBACServiceAssignments:
     """Test group assignment management."""
 
-    async def test_create_org_wide_assignment(
+    async def test_create_and_update_org_wide_assignment(
         self,
         session: AsyncSession,
         role: Role,
         org: Organization,
     ):
-        """Create an org-wide assignment."""
-        service = RBACService(session, role=role)
-
-        custom_role = await create_org_role(service, name="Test Role")
-        group = await service.create_group(name="Test Group")
-
-        assignment = await service.create_group_role_assignment(
-            group_id=group.id,
-            role_id=custom_role.id,
-            workspace_id=None,  # Org-wide
-        )
-
-        assert assignment.organization_id == org.id
-        assert assignment.workspace_id is None
-        assert assignment.role_id == custom_role.id
-
-    async def test_create_workspace_assignment(
-        self,
-        session: AsyncSession,
-        role: Role,
-        workspace: Workspace,
-    ):
-        """Create a workspace-specific assignment."""
-        service = RBACService(session, role=role)
-
-        custom_role = await service.create_role(name="Test Role")
-        group = await service.create_group(name="Test Group")
-
-        assignment = await service.create_group_role_assignment(
-            group_id=group.id,
-            role_id=custom_role.id,
-            workspace_id=workspace.id,
-        )
-
-        assert assignment.workspace_id == workspace.id
-
-    async def test_update_assignment(
-        self,
-        session: AsyncSession,
-        role: Role,
-    ):
-        """Update an assignment's role."""
+        """Create an org-wide assignment, then change its role."""
         service = RBACService(session, role=role)
 
         role1 = await create_org_role(service, name="Role 1")
@@ -728,13 +622,16 @@ class TestRBACServiceAssignments:
         assignment = await service.create_group_role_assignment(
             group_id=group.id,
             role_id=role1.id,
+            workspace_id=None,
         )
+        assert assignment.organization_id == org.id
+        assert assignment.workspace_id is None
+        assert assignment.role_id == role1.id
 
         updated = await service.update_group_role_assignment(
             assignment.id,
             role_id=role2.id,
         )
-
         assert updated.role_id == role2.id
 
     async def test_create_assignment_rejects_unheld_role(
@@ -1784,6 +1681,50 @@ class TestMembershipScopeFloor:
 
         scopes = await query_effective_scopes(session, member.id, org.id, workspace.id)
         assert ORG_MEMBER_FLOOR_SCOPES.issubset(scopes)
+
+
+@pytest.mark.anyio
+async def test_scopes_by_workspace_match_each_workspaces_scopes(
+    session: AsyncSession,
+    org: Organization,
+    workspace: Workspace,
+    user: User,
+    seeded_scopes: list[Scope],
+) -> None:
+    await seed_system_roles_for_org(session, org.id)
+    direct = Workspace(name="direct", organization_id=org.id)
+    floor_only = Workspace(name="floor only", organization_id=org.id)
+    session.add_all([direct, floor_only])
+    await session.flush()
+    viewer_id = await session.scalar(
+        select(DBRole.id).where(
+            DBRole.organization_id == org.id, DBRole.slug == "workspace-viewer"
+        )
+    )
+    session.add(
+        UserRoleAssignment(
+            organization_id=org.id,
+            user_id=user.id,
+            workspace_id=direct.id,
+            role_id=viewer_id,
+        )
+    )
+    await session.commit()
+    # A group grant in one workspace, a direct grant in another, and the floor.
+    await _workspace_group(session, org, workspace, user)
+    workspace_ids = [workspace.id, direct.id, floor_only.id]
+
+    by_workspace = await query_effective_scopes_by_workspace(
+        session, user.id, org.id, workspace_ids
+    )
+
+    assert by_workspace == {
+        workspace_id: await query_effective_scopes(
+            session, user.id, org.id, workspace_id
+        )
+        for workspace_id in workspace_ids
+    }
+    assert len(set(by_workspace.values())) == 3
 
 
 @pytest.mark.anyio

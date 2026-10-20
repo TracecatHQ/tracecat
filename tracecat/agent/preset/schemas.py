@@ -14,6 +14,7 @@ from tracecat.agent.subagents import AgentSubagentsConfig, has_manual_tool_appro
 from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
+from tracecat.identifiers.workflow import WorkflowIDShort
 from tracecat.tags.schemas import TagRead
 
 if TYPE_CHECKING:
@@ -234,6 +235,14 @@ def build_agent_preset_tool_summary(
         namespaces=sorted({action.rpartition(".")[0] for action in policy.actions}),
         mcp_slugs=list(policy.mcp_slugs),
     )
+
+
+class AgentPresetWorkflowReference(Schema):
+    """A workflow whose draft runs a preset through `ai.preset_agent`."""
+
+    preset_id: uuid.UUID
+    workflow_id: WorkflowIDShort
+    workflow_title: str
 
 
 class AgentPresetReadMinimal(Schema):

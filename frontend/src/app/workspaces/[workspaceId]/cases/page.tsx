@@ -107,6 +107,9 @@ export default function CasesPage() {
     isLoading,
     error,
     filters,
+    appliedSearchQuery,
+    effectiveHierarchy,
+    isSearchPending,
     setSearchQuery,
     setSortBy,
     setStatusFilter,
@@ -133,6 +136,7 @@ export default function CasesPage() {
     stageCounts,
     isCountsLoading,
     isCountsFetching,
+    isCountsError,
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
@@ -151,6 +155,9 @@ export default function CasesPage() {
         isLoading={isLoading}
         error={error}
         filters={filters}
+        appliedSearchQuery={appliedSearchQuery}
+        effectiveHierarchy={effectiveHierarchy}
+        isSearchPending={isSearchPending}
         members={members}
         tags={caseTags}
         onSearchChange={setSearchQuery}
@@ -190,6 +197,7 @@ export default function CasesPage() {
         stageCounts={stageCounts}
         isCountsLoading={isCountsLoading}
         isCountsFetching={isCountsFetching}
+        isCountsError={isCountsError}
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
         onLoadMore={fetchNextPage}

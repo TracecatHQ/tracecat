@@ -409,3 +409,41 @@ async def test_anthropic_endpoint_preserves_gateway_error_codes(
         _http_error_classification(status_code, route_is_direct=False, body=body).kind
         is expected_kind
     )
+
+
+@pytest.mark.anyio
+async def test_mid_stream_provider_rate_limit_is_a_typed_sse_error(
+    gateway_callbacks: ProxyLogging,
+) -> None:
+    async def provider_stream():
+        yield b'event: message_start\ndata: {"type":"message_start"}\n\n'
+        raise RateLimitError(
+            message="synthetic-sensitive-detail",
+            llm_provider="synthetic-provider",
+            model="synthetic-model",
+        )
+
+    stream = ProxyBaseLLMRequestProcessing.async_sse_data_generator(
+        response=provider_stream(),
+        user_api_key_dict=UserAPIKeyAuth(),
+        request_data={"model": "synthetic-model"},
+        proxy_logging_obj=gateway_callbacks,
+    )
+    chunks = [chunk async for chunk in stream]
+
+    error_event = chunks[-1]
+    assert error_event.startswith("event: error\ndata: ")
+    payload = orjson.loads(error_event.removeprefix("event: error\ndata: "))
+    assert payload == {
+        "type": "error",
+        "error": {
+            "type": "throttling_error",
+            "message": "LLM provider rate limit exceeded; retry later",
+        },
+    }
+    assert "synthetic-sensitive-detail" not in error_event
+    classification = _http_error_classification(
+        429, route_is_direct=False, body=orjson.dumps(payload)
+    )
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE

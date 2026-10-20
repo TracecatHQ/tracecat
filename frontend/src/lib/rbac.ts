@@ -17,7 +17,8 @@ export const LEVEL_ACTIONS: Record<
   none: [],
   read: ["read"],
   write: ["read", "create", "update"],
-  execute: ["read", "execute"],
+  // `submit` is how a form is executed: `form:submit`.
+  execute: ["read", "execute", "submit"],
   admin: [
     "read",
     "create",
@@ -27,6 +28,7 @@ export const LEVEL_ACTIONS: Record<
     "remove",
     "manage",
     "execute",
+    "submit",
   ],
 }
 
@@ -39,6 +41,11 @@ export const RESOURCE_CATEGORIES: Record<
     label: "Workflows",
     description: "Workflow automation and execution",
     resources: ["workflow", "schedule"],
+  },
+  forms: {
+    label: "Forms",
+    description: "Forms, submitting them, and their submissions",
+    resources: ["form"],
   },
   cases: {
     label: "Cases",

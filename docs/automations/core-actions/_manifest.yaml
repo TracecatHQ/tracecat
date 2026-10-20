@@ -801,3 +801,31 @@ pages:
       - id: core.require
         examples:
           - require-check
+
+  - slug: form-actions/forms
+    title: Forms
+    info: |
+      Read and edit [forms](/automations/triggers/forms) and manage their
+      submissions from a workflow.
+    actions:
+      - id: core.forms.list_forms
+        examples:
+          - forms-list-forms
+      - id: core.forms.get_form
+        examples:
+          - forms-get-form
+      - id: core.forms.update_form
+        examples:
+          - forms-update-form
+      - id: core.forms.list_submissions
+        examples:
+          - forms-list-submissions
+      - id: core.forms.get_submission
+        examples:
+          - forms-get-submission
+      - id: core.forms.delete_submission
+        examples:
+          - forms-delete-submission
+      - id: core.forms.download_file
+        examples:
+          - forms-download-file

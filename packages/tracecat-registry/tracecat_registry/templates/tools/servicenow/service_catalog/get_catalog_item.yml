@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: Get catalog item
+  description: Get a catalog item or record producer, including its form variables.
+  display_group: ServiceNow
+  doc_url: https://www.servicenow.com/docs/r/api-reference/rest-apis/c_ServiceCatalogAPI.html#servicecat-GET-items-sys_id
+  namespace: tools.servicenow
+  name: get_catalog_item
+  secrets:
+  - type: oauth
+    provider_id: servicenow
+    grant_type: client_credentials
+  expects:
+    sys_id:
+      type: str
+      description: sys_id of the catalog item or record producer.
+    sysparm_view:
+      type: enum["desktop", "mobile", "both"] | None
+      description: UI view to return items for.
+      default: null
+    base_url:
+      type: str | None
+      description: ServiceNow instance URL, e.g. https://<instance>.service-now.com. Defaults to the `servicenow.base_url` workspace variable.
+      default: null
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.servicenow.base_url }}/api/sn_sc/servicecatalog/items/${{ FN.url_encode(inputs.sys_id) }}
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.servicenow_oauth.SERVICENOW_SERVICE_TOKEN }}
+        Accept: application/json
+      params:
+        sysparm_view: ${{ inputs.sysparm_view }}
+  returns: ${{ steps.request.result }}

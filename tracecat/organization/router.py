@@ -291,7 +291,7 @@ async def get_current_org_member(
 @require_scope("org:member:read")
 async def list_org_members(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> list[OrgMemberRead]:
     service = OrgService(session, role=role)

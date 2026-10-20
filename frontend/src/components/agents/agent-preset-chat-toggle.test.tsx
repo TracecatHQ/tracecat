@@ -21,6 +21,9 @@ jest.mock("@/components/agents/agent-preset-version-history", () => ({
 
 jest.mock("@/hooks/use-agent-presets", () => ({
   useAgentPreset: () => mockUseAgentPreset(),
+  useAgentPresetVersions: () => ({
+    versions: [{ id: "version-1", version: 12 }],
+  }),
   useUpdateAgentPreset: () => ({
     updateAgentPreset: mockUpdateAgentPreset,
     updateAgentPresetIsPending: mockPending,
@@ -45,7 +48,8 @@ describe("AgentPresetChatToggle", () => {
     async (enabled) => {
       mockUseAgentPreset.mockReturnValue({ preset: { use_in_chat: enabled } })
       render(
-        <AgentPresetChatToggle workspaceId="workspace-1" presetId="preset-1" />
+        <AgentPresetChatToggle workspaceId="workspace-1" presetId="preset-1" />,
+        { wrapper: TooltipProvider }
       )
       const toggle = screen.getByRole("switch", { name: "Use in chat" })
       expect(toggle).toHaveAttribute("aria-checked", String(enabled))
@@ -68,7 +72,8 @@ describe("AgentPresetChatToggle", () => {
           workspaceId="workspace-1"
           presetId="preset-1"
           disabled={reason === "saving"}
-        />
+        />,
+        { wrapper: TooltipProvider }
       )
       expect(screen.getByRole("switch", { name: "Use in chat" })).toBeDisabled()
       expect(mockUpdateAgentPreset).not.toHaveBeenCalled()
@@ -78,7 +83,8 @@ describe("AgentPresetChatToggle", () => {
   it("handles a rejected update without changing the persisted state", async () => {
     mockUpdateAgentPreset.mockRejectedValue(new Error("Failed"))
     render(
-      <AgentPresetChatToggle workspaceId="workspace-1" presetId="preset-1" />
+      <AgentPresetChatToggle workspaceId="workspace-1" presetId="preset-1" />,
+      { wrapper: TooltipProvider }
     )
     await userEvent.click(screen.getByRole("switch", { name: "Use in chat" }))
     expect(screen.getByRole("switch", { name: "Use in chat" })).toHaveAttribute(
@@ -87,7 +93,7 @@ describe("AgentPresetChatToggle", () => {
     )
   })
 
-  it("places chat visibility immediately before Push without changing publish", async () => {
+  it("orders chat visibility, discard, Push, versions, then Publish", async () => {
     const actions: AgentPresetDetailActionsState = {
       workspaceId: "workspace-1",
       presetId: "preset-1",
@@ -95,8 +101,11 @@ describe("AgentPresetChatToggle", () => {
       getDraftPayload: () => null,
       isSaving: false,
       canSubmit: true,
-      submitLabel: "Publish version",
+      submitLabel: "Save version",
       submit: jest.fn(),
+      isDirty: true,
+      cutsVersion: true,
+      discard: jest.fn(),
     }
     mockUseDetailContext.mockReturnValue({ actions })
     render(
@@ -107,17 +116,56 @@ describe("AgentPresetChatToggle", () => {
       </TooltipProvider>
     )
     const toggle = screen.getByRole("switch", { name: "Use in chat" })
+    const discard = screen.getByRole("button", { name: "Discard" })
     const push = screen.getByRole("button", { name: "Push" })
     const history = screen.getByRole("button", { name: "History" })
-    expect(
-      toggle.compareDocumentPosition(push) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
-    expect(
-      push.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
-    await userEvent.click(screen.getByRole("button", { name: "Publish agent" }))
+    const publish = screen.getByRole("button", { name: "Publish" })
+    for (const [before, after] of [
+      [toggle, discard],
+      [discard, push],
+      [push, history],
+      [history, publish],
+    ]) {
+      expect(
+        before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+    }
+    await userEvent.click(publish)
     expect(actions.submit).toHaveBeenCalledTimes(1)
+    await userEvent.click(discard)
+    expect(actions.discard).toHaveBeenCalledTimes(1)
     expect(mockUpdateAgentPreset).not.toHaveBeenCalled()
+  })
+
+  it("disables Publish for a clean preset and ignores clicks", async () => {
+    const submit = jest.fn()
+    mockUseDetailContext.mockReturnValue({
+      actions: {
+        workspaceId: "workspace-1",
+        presetId: "preset-1",
+        currentVersionId: "version-1",
+        getDraftPayload: () => null,
+        isSaving: false,
+        canSubmit: false,
+        submitLabel: "Save changes",
+        submit,
+        isDirty: false,
+        cutsVersion: false,
+        discard: jest.fn(),
+      },
+    })
+    render(
+      <TooltipProvider>
+        <AgentPresetDetailHeaderActions />
+      </TooltipProvider>
+    )
+    expect(
+      screen.queryByRole("button", { name: "Discard" })
+    ).not.toBeInTheDocument()
+    const publish = screen.getByRole("button", { name: "Publish" })
+    expect(publish).toHaveAttribute("aria-disabled", "true")
+    await userEvent.click(publish)
+    expect(submit).not.toHaveBeenCalled()
   })
 
   it.each([null, { actions: null }])(
@@ -132,7 +180,7 @@ describe("AgentPresetChatToggle", () => {
       expect(screen.getByRole("button", { name: "Push" })).toBeInTheDocument()
       expect(screen.queryByRole("switch")).not.toBeInTheDocument()
       expect(
-        screen.queryByRole("button", { name: "Publish agent" })
+        screen.queryByRole("button", { name: "Publish" })
       ).not.toBeInTheDocument()
     }
   )
