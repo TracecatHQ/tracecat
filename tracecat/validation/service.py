@@ -20,7 +20,11 @@ from tracecat.auth.types import Role
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import WorkspaceTunnel
-from tracecat.dsl.common import DSLInput, ExecuteSubflowArgs
+from tracecat.dsl.common import (
+    DSLInput,
+    ExecuteSubflowArgs,
+    dependency_cycle_message,
+)
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.exceptions import RegistryValidationError, TracecatNotFoundError
@@ -591,6 +595,15 @@ def validate_entrypoint_expects(
     return results
 
 
+def validate_dsl_acyclic(dsl: DSLInput) -> list[DSLValidationResult]:
+    """Validate that action dependencies contain no cycles."""
+    if blocked := dsl.blocked_refs():
+        return [
+            DSLValidationResult(status="error", msg=dependency_cycle_message(blocked))
+        ]
+    return []
+
+
 def validate_dsl_entrypoint(dsl: DSLInput) -> list[DSLValidationResult]:
     """Validate the DSL entrypoint schema."""
 
@@ -681,6 +694,7 @@ async def validate_dsl(
         return set()
 
     iterables: list[ValidationResult] = []
+    iterables.extend(ValidationResult.new(err) for err in validate_dsl_acyclic(dsl))
 
     # Tier 1: Entrypoint schema validation
     if validate_entrypoint:
