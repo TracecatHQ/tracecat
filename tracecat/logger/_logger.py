@@ -71,6 +71,7 @@ except ValueError:
     pass
 log_format = log_format_from_env()
 base_logger.configure(patcher=_add_process_context)
+# TRACECAT__LOG_FORMAT owns rendering; LOGURU_SERIALIZE must not add a stdlib JSON pass.
 if log_format is LogFormat.JSON:
     base_logger.add(
         sink=write_json_log,
@@ -79,6 +80,7 @@ if log_format is LogFormat.JSON:
         format="{message}",
         filter=_workflow_replay_filter,
         diagnose=False,
+        serialize=False,
     )
 else:
     base_logger.add(
@@ -88,6 +90,7 @@ else:
         format=_CONSOLE_FORMAT,
         filter=_workflow_replay_filter,
         diagnose=False,
+        serialize=False,
     )
 
 logger = base_logger

@@ -46,6 +46,7 @@ def _emit_log(
     bindings: str = "event='workflow_terminal_failure', owner='platform'",
     statement: str = "logger.info('Workflow failed')",
     spoof_process_context: bool = False,
+    extra_env: dict[str, str] | None = None,
 ) -> str:
     environment = os.environ.copy()
     environment.update(
@@ -56,6 +57,7 @@ def _emit_log(
             "TRACECAT__SERVICE_NAME": "worker",
         }
     )
+    environment.update(extra_env or {})
     if spoof_process_context:
         bindings += (
             ", process_service='spoofed-service', environment='spoofed-environment'"
@@ -187,6 +189,17 @@ def test_json_log_format_preserves_unusual_mapping_keys() -> None:
     )
 
     assert payload["attributes"]["details"] == {"('a', 'b')": 1}
+
+
+def test_json_log_format_ignores_loguru_serialize_env() -> None:
+    output = _emit_log(
+        LogFormat.JSON,
+        bindings="details={('a', 'b'): 1}",
+        extra_env={"LOGURU_SERIALIZE": "true"},
+    )
+
+    assert output.count("\n") == 1
+    assert json.loads(output)["attributes"]["details"] == {"('a', 'b')": 1}
 
 
 def test_json_log_format_keeps_mapping_keys_stable_on_fallback() -> None:
