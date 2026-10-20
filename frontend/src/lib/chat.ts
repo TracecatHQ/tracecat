@@ -192,6 +192,87 @@ function isBasicUIPart(
   )
 }
 
+const TOOL_INPUT_DELTA_FLUSH_MS = 100
+
+type ToolInputDeltaChunk = Extract<
+  ai.UIMessageChunk,
+  { type: "tool-input-delta" }
+>
+
+/**
+ * Merges consecutive `tool-input-delta` chunks for the same tool call.
+ *
+ * The AI SDK re-parses a tool call's whole accumulated input on every delta
+ * and publishes a message update for each one, so a large input streamed in
+ * small fragments (or replayed in one burst on reconnect) costs quadratic
+ * parsing plus one render per fragment. Pending text is flushed before any
+ * other chunk, so chunk order is preserved.
+ */
+export function coalesceToolInputDeltas(
+  flushMs = TOOL_INPUT_DELTA_FLUSH_MS
+): TransformStream<ai.UIMessageChunk, ai.UIMessageChunk> {
+  let pending: ToolInputDeltaChunk | null = null
+  let timer: ReturnType<typeof setTimeout> | null = null
+
+  const flush = (
+    controller: TransformStreamDefaultController<ai.UIMessageChunk>
+  ) => {
+    if (timer !== null) {
+      clearTimeout(timer)
+      timer = null
+    }
+    if (pending) {
+      const chunk = pending
+      pending = null
+      controller.enqueue(chunk)
+    }
+  }
+
+  return new TransformStream<ai.UIMessageChunk, ai.UIMessageChunk>({
+    transform(chunk, controller) {
+      if (chunk.type !== "tool-input-delta") {
+        flush(controller)
+        controller.enqueue(chunk)
+        return
+      }
+      if (pending?.toolCallId === chunk.toolCallId) {
+        pending = {
+          ...pending,
+          inputTextDelta: pending.inputTextDelta + chunk.inputTextDelta,
+        }
+        return
+      }
+      flush(controller)
+      pending = { ...chunk }
+      timer = setTimeout(() => {
+        try {
+          flush(controller)
+        } catch {
+          // The stream was cancelled or errored; there is nobody to deliver to.
+        }
+      }, flushMs)
+    },
+    flush(controller) {
+      flush(controller)
+    },
+  })
+}
+
+/**
+ * Re-render throttle for live chat transcripts. Without it every stream chunk
+ * re-renders the whole transcript, which freezes the page on long turns.
+ */
+export const CHAT_MESSAGES_THROTTLE_MS = 50
+
+/** Default transport that merges streamed tool input fragments. */
+export class CoalescingChatTransport extends ai.DefaultChatTransport<ai.UIMessage> {
+  protected override processResponseStream(stream: ReadableStream<Uint8Array>) {
+    return super
+      .processResponseStream(stream)
+      .pipeThrough(coalesceToolInputDeltas())
+  }
+}
+
 export function toUIMessage(message: UIMessage): ai.UIMessage {
   return {
     id: message.id,

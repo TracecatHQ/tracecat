@@ -1,7 +1,6 @@
 "use client"
 
 import { useChat } from "@ai-sdk/react"
-import { DefaultChatTransport } from "ai"
 import { MessageCircle } from "lucide-react"
 import type { ReactNode } from "react"
 import { useMemo } from "react"
@@ -17,6 +16,7 @@ import { toast } from "@/components/ui/use-toast"
 import { parseChatError } from "@/hooks/use-chat"
 import { isUIMessageArray } from "@/lib/agents"
 import { getBaseUrl } from "@/lib/api"
+import { CHAT_MESSAGES_THROTTLE_MS, CoalescingChatTransport } from "@/lib/chat"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 /** Render a completed agent transcript or reconnect to its live stream. */
@@ -56,7 +56,7 @@ function ActionSessionLiveStream({ sessionId }: { sessionId: string }) {
   const workspaceId = useWorkspaceId()
 
   const transport = useMemo(() => {
-    return new DefaultChatTransport({
+    return new CoalescingChatTransport({
       credentials: "include",
       prepareReconnectToStreamRequest: ({ id }) => {
         const url = new URL(`/api/agent/sessions/${id}/stream`, getBaseUrl())
@@ -72,6 +72,7 @@ function ActionSessionLiveStream({ sessionId }: { sessionId: string }) {
   const { messages, status } = useChat({
     id: sessionId,
     resume: true,
+    experimental_throttle: CHAT_MESSAGES_THROTTLE_MS,
     transport,
     onError: (error) => {
       const friendlyMessage = parseChatError(error)
