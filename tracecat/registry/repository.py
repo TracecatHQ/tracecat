@@ -31,7 +31,11 @@ from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.exceptions import RegistryError, RegistryTemplateLoadError
+from tracecat.exceptions import (
+    RegistryError,
+    RegistryModuleImportError,
+    RegistryTemplateLoadError,
+)
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
 from tracecat.git.utils import GitUrl, get_git_repository_sha, parse_git_url
@@ -847,31 +851,42 @@ def import_and_reload(module_name: str) -> ModuleType:
     prevent races with concurrent imports. Invalidates caches before import.
     """
     with _import_reload_lock:
-        importlib.invalidate_caches()
-        module = sys.modules.get(module_name)
-        if module is None:
-            # Skip reload on first import
-            loaded_module = importlib.import_module(module_name)
-        else:
-            spec = getattr(module, "__spec__", None)
-            loader = getattr(spec, "loader", None) if spec is not None else None
-            if loader is None:
-                # Without a loader importlib.reload will raise ModuleNotFoundError;
-                # fall back to a best-effort fresh import and keep the existing module.
-                loaded_module = importlib.import_module(module_name)
-            else:
-                # Reload in-place to refresh definitions without dropping parent package
-                try:
-                    loaded_module = importlib.reload(module)
-                except (ImportError, ValueError) as e:
-                    logger.warning(
-                        "Reload failed, keeping existing module",
-                        module_name=module_name,
-                        error=e,
-                    )
-                    loaded_module = module
+        try:
+            loaded_module = _import_or_reload(module_name)
+        except AttributeError as exc:
+            raise RegistryModuleImportError(
+                f"AttributeError while importing {module_name}: {exc}"
+            ) from exc
         sys.modules[module_name] = loaded_module
         return loaded_module
+
+
+def _import_or_reload(module_name: str) -> ModuleType:
+    """Import a module, or reload it in place if it is already imported."""
+    importlib.invalidate_caches()
+    module = sys.modules.get(module_name)
+    if module is None:
+        # Skip reload on first import
+        loaded_module = importlib.import_module(module_name)
+    else:
+        spec = getattr(module, "__spec__", None)
+        loader = getattr(spec, "loader", None) if spec is not None else None
+        if loader is None:
+            # Without a loader importlib.reload will raise ModuleNotFoundError;
+            # fall back to a best-effort fresh import and keep the existing module.
+            loaded_module = importlib.import_module(module_name)
+        else:
+            # Reload in-place to refresh definitions without dropping parent package
+            try:
+                loaded_module = importlib.reload(module)
+            except (ImportError, ValueError) as e:
+                logger.warning(
+                    "Reload failed, keeping existing module",
+                    module_name=module_name,
+                    error=e,
+                )
+                loaded_module = module
+    return loaded_module
 
 
 def _annotated_with_validators(annotation: Any, validators: tuple[Any, ...]) -> Any:

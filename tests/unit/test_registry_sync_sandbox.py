@@ -147,7 +147,10 @@ async def test_registry_clone_uses_scoped_agent_and_strict_host_keys(
             assert 'command.extend(["-p", str(inputs["port"])])' in keyscan_script
             assert "timeout=30.0" in keyscan_script
             assert "fake-private-key" not in repr(sandbox_config)
-            return SandboxResult(success=True, output=hashed_host_keys)
+            return SandboxResult(
+                success=True,
+                output={"host_resolved": True, "known_hosts": hashed_host_keys},
+            )
 
         events.append("clone")
         assert events == ["keyscan", "agent", "clone"]
@@ -247,7 +250,11 @@ async def test_registry_clone_uses_scoped_agent_and_strict_host_keys(
             id="command_fails",
         ),
         pytest.param(
-            {"return_value": SandboxResult(success=True, output="\n")},
+            {
+                "return_value": SandboxResult(
+                    success=True, output={"host_resolved": True, "known_hosts": "\n"}
+                )
+            },
             "returned no host keys",
             id="empty_output",
         ),
@@ -276,6 +283,33 @@ async def test_registry_clone_stops_when_keyscan_fails(
         )
 
     assert not isinstance(exc_info.value, RegistrySyncSettingsError)
+    execute.assert_awaited_once()
+    temporary_agent.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_registry_clone_rejects_git_host_that_does_not_exist(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    execute = mocker.AsyncMock(
+        return_value=SandboxResult(success=True, output={"host_resolved": False})
+    )
+    mocker.patch(
+        "tracecat.registry.sync.sandbox.NsjailExecutor",
+        return_value=mocker.Mock(execute=execute),
+    )
+    temporary_agent = mocker.patch("tracecat.registry.sync.sandbox.temporary_ssh_agent")
+
+    with pytest.raises(RegistrySyncSettingsError, match="Git host does not exist"):
+        await RegistrySyncSandbox().clone_repository(
+            git_url="git+ssh://git@git.example.test/acme/registry.git",
+            commit_sha="a" * 40,
+            ssh_key="fake-private-key",
+            work_dir=tmp_path / "sync",
+            timeout_seconds=90,
+        )
+
     execute.assert_awaited_once()
     temporary_agent.assert_not_called()
 
@@ -357,7 +391,10 @@ async def test_registry_clone_failures_are_not_attributed_to_settings(
         socket_path.touch()
         yield SshEnv(ssh_auth_sock=str(socket_path), ssh_agent_pid="123")
 
-    keyscan = SandboxResult(success=True, output="|1|salt|hash ssh-ed25519 key")
+    keyscan = SandboxResult(
+        success=True,
+        output={"host_resolved": True, "known_hosts": "|1|salt|hash ssh-ed25519 key"},
+    )
     clone = mocker.AsyncMock(**clone_outcome)
 
     async def execute(*args: object, script_name: str, **kwargs: object):
@@ -844,3 +881,34 @@ def test_registry_discovery_script_reports_import_conflicts_as_content_errors(
     assert "tracecat.registry.sync.entrypoint" in result.error
     content_error = result.to_exception()
     assert isinstance(content_error, RegistrySyncContentError)
+
+
+def test_registry_discovery_script_reports_attribute_error_conflicts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_name = "tracecat.registry.sync.entrypoint"
+
+    class _ConflictingFinder:
+        @staticmethod
+        def find_spec(name: str, *_args: object, **_kwargs: object) -> None:
+            if name == module_name:
+                raise AttributeError("module 'shared_dep' has no attribute 'helper'")
+            return None
+
+    monkeypatch.delitem(sys.modules, module_name, raising=False)
+    monkeypatch.setattr(sys, "meta_path", [_ConflictingFinder(), *sys.meta_path])
+    namespace: dict[str, object] = {}
+    exec(compile(_DISCOVERY_SCRIPT, "script.py", "exec"), namespace)
+    main = cast(Callable[..., object], namespace["main"])
+
+    result = SyncResultAdapter.validate_python(
+        main(
+            origin="tracecat_registry",
+            package_name="tracecat_registry",
+            repository_id=str(uuid4()),
+        )
+    )
+
+    assert isinstance(result, SyncResultError)
+    assert result.error_code == SyncErrorCode.IMPORT_FAILED
+    assert "AttributeError" in result.error

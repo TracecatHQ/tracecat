@@ -30,6 +30,7 @@ from tracecat.registry.sync.artifact import (
 )
 from tracecat.registry.sync.schemas import (
     RegistryCloneResult,
+    RegistryKeyscanResult,
     SyncResultAdapter,
     SyncResultError,
     SyncResultSuccess,
@@ -64,6 +65,7 @@ _SQUASHFS_MEMORY_PATTERN = re.compile(r"^[1-9][0-9]*[KMG]$")
 
 _KEYSCAN_SCRIPT = """
 import json
+import socket
 import subprocess
 from pathlib import Path
 
@@ -75,18 +77,31 @@ command.append(inputs["host"])
 
 result_payload = {"success": False, "output": None, "error": None}
 try:
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=30.0,
-    )
-    if completed.returncode != 0:
-        detail = completed.stderr.strip() or "ssh-keyscan exited unsuccessfully"
-        raise RuntimeError(detail)
-    result_payload["success"] = True
-    result_payload["output"] = completed.stdout
+    try:
+        socket.getaddrinfo(inputs["host"], inputs["port"] or 22, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        # Only EAI_NONAME is an authoritative "no such host"; other resolver
+        # errors may be transient.
+        if exc.errno != socket.EAI_NONAME:
+            raise
+        result_payload["success"] = True
+        result_payload["output"] = {"host_resolved": False}
+    else:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30.0,
+        )
+        if completed.returncode != 0:
+            detail = completed.stderr.strip() or "ssh-keyscan exited unsuccessfully"
+            raise RuntimeError(detail)
+        result_payload["success"] = True
+        result_payload["output"] = {
+            "host_resolved": True,
+            "known_hosts": completed.stdout,
+        }
 except Exception as exc:
     result_payload["error"] = f"{type(exc).__name__}: {exc}"
 
@@ -258,7 +273,7 @@ def main(
             load_and_serialize_installed_actions,
         )
         from tracecat.registry.sync.schemas import SyncResultError
-    except ImportError as exc:
+    except (ImportError, AttributeError) as exc:
         # Registry dependencies are importable ahead of Tracecat's own, so an
         # incompatible version can break Tracecat imports. Retrying cannot fix it.
         return {
@@ -459,7 +474,15 @@ class RegistrySyncSandbox:
 
         if not result.success:
             _raise_for_failed_result(result, "SSH host key scan", RegistryError)
-        if not isinstance(result.output, str) or not result.output.strip():
+        try:
+            scan = RegistryKeyscanResult.model_validate(result.output)
+        except ValidationError as exc:
+            raise RegistryError(
+                "Sandboxed SSH host key scan returned invalid output"
+            ) from exc
+        if not scan.host_resolved:
+            raise RegistrySyncSettingsError("Registry sync Git host does not exist")
+        if not scan.known_hosts.strip():
             raise RegistryError("Sandboxed SSH host key scan returned no host keys")
 
         ssh_dir = work_dir / "registry-ssh"
@@ -467,7 +490,7 @@ class RegistrySyncSandbox:
         ssh_dir.chmod(0o700)
         known_hosts_path = ssh_dir / "known_hosts"
         known_hosts_path.touch(mode=0o600, exist_ok=False)
-        output = result.output
+        output = scan.known_hosts
         known_hosts_path.write_text(
             output if output.endswith("\n") else f"{output}\n",
             encoding="utf-8",

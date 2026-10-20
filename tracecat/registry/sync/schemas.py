@@ -88,6 +88,15 @@ class SyncResultError(BaseModel):
         return RegistryError(self.error)
 
 
+class RegistryKeyscanResult(BaseModel):
+    """Validated output from the sandboxed SSH host-key scan."""
+
+    host_resolved: bool = Field(
+        ..., description="Whether DNS found the Git host; false means no such host."
+    )
+    known_hosts: str = Field(default="", description="Hashed known_hosts lines.")
+
+
 class RegistryCloneResult(BaseModel):
     """Validated output from the sandboxed Git clone phase."""
 

@@ -1,10 +1,15 @@
+import sys
+from pathlib import Path
+
 import pytest
 
 from tracecat.exceptions import (
     RegistryError,
+    RegistryModuleImportError,
     RegistrySyncContentError,
     RegistryTemplateLoadError,
 )
+from tracecat.registry.repository import import_and_reload
 from tracecat.registry.sync.schemas import (
     RegistrySyncResult,
     SyncErrorCode,
@@ -94,3 +99,21 @@ def test_sync_result_error_round_trips_error_code_through_json() -> None:
     restored = SyncResultError.model_validate_json(original.model_dump_json())
 
     assert restored == original
+
+
+def test_attribute_error_during_registry_import_is_import_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module_name = "synthetic_registry_attribute_conflict"
+    (tmp_path / f"{module_name}.py").write_text(
+        "import types\ntypes.helper_removed_in_this_version\n"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, module_name, raising=False)
+
+    with pytest.raises(RegistryModuleImportError) as exc_info:
+        import_and_reload(module_name)
+
+    result = SyncResultError.from_exception(exc_info.value)
+    assert result.error_code == SyncErrorCode.IMPORT_FAILED
+    assert "AttributeError while importing" in result.error

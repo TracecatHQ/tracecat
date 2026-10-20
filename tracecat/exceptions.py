@@ -152,6 +152,14 @@ class RegistrySyncContentError(RegistryError):
         self.code = code
 
 
+class RegistryModuleImportError(ImportError):
+    """A registry module raised a non-import error while importing.
+
+    Conflicting dependency versions can surface as ``AttributeError`` instead
+    of ``ImportError`` during import.
+    """
+
+
 class RegistrySyncSettingsError(RegistryError):
     """Registry Git settings are invalid; retrying cannot fix them."""
 
