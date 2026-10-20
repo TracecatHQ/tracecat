@@ -11,6 +11,7 @@ import base64
 import csv
 import hashlib
 import json
+import re
 import uuid
 from collections import defaultdict, deque
 from collections.abc import AsyncIterator, Collection, Mapping, Sequence
@@ -347,6 +348,12 @@ from tracecat.workflow.schedules.schemas import (
 )
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workflow.tags.service import WorkflowTagsService
+from tracecat.workspaces.schemas import (
+    WorkspaceSettingsRead,
+    WorkspaceSettingsUpdate,
+    WorkspaceUpdate,
+)
+from tracecat.workspaces.service import WorkspaceService
 
 type MCPWorkflowUUID = Annotated[
     WorkflowUUID,
@@ -764,6 +771,57 @@ class WorkspaceSummaryResponse(BaseModel):
     name: str
     org_id: uuid.UUID
     org_slug: str
+
+
+class WorkspaceAttachmentTypesResponse(BaseModel):
+    """Attachment file types allowed in a workspace."""
+
+    workspace_id: uuid.UUID
+    allowed_extensions: list[str] | None = Field(
+        description="Workspace override, or null when using system defaults."
+    )
+    allowed_mime_types: list[str] | None = Field(
+        description="Workspace override, or null when using system defaults."
+    )
+    effective_allowed_extensions: list[str]
+    effective_allowed_mime_types: list[str]
+
+
+_ATTACHMENT_EXTENSION_PATTERN = re.compile(r"^\.[a-z0-9][a-z0-9_+-]*$")
+_ATTACHMENT_MIME_TYPE_PATTERN = re.compile(
+    r"^[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*$"
+)
+
+
+def _normalize_attachment_extensions(values: list[str]) -> list[str]:
+    """Lowercase, dot-prefix, validate, and dedupe attachment extensions."""
+    normalized: list[str] = []
+    for value in values:
+        ext = value.strip().lower()
+        if ext and not ext.startswith("."):
+            ext = f".{ext}"
+        if not _ATTACHMENT_EXTENSION_PATTERN.fullmatch(ext):
+            raise ToolError(
+                f"Invalid file extension {value!r}. Use a value like '.pdf' or 'pdf'."
+            )
+        if ext not in normalized:
+            normalized.append(ext)
+    return normalized
+
+
+def _normalize_attachment_mime_types(values: list[str]) -> list[str]:
+    """Lowercase, validate, and dedupe attachment MIME types."""
+    normalized: list[str] = []
+    for value in values:
+        mime_type = value.strip().lower()
+        if not _ATTACHMENT_MIME_TYPE_PATTERN.fullmatch(mime_type):
+            raise ToolError(
+                f"Invalid MIME type {value!r}. Use a value like 'application/pdf' "
+                "without wildcards or parameters."
+            )
+        if mime_type not in normalized:
+            normalized.append(mime_type)
+    return normalized
 
 
 class MCPValidationDetailPayload(TypedDict):
@@ -3828,6 +3886,79 @@ async def list_workspaces(
     except Exception as e:
         logger.error("Failed to list workspaces", error=str(e))
         raise ToolError(f"Failed to list workspaces: {e}") from None
+
+
+@mcp.tool()
+async def update_workspace_attachment_types(
+    workspace_id: uuid.UUID,
+    allowed_extensions: list[str] | None = None,
+    allowed_mime_types: list[str] | None = None,
+) -> WorkspaceAttachmentTypesResponse:
+    """Configure which file extensions and MIME types case attachments may use.
+
+    A list replaces the workspace's current allowlist; it does not append. To
+    add or remove one entry, call this tool without arguments first, edit the
+    returned effective list, and pass the full list back. An empty list clears
+    the workspace override so the system defaults apply again. Omitted
+    arguments are left unchanged, and calling with no arguments only reads the
+    current settings. An upload must match both an allowed extension and an
+    allowed MIME type, so update both lists together when adding a file type.
+    Changing settings requires the `workspace:update` scope.
+
+    Args:
+        workspace_id: The workspace ID.
+        allowed_extensions: File extensions such as `[".pdf", ".zip"]`. A
+            missing leading dot is added and values are lowercased.
+        allowed_mime_types: MIME types such as
+            `["application/pdf", "application/zip"]`. Wildcards like
+            `image/*` are not supported.
+
+    Returns the workspace override (null when using system defaults) and the
+    effective allowlists for extensions and MIME types.
+    """
+    try:
+        workspace_id, role = await _resolve_workspace_role(workspace_id)
+        settings_update: dict[str, list[str] | None] = {}
+        if allowed_extensions is not None:
+            settings_update["allowed_attachment_extensions"] = (
+                _normalize_attachment_extensions(allowed_extensions) or None
+            )
+        if allowed_mime_types is not None:
+            settings_update["allowed_attachment_mime_types"] = (
+                _normalize_attachment_mime_types(allowed_mime_types) or None
+            )
+        check_scopes(role, "workspace:update" if settings_update else "workspace:read")
+
+        async with get_async_session_context_manager() as session:
+            service = WorkspaceService(session, role=role)
+            workspace = await service.get_workspace(workspace_id)
+            if workspace is None:
+                raise ToolError(f"Workspace {workspace_id} not found")
+            if settings_update:
+                workspace = await service.update_workspace(
+                    workspace,
+                    params=WorkspaceUpdate(
+                        settings=WorkspaceSettingsUpdate.model_validate(settings_update)
+                    ),
+                )
+            settings = WorkspaceSettingsRead.model_validate(workspace.settings or {})
+        return WorkspaceAttachmentTypesResponse(
+            workspace_id=workspace_id,
+            allowed_extensions=settings.allowed_attachment_extensions,
+            allowed_mime_types=settings.allowed_attachment_mime_types,
+            effective_allowed_extensions=settings.effective_allowed_attachment_extensions,
+            effective_allowed_mime_types=settings.effective_allowed_attachment_mime_types,
+        )
+    except ToolError:
+        raise
+    except ScopeDeniedError as e:
+        required = ", ".join(e.required_scopes)
+        raise ToolError(f"Missing required scope: {required}") from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to update workspace attachment types", error=str(e))
+        raise ToolError(f"Failed to update workspace attachment types: {e}") from None
 
 
 @mcp.tool()

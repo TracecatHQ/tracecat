@@ -6,6 +6,12 @@
   Returns paginated workspace summaries including workspace id/name and the owning org_id/org_slug. Multi-org users may receive workspaces from more than one organization in a single response.
 </ResponseField>
 
+<ResponseField name="update_workspace_attachment_types" type="tool">
+  Configure which file extensions and MIME types case attachments may use.
+
+  A list replaces the workspace's current allowlist; it does not append. To add or remove one entry, call this tool without arguments first, edit the returned effective list, and pass the full list back. An empty list clears the workspace override so the system defaults apply again. Omitted arguments are left unchanged, and calling with no arguments only reads the current settings. An upload must match both an allowed extension and an allowed MIME type, so update both lists together when adding a file type. Changing settings requires the `workspace:update` scope.
+</ResponseField>
+
 <ResponseField name="create_workflow" type="tool">
   Create a new workflow in a workspace.
 </ResponseField>

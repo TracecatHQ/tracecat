@@ -87,6 +87,14 @@ own embedded collection truncation behavior below.
   `get_workflow_execution` to confirm the run closed as `CANCELED`. Cancelling
   a run that already finished does nothing.
 
+## Workspace settings tools
+
+- `update_workspace_attachment_types(workspace_id, allowed_extensions=None, allowed_mime_types=None)`
+
+Each list replaces the workspace allowlist for case attachments, and an empty
+list restores the system defaults. Call it with no lists to read the current
+and effective values. Writes need the `workspace:update` scope.
+
 ## Action discovery and authoring context
 
 - `list_actions(workspace_id, query=None, namespace=None, limit=50, cursor=None)`
