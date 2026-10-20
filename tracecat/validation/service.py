@@ -20,14 +20,14 @@ from tracecat.auth.types import Role
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import WorkspaceTunnel
-from tracecat.dsl.common import DSLInput, ExecuteSubflowArgs
+from tracecat.dsl.common import (
+    DSLInput,
+    ExecuteSubflowArgs,
+    dependency_cycle_message,
+)
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ActionStatement
-from tracecat.exceptions import (
-    RegistryValidationError,
-    TracecatDSLError,
-    TracecatNotFoundError,
-)
+from tracecat.exceptions import RegistryValidationError, TracecatNotFoundError
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprType
 from tracecat.expressions.eval import extract_expressions, is_template_only
@@ -597,10 +597,10 @@ def validate_entrypoint_expects(
 
 def validate_dsl_acyclic(dsl: DSLInput) -> list[DSLValidationResult]:
     """Validate that action dependencies contain no cycles."""
-    try:
-        dsl._assign_action_scopes(dsl._to_adjacency())
-    except TracecatDSLError as e:
-        return [DSLValidationResult(status="error", msg=str(e), detail=e.detail)]
+    if blocked := dsl.blocked_refs():
+        return [
+            DSLValidationResult(status="error", msg=dependency_cycle_message(blocked))
+        ]
     return []
 
 
