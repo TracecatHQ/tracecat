@@ -72,6 +72,7 @@ from tracecat.identifiers import ActionID
 from tracecat.identifiers.schedules import ScheduleUUID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.logger import logger
+from tracecat.parse import load_action_inputs_yaml
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.object import CollectionObject, InlineObject, StoredObject
 from tracecat.temporal.codec import decode_payloads
@@ -81,21 +82,6 @@ from tracecat.workflow.executions.enums import (
     TemporalSearchAttr,
     TriggerType,
 )
-
-
-def _load_action_inputs_yaml(inputs: str) -> Any:
-    """Parse persisted action inputs without coercing date-like strings."""
-    yaml_timestamp_tag = "tag:yaml.org,2002:timestamp"
-
-    class ActionInputsSafeLoader(yaml.SafeLoader):
-        """Safe YAML loader that keeps date-like action input scalars as strings."""
-
-    ActionInputsSafeLoader.yaml_implicit_resolvers = {
-        char: [resolver for resolver in resolvers if resolver[0] != yaml_timestamp_tag]
-        for char, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
-    }
-    return yaml.load(inputs, Loader=ActionInputsSafeLoader)
-
 
 _memo_payload_converter = PydanticPayloadConverter()
 
@@ -1376,7 +1362,7 @@ def build_action_statements_from_actions(
         dependencies = sorted(dependencies)
 
         control_flow = ActionControlFlow.model_validate(action.control_flow)
-        args = _load_action_inputs_yaml(action.inputs) or {}
+        args = load_action_inputs_yaml(action.inputs) or {}
         action_stmt = ActionStatement(
             id=action.id,
             ref=action.ref,

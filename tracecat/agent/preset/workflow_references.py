@@ -3,7 +3,6 @@
 import uuid
 from typing import cast
 
-import yaml
 from sqlalchemy import select
 
 from tracecat.agent.preset.schemas import AgentPresetWorkflowReference
@@ -12,27 +11,14 @@ from tracecat.dsl.enums import PlatformAction
 from tracecat.expressions import patterns
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.pagination import CursorPaginatedResponse, PageParams, paginate
+from tracecat.parse import load_action_inputs_yaml
 from tracecat.service import BaseWorkspaceService
-
-_YAML_TIMESTAMP_TAG = "tag:yaml.org,2002:timestamp"
-
-
-# Pure-Python loader: libyaml segfaults on deeply nested input, which no
-# except clause can catch.
-class _ActionInputsLoader(yaml.SafeLoader):
-    """Safe loader that keeps date-like scalars as strings."""
-
-
-_ActionInputsLoader.yaml_implicit_resolvers = {
-    char: [resolver for resolver in resolvers if resolver[0] != _YAML_TIMESTAMP_TAG]
-    for char, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
-}
 
 
 def _literal_preset_slug(inputs: str) -> str | None:
     """Return the literal `preset` slug from draft `ai.preset_agent` inputs."""
     try:
-        parsed = yaml.load(inputs, Loader=_ActionInputsLoader)
+        parsed = load_action_inputs_yaml(inputs)
     except Exception:
         # Drafts are stored unvalidated; bad tags and deep nesting raise
         # non-YAML errors, and one bad draft must not fail the page.

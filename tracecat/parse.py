@@ -5,9 +5,33 @@ from typing import Any, cast
 from urllib.parse import urlparse, urlunparse
 
 import tomli
+import yaml
 
 from tracecat.expressions import patterns
 from tracecat.logger import logger
+
+_YAML_TIMESTAMP_TAG = "tag:yaml.org,2002:timestamp"
+
+
+# Pure-Python loader: libyaml segfaults on deeply nested input, which no
+# except clause can catch.
+class _ActionInputsLoader(yaml.SafeLoader):
+    """Safe loader that keeps date-like scalars as strings."""
+
+
+_ActionInputsLoader.yaml_implicit_resolvers = {
+    char: [resolver for resolver in resolvers if resolver[0] != _YAML_TIMESTAMP_TAG]
+    for char, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+
+
+def load_action_inputs_yaml(inputs: str) -> Any:
+    """Safely parse persisted action inputs without coercing date-like strings."""
+    loader = _ActionInputsLoader(inputs)
+    try:
+        return loader.get_single_data()
+    finally:
+        loader.dispose()
 
 
 def insert_obj_by_path(

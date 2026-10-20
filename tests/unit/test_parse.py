@@ -1,7 +1,9 @@
 import pytest
+import yaml
 
 from tracecat.expressions.common import eval_jsonpath
 from tracecat.parse import (
+    load_action_inputs_yaml,
     traverse_expressions,
     traverse_leaves,
     unescape_string,
@@ -107,3 +109,8 @@ def test_traverse_expressions():
 )
 def test_unescape_string(raw: str, expected: str) -> None:
     assert unescape_string(raw) == expected
+
+
+def test_load_action_inputs_yaml_rejects_python_tags() -> None:
+    with pytest.raises(yaml.constructor.ConstructorError):
+        load_action_inputs_yaml("x: !!python/object/apply:os.system ['true']")
