@@ -1584,7 +1584,9 @@ async def _run_mcp_compression_initialize_case(
         request: dict[str, Any],
         timeout: float = 60.0,
     ) -> dict[str, Any]:
-        if request.get("subtype") == "initialize":
+        # Only accelerate the deliberate timeout. Successful sandbox startup
+        # needs the normal deadline when other smoke tests are running.
+        if request.get("subtype") == "initialize" and not expect_success:
             timeout = 1.0
         return await original_send_control_request(self, request, timeout=timeout)
 
@@ -1749,6 +1751,7 @@ def _run_nsjail_harness_in_docker_or_skip(
     compose_env.setdefault("ADDRESS", "0.0.0.0")
     compose_env.setdefault("LOG_LEVEL", "INFO")
     compose_env.setdefault("TRACECAT__APP_ENV", "development")
+    sandbox_image = os.environ.get("TRACECAT_TEST_SANDBOX_IMAGE")
     tests_mount = f"{repo_root / 'tests'}:/app/tests:ro"
     device_lines = (
         [
@@ -1777,8 +1780,14 @@ def _run_nsjail_harness_in_docker_or_skip(
             [
                 "services:",
                 "  api:",
-                "    build:",
-                "      target: test",
+                *(
+                    [
+                        f"    image: {json.dumps(sandbox_image)}",
+                        "    build: !reset null",
+                    ]
+                    if sandbox_image
+                    else ["    build:", "      target: test"]
+                ),
                 '    user: "0:0"',
                 "    cgroup: private",
                 *privileged_lines,
@@ -1813,7 +1822,7 @@ def _run_nsjail_harness_in_docker_or_skip(
                 "run",
                 "--rm",
                 "--no-deps",
-                "--build",
+                *(["--pull", "never"] if sandbox_image else ["--build"]),
                 "-T",
                 "--entrypoint",
                 "python",
