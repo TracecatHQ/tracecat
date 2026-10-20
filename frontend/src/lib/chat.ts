@@ -689,6 +689,13 @@ export function markLiveDenials(
   if (reasons.size === 0 && overrides.size === 0) {
     return messages
   }
+  const resultIds = new Set(
+    messages.flatMap((message) =>
+      message.parts.flatMap((part) =>
+        ai.isToolUIPart(part) && isToolResultPart(part) ? [part.toolCallId] : []
+      )
+    )
+  )
   return messages.map((message) => {
     let tagged = false
     const parts = message.parts.map((part) => {
@@ -699,15 +706,24 @@ export function markLiveDenials(
       }
       if (
         !ai.isToolUIPart(part) ||
-        !isToolResultPart(part) ||
         !reasons.has(part.toolCallId) ||
-        getToolDenial(part)
+        getToolDenial(part) ||
+        (!isToolResultPart(part) && resultIds.has(part.toolCallId))
       ) {
         return part
       }
       tagged = true
+      // The continuation replays a denied call before its result arrives,
+      // so show the decision instead of a running call meanwhile.
+      const result = isToolResultPart(part)
+        ? part
+        : ({
+            ...part,
+            state: "output-error",
+            errorText: "Tool execution was denied by user approval.",
+          } as unknown as typeof part)
       return {
-        ...part,
+        ...result,
         callProviderMetadata: {
           ...part.callProviderMetadata,
           tracecat: {

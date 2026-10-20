@@ -340,4 +340,42 @@ describe("markLiveDenials", () => {
       },
     })
   })
+
+  it("shows a denied call as denied before its result streams in", () => {
+    const messages = [
+      {
+        id: "msg-1",
+        role: "assistant",
+        parts: [
+          {
+            type: "dynamic-tool",
+            toolName: "core__transform__reshape",
+            toolCallId: "approved",
+            state: "input-available",
+            input: { value: 1 },
+          },
+          {
+            type: "dynamic-tool",
+            toolName: "core__transform__reshape",
+            toolCallId: "denied",
+            state: "input-available",
+            input: { value: 2 },
+          },
+        ],
+      },
+    ] as ai.UIMessage[]
+
+    const [message] = markLiveDenials(messages, [
+      { tool_call_id: "approved", action: "approve" },
+      { tool_call_id: "denied", action: "deny", reason: "No" },
+    ])
+
+    expect(message.parts[0]).toMatchObject({ state: "input-available" })
+    expect(message.parts[1]).toMatchObject({
+      state: "output-error",
+      callProviderMetadata: {
+        tracecat: { approval: "rejected", reason: "No" },
+      },
+    })
+  })
 })
