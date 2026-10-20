@@ -1569,7 +1569,11 @@ function AgentPresetForm({
   )
 
   const documentPanel = (
-    <AgentPresetDocumentPanel form={form} isSaving={isSaving} />
+    <AgentPresetDocumentPanel
+      form={form}
+      isSaving={isSaving}
+      fullWidth={layout === "stacked"}
+    />
   )
 
   // Channels lives in the URL so the Slack OAuth redirect returns to it.
@@ -1759,13 +1763,21 @@ function AgentPresetForm({
 function AgentPresetDocumentPanel({
   form,
   isSaving,
+  fullWidth,
 }: {
   form: UseFormReturn<AgentPresetFormValues>
   isSaving: boolean
+  /** Match the setup rail's insets instead of a centered reading column. */
+  fullWidth: boolean
 }) {
   return (
     <ScrollArea className="h-full [&_[data-radix-scroll-area-viewport]>div]:!flex [&_[data-radix-scroll-area-viewport]>div]:min-h-full [&_[data-radix-scroll-area-viewport]>div]:flex-col">
-      <div className="mx-auto flex w-full max-w-[700px] flex-1 flex-col gap-0 px-[clamp(16px,5vw,48px)] pt-12 pb-10">
+      <div
+        className={cn(
+          "flex w-full flex-1 flex-col gap-0 pt-12 pb-10",
+          fullWidth ? "px-6" : "mx-auto max-w-[700px] px-[clamp(16px,5vw,48px)]"
+        )}
+      >
         <div className="space-y-3">
           <FormField
             control={form.control}
