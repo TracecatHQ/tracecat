@@ -68,7 +68,7 @@ describe("AgentApprovalsDialog", () => {
       }),
       { target: { value: "Wrong host" } }
     )
-    fireEvent.click(screen.getByRole("button", { name: "Submit decisions" }))
+    fireEvent.click(screen.getByRole("button", { name: /^Submit/ }))
 
     await waitFor(() =>
       expect(approvalsSubmitApprovals).toHaveBeenCalledWith({
