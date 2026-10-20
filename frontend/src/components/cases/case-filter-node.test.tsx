@@ -160,3 +160,30 @@ test("recognizes include-unset in either order but not two unset leaves", () => 
     })
   ).toBeNull()
 })
+
+test.each([
+  { field: "fields.active", value: true },
+  { field: "payload.active", value: false },
+  { field: "payload.score", value: 5 },
+])(
+  "field changes reset remembered payload type for $field",
+  ({ field, value }) => {
+    setup({ field, op: "eq", value })
+    if (field.startsWith("payload.")) {
+      fireEvent.change(screen.getByLabelText("Condition field"), {
+        target: { value: "fields.active" },
+      })
+    }
+    fireEvent.change(screen.getByLabelText("Condition field"), {
+      target: { value: "payload.<path>" },
+    })
+    expect(screen.getByLabelText("Payload value type")).toHaveValue("text")
+    fireEvent.change(screen.getByLabelText("Payload path"), {
+      target: { value: "label" },
+    })
+    fireEvent.change(screen.getByLabelText("Condition value"), {
+      target: { value: "005" },
+    })
+    expect(draft()).toEqual({ field: "payload.label", op: "eq", value: "005" })
+  }
+)

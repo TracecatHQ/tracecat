@@ -113,6 +113,7 @@ export function FilterNode({
               (item) => item.field === event.target.value
             )
             if (!selected) return
+            setPayloadValueType("text")
             const op = selected.operators.includes("eq")
               ? "eq"
               : selected.operators[0]
