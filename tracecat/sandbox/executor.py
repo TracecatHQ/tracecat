@@ -4,6 +4,9 @@ import os
 import re
 import signal
 import time
+import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -20,6 +23,7 @@ from tracecat.config import (
 )
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import (
+    SandboxInfrastructureError,
     SandboxValidationError,
 )
 from tracecat.sandbox.networking import resolve_sandbox_network_plan
@@ -185,13 +189,44 @@ os.execv("/usr/local/bin/python3", ["/usr/local/bin/python3", sys.argv[1]])
 """
 
 
+@dataclass(frozen=True, slots=True)
+class SigkillEvidence:
+    """Trusted evidence about one run that ended with exit status 137.
+
+    ``termination_signal`` comes from NsJail's private log; ``oom_kills`` and
+    ``cpu_usec`` from the run's own cgroup. The workload controls none of them.
+    """
+
+    termination_signal: int | None
+    oom_kills: int | None
+    cpu_usec: int | None
+    elapsed_seconds: float
+    cpu_limit_seconds: int
+    wall_limit_seconds: int
+
+    @property
+    def killed_outside_sandbox(self) -> bool:
+        """Whether only an external SIGKILL explains the exit.
+
+        A normal ``exit(137)``, a memory OOM kill, an ``RLIMIT_CPU`` kill (the
+        cgroup total bounds every process's CPU time, across threads), or the
+        wall time limit each rule it out.
+        """
+        return (
+            self.termination_signal == signal.SIGKILL
+            and self.oom_kills == 0
+            and self.cpu_usec is not None
+            and self.cpu_usec < self.cpu_limit_seconds * 1_000_000
+            and self.elapsed_seconds < self.wall_limit_seconds
+        )
+
+
 def _classify_missing_nsjail_result(
     returncode: int | None,
     *,
     result_file_exists: bool,
     workload_started: bool,
-    oom_killed: bool | None = None,
-    limit_elapsed: bool = False,
+    kill_evidence: SigkillEvidence | None = None,
 ) -> SandboxErrorCode:
     """Classify an NsJail exit that did not produce a usable result.
 
@@ -204,14 +239,10 @@ def _classify_missing_nsjail_result(
     - ``None`` or a negative parent return code: infrastructure failure.
     - ``255`` without a start marker or result file: infrastructure failure.
     - ``255`` with a start marker or result file: workload failure.
-    - ``SIGKILL`` with no OOM kill in the sandbox cgroup and no elapsed CPU
-      or wall limit: infrastructure failure. Something outside the sandbox,
-      such as a node shutdown, killed the workload.
+    - ``137`` that ``kill_evidence`` proves came from outside the sandbox,
+      such as a node shutdown: infrastructure failure.
     - Child policy/resource signals: policy or resource failure, respectively.
     - Every other missing-result exit: workload failure.
-
-    ``oom_killed`` is ``None`` when the cgroup's OOM counter is unavailable;
-    ``SIGKILL`` then stays a resource-limit failure.
     """
     if returncode is None or returncode < 0:
         return SandboxErrorCode.INFRASTRUCTURE_FAILURE
@@ -225,8 +256,8 @@ def _classify_missing_nsjail_result(
         return SandboxErrorCode.POLICY_VIOLATION
     if (
         returncode == _NSJAIL_SIGKILL_EXIT_CODE
-        and oom_killed is False
-        and not limit_elapsed
+        and kill_evidence is not None
+        and kill_evidence.killed_outside_sandbox
     ):
         return SandboxErrorCode.INFRASTRUCTURE_FAILURE
     if returncode in _NSJAIL_RESOURCE_LIMIT_EXIT_CODES:
@@ -234,18 +265,20 @@ def _classify_missing_nsjail_result(
     return SandboxErrorCode.WORKLOAD_FAILURE
 
 
-def _sandbox_limit_elapsed(
-    execution_time_ms: float,
-    *,
-    cpu_seconds: int,
-    wall_seconds: int,
-) -> bool:
-    """Return whether a run lasted long enough to reach its CPU or wall limit.
-
-    ``RLIMIT_CPU`` sends ``SIGXCPU`` before any ``SIGKILL``, so only a workload
-    that survives ``SIGXCPU`` past both limits' shorter bound could reach here.
-    """
-    return execution_time_ms / 1000 >= min(cpu_seconds, wall_seconds)
+def _cgroup_stat(path: Path, key: str) -> int | None:
+    """Read one key from a flat-keyed cgroup file, if readable."""
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        name, _, value = line.partition(" ")
+        if name == key:
+            try:
+                return int(value)
+            except ValueError:
+                return None
+    return None
 
 
 def _missing_nsjail_result_message(
@@ -342,33 +375,40 @@ class NsjailExecutor:
         self.cgroup_mount = cgroup_mount
         self.package_cache = self.cache_dir / "packages"
 
-    def _oom_kill_count(self) -> int | None:
-        """Return the sandbox cgroup subtree's OOM kill count, if readable.
-
-        ``memory.events`` is hierarchical, so the parent counts kills in every
-        per-run child cgroup nsjail creates and removes.
-        """
+    def _run_cgroup_path(self) -> Path | None:
+        """Name a per-run cgroup below the delegated root."""
         if self.cgroup_mount is None:
             return None
-        try:
-            events = (self.cgroup_mount / "memory.events").read_text()
-        except OSError:
-            return None
-        for line in events.splitlines():
-            key, _, value = line.partition(" ")
-            if key == "oom_kill":
-                try:
-                    return int(value)
-                except ValueError:
-                    return None
-        return None
+        return self.cgroup_mount / f"run-{uuid.uuid4().hex}"
 
-    def _oom_killed_since(self, before: int | None) -> bool | None:
-        """Return whether the subtree recorded an OOM kill after ``before``."""
-        after = self._oom_kill_count()
-        if before is None or after is None:
-            return None
-        return after > before
+    @contextmanager
+    def _run_cgroup(self, path: Path | None) -> Iterator[None]:
+        """Create a run's cgroup for NsJail's child group, then remove it.
+
+        Kernel counters in a cgroup of its own describe only this run, unlike
+        the shared root's, which concurrent sandboxes also update.
+        """
+        if path is None:
+            yield
+            return
+        try:
+            path.mkdir()
+            (path / "cgroup.subtree_control").write_text("+memory")
+        except OSError as error:
+            raise SandboxInfrastructureError(
+                "Sandbox host failed to prepare the run cgroup"
+            ) from error
+        try:
+            yield
+        finally:
+            try:
+                path.rmdir()
+            except OSError as error:
+                logger.warning(
+                    "Failed to remove sandbox run cgroup",
+                    cgroup=str(path),
+                    error=str(error),
+                )
 
     def _build_config(
         self,
@@ -377,6 +417,8 @@ class NsjailExecutor:
         config: SandboxConfig,
         cache_key: str | None = None,
         script_name: str = "wrapper.py",
+        *,
+        cgroup_path: Path | None = None,
     ) -> str:
         """Build nsjail protobuf config.
 
@@ -386,6 +428,7 @@ class NsjailExecutor:
             config: Sandbox configuration.
             cache_key: Cache key for package lookup.
             script_name: Name of the script to execute (for execute phase).
+            cgroup_path: Parent for NsJail's cgroup; defaults to the root.
 
         Returns:
             nsjail protobuf configuration as a string.
@@ -396,8 +439,9 @@ class NsjailExecutor:
         # Validate inputs to prevent injection into protobuf config
         _validate_path(job_dir, "job_dir")
         _validate_path(self.rootfs, "rootfs")
-        if self.cgroup_mount is not None:
-            _validate_path(self.cgroup_mount, "cgroup_mount")
+        cgroup = cgroup_path or self.cgroup_mount
+        if cgroup is not None:
+            _validate_path(cgroup, "cgroup_mount")
         for i, python_path_dir in enumerate(config.python_path_dirs):
             _validate_path(python_path_dir, f"python_path_dir_{i}")
         for i, bind_mount in enumerate(config.bind_mounts):
@@ -561,11 +605,11 @@ class NsjailExecutor:
                 f"time_limit: {config.resources.timeout_seconds}",
             ]
         )
-        if self.cgroup_mount is not None:
+        if cgroup is not None:
             lines.extend(
                 [
                     "use_cgroupv2: true",
-                    f'cgroupv2_mount: "{self.cgroup_mount}"',
+                    f'cgroupv2_mount: "{cgroup}"',
                     f"cgroup_mem_max: {config.resources.memory_mb * 1024 * 1024}",
                     "cgroup_mem_swap_max: 0",
                 ]
@@ -665,8 +709,9 @@ class NsjailExecutor:
         start_time = time.time()
 
         # Generate nsjail config with script name embedded
+        run_cgroup = self._run_cgroup_path()
         nsjail_config = self._build_config(
-            job_dir, "execute", config, cache_key, script_name
+            job_dir, "execute", config, cache_key, script_name, cgroup_path=run_cgroup
         )
         env_map = self._build_env_map(config, "execute", cache_key)
 
@@ -675,25 +720,36 @@ class NsjailExecutor:
             job_dir=str(job_dir),
             cache_key=cache_key,
         )
-        oom_kills_before = self._oom_kill_count()
-        completed = await invoke_nsjail(
-            nsjail_path=self.nsjail_path,
-            job_dir=job_dir,
-            config_text=nsjail_config,
-            env=env_map,
-            timeout_seconds=config.resources.timeout_seconds + 10,
-            timeout_message=(
-                f"Execution timed out after {config.resources.timeout_seconds}s"
-            ),
-            workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
-            workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
-            workload_started_marker=_WORKLOAD_STARTED_MARKER,
-        )
+        with self._run_cgroup(run_cgroup):
+            completed = await invoke_nsjail(
+                nsjail_path=self.nsjail_path,
+                job_dir=job_dir,
+                config_text=nsjail_config,
+                env=env_map,
+                timeout_seconds=config.resources.timeout_seconds + 10,
+                timeout_message=(
+                    f"Execution timed out after {config.resources.timeout_seconds}s"
+                ),
+                workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
+                workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
+                workload_started_marker=_WORKLOAD_STARTED_MARKER,
+            )
+            oom_kills = (
+                None
+                if run_cgroup is None
+                else _cgroup_stat(run_cgroup / "memory.events", "oom_kill")
+            )
+            cpu_usec = (
+                None
+                if run_cgroup is None
+                else _cgroup_stat(run_cgroup / "cpu.stat", "usage_usec")
+            )
         returncode = completed.returncode
 
         execution_time_ms = (time.time() - start_time) * 1000
         stdout = completed.stdout.decode("utf-8", errors="replace")
         stderr = completed.stderr.decode("utf-8", errors="replace")
+        nsjail_log = completed.nsjail_log.decode("utf-8", errors="replace")
 
         # Try to decode result.json through the typed envelope. A valid
         # envelope returns directly; the absence of a result file falls
@@ -732,19 +788,23 @@ class NsjailExecutor:
                 execution_time_ms=execution_time_ms,
             )
 
-        oom_killed = self._oom_killed_since(oom_kills_before)
+        kill_evidence = SigkillEvidence(
+            termination_signal=completed.termination_signal,
+            oom_kills=oom_kills,
+            cpu_usec=cpu_usec,
+            elapsed_seconds=execution_time_ms / 1000,
+            cpu_limit_seconds=config.resources.cpu_seconds,
+            wall_limit_seconds=config.resources.timeout_seconds,
+        )
         error_code = _classify_missing_nsjail_result(
             returncode,
             result_file_exists=result_file_exists,
             workload_started=workload_started,
-            oom_killed=oom_killed,
-            limit_elapsed=_sandbox_limit_elapsed(
-                execution_time_ms,
-                cpu_seconds=config.resources.cpu_seconds,
-                wall_seconds=config.resources.timeout_seconds,
-            ),
+            kill_evidence=kill_evidence,
         )
-        error_msg = _missing_nsjail_result_message(error_code, stderr=stderr)
+        error_msg = _missing_nsjail_result_message(
+            error_code, stderr=f"{nsjail_log}\n{stderr}"
+        )
         # nsjail startup output can fill the prefix before Python emits a fatal
         # error. Keep a bounded tail as well so crash diagnostics survive.
         stderr_tail = stderr[-_FAILURE_STDERR_TAIL_CHARS:]
@@ -752,7 +812,11 @@ class NsjailExecutor:
         # discovery opts into raw crash diagnostics.
         raw_stderr_fields: dict[str, str] = {}
         if log_raw_crash_stderr:
-            raw_stderr_fields = {"stderr": stderr[:500], "stderr_tail": stderr_tail}
+            raw_stderr_fields = {
+                "stderr": stderr[:500],
+                "stderr_tail": stderr_tail,
+                "nsjail_log_tail": nsjail_log[-_FAILURE_STDERR_TAIL_CHARS:],
+            }
         logger.error(
             "Sandbox execution did not produce a usable result",
             error_code=error_code,
@@ -762,7 +826,9 @@ class NsjailExecutor:
             stderr_tail_truncated=len(stderr) > _FAILURE_STDERR_TAIL_CHARS,
             workload_started=workload_started,
             result_file_exists=result_file_exists,
-            oom_killed=oom_killed,
+            termination_signal=completed.termination_signal,
+            oom_kills=oom_kills,
+            cpu_usec=cpu_usec,
             execution_time_ms=execution_time_ms,
             memory_mb=config.resources.memory_mb,
             max_processes=config.resources.max_processes,
@@ -834,7 +900,11 @@ class NsjailExecutor:
         execution_time_ms = (time.time() - start_time) * 1000
         stdout = completed.stdout.decode("utf-8", errors="replace")
         stderr = completed.stderr.decode("utf-8", errors="replace")
+        nsjail_log = completed.nsjail_log.decode("utf-8", errors="replace")
 
+        # NsJail now logs to a private descriptor; keep its lines with the
+        # install output the caller already surfaces.
+        stderr = f"{nsjail_log}{stderr}"
         success = returncode == 0
         error_code: SandboxErrorCode | None = None
 
@@ -867,6 +937,8 @@ class NsjailExecutor:
         self,
         job_dir: Path,
         config: ActionSandboxConfig,
+        *,
+        cgroup_path: Path | None = None,
     ) -> str:
         """Build nsjail protobuf config for action execution.
 
@@ -883,8 +955,9 @@ class NsjailExecutor:
         # Validate inputs to prevent injection into protobuf config
         _validate_path(job_dir, "job_dir")
         _validate_path(self.rootfs, "rootfs")
-        if self.cgroup_mount is not None:
-            _validate_path(self.cgroup_mount, "cgroup_mount")
+        cgroup = cgroup_path or self.cgroup_mount
+        if cgroup is not None:
+            _validate_path(cgroup, "cgroup_mount")
         for i, registry_path in enumerate(config.registry_paths):
             _validate_path(registry_path, f"registry_path_{i}")
         _validate_path(config.tracecat_app_dir, "tracecat_app_dir")
@@ -1002,11 +1075,11 @@ class NsjailExecutor:
             ]
         )
 
-        if self.cgroup_mount is not None:
+        if cgroup is not None:
             lines.extend(
                 [
                     "use_cgroupv2: true",
-                    f'cgroupv2_mount: "{self.cgroup_mount}"',
+                    f'cgroupv2_mount: "{cgroup}"',
                     f"cgroup_mem_max: {config.resources.memory_mb * 1024 * 1024}",
                     "cgroup_mem_swap_max: 0",
                 ]
@@ -1077,7 +1150,10 @@ class NsjailExecutor:
         start_time = time.time()
 
         # Generate nsjail config for action execution
-        nsjail_config = self._build_action_config(job_dir, config)
+        run_cgroup = self._run_cgroup_path()
+        nsjail_config = self._build_action_config(
+            job_dir, config, cgroup_path=run_cgroup
+        )
         env_map = self._build_action_env_map(config)
 
         logger.debug(
@@ -1086,25 +1162,36 @@ class NsjailExecutor:
             registry_paths=config.registry_paths,
             tracecat_app=str(config.tracecat_app_dir),
         )
-        oom_kills_before = self._oom_kill_count()
-        completed = await invoke_nsjail(
-            nsjail_path=self.nsjail_path,
-            job_dir=job_dir,
-            config_text=nsjail_config,
-            env=env_map,
-            timeout_seconds=config.timeout_seconds + 10,
-            timeout_message=(
-                f"Action execution timed out after {config.timeout_seconds}s"
-            ),
-            workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
-            workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
-            workload_started_marker=_WORKLOAD_STARTED_MARKER,
-        )
+        with self._run_cgroup(run_cgroup):
+            completed = await invoke_nsjail(
+                nsjail_path=self.nsjail_path,
+                job_dir=job_dir,
+                config_text=nsjail_config,
+                env=env_map,
+                timeout_seconds=config.timeout_seconds + 10,
+                timeout_message=(
+                    f"Action execution timed out after {config.timeout_seconds}s"
+                ),
+                workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
+                workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
+                workload_started_marker=_WORKLOAD_STARTED_MARKER,
+            )
+            oom_kills = (
+                None
+                if run_cgroup is None
+                else _cgroup_stat(run_cgroup / "memory.events", "oom_kill")
+            )
+            cpu_usec = (
+                None
+                if run_cgroup is None
+                else _cgroup_stat(run_cgroup / "cpu.stat", "usage_usec")
+            )
         returncode = completed.returncode
 
         execution_time_ms = (time.time() - start_time) * 1000
         stdout = completed.stdout.decode("utf-8", errors="replace")
         stderr = completed.stderr.decode("utf-8", errors="replace")
+        nsjail_log = completed.nsjail_log.decode("utf-8", errors="replace")
 
         # Try to decode result.json through the typed envelope. A valid
         # envelope returns directly; the absence of a result file falls
@@ -1140,24 +1227,30 @@ class NsjailExecutor:
                     logger.info("Subprocess output", output=python_logs[:2000])
             return outcome.result
 
-        oom_killed = self._oom_killed_since(oom_kills_before)
+        kill_evidence = SigkillEvidence(
+            termination_signal=completed.termination_signal,
+            oom_kills=oom_kills,
+            cpu_usec=cpu_usec,
+            elapsed_seconds=execution_time_ms / 1000,
+            cpu_limit_seconds=config.resources.cpu_seconds,
+            wall_limit_seconds=int(config.timeout_seconds),
+        )
         error_code = _classify_missing_nsjail_result(
             returncode,
             result_file_exists=result_file_exists,
             workload_started=workload_started,
-            oom_killed=oom_killed,
-            limit_elapsed=_sandbox_limit_elapsed(
-                execution_time_ms,
-                cpu_seconds=config.resources.cpu_seconds,
-                wall_seconds=int(config.timeout_seconds),
-            ),
+            kill_evidence=kill_evidence,
         )
-        error_msg = _missing_nsjail_result_message(error_code, stderr=stderr)
+        error_msg = _missing_nsjail_result_message(
+            error_code, stderr=f"{nsjail_log}\n{stderr}"
+        )
         logger.error(
             "Action sandbox execution did not produce a usable result",
             error_code=error_code,
             returncode=returncode,
-            oom_killed=oom_killed,
+            termination_signal=completed.termination_signal,
+            oom_kills=oom_kills,
+            cpu_usec=cpu_usec,
             stderr=stderr[-2000:],
         )
         return SandboxResult(
