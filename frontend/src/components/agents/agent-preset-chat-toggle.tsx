@@ -46,7 +46,10 @@ export function AgentPresetChatToggle({
             Chat.
           </TooltipContent>
         </Tooltip>
-        <Label htmlFor={id} className="text-xs font-normal">
+        <Label
+          htmlFor={id}
+          className="whitespace-nowrap text-xs font-normal [@container_agent-preset-bar_(max-width:35rem)]:sr-only"
+        >
           Use in chat
         </Label>
       </div>

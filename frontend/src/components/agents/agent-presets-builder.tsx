@@ -898,59 +898,60 @@ function AgentPresetChatPane({
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border/60 px-5">
+      <div className="@container/agent-preset-bar flex min-h-12 shrink-0 flex-wrap items-center gap-1 border-b border-border/60 px-5 py-1.5">
         {leading}
-        <span className="flex-1" />
-        {preset ? (
-          <AgentPresetVersionSelect
-            versions={versions}
-            versionsIsLoading={versionsIsLoading}
-            versionsError={versionsError}
-            selectedVersionId={selectedVersionId}
-            currentVersionId={preset.current_version_id ?? null}
-            onSelect={handlePresetVersionChange}
-            disabled={
-              !activeChatId ||
-              !chat ||
-              chat.is_readonly ||
-              isUpdating ||
-              canExecuteAgents !== true
-            }
-            triggerClassName="h-7 w-[10.5rem] text-xs shadow-none"
-          />
-        ) : null}
-        {preset ? (
-          <>
-            <ChatHistoryDropdown
-              chats={chats}
-              isLoading={chatsLoading}
-              error={chatsError}
-              selectedChatId={activeChatId ?? undefined}
-              onSelectChat={(chatId) => setSelectedChatId(chatId)}
-              workspaceId={workspaceId}
-              scope={historyScope}
-              onScopeChange={handleHistoryScopeChange}
-              align="end"
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
+          {preset ? (
+            <AgentPresetVersionSelect
+              versions={versions}
+              versionsIsLoading={versionsIsLoading}
+              versionsError={versionsError}
+              selectedVersionId={selectedVersionId}
+              currentVersionId={preset.current_version_id ?? null}
+              onSelect={handlePresetVersionChange}
+              disabled={
+                !activeChatId ||
+                !chat ||
+                chat.is_readonly ||
+                isUpdating ||
+                canExecuteAgents !== true
+              }
+              triggerClassName="h-7 w-[10.5rem] text-xs shadow-none"
             />
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="text-xs"
-              disabled={createChatPending || !canStartChat}
-              onClick={() => void handleCreateChat()}
-            >
-              {createChatPending ? (
-                <Loader2 className="mr-2 size-4 animate-spin" />
-              ) : (
-                <Plus className="mr-2 size-4" />
-              )}
-              New chat
-            </Button>
-            <span aria-hidden="true" className="mx-1 h-4 w-px bg-border" />
-          </>
-        ) : null}
-        {trailing}
+          ) : null}
+          {preset ? (
+            <>
+              <ChatHistoryDropdown
+                chats={chats}
+                isLoading={chatsLoading}
+                error={chatsError}
+                selectedChatId={activeChatId ?? undefined}
+                onSelectChat={(chatId) => setSelectedChatId(chatId)}
+                workspaceId={workspaceId}
+                scope={historyScope}
+                onScopeChange={handleHistoryScopeChange}
+                align="end"
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="text-xs"
+                disabled={createChatPending || !canStartChat}
+                onClick={() => void handleCreateChat()}
+              >
+                {createChatPending ? (
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                ) : (
+                  <Plus className="mr-2 size-4" />
+                )}
+                New chat
+              </Button>
+              <span aria-hidden="true" className="mx-1 h-4 w-px bg-border" />
+            </>
+          ) : null}
+          {trailing}
+        </div>
       </div>
       <div className="flex-1 min-h-0">{renderBody()}</div>
     </div>
@@ -1570,17 +1571,8 @@ function AgentPresetForm({
   const documentPanel = (
     <AgentPresetDocumentPanel
       form={form}
-      workspaceId={workspaceId}
-      presetId={preset?.id ?? null}
-      currentVersionId={preset?.current_version_id ?? null}
-      getDraftPayload={getDraftPayload}
       isSaving={isSaving}
-      canSubmit={canSubmit}
-      submitLabel={submitLabel}
-      onPublish={submit}
-      isDirty={form.formState.isDirty}
-      cutsVersion={cutsVersion}
-      onDiscard={discard}
+      fullWidth={layout === "stacked"}
     />
   )
 
@@ -1664,11 +1656,12 @@ function AgentPresetForm({
   } else {
     leftPanel = (
       <div className="flex h-full min-h-0 flex-col">
-        <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border/60 px-5">
+        <div className="@container/agent-preset-bar flex min-h-12 shrink-0 flex-wrap items-center gap-1 border-b border-border/60 px-5 py-1.5">
           {modeSwitch}
-          <span className="flex-1" />
-          {leftMode === "channels" ? inlineActions : null}
-          {railToggle}
+          <div className="ml-auto flex items-center gap-1">
+            {inlineActions}
+            {railToggle}
+          </div>
         </div>
         <div className="min-h-0 flex-1">
           {/* Mount once entitlements resolve; the panel's early return
@@ -1769,107 +1762,72 @@ function AgentPresetForm({
 
 function AgentPresetDocumentPanel({
   form,
-  workspaceId,
-  presetId,
-  currentVersionId,
-  getDraftPayload,
   isSaving,
-  canSubmit,
-  submitLabel,
-  onPublish,
-  isDirty,
-  cutsVersion,
-  onDiscard,
+  fullWidth,
 }: {
   form: UseFormReturn<AgentPresetFormValues>
-  workspaceId: string
-  presetId: string | null
-  currentVersionId: string | null
-  getDraftPayload: () => AgentPresetCreate | null
   isSaving: boolean
-  canSubmit: boolean
-  submitLabel: string
-  onPublish: () => void
-  isDirty: boolean
-  cutsVersion: boolean
-  onDiscard: () => void
+  /** Match the setup rail's insets instead of a centered reading column. */
+  fullWidth: boolean
 }) {
-  // Context present -> the standalone route's global controls header renders
-  // the detail actions; context absent (case artifact view) -> render them
-  // inline next to the title.
-  const detail = useAgentPresetDetailContext()
   return (
     <ScrollArea className="h-full [&_[data-radix-scroll-area-viewport]>div]:!flex [&_[data-radix-scroll-area-viewport]>div]:min-h-full [&_[data-radix-scroll-area-viewport]>div]:flex-col">
-      <div className="mx-auto flex w-full max-w-[700px] flex-1 flex-col gap-0 px-[clamp(16px,5vw,48px)] pt-12 pb-10">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex-1 space-y-3">
-            <FormField
-              control={form.control}
-              name="slug"
-              render={({ field }) => (
-                <FormItem className="space-y-0">
-                  <FormLabel className="sr-only">Slug</FormLabel>
-                  <FormControl>
-                    <input type="hidden" {...field} value={field.value ?? ""} />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem className="space-y-0">
-                  <FormLabel className="sr-only">Agent name</FormLabel>
-                  <FormControl>
-                    <Input
-                      className="h-auto w-full border-none bg-transparent px-0 text-[30px] font-semibold leading-tight tracking-[-0.02em] text-foreground shadow-none outline-none transition-none placeholder:text-muted-foreground/40 focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
-                      placeholder="New agent preset"
-                      disabled={isSaving}
-                      {...field}
-                      value={field.value ?? ""}
-                    />
-                  </FormControl>
-                  <FormMessage className="text-xs" />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormControl>
-                    <AutoResizeTextarea
-                      value={field.value ?? ""}
-                      onChange={field.onChange}
-                      onBlur={field.onBlur}
-                      disabled={isSaving}
-                      placeholder="Describe this agent."
-                      className="w-full resize-none overflow-hidden border-none bg-transparent px-0 text-[15px] leading-[1.55] text-muted-foreground shadow-none outline-none transition-none placeholder:text-muted-foreground/50 focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
-                    />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-          </div>
-          {detail ? null : (
-            <div className="flex flex-wrap items-center gap-2">
-              <AgentPresetDetailActions
-                workspaceId={workspaceId}
-                presetId={presetId}
-                currentVersionId={currentVersionId}
-                getDraftPayload={getDraftPayload}
-                isSaving={isSaving}
-                canSubmit={canSubmit}
-                submitLabel={submitLabel}
-                onPublish={onPublish}
-                isDirty={isDirty}
-                cutsVersion={cutsVersion}
-                onDiscard={onDiscard}
-              />
-            </div>
-          )}
+      <div
+        className={cn(
+          "flex w-full flex-1 flex-col gap-0 pt-12 pb-10",
+          fullWidth ? "px-6" : "mx-auto max-w-[700px] px-[clamp(16px,5vw,48px)]"
+        )}
+      >
+        <div className="space-y-3">
+          <FormField
+            control={form.control}
+            name="slug"
+            render={({ field }) => (
+              <FormItem className="space-y-0">
+                <FormLabel className="sr-only">Slug</FormLabel>
+                <FormControl>
+                  <input type="hidden" {...field} value={field.value ?? ""} />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="name"
+            render={({ field }) => (
+              <FormItem className="space-y-0">
+                <FormLabel className="sr-only">Agent name</FormLabel>
+                <FormControl>
+                  <Input
+                    className="h-auto w-full border-none bg-transparent px-0 text-[30px] font-semibold leading-tight tracking-[-0.02em] text-foreground shadow-none outline-none transition-none placeholder:text-muted-foreground/40 focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
+                    placeholder="New agent preset"
+                    disabled={isSaving}
+                    {...field}
+                    value={field.value ?? ""}
+                  />
+                </FormControl>
+                <FormMessage className="text-xs" />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="description"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <AutoResizeTextarea
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    disabled={isSaving}
+                    placeholder="Describe this agent."
+                    className="w-full resize-none overflow-hidden border-none bg-transparent px-0 text-[15px] leading-[1.55] text-muted-foreground shadow-none outline-none transition-none placeholder:text-muted-foreground/50 focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
+                  />
+                </FormControl>
+              </FormItem>
+            )}
+          />
         </div>
         <Separator className="my-8" />
         <section className="flex flex-1 flex-col">
