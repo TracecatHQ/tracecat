@@ -35,7 +35,7 @@ RUN g++ -std=c++20 -O2 -Wall -Wextra -Werror -Wformat=2 \
 # ====================
 # Stage 2: Create minimal sandbox rootfs
 # ====================
-FROM node:22.13.1-slim AS node-bin
+FROM node:22.23.4-slim AS node-bin
 FROM python:3.12-slim-bookworm AS sandbox-rootfs
 
 ARG TARGETARCH
