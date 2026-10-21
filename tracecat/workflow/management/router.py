@@ -43,6 +43,7 @@ from tracecat.dsl.common import apply_expects_order
 from tracecat.dsl.schemas import DSLConfig
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -927,12 +928,15 @@ async def create_webhook(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
         )
-    webhook = await webhook_service.create_webhook(
-        role=role,
-        session=session,
-        workflow_id=workflow_id,
-        params=params,
-    )
+    try:
+        webhook = await webhook_service.create_webhook(
+            role=role,
+            session=session,
+            workflow_id=workflow_id,
+            params=params,
+        )
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     return WebhookRead.model_validate(webhook, from_attributes=True)
 
 

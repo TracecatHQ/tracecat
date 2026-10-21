@@ -236,6 +236,90 @@ class TestValidateIncomingWebhook:
         assert exc_info.value.status_code == 401
         assert exc_info.value.detail == "Unauthorized webhook request"
 
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("peer", "forwarded_for", "allowed"),
+        [
+            pytest.param(
+                "10.244.3.17", "203.0.113.7", True, id="sender_behind_private_proxy"
+            ),
+            pytest.param(
+                "10.244.3.17", "203.0.113.7, 10.0.2.234", True, id="two_proxy_hops"
+            ),
+            pytest.param(
+                "10.244.3.17", "198.51.100.9", False, id="sender_not_allowlisted"
+            ),
+            pytest.param("10.244.3.17", None, False, id="proxy_peer_only"),
+            pytest.param("203.0.113.7", None, True, id="direct_sender"),
+            pytest.param(
+                "198.51.100.9", "203.0.113.7", False, id="untrusted_peer_spoofs_xff"
+            ),
+        ],
+    )
+    async def test_allowlist_resolves_client_behind_trusted_proxies(
+        self, peer: str, forwarded_for: str | None, allowed: bool
+    ):
+        workflow_id = WorkflowUUID.new_uuid4()
+        webhook_secret = "secret"
+
+        headers = (
+            [(b"x-forwarded-for", forwarded_for.encode())] if forwarded_for else []
+        )
+        request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/",
+                "query_string": b"",
+                "headers": headers,
+                "client": (peer, 51234),
+            }
+        )
+
+        webhook = MagicMock(spec=Webhook)
+        webhook.id = uuid.uuid4()
+        webhook.workflow_id = workflow_id
+        webhook.secret = webhook_secret
+        webhook.status = "online"
+        webhook.normalized_methods = ["post"]
+        webhook.allowlisted_cidrs = ["203.0.113.0/24"]
+        webhook.api_key = None
+        webhook.workspace_id = uuid.uuid4()
+
+        workspace = MagicMock()
+        workspace.organization_id = uuid.uuid4()
+
+        webhook_result = MagicMock()
+        webhook_result.scalar_one.return_value = webhook
+        workspace_result = MagicMock()
+        workspace_result.scalar_one.return_value = workspace
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(side_effect=[webhook_result, workspace_result])
+
+        mock_session_cm = AsyncMock()
+        mock_session_cm.__aenter__.return_value = mock_session
+        mock_session_cm.__aexit__.return_value = None
+
+        token = ctx_role.set(None)
+        try:
+            with patch(
+                "tracecat.webhooks.dependencies.get_async_session_bypass_rls_context_manager",
+                return_value=mock_session_cm,
+            ):
+                if allowed:
+                    await validate_incoming_webhook(
+                        workflow_id, webhook_secret, request
+                    )
+                else:
+                    with pytest.raises(HTTPException) as exc_info:
+                        await validate_incoming_webhook(
+                            workflow_id, webhook_secret, request
+                        )
+                    assert exc_info.value.status_code == 403
+        finally:
+            ctx_role.reset(token)
+
 
 class TestIncomingWebhook:
     @staticmethod

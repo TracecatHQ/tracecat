@@ -12,7 +12,11 @@ from tracecat.audit.logger import (
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import Webhook
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatConflictError,
+    TracecatNotFoundError,
+)
 from tracecat.identifiers import WorkflowID
 from tracecat.webhooks.schemas import WebhookCreate, WebhookUpdate
 
@@ -72,6 +76,10 @@ async def create_webhook(
     """Create a webhook for a workflow."""
     if role.workspace_id is None:
         raise TracecatAuthorizationError("Webhook creation requires a workspace")
+    if await get_webhook(session, role.workspace_id, workflow_id) is not None:
+        raise TracecatConflictError(
+            "Workflow already has a webhook. Update it with PATCH instead."
+        )
     webhook = Webhook(
         workspace_id=role.workspace_id,
         methods=cast(list[str], params.methods),
