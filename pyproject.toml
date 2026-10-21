@@ -102,6 +102,7 @@ members = ["packages/*"]
 # Supply-chain cooldown: only resolve releases published at least 7 days ago.
 exclude-newer = "7 days"
 # Security fixes allowed inside the cooldown; each is also pinned exactly.
+# Remove on or after 2026-10-28: once the 7-day cutoff passes, these block upgrades.
 exclude-newer-package = { certifi = "2026-10-21T00:00:00Z", pillow = "2026-10-21T00:00:00Z", uv = "2026-10-21T00:00:00Z" }
 # Keep overrides only for requirements that conflict with our pinned versions.
 override-dependencies = [
@@ -110,8 +111,8 @@ override-dependencies = [
 ]
 # Preserve transitive pins while respecting upstream dependency requirements.
 constraint-dependencies = [
-    # Chardet 7.x is incompatible with PolyFile 0.5.6 binary detection.
     "certifi==2026.10.19",
+    # Chardet 7.x is incompatible with PolyFile 0.5.6 binary detection.
     "chardet==6.0.0.post1",
     "fickling==0.1.12",
     "mako==1.4.2",
