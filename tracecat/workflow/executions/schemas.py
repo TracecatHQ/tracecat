@@ -677,6 +677,19 @@ class EventFailure(BaseModel):
                 failure = event.child_workflow_execution_failed_event_attributes.failure
             case temporalio.api.enums.v1.EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED:
                 failure = event.workflow_execution_update_completed_event_attributes.outcome.failure
+            case temporalio.api.enums.v1.EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED:
+                # Terminations carry a reason string, not a Failure.
+                reason = (
+                    event.workflow_execution_terminated_event_attributes.reason.strip()
+                )
+                message = (
+                    f"Workflow terminated: {reason}"
+                    if reason
+                    else "Workflow terminated without a reason."
+                )
+                return EventFailure(
+                    message=EventFailure.sanitize_error_text(message) or ""
+                )
             case _:
                 raise ValueError("Event type not supported for failure extraction.")
 
