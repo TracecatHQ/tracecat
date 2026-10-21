@@ -117,7 +117,8 @@ ENV HOME=/tmp PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 # ====================
 # Stage 3: Shared base with runtime dependencies
 # ====================
-FROM ghcr.io/astral-sh/uv:0.9.17-python3.12-bookworm-slim AS base
+FROM python:3.12-slim-bookworm AS base
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /uvx /usr/local/bin/
 
 ENV HOST=0.0.0.0 PORT=8000
 
