@@ -23,6 +23,7 @@ import {
   Trash2Icon,
 } from "lucide-react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import React, {
   Fragment,
   useCallback,
@@ -756,7 +757,7 @@ function ActionNodeContent({
 
 const COMMAND_VALUE_UNSET = "__UNSET__"
 
-function ActionNodeToolbar({
+export function ActionNodeToolbar({
   action,
   childWorkflowInfo,
   tableLinkInfo,
@@ -816,7 +817,8 @@ function ActionNodeToolbar({
         className="min-w-[100px] rounded-lg border text-sm shadow-md [&_[cmdk-item]]:text-foreground/90 [&_[cmdk-item]]:hover:cursor-pointer"
         defaultValue={COMMAND_VALUE_UNSET}
       >
-        <CommandList className="max-h-none">
+        {/* Uncapped: a capped list hides trailing items behind the hidden scrollbar. */}
+        <CommandList className="max-h-[none]">
           {/* Actions */}
           <CommandGroup>
             <CommandItem
@@ -898,21 +900,14 @@ function ActionNodeToolbar({
               <CommandSeparator />
               {(childWorkflowAlias || childWorkflowId) && (
                 <CommandGroup heading="Subflow">
-                  <CommandItem disabled={!childIdFromAlias && !childWorkflowId}>
-                    <Link
-                      href={`/workspaces/${workspaceId}/workflows/${childIdFromAlias ?? childWorkflowId}`}
-                      className={
-                        !childIdFromAlias && !childWorkflowId
-                          ? "pointer-events-none"
-                          : ""
-                      }
-                    >
-                      <div className="flex items-center">
-                        <SquareArrowOutUpRightIcon className="mr-2 size-3" />
-                        <span>Open subflow</span>
-                      </div>
-                    </Link>
-                  </CommandItem>
+                  <ToolbarLinkItem
+                    href={
+                      childIdFromAlias || childWorkflowId
+                        ? `/workspaces/${workspaceId}/workflows/${childIdFromAlias ?? childWorkflowId}`
+                        : undefined
+                    }
+                    label="Open subflow"
+                  />
                 </CommandGroup>
               )}
             </Fragment>
@@ -921,22 +916,49 @@ function ActionNodeToolbar({
             <Fragment>
               <CommandSeparator />
               <CommandGroup heading="Table">
-                <CommandItem>
-                  <Link
-                    href={`/workspaces/${workspaceId}/tables/${tableLinkInfo.tableId}`}
-                  >
-                    <div className="flex items-center">
-                      <SquareArrowOutUpRightIcon className="mr-2 size-3" />
-                      <span>Open table</span>
-                    </div>
-                  </Link>
-                </CommandItem>
+                <ToolbarLinkItem
+                  href={`/workspaces/${workspaceId}/tables/${tableLinkInfo.tableId}`}
+                  label="Open table"
+                />
               </CommandGroup>
             </Fragment>
           )}
         </CommandList>
       </Command>
     </NodeToolbar>
+  )
+}
+
+function ToolbarLinkItem({ href, label }: { href?: string; label: string }) {
+  const router = useRouter()
+  const content = (
+    <>
+      <SquareArrowOutUpRightIcon className="mr-2 size-3" />
+      <span>{label}</span>
+    </>
+  )
+  // The whole row (and Enter) navigates via onSelect. The inner Link keeps
+  // modifier-click/middle-click and stops propagation so a click doesn't
+  // navigate twice.
+  return (
+    <CommandItem
+      disabled={!href}
+      onSelect={() => {
+        if (href) router.push(href)
+      }}
+    >
+      {href ? (
+        <Link
+          href={href}
+          className="flex w-full items-center"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {content}
+        </Link>
+      ) : (
+        <div className="flex items-center">{content}</div>
+      )}
+    </CommandItem>
   )
 }
 
