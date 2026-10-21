@@ -236,3 +236,47 @@ class TestS3ObjectStorageDuplicateAttempts:
 
         storage = S3ObjectStorage(bucket="b", threshold_bytes=0)
         assert await storage.retrieve(ExternalObject(ref=ref)) == {"legacy": True}
+
+
+class TestS3ObjectStorageThresholdOverride:
+    """A per-call threshold can only lower the backend threshold."""
+
+    @pytest.fixture(autouse=True)
+    def blobs(self, monkeypatch: pytest.MonkeyPatch) -> dict[str, bytes]:
+        from tracecat.storage import blob
+
+        stored: dict[str, bytes] = {}
+
+        async def ensure_bucket_exists(bucket: str) -> None:
+            pass
+
+        async def upload_file(
+            content: bytes, key: str, bucket: str, content_type: str
+        ) -> None:
+            stored[f"{bucket}/{key}"] = content
+
+        monkeypatch.setattr(blob, "ensure_bucket_exists", ensure_bucket_exists)
+        monkeypatch.setattr(blob, "upload_file", upload_file)
+        return stored
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("backend_threshold", "call_threshold", "expected_type"),
+        [
+            pytest.param(1024, None, InlineObject, id="no-override"),
+            pytest.param(1024, 10, ExternalObject, id="lower-override-wins"),
+            pytest.param(10, 1024, ExternalObject, id="higher-override-ignored"),
+        ],
+    )
+    async def test_store_uses_lower_threshold(
+        self,
+        backend_threshold: int,
+        call_threshold: int | None,
+        expected_type: type[StoredObject],
+    ):
+        storage = S3ObjectStorage(bucket="b", threshold_bytes=backend_threshold)
+        key = action_key("ws", "run", "<root>:0", "a")
+
+        stored = await storage.store(key, "x" * 100, threshold_bytes=call_threshold)
+
+        assert isinstance(stored, expected_type)

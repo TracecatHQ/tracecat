@@ -52,19 +52,26 @@ class S3ObjectStorage(ObjectStorage):
         self,
         key: str,
         data: Any,
+        *,
+        threshold_bytes: int | None = None,
     ) -> StoredObject:
         """Store data, externalizing if over threshold."""
+        threshold = (
+            self.threshold_bytes
+            if threshold_bytes is None
+            else min(self.threshold_bytes, threshold_bytes)
+        )
         # Serialize to JSON
         serialized = serialize_object(data)
         size_bytes = len(serialized)
 
         # Keep inline if under threshold
-        if size_bytes <= self.threshold_bytes:
+        if size_bytes <= threshold:
             logger.debug(
                 "Keeping data inline",
                 key=key,
                 size_bytes=size_bytes,
-                threshold_bytes=self.threshold_bytes,
+                threshold_bytes=threshold,
             )
             return InlineObject(data=data)
 
@@ -85,7 +92,7 @@ class S3ObjectStorage(ObjectStorage):
             key=key,
             bucket=self.bucket,
             size_bytes=size_bytes,
-            threshold_bytes=self.threshold_bytes,
+            threshold_bytes=threshold,
         )
 
         ref = ObjectRef(

@@ -22,9 +22,11 @@ class InlineObjectStorage(ObjectStorage):
         self,
         key: str,
         data: Any,
+        *,
+        threshold_bytes: int | None = None,
     ) -> StoredObject:
         """Store data inline (never externalizes)."""
-        del key  # Unused in inline storage
+        del key, threshold_bytes  # Unused in inline storage
         return InlineObject(data=data)
 
     async def retrieve(self, stored: StoredObject) -> Any:

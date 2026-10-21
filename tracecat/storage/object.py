@@ -264,12 +264,16 @@ class ObjectStorage(ABC):
         self,
         key: str,
         data: Any,
+        *,
+        threshold_bytes: int | None = None,
     ) -> StoredObject:
         """Store data, potentially externalizing if over threshold.
 
         Args:
             key: Storage key (e.g., "results/wf-123/action-1/uuid.json")
             data: The data to store (must be JSON-serializable)
+            threshold_bytes: Externalize above this size if lower than the
+                backend's threshold.
 
         Returns:
             StoredObject with either inline data or an ObjectRef

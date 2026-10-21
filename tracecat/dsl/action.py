@@ -79,7 +79,6 @@ from tracecat.runtime.errors import (
     RuntimeErrorOwner,
 )
 from tracecat.secrets import secrets_manager
-from tracecat.storage.backends.s3 import S3ObjectStorage
 from tracecat.storage.collection import (
     get_collection_page,
     materialize_collection_values,
@@ -825,17 +824,12 @@ class DSLActivities:
             materialized = run_sync(materialize_context(input.operand))
         with activity_error_boundary(_expression_error_classification):
             result = eval_templated_object(input.obj, operand=materialized)
-        storage = get_object_storage()
-        if (
-            input.inline_threshold_bytes is not None
-            and isinstance(storage, S3ObjectStorage)
-            and input.inline_threshold_bytes < storage.threshold_bytes
-        ):
-            storage = S3ObjectStorage(
-                bucket=storage.bucket, threshold_bytes=input.inline_threshold_bytes
-            )
         with activity_error_boundary(_result_persistence_error_classification):
-            return run_sync(storage.store(input.key, result))
+            return run_sync(
+                get_object_storage().store(
+                    input.key, result, threshold_bytes=input.inline_threshold_bytes
+                )
+            )
 
     @staticmethod
     @activity.defn
