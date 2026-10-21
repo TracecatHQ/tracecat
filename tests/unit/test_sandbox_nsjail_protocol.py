@@ -348,6 +348,43 @@ async def test_nsjail_fatal_signal_attributes_exit_137_for_every_phase(
             assert result.error == "Sandbox host stopped before the workload finished"
 
 
+@pytest.mark.parametrize("phase", ["execute", "action"])
+@pytest.mark.parametrize(
+    ("nsjail_signaled", "expected_code"),
+    [
+        pytest.param(True, SandboxErrorCode.INFRASTRUCTURE_FAILURE, id="signaled"),
+        pytest.param(False, SandboxErrorCode.WORKLOAD_FAILURE, id="unsignaled"),
+    ],
+)
+@pytest.mark.anyio
+async def test_drain_kill_during_result_write_is_infrastructure_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    phase: str,
+    nsjail_signaled: bool,
+    expected_code: SandboxErrorCode,
+) -> None:
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    (job_dir / "result.json").write_text('{"success": tr')
+
+    async def fake_invoke_nsjail(**kwargs: object) -> NsjailCompletedProcess:
+        return NsjailCompletedProcess(
+            returncode=137,
+            stdout=b"",
+            stderr=b"",
+            workload_started=True,
+            nsjail_log=_FATAL_SIGNAL_RECORD if nsjail_signaled else b"",
+            nsjail_signaled=nsjail_signaled,
+        )
+
+    monkeypatch.setattr(executor_module, "invoke_nsjail", fake_invoke_nsjail)
+    result = await _run_phase(tmp_path, job_dir, phase)
+
+    assert result.success is False
+    assert result.error_code is expected_code
+
+
 @pytest.mark.parametrize(
     "untrusted_code",
     ["synthetic.unknown", SandboxErrorCode.INFRASTRUCTURE_FAILURE],

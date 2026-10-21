@@ -24,7 +24,10 @@ from tracecat.sandbox.exceptions import (
 )
 from tracecat.sandbox.networking import resolve_sandbox_network_plan
 from tracecat.sandbox.nsjail_protocol import NsjailCompletedProcess, invoke_nsjail
-from tracecat.sandbox.result_envelope import decode_result_envelope
+from tracecat.sandbox.result_envelope import (
+    ResultEnvelopeOutcome,
+    decode_result_envelope,
+)
 from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 from tracecat.sandbox.types import (
     ResourceLimits,
@@ -190,6 +193,22 @@ if _guard_raw:
 os.write(2, {_WORKLOAD_STARTED_MARKER!r})
 os.execv("/usr/local/bin/python3", ["/usr/local/bin/python3", sys.argv[1]])
 """
+
+
+def _usable_result(
+    outcome: ResultEnvelopeOutcome | None,
+    completed: NsjailCompletedProcess,
+) -> SandboxResult | None:
+    """Return the decoded result unless a drain kill truncated its write."""
+    if outcome is None:
+        return None
+    if (
+        not outcome.valid_envelope
+        and completed.returncode == _NSJAIL_SIGKILL_EXIT_CODE
+        and completed.nsjail_signaled
+    ):
+        return None
+    return outcome.result
 
 
 def _classify_missing_nsjail_result(
@@ -671,8 +690,8 @@ class NsjailExecutor:
             stream_source="envelope",
             include_error_code=True,
         )
-        if outcome is not None:
-            return outcome.result
+        if (result := _usable_result(outcome, completed)) is not None:
+            return result
 
         # Script workloads have no result-file contract: a clean zero exit is a
         # success even without result.json. NsJail reports its own launch
@@ -1080,12 +1099,12 @@ class NsjailExecutor:
             stream_source="process",
             include_error_code=True,
         )
-        if outcome is not None:
+        if (result := _usable_result(outcome, completed)) is not None:
             # NsJail logs to its private fd once its config parses, so this is
             # workload output only.
-            if outcome.valid_envelope and stderr.strip():
+            if outcome is not None and outcome.valid_envelope and stderr.strip():
                 logger.info("Subprocess output", output=stderr[:2000])
-            return outcome.result
+            return result
 
         error_code = _classify_missing_nsjail_result(
             returncode,
