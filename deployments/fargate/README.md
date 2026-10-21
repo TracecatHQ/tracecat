@@ -1,6 +1,6 @@
 # Tracecat AWS ECS Fargate stack
 
-Terraform stack for Tracecat on AWS ECS Fargate (`>1.2.1-beta.xx`).
+Terraform stack for Tracecat on AWS ECS Fargate (`>1.2.2-beta.xx`).
 
 ## Services
 
@@ -68,7 +68,7 @@ export TF_VAR_hosted_zone_id=Z1234567890
 export TF_VAR_tracecat_db_encryption_key_arn=arn:aws:secretsmanager:...
 export TF_VAR_tracecat_service_key_arn=arn:aws:secretsmanager:...
 export TF_VAR_tracecat_signing_secret_arn=arn:aws:secretsmanager:...
-export TF_VAR_tracecat_image_tag=1.2.1
+export TF_VAR_tracecat_image_tag=1.2.2
 
 terraform apply
 ```
