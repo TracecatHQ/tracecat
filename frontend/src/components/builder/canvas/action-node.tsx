@@ -802,6 +802,17 @@ export function ActionNodeToolbar({
     setCommandValue(COMMAND_VALUE_UNSET)
   }, [])
 
+  // null: no static reference, so no item. undefined: unresolved, so disabled.
+  const subflowHref =
+    isChildWorkflow && (childWorkflowAlias || childWorkflowId)
+      ? childIdFromAlias || childWorkflowId
+        ? `/workspaces/${workspaceId}/workflows/${childIdFromAlias ?? childWorkflowId}`
+        : undefined
+      : null
+  const tableHref = tableLinkInfo?.tableId
+    ? `/workspaces/${workspaceId}/tables/${tableLinkInfo.tableId}`
+    : undefined
+
   return (
     <NodeToolbar
       isVisible={showToolbar || selected}
@@ -819,6 +830,19 @@ export function ActionNodeToolbar({
       >
         {/* Uncapped: a capped list hides trailing items behind the hidden scrollbar. */}
         <CommandList className="max-h-[none]">
+          {(subflowHref !== null || tableHref) && (
+            <Fragment>
+              <CommandGroup>
+                {subflowHref !== null && (
+                  <ToolbarLinkItem href={subflowHref} label="Open subflow" />
+                )}
+                {tableHref && (
+                  <ToolbarLinkItem href={tableHref} label="Open table" />
+                )}
+              </CommandGroup>
+              <CommandSeparator />
+            </Fragment>
+          )}
           {/* Actions */}
           <CommandGroup>
             <CommandItem
@@ -894,35 +918,6 @@ export function ActionNodeToolbar({
               <span className="group-hover:text-red-600">Delete</span>
             </CommandItem>
           </CommandGroup>
-          {/* Child workflow */}
-          {isChildWorkflow && (
-            <Fragment>
-              <CommandSeparator />
-              {(childWorkflowAlias || childWorkflowId) && (
-                <CommandGroup heading="Subflow">
-                  <ToolbarLinkItem
-                    href={
-                      childIdFromAlias || childWorkflowId
-                        ? `/workspaces/${workspaceId}/workflows/${childIdFromAlias ?? childWorkflowId}`
-                        : undefined
-                    }
-                    label="Open subflow"
-                  />
-                </CommandGroup>
-              )}
-            </Fragment>
-          )}
-          {tableLinkInfo?.tableId && (
-            <Fragment>
-              <CommandSeparator />
-              <CommandGroup heading="Table">
-                <ToolbarLinkItem
-                  href={`/workspaces/${workspaceId}/tables/${tableLinkInfo.tableId}`}
-                  label="Open table"
-                />
-              </CommandGroup>
-            </Fragment>
-          )}
         </CommandList>
       </Command>
     </NodeToolbar>

@@ -95,6 +95,12 @@ describe("ActionNodeToolbar", () => {
     expect(list.className).not.toMatch(/max-h-\[\d+px\]/)
   })
 
+  it("lists Open subflow first without a group heading", () => {
+    renderToolbar()
+    expect(screen.getAllByRole("option")[0]).toHaveTextContent("Open subflow")
+    expect(screen.queryByText("Subflow")).toBeNull()
+  })
+
   it("opens the subflow from anywhere on the row", () => {
     renderToolbar()
     const item = screen.getByRole("option", { name: "Open subflow" })
@@ -158,6 +164,7 @@ describe("ActionNodeToolbar", () => {
       },
     })
     expect(screen.queryByText("Open subflow")).toBeNull()
+    expect(screen.getAllByRole("option")[0]).toHaveTextContent("Open table")
     fireEvent.click(screen.getByRole("option", { name: "Open table" }))
     expect(mockPush).toHaveBeenCalledWith("/workspaces/ws-1/tables/tbl-1")
   })
