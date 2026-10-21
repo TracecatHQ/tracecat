@@ -344,7 +344,7 @@ test("cancelling review leaves memberships untouched", async () => {
   renderScim()
   fireEvent.click(screen.getByRole("button", { name: "Review and activate" }))
   await screen.findByRole("button", { name: /loses? group access/ })
-  fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+  fireEvent.click(screen.getByRole("button", { name: "Close" }))
   expect(activate.mutateAsync).not.toHaveBeenCalled()
   expect(applyMappingChanges).not.toHaveBeenCalled()
 })

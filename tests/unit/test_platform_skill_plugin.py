@@ -59,6 +59,7 @@ def test_platform_plugin_preserves_portable_names_and_qualifies_references(
     assert parsed is not None
     assert parsed.name == staged.name == "workspace-chat"
     assert parsed.description == "Platform guidance"
+    assert "## Tracecat execution notes" not in markdown
     assert "$tracecat:automation-best-practices" in markdown
     assert (
         "`tracecat:slackbot-best-practices`"

@@ -13,7 +13,7 @@ import { AlertNotification } from "@/components/notifications"
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useCompactWorkflowExecution, useOrgAppSettings } from "@/lib/hooks"
+import { useCompactWorkflowExecution } from "@/lib/hooks"
 import { useWorkflowBuilder } from "@/providers/builder"
 
 export type { EventsSidebarTabs }
@@ -73,7 +73,6 @@ function BuilderSidebarEventsList({
   activeTab: EventsSidebarTabs
   executionId: string
 }) {
-  const { appSettings } = useOrgAppSettings()
   const { sidebarRef } = useWorkflowBuilder()
 
   const { execution, executionIsLoading, executionError } =
@@ -100,7 +99,6 @@ function BuilderSidebarEventsList({
   }
   const tabItems = buildEventsTabItems({
     execution,
-    interactionsEnabled: !!appSettings?.app_interactions_enabled,
   })
 
   return (

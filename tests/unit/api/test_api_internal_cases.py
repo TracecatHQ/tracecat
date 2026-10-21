@@ -7,21 +7,25 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from tracecat.auth.types import Role
+from tracecat.cases import dependencies as case_dependencies
 from tracecat.cases import internal_router as internal_cases_router
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.hierarchy import CaseHierarchyService
 from tracecat.cases.rows.schemas import CaseTableRowRead
-from tracecat.cases.schemas import (
-    CaseCommentRead,
-    CaseCommentThreadRead,
-    CaseReadMinimal,
-)
 from tracecat.db.models import Case, CaseTag, Workspace
 from tracecat.exceptions import (
-    EntitlementRequired,
     TracecatNotFoundError,
     TracecatValidationError,
 )
-from tracecat.pagination import CursorPaginatedResponse
+
+
+@pytest.fixture(autouse=True)
+def stub_case_hierarchy():
+    """Routes hydrate hierarchy with real queries; the session here is mocked."""
+    with patch.object(
+        CaseHierarchyService, "get_hierarchy", new=AsyncMock(return_value={})
+    ):
+        yield
 
 
 @pytest.fixture
@@ -57,26 +61,6 @@ def _build_case_row(case_id: uuid.UUID) -> CaseTableRowRead:
         is_row_available=True,
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
         updated_at=datetime(2026, 1, 1, tzinfo=UTC),
-    )
-
-
-def _build_comment_read(
-    *,
-    content: str,
-    parent_id: uuid.UUID | None = None,
-    is_deleted: bool = False,
-) -> CaseCommentRead:
-    now = datetime(2026, 1, 1, tzinfo=UTC)
-    return CaseCommentRead(
-        id=uuid.uuid4(),
-        created_at=now,
-        updated_at=now,
-        content=content,
-        parent_id=parent_id,
-        user=None,
-        last_edited_at=None,
-        deleted_at=now if is_deleted else None,
-        is_deleted=is_deleted,
     )
 
 
@@ -249,256 +233,6 @@ async def test_internal_update_case_simple_removed_tag_returns_400(
 
 
 @pytest.mark.anyio
-async def test_internal_list_cases_validates_field_ids_even_when_page_is_empty(
-    action_gateway_client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    with (
-        patch.object(internal_cases_router, "CasesService") as mock_service_cls,
-        patch.object(
-            internal_cases_router, "CaseFieldsService"
-        ) as mock_fields_service_cls,
-    ):
-        mock_service = AsyncMock()
-        mock_service.list_cases.return_value = CursorPaginatedResponse[CaseReadMinimal](
-            items=[],
-            next_cursor=None,
-            prev_cursor=None,
-            has_more=False,
-            has_previous=False,
-        )
-        mock_fields_service = AsyncMock()
-        mock_fields_service.batch_get_fields.side_effect = ValueError(
-            "Field case_id is a reserved field"
-        )
-        mock_service_cls.return_value = mock_service
-        mock_fields_service_cls.return_value = mock_fields_service
-
-        response = action_gateway_client.get(
-            "/internal/cases",
-            params=[
-                ("workspace_id", str(test_admin_role.workspace_id)),
-                ("field_ids", "case_id"),
-            ],
-        )
-
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json()["detail"] == "Invalid request for case field hydration"
-    mock_fields_service.batch_get_fields.assert_awaited_once_with(
-        case_ids=[],
-        field_ids=["case_id"],
-    )
-
-
-@pytest.mark.anyio
-async def test_internal_search_cases_validates_field_ids_even_when_page_is_empty(
-    action_gateway_client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    with (
-        patch.object(internal_cases_router, "CasesService") as mock_service_cls,
-        patch.object(
-            internal_cases_router, "CaseFieldsService"
-        ) as mock_fields_service_cls,
-    ):
-        mock_service = AsyncMock()
-        mock_service.search_cases.return_value = CursorPaginatedResponse[
-            CaseReadMinimal
-        ](
-            items=[],
-            next_cursor=None,
-            prev_cursor=None,
-            has_more=False,
-            has_previous=False,
-        )
-        mock_fields_service = AsyncMock()
-        mock_fields_service.batch_get_fields.side_effect = ValueError(
-            "Field case_id is a reserved field"
-        )
-        mock_service_cls.return_value = mock_service
-        mock_fields_service_cls.return_value = mock_fields_service
-
-        response = action_gateway_client.get(
-            "/internal/cases/search",
-            params=[
-                ("workspace_id", str(test_admin_role.workspace_id)),
-                ("field_ids", "case_id"),
-            ],
-        )
-
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json()["detail"] == "Invalid request for case field hydration"
-    mock_fields_service.batch_get_fields.assert_awaited_once_with(
-        case_ids=[],
-        field_ids=["case_id"],
-    )
-
-
-@pytest.mark.anyio
-async def test_internal_list_comment_threads_success(
-    action_gateway_client: TestClient,
-    test_admin_role: Role,
-    mock_internal_case: Case,
-) -> None:
-    """Internal threaded reads should preserve tombstone payloads."""
-    with (
-        patch.object(internal_cases_router, "CasesService") as mock_cases_service_cls,
-        patch.object(
-            internal_cases_router, "CaseCommentsService"
-        ) as mock_comments_service_cls,
-    ):
-        top_level = _build_comment_read(content="Comment deleted", is_deleted=True)
-        reply = _build_comment_read(
-            content="Reply",
-            parent_id=top_level.id,
-        )
-        thread = CaseCommentThreadRead(
-            comment=top_level,
-            replies=[reply],
-            reply_count=1,
-            last_activity_at=reply.updated_at,
-        )
-
-        mock_cases_service = AsyncMock()
-        mock_cases_service.get_case.return_value = mock_internal_case
-        mock_cases_service_cls.return_value = mock_cases_service
-
-        mock_comments_service = AsyncMock()
-        mock_comments_service.list_comment_threads.return_value = [thread]
-        mock_comments_service_cls.return_value = mock_comments_service
-
-        response = action_gateway_client.get(
-            f"/internal/cases/{mock_internal_case.id}/comments/threads",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data[0]["comment"]["content"] == "Comment deleted"
-        assert data[0]["comment"]["is_deleted"] is True
-        assert data[0]["reply_count"] == 1
-
-
-@pytest.mark.anyio
-async def test_internal_list_comment_threads_requires_case_addons(
-    action_gateway_client: TestClient,
-    test_admin_role: Role,
-    mock_internal_case: Case,
-) -> None:
-    with (
-        patch.object(internal_cases_router, "CasesService") as mock_cases_service_cls,
-        patch.object(
-            internal_cases_router, "CaseCommentsService"
-        ) as mock_comments_service_cls,
-    ):
-        mock_cases_service = AsyncMock()
-        mock_cases_service.get_case.return_value = mock_internal_case
-        mock_cases_service_cls.return_value = mock_cases_service
-
-        mock_comments_service = AsyncMock()
-        mock_comments_service.list_comment_threads.side_effect = EntitlementRequired(
-            "case_addons"
-        )
-        mock_comments_service_cls.return_value = mock_comments_service
-
-        response = action_gateway_client.get(
-            f"/internal/cases/{mock_internal_case.id}/comments/threads",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-        )
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["type"] == "EntitlementRequired"
-
-
-@pytest.mark.anyio
-async def test_internal_get_comment_thread_success(
-    action_gateway_client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Internal comment-id thread lookups should return the full thread."""
-    with patch.object(
-        internal_cases_router, "CaseCommentsService"
-    ) as mock_comments_service_cls:
-        top_level = _build_comment_read(content="Parent")
-        reply = _build_comment_read(content="Reply", parent_id=top_level.id)
-        thread = CaseCommentThreadRead(
-            comment=top_level,
-            replies=[reply],
-            reply_count=1,
-            last_activity_at=reply.updated_at,
-        )
-
-        mock_comments_service = AsyncMock()
-        mock_comments_service.get_comment_thread.return_value = thread
-        mock_comments_service_cls.return_value = mock_comments_service
-
-        response = action_gateway_client.get(
-            f"/internal/comments/{reply.id}/thread",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["comment"]["id"] == str(top_level.id)
-        assert data["replies"][0]["id"] == str(reply.id)
-
-
-@pytest.mark.anyio
-async def test_internal_get_comment_thread_requires_case_addons(
-    action_gateway_client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    with patch.object(
-        internal_cases_router, "CaseCommentsService"
-    ) as mock_comments_service_cls:
-        mock_comments_service = AsyncMock()
-        mock_comments_service.get_comment_thread.side_effect = EntitlementRequired(
-            "case_addons"
-        )
-        mock_comments_service_cls.return_value = mock_comments_service
-
-        response = action_gateway_client.get(
-            f"/internal/comments/{uuid.uuid4()}/thread",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-        )
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["type"] == "EntitlementRequired"
-
-
-@pytest.mark.anyio
-async def test_internal_create_comment_simple_reply_requires_case_addons(
-    action_gateway_client: TestClient,
-    test_admin_role: Role,
-    mock_internal_case: Case,
-) -> None:
-    with (
-        patch.object(internal_cases_router, "CasesService") as mock_cases_service_cls,
-        patch.object(
-            internal_cases_router, "CaseCommentsService"
-        ) as mock_comments_service_cls,
-    ):
-        mock_cases_service = AsyncMock()
-        mock_cases_service.get_case.return_value = mock_internal_case
-        mock_cases_service_cls.return_value = mock_cases_service
-
-        mock_comments_service = AsyncMock()
-        mock_comments_service.create_comment.side_effect = EntitlementRequired(
-            "case_addons"
-        )
-        mock_comments_service_cls.return_value = mock_comments_service
-
-        response = action_gateway_client.post(
-            f"/internal/cases/{mock_internal_case.id}/comments/simple",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={"content": "Reply", "parent_id": str(uuid.uuid4())},
-        )
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["type"] == "EntitlementRequired"
-
-
-@pytest.mark.anyio
 async def test_internal_list_case_events_includes_comment_activity(
     action_gateway_client: TestClient,
     test_admin_role: Role,
@@ -540,65 +274,94 @@ async def test_internal_list_case_events_includes_comment_activity(
 
 
 @pytest.mark.anyio
-async def test_internal_update_comment_wrong_case_returns_not_found(
+@pytest.mark.parametrize("case_ref", ["CASE-0001", "1"])
+async def test_internal_get_case_resolves_short_id(
     action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_internal_case: Case,
+    case_ref: str,
 ) -> None:
-    """Case-scoped internal updates should return 404 for wrong-case comments."""
     with (
-        patch.object(internal_cases_router, "CasesService") as mock_cases_service_cls,
+        patch.object(case_dependencies, "CasesService") as mock_resolver_cls,
+        patch.object(internal_cases_router, "CasesService") as mock_service_cls,
         patch.object(
-            internal_cases_router, "CaseCommentsService"
-        ) as mock_comments_service_cls,
+            internal_cases_router,
+            "_list_case_dropdown_values",
+            new=AsyncMock(return_value=[]),
+        ),
     ):
-        mock_cases_service = AsyncMock()
-        mock_cases_service.get_case.return_value = mock_internal_case
-        mock_cases_service_cls.return_value = mock_cases_service
+        mock_resolver = AsyncMock()
+        mock_resolver.resolve_case_id.return_value = mock_internal_case.id
+        mock_resolver_cls.return_value = mock_resolver
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_internal_case
+        mock_service.fields = AsyncMock()
+        mock_service.fields.get_fields.return_value = {}
+        mock_service.fields.list_fields.return_value = []
+        mock_service_cls.return_value = mock_service
 
-        mock_comments_service = AsyncMock()
-        mock_comments_service.get_comment_in_case.return_value = None
-        mock_comments_service_cls.return_value = mock_comments_service
-
-        response = action_gateway_client.patch(
-            f"/internal/cases/{mock_internal_case.id}/comments/{uuid.uuid4()}",
+        response = action_gateway_client.get(
+            f"/internal/cases/{case_ref}",
             params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={"content": "Updated"},
         )
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-        mock_comments_service.update_comment.assert_not_called()
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["id"] == str(mock_internal_case.id)
+    mock_resolver.resolve_case_id.assert_awaited_once_with(case_ref)
+    mock_service.get_case.assert_awaited_once_with(
+        mock_internal_case.id, track_view=True
+    )
 
 
 @pytest.mark.anyio
-async def test_internal_update_comment_reparenting_returns_bad_request(
+@pytest.mark.parametrize(
+    ("error", "expected_status"),
+    [
+        (TracecatNotFoundError("Case CASE-9999 not found"), 404),
+        (TracecatValidationError("Case ID must be a UUID"), 422),
+    ],
+)
+async def test_internal_case_id_resolution_errors(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+    error: Exception,
+    expected_status: int,
+) -> None:
+    with (
+        patch.object(case_dependencies, "CasesService") as mock_resolver_cls,
+        patch.object(internal_cases_router, "CasesService") as mock_service_cls,
+    ):
+        mock_resolver = AsyncMock()
+        mock_resolver.resolve_case_id.side_effect = error
+        mock_resolver_cls.return_value = mock_resolver
+
+        response = action_gateway_client.get(
+            "/internal/cases/CASE-9999/comments",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == expected_status
+    mock_service_cls.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_internal_case_id_uuid_skips_lookup(
     action_gateway_client: TestClient,
     test_admin_role: Role,
     mock_internal_case: Case,
 ) -> None:
-    """Internal updates should surface reparent validation failures."""
-    with (
-        patch.object(internal_cases_router, "CasesService") as mock_cases_service_cls,
-        patch.object(
+    with patch.object(internal_cases_router, "CasesService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_internal_case
+        mock_service_cls.return_value = mock_service
+        with patch.object(
             internal_cases_router, "CaseCommentsService"
-        ) as mock_comments_service_cls,
-    ):
-        mock_cases_service = AsyncMock()
-        mock_cases_service.get_case.return_value = mock_internal_case
-        mock_cases_service_cls.return_value = mock_cases_service
+        ) as mock_comments_cls:
+            mock_comments_cls.return_value.list_comments = AsyncMock(return_value=[])
+            response = action_gateway_client.get(
+                f"/internal/cases/{mock_internal_case.id}/comments",
+                params={"workspace_id": str(test_admin_role.workspace_id)},
+            )
 
-        mock_comments_service = AsyncMock()
-        mock_comments_service.get_comment_in_case.return_value = object()
-        mock_comments_service.update_comment.side_effect = TracecatValidationError(
-            "Changing a comment parent is not supported"
-        )
-        mock_comments_service_cls.return_value = mock_comments_service
-
-        response = action_gateway_client.patch(
-            f"/internal/cases/{mock_internal_case.id}/comments/{uuid.uuid4()}",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={"parent_id": str(uuid.uuid4())},
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == "Changing a comment parent is not supported"
+    assert response.status_code == status.HTTP_200_OK
+    mock_service.get_case.assert_awaited_once_with(mock_internal_case.id)

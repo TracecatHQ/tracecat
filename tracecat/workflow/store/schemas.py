@@ -13,6 +13,8 @@ from pydantic import (
 
 from tracecat.cases.enums import CaseEventType
 from tracecat.dsl.common import DSLInput
+from tracecat.forms.enums import FormStatus
+from tracecat.forms.schemas import FormConfig
 from tracecat.identifiers.workflow import WorkflowID, WorkflowIDShort
 from tracecat.store import Source
 
@@ -92,6 +94,13 @@ class McpIntegrationMappingSelection(BaseModel):
     target_mcp_integration_id: UUID
 
 
+class SecretStoreMappingSelection(BaseModel):
+    """User-selected store for one store name; null leaves its secrets unlinked."""
+
+    source_store: str = Field(..., min_length=1)
+    target_store_id: UUID | None
+
+
 class WorkflowSyncPullRequest(BaseModel):
     """Request model for pulling workflows from a Git repository."""
 
@@ -122,6 +131,11 @@ class WorkflowSyncPullRequest(BaseModel):
         description="Explicit source-to-target MCP integration choices from the pull preview.",
     )
 
+    secret_store_mappings: list[SecretStoreMappingSelection] = Field(
+        default_factory=list,
+        description="Target stores for AWS-backed secrets whose store name has no match.",
+    )
+
     @model_validator(mode="after")
     def _catalog_mapping_sources_are_unique(self) -> "WorkflowSyncPullRequest":
         source_ids = [mapping.source_catalog_id for mapping in self.catalog_mappings]
@@ -141,6 +155,15 @@ class WorkflowSyncPullRequest(BaseModel):
             raise ValueError(
                 "mcp_integration_mappings contains duplicate "
                 "source_mcp_integration_id values"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _secret_store_mapping_sources_are_unique(self) -> "WorkflowSyncPullRequest":
+        names = [mapping.source_store for mapping in self.secret_store_mappings]
+        if len(names) != len(set(names)):
+            raise ValueError(
+                "secret_store_mappings contains duplicate source_store values"
             )
         return self
 
@@ -193,6 +216,16 @@ class RemoteCaseTrigger(BaseModel):
         if self.status == "online" and not self.event_types:
             raise ValueError("event_types must be non-empty when status is online")
         return self
+
+
+class RemoteForm(FormConfig):
+    """Represents a workflow's form in a remote store.
+
+    The same block the form's Config tab edits, plus its status. Submissions
+    never sync.
+    """
+
+    status: FormStatus = Field(default=FormStatus.OFFLINE)
 
 
 class RemoteWorkflowSchedule(BaseModel):
@@ -267,6 +300,9 @@ class RemoteWorkflowDefinition(BaseModel):
 
     case_trigger: RemoteCaseTrigger | None = None
     """Case trigger configuration for the workflow."""
+
+    form: RemoteForm | None = None
+    """Form of the workflow, if it has a configured one."""
 
     definition: DSLInput
 

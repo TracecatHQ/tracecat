@@ -28,8 +28,19 @@ if TYPE_CHECKING:
 # Workspace Role Scopes
 # =============================================================================
 
+# Intake-only users fill in forms and see nothing else in the workspace.
+INTAKE_SCOPES: frozenset[str] = frozenset(
+    {
+        "form:read",
+        "form:submit",
+    }
+)
+
 VIEWER_SCOPES: frozenset[str] = frozenset(
     {
+        "form:read",
+        "form:submit",
+        "form:submission:read",
         "inbox:read",
         "workflow:read",
         "integration:read",
@@ -40,6 +51,7 @@ VIEWER_SCOPES: frozenset[str] = frozenset(
         "secret:read",
         "tag:read",
         "variable:read",
+        "tunnel:read",
         "workspace:read",
         "workspace:member:read",
     }
@@ -47,6 +59,8 @@ VIEWER_SCOPES: frozenset[str] = frozenset(
 
 EDITOR_SCOPES: frozenset[str] = VIEWER_SCOPES | frozenset(
     {
+        "form:create",
+        "form:update",
         "workflow:sync",
         "workspace_sync:sync",
         "workflow:create",
@@ -76,6 +90,8 @@ EDITOR_SCOPES: frozenset[str] = VIEWER_SCOPES | frozenset(
 
 ADMIN_SCOPES: frozenset[str] = EDITOR_SCOPES | frozenset(
     {
+        "form:delete",
+        "form:submission:delete",
         "workflow:delete",
         "case:delete",
         "table:delete",
@@ -83,6 +99,9 @@ ADMIN_SCOPES: frozenset[str] = EDITOR_SCOPES | frozenset(
         "secret:delete",
         "tag:delete",
         "variable:delete",
+        "tunnel:create",
+        "tunnel:update",
+        "tunnel:delete",
         "agent:delete",
         "integration:delete",
         "workspace:update",
@@ -161,6 +180,13 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "workspace:service_account:disable",
         # Full resource control
         "inbox:read",
+        "form:read",
+        "form:create",
+        "form:update",
+        "form:delete",
+        "form:submit",
+        "form:submission:read",
+        "form:submission:delete",
         "workflow:read",
         "workflow:sync",
         "workspace_sync:sync",
@@ -189,6 +215,10 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "variable:create",
         "variable:update",
         "variable:delete",
+        "tunnel:read",
+        "tunnel:create",
+        "tunnel:update",
+        "tunnel:delete",
         "schedule:read",
         "schedule:create",
         "schedule:update",
@@ -262,6 +292,13 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "workspace:service_account:disable",
         # Full resource control
         "inbox:read",
+        "form:read",
+        "form:create",
+        "form:update",
+        "form:delete",
+        "form:submit",
+        "form:submission:read",
+        "form:submission:delete",
         "workflow:read",
         "workflow:sync",
         "workspace_sync:sync",
@@ -290,6 +327,10 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "variable:create",
         "variable:update",
         "variable:delete",
+        "tunnel:read",
+        "tunnel:create",
+        "tunnel:update",
+        "tunnel:delete",
         "schedule:read",
         "schedule:create",
         "schedule:update",
@@ -315,12 +356,11 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
 
 ORG_MEMBER_SCOPES: frozenset[str] = frozenset(
     {
-        # Baseline org access; workspace/resource access requires workspace membership
+        # Baseline org access; workspace/resource access, agents included,
+        # requires a workspace role
         "org:read",
         "org:member:read",
         "org:registry:read",
-        "agent:read",
-        "agent:execute",
         "org:secret:read",
     }
 )
@@ -339,6 +379,7 @@ ORG_MEMBER_ROLE_SLUG = "organization-member"
 
 PRESET_ROLE_SCOPES: dict[str, frozenset[str]] = {
     # Workspace roles
+    "workspace-intake": INTAKE_SCOPES,
     "workspace-viewer": VIEWER_SCOPES,
     "workspace-editor": EDITOR_SCOPES,
     "workspace-admin": ADMIN_SCOPES,
@@ -380,6 +421,13 @@ def is_reserved_scope_name(name: str) -> bool:
 
 WORKSPACE_OPERATIONAL_SCOPES: frozenset[str] = frozenset(
     {
+        # No form:submit or form:delete: workflows read and edit forms and
+        # manage submissions, but never submit or remove a form.
+        "form:read",
+        "form:create",
+        "form:update",
+        "form:submission:read",
+        "form:submission:delete",
         "inbox:read",
         "workflow:read",
         "workflow:sync",
@@ -405,6 +453,7 @@ WORKSPACE_OPERATIONAL_SCOPES: frozenset[str] = frozenset(
         "variable:create",
         "variable:update",
         "variable:delete",
+        "tunnel:read",
         "secret:read",
         "secret:create",
         "secret:update",

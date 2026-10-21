@@ -156,6 +156,24 @@ def validate_workspace_dependencies(spec: WorkspaceSpec) -> list[PullDiagnostic]
 
     diagnostics.extend(_validate_unique_import_identities(spec))
 
+    default_source_ids = sorted(
+        source_id
+        for source_id, preset in spec.agent_presets.items()
+        if preset.is_workspace_default is True
+    )
+    if len(default_source_ids) > 1:
+        diagnostics.append(
+            PullDiagnostic(
+                workflow_path=AGENT_PRESET_RESOURCE_ADAPTER.source_path(
+                    default_source_ids[0]
+                ),
+                workflow_title=None,
+                error_type="dependency",
+                message="Only one agent preset can be the workspace default",
+                details={"agent_preset_source_ids": default_source_ids},
+            )
+        )
+
     for source_id, workflow in sorted(spec.workflows.items()):
         references = workflow_references(workflow.definition)
         for alias in sorted(references.execute_aliases):

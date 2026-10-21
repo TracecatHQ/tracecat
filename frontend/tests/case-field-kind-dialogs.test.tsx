@@ -4,12 +4,12 @@
 
 import { act, fireEvent, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { useState } from "react"
 import {
-  FIELD_EDITOR_DIALOG_CLASS,
-  JsonFieldDialog,
-  LongTextFieldDialog,
+  JsonFieldDrawer,
+  LongTextFieldDrawer,
 } from "@/components/cases/case-field-kind-dialogs"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { CaseValueDrawerProvider } from "@/components/cases/case-value-drawer"
 
 jest.mock("@/components/cases/case-description-editor", () => ({
   CaseDescriptionEditor: ({
@@ -86,50 +86,75 @@ function clickOutside() {
   fireEvent.click(document.body)
 }
 
-function renderLongTextDialog(onOpenChange: jest.Mock) {
+function renderLongTextDrawer(onOpenChange: jest.Mock, onSave = jest.fn()) {
   return render(
-    <LongTextFieldDialog
+    <LongTextFieldDrawer
       open={true}
       onOpenChange={onOpenChange}
       fieldLabel="Analyst notes"
       initialValue="<p>hello</p>"
-      onSave={jest.fn()}
+      onSave={onSave}
     />
   )
 }
 
-function renderJsonDialog(onOpenChange: jest.Mock) {
+function renderJsonDrawer(onOpenChange: jest.Mock, onSave = jest.fn()) {
   return render(
-    <JsonFieldDialog
+    <JsonFieldDrawer
       open={true}
       onOpenChange={onOpenChange}
       fieldLabel="Raw payload"
       initialValue={{ alpha: 1 }}
-      onSave={jest.fn()}
+      onSave={onSave}
     />
   )
 }
 
-const dialogCases: Array<{
+const drawerCases: Array<{
   name: string
-  renderDialog: (onOpenChange: jest.Mock) => void
+  editorLabel: string
+  renderDrawer: (onOpenChange: jest.Mock, onSave?: jest.Mock) => void
 }> = [
-  { name: "LongTextFieldDialog", renderDialog: renderLongTextDialog },
-  { name: "JsonFieldDialog", renderDialog: renderJsonDialog },
+  {
+    name: "LongTextFieldDrawer",
+    editorLabel: "Rich text editor",
+    renderDrawer: renderLongTextDrawer,
+  },
+  {
+    name: "JsonFieldDrawer",
+    editorLabel: "JSON editor",
+    renderDrawer: renderJsonDrawer,
+  },
 ]
 
-describe.each(dialogCases)("$name", ({ renderDialog }) => {
+describe.each(drawerCases)("$name", ({ editorLabel, renderDrawer }) => {
   it("has no cancel button", () => {
-    renderDialog(jest.fn())
+    renderDrawer(jest.fn())
 
     expect(
       screen.queryByRole("button", { name: /cancel/i })
     ).not.toBeInTheDocument()
   })
 
-  it("does not close on a backdrop click", async () => {
+  it("is non-modal: no overlay, and the page behind stays reachable", () => {
+    render(<button type="button">Chat input</button>)
+    renderDrawer(jest.fn())
+
+    const drawer = screen.getByRole("dialog")
+    expect(drawer).not.toHaveAttribute("aria-modal", "true")
+    expect(drawer.className).toContain("left-0")
+    expect(drawer.className).not.toContain("shadow-lg")
+    expect(document.querySelector(".backdrop-blur-sm")).toBeNull()
+    // A modal dialog would hide its siblings from assistive tech and block
+    // their pointer events.
+    expect(screen.getByRole("button", { name: "Chat input" })).toBeVisible()
+    expect(document.body.style.pointerEvents).not.toBe("none")
+    expect(document.querySelector("[aria-hidden='true']")).toBeNull()
+  })
+
+  it("does not close on a click outside", async () => {
     const onOpenChange = jest.fn()
-    renderDialog(onOpenChange)
+    renderDrawer(onOpenChange)
     await flushOutsideListeners()
 
     clickOutside()
@@ -137,19 +162,52 @@ describe.each(dialogCases)("$name", ({ renderDialog }) => {
     expect(onOpenChange).not.toHaveBeenCalled()
   })
 
-  it("does not close on Escape", async () => {
+  it("does not close when focus moves outside", async () => {
     const user = userEvent.setup()
     const onOpenChange = jest.fn()
-    renderDialog(onOpenChange)
+    render(<input aria-label="Chat input" />)
+    renderDrawer(onOpenChange)
+    await flushOutsideListeners()
 
+    await user.click(screen.getByRole("textbox", { name: "Chat input" }))
+    await user.keyboard("hello")
+
+    expect(screen.getByRole("textbox", { name: "Chat input" })).toHaveValue(
+      "hello"
+    )
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  it("leaves Escape alone while focus is outside the drawer", async () => {
+    const user = userEvent.setup()
+    const onOpenChange = jest.fn()
+    render(<input aria-label="Chat input" />)
+    renderDrawer(onOpenChange)
+    await flushOutsideListeners()
+
+    await user.click(screen.getByRole("textbox", { name: "Chat input" }))
     await user.keyboard("{Escape}")
 
     expect(onOpenChange).not.toHaveBeenCalled()
   })
 
-  it("closes through the close button", async () => {
+  it("keeps the draft on Escape while focus is inside the drawer", async () => {
+    const user = userEvent.setup()
     const onOpenChange = jest.fn()
-    renderDialog(onOpenChange)
+    renderDrawer(onOpenChange)
+
+    await user.click(screen.getByRole("textbox", { name: editorLabel }))
+    await user.keyboard("{Escape}")
+
+    expect(onOpenChange).not.toHaveBeenCalled()
+    expect(
+      screen.getByRole("textbox", { name: editorLabel })
+    ).toBeInTheDocument()
+  })
+
+  it("closes through the close button", () => {
+    const onOpenChange = jest.fn()
+    renderDrawer(onOpenChange)
 
     fireEvent.click(screen.getByRole("button", { name: /close/i }))
 
@@ -157,69 +215,136 @@ describe.each(dialogCases)("$name", ({ renderDialog }) => {
   })
 })
 
-describe("control dialog without the dismissal guards", () => {
-  // These two tests prove the assertions above are not vacuous: the same
-  // interactions DO dismiss a dialog that omits `nonDismissableDialogProps`.
-  function renderControlDialog(onOpenChange: jest.Mock) {
-    render(
-      <Dialog open={true} onOpenChange={onOpenChange}>
-        <DialogContent title="Control dialog" aria-describedby={undefined}>
-          body
-        </DialogContent>
-      </Dialog>
-    )
-  }
-
-  it("closes on a backdrop click", async () => {
+describe("saving", () => {
+  it("saves the rich text draft and closes", async () => {
+    const user = userEvent.setup()
     const onOpenChange = jest.fn()
-    renderControlDialog(onOpenChange)
-    await flushOutsideListeners()
+    const onSave = jest.fn()
+    renderLongTextDrawer(onOpenChange, onSave)
 
-    clickOutside()
+    const editor = screen.getByRole("textbox", { name: "Rich text editor" })
+    await user.clear(editor)
+    await user.type(editor, "updated")
+    await user.click(screen.getByRole("button", { name: "Save" }))
 
+    expect(onSave).toHaveBeenCalledWith("updated")
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
-  it("closes on Escape", async () => {
-    const user = userEvent.setup()
+  it("parses the JSON draft on save and blocks invalid JSON", async () => {
     const onOpenChange = jest.fn()
-    renderControlDialog(onOpenChange)
+    const onSave = jest.fn()
+    renderJsonDrawer(onOpenChange, onSave)
 
-    await user.keyboard("{Escape}")
+    const editor = screen.getByRole("textbox", { name: "JSON editor" })
+    fireEvent.change(editor, { target: { value: "{" } })
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
 
+    fireEvent.change(editor, { target: { value: '{"beta": 2}' } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+
+    expect(onSave).toHaveBeenCalledWith({ beta: 2 })
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 })
 
-describe("field editor dialog shell", () => {
-  it("gives both dialogs an identical responsive shell", () => {
-    const longText = render(
-      <LongTextFieldDialog
-        open={true}
-        onOpenChange={jest.fn()}
-        fieldLabel="Analyst notes"
-        initialValue=""
-        onSave={jest.fn()}
-      />
+describe("under a CaseValueDrawerProvider", () => {
+  function TwoFields() {
+    const [openField, setOpenField] = useState<"notes" | "payload" | null>(null)
+    return (
+      <CaseValueDrawerProvider>
+        <button type="button" onClick={() => setOpenField("notes")}>
+          Open notes
+        </button>
+        <button type="button" onClick={() => setOpenField("payload")}>
+          Open payload
+        </button>
+        <LongTextFieldDrawer
+          open={openField === "notes"}
+          onOpenChange={(open) => setOpenField(open ? "notes" : null)}
+          fieldLabel="Analyst notes"
+          initialValue=""
+          onSave={jest.fn()}
+        />
+        <JsonFieldDrawer
+          open={openField === "payload"}
+          onOpenChange={(open) => setOpenField(open ? "payload" : null)}
+          fieldLabel="Raw payload"
+          initialValue={null}
+          onSave={jest.fn()}
+        />
+      </CaseValueDrawerProvider>
     )
-    const longTextClassName = screen.getByRole("dialog").className
-    longText.unmount()
+  }
 
-    render(
-      <JsonFieldDialog
-        open={true}
-        onOpenChange={jest.fn()}
-        fieldLabel="Raw payload"
-        initialValue={null}
-        onSave={jest.fn()}
-      />
-    )
-    const jsonClassName = screen.getByRole("dialog").className
+  it("shares one drawer and swaps its content", async () => {
+    const user = userEvent.setup()
+    render(<TwoFields />)
 
-    expect(jsonClassName).toBe(longTextClassName)
-    expect(longTextClassName).toContain("max-w-4xl")
-    expect(longTextClassName).toContain("h-[70vh]")
-    expect(FIELD_EDITOR_DIALOG_CLASS).toContain("max-w-4xl")
-    expect(FIELD_EDITOR_DIALOG_CLASS).toContain("h-[70vh]")
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "Open notes" }))
+    expect(await screen.findByText("Analyst notes")).toBeInTheDocument()
+    expect(
+      await screen.findByRole("textbox", { name: "Rich text editor" })
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "Open payload" }))
+    expect(await screen.findByText("Raw payload")).toBeInTheDocument()
+    expect(
+      await screen.findByRole("textbox", { name: "JSON editor" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("textbox", { name: "Rich text editor" })
+    ).not.toBeInTheDocument()
+    expect(screen.getAllByRole("dialog")).toHaveLength(1)
+  })
+
+  it("tells the first owner to close when another takes the drawer", async () => {
+    const user = userEvent.setup()
+    const onNotesOpenChange = jest.fn()
+
+    function Fields() {
+      const [payloadOpen, setPayloadOpen] = useState(false)
+      return (
+        <CaseValueDrawerProvider>
+          <button type="button" onClick={() => setPayloadOpen(true)}>
+            Open payload
+          </button>
+          <LongTextFieldDrawer
+            open={true}
+            onOpenChange={onNotesOpenChange}
+            fieldLabel="Analyst notes"
+            initialValue=""
+            onSave={jest.fn()}
+          />
+          <JsonFieldDrawer
+            open={payloadOpen}
+            onOpenChange={setPayloadOpen}
+            fieldLabel="Raw payload"
+            initialValue={null}
+            onSave={jest.fn()}
+          />
+        </CaseValueDrawerProvider>
+      )
+    }
+    render(<Fields />)
+
+    await user.click(screen.getByRole("button", { name: "Open payload" }))
+
+    expect(onNotesOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it("closes the drawer from its close button", async () => {
+    const user = userEvent.setup()
+    render(<TwoFields />)
+
+    await user.click(screen.getByRole("button", { name: "Open notes" }))
+    await screen.findByRole("textbox", { name: "Rich text editor" })
+    await user.click(screen.getByRole("button", { name: /close/i }))
+
+    expect(
+      screen.queryByRole("textbox", { name: "Rich text editor" })
+    ).not.toBeInTheDocument()
   })
 })

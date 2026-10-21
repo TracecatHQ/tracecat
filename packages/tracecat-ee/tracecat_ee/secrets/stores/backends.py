@@ -38,6 +38,10 @@ class SecretStoreBackend(Protocol):
         """Apply client-supplied updates, preserving server-owned fields."""
         ...
 
+    def is_ready(self, config: SecretStoreConfig) -> bool:
+        """Whether the config is complete enough for the store to be enabled."""
+        ...
+
     def validate_reference(self, config: SecretStoreConfig, key: str) -> None:
         """Raise ``ValueError`` when a remote key is invalid for this store."""
         ...

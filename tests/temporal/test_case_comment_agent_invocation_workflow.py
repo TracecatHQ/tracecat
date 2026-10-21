@@ -325,6 +325,52 @@ async def test_parent_routes_failure_stage_and_preserves_error(
 
 
 @pytest.mark.anyio
+async def test_parent_never_runs_a_turn_whose_workflow_id_was_tombstoned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A recovery tombstone on the child's ID fails the turn instead of running it."""
+    _EVENTS.clear()
+    _FAILURES.clear()
+    invocation_id = uuid.uuid4()
+    queue = f"comment-agent-tombstoned-{invocation_id}"
+    monkeypatch.setattr(config, "TRACECAT__AGENT_QUEUE", queue)
+    role = Role(type="service", service_id="tracecat-api")
+
+    async with await WorkflowEnvironment.start_time_skipping(
+        data_converter=get_data_converter()
+    ) as env:
+        # Recovery released the reserved turn and its tombstone has closed.
+        tombstone = await env.client.start_workflow(
+            "AgentTurnStartTombstone",
+            id=f"agent/{invocation_id}",
+            task_queue=f"tombstone-{invocation_id}",
+        )
+        await tombstone.terminate(reason="Agent turn could not be started")
+        async with Worker(
+            env.client,
+            task_queue=queue,
+            activities=[prepare_turn, complete_turn, record_failure],
+            workflows=[
+                invocation_workflows.CaseCommentAgentInvocationWorkflow,
+                SuccessfulAgentWorkflow,
+            ],
+            workflow_runner=new_sandbox_runner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await env.client.execute_workflow(
+                    invocation_workflows.CaseCommentAgentInvocationWorkflow.run,
+                    schemas.CaseCommentAgentInvocationWorkflowInput(
+                        role=role, invocation_id=invocation_id
+                    ),
+                    id=f"parent/{invocation_id}",
+                    task_queue=queue,
+                )
+
+    assert _EVENTS == ["prepare"]
+    assert [failure.kind for failure in _FAILURES] == ["agent_turn"]
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("origin", "cleanup_fails"),
     [("cancelled", False), ("agent_turn", True), ("cancelled", True)],

@@ -12,15 +12,14 @@ Tracecat posts the agent's final answer as a reply and keeps its full run in cas
 
 ## Before you start
 
-Your organization needs the agent add-ons and case add-ons entitlements.
-Your workspace role also needs:
+Your workspace role needs:
 
 - `agent:read` to find preset agents in autocomplete.
 - `agent:execute` to invoke the selected agent.
 - `case:update` to create the comment.
 
 Without `agent:read` and `agent:execute`, `@` behaves as regular comment text and never starts an agent run.
-Without either entitlement, `@` still opens the list, showing an Enterprise notice in place of agent names.
+Without Enterprise, `@` still opens the list, showing an Enterprise notice in place of agent names.
 
 ## Mention an agent
 

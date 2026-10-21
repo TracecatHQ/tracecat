@@ -6,6 +6,7 @@ import {
   type McpIntegrationMappingSelection,
   type PullResult,
   type ResourceRef,
+  type SecretStoreMappingSelection,
   type VcsProvider,
   type WorkflowSyncPullRequest,
   type WorkspaceSyncExportPreview,
@@ -25,6 +26,7 @@ interface WorkflowPullOptions {
   sync_schedules?: boolean
   catalog_mappings?: CatalogMappingSelection[]
   mcp_integration_mappings?: McpIntegrationMappingSelection[]
+  secret_store_mappings?: SecretStoreMappingSelection[]
 }
 
 /**
@@ -49,6 +51,9 @@ export function useWorkflowSync(workspaceId: string) {
           : {}),
         ...(options.mcp_integration_mappings?.length
           ? { mcp_integration_mappings: options.mcp_integration_mappings }
+          : {}),
+        ...(options.secret_store_mappings?.length
+          ? { secret_store_mappings: options.secret_store_mappings }
           : {}),
       }
 
@@ -80,7 +85,13 @@ export function useWorkflowSync(workspaceId: string) {
           queryKey: ["agent-directory-items", workspaceId],
         })
         queryClient.invalidateQueries({ queryKey: ["agent-tags", workspaceId] })
+        queryClient.invalidateQueries({
+          queryKey: ["agent-preset-workflow-references", workspaceId],
+        })
         queryClient.invalidateQueries({ queryKey: ["skills", workspaceId] })
+        queryClient.invalidateQueries({
+          queryKey: ["skill-library", workspaceId],
+        })
         queryClient.invalidateQueries({ queryKey: ["tables", workspaceId] })
         queryClient.invalidateQueries({
           queryKey: ["case-tag-catalog", workspaceId],
@@ -201,6 +212,7 @@ export function useWorkspaceSyncExportPreview(
       enabled &&
       (isFullWorkspacePreview || normalizedResources.length > 0),
     staleTime: 30 * 1000,
+    refetchOnWindowFocus: false,
   })
 
   return {

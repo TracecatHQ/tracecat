@@ -32,6 +32,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -59,6 +60,10 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { AwsSecretReferenceForm } from "@/components/workspaces/aws-secret-reference-form"
+import {
+  SecretSourcePicker,
+  type SecretSourceValue,
+} from "@/components/workspaces/secret-source-picker"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useAwsAssumeRoleAccess, useWorkspaceSecrets } from "@/lib/hooks"
 import { cn, copyToClipboard } from "@/lib/utils"
@@ -598,12 +603,11 @@ export function CreateCredentialDialog({
   const externalSecretStoresEnabled =
     hasEntitlement("external_secret_stores") && canReadSecrets
   const credentialSourceId = React.useId()
-  const [credentialSource, setCredentialSource] = React.useState<
-    "local" | "aws_secrets_manager"
-  >("local")
+  const [secretSource, setSecretSource] =
+    React.useState<SecretSourceValue>(null)
   React.useEffect(() => {
     if (open) {
-      setCredentialSource("local")
+      setSecretSource(null)
     }
   }, [open])
 
@@ -612,7 +616,7 @@ export function CreateCredentialDialog({
   const isAwsReference =
     secretType === "custom" &&
     externalSecretStoresEnabled &&
-    credentialSource === "aws_secrets_manager"
+    secretSource !== null
   const secretName = methods.watch("name")
   const isOktaCredentialForm = isOktaCredential({
     type: secretType,
@@ -915,8 +919,8 @@ export function CreateCredentialDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {children}
-      <DialogContent className={`${className} max-h-[85vh] flex flex-col`}>
-        <DialogHeader className="flex-shrink-0">
+      <DialogContent size="xl" className={className}>
+        <DialogHeader>
           <DialogTitle>
             {selectedTool
               ? `Configure ${selectedTool.name}`
@@ -924,30 +928,26 @@ export function CreateCredentialDialog({
           </DialogTitle>
         </DialogHeader>
 
-        {!isAwsReference && <CreateSecretTooltip />}
-        {secretType === "custom" && externalSecretStoresEnabled && (
-          <div className="flex-shrink-0 space-y-2 px-1">
-            <Label htmlFor={credentialSourceId}>Secret source</Label>
-            <Select
-              value={credentialSource}
-              onValueChange={(value) =>
-                setCredentialSource(value as "local" | "aws_secrets_manager")
-              }
-            >
-              <SelectTrigger id={credentialSourceId} className="text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="local">Tracecat</SelectItem>
-                <SelectItem value="aws_secrets_manager">
-                  AWS Secrets Manager
-                </SelectItem>
-              </SelectContent>
-            </Select>
+        {(!isAwsReference ||
+          (secretType === "custom" && externalSecretStoresEnabled)) && (
+          <div className="shrink-0 space-y-3 border-b p-4">
+            {!isAwsReference && <CreateSecretTooltip />}
+            {secretType === "custom" && externalSecretStoresEnabled && (
+              <div className="space-y-2">
+                <Label htmlFor={credentialSourceId}>Secret source</Label>
+                <SecretSourcePicker
+                  id={credentialSourceId}
+                  workspaceId={workspaceId}
+                  value={secretSource}
+                  onChange={setSecretSource}
+                />
+              </div>
+            )}
           </div>
         )}
         {isAwsReference ? (
           <AwsSecretReferenceForm
+            storeId={secretSource ?? undefined}
             initialName={selectedTool?.name}
             initialKeys={[
               ...(selectedTool?.keys ?? []),
@@ -959,9 +959,9 @@ export function CreateCredentialDialog({
           <Form {...methods}>
             <form
               onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}
-              className="flex flex-col flex-1 min-h-0"
+              className="flex min-h-0 flex-1 flex-col"
             >
-              <div className="space-y-4 overflow-y-auto flex-1 py-2 px-1">
+              <DialogBody>
                 <FormField
                   key="name"
                   control={control}
@@ -1503,33 +1503,31 @@ export function CreateCredentialDialog({
                         )}
                         <div className="flex flex-col space-y-2">
                           {fields.map((field, index) => {
-                            return (
-                              <div
-                                key={`${field.id}.${index}`}
-                                className="flex w-full items-center gap-2"
-                              >
-                                <FormControl className="flex-1">
-                                  <Input
-                                    id={`key-${index}`}
-                                    className="text-sm"
-                                    {...register(
-                                      `${inputKey}.${index}.key` as const,
-                                      {
-                                        required: true,
-                                      }
-                                    )}
-                                    placeholder="Key"
-                                    disabled={
-                                      !!selectedTool &&
-                                      (selectedTool.keys?.includes(
-                                        field.key || ""
-                                      ) ||
-                                        selectedTool.optional_keys?.includes(
-                                          field.key || ""
-                                        ))
-                                    }
-                                  />
-                                </FormControl>
+                            const isTemplateKey = Boolean(
+                              selectedTool &&
+                                (selectedTool.keys?.includes(field.key || "") ||
+                                  selectedTool.optional_keys?.includes(
+                                    field.key || ""
+                                  ))
+                            )
+                            const keyRegistration = register(
+                              `${inputKey}.${index}.key` as const,
+                              {
+                                required: true,
+                              }
+                            )
+                            const valueRow = (
+                              <div className="flex w-full items-center gap-2">
+                                {!isTemplateKey && (
+                                  <FormControl className="flex-1">
+                                    <Input
+                                      id={`key-${index}`}
+                                      className="text-sm"
+                                      {...keyRegistration}
+                                      placeholder="Key"
+                                    />
+                                  </FormControl>
+                                )}
                                 <FormControl className="flex-1">
                                   <Input
                                     id={`value-${index}`}
@@ -1548,24 +1546,39 @@ export function CreateCredentialDialog({
                                     type="password"
                                   />
                                 </FormControl>
-
                                 <Button
                                   type="button"
                                   variant="ghost"
                                   onClick={() => remove(index)}
                                   disabled={
-                                    (!!selectedTool &&
-                                      (selectedTool.keys?.includes(
-                                        field.key || ""
-                                      ) ||
-                                        selectedTool.optional_keys?.includes(
-                                          field.key || ""
-                                        ))) ||
+                                    isTemplateKey ||
                                     (!selectedTool && fields.length === 1)
                                   }
                                 >
                                   <Trash2Icon className="size-3.5" />
                                 </Button>
+                              </div>
+                            )
+                            if (!isTemplateKey) {
+                              return (
+                                <div key={`${field.id}.${index}`}>
+                                  {valueRow}
+                                </div>
+                              )
+                            }
+                            return (
+                              <div
+                                key={`${field.id}.${index}`}
+                                className="flex w-full flex-col gap-1.5"
+                              >
+                                <Label
+                                  htmlFor={`value-${index}`}
+                                  className="break-all font-mono text-xs text-muted-foreground"
+                                >
+                                  {field.key}
+                                </Label>
+                                <input type="hidden" {...keyRegistration} />
+                                {valueRow}
                               </div>
                             )
                           })}
@@ -1611,9 +1624,9 @@ export function CreateCredentialDialog({
                     "CA certificate",
                     "-----BEGIN CERTIFICATE-----"
                   )}
-              </div>
-              <DialogFooter className="flex-shrink-0 pt-4">
-                <Button className="ml-auto space-x-2" type="submit">
+              </DialogBody>
+              <DialogFooter>
+                <Button size="sm" type="submit">
                   <KeyRoundIcon className="mr-2 size-4" />
                   Create secret
                 </Button>

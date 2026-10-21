@@ -8,6 +8,7 @@ from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
 
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
+from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.query.errors import TracecatQueryTimeoutError
 from tracecat.search.embeddings.schemas import EmbeddingErrorRead
@@ -15,8 +16,16 @@ from tracecat.search.embeddings.types import EmbeddingError, EmbeddingErrorCode
 from tracecat.search.retrieval import TableRetrievalService
 from tracecat.search.schemas import SearchPage, SearchRequest
 from tracecat.search.types import SearchError, SearchErrorCode
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
 
 router = APIRouter()
+
+
+async def require_semantic_search_entitlement(
+    role: ExecutorWorkspaceRole, session: AsyncDBSession
+) -> None:
+    await check_entitlement(session, role, Entitlement.SEMANTIC_SEARCH)
 
 
 def _contains_surrogate(body: JsonValue) -> bool:
@@ -53,7 +62,10 @@ async def validate_request_encoding(request: Request) -> None:
 
 @router.post(
     "/{table_name}/rows/semantic-search",
-    dependencies=[Depends(validate_request_encoding)],
+    dependencies=[
+        Depends(require_semantic_search_entitlement),
+        Depends(validate_request_encoding),
+    ],
 )
 async def semantic_search(
     table_name: str, params: SearchRequest, role: ExecutorWorkspaceRole

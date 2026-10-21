@@ -35,7 +35,10 @@ jest.mock("@/lib/hooks", () => ({
 jest.mock("@/components/catalog/catalog-header", () => ({
   CatalogHeader: () => null,
 }))
-jest.mock("@/components/icons", () => ({ SecretIcon: () => null }))
+jest.mock("@/components/icons", () => ({
+  AwsIcon: () => null,
+  SecretIcon: () => null,
+}))
 jest.mock("@/components/workspaces/create-credential-dialog", () => ({
   CreateCredentialDialog: () => null,
 }))
@@ -106,7 +109,9 @@ async function openEditor() {
   )
   expect(secretsSearchSecrets).not.toHaveBeenCalled()
   await user.click(screen.getByRole("button", { name: /example_api/ }))
-  expect(screen.getByRole("button", { name: "Check" })).toBeInTheDocument()
+  expect(
+    screen.getByRole("button", { name: "Check access" })
+  ).toBeInTheDocument()
   await user.click(screen.getByRole("button", { name: "Edit" }))
   return user
 }

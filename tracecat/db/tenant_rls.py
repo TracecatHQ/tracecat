@@ -90,9 +90,15 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "skill_version_file",
     "skill_version_tool",
     "skill_version_mcp_tool",
+    "skill_library_install",
     "agent_preset_skill",
     "agent_preset_version_skill",
     "workspace_sync_resource_mapping",
+    "form",
+    "form_submission",
+    "form_view",
+    "form_file",
+    "workspace_tunnel",
 )
 
 POST_RLS_ORG_SCOPED_TABLES = (
@@ -105,6 +111,7 @@ POST_RLS_ORG_SCOPED_TABLES = (
     "external_group_mapping",
     "external_group_member",
     "scim_connection",
+    "invitation_group",
 )
 
 POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (

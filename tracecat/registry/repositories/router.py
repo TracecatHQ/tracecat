@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat import config
 from tracecat.auth.credentials import RoleACL
+from tracecat.auth.dependencies import OrgActorRole
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
@@ -75,11 +76,7 @@ async def _get_configured_custom_registry_origin(role: Role) -> str | None:
 @require_scope("org:registry:update")
 async def sync_registry_repository(
     *,
-    role: Role = RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="no",
-    ),
+    role: OrgActorRole,
     session: AsyncDBSession,
     repository_id: uuid.UUID,
     sync_params: RegistryRepositorySync | None = None,

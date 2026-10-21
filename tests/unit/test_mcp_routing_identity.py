@@ -165,9 +165,6 @@ async def test_duplicate_display_names_keep_subsets_and_endpoints_separate(
         "build_agent_tools",
         AsyncMock(return_value=BuildToolsResult(tools=[], collected_secrets=set())),
     )
-    monkeypatch.setattr(
-        AgentActivities, "_check_tool_approval_entitlement", AsyncMock()
-    )
     monkeypatch.setattr(user_client, "_create_transport", lambda url, *args: url)
     monkeypatch.setattr(user_client, "Client", RemoteClient)
 

@@ -55,7 +55,7 @@ export function UploadSkillConfirmDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
 
-        <ScrollArea className="max-h-[200px] rounded-md border">
+        <ScrollArea className="rounded-md border [&>[data-radix-scroll-area-viewport]]:max-h-[200px]">
           <div className="flex flex-col gap-1 p-3">
             {files.slice(0, 50).map(({ path }) => (
               <div

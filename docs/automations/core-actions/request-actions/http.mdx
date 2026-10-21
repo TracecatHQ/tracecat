@@ -42,6 +42,16 @@ then pass its managed access token as a bearer token.
 
 Perform a HTTP request to a given URL.
 
+### Private services
+
+To call a host on a private or on-premises network, such as
+`http://splunk.internal:8089`, route the action through a
+[tunnel](/manage-platform/tunnels). The request uses the same `url`,
+with `http://` or `https://`. The host and port must be in the
+tunnel's allowed targets, otherwise the request fails with `403`.
+HTTPS stays encrypted end to end; add an internal CA with the
+`ca_cert` secret.
+
 ### Secrets
 
 Optional secrets:

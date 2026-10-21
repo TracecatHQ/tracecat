@@ -7,6 +7,7 @@ from datetime import timedelta
 from typing import Literal
 
 from temporalio import workflow
+from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import ApplicationError, is_cancelled_exception
 
 with workflow.unsafe.imports_passed_through():
@@ -71,6 +72,9 @@ class CaseCommentAgentInvocationWorkflow:
                 id=AgentWorkflowID(run_id),
                 task_queue=config.TRACECAT__AGENT_QUEUE,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                # prepare_new_turn reuses a persisted run ID, which may be a
+                # direct dispatch's that recovery tombstoned. Never run it then.
+                id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
             )
             stage = "completion"
             return await workflow.execute_activity(

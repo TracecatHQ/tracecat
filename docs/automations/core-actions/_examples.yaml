@@ -761,6 +761,17 @@ examples:
         args:
           case_id: ${{ TRIGGER.case_id }}
 
+  cases-list-cases-by-row:
+    title: List other cases that link a row
+    language: yaml
+    code: |
+      - ref: related_cases
+        action: core.cases.list_cases_by_row
+        args:
+          table_id: ${{ ACTIONS.linked_rows.result[0].table_id }}
+          row_id: ${{ ACTIONS.linked_rows.result[0].row_id }}
+          exclude_case_id: ${{ TRIGGER.case_id }}
+
   cases-metrics:
     title: Read case metrics
     language: yaml
@@ -1006,3 +1017,77 @@ examples:
             - ${{ TRIGGER.severity in ["high", "critical"] }}
           require_all: true
           raise_error: true
+
+  forms-list-forms:
+    title: List forms
+    language: yaml
+    code: |
+      - ref: list_forms
+        action: core.forms.list_forms
+        args:
+          limit: 50
+
+  forms-get-form:
+    title: Get a form
+    language: yaml
+    code: |
+      - ref: get_form
+        action: core.forms.get_form
+        args:
+          form_id: 0b9f6c1e-5a47-4d1b-9c3e-2f7a8d6e4b10
+
+  forms-update-form:
+    title: Put a form online with a card picker
+    language: yaml
+    code: |
+      - ref: update_form
+        action: core.forms.update_form
+        args:
+          workflow_id: wf_3mYp8JkL2nQr7sTu9vWx0Z
+          status: online
+          config:
+            title: Laptop request
+            layout:
+              - field: model
+                widget: cards
+
+  forms-list-submissions:
+    title: List submissions older than 90 days
+    language: yaml
+    code: |
+      - ref: list_expired
+        action: core.forms.list_submissions
+        args:
+          form_id: 0b9f6c1e-5a47-4d1b-9c3e-2f7a8d6e4b10
+          submitted_before: ${{ FN.now() - FN.days(90) }}
+          limit: 200
+
+  forms-get-submission:
+    title: Get the submission that started this run
+    language: yaml
+    code: |
+      - ref: get_submission
+        action: core.forms.get_submission
+        args:
+          submission_id: ${{ TRIGGER.submission_id }}
+
+  forms-delete-submission:
+    title: Delete each listed submission
+    language: yaml
+    code: |
+      - ref: delete_expired
+        action: core.forms.delete_submission
+        depends_on:
+          - list_expired
+        for_each: ${{ for var.submission in ACTIONS.list_expired.result.items }}
+        args:
+          submission_id: ${{ var.submission.id }}
+
+  forms-download-file:
+    title: Download a file attached to the submission
+    language: yaml
+    code: |
+      - ref: download_quote
+        action: core.forms.download_file
+        args:
+          file_id: ${{ TRIGGER.quote.id }}

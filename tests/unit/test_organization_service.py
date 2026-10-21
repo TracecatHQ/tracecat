@@ -5,6 +5,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from typing import cast as type_cast
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import select
@@ -35,6 +36,7 @@ from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
     Invitation,
+    InvitationGroup,
     MCPRefreshToken,
     Membership,
     Organization,
@@ -88,6 +90,90 @@ async def _system_role(
             )
         )
     ).scalar_one()
+
+
+async def _invitation_with_workspaces(
+    session: AsyncSession,
+    organization: Organization,
+    org_wide_role: DBRole,
+    *,
+    explicit_role: DBRole | None = None,
+) -> tuple[Invitation, Workspace, Workspace]:
+    first_workspace = Workspace(
+        id=uuid.uuid4(), name="Alpha Workspace", organization_id=organization.id
+    )
+    second_workspace = Workspace(
+        id=uuid.uuid4(), name="Beta Workspace", organization_id=organization.id
+    )
+    grants = [
+        InvitationGrantRow(
+            organization_id=organization.id,
+            role_id=org_wide_role.id,
+        )
+    ]
+    if explicit_role is not None:
+        grants.append(
+            InvitationGrantRow(
+                organization_id=organization.id,
+                workspace_id=first_workspace.id,
+                role_id=explicit_role.id,
+            )
+        )
+    invitation = Invitation(
+        organization_id=organization.id,
+        email="invited-member@example.com",
+        token=secrets.token_urlsafe(32),
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+        status=InvitationStatus.PENDING,
+        grants=grants,
+    )
+    session.add_all([first_workspace, second_workspace, invitation])
+    await session.flush()
+    return invitation, first_workspace, second_workspace
+
+
+async def _invitation_with_group_role(
+    session: AsyncSession,
+    organization: Organization,
+    *,
+    explicit_role: DBRole,
+    explicit_workspace_id: uuid.UUID | None,
+    group_role: DBRole,
+    group_workspace_id: uuid.UUID | None,
+) -> tuple[Invitation, Group]:
+    group = Group(
+        id=uuid.uuid4(), name="Invitation Group", organization_id=organization.id
+    )
+    session.add(group)
+    await session.flush()
+    invitation = Invitation(
+        organization_id=organization.id,
+        email="group-invited-member@example.com",
+        token=secrets.token_urlsafe(32),
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+        status=InvitationStatus.PENDING,
+        grants=[
+            InvitationGrantRow(
+                organization_id=organization.id,
+                workspace_id=explicit_workspace_id,
+                role_id=explicit_role.id,
+            )
+        ],
+        groups=[InvitationGroup(organization_id=organization.id, group_id=group.id)],
+    )
+    session.add_all(
+        [
+            invitation,
+            GroupRoleAssignment(
+                organization_id=organization.id,
+                group_id=group.id,
+                workspace_id=group_workspace_id,
+                role_id=group_role.id,
+            ),
+        ]
+    )
+    await session.flush()
+    return invitation, group
 
 
 @pytest.fixture
@@ -316,23 +402,6 @@ class TestOrganizationServiceListMembers:
         assert admin_in_org1.id in member_ids
         assert user_in_org2.id not in member_ids
         assert len(members) == 2
-
-    @pytest.mark.anyio
-    async def test_list_members_empty_org(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-        org2: Organization,
-    ):
-        """Test list_members returns empty list for org with no additional members."""
-        # Query org2 which has no members
-        role = create_admin_role(org2.id, admin_in_org1.id)
-        service = OrgService(session, role=role)
-
-        members = await service.list_members()
-
-        assert len(members) == 0
 
 
 class TestOrganizationServiceGetMember:
@@ -799,18 +868,21 @@ class TestOrganizationServiceDeleteMember:
             await service.delete_member(superuser.id, allow_idp_managed=True)
 
     @pytest.mark.anyio
-    async def test_scim_guard_is_per_organization(
+    @pytest.mark.parametrize("linked_in_own_org", [True, False])
+    async def test_scim_guard_blocks_only_the_owning_organization(
         self,
         session: AsyncSession,
         org1: Organization,
         org2: Organization,
         user_in_org1: User,
         admin_in_org1: User,
+        linked_in_own_org: bool,
     ):
-        """A linkage in one org must not block removal by another org's admin."""
+        """The org holding the linkage is refused; another org's linkage is ignored."""
+        linked_org_id = org1.id if linked_in_own_org else org2.id
         session.add(
             ScimConnection(
-                organization_id=org2.id,
+                organization_id=linked_org_id,
                 key_id=uuid.uuid4().hex,
                 hashed="x",
                 salt="x",
@@ -819,11 +891,15 @@ class TestOrganizationServiceDeleteMember:
             )
         )
         await seed_external_user(
-            session, organization_id=org2.id, user_id=user_in_org1.id
+            session, organization_id=linked_org_id, user_id=user_in_org1.id
         )
         service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
 
-        # org2 owns the linkage, so org1's admin is unaffected by it.
+        if linked_in_own_org:
+            with pytest.raises(TracecatConflictError, match="identity provider"):
+                await service.delete_member(user_in_org1.id)
+            return
+
         await service.delete_member(user_in_org1.id)
         assert (
             await session.scalar(
@@ -834,33 +910,6 @@ class TestOrganizationServiceDeleteMember:
             )
             is None
         )
-
-    @pytest.mark.anyio
-    async def test_scim_guard_blocks_the_owning_organization(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        user_in_org1: User,
-        admin_in_org1: User,
-    ):
-        """The org holding the linkage is the one refused."""
-        session.add(
-            ScimConnection(
-                organization_id=org1.id,
-                key_id=uuid.uuid4().hex,
-                hashed="x",
-                salt="x",
-                preview="scim_test",
-                status=ScimConnectionStatus.ACTIVE,
-            )
-        )
-        await seed_external_user(
-            session, organization_id=org1.id, user_id=user_in_org1.id
-        )
-        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
-
-        with pytest.raises(TracecatConflictError, match="identity provider"):
-            await service.delete_member(user_in_org1.id)
 
     @pytest.mark.anyio
     async def test_delete_nonexistent_member_raises(
@@ -1255,33 +1304,6 @@ class TestOrganizationServiceInvitations:
     """Tests for OrgService invitation methods."""
 
     @pytest.mark.anyio
-    async def test_create_invitation(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-        org1_member_role: DBRole,
-    ):
-        """Test create_invitation creates an invitation record."""
-        role = create_admin_role(org1.id, admin_in_org1.id)
-        service = InvitationService(session, role=role)
-
-        invitation = await service.create_invitation(
-            InvitationCreate(
-                email="newuser@example.com",
-                grants=[InvitationGrant(role_id=org1_member_role.id)],
-            )
-        )
-
-        assert invitation.email == "newuser@example.com"
-        assert invitation.grants[0].role_id == org1_member_role.id
-        assert invitation.organization_id == org1.id
-        assert invitation.invited_by == admin_in_org1.id
-        assert invitation.status == InvitationStatus.PENDING
-        assert invitation.token is not None
-        assert len(invitation.token) > 0
-
-    @pytest.mark.anyio
     async def test_create_invitation_with_admin_role(
         self,
         session: AsyncSession,
@@ -1289,7 +1311,7 @@ class TestOrganizationServiceInvitations:
         admin_in_org1: User,
         org1_admin_role: DBRole,
     ):
-        """Test create_invitation can assign admin role."""
+        """Test create_invitation creates a pending admin-role invitation."""
         role = create_admin_role(org1.id, admin_in_org1.id)
         service = InvitationService(session, role=role)
 
@@ -1300,7 +1322,12 @@ class TestOrganizationServiceInvitations:
             )
         )
 
+        assert invitation.email == "newadmin@example.com"
         assert invitation.grants[0].role_id == org1_admin_role.id
+        assert invitation.organization_id == org1.id
+        assert invitation.invited_by == admin_in_org1.id
+        assert invitation.status == InvitationStatus.PENDING
+        assert invitation.token
 
     @pytest.mark.anyio
     async def test_create_owner_invitation_requires_owner_or_superuser(
@@ -1655,31 +1682,6 @@ class TestOrganizationServiceInvitations:
         assert revoked_invitations[0].id == revoked_inv.id
 
     @pytest.mark.anyio
-    async def test_get_invitation_by_token(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-        org1_member_role: DBRole,
-    ):
-        """Test get_invitation_by_token retrieves invitation."""
-        role = create_admin_role(org1.id, admin_in_org1.id)
-        service = InvitationService(session, role=role)
-
-        invitation = await service.create_invitation(
-            InvitationCreate(
-                email="test@example.com",
-                grants=[InvitationGrant(role_id=org1_member_role.id)],
-            )
-        )
-
-        retrieved = await find_invitation_by_token(session, invitation.token)
-        assert retrieved is not None
-
-        assert retrieved.id == invitation.id
-        assert retrieved.email == invitation.email
-
-    @pytest.mark.anyio
     async def test_get_invitation_by_token_returns_org_and_inviter_info(
         self,
         session: AsyncSession,
@@ -1706,6 +1708,8 @@ class TestOrganizationServiceInvitations:
         # Get invitation by token
         retrieved = await find_invitation_by_token(session, invitation.token)
         assert retrieved is not None
+        assert retrieved.id == invitation.id
+        assert retrieved.email == invitation.email
 
         # Verify organization info is available
         assert retrieved.organization_id == org1.id
@@ -1860,7 +1864,8 @@ class TestOrganizationServiceInvitations:
         assert invitation.accepted_at is not None
 
     @pytest.mark.anyio
-    async def test_accept_invitation_allows_superuser_account_in_multi_tenant(
+    @pytest.mark.parametrize("multi_tenant", [True, False])
+    async def test_accept_invitation_allows_superuser_account(
         self,
         session: AsyncSession,
         org1: Organization,
@@ -1868,69 +1873,10 @@ class TestOrganizationServiceInvitations:
         admin_in_org1: User,
         org1_member_role: DBRole,
         monkeypatch: pytest.MonkeyPatch,
+        multi_tenant: bool,
     ):
-        """Test multi-tenant superuser accounts accept org invitations as users."""
-        monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
-        standalone_superuser = User(
-            id=uuid.uuid4(),
-            email=f"standalone-superuser-{uuid.uuid4().hex[:8]}@example.com",
-            hashed_password="hashed",
-            role=UserRole.ADMIN,
-            is_active=True,
-            is_superuser=True,
-            is_verified=True,
-        )
-        service_superuser = User(
-            id=uuid.uuid4(),
-            email=f"service-superuser-{uuid.uuid4().hex[:8]}@example.com",
-            hashed_password="hashed",
-            role=UserRole.ADMIN,
-            is_active=True,
-            is_superuser=True,
-            is_verified=True,
-        )
-        session.add_all([standalone_superuser, service_superuser])
-        await session.commit()
-
-        admin_role = create_admin_role(org1.id, admin_in_org1.id)
-        admin_service = InvitationService(session, role=admin_role)
-        standalone_invitation = await admin_service.create_invitation(
-            InvitationCreate(
-                email=standalone_superuser.email,
-                grants=[InvitationGrant(role_id=org1_member_role.id)],
-            )
-        )
-        service_invitation = await admin_service.create_invitation(
-            InvitationCreate(
-                email=service_superuser.email,
-                grants=[InvitationGrant(role_id=org1_member_role.id)],
-            )
-        )
-
-        await accept_invitation_for_user(
-            session,
-            user_id=standalone_superuser.id,
-            token=standalone_invitation.token,
-        )
-        assert await _is_org_member(session, standalone_superuser.id, org1.id)
-
-        await accept_invitation_for_user(
-            session, user_id=service_superuser.id, token=service_invitation.token
-        )
-        assert await _is_org_member(session, service_superuser.id, org1.id)
-
-    @pytest.mark.anyio
-    async def test_accept_invitation_allows_superuser_account_in_single_tenant(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        org2: Organization,
-        admin_in_org1: User,
-        org1_member_role: DBRole,
-        monkeypatch: pytest.MonkeyPatch,
-    ):
-        """Test single-tenant superuser accounts can accept org invitations."""
-        monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+        """Superuser accounts accept org invitations as users in either tenancy mode."""
+        monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", multi_tenant)
         standalone_superuser = User(
             id=uuid.uuid4(),
             email=f"standalone-superuser-{uuid.uuid4().hex[:8]}@example.com",
@@ -2100,62 +2046,37 @@ class TestOrganizationScimInviteWarning:
         return connection
 
     @pytest.mark.anyio
-    async def test_is_scim_connected_false_without_connection(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-    ):
-        service = InvitationService(
-            session, role=create_admin_role(org1.id, admin_in_org1.id)
-        )
-
-        assert await service.is_scim_connected() is False
-
-    @pytest.mark.anyio
-    async def test_is_scim_connected_true_with_connection(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-    ):
-        await self._connect_scim(session, org1.id)
-        service = InvitationService(
-            session, role=create_admin_role(org1.id, admin_in_org1.id)
-        )
-
-        assert await service.is_scim_connected() is True
-
-    @pytest.mark.anyio
-    async def test_is_scim_connected_false_after_disconnect(
-        self,
-        session: AsyncSession,
-        org1: Organization,
-        admin_in_org1: User,
-    ):
-        connection = await self._connect_scim(session, org1.id)
-        connection.status = ScimConnectionStatus.DISABLED
-        await session.commit()
-        service = InvitationService(
-            session, role=create_admin_role(org1.id, admin_in_org1.id)
-        )
-
-        assert await service.is_scim_connected() is False
-
-    @pytest.mark.anyio
-    async def test_is_scim_connected_ignores_other_org_connection(
+    @pytest.mark.parametrize(
+        ("connected_org", "status", "expected"),
+        [
+            (None, None, False),
+            ("org1", None, True),
+            ("org1", ScimConnectionStatus.DISABLED, False),
+            ("org2", None, False),
+        ],
+        ids=["no_connection", "own_org", "disabled", "other_org"],
+    )
+    async def test_is_scim_connected(
         self,
         session: AsyncSession,
         org1: Organization,
         org2: Organization,
         admin_in_org1: User,
+        connected_org: str | None,
+        status: ScimConnectionStatus | None,
+        expected: bool,
     ):
-        await self._connect_scim(session, org2.id)
+        if connected_org is not None:
+            org = org1 if connected_org == "org1" else org2
+            connection = await self._connect_scim(session, org.id)
+            if status is not None:
+                connection.status = status
+                await session.commit()
         service = InvitationService(
             session, role=create_admin_role(org1.id, admin_in_org1.id)
         )
 
-        assert await service.is_scim_connected() is False
+        assert await service.is_scim_connected() is expected
 
     @pytest.mark.anyio
     async def test_create_invitation_warns_in_scim_org(
@@ -2182,26 +2103,637 @@ class TestOrganizationScimInviteWarning:
         assert "also provisions this address" in response.warning
         assert "Otherwise, SCIM does not add them" in response.warning
 
-    @pytest.mark.anyio
-    async def test_create_invitation_has_no_warning_without_scim(
+
+@pytest.mark.anyio
+class TestOrganizationServiceListMemberAccess:
+    """Member access is batched, deduplicated, and organization-scoped."""
+
+    async def test_lists_roles_workspaces_and_effective_groups(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        org2: Organization,
+        user_in_org1: User,
+        user_in_org2: User,
+        admin_in_org1: User,
+    ) -> None:
+        target = User(
+            id=uuid.uuid4(),
+            email=f"access-member-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.BASIC,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        session.add(target)
+        await session.flush()
+        await ensure_member(session, org1.id, target.id)
+
+        shared_role = DBRole(
+            id=uuid.uuid4(),
+            name="Shared Responder",
+            slug=None,
+            organization_id=org1.id,
+        )
+        org_wide_workspace_role = DBRole(
+            id=uuid.uuid4(),
+            name="All Workspaces Reader",
+            slug=None,
+            organization_id=org1.id,
+        )
+        other_org_role = DBRole(
+            id=uuid.uuid4(),
+            name="Other Organization Role",
+            slug=None,
+            organization_id=org2.id,
+        )
+        first_workspace = Workspace(
+            id=uuid.uuid4(), name="Alpha Workspace", organization_id=org1.id
+        )
+        second_workspace = Workspace(
+            id=uuid.uuid4(), name="Beta Workspace", organization_id=org1.id
+        )
+        other_workspace = Workspace(
+            id=uuid.uuid4(), name="Other Workspace", organization_id=org2.id
+        )
+        manual_group = Group(
+            id=uuid.uuid4(), name="Manual Responders", organization_id=org1.id
+        )
+        idp_group = Group(
+            id=uuid.uuid4(), name="Directory Responders", organization_id=org1.id
+        )
+        session.add_all(
+            [
+                shared_role,
+                org_wide_workspace_role,
+                other_org_role,
+                first_workspace,
+                second_workspace,
+                other_workspace,
+                manual_group,
+                idp_group,
+            ]
+        )
+        await session.flush()
+
+        session.add_all(
+            [
+                UserRoleAssignment(
+                    organization_id=org1.id,
+                    user_id=target.id,
+                    workspace_id=None,
+                    role_id=org_wide_workspace_role.id,
+                ),
+                UserRoleAssignment(
+                    organization_id=org1.id,
+                    user_id=target.id,
+                    workspace_id=first_workspace.id,
+                    role_id=shared_role.id,
+                ),
+                GroupMember(
+                    organization_id=org1.id,
+                    group_id=manual_group.id,
+                    user_id=target.id,
+                ),
+                GroupRoleAssignment(
+                    organization_id=org1.id,
+                    group_id=manual_group.id,
+                    workspace_id=first_workspace.id,
+                    role_id=shared_role.id,
+                ),
+                GroupRoleAssignment(
+                    organization_id=org1.id,
+                    group_id=idp_group.id,
+                    workspace_id=second_workspace.id,
+                    role_id=shared_role.id,
+                ),
+                UserRoleAssignment(
+                    organization_id=org2.id,
+                    user_id=user_in_org2.id,
+                    workspace_id=other_workspace.id,
+                    role_id=other_org_role.id,
+                ),
+            ]
+        )
+        external_user_id = await seed_external_user(
+            session, organization_id=org1.id, user_id=target.id
+        )
+        external_group = await seed_external_group(
+            session, organization_id=org1.id, external_id="directory-responders"
+        )
+        await seed_external_group_members(
+            session,
+            external_group_id=external_group.id,
+            external_user_ids=[external_user_id],
+        )
+        session.add(
+            ExternalGroupMapping(
+                id=uuid.uuid4(),
+                organization_id=org1.id,
+                external_group_id=external_group.id,
+                group_id=idp_group.id,
+            )
+        )
+        await session.flush()
+
+        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
+        with (
+            patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)),
+            patch.object(
+                session, "execute", new=AsyncMock(wraps=session.execute)
+            ) as execute_mock,
+        ):
+            access_by_user = await service.list_member_access()
+
+        assert execute_mock.await_count == 1
+        access = access_by_user[target.id]
+        assert access.role_name == "All Workspaces Reader"
+        assert access.role_slug is None
+        assert [(item.id, item.name) for item in access.roles] == [
+            (org_wide_workspace_role.id, "All Workspaces Reader"),
+            (shared_role.id, "Shared Responder"),
+        ]
+        assert [(item.id, item.name) for item in access.workspaces] == [
+            (first_workspace.id, "Alpha Workspace"),
+            (second_workspace.id, "Beta Workspace"),
+        ]
+        assert [(item.id, item.name) for item in access.groups] == [
+            (idp_group.id, "Directory Responders"),
+            (manual_group.id, "Manual Responders"),
+        ]
+        assert access_by_user[user_in_org1.id].roles == []
+        assert user_in_org2.id not in access_by_user
+
+    async def test_without_rbac_read_keeps_inherited_org_role_only(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+    ) -> None:
+        admin_role = await _system_role(session, org1.id, "organization-admin")
+        group = Group(id=uuid.uuid4(), name="Administrators", organization_id=org1.id)
+        session.add(group)
+        await session.flush()
+        session.add_all(
+            [
+                GroupMember(
+                    organization_id=org1.id,
+                    group_id=group.id,
+                    user_id=user_in_org1.id,
+                ),
+                GroupRoleAssignment(
+                    organization_id=org1.id,
+                    group_id=group.id,
+                    workspace_id=None,
+                    role_id=admin_role.id,
+                ),
+            ]
+        )
+        await session.flush()
+        member_role = Role(
+            type="user",
+            user_id=user_in_org1.id,
+            organization_id=org1.id,
+            service_id="tracecat-api",
+            scopes=ORG_MEMBER_SCOPES,
+        )
+
+        access = (await OrgService(session, role=member_role).list_member_access())[
+            user_in_org1.id
+        ]
+
+        assert access.role_name == admin_role.name
+        assert access.role_slug == "organization-admin"
+        assert access.roles == []
+        assert access.workspaces == []
+        assert access.groups == []
+
+    async def test_owner_precedes_admin_and_reaches_every_workspace(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+    ) -> None:
+        admin_role = await _system_role(session, org1.id, "organization-admin")
+        owner_role = await _system_role(session, org1.id, "organization-owner")
+        first_workspace = Workspace(
+            id=uuid.uuid4(), name="Alpha Workspace", organization_id=org1.id
+        )
+        second_workspace = Workspace(
+            id=uuid.uuid4(), name="Beta Workspace", organization_id=org1.id
+        )
+        admin_group = Group(
+            id=uuid.uuid4(), name="Administrators", organization_id=org1.id
+        )
+        owner_group = Group(id=uuid.uuid4(), name="Owners", organization_id=org1.id)
+        session.add_all([first_workspace, second_workspace, admin_group, owner_group])
+        await session.flush()
+        session.add_all(
+            [
+                GroupMember(
+                    organization_id=org1.id,
+                    group_id=admin_group.id,
+                    user_id=user_in_org1.id,
+                ),
+                GroupRoleAssignment(
+                    organization_id=org1.id,
+                    group_id=admin_group.id,
+                    workspace_id=None,
+                    role_id=admin_role.id,
+                ),
+                GroupMember(
+                    organization_id=org1.id,
+                    group_id=owner_group.id,
+                    user_id=user_in_org1.id,
+                ),
+                GroupRoleAssignment(
+                    organization_id=org1.id,
+                    group_id=owner_group.id,
+                    workspace_id=None,
+                    role_id=owner_role.id,
+                ),
+            ]
+        )
+        await session.flush()
+
+        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
+        with patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)):
+            access = (await service.list_member_access())[user_in_org1.id]
+
+        assert access.role_name == owner_role.name
+        assert access.role_slug == "organization-owner"
+        assert [(item.id, item.name) for item in access.workspaces] == [
+            (first_workspace.id, "Alpha Workspace"),
+            (second_workspace.id, "Beta Workspace"),
+        ]
+
+    async def test_without_entitlement_omits_groups_but_keeps_group_access(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+    ) -> None:
+        role = DBRole(
+            id=uuid.uuid4(),
+            name="Group Workspace Role",
+            slug=None,
+            organization_id=org1.id,
+        )
+        workspace = Workspace(
+            id=uuid.uuid4(), name="Group Workspace", organization_id=org1.id
+        )
+        group = Group(id=uuid.uuid4(), name="Entitled Group", organization_id=org1.id)
+        session.add_all([role, workspace, group])
+        await session.flush()
+        session.add_all(
+            [
+                GroupMember(
+                    organization_id=org1.id,
+                    group_id=group.id,
+                    user_id=user_in_org1.id,
+                ),
+                GroupRoleAssignment(
+                    organization_id=org1.id,
+                    group_id=group.id,
+                    workspace_id=workspace.id,
+                    role_id=role.id,
+                ),
+            ]
+        )
+        await session.flush()
+
+        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
+        with patch.object(
+            service, "has_entitlement", new=AsyncMock(return_value=False)
+        ):
+            access = (await service.list_member_access())[user_in_org1.id]
+
+        assert [(item.id, item.name) for item in access.roles] == [
+            (role.id, "Group Workspace Role")
+        ]
+        assert [(item.id, item.name) for item in access.workspaces] == [
+            (workspace.id, "Group Workspace")
+        ]
+        assert access.groups == []
+
+
+@pytest.mark.anyio
+class TestOrganizationServiceListInvitationAccess:
+    """Invitation access metadata is resolved in batches and scope-gated."""
+
+    async def test_group_workspace_role_lists_role_and_workspace(
         self,
         session: AsyncSession,
         org1: Organization,
         admin_in_org1: User,
-        org1_member_role: DBRole,
-    ):
-        role = create_admin_role(org1.id, admin_in_org1.id)
-
-        response = await create_invitation(
-            role=role,
-            session=session,
-            params=InvitationCreate(
-                email="manual-no-scim@example.com",
-                grants=[InvitationGrant(role_id=org1_member_role.id)],
-            ),
+    ) -> None:
+        viewer_role = await _system_role(session, org1.id, "workspace-viewer")
+        group_role = DBRole(
+            id=uuid.uuid4(),
+            name="Group Responder",
+            slug=None,
+            organization_id=org1.id,
         )
+        explicit_workspace = Workspace(
+            id=uuid.uuid4(), name="Alpha Workspace", organization_id=org1.id
+        )
+        group_workspace = Workspace(
+            id=uuid.uuid4(), name="Beta Workspace", organization_id=org1.id
+        )
+        session.add_all([group_role, explicit_workspace, group_workspace])
+        await session.flush()
+        invitation, group = await _invitation_with_group_role(
+            session,
+            org1,
+            explicit_role=viewer_role,
+            explicit_workspace_id=explicit_workspace.id,
+            group_role=group_role,
+            group_workspace_id=group_workspace.id,
+        )
+        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
 
-        assert response.warning is None
+        with patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)):
+            access = (await service.list_invitation_access([invitation]))[invitation.id]
+
+        assert [(item.id, item.name) for item in access.roles] == sorted(
+            [
+                (group_role.id, group_role.name),
+                (viewer_role.id, viewer_role.name),
+            ],
+            key=lambda item: (item[1], item[0]),
+        )
+        assert [(item.id, item.name) for item in access.workspaces] == [
+            (explicit_workspace.id, explicit_workspace.name),
+            (group_workspace.id, group_workspace.name),
+        ]
+        assert [(item.id, item.name) for item in access.groups] == [
+            (group.id, group.name)
+        ]
+
+    @pytest.mark.parametrize(
+        ("explicit_slug", "expected_slug"),
+        [
+            ("workspace-viewer", "organization-admin"),
+            ("organization-owner", "organization-owner"),
+        ],
+        ids=["group_admin_sets_display_role", "explicit_owner_precedes_group_admin"],
+    )
+    async def test_display_role_precedence(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        explicit_slug: str,
+        expected_slug: str,
+    ) -> None:
+        explicit_role = await _system_role(session, org1.id, explicit_slug)
+        admin_role = await _system_role(session, org1.id, "organization-admin")
+        workspace_id: uuid.UUID | None = None
+        if explicit_slug == "workspace-viewer":
+            workspace = Workspace(
+                id=uuid.uuid4(), name="Group Workspace", organization_id=org1.id
+            )
+            session.add(workspace)
+            await session.flush()
+            workspace_id = workspace.id
+        invitation, _group = await _invitation_with_group_role(
+            session,
+            org1,
+            explicit_role=explicit_role,
+            explicit_workspace_id=workspace_id,
+            group_role=admin_role,
+            group_workspace_id=None,
+        )
+        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
+
+        with patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)):
+            access = (await service.list_invitation_access([invitation]))[invitation.id]
+
+        assert access.role_name == "Invited"
+        assert access.role_slug == expected_slug
+
+    async def test_without_rbac_read_hides_group_access(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+    ) -> None:
+        viewer_role = await _system_role(session, org1.id, "workspace-viewer")
+        admin_role = await _system_role(session, org1.id, "organization-admin")
+        invitation, _group = await _invitation_with_group_role(
+            session,
+            org1,
+            explicit_role=viewer_role,
+            explicit_workspace_id=None,
+            group_role=admin_role,
+            group_workspace_id=None,
+        )
+        member_role = Role(
+            type="user",
+            user_id=user_in_org1.id,
+            organization_id=org1.id,
+            service_id="tracecat-api",
+            scopes=ORG_MEMBER_SCOPES,
+        )
+        service = OrgService(session, role=member_role)
+        entitlement_mock = AsyncMock(return_value=True)
+
+        with patch.object(service, "has_entitlement", new=entitlement_mock):
+            access = (await service.list_invitation_access([invitation]))[invitation.id]
+
+        entitlement_mock.assert_not_awaited()
+        assert access.role_slug == "workspace-viewer"
+        assert access.roles == []
+        assert access.workspaces == []
+        assert access.groups == []
+
+    async def test_without_entitlement_ignores_group_access(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ) -> None:
+        viewer_role = await _system_role(session, org1.id, "workspace-viewer")
+        admin_role = await _system_role(session, org1.id, "organization-admin")
+        workspace = Workspace(
+            id=uuid.uuid4(), name="Explicit Workspace", organization_id=org1.id
+        )
+        session.add(workspace)
+        await session.flush()
+        invitation, _group = await _invitation_with_group_role(
+            session,
+            org1,
+            explicit_role=viewer_role,
+            explicit_workspace_id=workspace.id,
+            group_role=admin_role,
+            group_workspace_id=None,
+        )
+        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
+
+        with patch.object(
+            service, "has_entitlement", new=AsyncMock(return_value=False)
+        ):
+            access = (await service.list_invitation_access([invitation]))[invitation.id]
+
+        assert access.role_slug is None
+        assert [(item.id, item.name) for item in access.roles] == [
+            (viewer_role.id, viewer_role.name)
+        ]
+        assert [(item.id, item.name) for item in access.workspaces] == [
+            (workspace.id, workspace.name)
+        ]
+        assert access.groups == []
+
+    @pytest.mark.parametrize(
+        ("org_wide_slug", "explicit_slug", "expected_count"),
+        [
+            pytest.param("workspace-viewer", None, 2, id="org_wide_workspace_role"),
+            pytest.param("organization-admin", None, 2, id="org_admin"),
+            pytest.param(
+                None, "workspace-viewer", 1, id="org_role_without_workspace_read"
+            ),
+        ],
+    )
+    async def test_org_wide_role_workspace_expansion(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org_wide_slug: str | None,
+        explicit_slug: str | None,
+        expected_count: int,
+    ) -> None:
+        if org_wide_slug is not None:
+            org_wide_role = await _system_role(session, org1.id, org_wide_slug)
+        else:
+            org_scope = (
+                await session.execute(
+                    select(Scope).where(Scope.name == "org:member:read")
+                )
+            ).scalar_one()
+            org_wide_role = DBRole(
+                id=uuid.uuid4(),
+                name="Organization Auditor",
+                slug=None,
+                organization_id=org1.id,
+            )
+            session.add(org_wide_role)
+            await session.flush()
+            session.add(RoleScope(role_id=org_wide_role.id, scope_id=org_scope.id))
+        explicit_role = (
+            await _system_role(session, org1.id, explicit_slug)
+            if explicit_slug is not None
+            else None
+        )
+        invitation, *workspaces = await _invitation_with_workspaces(
+            session, org1, org_wide_role, explicit_role=explicit_role
+        )
+        service = OrgService(session, role=create_admin_role(org1.id, admin_in_org1.id))
+
+        with patch.object(
+            service, "has_entitlement", new=AsyncMock(return_value=False)
+        ):
+            access = (await service.list_invitation_access([invitation]))[invitation.id]
+
+        assert [(item.id, item.name) for item in access.workspaces] == [
+            (workspace.id, workspace.name) for workspace in workspaces[:expected_count]
+        ]
+
+    async def test_lists_invited_role_and_access_with_and_without_rbac_read(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+        admin_in_org1: User,
+    ) -> None:
+        admin_role = await _system_role(session, org1.id, "organization-admin")
+        viewer_role = await _system_role(session, org1.id, "workspace-viewer")
+        implicit_member_role = await _system_role(
+            session, org1.id, "organization-member"
+        )
+        first_workspace = Workspace(
+            id=uuid.uuid4(), name="Alpha Workspace", organization_id=org1.id
+        )
+        second_workspace = Workspace(
+            id=uuid.uuid4(), name="Beta Workspace", organization_id=org1.id
+        )
+        invitation = Invitation(
+            organization_id=org1.id,
+            email="invited-member@example.com",
+            token=secrets.token_urlsafe(32),
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+            status=InvitationStatus.PENDING,
+            grants=[
+                InvitationGrantRow(
+                    organization_id=org1.id,
+                    role_id=admin_role.id,
+                ),
+                InvitationGrantRow(
+                    organization_id=org1.id,
+                    workspace_id=first_workspace.id,
+                    role_id=viewer_role.id,
+                ),
+                InvitationGrantRow(
+                    organization_id=org1.id,
+                    workspace_id=second_workspace.id,
+                    role_id=implicit_member_role.id,
+                ),
+            ],
+        )
+        session.add_all([first_workspace, second_workspace, invitation])
+        await session.flush()
+
+        admin_service = OrgService(
+            session, role=create_admin_role(org1.id, admin_in_org1.id)
+        )
+        with patch.object(
+            session, "execute", new=AsyncMock(wraps=session.execute)
+        ) as execute_mock:
+            access = (await admin_service.list_invitation_access([invitation]))[
+                invitation.id
+            ]
+
+        assert execute_mock.await_count == 3
+        assert access.role_name == "Invited"
+        assert access.role_slug == "organization-admin"
+        assert [(item.id, item.name) for item in access.roles] == sorted(
+            [
+                (admin_role.id, admin_role.name),
+                (viewer_role.id, viewer_role.name),
+            ],
+            key=lambda item: (item[1], item[0]),
+        )
+        assert [(item.id, item.name) for item in access.workspaces] == [
+            (first_workspace.id, "Alpha Workspace"),
+            (second_workspace.id, "Beta Workspace"),
+        ]
+        assert access.groups == []
+
+        member_role = Role(
+            type="user",
+            user_id=user_in_org1.id,
+            organization_id=org1.id,
+            service_id="tracecat-api",
+            scopes=ORG_MEMBER_SCOPES,
+        )
+        with patch.object(
+            session, "execute", new=AsyncMock(wraps=session.execute)
+        ) as execute_mock:
+            restricted_access = (
+                await OrgService(session, role=member_role).list_invitation_access(
+                    [invitation]
+                )
+            )[invitation.id]
+
+        assert execute_mock.await_count == 1
+        assert restricted_access.role_name == "Invited"
+        assert restricted_access.role_slug == "organization-admin"
+        assert restricted_access.roles == []
+        assert restricted_access.workspaces == []
+        assert restricted_access.groups == []
 
 
 @pytest.mark.anyio

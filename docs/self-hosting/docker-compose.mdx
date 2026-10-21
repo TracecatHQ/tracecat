@@ -29,10 +29,10 @@ The `env.sh` script (next step) generates these automatically. If you need to ge
 
 ```bash
 # 1. Download the env.sh installation script
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.1/env.sh
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.1.0/env.sh
 
 # 2. Download the .env.example template file (env.sh needs this to generate your .env file)
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.1/.env.example
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.1.0/.env.example
 
 # 3. Make the env.sh script executable and run it
 chmod +x env.sh && ./env.sh
@@ -50,29 +50,38 @@ Tracecat uses Caddy as a reverse proxy.
 You'll need to download the following `Caddyfile` to configure this service.
 
 ```bash
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.1/Caddyfile
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.1.0/Caddyfile
 ```
 
 ## Download Docker Compose file
 
 ```bash
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.1/docker-compose.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.1.0/docker-compose.yml
 ```
 
 <Warning>
   Docker Compose defaults to the `direct` executor backend, which does not sandbox ordinary workflow actions.
-  For supported action isolation, set `TRACECAT__EXECUTOR_BACKEND=nsjail`, then enable the container permissions described in [Security](/self-hosting/security#nsjail-sandbox-recommended-for-production).
+  For supported action isolation, set `TRACECAT__EXECUTOR_BACKEND=nsjail`, then start with the sandbox overlay described in [Security](/self-hosting/security#nsjail-sandbox-recommended-for-production).
   The legacy `ephemeral` value remains a compatibility alias for `nsjail`.
 </Warning>
 
 ## Start Tracecat
 
-Run the command below to start Tracecat and all related services.
+For the direct backend, run the command below to start Tracecat and all related services.
 Make sure your `docker-compose.yml` and generated `.env` files are in the same directory.
 
 ```bash
 docker compose up
 ```
+
+For nsjail, download `docker-compose.sandbox.yml` from the same Tracecat release as your image and place it beside `docker-compose.yml`. Start with both files so the overlay supplies the container permissions and cgroup bootstrap:
+
+```bash
+TRACECAT__EXECUTOR_BACKEND=nsjail docker compose \
+  -f docker-compose.yml -f docker-compose.sandbox.yml up -d
+```
+
+If you build locally with `docker-compose.local.yml`, substitute that file for `docker-compose.yml` in the command.
 
 ## Access Tracecat
 

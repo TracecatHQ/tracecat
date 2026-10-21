@@ -30,10 +30,13 @@ import {
   EventCreatedAt,
   EventIcon,
   FieldsChangedEvent,
+  ParentChangedEvent,
   PayloadChangedEvent,
   PriorityChangedEvent,
   SeverityChangedEvent,
   StatusChangedEvent,
+  SubCasesAddedEvent,
+  SubCasesRemovedEvent,
   TagAddedEvent,
   TagRemovedEvent,
   TaskAssigneeChangedEvent,
@@ -96,6 +99,9 @@ const HANDLED_FEED_EVENT_TYPES = new Set([
   "table_row_unlinked",
   "tag_added",
   "tag_removed",
+  "parent_changed",
+  "sub_cases_added",
+  "sub_cases_removed",
 ])
 
 function CaseFeedEvent({
@@ -258,6 +264,18 @@ function CaseFeedEvent({
 
         {event.type === "tag_removed" && (
           <TagRemovedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "parent_changed" && (
+          <ParentChangedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "sub_cases_added" && (
+          <SubCasesAddedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "sub_cases_removed" && (
+          <SubCasesRemovedEvent event={event} actor={actor} />
         )}
 
         {event.type && !HANDLED_FEED_EVENT_TYPES.has(event.type) && (

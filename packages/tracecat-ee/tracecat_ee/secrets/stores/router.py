@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -19,8 +20,10 @@ from tracecat.secrets.schemas import (
     SecretStoreAuthorizationCreate,
     SecretStoreAuthorizationRead,
     SecretStoreCreate,
+    SecretStoreErrorResponse,
     SecretStoreRead,
     SecretStoreUpdate,
+    SecretStoreWorkspaceUsage,
 )
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
@@ -39,12 +42,13 @@ router = APIRouter(
 
 
 def _store_read(
-    store: OrganizationSecretStore, counts: dict[UUID, int]
+    store: OrganizationSecretStore,
+    usage: dict[UUID, list[SecretStoreWorkspaceUsage]],
 ) -> SecretStoreRead:
     return SecretStoreRead.from_database(
         store,
         authorized_workspace_ids=[a.workspace_id for a in store.authorizations],
-        reference_count=counts.get(store.id, 0),
+        workspace_usage=usage.get(store.id, []),
         tracecat_aws_account_id=config.TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID or None,
         tracecat_aws_principal_arn=config.TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN
         or None,
@@ -54,8 +58,8 @@ def _store_read(
 async def _serialize_store_read(
     service: SecretStoresService, store: OrganizationSecretStore
 ) -> SecretStoreRead:
-    counts = await service.count_references([store.id])
-    return _store_read(store, counts)
+    usage = await service.workspace_usage([store.id])
+    return _store_read(store, usage)
 
 
 @router.get("")
@@ -77,15 +81,20 @@ async def list_secret_stores(
         stores = await service.list_stores(PageParams(limit=limit, cursor=cursor))
     except PaginationError as exc:
         raise HTTPException(status_code=400, detail=exc.detail) from exc
-    counts = await service.count_references([store.id for store in stores.items])
+    usage = await service.workspace_usage([store.id for store in stores.items])
     return Page(
-        items=[_store_read(store, counts) for store in stores.items],
+        items=[_store_read(store, usage) for store in stores.items],
         next_cursor=stores.next_cursor,
         prev_cursor=stores.prev_cursor,
     )
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+_INVALID_STORE_RESPONSE: dict[int | str, dict[str, Any]] = {
+    422: {"model": SecretStoreErrorResponse}
+}
+
+
+@router.post("", status_code=status.HTTP_201_CREATED, responses=_INVALID_STORE_RESPONSE)
 @require_scope("org:secret:create")
 async def create_secret_store(
     *,
@@ -97,6 +106,10 @@ async def create_secret_store(
     service = SecretStoresService(session, role=role)
     try:
         store = await service.create_store(params)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        ) from e
     except IntegrityError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -124,7 +137,11 @@ async def get_secret_store(
     return await _serialize_store_read(service, store)
 
 
-@router.patch("/{store_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.patch(
+    "/{store_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=_INVALID_STORE_RESPONSE,
+)
 @require_scope("org:secret:update")
 async def update_secret_store(
     *,

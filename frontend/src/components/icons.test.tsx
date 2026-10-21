@@ -3,6 +3,8 @@ import type { ReactElement } from "react"
 import {
   DatabricksIcon,
   getIcon,
+  getIconSource,
+  getModelProviderIconId,
   MicrosoftGraphIcon,
   MicrosoftIcon,
   MicrosoftOutlookIcon,
@@ -191,6 +193,67 @@ describe("action namespace icons", () => {
   })
 })
 
+describe("Fortinet registry icon mappings", () => {
+  it.each(["tools.fortisiem", "tools.fortisiem.run_event_query"])(
+    "renders the Fortinet mark for %s",
+    (key) => {
+      expect(svgTitle(getIcon(key))).toBe("Fortinet")
+    }
+  )
+
+  it("renders the Fortinet mark for the fortisiem secret", () => {
+    const Icon = secretIcons.fortisiem
+    expect(svgTitle(<Icon />)).toBe("Fortinet")
+  })
+})
+
+describe("Proofpoint registry icon mappings", () => {
+  it.each([
+    "tools.proofpoint_tap",
+    "tools.proofpoint_threat_protection",
+    "tools.proofpoint_tap.get_forensics",
+    "tools.proofpoint_threat_protection.list_mail_bomb_events",
+  ])("renders the Proofpoint mark for %s", (key) => {
+    expect(svgTitle(getIcon(key))).toBe("Proofpoint")
+  })
+
+  it("renders the Proofpoint mark for the proofpoint_threat_protection provider", () => {
+    const Icon = providerIcons.proofpoint_threat_protection
+    expect(svgTitle(<Icon />)).toBe("Proofpoint")
+  })
+
+  it("renders the Proofpoint mark for the proofpoint_tap secret", () => {
+    const Icon = secretIcons.proofpoint_tap
+    expect(svgTitle(<Icon />)).toBe("Proofpoint")
+  })
+})
+
+describe("Palo Alto Networks registry icon mappings", () => {
+  it.each([
+    "tools.pan_os",
+    "tools.pan_strata",
+    "tools.pan_prisma",
+    "tools.pan_os.block_ip",
+    "tools.pan_prisma.dismiss_alerts",
+    "tools.pan_strata.push_candidate_config",
+  ])("renders the Palo Alto Networks mark for %s", (key) => {
+    expect(svgTitle(getIcon(key))).toBe("Palo Alto Networks")
+  })
+
+  it("renders the Palo Alto Networks mark for the pan_strata provider", () => {
+    const Icon = providerIcons.pan_strata
+    expect(svgTitle(<Icon />)).toBe("Palo Alto Networks")
+  })
+
+  it.each(["pan_os", "pan_prisma"] as const)(
+    "renders the Palo Alto Networks mark for the %s secret",
+    (name) => {
+      const Icon = secretIcons[name]
+      expect(svgTitle(<Icon />)).toBe("Palo Alto Networks")
+    }
+  )
+})
+
 describe("OAuth provider and credential icons", () => {
   const providerCases: [providerId: string, title: string][] = [
     ["databricks", "Databricks"],
@@ -219,4 +282,110 @@ describe("OAuth provider and credential icons", () => {
       expect(svgTitle(<Icon />)).toBe(title)
     }
   )
+})
+
+describe("icon source identities", () => {
+  it.each([
+    "tools.slack_sdk",
+    "tools.slack_blocks",
+    "tools.slack.post_message",
+  ])("shares the Slack icon with %s", (key) => {
+    expect(getIconSource(key)).toBe(getIconSource("tools.slack"))
+  })
+
+  it.each([
+    ["core.sql", "core.duckdb"],
+    ["tools.emailrep", "tools.sublime"],
+  ])("shares the icon source for %s and %s", (first, second) => {
+    expect(getIconSource(first)).toBe(getIconSource(second))
+  })
+
+  it("distinguishes unrelated icons", () => {
+    expect(getIconSource("tools.slack")).not.toBe(getIconSource("tools.jira"))
+  })
+
+  it("shares catalog icons and resolves their action keys", () => {
+    expect(getIconSource("tools.crowdstrike")).toBe(
+      getIconSource("tools.falconpy.call_method")
+    )
+    expect(getIconSource("tools.crowdstrike")).not.toBe(
+      getIconSource("tools.splunk")
+    )
+  })
+
+  it("resolves Lucide icons and generic fallbacks consistently", () => {
+    expect(getIconSource("tools.abuseipdb.check_ip")).toBe(
+      getIconSource("tools.abuseipdb")
+    )
+    expect(getIconSource("tools.abuseipdb")).not.toBe(
+      getIconSource("tools.anyrun")
+    )
+    expect(getIconSource("unknown.action")).toBe(getIconSource("unknown"))
+    expect(getIconSource("tools.unknown")).toBe(getIconSource("tools"))
+  })
+})
+
+describe("model provider icons", () => {
+  it.each([
+    ["anthropic", "anthropic"],
+    ["azure_ai", "microsoft"],
+    ["azure_openai", "microsoft"],
+    ["bedrock", "amazon-bedrock"],
+    ["gemini", "google"],
+    ["vertex_ai", "google"],
+    ["mistral", "mistral"],
+    ["openai", "openai"],
+    ["litellm", "litellm"],
+    ["ollama", "ollama"],
+    ["openrouter", "openrouter"],
+    ["vllm", "vllm"],
+    ["unknown", "custom"],
+    ["", "custom"],
+  ])("maps %s to %s", (provider, iconId) => {
+    expect(getModelProviderIconId(provider)).toBe(iconId)
+  })
+})
+
+describe("Core and AI action icon mappings", () => {
+  it.each([
+    ["ai.action", "sparkles"],
+    ["ai.skill.list_skills", "sparkles"],
+    ["ai.agent", "mouse-pointer-click"],
+    ["ai.agent.list_presets", "mouse-pointer-click"],
+    ["ai.preset_agent", "mouse-pointer-click"],
+  ])("renders %s with the primary %s icon", (action, icon) => {
+    const container = renderIcon(getIcon(action))
+    expect(container.firstElementChild).toHaveClass("bg-primary/10")
+    expect(container.firstElementChild).toHaveClass("text-primary")
+    expect(container.querySelector(`svg.lucide-${icon}`)).not.toBeNull()
+  })
+
+  it("keeps the Slack mark for ai.slackbot", () => {
+    expect(getIconSource("ai.slackbot")).not.toBe(getIconSource("ai.action"))
+  })
+
+  it.each([
+    ["trigger", "zap", "bg-yellow-500/10"],
+    ["core.http_poll", "timer", "bg-emerald-500/10"],
+    ["core.require", "list-checks", "bg-amber-500/10"],
+    ["core.grpc.request", "network", "bg-cyan-500/10"],
+    ["core.ssh.execute_command", "square-terminal", "bg-slate-500/10"],
+    ["core.loop.start", "iteration-cw", "bg-orange-500/10"],
+    ["core.loop.end", "circle-stop", "bg-orange-500/10"],
+    ["core.cases.create_case", "shield-plus", "bg-rose-500/10"],
+    ["core.cases.update_case", "square-pen", "bg-rose-500/10"],
+    ["core.cases.create_comment", "message-circle-plus", "bg-rose-500/10"],
+    ["core.cases.update_comment", "message-circle-more", "bg-rose-500/10"],
+    ["unknown.namespace.action", "box", "bg-muted"],
+  ])("renders %s with the %s icon", (action, icon, fill) => {
+    const container = renderIcon(getIcon(action))
+    expect(container.querySelector(`svg.lucide-${icon}`)).not.toBeNull()
+    expect(container.firstElementChild).toHaveClass(fill)
+  })
+
+  it("renders the HTTP icon for core.http_paginate", () => {
+    const container = renderIcon(getIcon("core.http_paginate"))
+    expect(container.querySelector("svg.lucide-globe")).not.toBeNull()
+    expect(container.firstElementChild).toHaveClass("bg-emerald-500/10")
+  })
 })

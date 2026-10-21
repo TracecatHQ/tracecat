@@ -123,60 +123,6 @@ def test_external_workflow_definition_upload_normalizes(
     assert defn.definition.actions[0].retry_policy.timeout == expected
 
 
-def test_mcp_workflow_yaml_payload_normalizes() -> None:
-    """MCP update_workflow inline definition_yaml boundary."""
-    from tracecat.mcp.schemas import WorkflowYamlPayload
-
-    payload = {"definition": _dsl_payload(_agent_action(100_000))}
-    parsed = WorkflowYamlPayload.model_validate(payload)
-    assert parsed.definition is not None
-    assert parsed.definition.actions[0].retry_policy.timeout == (
-        TRACECAT__AGENT_SANDBOX_TIMEOUT
-    )
-
-
-def test_workflow_edit_document_patch_normalizes() -> None:
-    """edit_workflow JSON-Patch boundary (validate_workflow_patch_payload)."""
-    from tracecat.mcp.schemas import WorkflowEditDocument
-
-    payload = {
-        "metadata": {"title": "workflow", "description": "d", "status": "offline"},
-        "definition": {
-            "entrypoint": {"ref": "agent"},
-            "actions": [_agent_action(100_000)],
-            "config": {},
-        },
-    }
-    assert (
-        WorkflowEditDocument.model_validate(payload)
-        .definition.actions[0]
-        .retry_policy.timeout
-        == TRACECAT__AGENT_SANDBOX_TIMEOUT
-    )
-
-
-def test_git_sync_parse_normalizes_out_of_bounds() -> None:
-    """Git-sync import clamps rather than reporting a diagnostic."""
-    import yaml as yaml_lib
-
-    from tracecat.workspace_sync.workflow import parse_workflow_spec
-
-    content = yaml_lib.safe_dump(
-        {
-            "type": "workflow",
-            "version": 1,
-            "id": "my_workflow",
-            "definition": _dsl_payload(_agent_action(100_000)),
-        }
-    )
-    spec, diagnostic = parse_workflow_spec("workflows/my_workflow.yml", content)
-    assert diagnostic is None
-    assert spec is not None
-    assert spec.definition.actions[0].retry_policy.timeout == (
-        TRACECAT__AGENT_SANDBOX_TIMEOUT
-    )
-
-
 def test_legacy_db_row_with_baked_generic_default_clamps_up() -> None:
     """Rows persisted before clamping stored the full ActionControlFlow dump,
     baking the generic 300s default in as an explicit author value. Rebuilding
@@ -261,7 +207,6 @@ def test_action_read_uses_lowered_deployment_ceiling(
         status="offline",
         inputs="",
         control_flow=ActionControlFlow.model_validate(control_flow),
-        is_interactive=False,
     )
 
     assert action.control_flow.retry_policy.timeout == 900
@@ -282,7 +227,6 @@ def test_action_read_does_not_clamp_non_agent_timeout(
         control_flow=ActionControlFlow.model_validate(
             {"retry_policy": {"timeout": 1800}}
         ),
-        is_interactive=False,
     )
 
     assert action.control_flow.retry_policy.timeout == 1800

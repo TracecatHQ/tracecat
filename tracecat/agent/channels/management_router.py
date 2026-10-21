@@ -20,22 +20,21 @@ from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.feature_flags import is_feature_enabled
-from tracecat.feature_flags.enums import FeatureFlag
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
 
 
-def _require_agent_channels_enabled() -> None:
-    if not is_feature_enabled(FeatureFlag.AGENT_CHANNELS):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Feature not enabled",
-        )
+async def _require_agent_channels_entitlement(
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> None:
+    await check_entitlement(session, role, Entitlement.AGENT_CHANNELS)
 
 
 router = APIRouter(
     prefix="/agent/channels/tokens",
     tags=["agent-channels"],
-    dependencies=[Depends(_require_agent_channels_enabled)],
+    dependencies=[Depends(_require_agent_channels_entitlement)],
 )
 
 

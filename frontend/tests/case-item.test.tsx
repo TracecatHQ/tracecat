@@ -29,7 +29,9 @@ jest.mock("@/components/ui/tooltip", () => ({
   ),
 }))
 
-function renderCaseItem() {
+function renderCaseItem(
+  searchMatch?: NonNullable<import("@/client").CaseReadMinimal["search_match"]>
+) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -42,7 +44,9 @@ function renderCaseItem() {
       <CaseItem
         caseData={{
           id: "case-1",
+          search_match: searchMatch,
           short_id: "CASE-0001",
+          num_sub_cases: 0,
           created_at: "2026-04-13T00:00:00Z",
           updated_at: "2026-04-13T00:01:30Z",
           summary: "Database alert",
@@ -99,6 +103,20 @@ function renderCaseItem() {
 }
 
 describe("CaseItem", () => {
+  it("renders lexical excerpts as text and never executes source markup", () => {
+    const source =
+      '<img src=x onerror="alert(1)"> PowerShell <script>alert(2)</script>'
+    const { container } = renderCaseItem({
+      score: 2000000,
+      matched_columns: ["description"],
+      excerpts: [source],
+    })
+    expect(screen.getByText("Matched description")).toBeInTheDocument()
+    expect(container).toHaveTextContent(source)
+    expect(container.querySelector("script")).toBeNull()
+    expect(container.querySelector('img[src="x"]')).toBeNull()
+  })
+
   it("renders durations after tags and before timestamps, with tooltip labels", () => {
     const { container } = renderCaseItem()
 

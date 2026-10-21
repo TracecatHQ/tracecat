@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import dataclasses
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 from tracecat.agent.mcp.utils import (
     MCP_TOOL_NAME_RE,
@@ -16,10 +17,12 @@ from tracecat.agent.preset.types import (
     PresetToolSource,
 )
 from tracecat.agent.skill.dependencies import SkillToolDependencyService
-from tracecat.agent.skill.types import SkillMcpGrant
+from tracecat.agent.skill.library.catalog import load_library
+from tracecat.agent.skill.types import SkillMcpGrant, SkillToolMetadata
 from tracecat.agent.tools import EXCLUDED_AGENT_ACTIONS
 from tracecat.db.models import MCPIntegration, SkillVersion
 from tracecat.integrations.schemas import MCPToolSummary
+from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.service import BaseWorkspaceService
 
 
@@ -45,12 +48,59 @@ class PresetToolPolicyService(BaseWorkspaceService):
                 mid for item in inputs for mid in item.mcp_integrations
             ],
         )
-        return {
+        policies = {
             item.key: resolve_tool_policy(
                 item, metadata.versions, metadata.integrations
             )
             for item in inputs
         }
+        defaults = await self.registry_approval_defaults(
+            action for policy in policies.values() for action in policy.actions
+        )
+        return {
+            key: apply_registry_approval_defaults(policy, defaults)
+            for key, policy in policies.items()
+        }
+
+    async def resolve(
+        self, inputs: PresetToolInputs, metadata: SkillToolMetadata
+    ) -> EffectivePresetTools:
+        """Resolve one preset's policy from already loaded metadata."""
+        policy = resolve_tool_policy(inputs, metadata.versions, metadata.integrations)
+        defaults = await self.registry_approval_defaults(policy.actions)
+        return apply_registry_approval_defaults(policy, defaults)
+
+    async def registry_approval_defaults(self, actions: Iterable[str]) -> set[str]:
+        """Return the actions whose registry entry requires approval by default.
+
+        Runtime compilation applies the same defaults, so eligibility and
+        attachment checks must see them too.
+        """
+        names = set(actions)
+        if not names:
+            # An empty key filter would list every action.
+            return set()
+        # Selects the same index rows as compilation's get_actions_from_index
+        # without loading manifests, which approval options do not need.
+        entries = await RegistryActionsService(
+            self.session, role=self.role
+        ).list_actions_from_index(include_keys=names, include_marked=True)
+        return {
+            f"{entry.namespace}.{entry.name}"
+            for entry, _origin in entries
+            if entry.options.get("requires_approval") is True
+        }
+
+
+def apply_registry_approval_defaults(
+    policy: EffectivePresetTools, defaults: set[str]
+) -> EffectivePresetTools:
+    """Require approval for registry defaults unless a rule says otherwise."""
+    approvals = dict(policy.tool_approvals)
+    for action in policy.actions:
+        if action in defaults:
+            approvals.setdefault(action, True)
+    return dataclasses.replace(policy, tool_approvals=approvals)
 
 
 def resolve_tool_policy(
@@ -92,7 +142,16 @@ def resolve_tool_policy(
                     )
                 )
 
+    library = load_library()
+    for slug in inputs.library_skills:
+        if (entry := library.get(slug)) is None:
+            continue  # Runtime staging fails loudly on unknown slugs.
+        registry_sources.extend(
+            PresetToolSource(tool_id, None, slug) for tool_id in entry.declared_tools
+        )
+
     actions: dict[str, None] = {}
+    skill_actions: dict[str, None] = {}
     blocked: list[PresetToolSource] = []
     for source in registry_sources:
         if inputs.namespaces and not any(
@@ -101,6 +160,8 @@ def resolve_tool_policy(
             blocked.append(source)
         elif source.tool_id not in EXCLUDED_AGENT_ACTIONS:
             actions[source.tool_id] = None
+            if source.skill_id is not None:
+                skill_actions[source.tool_id] = None
 
     grants: dict[uuid.UUID, set[str] | None] = {}
     internet_sources: list[PresetToolSource] = []
@@ -141,6 +202,7 @@ def resolve_tool_policy(
 
     return EffectivePresetTools(
         actions=tuple(actions),
+        skill_actions=tuple(skill_actions),
         mcp_grants=tuple(
             SkillMcpGrant(
                 integration_id, frozenset(names) if names is not None else None
@@ -148,6 +210,13 @@ def resolve_tool_policy(
             for integration_id, names in grants.items()
         ),
         tool_approvals=approvals,
+        mcp_slugs=tuple(
+            sorted(
+                integrations[integration_id].slug
+                for integration_id in grants
+                if integration_id in integrations
+            )
+        ),
         requires_internet_access=bool(internet_sources),
         blocked_tools=tuple(blocked),
         internet_sources=tuple(internet_sources),

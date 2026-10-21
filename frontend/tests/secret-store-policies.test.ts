@@ -45,3 +45,27 @@ describe("AWS secret store permissions", () => {
     })
   })
 })
+
+describe("AWS secret store permissions before the role ARN is set", () => {
+  test.each([
+    ["aws-iso", "us-iso-east-1"],
+    [undefined, "us-east-1"],
+  ])("uses the server-reported %s partition", (partition, region) => {
+    const store: SecretStoreRead = {
+      id: "00000000-0000-0000-0000-000000000001",
+      organization_id: "00000000-0000-0000-0000-000000000002",
+      name: "test-store",
+      provider: "aws_secrets_manager",
+      enabled: false,
+      all_workspaces: false,
+      aws_partition: partition,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+      config: { region, external_id: "synthetic-external-id" },
+    }
+    const policy = JSON.parse(buildStorePermissionPolicy(store))
+    expect(policy.Statement[0].Resource).toBe(
+      `arn:${partition ?? "aws"}:secretsmanager:${region}:*:secret:*`
+    )
+  })
+})

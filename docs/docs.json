@@ -14,7 +14,7 @@
   "navigation": {
     "tabs": [
       {
-        "tab": "Documentation",
+        "tab": "Automations",
         "groups": [
           {
             "group": "Overview",
@@ -31,7 +31,6 @@
               "automations/tracecat-mcp",
               {
                 "group": "Core concepts",
-                "expanded": true,
                 "pages": [
                   "automations/workflows",
                   "automations/actions",
@@ -48,7 +47,6 @@
               },
               {
                 "group": "Triggers",
-                "expanded": true,
                 "pages": [
                   "automations/triggers/webhooks",
                   "automations/triggers/schedules",
@@ -56,27 +54,18 @@
                   "automations/triggers/error-workflows",
                   "automations/triggers/case-triggers",
                   "automations/triggers/task-triggers",
-                  "automations/triggers/comment-triggers"
+                  "automations/triggers/comment-triggers",
+                  "automations/triggers/forms"
                 ]
               },
               {
                 "group": "Integrations",
-                "expanded": true,
                 "pages": [
                   "automations/integrations/prebuilt-credentials",
                   "automations/integrations/oauth-integrations",
                   "automations/integrations/mcp-integrations"
                 ]
               }
-            ]
-          },
-          {
-            "group": "Resolve cases",
-            "icon": "ticket-check",
-            "pages": [
-              "automations/cases",
-              "automations/cases/agent-mentions",
-              "automations/cases/tasks"
             ]
           },
           {
@@ -90,7 +79,9 @@
               "agents/llm-providers",
               "agents/custom-llm-providers",
               "agents/skills",
-              "agents/secrets-variables"
+              "agents/secrets-variables",
+              "agents/human-in-the-loop",
+              "agents/channels"
             ]
           },
           {
@@ -102,55 +93,39 @@
               "custom-actions/yaml-template",
               "custom-actions/local-development"
             ]
-          },
+          }
+        ]
+      },
+      {
+        "tab": "Cases",
+        "groups": [
           {
-            "group": "Self-hosting",
-            "icon": "server",
+            "group": "Case management",
+            "icon": "ticket-check",
             "pages": [
-              "self-hosting/docker-compose",
-              "self-hosting/scaling",
-              "self-hosting/aws-fargate",
-              "self-hosting/kubernetes",
-              "self-hosting/air-gapped",
-              "self-hosting/temporal-retention",
-              "self-hosting/architecture",
-              "self-hosting/pgvector",
-              "self-hosting/tls",
-              "self-hosting/environment-variables",
-              "self-hosting/security"
+              "automations/cases"
             ]
           },
           {
-            "group": "Manage platform",
-            "icon": "settings",
+            "group": "Build cases",
+            "icon": "blocks",
             "pages": [
-              "manage-platform/users",
-              "manage-platform/rbac",
-              "manage-platform/custom-roles",
-              "manage-platform/service-accounts",
-              "manage-platform/ip-allowlist",
-              "manage-platform/git-sync"
+              "automations/cases/custom-fields",
+              "automations/cases/dropdowns",
+              "automations/cases/closure-requirements",
+              "automations/cases/durations"
             ]
           },
           {
-            "group": "Authentication",
-            "icon": "shield",
+            "group": "Resolve cases",
+            "icon": "circle-check-big",
             "pages": [
-              "authentication/basic",
-              "authentication/saml",
-              "authentication/oidc",
-              "authentication/scim"
-            ]
-          },
-          {
-            "group": "Security",
-            "icon": "shield-check",
-            "pages": [
-              "security/architecture",
-              "audit-logs/platform",
-              "audit-logs/organization",
-              "audit-logs/agents",
-              "audit-logs/mcp-access"
+              "automations/cases/linked-rows",
+              "automations/cases/sub-cases",
+              "automations/cases/tasks",
+              "automations/cases/agent-mentions",
+              "automations/cases/correlations",
+              "automations/cases/workflow-triggers"
             ]
           }
         ]
@@ -222,6 +197,14 @@
               "automations/core-actions/memory-actions/lookups",
               "automations/core-actions/memory-actions/rows",
               "automations/core-actions/memory-actions/export"
+            ]
+          },
+          {
+            "group": "Form",
+            "icon": "clipboard-list",
+            "expanded": true,
+            "pages": [
+              "automations/core-actions/form-actions/forms"
             ]
           }
         ]
@@ -312,10 +295,15 @@
               "tools/opensearch",
               "tools/osv",
               "tools/pagerduty",
+              "tools/pan_os",
+              "tools/pan_prisma",
+              "tools/pan_strata",
               "tools/panther",
               "tools/phishlabs",
               "tools/pipe0",
               "tools/project_discovery",
+              "tools/proofpoint_tap",
+              "tools/proofpoint_threat_protection",
               "tools/pymongo",
               "tools/rapid7",
               "tools/recorded_future",
@@ -358,7 +346,64 @@
               "cheatsheets/jsonpath",
               "cheatsheets/common-mistakes",
               "cheatsheets/transformations",
+              "cheatsheets/aggregate-and-search",
               "cheatsheets/workflow-metadata"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Platform",
+        "groups": [
+          {
+            "group": "Self-hosting",
+            "icon": "server",
+            "pages": [
+              "self-hosting/docker-compose",
+              "self-hosting/scaling",
+              "self-hosting/aws-fargate",
+              "self-hosting/kubernetes",
+              "self-hosting/air-gapped",
+              "self-hosting/temporal-retention",
+              "self-hosting/architecture",
+              "self-hosting/pgvector",
+              "self-hosting/tls",
+              "self-hosting/environment-variables",
+              "self-hosting/security"
+            ]
+          },
+          {
+            "group": "Manage platform",
+            "icon": "settings",
+            "pages": [
+              "manage-platform/users",
+              "manage-platform/rbac",
+              "manage-platform/ip-allowlist",
+              "manage-platform/custom-roles",
+              "manage-platform/service-accounts",
+              "manage-platform/git-sync",
+              "manage-platform/tunnels"
+            ]
+          },
+          {
+            "group": "Authentication",
+            "icon": "shield",
+            "pages": [
+              "authentication/basic",
+              "authentication/saml",
+              "authentication/oidc",
+              "authentication/scim"
+            ]
+          },
+          {
+            "group": "Security",
+            "icon": "shield-check",
+            "pages": [
+              "security/architecture",
+              "audit-logs/platform",
+              "audit-logs/organization",
+              "audit-logs/agents",
+              "audit-logs/mcp-access"
             ]
           }
         ]
@@ -556,6 +601,10 @@
     {
       "source": "/tools/wiz",
       "destination": "/automations/integrations/mcp-integrations"
+    },
+    {
+      "source": "/automations/cases/linked-tables",
+      "destination": "/automations/cases/linked-rows"
     }
   ],
   "logo": {

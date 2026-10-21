@@ -25,16 +25,23 @@ from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
 from tracecat.auth.domain_policy import is_org_saml_enforced
 from tracecat.auth.types import Role
-from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
+from tracecat.authz.controls import ensure_can_grant_scopes, has_scope, require_scope
 from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.authz.membership import ensure_member, lock_role_changes
 from tracecat.authz.scopes import ORG_MEMBER_ROLE_SLUG
 from tracecat.authz.service import ensure_role_fits_scope, resolve_granter_scopes
 from tracecat.db.models import (
+    ExternalGroupMapping,
+    Group,
+    GroupMember,
+    GroupRoleAssignment,
     Invitation,
     InvitationGrant,
+    InvitationGroup,
     OrganizationMembership,
+    RoleScope,
     ScimConnection,
+    Scope,
     User,
     UserRoleAssignment,
     Workspace,
@@ -50,7 +57,10 @@ from tracecat.exceptions import (
 from tracecat.identifiers import OrganizationID, UserID
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.invitations.schemas import InvitationCreate
+from tracecat.logger import logger
 from tracecat.service import BaseOrgService
+from tracecat.tiers.access import is_org_entitled
+from tracecat.tiers.enums import Entitlement
 
 INVITATION_TTL = timedelta(days=7)
 # A manual resend clears the claim, so this bounds how often a user can
@@ -136,6 +146,13 @@ async def create_invitation_row(
             )
             for grant in params.grants
         ],
+        groups=[
+            InvitationGroup(
+                organization_id=organization_id,
+                group_id=group_id,
+            )
+            for group_id in params.group_ids
+        ],
     )
     session.add(invitation)
     await session.flush()
@@ -147,7 +164,7 @@ async def validate_grants(
     role: Role,
     organization_id: OrganizationID,
     params: InvitationCreate,
-) -> None:
+) -> frozenset[str] | None:
     """Validate every grant's role and workspace."""
     grants = params.grants
     workspace_ids = {g.workspace_id for g in grants if g.workspace_id is not None}
@@ -191,6 +208,7 @@ async def validate_grants(
     for grant in grants:
         ensure_role_fits_scope(roles_by_id[grant.role_id], grant.workspace_id)
 
+    granter_scopes: frozenset[str] | None = None
     if not role.is_platform_superuser:
         # Read live permissions once for this batch, never the cached Role.scopes.
         granter_scopes = await resolve_granter_scopes(session, role)
@@ -202,6 +220,76 @@ async def validate_grants(
                 for scope in granted_role.scopes
             ),
         )
+    return granter_scopes
+
+
+async def validate_groups(
+    session: AsyncSession,
+    role: Role,
+    organization_id: OrganizationID,
+    group_ids: Sequence[uuid.UUID],
+    granter_scopes: frozenset[str] | None,
+) -> None:
+    """Validate group memberships conferred by an invitation in batches."""
+    if not group_ids:
+        return
+
+    caller_scopes = granter_scopes or frozenset()
+    if not role.is_platform_superuser:
+        if not has_scope(caller_scopes, "org:rbac:update"):
+            raise TracecatAuthorizationError(
+                "Inviting users to groups requires org:rbac:update"
+            )
+
+    if not await is_org_entitled(session, organization_id, Entitlement.RBAC_ADDONS):
+        raise TracecatAuthorizationError(
+            "Inviting users to groups requires the RBAC add-ons entitlement"
+        )
+
+    mapping_exists = (
+        select(ExternalGroupMapping.id)
+        .where(
+            ExternalGroupMapping.group_id == Group.id,
+            ExternalGroupMapping.organization_id == organization_id,
+        )
+        .exists()
+    )
+    group_rows = (
+        (
+            await session.execute(
+                select(Group.id, mapping_exists).where(
+                    Group.organization_id == organization_id,
+                    Group.id.in_(group_ids),
+                )
+            )
+        )
+        .tuples()
+        .all()
+    )
+    found_ids = {group_id for group_id, _mapped in group_rows}
+    if found_ids != set(group_ids):
+        raise TracecatValidationError("Invalid group ID for this organization")
+    if any(mapped for _group_id, mapped in group_rows):
+        raise TracecatValidationError(
+            "Identity provider-managed groups cannot be assigned by invitation"
+        )
+
+    if not role.is_platform_superuser:
+        scope_names = (
+            await session.execute(
+                select(Scope.name)
+                .join(RoleScope, RoleScope.scope_id == Scope.id)
+                .join(
+                    GroupRoleAssignment,
+                    GroupRoleAssignment.role_id == RoleScope.role_id,
+                )
+                .where(
+                    GroupRoleAssignment.organization_id == organization_id,
+                    GroupRoleAssignment.group_id.in_(group_ids),
+                )
+            )
+        ).scalars()
+        ensure_can_grant_scopes(caller_scopes, scope_names.all())
 
 
 # --- Accept
@@ -213,6 +301,7 @@ async def _apply_grants(
     organization_id: OrganizationID,
     user_id: UserID,
     grants: Sequence[InvitationGrant],
+    groups: Sequence[InvitationGroup],
 ) -> None:
     """Admit the user and insert assignments for explicit roles.
 
@@ -223,6 +312,66 @@ async def _apply_grants(
 
     # The membership row is the aggregate root; assignments hang off it.
     await ensure_member(session, organization_id, user_id)
+
+    group_ids = {group.group_id for group in groups}
+    if group_ids:
+        if not await is_org_entitled(session, organization_id, Entitlement.RBAC_ADDONS):
+            logger.info(
+                "Skipping invitation groups because RBAC add-ons are unavailable",
+                group_ids=sorted(map(str, group_ids)),
+            )
+        else:
+            mapped = (
+                select(ExternalGroupMapping.id)
+                .where(
+                    ExternalGroupMapping.group_id == Group.id,
+                    ExternalGroupMapping.organization_id == organization_id,
+                )
+                .exists()
+            )
+            rows = (
+                (
+                    await session.execute(
+                        select(Group.id, mapped).where(
+                            Group.organization_id == organization_id,
+                            Group.id.in_(group_ids),
+                        )
+                    )
+                )
+                .tuples()
+                .all()
+            )
+            existing_ids = {group_id for group_id, _mapped in rows}
+            missing_ids = group_ids - existing_ids
+            mapped_ids = {group_id for group_id, is_mapped in rows if is_mapped}
+            if missing_ids:
+                logger.info(
+                    "Skipping unavailable invitation groups",
+                    group_ids=sorted(map(str, missing_ids)),
+                )
+            if mapped_ids:
+                logger.warning(
+                    "Skipping identity provider-managed invitation groups",
+                    group_ids=sorted(map(str, mapped_ids)),
+                )
+            assignable_ids = existing_ids - mapped_ids
+            if assignable_ids:
+                await session.execute(
+                    pg_insert(GroupMember)
+                    .values(
+                        [
+                            {
+                                "organization_id": organization_id,
+                                "user_id": user_id,
+                                "group_id": group_id,
+                            }
+                            for group_id in assignable_ids
+                        ]
+                    )
+                    .on_conflict_do_nothing(
+                        index_elements=[GroupMember.user_id, GroupMember.group_id]
+                    )
+                )
 
     # The member invitation is admission-only; never persist the implicit role.
     member_role_id = await session.scalar(
@@ -383,6 +532,7 @@ async def accept_invitation_for_user(
             organization_id=invitation.organization_id,
             user_id=user_id,
             grants=invitation.grants,
+            groups=invitation.groups,
         )
         await session.commit()
     except TracecatAuthorizationError:
@@ -512,6 +662,7 @@ async def find_invitation_by_token(
         select(Invitation)
         .where(Invitation.token == token)
         .options(selectinload(Invitation.organization), selectinload(Invitation.grants))
+        .options(selectinload(Invitation.groups))
     )
     return result.scalar_one_or_none()
 
@@ -566,7 +717,16 @@ class InvitationService(BaseOrgService):
         # admits the directory. Take it before validating so an invitation
         # cannot commit into the window and outlive the sweep.
         await lock_role_changes(self.session, self.organization_id)
-        await validate_grants(self.session, self.role, self.organization_id, params)
+        granter_scopes = await validate_grants(
+            self.session, self.role, self.organization_id, params
+        )
+        await validate_groups(
+            self.session,
+            self.role,
+            self.organization_id,
+            params.group_ids,
+            granter_scopes,
+        )
         invitation = await create_invitation_row(
             self.session,
             organization_id=self.organization_id,
@@ -630,7 +790,7 @@ class InvitationService(BaseOrgService):
                     Invitation.organization_id == self.organization_id,
                 )
             )
-            .options(selectinload(Invitation.grants))
+            .options(selectinload(Invitation.grants), selectinload(Invitation.groups))
         )
         return result.scalar_one()
 

@@ -7,7 +7,7 @@ import userEvent from "@testing-library/user-event"
 import type { CaseFieldRead } from "@/client"
 import { CustomField } from "@/components/cases/case-panel-custom-fields"
 
-// The field dialogs pull in the rich-text and CodeMirror editors transitively.
+// The field drawers pull in the rich-text and CodeMirror editors transitively.
 jest.mock("@/components/cases/case-description-editor", () => ({
   CaseDescriptionEditor: () => <textarea aria-label="Rich text editor" />,
 }))

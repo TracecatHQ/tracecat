@@ -9,6 +9,7 @@ import {
   GitBranchIcon,
   GitPullRequestIcon,
   LayersPlusIcon,
+  LockIcon,
   MoreHorizontal,
   PencilIcon,
   PlayIcon,
@@ -92,12 +93,13 @@ import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { useRepositoryBranches } from "@/hooks/use-workspace-sync"
 import type { TracecatApiError } from "@/lib/errors"
 import {
+  useActionLockStatuses,
   useCreateDraftWorkflowExecution,
   useFolders,
   useOrgAppSettings,
   useWorkflowManager,
 } from "@/lib/hooks"
-import { cn, copyToClipboard } from "@/lib/utils"
+import { cn, copyToClipboard, slugifyActionRef } from "@/lib/utils"
 import {
   parseTriggerPayload,
   validateTriggerPayload,
@@ -613,6 +615,19 @@ export function WorkflowManualTrigger({
 }) {
   const { expandSidebarAndFocusEvents, setCurrentExecutionId, triggerPayload } =
     useWorkflowBuilder()
+  const { workflow } = useWorkflow()
+  const workspaceId = useWorkspaceId()
+  const lockedActions = Object.values(workflow?.actions ?? {}).filter(
+    (action) => action.locked_execution_id
+  )
+  const { staleLockedRefs } = useActionLockStatuses(
+    workspaceId,
+    workflowId,
+    lockedActions.length > 0
+  )
+  const lockedCount = lockedActions.filter(
+    (action) => !staleLockedRefs.has(slugifyActionRef(action.title))
+  ).length
   // Always use draft execution endpoint - runs the current draft workflow graph
   const { createDraftExecution, createDraftExecutionIsPending } =
     useCreateDraftWorkflowExecution(workflowId)
@@ -682,7 +697,9 @@ export function WorkflowManualTrigger({
             ? "Cannot run workflow."
             : executionPending
               ? "Starting workflow execution..."
-              : "Run the current draft workflow with the trigger payload from the trigger node."}
+              : lockedCount > 0
+                ? `Run the current draft workflow. ${lockedCount} locked ${lockedCount === 1 ? "action reuses its" : "actions reuse their"} past result.`
+                : "Run the current draft workflow with the trigger payload from the trigger node."}
         </span>
       }
     >
@@ -701,6 +718,12 @@ export function WorkflowManualTrigger({
           <PlayIcon className="size-3.5" />
         )}
         <span>Run</span>
+        {lockedCount > 0 && (
+          <span className="flex items-center gap-0.5 rounded bg-primary-foreground/20 px-1 text-[10px]">
+            <LockIcon className="size-2.5" />
+            {lockedCount}
+          </span>
+        )}
       </Button>
     </ValidationErrorView>
   )

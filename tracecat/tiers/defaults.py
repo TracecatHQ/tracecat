@@ -46,9 +46,14 @@ def resolve_oss_default_entitlements(
     Existing OSS deployments can preserve prior behavior by mapping enabled
     feature flags to their corresponding entitlement groups.
 
-    Agent presets, skills, and MCP catalog connectors are open source;
-    ``agent_addons`` only gates tool approvals, the agent inbox, and case agent
-    runs.
+    Agent presets, skills, MCP catalog connectors, tool approvals, and the agent
+    inbox are open source; ``agent_addons`` only gates agent folders, tags, and
+    case agent runs. Agent channels (Slack and Microsoft Teams, including approvals
+    from those channels) are closed source and gated by ``agent_channels``; the
+    legacy ``agent-channels`` feature flag maps to it. Semantic table search is
+    closed source and gated by ``semantic_search``. Forms are gated by ``forms``;
+    the ``forms`` feature flag maps to it, so one token turns on both the flag
+    and the entitlement on single-tenant deployments.
 
     Multi-workspace is disabled on both paths. Existing workspaces remain
     accessible; the entitlement only gates creation beyond the first workspace.
@@ -66,6 +71,10 @@ def resolve_oss_default_entitlements(
             multi_workspace=False,
             watchtower=False,
             external_secret_stores=False,
+            agent_channels=False,
+            semantic_search=False,
+            forms=False,
+            tunnels=False,
         )
 
     # Existing install path: map legacy feature flags to entitlement groups.
@@ -84,6 +93,9 @@ def resolve_oss_default_entitlements(
             case_addons_enabled = True
             break
 
+    agent_channels_enabled = "agent-channels" in normalized_flags
+    forms_enabled = "forms" in normalized_flags
+
     rbac_enabled = False
     for flag in _RBAC_FLAGS:
         if flag in normalized_flags:
@@ -101,6 +113,10 @@ def resolve_oss_default_entitlements(
         multi_workspace=False,
         watchtower=False,
         external_secret_stores=False,
+        agent_channels=agent_channels_enabled,
+        semantic_search=False,
+        forms=forms_enabled,
+        tunnels=False,
     )
 
 

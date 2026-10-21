@@ -36,6 +36,7 @@ class PresetToolInputs:
     mcp_integrations: Sequence[str]
     tool_approvals: Mapping[str, bool]
     skill_version_ids: Sequence[uuid.UUID]
+    library_skills: Sequence[str] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +44,9 @@ class EffectivePresetTools:
     """Combined tool grants after applying source-independent preset policies."""
 
     actions: tuple[str, ...]
+    skill_actions: tuple[str, ...]
     mcp_grants: tuple[SkillMcpGrant, ...]
+    mcp_slugs: tuple[str, ...]
     tool_approvals: dict[str, bool]
     requires_internet_access: bool
     blocked_tools: tuple[PresetToolSource, ...]

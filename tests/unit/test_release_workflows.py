@@ -121,15 +121,20 @@ def test_branch_and_scheduled_builds_do_not_promote_latest(
 def test_only_serialized_promotion_can_publish_latest() -> None:
     workflow = yaml.safe_load(IMAGE_WORKFLOW.read_text())
     promotion = workflow["jobs"]["promote-latest"]
-    assert set(promotion["needs"]) == {"validate", "merge-api", "merge-ui"}
-    # The implicit success() gate must require both manifest jobs to succeed.
+    assert set(promotion["needs"]) == {
+        "validate",
+        "merge-api",
+        "build-and-push-ui",
+        "merge-tunnel-gateway",
+    }
+    # The implicit success() gate must require both tag-publishing jobs to succeed.
     assert promotion["if"] == "needs.validate.outputs.latest == 'true'"
     assert promotion["concurrency"] == {
         "group": "publish-images-latest",
         "queue": "max",
         "cancel-in-progress": False,
     }
-    for name in ("build-and-push-api", "build-and-push-ui", "merge-api", "merge-ui"):
+    for name in ("build-and-push-api", "build-and-push-ui", "merge-api"):
         job = workflow["jobs"][name]
         assert "validate" in job["needs"]
         metadata = next(step for step in job["steps"] if step.get("id") == "meta")
@@ -140,18 +145,17 @@ def test_only_serialized_promotion_can_publish_latest() -> None:
             assert ":latest" not in step.get("run", "")
 
 
-@pytest.mark.parametrize("image", ["tracecat", "tracecat-ui"])
 @pytest.mark.parametrize("version", ["1.2.0", "1.3.0-alpha.1"])
 def test_manifest_publishes_exactly_the_validated_tags(
-    tmp_path: Path, image: str, version: str
+    tmp_path: Path, version: str
 ) -> None:
     result, _ = run_image_guard(tmp_path, ref=version)
     assert result.returncode == 0
-    repository = f"ghcr.io/tracecathq/{image}"
+    repository = "ghcr.io/tracecathq/tracecat"
     tags = [f"{repository}:{version}"]
 
     workflow = yaml.safe_load(IMAGE_WORKFLOW.read_text())
-    job = workflow["jobs"]["merge-api" if image == "tracecat" else "merge-ui"]
+    job = workflow["jobs"]["merge-api"]
     script = next(
         step["run"]
         for step in job["steps"]
@@ -190,9 +194,22 @@ def test_manifest_publishes_exactly_the_validated_tags(
     ]
 
 
+def test_ui_build_pushes_only_metadata_tags() -> None:
+    workflow = yaml.safe_load(IMAGE_WORKFLOW.read_text())
+    build = next(
+        step
+        for step in workflow["jobs"]["build-and-push-ui"]["steps"]
+        if step.get("name") == "Build and push"
+    )
+    # The multi-platform UI build tags the image itself, so metadata-action
+    # must be the only tag source.
+    assert build["with"]["tags"] == "${{ steps.meta.outputs.tags }}"
+    assert "outputs" not in build["with"]
+
+
 @pytest.mark.parametrize("version", ["1.2.1", "1.3.0"])
 @pytest.mark.parametrize("fail_api", [False, True])
-def test_promotion_updates_both_images_from_the_same_stable_tag(
+def test_promotion_updates_all_images_from_the_same_stable_tag(
     tmp_path: Path, version: str, fail_api: bool
 ) -> None:
     workflow = yaml.safe_load(IMAGE_WORKFLOW.read_text())
@@ -221,7 +238,11 @@ def test_promotion_updates_both_images_from_the_same_stable_tag(
         check=False,
     )
     assert (result.returncode != 0) == fail_api, result.stderr
-    images = ["tracecat"] if fail_api else ["tracecat", "tracecat-ui"]
+    images = (
+        ["tracecat"]
+        if fail_api
+        else ["tracecat", "tracecat-ui", "tracecat-tunnel-gateway"]
+    )
     assert args_file.read_text().splitlines() == [
         arg
         for image in images

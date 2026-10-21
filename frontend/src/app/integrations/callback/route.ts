@@ -78,6 +78,14 @@ export const GET = async (request: NextRequest) => {
   forwardClientAttributionHeaders(request.headers, headers)
 
   const response = await fetch(url.toString(), { headers })
+  if (!response.ok) {
+    const { error, description } = await describeCallbackFailure(response)
+    console.error("Integration callback failed", response.status, error)
+    const errorUrl = new URL("/integrations/error", await resolvePublicAppUrl())
+    errorUrl.searchParams.set("error", error)
+    errorUrl.searchParams.set("error_description", description)
+    return NextResponse.redirect(errorUrl)
+  }
 
   // Redirect to the public app URL
   const cb = await response.json()
@@ -91,4 +99,35 @@ export const GET = async (request: NextRequest) => {
 
   console.log("Redirecting to", redirect_url)
   return NextResponse.redirect(redirect_url)
+}
+
+const GENERIC_CALLBACK_FAILURE =
+  "Failed to complete the OAuth connection. Please try again."
+const INSUFFICIENT_SCOPE_DESCRIPTION =
+  "You don't have permission to connect integrations in this workspace. Ask a workspace admin for integration create or update access."
+
+async function describeCallbackFailure(
+  response: Response
+): Promise<{ error: string; description: string }> {
+  const body: unknown = await response.json().catch(() => null)
+  if (typeof body === "object" && body !== null) {
+    if ("error" in body) {
+      const { error } = body
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "insufficient_scope"
+      ) {
+        return {
+          error: "insufficient_scope",
+          description: INSUFFICIENT_SCOPE_DESCRIPTION,
+        }
+      }
+    }
+    if ("detail" in body && typeof body.detail === "string" && body.detail) {
+      return { error: "callback_failed", description: body.detail }
+    }
+  }
+  return { error: "callback_failed", description: GENERIC_CALLBACK_FAILURE }
 }

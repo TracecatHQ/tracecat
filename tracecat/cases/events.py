@@ -21,7 +21,10 @@ from tracecat.cases.enums import (
     CaseAgentSessionInteractionOperation,
     CaseEventType,
 )
-from tracecat.cases.schemas import CaseEventVariant, CaseViewedEvent
+from tracecat.cases.event_schemas import (
+    CaseEventVariant,
+    CaseViewedEvent,
+)
 from tracecat.cases.triggers.publisher import publish_case_event_payload
 from tracecat.db.models import Case, CaseEvent
 from tracecat.db.session_events import AfterCommitQueue

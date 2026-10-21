@@ -1,0 +1,311 @@
+---
+title: "Aggregate and search"
+description: "Recipes for filtering, grouping, and summarizing cases and table rows, and for searching table rows by meaning, from workflows and agents."
+---
+
+## Count open cases by priority
+
+`core.cases.aggregate_cases` filters cases, splits them into groups, and returns one object per group. Omit `aggs` to count cases:
+
+<CodeGroup>
+```yaml Action
+- ref: open_by_priority
+  action: core.cases.aggregate_cases
+  args:
+    filters:
+      field: status
+      op: in
+      value: [new, in_progress]
+    group_by:
+      - priority
+```
+
+```json Result
+{
+  "groups": [
+    {"priority": "high", "count": 2},
+    {"priority": "medium", "count": 2},
+    {"priority": "critical", "count": 1}
+  ],
+  "truncated": false
+}
+```
+</CodeGroup>
+
+Groups sort by the first calculation, highest first. Read a group with a JSONPath filter, such as `${{ ACTIONS.open_by_priority.result.groups[?(@.priority == "high")].count }}`.
+
+## Count all matching cases
+
+Pass `group_by: []` to get one total. Combine conditions with `and`, `or`, and `not`:
+
+<CodeGroup>
+```yaml Action
+- ref: open_high_cases
+  action: core.cases.aggregate_cases
+  args:
+    filters:
+      and:
+        - field: priority
+          op: gte
+          value: high
+        - field: status
+          op: not_in
+          value: [resolved, closed]
+    group_by: []
+- ref: page_on_call
+  action: core.transform.reshape
+  depends_on:
+    - open_high_cases
+  run_if: ${{ ACTIONS.open_high_cases.result.groups[0].count > 2 }}
+  args:
+    value: ${{ ACTIONS.open_high_cases.result.groups[0].count }}
+```
+
+```json Result
+{
+  "groups": [{"count": 3}],
+  "truncated": false
+}
+```
+</CodeGroup>
+
+Priority and severity compare by rank, so `gte: high` matches `high` and `critical`. Status supports equality and list operators only.
+
+## Count cases per day in your timezone
+
+Date and time fields need a `bucket`: `hour`, `day`, `week`, or `month`. Set `timezone` to bucket by local days. Results always hold UTC timestamps:
+
+<CodeGroup>
+```yaml Action
+- ref: cases_per_day
+  action: core.cases.aggregate_cases
+  args:
+    filters:
+      field: created_at
+      op: gte
+      value: "2026-09-01T00:00:00Z"
+    group_by:
+      - field: created_at
+        bucket: day
+        timezone: America/New_York
+        alias: day
+```
+
+```json Result
+{
+  "groups": [
+    {"day": "2026-08-31T04:00:00Z", "count": 1},
+    {"day": "2026-09-01T04:00:00Z", "count": 1},
+    {"day": "2026-09-02T04:00:00Z", "count": 3},
+    {"day": "2026-09-03T04:00:00Z", "count": 2}
+  ],
+  "truncated": false
+}
+```
+</CodeGroup>
+
+`2026-08-31T04:00:00Z` is midnight on August 31 in New York, so a case created at `2026-09-01T02:00:00Z` lands in that group. Date buckets sort oldest first.
+
+## Top values of a custom field
+
+Prefix custom case fields with `fields.`. Use `order_by` with an output name, `limit` for the top N, and `min_count` to drop small groups:
+
+<CodeGroup>
+```yaml Action
+- ref: top_regions
+  action: core.cases.aggregate_cases
+  args:
+    group_by:
+      - fields.region
+    aggs:
+      - function: count
+        alias: cases
+    order_by: cases
+    sort: desc
+    min_count: 2
+    limit: 5
+```
+
+```json Result
+{
+  "groups": [
+    {"fields.region": "emea", "cases": 3},
+    {"fields.region": "amer", "cases": 2}
+  ],
+  "truncated": false
+}
+```
+</CodeGroup>
+
+`truncated: true` means more groups matched than `limit` returned. There is no cursor, so raise `limit` or narrow `filters` to see the rest.
+
+## Sum and median table columns per group
+
+`core.table.aggregate_rows` takes the same `group_by`, `aggs`, and `filters` shape, plus a `table` name. Without an `alias`, each output is named `function_field`:
+
+<CodeGroup>
+```yaml Action
+- ref: bytes_by_source
+  action: core.table.aggregate_rows
+  args:
+    table: alerts
+    filters:
+      field: disposition
+      op: ne
+      value: benign
+    group_by:
+      - source
+    aggs:
+      - function: count
+      - function: sum
+        field: bytes_out
+        alias: total_bytes
+      - function: median
+        field: duration_ms
+```
+
+```json Result
+{
+  "groups": [
+    {"source": "okta", "count": 3, "total_bytes": 600.0, "median_duration_ms": 40.0},
+    {"source": "crowdstrike", "count": 2, "total_bytes": 2000.0, "median_duration_ms": 40.0}
+  ],
+  "truncated": false
+}
+```
+</CodeGroup>
+
+`ne` and `not_in` also exclude rows where the column is empty. Add `{field: disposition, op: is_null}` inside an `or` to keep them. Sums, means, and medians return floats.
+
+## Count distinct values in a table
+
+Use `count_distinct` to count unique non-null values per group:
+
+<CodeGroup>
+```yaml Action
+- ref: users_per_source
+  action: core.table.aggregate_rows
+  args:
+    table: alerts
+    group_by:
+      - source
+    aggs:
+      - function: count_distinct
+        field: user_name
+        alias: unique_users
+```
+
+```json Result
+{
+  "groups": [
+    {"source": "okta", "unique_users": 2},
+    {"source": "crowdstrike", "unique_users": 2},
+    {"source": "guardduty", "unique_users": 1}
+  ],
+  "truncated": false
+}
+```
+</CodeGroup>
+
+Table text comparisons with `eq`, `ne`, `in`, and `not_in` are case-sensitive. Use `contains` or `starts_with` for case-insensitive matches.
+
+## Search table rows by meaning
+
+`core.table.search` finds rows by meaning in the `TEXT` columns that have [vector search](/automations/tables#vector-search) enabled. Literal keyword search stays in `core.table.search_rows`:
+
+<CodeGroup>
+```yaml Action
+- ref: similar_alerts
+  action: core.table.search
+  args:
+    table: alerts
+    query: stolen credentials used to sign in
+    limit: 5
+```
+
+```json Result
+{
+  "items": [
+    {
+      "row_id": "6f2c0d6e-3b8f-4f7a-9a51-0f1f2b7f8c11",
+      "score": 0.82,
+      "match": {
+        "column_id": "0b6a8d4e-2c47-4e0e-9a1d-5d6d2a9f3b20",
+        "column_name": "summary",
+        "text": "Impossible travel sign-in after password reset",
+        "start": 0,
+        "end": 46,
+        "shortened": false
+      },
+      "indexed_revision": 1
+    }
+  ],
+  "next_cursor": null,
+  "has_more": false,
+  "capped": false,
+  "index": {
+    "state": "active",
+    "pending": 0,
+    "failed": 0,
+    "empty": 0,
+    "ready": 120,
+    "backfill_complete": true,
+    "partial": false
+  }
+}
+```
+</CodeGroup>
+
+`score` is cosine similarity, so compare it within one search rather than against a fixed threshold. `index` reports how many rows are indexed. The action fails while the index is still building; set `allow_partial: true` to search only indexed rows. To read the next page, pass `next_cursor` as `cursor` within five minutes and keep the other inputs unchanged.
+
+Vector search requires an Enterprise plan and an [LLM provider](/agents/llm-providers) with an embedding model.
+
+## Fetch full rows for search results
+
+Search results hold row IDs and excerpts. Look up each full row by its `id`:
+
+```yaml
+- ref: similar_alert_rows
+  action: core.table.lookup
+  for_each: ${{ for var.row_id in ACTIONS.similar_alerts.result.items[*].row_id }}
+  args:
+    table: alerts
+    column: id
+    value: ${{ var.row_id }}
+```
+
+## Give an agent these actions as tools
+
+List the actions under `actions` so the agent can filter, group, and search on its own:
+
+```yaml
+- ref: triage_agent
+  action: ai.agent
+  args:
+    model:
+      model_name: claude-sonnet-4-5
+      model_provider: anthropic
+    instructions: |
+      Use the aggregate actions for counts and metrics.
+      Use core.table.search on the alerts table to find similar alerts.
+    user_prompt: |
+      How many high-priority cases are still open, and which past alerts look like this one?
+
+      ${{ TRIGGER.alert }}
+    actions:
+      - core.cases.aggregate_cases
+      - core.table.aggregate_rows
+      - core.table.search
+      - core.table.lookup
+    max_tool_calls: 8
+```
+
+Agents read the same input schemas, so name the case fields, table names, and columns in `instructions` to save tool calls.
+
+## Related pages
+
+- See [Cases](/automations/core-actions/case-actions/cases#core-cases-aggregate_cases) for every `core.cases.aggregate_cases` input, field type, and filter operator.
+- See [Lookups](/automations/core-actions/memory-actions/lookups#core-table-aggregate_rows) for every `core.table.aggregate_rows` input and the operators each column type supports.
+- See [Tables](/automations/tables#vector-search) to enable vector search on a column and check index status.
+- See [AI agent](/agents/ai-agent) for agent tools, approvals, and output types.
+- See [JSONPath](/cheatsheets/jsonpath) for the filter syntax used to read groups.

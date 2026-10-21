@@ -203,6 +203,23 @@ describe("CaseTasksPanel", () => {
     expect(screen.queryByLabelText("Task title")).not.toBeInTheDocument()
   })
 
+  it("lists tasks alphabetically by title, whatever order the server sent", () => {
+    setTasks([
+      makeTask({ id: "t1", title: "Task 10" }),
+      makeTask({ id: "t2", title: "bravo" }),
+      makeTask({ id: "t3", title: "Task 2" }),
+      makeTask({ id: "t4", title: "Alpha" }),
+    ])
+
+    renderPanel()
+
+    expect(
+      screen
+        .getAllByText(/^(Alpha|bravo|Task 2|Task 10)$/)
+        .map((title) => title.textContent)
+    ).toEqual(["Alpha", "bravo", "Task 2", "Task 10"])
+  })
+
   it("hides the description until the chevron expands it", () => {
     setTasks([
       makeTask({ id: "t1", title: "Documented task", description: "- a" }),
@@ -792,7 +809,7 @@ describe("CaseTasksPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Add task" }))
     fireEvent.click(screen.getByRole("button", { name: "Workflow" }))
-    const search = await screen.findByPlaceholderText("Set workflow…")
+    const search = await screen.findByPlaceholderText("Search workflows…")
     fireEvent.keyDown(search, { key: "Escape" })
 
     // Radix portals the palette, but React synthetic events still bubble
@@ -800,7 +817,7 @@ describe("CaseTasksPanel", () => {
     // instead of letting it cancel the card underneath.
     await waitFor(() =>
       expect(
-        screen.queryByPlaceholderText("Set workflow…")
+        screen.queryByPlaceholderText("Search workflows…")
       ).not.toBeInTheDocument()
     )
     expect(screen.getByPlaceholderText("Task title")).toBeInTheDocument()

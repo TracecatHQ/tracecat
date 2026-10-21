@@ -137,7 +137,7 @@ resource "aws_iam_policy" "secrets_access" {
       {
         Effect = "Allow"
         Action = ["secretsmanager:GetSecretValue"]
-        Resource = compact([
+        Resource = concat(compact([
           var.tracecat_db_encryption_key_arn,
           var.tracecat_service_key_arn,
           var.tracecat_signing_secret_arn,
@@ -148,7 +148,7 @@ resource "aws_iam_policy" "secrets_access" {
           var.saml_idp_metadata_url_arn,
           var.temporal_api_key_arn,
           aws_secretsmanager_secret.redis_url.arn,
-        ])
+        ]), aws_secretsmanager_secret.sentry_dsn[*].arn)
       }
     ]
   })

@@ -46,6 +46,10 @@ def _validate_backend(identifier: str, backend: AgentBackend[Any, Any]) -> None:
             raise ValueError(
                 f"Invalid harness identifier for agent backend: {identifier}"
             )
+    if not isinstance(getattr(backend, "subagent_approvals", None), bool):
+        raise TypeError(
+            f"Agent backend {identifier}: subagent_approvals must be a bool"
+        )
 
     # Inspect the workflow dynamically for the same missing-attribute boundary.
     workflow_class: object = getattr(backend, "workflow", None)
@@ -123,6 +127,19 @@ def find_agent_backend(identifier: str | None) -> AgentBackend[Any, Any] | None:
     """
     key = DEFAULT_AGENT_BACKEND if identifier is None else identifier
     return get_agent_backends().get(key)
+
+
+def subagent_approvals_available() -> bool:
+    """Whether an enabled backend can run preset subagents that require approval.
+
+    Presets are not bound to a backend, so authoring accepts such subagents when
+    any enabled backend can run them. Each backend still enforces its own rule
+    when it resolves subagents for a turn.
+    """
+    return any(
+        backend.subagent_approvals and backend.is_enabled()
+        for backend in get_agent_backends().values()
+    )
 
 
 def get_agent_backend(

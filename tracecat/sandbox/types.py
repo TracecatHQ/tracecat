@@ -86,6 +86,8 @@ class SandboxNetworkPolicy:
     allowed_rules: tuple[SandboxEgressRule, ...] = ()
     blocked_cidrs: tuple[IPNetwork, ...] = ()
     allow_public_ipv6: bool = False
+    allow_public_egress: bool = True
+    """When false, only ``allowed_rules`` are reachable: no DNS and no public catch-all."""
 
     def __post_init__(self) -> None:
         """Reject CIDR rules that cannot affect the selected mode."""
@@ -97,6 +99,13 @@ class SandboxNetworkPolicy:
             raise ValueError("egress rules are only valid for filtered networking")
         if self.mode is not SandboxNetworkMode.FILTERED and self.allow_public_ipv6:
             raise ValueError("allow_public_ipv6 is only valid for filtered networking")
+        if (
+            self.mode is not SandboxNetworkMode.FILTERED
+            and not self.allow_public_egress
+        ):
+            raise ValueError(
+                "allow_public_egress is only configurable for filtered networking"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,9 +137,9 @@ class ResourceLimits:
     """Resource limits for sandbox execution.
 
     Attributes:
-        memory_mb: Maximum memory in megabytes (default 2048 = 2 GiB).
+        memory_mb: Aggregate cgroup memory budget in MiB (default 2048).
         address_space_mb: Optional per-process virtual-memory cap in MiB.
-            Defaults to memory_mb.
+            Defaults to twice memory_mb.
         cpu_seconds: Maximum CPU time in seconds.
         max_file_size_mb: Maximum file size in megabytes.
         max_open_files: Maximum number of open file descriptors.
@@ -147,16 +156,18 @@ class ResourceLimits:
     address_space_mb: int | None = None
 
     def __post_init__(self) -> None:
+        if self.memory_mb <= 0:
+            raise ValueError("memory_mb must be positive")
         if self.address_space_mb is not None and self.address_space_mb <= 0:
             raise ValueError("address_space_mb must be positive")
 
     @property
     def address_space_limit_mb(self) -> int:
-        """Use an explicit virtual-memory cap when provided by agent probes."""
+        """Keep virtual address space independent of the resident-memory budget."""
         return (
             self.address_space_mb
             if self.address_space_mb is not None
-            else self.memory_mb
+            else self.memory_mb * 2
         )
 
 

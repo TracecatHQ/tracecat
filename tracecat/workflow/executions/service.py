@@ -7,7 +7,7 @@ import hashlib
 import json
 import uuid
 from collections import OrderedDict
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -21,27 +21,31 @@ from temporalio.api.workflowservice.v1 import request_response_pb2
 from temporalio.client import (
     Client,
     WorkflowExecution,
+    WorkflowExecutionDescription,
     WorkflowFailureError,
     WorkflowHandle,
     WorkflowHistoryEventFilterType,
 )
 from temporalio.common import TypedSearchAttributes, WorkflowIDReusePolicy
-from temporalio.exceptions import TerminatedError
+from temporalio.exceptions import TerminatedError, WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat import config
 from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.db.models import Interaction
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES, DSLInput, DSLRunArgs
+from tracecat.dsl.constants import FIXED_ACTION_REFS_MEMO_KEY
 from tracecat.dsl.enums import PlatformAction
-from tracecat.dsl.schemas import TriggerInputs
+from tracecat.dsl.schemas import (
+    ROOT_STREAM,
+    FixedActionResult,
+    TaskResult,
+    TriggerInputs,
+)
 from tracecat.dsl.types import Task
 from tracecat.dsl.workflow import DSLWorkflow
-from tracecat.ee.interactions.schemas import InteractionInput
-from tracecat.ee.interactions.service import InteractionService
 from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.identifiers.workflow import (
     WorkflowExecutionID,
@@ -76,6 +80,7 @@ from tracecat.workflow.executions.common import (
     is_scheduled_event,
     is_start_event,
     is_unreadable_temporal_payload,
+    unwrap_action_result,
 )
 from tracecat.workflow.executions.constants import (
     WF_COMPLETED_REF,
@@ -88,6 +93,11 @@ from tracecat.workflow.executions.enums import (
     TriggerType,
     WorkflowEventType,
     WorkflowExecutionEventStatus,
+)
+from tracecat.workflow.executions.rerun import (
+    RerunSource,
+    RerunSourceAction,
+    expire_stored_results,
 )
 from tracecat.workflow.executions.schemas import (
     EventFailure,
@@ -103,7 +113,16 @@ from tracecat.workflow.executions.schemas import (
     WorkflowExecutionStatusFilterMode,
     WorkflowExecutionStatusLiteral,
 )
+from tracecat.workflow.executions.types import StartOutcome
 from tracecat.workspaces.service import WorkspaceService
+
+# A tombstone claims the ID of a run whose start answer was lost. No worker
+# registers this type or polls this queue: the execution only has to exist.
+_START_TOMBSTONE_WORKFLOW = "WorkflowStartTombstone"
+_START_TOMBSTONE_TASK_QUEUE = "workflow-start-tombstone"
+# Closes a tombstone whose termination was lost.
+_START_TOMBSTONE_TIMEOUT = datetime.timedelta(seconds=10)
+_START_TOMBSTONE_RPC_TIMEOUT = datetime.timedelta(seconds=5)
 
 
 class WorkflowExecutionResultNotFoundError(ValueError):
@@ -203,6 +222,37 @@ async def _resolve_trigger_context(trigger_inputs: StoredObject | None) -> Any |
     return await retrieve_stored_object(trigger_inputs)
 
 
+def _applied_fixed_refs(memo: Mapping[str, Any]) -> list[str]:
+    """Refs whose fixed result the scheduler actually used in a run."""
+    refs = memo.get(FIXED_ACTION_REFS_MEMO_KEY) or []
+    return [str(ref) for ref in refs]
+
+
+_COMPLETED_EVENT_TYPES = frozenset(
+    {
+        EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,
+        EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED,
+    }
+)
+
+
+async def _task_result_from_completed_event(event: HistoryEvent) -> TaskResult:
+    """Rebuild the TaskResult the workflow stored for a completed action."""
+    match await get_stored_result(event):
+        case InlineObject(data=data) as inline:
+            typename = inline.typename or type(data).__name__
+            return TaskResult(result=inline, result_typename=typename)
+        case ExternalObject() as external:
+            typename = external.typename or "external"
+            return TaskResult(result=external, result_typename=typename)
+        case CollectionObject() as collection:
+            typename = collection.typename or "list"
+            return TaskResult(result=collection, result_typename=typename)
+        case None:
+            # Agent children return raw values that the workflow wraps inline.
+            return TaskResult.from_result(await get_result(event))
+
+
 class WorkflowExecutionsService:
     """Workflow executions service."""
 
@@ -290,14 +340,6 @@ class WorkflowExecutionsService:
             return datetime.timedelta(seconds=float(seconds))
 
         return None
-
-    async def query_interaction_states(
-        self,
-        wf_exec_id: WorkflowExecutionID,
-    ) -> Sequence[Interaction]:
-        """Query the interaction states for a workflow execution."""
-        async with InteractionService.with_session(role=self.role) as svc:
-            return await svc.list_interactions(wf_exec_id=wf_exec_id)
 
     async def query_executions(
         self,
@@ -449,8 +491,10 @@ class WorkflowExecutionsService:
         duration_gte_seconds: int | None = None,
         duration_lte_seconds: int | None = None,
         relation: WorkflowExecutionRelationFilter = WorkflowExecutionRelationFilter.ALL,
+        correlation_id: str | None = None,
     ) -> WorkflowExecutionsPage:
         query = build_query(
+            correlation_id=correlation_id,
             workflow_id=workflow_id,
             trigger_types=trigger_types,
             triggered_by_user_id=triggered_by_user_id,
@@ -633,6 +677,8 @@ class WorkflowExecutionsService:
         id2event: OrderedDict[int, WorkflowExecutionEventCompact] = OrderedDict()
         # Map of activity ID to compact event
         activity2eventid: dict[str, int] = {}
+        fixed_results: dict[str, FixedActionResult] = {}
+        fixed_action_names: dict[str, str] = {}
 
         handle = self.handle(wf_exec_id)
 
@@ -666,6 +712,13 @@ class WorkflowExecutionsService:
                     action_input = await _resolve_trigger_context(
                         dsl_run_args.trigger_inputs
                     )
+                    if run_args_data.get("fixed_action_results"):
+                        fixed_results = dsl_run_args.fixed_action_results
+                        if dsl_run_args.dsl is not None:
+                            fixed_action_names = {
+                                stmt.ref: stmt.action
+                                for stmt in dsl_run_args.dsl.actions
+                            }
                 event_time = event.event_time.ToDatetime(datetime.UTC)
                 id2event[event.event_id] = WorkflowExecutionEventCompact(
                     source_event_id=event.event_id,
@@ -678,16 +731,25 @@ class WorkflowExecutionsService:
                     action_ref=WF_TRIGGER_REF,
                     action_input=action_input,
                 )
-            # ── synthetic compact event for top-level workflow failure ──
-            elif event.event_type is EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
+            # ── synthetic compact event for top-level workflow failure or termination ──
+            elif event.event_type in (
+                EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED,
+                EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED,
+            ):
                 failure = await EventFailure.from_history_event(event)
+                status = (
+                    WorkflowExecutionEventStatus.TERMINATED
+                    if event.event_type
+                    == EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED
+                    else WorkflowExecutionEventStatus.FAILED
+                )
                 id2event[event.event_id] = WorkflowExecutionEventCompact(
                     source_event_id=event.event_id,
                     schedule_time=event.event_time.ToDatetime(datetime.UTC),
                     start_time=event.event_time.ToDatetime(datetime.UTC),
                     close_time=event.event_time.ToDatetime(datetime.UTC),
                     curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
-                    status=WorkflowExecutionEventStatus.FAILED,
+                    status=status,
                     action_name=WF_FAILURE_REF,
                     action_ref=WF_FAILURE_REF,
                     action_error=failure,
@@ -820,7 +882,161 @@ class WorkflowExecutionsService:
                 if event.loop_index is not None:
                     task2events[task].action_result = [event.action_result]
 
-        return list(task2events.values())
+        compact_events = list(task2events.values())
+        if fixed_results:
+            fixed_events = await self._compact_fixed_events(
+                desc,
+                fixed_results,
+                fixed_action_names,
+                existing=set(task2events),
+                event_time=compact_events[0].schedule_time if compact_events else None,
+            )
+            insert_at = (
+                1
+                if compact_events and compact_events[0].action_ref == WF_TRIGGER_REF
+                else 0
+            )
+            compact_events[insert_at:insert_at] = fixed_events
+        return compact_events
+
+    async def _compact_fixed_events(
+        self,
+        desc: WorkflowExecutionDescription,
+        fixed_results: dict[str, FixedActionResult],
+        action_names: dict[str, str],
+        *,
+        existing: set[Task],
+        event_time: datetime.datetime | None,
+    ) -> list[WorkflowExecutionEventCompact]:
+        """Compact events for actions that reused a result from a previous run."""
+        applied_refs = _applied_fixed_refs(await desc.memo())
+        schedule_time = (
+            event_time or desc.start_time or datetime.datetime.now(datetime.UTC)
+        )
+        events: list[WorkflowExecutionEventCompact] = []
+        for idx, ref in enumerate(applied_refs, start=1):
+            fixed = fixed_results.get(ref)
+            if fixed is None or Task(ref=ref, stream_id=ROOT_STREAM) in existing:
+                continue
+            result = await unwrap_action_result(fixed.result.result)
+            event = WorkflowExecutionEventCompact(
+                # Synthetic rows have no history event; keep IDs negative so
+                # they never collide with real source event IDs.
+                source_event_id=-idx,
+                schedule_time=schedule_time,
+                start_time=schedule_time,
+                close_time=schedule_time,
+                curr_event_type=WorkflowEventType.ACTIVITY_TASK_COMPLETED,
+                status=WorkflowExecutionEventStatus.COMPLETED,
+                action_name=action_names.get(ref, ref),
+                action_ref=ref,
+                action_result=_sanitize_action_result(fixed.mask_output, result),
+                fixed_from_execution_id=fixed.source_execution_id,
+                fixed_from_event_id=fixed.source_event_id,
+            )
+            event.set_mask_output(fixed.mask_output)
+            events.append(event)
+        return events
+
+    async def get_rerun_source(self, wf_exec_id: WorkflowExecutionID) -> RerunSource:
+        """Collect the trigger inputs and reusable action results of a past run.
+
+        Only root-stream actions are considered. The latest attempt of each
+        ref decides whether it succeeded. Results the run itself reused from
+        an earlier run carry over with their original provenance.
+        """
+        await self.require_execution(wf_exec_id)
+        wf_id, _ = exec_id_to_parts(wf_exec_id)
+        handle = self.handle(wf_exec_id)
+        scheduled: dict[int, WorkflowExecutionEventCompact] = {}
+        latest: dict[str, tuple[int, RerunSourceAction]] = {}
+        action_names: dict[str, str] = {}
+        inherited: dict[str, FixedActionResult] = {}
+        trigger_inputs: Any | None = None
+        started_at: datetime.datetime | None = None
+
+        async for event in handle.fetch_history_events():
+            if event.event_type is EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
+                attrs = event.workflow_execution_started_event_attributes
+                started_at = event.event_time.ToDatetime(datetime.UTC)
+                run_args_data = await extract_first(attrs.input)
+                if is_unreadable_temporal_payload(run_args_data):
+                    raise ValueError("The source run's inputs cannot be read.")
+                run_args = DSLRunArgs(**run_args_data)
+                trigger_inputs = await _resolve_trigger_context(run_args.trigger_inputs)
+                inherited = run_args.fixed_action_results
+                if run_args.dsl is not None:
+                    action_names = {
+                        stmt.ref: stmt.action for stmt in run_args.dsl.actions
+                    }
+            elif is_scheduled_event(event):
+                try:
+                    source = await WorkflowExecutionEventCompact.from_source_event(
+                        event
+                    )
+                except ValueError:
+                    continue
+                if (
+                    source is None
+                    or source.stream_id != ROOT_STREAM
+                    or source.loop_index is not None
+                    or is_unreadable_temporal_payload(source.action_input)
+                ):
+                    continue
+                ref = source.action_ref
+                scheduled[event.event_id] = source
+                reason = (
+                    "Detached child workflows always run."
+                    if source.status == WorkflowExecutionEventStatus.DETACHED
+                    else "Did not succeed in the source run."
+                )
+                latest[ref] = (
+                    event.event_id,
+                    RerunSourceAction(
+                        ref=ref,
+                        action=action_names.get(ref, source.action_name),
+                        reason=reason,
+                    ),
+                )
+            elif event.event_type in _COMPLETED_EVENT_TYPES:
+                source_id = get_source_event_id(event)
+                if source_id is None or (source := scheduled.get(source_id)) is None:
+                    continue
+                if source.status == WorkflowExecutionEventStatus.DETACHED:
+                    continue
+                entry = latest.get(source.action_ref)
+                if entry is None or entry[0] != source_id:
+                    continue
+                entry[1].fixed = FixedActionResult(
+                    result=await _task_result_from_completed_event(event),
+                    source_execution_id=wf_exec_id,
+                    source_event_id=source_id,
+                    mask_output=source.should_mask_output,
+                )
+                entry[1].reason = None
+
+        actions = {ref: action for ref, (_, action) in latest.items()}
+        if inherited:
+            memo = await (await handle.describe()).memo()
+            for ref in _applied_fixed_refs(memo):
+                if ref in actions or (fixed := inherited.get(ref)) is None:
+                    continue
+                actions[ref] = RerunSourceAction(
+                    ref=ref, action=action_names.get(ref, ref), fixed=fixed
+                )
+        source = RerunSource(
+            execution_id=wf_exec_id,
+            workflow_id=wf_id,
+            trigger_inputs=trigger_inputs,
+            actions=actions,
+        )
+        expire_stored_results(
+            source,
+            started_at,
+            now=datetime.datetime.now(datetime.UTC),
+            retention_days=config.TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS,
+        )
+        return source
 
     async def get_external_action_result(
         self,
@@ -1132,23 +1348,17 @@ class WorkflowExecutionsService:
                             result=result,
                         )
                     )
-                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
+                case (
+                    EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED
+                    | EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED
+                ):
                     events.append(
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=WorkflowEventType.WORKFLOW_EXECUTION_FAILED,
+                            event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
                             task_id=event.task_id,
                             failure=await EventFailure.from_history_event(event),
-                        )
-                    )
-                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED:
-                    events.append(
-                        WorkflowExecutionEvent(
-                            event_id=event.event_id,
-                            event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=WorkflowEventType.WORKFLOW_EXECUTION_TERMINATED,
-                            task_id=event.task_id,
                         )
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED:
@@ -1263,15 +1473,10 @@ class WorkflowExecutionsService:
                             event_group=group,
                         )
                     )
-                # === Workflow Execution Interaction Events ===
+                # === Workflow Execution Signal Events ===
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED:
                     attrs = event.workflow_execution_signaled_event_attributes
-                    data = await extract_first(attrs.input)
-                    result = (
-                        data
-                        if is_unreadable_temporal_payload(data)
-                        else InteractionInput(**data)
-                    )
+                    result = await extract_first(attrs.input)
                     events.append(
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
@@ -1281,60 +1486,6 @@ class WorkflowExecutionsService:
                             result=result,
                         )
                     )
-                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED:
-                    group = await EventGroup.from_accepted_workflow_update(event)
-                    event_group_names[event.event_id] = group
-                    events.append(
-                        WorkflowExecutionEvent(
-                            event_id=event.event_id,
-                            event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=WorkflowEventType.WORKFLOW_EXECUTION_UPDATE_ACCEPTED,
-                            event_group=group,
-                            task_id=event.task_id,
-                        )
-                    )
-                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_REJECTED:
-                    # TODO: Handle this
-                    logger.warning(
-                        "Received a workflow execution update rejected event",
-                        event_id=event.event_id,
-                        event_type=event.event_type,
-                    )
-                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED:
-                    attrs = event.workflow_execution_update_completed_event_attributes
-                    parent_event_id = attrs.accepted_event_id
-                    if not (group := event_group_names.get(parent_event_id)):
-                        logger.warning(
-                            "Received a workflow execution update completed event with an unexpected parent event id",
-                            event_id=event.event_id,
-                            parent_event_id=parent_event_id,
-                        )
-                        continue
-                    event_group_names[event.event_id] = group
-                    outcome = attrs.outcome
-                    if outcome.HasField("success"):
-                        result = await extract_first(outcome.success)
-                        events.append(
-                            WorkflowExecutionEvent(
-                                event_id=event.event_id,
-                                event_time=event.event_time.ToDatetime(datetime.UTC),
-                                event_type=WorkflowEventType.WORKFLOW_EXECUTION_UPDATE_COMPLETED,
-                                event_group=group,
-                                task_id=event.task_id,
-                                result=result,
-                            )
-                        )
-                    elif outcome.HasField("failure"):
-                        events.append(
-                            WorkflowExecutionEvent(
-                                event_id=event.event_id,
-                                event_time=event.event_time.ToDatetime(datetime.UTC),
-                                event_type=WorkflowEventType.WORKFLOW_EXECUTION_UPDATE_COMPLETED,
-                                event_group=group,
-                                task_id=event.task_id,
-                                failure=await EventFailure.from_history_event(event),
-                            )
-                        )
                 case _:
                     logger.trace("Unhandled event type", event_type=event.event_type)
         return events
@@ -1364,6 +1515,7 @@ class WorkflowExecutionsService:
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
         memo: dict[str, Any] | None = None,
+        correlation_id: str | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a new workflow execution.
 
@@ -1372,6 +1524,7 @@ class WorkflowExecutionsService:
         Args:
             memo: Optional memo dict to store with the workflow execution.
                   Useful for correlation (e.g., parent_wf_exec_id).
+            correlation_id: Optional `TracecatCorrelationId` search attribute value.
         """
         wf_exec_id = generate_exec_id(wf_id)
         coro = self._start_workflow(
@@ -1384,6 +1537,7 @@ class WorkflowExecutionsService:
             memo=memo,
             trigger_inputs=payload,
             execution_type=ExecutionType.PUBLISHED,
+            correlation_id=correlation_id,
         )
         task = asyncio.ensure_future(coro)
         task.add_done_callback(self._handle_background_task_exception)
@@ -1405,6 +1559,8 @@ class WorkflowExecutionsService:
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
         memo: dict[str, Any] | None = None,
+        fixed_action_results: dict[str, FixedActionResult] | None = None,
+        correlation_id: str | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a workflow execution and wait until Temporal acknowledges start."""
         if wf_exec_id is None:
@@ -1420,6 +1576,8 @@ class WorkflowExecutionsService:
             time_anchor=time_anchor,
             registry_lock=registry_lock,
             memo=memo,
+            fixed_action_results=fixed_action_results,
+            correlation_id=correlation_id,
         )
 
         return WorkflowExecutionCreateResponse(
@@ -1427,6 +1585,46 @@ class WorkflowExecutionsService:
             wf_id=wf_id,
             wf_exec_id=wf_exec_id,
         )
+
+    async def settle_lost_start(self, wf_exec_id: WorkflowExecutionID) -> StartOutcome:
+        """Find out whether a start whose answer was lost started the run.
+
+        Runs start with ``REJECT_DUPLICATE``, so claiming the run's ID with a
+        tombstone settles it: if the tombstone starts, the lost start can never
+        run; if the ID is taken, the run started. The tombstone needs no worker
+        and is terminated at once. Agent turns settle lost starts the same way.
+        """
+        try:
+            tombstone = await self._client.start_workflow(
+                _START_TOMBSTONE_WORKFLOW,
+                id=wf_exec_id,
+                task_queue=_START_TOMBSTONE_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+                execution_timeout=_START_TOMBSTONE_TIMEOUT,
+                rpc_timeout=_START_TOMBSTONE_RPC_TIMEOUT,
+            )
+        except WorkflowAlreadyStartedError:
+            return "started"
+        except Exception as e:
+            self.logger.warning(
+                "Failed to settle a lost workflow start",
+                wf_exec_id=wf_exec_id,
+                error_type=type(e).__name__,
+            )
+            return "unknown"
+        try:
+            await tombstone.terminate(
+                reason="The run's start was lost",
+                rpc_timeout=_START_TOMBSTONE_RPC_TIMEOUT,
+            )
+        except Exception as e:
+            # The ID is claimed either way; the execution timeout closes it.
+            self.logger.warning(
+                "Failed to terminate a workflow start tombstone",
+                wf_exec_id=wf_exec_id,
+                error_type=type(e).__name__,
+            )
+        return "not_started"
 
     def create_draft_workflow_execution_nowait(
         self,
@@ -1437,6 +1635,7 @@ class WorkflowExecutionsService:
         trigger_type: TriggerType = TriggerType.MANUAL,
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
+        fixed_action_results: dict[str, FixedActionResult] | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a new draft workflow execution.
 
@@ -1453,6 +1652,7 @@ class WorkflowExecutionsService:
             registry_lock=registry_lock,
             trigger_inputs=payload,
             execution_type=ExecutionType.DRAFT,
+            fixed_action_results=fixed_action_results,
         )
         task = asyncio.ensure_future(coro)
         task.add_done_callback(self._handle_background_task_exception)
@@ -1473,6 +1673,7 @@ class WorkflowExecutionsService:
         wf_exec_id: WorkflowExecutionID | None = None,
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
+        fixed_action_results: dict[str, FixedActionResult] | None = None,
     ) -> WorkflowExecutionCreateResponse:
         """Create a draft workflow execution and wait until Temporal acknowledges start."""
         if wf_exec_id is None:
@@ -1487,6 +1688,7 @@ class WorkflowExecutionsService:
             execution_type=ExecutionType.DRAFT,
             time_anchor=time_anchor,
             registry_lock=registry_lock,
+            fixed_action_results=fixed_action_results,
         )
 
         return WorkflowExecutionCreateResponse(
@@ -1586,13 +1788,14 @@ class WorkflowExecutionsService:
         ):
             kwargs["execution_timeout"] = execution_timeout
 
-        # Mint time_anchor for webhook/manual triggers if not explicitly provided.
+        # Mint time_anchor for webhook/manual/case/form triggers if not explicitly provided.
         # This ensures the time_anchor is baked into workflow input and survives resets.
         # Scheduled workflows resolve time_anchor via local activity using TemporalScheduledStartTime.
         if time_anchor is None and trigger_type in (
             TriggerType.WEBHOOK,
             TriggerType.MANUAL,
             TriggerType.CASE,
+            TriggerType.FORM,
         ):
             time_anchor = datetime.datetime.now(datetime.UTC)
 
@@ -1716,6 +1919,8 @@ class WorkflowExecutionsService:
         execution_type: ExecutionType = ExecutionType.PUBLISHED,
         time_anchor: datetime.datetime | None = None,
         registry_lock: RegistryLock | None = None,
+        fixed_action_results: dict[str, FixedActionResult] | None = None,
+        correlation_id: str | None = None,
         **kwargs: Any,
     ) -> None:
         if self.role is None:
@@ -1735,6 +1940,7 @@ class WorkflowExecutionsService:
             TriggerType.WEBHOOK,
             TriggerType.MANUAL,
             TriggerType.CASE,
+            TriggerType.FORM,
         ):
             time_anchor = datetime.datetime.now(datetime.UTC)
 
@@ -1794,6 +2000,8 @@ class WorkflowExecutionsService:
                     )
                 )
         pairs.append(execution_type.to_temporal_search_attr_pair())
+        if correlation_id is not None:
+            pairs.append(TemporalSearchAttr.CORRELATION_ID.create_pair(correlation_id))
         search_attrs = TypedSearchAttributes(search_attributes=pairs)
 
         try:
@@ -1808,6 +2016,7 @@ class WorkflowExecutionsService:
                         execution_type=execution_type,
                         time_anchor=time_anchor,
                         registry_lock=registry_lock,
+                        fixed_action_results=fixed_action_results or {},
                     ),
                     id=wf_exec_id,
                     task_queue=config.TEMPORAL__CLUSTER_QUEUE,

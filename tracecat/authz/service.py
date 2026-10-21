@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import delete, exists, func, or_, select
+from sqlalchemy import cast, delete, exists, func, null, or_, select
 from sqlalchemy.dialects.postgresql import array as pg_array
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -120,6 +120,72 @@ async def query_effective_scopes(
     combined = user_scopes.union(group_scopes, floor_scopes)
     result = await session.execute(combined)
     return frozenset(result.scalars().all())
+
+
+async def query_effective_scopes_by_workspace(
+    session: SupportsExecute,
+    user_id: UserID,
+    organization_id: OrganizationID,
+    workspace_ids: Sequence[WorkspaceID],
+) -> dict[WorkspaceID, frozenset[str]]:
+    """Read a user's effective scopes in each of several workspaces at once.
+
+    One query, where calling ``query_effective_scopes`` per workspace runs
+    one each. Each workspace gets what ``query_effective_scopes`` returns for
+    it; keep the two in step. Uncached.
+    """
+    in_workspaces = [None, *workspace_ids]
+    user_scopes = (
+        select(UserRoleAssignment.workspace_id, Scope.name)
+        .join(RoleScope, RoleScope.scope_id == Scope.id)
+        .join(DBRole, DBRole.id == RoleScope.role_id)
+        .join(UserRoleAssignment, UserRoleAssignment.role_id == DBRole.id)
+        .where(
+            UserRoleAssignment.user_id == user_id,
+            UserRoleAssignment.organization_id == organization_id,
+            or_(
+                UserRoleAssignment.workspace_id.is_(None),
+                UserRoleAssignment.workspace_id.in_(workspace_ids),
+            ),
+        )
+    )
+    group_scopes = (
+        select(GroupRoleAssignment.workspace_id, Scope.name)
+        .join(RoleScope, RoleScope.scope_id == Scope.id)
+        .join(DBRole, DBRole.id == RoleScope.role_id)
+        .join(GroupRoleAssignment, GroupRoleAssignment.role_id == DBRole.id)
+        .join(
+            effective_group_members,
+            effective_group_members.c.group_id == GroupRoleAssignment.group_id,
+        )
+        .where(
+            effective_group_members.c.user_id == user_id,
+            GroupRoleAssignment.organization_id == organization_id,
+            or_(
+                GroupRoleAssignment.workspace_id.is_(None),
+                GroupRoleAssignment.workspace_id.in_(workspace_ids),
+            ),
+        )
+    )
+    # The membership floor applies in every workspace.
+    floor_scopes = select(
+        cast(null(), UserRoleAssignment.workspace_id.type),
+        func.unnest(pg_array(sorted(ORG_MEMBER_FLOOR_SCOPES))),
+    ).where(
+        exists().where(
+            OrganizationMembership.user_id == user_id,
+            OrganizationMembership.organization_id == organization_id,
+        )
+    )
+    result = await session.execute(user_scopes.union(group_scopes, floor_scopes))
+    scopes: dict[WorkspaceID | None, set[str]] = {key: set() for key in in_workspaces}
+    for workspace_id, name in result.tuples().all():
+        scopes[workspace_id].add(name)
+    org_wide = scopes[None]
+    return {
+        workspace_id: frozenset(org_wide | scopes[workspace_id])
+        for workspace_id in workspace_ids
+    }
 
 
 async def resolve_granter_scopes(

@@ -14,10 +14,16 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.skill.library.catalog import load_library
+from tracecat.agent.skill.library.service import (
+    SkillLibraryService,
+    normalize_library_slugs,
+)
 from tracecat.auth.types import Role
 from tracecat.authz.controls import get_missing_scopes, has_any_scope
 from tracecat.db.models import (
     CaseTag,
+    Form,
     Workflow,
     Workspace,
     WorkspaceSyncResourceMapping,
@@ -43,11 +49,15 @@ from tracecat.sync import (
     PullResourceDiff,
     PullResult,
     ResourcePullCount,
+    SecretStoreMappingRequirement,
     SyncPreviewResource,
 )
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat.workflow.store.import_service import WorkflowImportService
+from tracecat.workflow.store.import_service import (
+    WorkflowImportError,
+    WorkflowImportService,
+)
 from tracecat.workflow.store.schemas import (
     RemoteWorkflowDefinition,
     validate_short_branch_name,
@@ -57,6 +67,7 @@ from tracecat.workspace_sync.adapters import (
     CASE_TAG_RESOURCE_ADAPTER,
     NON_WORKFLOW_RESOURCE_ADAPTERS,
     RESOURCE_ADAPTERS_BY_TYPE,
+    SECRET_METADATA_RESOURCE_ADAPTER,
     WORKFLOW_RESOURCE_ADAPTER,
     WORKSPACE_RESOURCE_ADAPTERS,
     ResourceAdapter,
@@ -397,6 +408,7 @@ class WorkspaceSyncService(SyncMappingService):
                 snapshot,
                 requested_catalog_mappings=options.catalog_mappings,
                 requested_mcp_integration_mappings=options.mcp_integration_mappings,
+                requested_secret_store_mappings=options.secret_store_mappings,
             )
             resource_diffs: list[PullResourceDiff] = []
             diagnostics = prepared.diagnostics
@@ -418,6 +430,10 @@ class WorkspaceSyncService(SyncMappingService):
                     mcp_integration_mapping_requirements=(
                         prepared.mcp_integration_mapping_requirements
                     ),
+                    secret_store_mapping_requirements=(
+                        prepared.secret_store_mapping_requirements
+                    ),
+                    library_skill_installs=prepared.library_skill_installs,
                 )
             return PullResult(
                 success=True,
@@ -433,6 +449,10 @@ class WorkspaceSyncService(SyncMappingService):
                 resource_diffs=resource_diffs,
                 files=sorted(snapshot.files),
                 resources=_sync_preview_resources_from_spec(snapshot.spec),
+                secret_store_mapping_requirements=(
+                    prepared.secret_store_mapping_requirements
+                ),
+                library_skill_installs=prepared.library_skill_installs,
             )
         # Real pull: reconcile the snapshot into the database.
         return await self._import_snapshot(
@@ -440,6 +460,7 @@ class WorkspaceSyncService(SyncMappingService):
             sync_schedules=sync_schedules,
             requested_catalog_mappings=options.catalog_mappings,
             requested_mcp_integration_mappings=options.mcp_integration_mappings,
+            requested_secret_store_mappings=options.secret_store_mappings,
         )
 
     async def project_workspace(
@@ -482,6 +503,17 @@ class WorkspaceSyncService(SyncMappingService):
         specs: dict[str, WorkflowResourceSpec] = {}
         source_workflow_ids: dict[WorkflowUUID, str] = {}
 
+        # ``Workflow`` has no form relationship: load the forms in one query.
+        forms_by_workflow_id = {
+            form.workflow_id: form
+            for form in await self.session.scalars(
+                select(Form).where(
+                    Form.workspace_id == self.workspace_id,
+                    Form.workflow_id.in_([workflow.id for workflow in workflows]),
+                )
+            )
+        }
+
         # Project each workflow to a spec keyed by its (stable) source id.
         for workflow in workflows:
             await self.session.refresh(
@@ -506,6 +538,7 @@ class WorkspaceSyncService(SyncMappingService):
                 dsl=dsl,
                 source_id=source_id,
                 include_schedules=include_schedules,
+                form=forms_by_workflow_id.get(workflow.id),
             )
             source_workflow_ids[WorkflowUUID.new(workflow.id)] = source_id
         specs = {
@@ -786,7 +819,7 @@ class WorkspaceSyncService(SyncMappingService):
         self._enforce_required_scopes(sorted(_export_read_scopes_for_spec(spec)))
 
     def _require_pull_scopes(self, spec: WorkspaceSpec, *, dry_run: bool) -> None:
-        """Enforce scopes required by non-workflow resources in a parsed pull spec."""
+        """Enforce scopes required by the resources in a parsed pull spec."""
         self._enforce_required_scopes(
             sorted(_pull_scopes_for_spec(spec, dry_run=dry_run))
         )
@@ -913,6 +946,7 @@ class WorkspaceSyncService(SyncMappingService):
         *,
         requested_catalog_mappings: Mapping[uuid.UUID, uuid.UUID] | None = None,
         requested_mcp_integration_mappings: Mapping[uuid.UUID, uuid.UUID] | None = None,
+        requested_secret_store_mappings: Mapping[str, uuid.UUID | None] | None = None,
     ) -> PreparedSnapshot:
         """Resolve deployment-local references before validating or importing."""
         correlated = await AGENT_PRESET_RESOURCE_ADAPTER.correlate_catalog_ids(
@@ -929,17 +963,48 @@ class WorkspaceSyncService(SyncMappingService):
                 requested_mcp_integration_mappings=requested_mcp_integration_mappings,
             )
         )
+        correlated_stores = (
+            await SECRET_METADATA_RESOURCE_ADAPTER.correlate_store_names(
+                self,
+                snapshot.spec.secret_metadata,
+                requested_store_mappings=requested_secret_store_mappings,
+            )
+        )
+        library_diagnostics = (
+            await AGENT_PRESET_RESOURCE_ADAPTER.library_skill_diagnostics(
+                self, correlated_mcp.presets
+            )
+        )
+        requested_library_skills = normalize_library_slugs(
+            slug
+            for spec in correlated_mcp.presets.values()
+            for slug in spec.library_skills
+        )
+        library_skill_installs: list[str] = []
+        if requested_library_skills:
+            library_service = SkillLibraryService(self.session, role=self.role)
+            library_skill_installs = await library_service.missing_installs(
+                sorted(set(requested_library_skills) & load_library().keys())
+            )
         correlated_spec = snapshot.spec.model_copy(
             update={
                 "agent_presets": correlated_mcp.presets,
                 "workflows": correlated_mcp.workflows,
+                "secret_metadata": correlated_stores.secret_metadata,
             }
         )
         return PreparedSnapshot(
             snapshot=snapshot.model_copy(update={"spec": correlated_spec}),
-            diagnostics=[*correlated.diagnostics, *correlated_mcp.diagnostics],
+            diagnostics=[
+                *correlated.diagnostics,
+                *correlated_mcp.diagnostics,
+                *correlated_stores.diagnostics,
+                *library_diagnostics,
+            ],
             catalog_mapping_requirements=correlated.requirements,
             mcp_integration_mapping_requirements=correlated_mcp.requirements,
+            secret_store_mapping_requirements=correlated_stores.requirements,
+            library_skill_installs=library_skill_installs,
         )
 
     async def _import_snapshot(
@@ -949,6 +1014,7 @@ class WorkspaceSyncService(SyncMappingService):
         sync_schedules: bool,
         requested_catalog_mappings: Mapping[uuid.UUID, uuid.UUID] | None = None,
         requested_mcp_integration_mappings: Mapping[uuid.UUID, uuid.UUID] | None = None,
+        requested_secret_store_mappings: Mapping[str, uuid.UUID | None] | None = None,
     ) -> PullResult:
         """Reconcile a validated snapshot into the database within one transaction.
 
@@ -962,8 +1028,13 @@ class WorkspaceSyncService(SyncMappingService):
             snapshot,
             requested_catalog_mappings=requested_catalog_mappings,
             requested_mcp_integration_mappings=requested_mcp_integration_mappings,
+            requested_secret_store_mappings=requested_secret_store_mappings,
         )
+        # Dry runs only preview installs; applying them needs the write scope.
+        if prepared.library_skill_installs:
+            self._enforce_required_scopes(["agent:create"])
         snapshot, resource_diagnostics = prepared.snapshot, prepared.diagnostics
+        # Failed applies install nothing, so report no library installs.
         if resource_diagnostics:
             return self._failed_pull_result(
                 snapshot,
@@ -972,6 +1043,9 @@ class WorkspaceSyncService(SyncMappingService):
                 catalog_mapping_requirements=prepared.catalog_mapping_requirements,
                 mcp_integration_mapping_requirements=(
                     prepared.mcp_integration_mapping_requirements
+                ),
+                secret_store_mapping_requirements=(
+                    prepared.secret_store_mapping_requirements
                 ),
             )
 
@@ -1015,11 +1089,23 @@ class WorkspaceSyncService(SyncMappingService):
         # resources first (workflows may reference them), then workflows, then
         # refresh the sync mappings. Any failure rolls the whole batch back.
         imported_resources: list[ImportedResource] = []
+        library_skill_installs: list[str] = []
         queue = AfterCommitQueue.of(self.session)
         try:
             with queue.checkpointed():
                 with queue.deferred():
                     async with self.session.begin_nested():
+                        # Reconcile every required slug, including installs removed
+                        # after preview, before lock-validating the preset bindings.
+                        library_slugs = normalize_library_slugs(
+                            slug
+                            for spec in snapshot.spec.agent_presets.values()
+                            for slug in spec.library_skills
+                        )
+                        if library_slugs:
+                            library_skill_installs = await SkillLibraryService(
+                                self.session, role=self.role
+                            ).install_many(library_slugs)
                         if has_non_workflow_resources:
                             imported_resources = await WorkspaceResourceImportService(
                                 session=self.session,
@@ -1054,22 +1140,42 @@ class WorkspaceSyncService(SyncMappingService):
                         )
                 await self.session.commit()
         except Exception as e:
+            if isinstance(e, WorkflowImportError):
+                source_ids = {
+                    local_id: source_id for source_id, local_id in local_ids.items()
+                }
+                title = e.workflow_title
+                diagnostic = PullDiagnostic(
+                    workflow_path=workflow_source_path(source_ids[e.workflow_id]),
+                    workflow_title=title,
+                    error_type="transaction",
+                    message=f"Failed to import workflow {title!r}: {str(e)}",
+                    details={"exception": str(e)},
+                )
+                message = f"Workspace import failed on workflow {title!r}"
+            else:
+                diagnostic = PullDiagnostic(
+                    workflow_path="",
+                    workflow_title=None,
+                    error_type="transaction",
+                    message=f"Workspace import transaction failed: {str(e)}",
+                    details={"exception": str(e)},
+                )
+                message = "Workspace import transaction failed"
+            self.logger.opt(exception=e).error(
+                "Workspace import transaction failed",
+                workspace_id=str(self.workspace_id),
+                commit_sha=snapshot.commit_sha,
+                workflow_path=diagnostic.workflow_path,
+            )
             await self.session.rollback()
             return PullResult(
                 success=False,
                 commit_sha=snapshot.commit_sha,
                 workflows_found=len(remote_workflows),
                 workflows_imported=0,
-                diagnostics=[
-                    PullDiagnostic(
-                        workflow_path="",
-                        workflow_title=None,
-                        error_type="transaction",
-                        message=f"Workspace import transaction failed: {str(e)}",
-                        details={"exception": str(e)},
-                    )
-                ],
-                message="Workspace import transaction failed",
+                diagnostics=[diagnostic],
+                message=message,
                 resource_counts=self._resource_counts_from_spec(snapshot.spec),
             )
 
@@ -1089,6 +1195,7 @@ class WorkspaceSyncService(SyncMappingService):
                 imported_resources,
                 imported_workflows=len(remote_workflows),
             ),
+            library_skill_installs=library_skill_installs,
         )
 
     async def _resource_diffs_for_pull(
@@ -1113,6 +1220,26 @@ class WorkspaceSyncService(SyncMappingService):
             include_schedules=sync_schedules,
             create_missing_mappings=False,
         )
+        target_presets = dict(target_spec.agent_presets)
+        for source_id, preset in target_presets.items():
+            current_preset = current_projection.spec.agent_presets.get(source_id)
+            if current_preset is None:
+                continue
+            target_presets[source_id] = preset.model_copy(
+                update={
+                    "use_in_chat": (
+                        current_preset.use_in_chat
+                        if preset.use_in_chat is None
+                        else preset.use_in_chat
+                    ),
+                    "is_workspace_default": (
+                        current_preset.is_workspace_default
+                        if preset.is_workspace_default is None
+                        else preset.is_workspace_default
+                    ),
+                }
+            )
+        target_spec = target_spec.model_copy(update={"agent_presets": target_presets})
         target_files = self._files_from_spec(
             manifest=WorkspaceManifest(),
             spec=target_spec,
@@ -1899,6 +2026,10 @@ class WorkspaceSyncService(SyncMappingService):
         mcp_integration_mapping_requirements: (
             list[McpIntegrationMappingRequirement] | None
         ) = None,
+        secret_store_mapping_requirements: (
+            list[SecretStoreMappingRequirement] | None
+        ) = None,
+        library_skill_installs: list[str] | None = None,
     ) -> PullResult:
         """Build a failed pull result for a validated workspace snapshot."""
         return PullResult(
@@ -1914,6 +2045,8 @@ class WorkspaceSyncService(SyncMappingService):
             resources=_sync_preview_resources_from_spec(snapshot.spec),
             catalog_mapping_requirements=catalog_mapping_requirements,
             mcp_integration_mapping_requirements=(mcp_integration_mapping_requirements),
+            secret_store_mapping_requirements=secret_store_mapping_requirements,
+            library_skill_installs=library_skill_installs or [],
         )
 
     def _resource_counts_from_imported(
@@ -2127,6 +2260,16 @@ def _export_read_scopes_for_spec(spec: WorkspaceSpec) -> set[str]:
 def _pull_scopes_for_spec(spec: WorkspaceSpec, *, dry_run: bool) -> set[str]:
     """Collect resource scopes required by a pull spec."""
     scopes: set[str] = set()
+    if not dry_run and any(
+        preset.is_workspace_default is not None
+        for preset in spec.agent_presets.values()
+    ):
+        scopes.add("workspace:update")
+    # A workflow's ``form:`` block creates or replaces its form.
+    if not dry_run and any(
+        workflow.form is not None for workflow in spec.workflows.values()
+    ):
+        scopes.update(("form:create", "form:update"))
     for adapter in WORKSPACE_RESOURCE_ADAPTERS:
         if not adapter.specs(spec):
             continue

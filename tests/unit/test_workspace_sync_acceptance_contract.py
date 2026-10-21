@@ -10,25 +10,26 @@ import base64
 import hashlib
 import json
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 import yaml
 from cryptography.fernet import Fernet
 from pydantic import SecretStr, ValidationError
-from pydantic_core import PydanticSerializationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.secrets.references.service import SecretReferencesService
 
 from tests.support.fake_vcs import FakeVcsServer
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.authz.scopes import ADMIN_SCOPES, SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
     Action,
     AgentCatalog,
@@ -44,6 +45,8 @@ from tracecat.db.models import (
     CaseFields,
     CaseTag,
     CaseTrigger,
+    Form,
+    FormSubmission,
     MCPIntegration,
     OrganizationSecretStore,
     Secret,
@@ -59,19 +62,34 @@ from tracecat.db.models import (
     WorkspaceVariable,
 )
 from tracecat.dsl.common import DSLInput
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+    EntitlementRequired,
+    ScopeDeniedError,
+    TracecatCredentialsError,
+    TracecatValidationError,
+)
+from tracecat.forms.enums import FormStatus
+from tracecat.forms.schemas import FormConfig
+from tracecat.forms.service import stored_form_config
 from tracecat.git.types import GitUrl
 from tracecat.integrations.enums import MCPAuthType
+from tracecat.logger import logger
+from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets.enums import SecretSource
-from tracecat.secrets.schemas import SecretKeyValue
-from tracecat.secrets.service import SecretsService
-from tracecat.sync import PullOptions, PushStatus
+from tracecat.secrets.schemas import AwsSecretReferenceUpdate, SecretKeyValue
+from tracecat.secrets.service import SecretsService, build_external_secret_reference
+from tracecat.sync import PullDiagnostic, PullOptions, PullResult, PushStatus
 from tracecat.tables.schemas import TableUpdate
 from tracecat.tables.service import BaseTablesService
+from tracecat.tiers.enums import Entitlement
+from tracecat.workflow.store.import_service import WorkflowImportService
+from tracecat.workflow.store.schemas import WorkflowSyncPullRequest
 from tracecat.workspace_sync.adapters import (
     AGENT_PRESET_RESOURCE_ADAPTER,
     RESOURCE_ADAPTERS_BY_TYPE,
+    SECRET_METADATA_RESOURCE_ADAPTER,
     TABLE_RESOURCE_ADAPTER,
     WORKSPACE_RESOURCE_ADAPTERS,
 )
@@ -95,6 +113,7 @@ from tracecat.workspace_sync.schemas import (
     AgentPresetSubagentRef,
     McpIntegrationHint,
     ResourceRef,
+    SecretMetadataResourceSpec,
     SkillFileSpec,
     SkillResourceSpec,
     WorkflowResourceSpec,
@@ -104,7 +123,6 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceSpec,
     WorkspaceSyncExportPreviewRequest,
     WorkspaceSyncExportRequest,
-    manifest_resource_roots,
 )
 from tracecat.workspace_sync.serialization import (
     canonical_json_text,
@@ -112,20 +130,10 @@ from tracecat.workspace_sync.serialization import (
 )
 from tracecat.workspace_sync.service import WorkspaceSyncService
 from tracecat.workspace_sync.transport import VcsTreeSnapshot
-from tracecat.workspace_sync.workflow import serialize_workflow_spec
 
-EXPANDED_RESOURCE_TYPES = {
-    "workflow",
-    "agent_preset",
-    "skill",
-    "table",
-    "case_tag",
-    "case_field",
-    "case_dropdown",
-    "case_duration",
-    "variable",
-    "secret_metadata",
-}
+if TYPE_CHECKING:
+    from loguru import Record
+
 
 EXPECTED_RESOURCE_ROOTS = {
     "workflows": f"{WORKFLOW_ROOT}/",
@@ -172,46 +180,10 @@ def workspace_sync_service() -> WorkspaceSyncService:
     return WorkspaceSyncService(session=session, role=role)
 
 
-def test_sync_resource_type_declares_expanded_resource_contract() -> None:
-    assert {resource_type.value for resource_type in SyncResourceType} >= (
-        EXPANDED_RESOURCE_TYPES
-    )
-
-
-def test_resource_adapters_cover_expanded_resource_contract() -> None:
-    adapter_types = {
-        adapter.resource_type.value for adapter in WORKSPACE_RESOURCE_ADAPTERS
-    }
-
-    assert adapter_types >= EXPANDED_RESOURCE_TYPES
-    assert len(adapter_types) == len(WORKSPACE_RESOURCE_ADAPTERS)
-
-
 def test_every_sync_resource_type_is_adapter_backed() -> None:
     """Invariant: SyncResourceType is exactly the adapter registry's domain."""
     assert set(RESOURCE_ADAPTERS_BY_TYPE) == set(SyncResourceType)
-
-
-def test_manifest_declares_expanded_resource_roots() -> None:
-    manifest = WorkspaceManifest()
-
-    assert manifest.resources.model_dump(mode="json") == EXPECTED_RESOURCE_ROOTS
-    assert manifest_resource_roots(manifest) == tuple(
-        root.strip("/") for root in EXPECTED_RESOURCE_ROOTS.values()
-    )
-
-
-def test_manifest_rejects_undeclared_resource_roots() -> None:
-    manifest_data = {
-        "version": 1,
-        "resources": {
-            **EXPECTED_RESOURCE_ROOTS,
-            "dashboards": "dashboards/",
-        },
-    }
-
-    with pytest.raises(ValidationError):
-        WorkspaceManifest.model_validate(manifest_data)
+    assert len(RESOURCE_ADAPTERS_BY_TYPE) == len(WORKSPACE_RESOURCE_ADAPTERS)
 
 
 def test_agent_preset_mcp_hint_contract_keeps_refs_as_strings() -> None:
@@ -235,6 +207,279 @@ def test_agent_preset_mcp_hint_contract_keeps_refs_as_strings() -> None:
     exported = yaml.safe_load(serialize_yaml_model(spec))
     assert exported["mcp_integrations"] == [str(source_id)]
     assert exported["mcp_integration_hints"][str(source_id)]["slug"] == "linear_mcp"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("use_in_chat", [False, True])
+async def test_agent_chat_metadata_cross_workspace_git_round_trip(
+    session: AsyncSession,
+    svc_role: Role,
+    use_in_chat: bool,
+) -> None:
+    repo_url = "git+ssh://git@github.com/TracecatHQ/qa-agent-chat-sync.git"
+    git_url = GitUrl(host="github.com", org="TracecatHQ", repo="qa-agent-chat-sync")
+    fake_vcs = FakeVcsServer()
+    assert svc_role.workspace_id is not None
+    await _set_workspace_git_repo_url(
+        session, workspace_id=svc_role.workspace_id, repo_url=repo_url
+    )
+    target_role = await _create_workspace_role(
+        session,
+        source_role=svc_role,
+        workspace_name="qa-agent-chat-target",
+        repo_url=repo_url,
+    )
+    source_service = WorkspaceSyncService(
+        session=session, role=svc_role, transport_factory=fake_vcs.transport_factory
+    )
+    source_snapshot, diagnostics = await source_service.parse_files(
+        _combined_git_tree(
+            _agent_preset_git_tree(
+                source_id="qa-default",
+                slug="qa-default",
+                name="QA default",
+                use_in_chat=use_in_chat,
+                is_workspace_default=True,
+            ),
+            _agent_preset_git_tree(
+                source_id="qa-legacy", slug="qa-legacy", name="QA legacy"
+            ),
+        )
+    )
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session, role=svc_role
+    ).import_non_workflow_resources(source_snapshot.spec)
+    source_presets = {
+        preset.slug: preset
+        for preset in await session.scalars(
+            select(AgentPreset).where(AgentPreset.workspace_id == svc_role.workspace_id)
+        )
+    }
+    assert source_presets["qa-legacy"].use_in_chat is False
+
+    exported = await source_service.export_workspace(
+        WorkspaceSyncExportRequest(
+            message="Export agent chat metadata",
+            branch="sync/agent-chat",
+            create_pr=False,
+        )
+    )
+    assert exported.commit.sha is not None
+    files = fake_vcs.repo_files(git_url, ref=exported.commit.sha)
+    default_spec = yaml.safe_load(files[f"{AGENT_PRESET_ROOT}/qa-default/preset.yml"])
+    legacy_spec = yaml.safe_load(files[f"{AGENT_PRESET_ROOT}/qa-legacy/preset.yml"])
+    assert default_spec["use_in_chat"] is use_in_chat
+    assert default_spec["is_workspace_default"] is True
+    assert legacy_spec["use_in_chat"] is False
+    assert legacy_spec["is_workspace_default"] is False
+    exported_snapshot, diagnostics = await source_service.parse_files(files)
+    assert diagnostics == []
+
+    target_service = WorkspaceSyncService(
+        session=session, role=target_role, transport_factory=fake_vcs.transport_factory
+    )
+    pulled = await target_service.pull(
+        options=PullOptions(commit_sha=exported.commit.sha)
+    )
+    assert pulled.success is True
+    target_presets = {
+        preset.slug: preset
+        for preset in await session.scalars(
+            select(AgentPreset).where(
+                AgentPreset.workspace_id == target_role.workspace_id
+            )
+        )
+    }
+    assert target_presets["qa-default"].use_in_chat is use_in_chat
+    assert target_presets["qa-legacy"].use_in_chat is False
+    target_default = await session.scalar(
+        select(Workspace.default_agent_preset_id).where(
+            Workspace.id == target_role.workspace_id
+        )
+    )
+    assert target_default == target_presets["qa-default"].id
+    assert target_default != source_presets["qa-default"].id
+    projection = await target_service.project_workspace()
+    assert projection.spec.agent_presets == exported_snapshot.spec.agent_presets
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    (
+        "use_in_chat",
+        "default_flag",
+        "previous_default",
+        "expected_chat",
+        "expected_default",
+    ),
+    [
+        (None, None, "qa-imported", True, "qa-imported"),
+        (None, None, None, True, None),
+        (False, False, "qa-imported", False, None),
+        (True, True, "qa-unrelated", True, "qa-imported"),
+        (False, False, "qa-unrelated", False, "qa-unrelated"),
+        (False, True, None, False, "qa-imported"),
+    ],
+)
+async def test_agent_chat_metadata_pull_preserves_versions_and_partial_defaults(
+    session: AsyncSession,
+    svc_role: Role,
+    use_in_chat: bool | None,
+    default_flag: bool | None,
+    previous_default: str | None,
+    expected_chat: bool,
+    expected_default: str | None,
+) -> None:
+    repo_url = "git+ssh://git@github.com/TracecatHQ/qa-agent-chat-pull.git"
+    assert svc_role.workspace_id is not None
+    await _set_workspace_git_repo_url(
+        session, workspace_id=svc_role.workspace_id, repo_url=repo_url
+    )
+    await WorkspaceResourceImportService(
+        session=session, role=svc_role
+    ).import_non_workflow_resources(
+        WorkspaceSpec(
+            agent_presets={
+                slug: AgentPresetResourceSpec(
+                    id=slug, slug=slug, name=slug, use_in_chat=True
+                )
+                for slug in ("qa-imported", "qa-unrelated")
+            }
+        )
+    )
+    presets = {
+        preset.slug: preset
+        for preset in await session.scalars(
+            select(AgentPreset).where(AgentPreset.workspace_id == svc_role.workspace_id)
+        )
+    }
+    workspace = await session.scalar(
+        select(Workspace).where(Workspace.id == svc_role.workspace_id)
+    )
+    assert workspace is not None
+    workspace.default_agent_preset_id = (
+        presets[previous_default].id if previous_default else None
+    )
+    await session.commit()
+    version_id = presets["qa-imported"].current_version_id
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="a" * 40,
+        tree_sha="tree-sha",
+        files=_agent_preset_git_tree(
+            source_id="qa-imported",
+            slug="qa-imported",
+            name="qa-imported",
+            use_in_chat=use_in_chat,
+            is_workspace_default=default_flag,
+        ),
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        preview = await service.pull(
+            options=PullOptions(commit_sha="a" * 40, dry_run=True)
+        )
+        assert preview.success is True
+        preview_diff = "\n".join(diff.diff for diff in preview.resource_diffs or [])
+        if use_in_chat is None:
+            assert "use_in_chat" not in preview_diff
+        if default_flag is None:
+            assert "is_workspace_default" not in preview_diff
+        await session.refresh(workspace)
+        await session.refresh(presets["qa-imported"])
+        assert workspace.default_agent_preset_id == (
+            presets[previous_default].id if previous_default else None
+        )
+        assert presets["qa-imported"].use_in_chat is True
+        result = await service.pull(options=PullOptions(commit_sha="a" * 40))
+    assert result.success is True
+    await session.refresh(workspace)
+    await session.refresh(presets["qa-imported"])
+    assert workspace.default_agent_preset_id == (
+        presets[expected_default].id if expected_default else None
+    )
+    assert presets["qa-imported"].use_in_chat is expected_chat
+    assert presets["qa-imported"].current_version_id == version_id
+
+
+@pytest.mark.anyio
+async def test_agent_chat_metadata_rejects_multiple_workspace_defaults(
+    session: AsyncSession,
+    svc_role: Role,
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    files = _combined_git_tree(
+        *(
+            _agent_preset_git_tree(
+                source_id=slug, slug=slug, name=slug, is_workspace_default=True
+            )
+            for slug in ("qa-first", "qa-second")
+        )
+    )
+    snapshot, diagnostics = await workspace_sync_service.parse_files(files)
+    assert len(diagnostics) == 1
+    assert diagnostics[0].error_type == "dependency"
+    assert diagnostics[0].details == {
+        "agent_preset_source_ids": ["qa-first", "qa-second"]
+    }
+    with pytest.raises(TracecatValidationError, match="Only one agent preset"):
+        await WorkspaceResourceImportService(
+            session=session, role=svc_role
+        ).import_non_workflow_resources(snapshot.spec)
+    assert (
+        await session.scalars(
+            select(AgentPreset).where(AgentPreset.workspace_id == svc_role.workspace_id)
+        )
+    ).all() == []
+
+
+@pytest.mark.anyio
+async def test_agent_chat_metadata_import_rolls_back_with_parent_transaction(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    spec = WorkspaceSpec(
+        agent_presets={
+            "qa-rollback": AgentPresetResourceSpec(
+                id="qa-rollback",
+                slug="qa-rollback",
+                name="QA rollback",
+                use_in_chat=True,
+                is_workspace_default=True,
+            )
+        }
+    )
+    with pytest.raises(TracecatValidationError, match="Synthetic import failure"):
+        async with session.begin_nested():
+            await WorkspaceResourceImportService(
+                session=session, role=svc_role
+            ).import_non_workflow_resources(spec)
+            assert (
+                await session.scalar(
+                    select(Workspace.default_agent_preset_id).where(
+                        Workspace.id == svc_role.workspace_id
+                    )
+                )
+            ) is not None
+            raise TracecatValidationError("Synthetic import failure")
+    assert (
+        await session.scalar(
+            select(Workspace.default_agent_preset_id).where(
+                Workspace.id == svc_role.workspace_id
+            )
+        )
+    ) is None
+    assert (
+        await session.scalar(
+            select(AgentPreset.id).where(
+                AgentPreset.workspace_id == svc_role.workspace_id
+            )
+        )
+    ) is None
 
 
 def test_agent_preset_mcp_contract_rejects_stale_hints() -> None:
@@ -278,50 +523,6 @@ async def test_parse_files_reports_unsupported_manifest_resource_root(
     assert diagnostics[0].workflow_path == MANIFEST_FILENAME
     assert diagnostics[0].error_type == "parse"
     assert "dashboards" in diagnostics[0].message
-
-
-def test_full_acceptance_fixture_is_deterministic_and_secret_safe() -> None:
-    files = _expanded_full_git_tree(include_schedules=False)
-
-    assert set(files) == _expected_full_paths()
-    assert sorted(files) == list(files)
-    _assert_secret_metadata_has_no_values(files)
-    _assert_variable_exports_have_no_values(files)
-    _assert_workflows_have_no_schedules(files)
-
-
-def test_schedule_fixture_is_opt_in() -> None:
-    files_without_schedules = _expanded_full_git_tree(include_schedules=False)
-    files_with_schedules = _expanded_full_git_tree(include_schedules=True)
-    root_path = f"{WORKFLOW_ROOT}/qa-root/definition.yml"
-
-    assert "schedules" not in yaml.safe_load(files_without_schedules[root_path])
-    assert yaml.safe_load(files_with_schedules[root_path])["schedules"] == [
-        {
-            "status": "offline",
-            "cron": "0 8 * * *",
-            "timeout": 300,
-        }
-    ]
-
-
-def test_selected_acceptance_fixture_models_transitive_closure() -> None:
-    files = _expanded_selected_git_tree()
-
-    assert f"{WORKFLOW_ROOT}/qa-root/definition.yml" in files
-    assert f"{WORKFLOW_ROOT}/qa-child/definition.yml" in files
-    assert f"{WORKFLOW_ROOT}/qa-orphan/definition.yml" not in files
-    assert f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml" in files
-    assert f"{AGENT_PRESET_ROOT}/qa-evidence-child/preset.yml" in files
-    assert f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml" in files
-    assert f"{SKILL_ROOT}/qa-enrichment-skill/files/SKILL.md" in files
-    assert f"{TABLE_ROOT}/qa_indicators/table.yml" in files
-    assert f"{CASE_TAG_ROOT}/qa-alert.yml" in files
-    assert f"{VARIABLE_ROOT}/default/qa_config.yml" in files
-    assert f"{SECRET_METADATA_ROOT}/default/qa_threatintel.yml" in files
-    assert not any(path.startswith(f"{CASE_DROPDOWN_ROOT}/") for path in files)
-    assert not any(path.startswith(f"{CASE_DURATION_ROOT}/") for path in files)
-    assert not any(path.startswith(f"{CASE_FIELD_ROOT}/") for path in files)
 
 
 def test_workflow_references_detects_preset_agent_preset_arg() -> None:
@@ -407,21 +608,6 @@ def test_workflow_references_ignores_templated_and_empty_references() -> None:
     assert references.versioned_preset_slugs == set()
 
 
-def test_skill_fixture_records_file_sha256s() -> None:
-    files = _expanded_full_git_tree(include_schedules=False)
-    version_spec = yaml.safe_load(files[f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml"])
-
-    recorded_hashes = {file["path"]: file["sha256"] for file in version_spec["files"]}
-    for file_path, expected_hash in recorded_hashes.items():
-        content = files[f"{SKILL_ROOT}/qa-enrichment-skill/files/{file_path}"]
-        assert hashlib.sha256(content.encode()).hexdigest() == expected_hash
-
-
-def test_canonical_json_rejects_unsupported_objects() -> None:
-    with pytest.raises(PydanticSerializationError):
-        canonical_json_text(object())
-
-
 @pytest.mark.anyio
 async def test_full_expanded_fixture_parses_every_resource_type(
     workspace_sync_service: WorkspaceSyncService,
@@ -466,9 +652,16 @@ async def test_pull_dry_run_reports_per_resource_counts(
     )
     workspace_sync_service._validate_workflow_import = AsyncMock(return_value=[])
 
-    with patch(
-        "tracecat.workspace_sync.service.vcs_transport_for_provider",
-        return_value=transport,
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        patch.object(
+            SECRET_METADATA_RESOURCE_ADAPTER,
+            "_existing_secrets",
+            AsyncMock(return_value={}),
+        ),
     ):
         result = await workspace_sync_service.pull(
             options=PullOptions(commit_sha="b" * 40, dry_run=True)
@@ -487,6 +680,7 @@ async def test_pull_dry_run_reports_per_resource_counts(
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("registry_version_with_manifest")
 async def test_pull_dry_run_validation_does_not_normalize_existing_workflow(
     session: AsyncSession,
     svc_role: Role,
@@ -539,204 +733,162 @@ async def test_pull_dry_run_validation_does_not_normalize_existing_workflow(
     ) is None
 
 
-@pytest.mark.anyio
-async def test_missing_child_workflow_alias_is_dependency_diagnostic(
-    workspace_sync_service: WorkspaceSyncService,
-) -> None:
-    files = _expanded_selected_git_tree()
-    del files[f"{WORKFLOW_ROOT}/qa-child/definition.yml"]
+def _drop_file(path: str) -> Callable[[dict[str, str]], None]:
+    def mutate(files: dict[str, str]) -> None:
+        del files[path]
 
-    _, diagnostics = await workspace_sync_service.parse_files(files)
-
-    assert any(
-        diagnostic.error_type == "dependency" and "qa-child" in diagnostic.message
-        for diagnostic in diagnostics
-    )
+    return mutate
 
 
-@pytest.mark.anyio
-async def test_duplicate_workflow_alias_is_dependency_diagnostic(
-    workspace_sync_service: WorkspaceSyncService,
-) -> None:
-    files = _expanded_selected_git_tree()
-    root_path = f"{WORKFLOW_ROOT}/qa-root/definition.yml"
-    root_workflow = yaml.safe_load(files[root_path])
-    root_workflow["alias"] = "qa-child"
-    files[root_path] = _yaml(root_workflow)
+def _edit_yaml_file(
+    path: str,
+    edit: Callable[[dict[str, Any]], object],
+    *,
+    write_to: str | None = None,
+) -> Callable[[dict[str, str]], None]:
+    def mutate(files: dict[str, str]) -> None:
+        data = yaml.safe_load(files[path])
+        edit(data)
+        files[write_to or path] = _yaml(data)
 
-    _, diagnostics = await workspace_sync_service.parse_files(files)
+    return mutate
 
-    assert any(
-        diagnostic.error_type == "dependency"
-        and "duplicate workflow alias" in diagnostic.message.lower()
-        and "qa-child" in diagnostic.message
-        and diagnostic.details.get("workflow_source_ids") == ["qa-child", "qa-root"]
-        for diagnostic in diagnostics
-    )
+
+_ROOT_WORKFLOW_PATH = f"{WORKFLOW_ROOT}/qa-root/definition.yml"
 
 
 @pytest.mark.anyio
-async def test_duplicate_skill_slug_is_validation_diagnostic(
+@pytest.mark.parametrize(
+    ("mutate", "matches"),
+    [
+        pytest.param(
+            _drop_file(f"{WORKFLOW_ROOT}/qa-child/definition.yml"),
+            lambda d: d.error_type == "dependency" and "qa-child" in d.message,
+            id="missing-child-workflow-alias",
+        ),
+        pytest.param(
+            _edit_yaml_file(_ROOT_WORKFLOW_PATH, lambda w: w.update(alias="qa-child")),
+            lambda d: (
+                d.error_type == "dependency"
+                and "duplicate workflow alias" in d.message.lower()
+                and "qa-child" in d.message
+                and d.details.get("workflow_source_ids") == ["qa-child", "qa-root"]
+            ),
+            id="duplicate-workflow-alias",
+        ),
+        pytest.param(
+            _edit_yaml_file(
+                f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml",
+                lambda skill: skill.update(
+                    id="qa-enrichment-skill-copy",
+                    name="qa-enrichment-skill-copy",
+                    current_version=None,
+                    files=[],
+                ),
+                write_to=f"{SKILL_ROOT}/qa-enrichment-skill-copy/skill.yml",
+            ),
+            lambda d: (
+                d.workflow_path == f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml"
+                and d.error_type == "validation"
+                and "duplicate skill slug" in d.message.lower()
+                and d.details.get("identity") == ["qa-enrichment-skill"]
+                and d.details.get("source_ids")
+                == ["qa-enrichment-skill", "qa-enrichment-skill-copy"]
+            ),
+            id="duplicate-skill-slug",
+        ),
+        pytest.param(
+            _edit_yaml_file(
+                f"{VARIABLE_ROOT}/default/qa_config.yml",
+                lambda variable: variable.update(id="default/qa_config_copy"),
+                write_to=f"{VARIABLE_ROOT}/default/qa_config_copy.yml",
+            ),
+            lambda d: (
+                d.workflow_path == f"{VARIABLE_ROOT}/default/qa_config.yml"
+                and d.error_type == "validation"
+                and "duplicate variable target" in d.message.lower()
+                and d.details.get("identity") == ["default", "qa_config"]
+                and d.details.get("source_ids")
+                == ["default/qa_config", "default/qa_config_copy"]
+            ),
+            id="duplicate-variable-environment-name",
+        ),
+        pytest.param(
+            _edit_yaml_file(
+                _ROOT_WORKFLOW_PATH,
+                lambda w: w["definition"]["actions"][1]["args"].update(
+                    preset_slug="missing-preset"
+                ),
+            ),
+            lambda d: d.error_type == "dependency" and "missing-preset" in d.message,
+            id="missing-preset-slug",
+        ),
+        pytest.param(
+            _drop_file(f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml"),
+            lambda d: (
+                d.error_type == "dependency" and "qa-enrichment-skill" in d.message
+            ),
+            id="missing-skill-binding",
+        ),
+        pytest.param(
+            _edit_yaml_file(
+                f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml",
+                lambda preset: preset.update(
+                    skills=[{"slug": "qa-enrichment-skill", "version": 1}]
+                ),
+            ),
+            lambda d: d.error_type == "validation" and "skills.0.version" in d.message,
+            id="version-pinned-skill-binding",
+        ),
+        pytest.param(
+            _edit_yaml_file(
+                f"{SECRET_METADATA_ROOT}/default/qa_threatintel.yml",
+                lambda secret: secret.update(
+                    values={"API_KEY": "do-not-export", "BASE_URL": "do-not-export"}
+                ),
+            ),
+            lambda d: (
+                d.error_type == "validation" and "secret value" in d.message.lower()
+            ),
+            id="secret-values-in-git",
+        ),
+        *(
+            pytest.param(
+                _edit_yaml_file(
+                    f"{VARIABLE_ROOT}/default/qa_config.yml",
+                    lambda variable, field=value_field: variable.update(
+                        {field: {"mode": "do-not-export"}}
+                    ),
+                ),
+                lambda d: (
+                    d.error_type == "validation"
+                    and "variable value" in d.message.lower()
+                ),
+                id=f"variable-{value_field}-in-git",
+            )
+            for value_field in ("value", "values")
+        ),
+        pytest.param(
+            _edit_yaml_file(
+                f"{AGENT_PRESET_ROOT}/qa-evidence-child/preset.yml",
+                lambda preset: preset.update(subagents=[{"slug": "qa-triage-parent"}]),
+            ),
+            lambda d: d.error_type == "dependency" and "cyclic" in d.message.lower(),
+            id="cyclic-preset-subagent",
+        ),
+    ],
+)
+async def test_invalid_selected_tree_reports_parse_diagnostic(
     workspace_sync_service: WorkspaceSyncService,
+    mutate: Callable[[dict[str, str]], None],
+    matches: Callable[[PullDiagnostic], bool],
 ) -> None:
     files = _expanded_selected_git_tree()
-    skill_path = f"{SKILL_ROOT}/qa-enrichment-skill-copy/skill.yml"
-    skill = yaml.safe_load(files[f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml"])
-    skill.update(
-        {
-            "id": "qa-enrichment-skill-copy",
-            "name": "qa-enrichment-skill-copy",
-            "current_version": None,
-            "files": [],
-        }
-    )
-    files[skill_path] = _yaml(skill)
+    mutate(files)
 
     _, diagnostics = await workspace_sync_service.parse_files(files)
 
-    assert any(
-        diagnostic.workflow_path == f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml"
-        and diagnostic.error_type == "validation"
-        and "duplicate skill slug" in diagnostic.message.lower()
-        and diagnostic.details.get("identity") == ["qa-enrichment-skill"]
-        and diagnostic.details.get("source_ids")
-        == ["qa-enrichment-skill", "qa-enrichment-skill-copy"]
-        for diagnostic in diagnostics
-    )
-
-
-@pytest.mark.anyio
-async def test_duplicate_variable_environment_name_is_validation_diagnostic(
-    workspace_sync_service: WorkspaceSyncService,
-) -> None:
-    files = _expanded_selected_git_tree()
-    variable_path = f"{VARIABLE_ROOT}/default/qa_config_copy.yml"
-    variable = yaml.safe_load(files[f"{VARIABLE_ROOT}/default/qa_config.yml"])
-    variable["id"] = "default/qa_config_copy"
-    files[variable_path] = _yaml(variable)
-
-    _, diagnostics = await workspace_sync_service.parse_files(files)
-
-    assert any(
-        diagnostic.workflow_path == f"{VARIABLE_ROOT}/default/qa_config.yml"
-        and diagnostic.error_type == "validation"
-        and "duplicate variable target" in diagnostic.message.lower()
-        and diagnostic.details.get("identity") == ["default", "qa_config"]
-        and diagnostic.details.get("source_ids")
-        == ["default/qa_config", "default/qa_config_copy"]
-        for diagnostic in diagnostics
-    )
-
-
-@pytest.mark.anyio
-async def test_missing_preset_slug_is_dependency_diagnostic(
-    workspace_sync_service: WorkspaceSyncService,
-) -> None:
-    files = _expanded_selected_git_tree()
-    root_path = f"{WORKFLOW_ROOT}/qa-root/definition.yml"
-    root_workflow = yaml.safe_load(files[root_path])
-    root_workflow["definition"]["actions"][1]["args"]["preset_slug"] = "missing-preset"
-    files[root_path] = _yaml(root_workflow)
-
-    _, diagnostics = await workspace_sync_service.parse_files(files)
-
-    assert any(
-        diagnostic.error_type == "dependency" and "missing-preset" in diagnostic.message
-        for diagnostic in diagnostics
-    )
-
-
-@pytest.mark.anyio
-async def test_missing_skill_binding_is_dependency_diagnostic(
-    workspace_sync_service: WorkspaceSyncService,
-) -> None:
-    files = _expanded_selected_git_tree()
-    del files[f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml"]
-
-    _, diagnostics = await workspace_sync_service.parse_files(files)
-
-    assert any(
-        diagnostic.error_type == "dependency"
-        and "qa-enrichment-skill" in diagnostic.message
-        for diagnostic in diagnostics
-    )
-
-
-@pytest.mark.anyio
-async def test_version_pinned_skill_binding_is_rejected(
-    workspace_sync_service: WorkspaceSyncService,
-) -> None:
-    files = _expanded_selected_git_tree()
-    preset_path = f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml"
-    preset = yaml.safe_load(files[preset_path])
-    preset["skills"] = [{"slug": "qa-enrichment-skill", "version": 1}]
-    files[preset_path] = _yaml(preset)
-
-    _, diagnostics = await workspace_sync_service.parse_files(files)
-
-    assert any(
-        diagnostic.error_type == "validation"
-        and "skills.0.version" in diagnostic.message
-        for diagnostic in diagnostics
-    )
-
-
-@pytest.mark.anyio
-async def test_secret_values_in_git_are_rejected(
-    workspace_sync_service: WorkspaceSyncService,
-) -> None:
-    files = _expanded_selected_git_tree()
-    secret_path = f"{SECRET_METADATA_ROOT}/default/qa_threatintel.yml"
-    secret_spec = yaml.safe_load(files[secret_path])
-    secret_spec["values"] = {"API_KEY": "do-not-export", "BASE_URL": "do-not-export"}
-    files[secret_path] = _yaml(secret_spec)
-
-    _, diagnostics = await workspace_sync_service.parse_files(files)
-
-    assert any(
-        diagnostic.error_type == "validation"
-        and "secret value" in diagnostic.message.lower()
-        for diagnostic in diagnostics
-    )
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize("value_field", ["value", "values"])
-async def test_variable_values_in_git_are_rejected(
-    workspace_sync_service: WorkspaceSyncService,
-    value_field: str,
-) -> None:
-    files = _expanded_selected_git_tree()
-    variable_path = f"{VARIABLE_ROOT}/default/qa_config.yml"
-    variable_spec = yaml.safe_load(files[variable_path])
-    variable_spec[value_field] = {"mode": "do-not-export"}
-    files[variable_path] = _yaml(variable_spec)
-
-    _, diagnostics = await workspace_sync_service.parse_files(files)
-
-    assert any(
-        diagnostic.error_type == "validation"
-        and "variable value" in diagnostic.message.lower()
-        for diagnostic in diagnostics
-    )
-
-
-@pytest.mark.anyio
-async def test_cyclic_preset_subagent_references_are_dependency_diagnostics(
-    workspace_sync_service: WorkspaceSyncService,
-) -> None:
-    files = _expanded_selected_git_tree()
-    child_path = f"{AGENT_PRESET_ROOT}/qa-evidence-child/preset.yml"
-    child_preset = yaml.safe_load(files[child_path])
-    child_preset["subagents"] = [{"slug": "qa-triage-parent"}]
-    files[child_path] = _yaml(child_preset)
-
-    _, diagnostics = await workspace_sync_service.parse_files(files)
-
-    assert any(
-        diagnostic.error_type == "dependency" and "cyclic" in diagnostic.message.lower()
-        for diagnostic in diagnostics
-    )
+    assert any(matches(diagnostic) for diagnostic in diagnostics)
 
 
 @pytest.mark.anyio
@@ -1285,20 +1437,6 @@ async def test_agent_preset_subagent_target_skips_soft_deleted_preset(
                 host="gitlab.example.test",
                 org="TracecatHQ/platform",
                 repo="git-sync-qa",
-            ),
-        ),
-        (
-            VcsProvider.BITBUCKET,
-            "git+ssh://git@bitbucket.org/example-workspace/example-repo.git",
-            GitUrl(host="bitbucket.org", org="example-workspace", repo="example-repo"),
-        ),
-        (
-            VcsProvider.BITBUCKET_DATA_CENTER,
-            "git+ssh://git@bitbucket.example.test/example-workspace/example-repo.git",
-            GitUrl(
-                host="bitbucket.example.test",
-                org="example-workspace",
-                repo="example-repo",
             ),
         ),
     ],
@@ -2017,198 +2155,6 @@ async def test_single_workflow_export_includes_dependency_closure(
 
 
 @pytest.mark.anyio
-async def test_manifestless_legacy_repo_is_rejected_with_push_guidance(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    """Upgrade an existing workflow-only sync repo through the new workspace sync.
-
-    Models an existing installation before the expanded resource format ships:
-    both source and destination workspaces already track a remote repository that
-    contains only legacy ``workflows/`` files and no ``tracecat.json`` manifest.
-    After upgrade, the source workspace can create non-workflow resources, export
-    the full workspace with the new manifest, and the destination can pull that
-    upgraded commit without losing the existing workflows.
-    """
-    assert svc_role.workspace_id is not None
-    # ======================================================================
-    # ARRANGE: stand up a legacy (pre-upgrade) installation
-    # ======================================================================
-    # Two workspaces (source + target) share one remote repo. ``repo_url`` is the
-    # user-facing config string; ``git_url`` is the parsed form the fake VCS keys
-    # its in-memory repos by.
-    repo_url = "git+ssh://git@github.com/TracecatHQ/git-sync-upgrade-qa.git"
-    git_url = GitUrl(
-        host="github.com",
-        org="TracecatHQ",
-        repo="git-sync-upgrade-qa",
-    )
-    fake_vcs = FakeVcsServer()
-    # Point the source workspace at the shared repo, then clone its config onto a
-    # second workspace so both sides sync against the same remote.
-    await _set_workspace_git_repo_url(
-        session,
-        workspace_id=svc_role.workspace_id,
-        repo_url=repo_url,
-    )
-    target_role = await _create_workspace_role(
-        session,
-        source_role=svc_role,
-        workspace_name="target-upgrade-workspace",
-        repo_url=repo_url,
-    )
-    # One sync service per workspace; both share the fake VCS transport so they
-    # read/write the same in-memory repo instead of hitting a real GitHub.
-    source_service = WorkspaceSyncService(
-        session=session,
-        role=svc_role,
-        transport_factory=fake_vcs.transport_factory,
-    )
-    target_service = WorkspaceSyncService(
-        session=session,
-        role=target_role,
-        transport_factory=fake_vcs.transport_factory,
-    )
-    # Seed the remote with the *pre-upgrade* repo layout directly (bypassing the
-    # sync services) so the starting commit looks like a legacy installation.
-    seed_transport = fake_vcs.transport_factory(
-        VcsProvider.GITHUB,
-        session=session,
-        role=svc_role,
-    )
-    legacy_commit = await seed_transport.write_files(
-        url=git_url,
-        files=_legacy_workflow_only_git_tree(),
-        message="Seed legacy workflow sync repository",
-        branch="main",
-        create_pr=False,
-    )
-    assert legacy_commit.sha is not None
-    # Sanity-check the seed actually models the legacy format: no manifest file
-    # and every tracked path lives under the workflows/ root.
-    legacy_remote_files = fake_vcs.repo_files(git_url, ref=legacy_commit.sha)
-    assert MANIFEST_FILENAME not in legacy_remote_files
-    assert all(path.startswith(f"{WORKFLOW_ROOT}/") for path in legacy_remote_files)
-
-    with patch(
-        "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
-        AsyncMock(return_value=RegistryLock(origins={}, actions={})),
-    ):
-        # ==================================================================
-        # PRE-UPGRADE: both workspaces sync the legacy workflow-only remote
-        # ==================================================================
-        # Both workspaces represent existing users before upgrade: they can pull
-        # the workflow-only remote and preserve those workflow identities locally.
-        source_legacy_pull = await source_service.pull(
-            options=PullOptions(commit_sha=legacy_commit.sha)
-        )
-        target_legacy_pull = await target_service.pull(
-            options=PullOptions(commit_sha=legacy_commit.sha)
-        )
-        assert source_legacy_pull.success is False
-        assert target_legacy_pull.success is False
-        assert source_legacy_pull.diagnostics[0].details == {
-            "code": "workspace_format_outdated"
-        }
-        assert "new Push" in source_legacy_pull.diagnostics[0].message
-
-
-@pytest.mark.anyio
-async def test_version_one_manifest_is_rejected_with_push_guidance(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    """Upgrade a workflow-only repo that already has the old manifest shape.
-
-    Some legacy sync repos wrote a top-level ``tracecat.json`` with
-    ``{"version":"1"}`` even though the repo still only contained workflow YAML.
-    This test covers that slightly different upgrade path end to end: both
-    workspaces pull the old manifest, the source exports the expanded numeric
-    manifest + resource directories, and the destination pulls the upgraded
-    commit without losing the legacy workflows.
-    """
-    assert svc_role.workspace_id is not None
-    # ======================================================================
-    # ARRANGE: seed the historical string-version manifest layout
-    # ======================================================================
-    harness = await _legacy_upgrade_harness(
-        session,
-        source_role=svc_role,
-        repo_name="git-sync-legacy-manifest-upgrade-qa",
-        target_workspace_name="target-legacy-manifest-upgrade-workspace",
-        legacy_files=_legacy_string_manifest_git_tree(),
-    )
-    legacy_remote_files = harness.fake_vcs.repo_files(
-        harness.git_url,
-        ref=harness.legacy_commit_sha,
-    )
-    # The starting point is still a legacy workflow-only repo, but with the
-    # historical string-version manifest present.
-    assert json.loads(legacy_remote_files[MANIFEST_FILENAME]) == {"version": "1"}
-    assert all(
-        path == MANIFEST_FILENAME or path.startswith(f"{WORKFLOW_ROOT}/")
-        for path in legacy_remote_files
-    )
-
-    with patch(
-        "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
-        AsyncMock(return_value=RegistryLock(origins={}, actions={})),
-    ):
-        # ==================================================================
-        # PRE-UPGRADE: both workspaces accept the legacy string manifest
-        # ==================================================================
-        # A successful pull here proves the new parser tolerates the historical
-        # ``{"version":"1"}`` string manifest, not merely a missing manifest.
-        source_legacy_pull = await harness.source_service.pull(
-            options=PullOptions(commit_sha=harness.legacy_commit_sha)
-        )
-        target_legacy_pull = await harness.target_service.pull(
-            options=PullOptions(commit_sha=harness.legacy_commit_sha)
-        )
-        assert source_legacy_pull.success is False
-        assert target_legacy_pull.success is False
-        assert "versions/ repositories" in source_legacy_pull.diagnostics[0].message
-        assert "new Push" in source_legacy_pull.diagnostics[0].message
-
-
-@pytest.mark.anyio
-async def test_legacy_upgrade_requires_new_push_before_pull(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    """A v1 repository is rejected before any local resources are reconciled."""
-    assert svc_role.workspace_id is not None
-    # ======================================================================
-    # ARRANGE: both workspaces start from the legacy workflow-only repo
-    # ======================================================================
-    harness = await _legacy_upgrade_harness(
-        session,
-        source_role=svc_role,
-        repo_name="git-sync-local-resource-upgrade-qa",
-        target_workspace_name="target-local-resource-upgrade-workspace",
-        legacy_files=_legacy_workflow_only_git_tree(),
-    )
-
-    with patch(
-        "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
-        AsyncMock(return_value=RegistryLock(origins={}, actions={})),
-    ):
-        # Both updated instances reject the workflow-only v1 repository.
-        source_legacy_pull = await harness.source_service.pull(
-            options=PullOptions(commit_sha=harness.legacy_commit_sha)
-        )
-        target_legacy_pull = await harness.target_service.pull(
-            options=PullOptions(commit_sha=harness.legacy_commit_sha)
-        )
-        assert source_legacy_pull.success is False
-        assert target_legacy_pull.success is False
-        assert source_legacy_pull.diagnostics[0].details == {
-            "code": "workspace_format_outdated"
-        }
-        assert "Push" in source_legacy_pull.diagnostics[0].message
-
-
-@pytest.mark.anyio
 async def test_legacy_pull_rejects_before_non_workflow_import(
     session: AsyncSession,
     svc_role: Role,
@@ -2246,156 +2192,23 @@ async def test_legacy_pull_rejects_before_non_workflow_import(
 
 
 @pytest.mark.anyio
-async def test_project_workspace_preserves_agent_preset_source_id_after_rename(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    service = WorkspaceSyncService(session=session, role=svc_role)
-    snapshot, diagnostics = await service.parse_files(
-        _expanded_selected_git_tree(),
-        commit_sha="e" * 40,
-    )
-
-    assert diagnostics == []
-    await WorkspaceResourceImportService(
-        session=session,
-        role=svc_role,
-    ).import_non_workflow_resources(snapshot.spec)
-
-    await service.project_workspace()
-    parent_preset = await session.scalar(
-        select(AgentPreset).where(
-            AgentPreset.workspace_id == svc_role.workspace_id,
-            AgentPreset.slug == "qa-triage-parent",
-        )
-    )
-    assert parent_preset is not None
-
-    parent_preset.name = "QA triage parent 9000"
-    parent_preset.slug = "qa-triage-parent-9000"
-    session.add(parent_preset)
-    await session.flush()
-
-    projection = await service.project_workspace(create_missing_mappings=False)
-    old_path = f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml"
-    new_path = f"{AGENT_PRESET_ROOT}/qa-triage-parent-9000/preset.yml"
-
-    assert old_path in projection.files
-    assert new_path not in projection.files
-    parent_spec = yaml.safe_load(projection.files[old_path])
-    assert parent_spec["id"] == "qa-triage-parent"
-    assert parent_spec["slug"] == "qa-triage-parent-9000"
-    assert parent_spec["name"] == "QA triage parent 9000"
-
-
-@pytest.mark.anyio
-async def test_project_workspace_preserves_table_source_id_after_rename(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    service = WorkspaceSyncService(session=session, role=svc_role)
-    snapshot, diagnostics = await service.parse_files(
-        _expanded_full_git_tree(include_schedules=False),
-        commit_sha="f" * 40,
-    )
-
-    assert diagnostics == []
-    await WorkspaceResourceImportService(
-        session=session,
-        role=svc_role,
-    ).import_non_workflow_resources(snapshot.spec)
-
-    await service.project_workspace()
-    table = await session.scalar(
-        select(Table).where(
-            Table.workspace_id == svc_role.workspace_id,
-            Table.name == "qa_indicators",
-        )
-    )
-    assert table is not None
-
-    await BaseTablesService(session=session, role=svc_role).update_table(
-        table,
-        TableUpdate(name="qa_indicators_renamed"),
-    )
-
-    projection = await service.project_workspace(create_missing_mappings=False)
-    old_path = f"{TABLE_ROOT}/qa_indicators/table.yml"
-    new_path = f"{TABLE_ROOT}/qa_indicators_renamed/table.yml"
-
-    assert old_path in projection.files
-    assert new_path not in projection.files
-    table_spec = yaml.safe_load(projection.files[old_path])
-    assert table_spec["id"] == "qa_indicators"
-    assert table_spec["name"] == "qa_indicators_renamed"
-
-
-@pytest.mark.anyio
-async def test_project_workspace_preserves_skill_source_id_after_rename(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    service = WorkspaceSyncService(session=session, role=svc_role)
-    snapshot, diagnostics = await service.parse_files(
-        _expanded_selected_git_tree(),
-        commit_sha="o" * 40,
-    )
-
-    assert diagnostics == []
-    await WorkspaceResourceImportService(
-        session=session,
-        role=svc_role,
-    ).import_non_workflow_resources(snapshot.spec)
-
-    await service.project_workspace()
-    skill = await session.scalar(
-        select(Skill).where(
-            Skill.workspace_id == svc_role.workspace_id,
-            Skill.slug == "qa-enrichment-skill",
-        )
-    )
-    assert skill is not None
-
-    skill.slug = "qa-enrichment-restored"
-    session.add(skill)
-    await session.flush()
-
-    projection = await service.project_workspace(create_missing_mappings=False)
-    old_path = f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml"
-    new_path = f"{SKILL_ROOT}/qa-enrichment-restored/skill.yml"
-
-    assert old_path in projection.files
-    assert new_path not in projection.files
-    skill_spec = yaml.safe_load(projection.files[old_path])
-    assert skill_spec["id"] == "qa-enrichment-skill"
-    assert skill_spec["slug"] == "qa-enrichment-restored"
-    assert skill_spec["name"] == "qa-enrichment-skill"
-
-
-@pytest.mark.anyio
 async def test_project_workspace_preserves_workflow_source_id_after_rename(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
     service = WorkspaceSyncService(session=session, role=svc_role)
-    transport = AsyncMock()
-    transport.read_files.return_value = VcsTreeSnapshot(
-        commit_sha="u" * 40,
-        tree_sha="tree-1",
-        files=_workflow_git_tree(
-            source_id="qa-workflow",
-            alias="qa-workflow",
-            title="QA workflow",
-        ),
-    )
-    service._workspace_git_url = AsyncMock(
-        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
-    )
 
     with (
-        patch(
-            "tracecat.workspace_sync.service.vcs_transport_for_provider",
-            return_value=transport,
+        _serve_remote_commits(
+            service,
+            (
+                "u" * 40,
+                _workflow_git_tree(
+                    source_id="qa-workflow",
+                    alias="qa-workflow",
+                    title="QA workflow",
+                ),
+            ),
         ),
         patch(
             "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
@@ -2480,12 +2293,33 @@ async def test_project_workspace_preserves_mapped_source_ids_after_renames(
     case_fields = await session.scalar(
         select(CaseFields).where(CaseFields.workspace_id == svc_role.workspace_id)
     )
+    parent_preset = await session.scalar(
+        select(AgentPreset).where(
+            AgentPreset.workspace_id == svc_role.workspace_id,
+            AgentPreset.slug == "qa-triage-parent",
+        )
+    )
+    table = await session.scalar(
+        select(Table).where(
+            Table.workspace_id == svc_role.workspace_id,
+            Table.name == "qa_indicators",
+        )
+    )
+    skill = await session.scalar(
+        select(Skill).where(
+            Skill.workspace_id == svc_role.workspace_id,
+            Skill.slug == "qa-enrichment-skill",
+        )
+    )
     assert tag is not None
     assert dropdown is not None
     assert duration is not None
     assert variable is not None
     assert secret is not None
     assert case_fields is not None
+    assert parent_preset is not None
+    assert table is not None
+    assert skill is not None
 
     tag.name = "QA alert renamed"
     tag.ref = "qa-alert-renamed"
@@ -2507,9 +2341,18 @@ async def test_project_workspace_preserves_mapped_source_ids_after_renames(
     )
     assert case_field_mapping is not None
     case_field_mapping.local_id = uuid.uuid5(case_fields.id, "qa_vendor_ref")
-    session.add_all([tag, dropdown, duration, variable, secret, case_fields])
+    parent_preset.name = "QA triage parent 9000"
+    parent_preset.slug = "qa-triage-parent-9000"
+    skill.slug = "qa-enrichment-restored"
+    session.add_all(
+        [tag, dropdown, duration, variable, secret, case_fields, parent_preset, skill]
+    )
     session.add(case_field_mapping)
     await session.flush()
+    await BaseTablesService(session=session, role=svc_role).update_table(
+        table,
+        TableUpdate(name="qa_indicators_renamed"),
+    )
 
     projection = await service.project_workspace(create_missing_mappings=False)
 
@@ -2558,76 +2401,30 @@ async def test_project_workspace_preserves_mapped_source_ids_after_renames(
     assert case_field_spec["id"] == "qa_external_ref"
     assert case_field_spec["name"] == "qa_vendor_ref"
 
-
-@pytest.mark.anyio
-async def test_pull_table_rename_reuses_source_id_mapping(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    service = WorkspaceSyncService(session=session, role=svc_role)
-    transport = AsyncMock()
-    transport.read_files.side_effect = [
-        VcsTreeSnapshot(
-            commit_sha="m" * 40,
-            tree_sha="tree-1",
-            files=_table_git_tree(
-                source_id="qa_indicators",
-                name="qa_indicators",
-            ),
-        ),
-        VcsTreeSnapshot(
-            commit_sha="n" * 40,
-            tree_sha="tree-2",
-            files=_table_git_tree(
-                source_id="qa_indicators",
-                name="qa_indicators_renamed",
-            ),
-        ),
-    ]
-    service._workspace_git_url = AsyncMock(
-        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    parent_spec = yaml.safe_load(
+        projection.files[f"{AGENT_PRESET_ROOT}/qa-triage-parent/preset.yml"]
     )
-
-    with patch(
-        "tracecat.workspace_sync.service.vcs_transport_for_provider",
-        return_value=transport,
-    ):
-        first_result = await service.pull(options=PullOptions(commit_sha="m" * 40))
-
-        assert first_result.success is True
-        first_table = await session.scalar(
-            select(Table).where(
-                Table.workspace_id == svc_role.workspace_id,
-                Table.name == "qa_indicators",
-            )
-        )
-        assert first_table is not None
-        first_table_id = first_table.id
-
-        second_result = await service.pull(options=PullOptions(commit_sha="n" * 40))
-
-    assert second_result.success is True
-    tables = list(
-        (
-            await session.scalars(
-                select(Table).where(
-                    Table.workspace_id == svc_role.workspace_id,
-                )
-            )
-        ).all()
+    assert (
+        f"{AGENT_PRESET_ROOT}/qa-triage-parent-9000/preset.yml" not in projection.files
     )
-    assert len(tables) == 1
-    assert tables[0].id == first_table_id
-    assert tables[0].name == "qa_indicators_renamed"
-    mapping = await session.scalar(
-        select(WorkspaceSyncResourceMapping).where(
-            WorkspaceSyncResourceMapping.workspace_id == svc_role.workspace_id,
-            WorkspaceSyncResourceMapping.resource_type == SyncResourceType.TABLE.value,
-            WorkspaceSyncResourceMapping.source_id == "qa_indicators",
-        )
+    assert parent_spec["id"] == "qa-triage-parent"
+    assert parent_spec["slug"] == "qa-triage-parent-9000"
+    assert parent_spec["name"] == "QA triage parent 9000"
+
+    table_spec = yaml.safe_load(
+        projection.files[f"{TABLE_ROOT}/qa_indicators/table.yml"]
     )
-    assert mapping is not None
-    assert mapping.local_id == first_table_id
+    assert f"{TABLE_ROOT}/qa_indicators_renamed/table.yml" not in projection.files
+    assert table_spec["id"] == "qa_indicators"
+    assert table_spec["name"] == "qa_indicators_renamed"
+
+    skill_spec = yaml.safe_load(
+        projection.files[f"{SKILL_ROOT}/qa-enrichment-skill/skill.yml"]
+    )
+    assert f"{SKILL_ROOT}/qa-enrichment-restored/skill.yml" not in projection.files
+    assert skill_spec["id"] == "qa-enrichment-skill"
+    assert skill_spec["slug"] == "qa-enrichment-restored"
+    assert skill_spec["name"] == "qa-enrichment-skill"
 
 
 @pytest.mark.anyio
@@ -2636,32 +2433,23 @@ async def test_pull_table_source_id_rename_reassigns_existing_local_mapping(
     svc_role: Role,
 ) -> None:
     service = WorkspaceSyncService(session=session, role=svc_role)
-    transport = AsyncMock()
-    transport.read_files.side_effect = [
-        VcsTreeSnapshot(
-            commit_sha="u" * 40,
-            tree_sha="tree-1",
-            files=_table_git_tree(
+
+    with _serve_remote_commits(
+        service,
+        (
+            "u" * 40,
+            _table_git_tree(
                 source_id="qa_indicators",
                 name="qa_indicators",
             ),
         ),
-        VcsTreeSnapshot(
-            commit_sha="v" * 40,
-            tree_sha="tree-2",
-            files=_table_git_tree(
+        (
+            "v" * 40,
+            _table_git_tree(
                 source_id="qa_indicators_v2",
                 name="qa_indicators",
             ),
         ),
-    ]
-    service._workspace_git_url = AsyncMock(
-        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
-    )
-
-    with patch(
-        "tracecat.workspace_sync.service.vcs_transport_for_provider",
-        return_value=transport,
     ):
         first_result = await service.pull(options=PullOptions(commit_sha="u" * 40))
 
@@ -2707,131 +2495,105 @@ async def test_pull_table_source_id_rename_reassigns_existing_local_mapping(
 
 
 @pytest.mark.anyio
-async def test_pull_table_name_swap_reuses_source_id_mappings(
+@pytest.mark.parametrize(
+    ("build_tree", "model", "identity_column", "alpha", "beta"),
+    [
+        pytest.param(
+            lambda source_id, identity: _table_git_tree(
+                source_id=source_id, name=identity
+            ),
+            Table,
+            Table.name,
+            "alpha_table",
+            "beta_table",
+            id="table-name",
+        ),
+        pytest.param(
+            lambda source_id, identity: _agent_preset_git_tree(
+                source_id=source_id, slug=identity, name=identity.title()
+            ),
+            AgentPreset,
+            AgentPreset.slug,
+            "alpha",
+            "beta",
+            id="agent-preset-slug",
+        ),
+        pytest.param(
+            lambda source_id, identity: _workflow_git_tree(
+                source_id=source_id,
+                alias=identity,
+                title=identity.replace("-", " ").capitalize(),
+            ),
+            Workflow,
+            Workflow.alias,
+            "alpha-workflow",
+            "beta-workflow",
+            id="workflow-alias",
+        ),
+        pytest.param(
+            lambda source_id, identity: _case_duration_git_tree(
+                source_id=source_id, name=identity
+            ),
+            CaseDurationDefinition,
+            CaseDurationDefinition.name,
+            "alpha_duration",
+            "beta_duration",
+            id="case-duration-name",
+        ),
+    ],
+)
+async def test_pull_identity_swap_reuses_source_id_mappings(
     session: AsyncSession,
     svc_role: Role,
+    build_tree: Callable[[str, str], dict[str, str]],
+    model: Any,
+    identity_column: Any,
+    alpha: str,
+    beta: str,
 ) -> None:
+    """Swapping identities between two mapped resources keeps each local row."""
     service = WorkspaceSyncService(session=session, role=svc_role)
-    transport = AsyncMock()
-    transport.read_files.side_effect = [
-        VcsTreeSnapshot(
-            commit_sha="o" * 40,
-            tree_sha="tree-1",
-            files=_combined_git_tree(
-                _table_git_tree(source_id="table-a", name="alpha_table"),
-                _table_git_tree(source_id="table-b", name="beta_table"),
-            ),
-        ),
-        VcsTreeSnapshot(
-            commit_sha="p" * 40,
-            tree_sha="tree-2",
-            files=_combined_git_tree(
-                _table_git_tree(source_id="table-a", name="beta_table"),
-                _table_git_tree(source_id="table-b", name="alpha_table"),
-            ),
-        ),
-    ]
-    service._workspace_git_url = AsyncMock(
-        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
-    )
 
-    with patch(
-        "tracecat.workspace_sync.service.vcs_transport_for_provider",
-        return_value=transport,
+    async def ids_by_identity() -> dict[str, uuid.UUID]:
+        rows = await session.execute(
+            select(identity_column, model.id).where(
+                model.workspace_id == svc_role.workspace_id
+            )
+        )
+        return dict(rows.tuples().all())
+
+    with (
+        _serve_remote_commits(
+            service,
+            (
+                "o" * 40,
+                _combined_git_tree(
+                    build_tree("resource-a", alpha), build_tree("resource-b", beta)
+                ),
+            ),
+            (
+                "p" * 40,
+                _combined_git_tree(
+                    build_tree("resource-a", beta), build_tree("resource-b", alpha)
+                ),
+            ),
+        ),
+        patch(
+            "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+            AsyncMock(return_value=RegistryLock(origins={}, actions={})),
+        ),
     ):
         first_result = await service.pull(options=PullOptions(commit_sha="o" * 40))
-        alpha_id = await session.scalar(
-            select(Table.id).where(
-                Table.workspace_id == svc_role.workspace_id,
-                Table.name == "alpha_table",
-            )
-        )
-        beta_id = await session.scalar(
-            select(Table.id).where(
-                Table.workspace_id == svc_role.workspace_id,
-                Table.name == "beta_table",
-            )
-        )
+        first_ids = await ids_by_identity()
         second_result = await service.pull(options=PullOptions(commit_sha="p" * 40))
 
     assert first_result.success is True
     assert second_result.success is True
-    assert alpha_id is not None
-    assert beta_id is not None
-    tables = {
-        table.name: table.id
-        for table in (
-            await session.scalars(
-                select(Table).where(Table.workspace_id == svc_role.workspace_id)
-            )
-        ).all()
+    assert set(first_ids) == {alpha, beta}
+    assert await ids_by_identity() == {
+        alpha: first_ids[beta],
+        beta: first_ids[alpha],
     }
-    assert tables == {"alpha_table": beta_id, "beta_table": alpha_id}
-
-
-@pytest.mark.anyio
-async def test_pull_agent_preset_slug_rename_reuses_source_id_mapping(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    service = WorkspaceSyncService(session=session, role=svc_role)
-    transport = AsyncMock()
-    transport.read_files.side_effect = [
-        VcsTreeSnapshot(
-            commit_sha="f" * 40,
-            tree_sha="tree-1",
-            files=_agent_preset_git_tree(
-                source_id="qa-identity",
-                slug="qa-identity",
-                name="QA identity",
-            ),
-        ),
-        VcsTreeSnapshot(
-            commit_sha="g" * 40,
-            tree_sha="tree-2",
-            files=_agent_preset_git_tree(
-                source_id="qa-identity",
-                slug="qa-identity-renamed",
-                name="QA identity renamed",
-            ),
-        ),
-    ]
-    service._workspace_git_url = AsyncMock(
-        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
-    )
-
-    with patch(
-        "tracecat.workspace_sync.service.vcs_transport_for_provider",
-        return_value=transport,
-    ):
-        first_result = await service.pull(options=PullOptions(commit_sha="f" * 40))
-
-        assert first_result.success is True
-        first_preset = await session.scalar(
-            select(AgentPreset).where(
-                AgentPreset.workspace_id == svc_role.workspace_id,
-                AgentPreset.slug == "qa-identity",
-            )
-        )
-        assert first_preset is not None
-        first_preset_id = first_preset.id
-
-        second_result = await service.pull(options=PullOptions(commit_sha="g" * 40))
-
-    assert second_result.success is True
-    presets = list(
-        (
-            await session.scalars(
-                select(AgentPreset).where(
-                    AgentPreset.workspace_id == svc_role.workspace_id,
-                )
-            )
-        ).all()
-    )
-    assert len(presets) == 1
-    assert presets[0].id == first_preset_id
-    assert presets[0].slug == "qa-identity-renamed"
-    assert presets[0].name == "QA identity renamed"
 
 
 @pytest.mark.anyio
@@ -2853,30 +2615,18 @@ async def test_pull_older_agent_preset_content_rolls_forward_a_new_version(
             }
         ),
     }
-    transport = AsyncMock()
-    transport.read_files.side_effect = [
-        VcsTreeSnapshot(
-            commit_sha="d" * 40,
-            tree_sha="tree-1",
-            files=_agent_preset_git_tree(
+
+    with _serve_remote_commits(
+        service,
+        (
+            "d" * 40,
+            _agent_preset_git_tree(
                 source_id="qa-draft",
                 slug="qa-draft",
                 name="QA draft",
             ),
         ),
-        VcsTreeSnapshot(
-            commit_sha="e" * 40,
-            tree_sha="tree-2",
-            files=older_files,
-        ),
-    ]
-    service._workspace_git_url = AsyncMock(
-        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
-    )
-
-    with patch(
-        "tracecat.workspace_sync.service.vcs_transport_for_provider",
-        return_value=transport,
+        ("e" * 40, older_files),
     ):
         first_result = await service.pull(options=PullOptions(commit_sha="d" * 40))
         preset = await session.scalar(
@@ -2933,26 +2683,6 @@ async def test_pull_older_skill_content_rolls_forward_a_new_version(
         ),
         f"{SKILL_ROOT}/qa-enrichment-skill/files/SKILL.md": older_content,
     }
-    transport = AsyncMock()
-    transport.read_files.side_effect = [
-        VcsTreeSnapshot(
-            commit_sha="d" * 40,
-            tree_sha="tree-1",
-            files=_skill_git_tree(
-                source_id="qa-enrichment-skill",
-                slug="qa-enrichment-skill",
-                name="qa-enrichment-skill",
-            ),
-        ),
-        VcsTreeSnapshot(
-            commit_sha="e" * 40,
-            tree_sha="tree-2",
-            files=older_files,
-        ),
-    ]
-    service._workspace_git_url = AsyncMock(
-        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
-    )
 
     async def draft_paths_for(skill_id: uuid.UUID) -> list[str]:
         return list(
@@ -2968,9 +2698,17 @@ async def test_pull_older_skill_content_rolls_forward_a_new_version(
             ).all()
         )
 
-    with patch(
-        "tracecat.workspace_sync.service.vcs_transport_for_provider",
-        return_value=transport,
+    with _serve_remote_commits(
+        service,
+        (
+            "d" * 40,
+            _skill_git_tree(
+                source_id="qa-enrichment-skill",
+                slug="qa-enrichment-skill",
+                name="qa-enrichment-skill",
+            ),
+        ),
+        ("e" * 40, older_files),
     ):
         first_result = await service.pull(options=PullOptions(commit_sha="d" * 40))
         skill = await session.scalar(
@@ -3010,27 +2748,8 @@ async def test_pull_unchanged_skill_ignores_inferred_content_type(
         slug="qa-enrichment-skill",
         name="qa-enrichment-skill",
     )
-    transport = AsyncMock()
-    transport.read_files.side_effect = [
-        VcsTreeSnapshot(
-            commit_sha="f" * 40,
-            tree_sha="tree-1",
-            files=git_tree,
-        ),
-        VcsTreeSnapshot(
-            commit_sha="g" * 40,
-            tree_sha="tree-2",
-            files=git_tree,
-        ),
-    ]
-    service._workspace_git_url = AsyncMock(
-        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
-    )
 
-    with patch(
-        "tracecat.workspace_sync.service.vcs_transport_for_provider",
-        return_value=transport,
-    ):
+    with _serve_remote_commits(service, ("f" * 40, git_tree), ("g" * 40, git_tree)):
         first_result = await service.pull(options=PullOptions(commit_sha="f" * 40))
         skill = await session.scalar(
             select(Skill).where(
@@ -3066,120 +2785,30 @@ async def test_pull_unchanged_skill_ignores_inferred_content_type(
 
 
 @pytest.mark.anyio
-async def test_pull_agent_preset_slug_swap_reuses_source_id_mappings(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    service = WorkspaceSyncService(session=session, role=svc_role)
-    transport = AsyncMock()
-    transport.read_files.side_effect = [
-        VcsTreeSnapshot(
-            commit_sha="a" * 40,
-            tree_sha="tree-1",
-            files=_combined_git_tree(
-                _agent_preset_git_tree(
-                    source_id="preset-a",
-                    slug="alpha",
-                    name="Alpha",
-                ),
-                _agent_preset_git_tree(
-                    source_id="preset-b",
-                    slug="beta",
-                    name="Beta",
-                ),
-            ),
-        ),
-        VcsTreeSnapshot(
-            commit_sha="b" * 40,
-            tree_sha="tree-2",
-            files=_combined_git_tree(
-                _agent_preset_git_tree(
-                    source_id="preset-a",
-                    slug="beta",
-                    name="Beta",
-                ),
-                _agent_preset_git_tree(
-                    source_id="preset-b",
-                    slug="alpha",
-                    name="Alpha",
-                ),
-            ),
-        ),
-    ]
-    service._workspace_git_url = AsyncMock(
-        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
-    )
-
-    with patch(
-        "tracecat.workspace_sync.service.vcs_transport_for_provider",
-        return_value=transport,
-    ):
-        first_result = await service.pull(options=PullOptions(commit_sha="a" * 40))
-        alpha_id = await session.scalar(
-            select(AgentPreset.id).where(
-                AgentPreset.workspace_id == svc_role.workspace_id,
-                AgentPreset.slug == "alpha",
-            )
-        )
-        beta_id = await session.scalar(
-            select(AgentPreset.id).where(
-                AgentPreset.workspace_id == svc_role.workspace_id,
-                AgentPreset.slug == "beta",
-            )
-        )
-        second_result = await service.pull(options=PullOptions(commit_sha="b" * 40))
-
-    assert first_result.success is True
-    assert second_result.success is True
-    assert alpha_id is not None
-    assert beta_id is not None
-    presets = {
-        preset.slug: preset.id
-        for preset in (
-            await session.scalars(
-                select(AgentPreset).where(
-                    AgentPreset.workspace_id == svc_role.workspace_id
-                )
-            )
-        ).all()
-    }
-    assert presets == {"alpha": beta_id, "beta": alpha_id}
-
-
-@pytest.mark.anyio
 async def test_pull_skill_slug_rename_reuses_source_id_mapping(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
     service = WorkspaceSyncService(session=session, role=svc_role)
-    transport = AsyncMock()
-    transport.read_files.side_effect = [
-        VcsTreeSnapshot(
-            commit_sha="h" * 40,
-            tree_sha="tree-1",
-            files=_skill_git_tree(
+
+    with _serve_remote_commits(
+        service,
+        (
+            "h" * 40,
+            _skill_git_tree(
                 source_id="qa-enrichment-skill",
                 slug="qa-enrichment-skill",
                 name="qa-enrichment-skill",
             ),
         ),
-        VcsTreeSnapshot(
-            commit_sha="i" * 40,
-            tree_sha="tree-2",
-            files=_skill_git_tree(
+        (
+            "i" * 40,
+            _skill_git_tree(
                 source_id="qa-enrichment-skill",
                 slug="qa-enrichment-restored",
                 name="qa-enrichment-restored",
             ),
         ),
-    ]
-    service._workspace_git_url = AsyncMock(
-        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
-    )
-
-    with patch(
-        "tracecat.workspace_sync.service.vcs_transport_for_provider",
-        return_value=transport,
     ):
         first_result = await service.pull(options=PullOptions(commit_sha="h" * 40))
         assert first_result.success is True
@@ -3319,12 +2948,12 @@ async def test_pull_skill_slug_swap_reuses_source_id_mappings(
     conflicting_names: bool,
 ) -> None:
     service = WorkspaceSyncService(session=session, role=svc_role)
-    transport = AsyncMock()
-    transport.read_files.side_effect = [
-        VcsTreeSnapshot(
-            commit_sha="s" * 40,
-            tree_sha="tree-1",
-            files=_combined_git_tree(
+
+    with _serve_remote_commits(
+        service,
+        (
+            "s" * 40,
+            _combined_git_tree(
                 _skill_git_tree(
                     source_id="skill-a",
                     slug="alpha-skill",
@@ -3337,10 +2966,9 @@ async def test_pull_skill_slug_swap_reuses_source_id_mappings(
                 ),
             ),
         ),
-        VcsTreeSnapshot(
-            commit_sha="t" * 40,
-            tree_sha="tree-2",
-            files=_combined_git_tree(
+        (
+            "t" * 40,
+            _combined_git_tree(
                 _skill_git_tree(
                     source_id="skill-a",
                     slug="beta-skill",
@@ -3353,14 +2981,6 @@ async def test_pull_skill_slug_swap_reuses_source_id_mappings(
                 ),
             ),
         ),
-    ]
-    service._workspace_git_url = AsyncMock(
-        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
-    )
-
-    with patch(
-        "tracecat.workspace_sync.service.vcs_transport_for_provider",
-        return_value=transport,
     ):
         first_result = await service.pull(options=PullOptions(commit_sha="s" * 40))
         alpha_id = await session.scalar(
@@ -3409,107 +3029,31 @@ async def test_pull_skill_slug_swap_reuses_source_id_mappings(
 
 
 @pytest.mark.anyio
-async def test_pull_workflow_alias_rename_reuses_source_id_mapping(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    service = WorkspaceSyncService(session=session, role=svc_role)
-    transport = AsyncMock()
-    transport.read_files.side_effect = [
-        VcsTreeSnapshot(
-            commit_sha="q" * 40,
-            tree_sha="tree-1",
-            files=_workflow_git_tree(
-                source_id="qa-workflow",
-                alias="qa-workflow",
-                title="QA workflow",
-            ),
-        ),
-        VcsTreeSnapshot(
-            commit_sha="r" * 40,
-            tree_sha="tree-2",
-            files=_workflow_git_tree(
-                source_id="qa-workflow",
-                alias="qa-workflow-renamed",
-                title="QA workflow renamed",
-            ),
-        ),
-    ]
-    service._workspace_git_url = AsyncMock(
-        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
-    )
-
-    with (
-        patch(
-            "tracecat.workspace_sync.service.vcs_transport_for_provider",
-            return_value=transport,
-        ),
-        patch(
-            "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
-            AsyncMock(return_value=RegistryLock(origins={}, actions={})),
-        ),
-    ):
-        first_result = await service.pull(options=PullOptions(commit_sha="q" * 40))
-        assert first_result.success is True
-        first_workflow = await session.scalar(
-            select(Workflow).where(
-                Workflow.workspace_id == svc_role.workspace_id,
-                Workflow.alias == "qa-workflow",
-            )
-        )
-        assert first_workflow is not None
-        first_workflow_id = first_workflow.id
-
-        second_result = await service.pull(options=PullOptions(commit_sha="r" * 40))
-
-    assert second_result.success is True
-    workflows = list(
-        (
-            await session.scalars(
-                select(Workflow).where(Workflow.workspace_id == svc_role.workspace_id)
-            )
-        ).all()
-    )
-    assert len(workflows) == 1
-    assert workflows[0].id == first_workflow_id
-    assert workflows[0].alias == "qa-workflow-renamed"
-
-
-@pytest.mark.anyio
 async def test_pull_workflow_source_id_rename_reuses_alias_mapping(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
     service = WorkspaceSyncService(session=session, role=svc_role)
-    transport = AsyncMock()
-    transport.read_files.side_effect = [
-        VcsTreeSnapshot(
-            commit_sha="y" * 40,
-            tree_sha="tree-1",
-            files=_workflow_git_tree(
-                source_id="old-triage",
-                alias="triage-alert",
-                title="Triage alert",
-            ),
-        ),
-        VcsTreeSnapshot(
-            commit_sha="z" * 40,
-            tree_sha="tree-2",
-            files=_workflow_git_tree(
-                source_id="new-triage",
-                alias="triage-alert",
-                title="Triage alert",
-            ),
-        ),
-    ]
-    service._workspace_git_url = AsyncMock(
-        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
-    )
 
     with (
-        patch(
-            "tracecat.workspace_sync.service.vcs_transport_for_provider",
-            return_value=transport,
+        _serve_remote_commits(
+            service,
+            (
+                "y" * 40,
+                _workflow_git_tree(
+                    source_id="old-triage",
+                    alias="triage-alert",
+                    title="Triage alert",
+                ),
+            ),
+            (
+                "z" * 40,
+                _workflow_git_tree(
+                    source_id="new-triage",
+                    alias="triage-alert",
+                    title="Triage alert",
+                ),
+            ),
         ),
         patch(
             "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
@@ -3559,211 +3103,40 @@ async def test_pull_workflow_source_id_rename_reuses_alias_mapping(
 
 
 @pytest.mark.anyio
-async def test_pull_workflow_alias_swap_reuses_source_id_mappings(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    service = WorkspaceSyncService(session=session, role=svc_role)
-    transport = AsyncMock()
-    transport.read_files.side_effect = [
-        VcsTreeSnapshot(
-            commit_sha="w" * 40,
-            tree_sha="tree-1",
-            files=_combined_git_tree(
-                _workflow_git_tree(
-                    source_id="workflow-a",
-                    alias="alpha-workflow",
-                    title="Alpha workflow",
-                ),
-                _workflow_git_tree(
-                    source_id="workflow-b",
-                    alias="beta-workflow",
-                    title="Beta workflow",
-                ),
-            ),
-        ),
-        VcsTreeSnapshot(
-            commit_sha="x" * 40,
-            tree_sha="tree-2",
-            files=_combined_git_tree(
-                _workflow_git_tree(
-                    source_id="workflow-a",
-                    alias="beta-workflow",
-                    title="Beta workflow",
-                ),
-                _workflow_git_tree(
-                    source_id="workflow-b",
-                    alias="alpha-workflow",
-                    title="Alpha workflow",
-                ),
-            ),
-        ),
-    ]
-    service._workspace_git_url = AsyncMock(
-        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
-    )
-
-    with (
-        patch(
-            "tracecat.workspace_sync.service.vcs_transport_for_provider",
-            return_value=transport,
-        ),
-        patch(
-            "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
-            AsyncMock(return_value=RegistryLock(origins={}, actions={})),
-        ),
-    ):
-        first_result = await service.pull(options=PullOptions(commit_sha="w" * 40))
-        alpha_id = await session.scalar(
-            select(Workflow.id).where(
-                Workflow.workspace_id == svc_role.workspace_id,
-                Workflow.alias == "alpha-workflow",
-            )
-        )
-        beta_id = await session.scalar(
-            select(Workflow.id).where(
-                Workflow.workspace_id == svc_role.workspace_id,
-                Workflow.alias == "beta-workflow",
-            )
-        )
-        second_result = await service.pull(options=PullOptions(commit_sha="x" * 40))
-
-    assert first_result.success is True
-    assert second_result.success is True
-    assert alpha_id is not None
-    assert beta_id is not None
-    workflows = {
-        workflow.alias: workflow.id
-        for workflow in (
-            await session.scalars(
-                select(Workflow).where(Workflow.workspace_id == svc_role.workspace_id)
-            )
-        ).all()
-    }
-    assert workflows == {"alpha-workflow": beta_id, "beta-workflow": alpha_id}
-
-
-@pytest.mark.anyio
-async def test_pull_case_duration_name_swap_reuses_source_id_mappings(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    service = WorkspaceSyncService(session=session, role=svc_role)
-    transport = AsyncMock()
-    transport.read_files.side_effect = [
-        VcsTreeSnapshot(
-            commit_sha="d" * 40,
-            tree_sha="tree-1",
-            files=_combined_git_tree(
-                _case_duration_git_tree(
-                    source_id="duration-a",
-                    name="alpha_duration",
-                ),
-                _case_duration_git_tree(
-                    source_id="duration-b",
-                    name="beta_duration",
-                ),
-            ),
-        ),
-        VcsTreeSnapshot(
-            commit_sha="e" * 40,
-            tree_sha="tree-2",
-            files=_combined_git_tree(
-                _case_duration_git_tree(
-                    source_id="duration-a",
-                    name="beta_duration",
-                ),
-                _case_duration_git_tree(
-                    source_id="duration-b",
-                    name="alpha_duration",
-                ),
-            ),
-        ),
-    ]
-    service._workspace_git_url = AsyncMock(
-        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
-    )
-
-    with patch(
-        "tracecat.workspace_sync.service.vcs_transport_for_provider",
-        return_value=transport,
-    ):
-        first_result = await service.pull(options=PullOptions(commit_sha="d" * 40))
-        alpha_id = await session.scalar(
-            select(CaseDurationDefinition.id).where(
-                CaseDurationDefinition.workspace_id == svc_role.workspace_id,
-                CaseDurationDefinition.name == "alpha_duration",
-            )
-        )
-        beta_id = await session.scalar(
-            select(CaseDurationDefinition.id).where(
-                CaseDurationDefinition.workspace_id == svc_role.workspace_id,
-                CaseDurationDefinition.name == "beta_duration",
-            )
-        )
-        second_result = await service.pull(options=PullOptions(commit_sha="e" * 40))
-
-    assert first_result.success is True
-    assert second_result.success is True
-    assert alpha_id is not None
-    assert beta_id is not None
-    durations = {
-        duration.name: duration.id
-        for duration in (
-            await session.scalars(
-                select(CaseDurationDefinition).where(
-                    CaseDurationDefinition.workspace_id == svc_role.workspace_id
-                )
-            )
-        ).all()
-    }
-    assert durations == {"alpha_duration": beta_id, "beta_duration": alpha_id}
-
-
-@pytest.mark.anyio
 async def test_pull_case_dropdown_ref_swap_reuses_source_id_mappings(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
     service = WorkspaceSyncService(session=session, role=svc_role)
-    transport = AsyncMock()
-    transport.read_files.side_effect = [
-        VcsTreeSnapshot(
-            commit_sha="h" * 40,
-            tree_sha="tree-1",
-            files=_combined_git_tree(
-                _case_dropdown_git_tree(
-                    source_id="alpha_reason",
-                    name="Alpha reason",
-                ),
-                _case_dropdown_git_tree(
-                    source_id="beta_reason",
-                    name="Beta reason",
-                ),
-            ),
-        ),
-        VcsTreeSnapshot(
-            commit_sha="i" * 40,
-            tree_sha="tree-2",
-            files=_combined_git_tree(
-                _case_dropdown_git_tree(
-                    source_id="alpha_reason",
-                    name="Alpha reason",
-                ),
-                _case_dropdown_git_tree(
-                    source_id="beta_reason",
-                    name="Beta reason",
-                ),
-            ),
-        ),
-    ]
-    service._workspace_git_url = AsyncMock(
-        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
-    )
 
-    with patch(
-        "tracecat.workspace_sync.service.vcs_transport_for_provider",
-        return_value=transport,
+    with _serve_remote_commits(
+        service,
+        (
+            "h" * 40,
+            _combined_git_tree(
+                _case_dropdown_git_tree(
+                    source_id="alpha_reason",
+                    name="Alpha reason",
+                ),
+                _case_dropdown_git_tree(
+                    source_id="beta_reason",
+                    name="Beta reason",
+                ),
+            ),
+        ),
+        (
+            "i" * 40,
+            _combined_git_tree(
+                _case_dropdown_git_tree(
+                    source_id="alpha_reason",
+                    name="Alpha reason",
+                ),
+                _case_dropdown_git_tree(
+                    source_id="beta_reason",
+                    name="Beta reason",
+                ),
+            ),
+        ),
     ):
         first_result = await service.pull(options=PullOptions(commit_sha="h" * 40))
         assert first_result.success is True
@@ -3821,32 +3194,23 @@ async def test_pull_case_field_name_swap_reuses_source_id_mappings(
     svc_role: Role,
 ) -> None:
     service = WorkspaceSyncService(session=session, role=svc_role)
-    transport = AsyncMock()
-    transport.read_files.side_effect = [
-        VcsTreeSnapshot(
-            commit_sha="f" * 40,
-            tree_sha="tree-1",
-            files=_combined_git_tree(
+
+    with _serve_remote_commits(
+        service,
+        (
+            "f" * 40,
+            _combined_git_tree(
                 _case_field_git_tree(source_id="field-a", name="alpha_field"),
                 _case_field_git_tree(source_id="field-b", name="beta_field"),
             ),
         ),
-        VcsTreeSnapshot(
-            commit_sha="g" * 40,
-            tree_sha="tree-2",
-            files=_combined_git_tree(
+        (
+            "g" * 40,
+            _combined_git_tree(
                 _case_field_git_tree(source_id="field-a", name="beta_field"),
                 _case_field_git_tree(source_id="field-b", name="alpha_field"),
             ),
         ),
-    ]
-    service._workspace_git_url = AsyncMock(
-        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
-    )
-
-    with patch(
-        "tracecat.workspace_sync.service.vcs_transport_for_provider",
-        return_value=transport,
     ):
         first_result = await service.pull(options=PullOptions(commit_sha="f" * 40))
         definition = await session.scalar(
@@ -3890,12 +3254,12 @@ async def test_pull_simple_resource_renames_reuse_source_id_mappings(
     svc_role: Role,
 ) -> None:
     service = WorkspaceSyncService(session=session, role=svc_role)
-    transport = AsyncMock()
-    transport.read_files.side_effect = [
-        VcsTreeSnapshot(
-            commit_sha="s" * 40,
-            tree_sha="tree-1",
-            files=_simple_resource_rename_git_tree(
+
+    with _serve_remote_commits(
+        service,
+        (
+            "s" * 40,
+            _simple_resource_rename_git_tree(
                 tag_name="QA alert",
                 dropdown_name="QA resolution reason",
                 duration_name="QA time to triage",
@@ -3903,10 +3267,9 @@ async def test_pull_simple_resource_renames_reuse_source_id_mappings(
                 secret_name="qa_threatintel",
             ),
         ),
-        VcsTreeSnapshot(
-            commit_sha="t" * 40,
-            tree_sha="tree-2",
-            files=_simple_resource_rename_git_tree(
+        (
+            "t" * 40,
+            _simple_resource_rename_git_tree(
                 tag_name="QA alert renamed",
                 dropdown_name="QA resolution reason renamed",
                 duration_name="QA time to triage renamed",
@@ -3914,14 +3277,6 @@ async def test_pull_simple_resource_renames_reuse_source_id_mappings(
                 secret_name="qa_threatintel_renamed",
             ),
         ),
-    ]
-    service._workspace_git_url = AsyncMock(
-        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
-    )
-
-    with patch(
-        "tracecat.workspace_sync.service.vcs_transport_for_provider",
-        return_value=transport,
     ):
         first_result = await service.pull(options=PullOptions(commit_sha="s" * 40))
         assert first_result.success is True
@@ -4178,22 +3533,21 @@ async def test_agent_preset_import_creates_new_version_without_mutating_history(
     svc_role: Role,
 ) -> None:
     service = WorkspaceSyncService(session=session, role=svc_role)
-    transport = AsyncMock()
-    transport.read_files.side_effect = [
-        VcsTreeSnapshot(
-            commit_sha="i" * 40,
-            tree_sha="tree-1",
-            files=_agent_preset_git_tree(
+
+    with _serve_remote_commits(
+        service,
+        (
+            "i" * 40,
+            _agent_preset_git_tree(
                 source_id="qa-versioned",
                 slug="qa-versioned",
                 name="QA versioned",
                 instructions="Original instructions",
             ),
         ),
-        VcsTreeSnapshot(
-            commit_sha="j" * 40,
-            tree_sha="tree-2",
-            files=_agent_preset_git_tree(
+        (
+            "j" * 40,
+            _agent_preset_git_tree(
                 source_id="qa-versioned",
                 slug="qa-versioned",
                 name="QA versioned",
@@ -4201,14 +3555,6 @@ async def test_agent_preset_import_creates_new_version_without_mutating_history(
                 version_number=2,
             ),
         ),
-    ]
-    service._workspace_git_url = AsyncMock(
-        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
-    )
-
-    with patch(
-        "tracecat.workspace_sync.service.vcs_transport_for_provider",
-        return_value=transport,
     ):
         first_result = await service.pull(options=PullOptions(commit_sha="i" * 40))
         second_result = await service.pull(options=PullOptions(commit_sha="j" * 40))
@@ -5153,11 +4499,16 @@ async def test_mcp_integration_hint_mismatch_requires_a_mapping_choice(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("legacy_manifest", [False, True])
 async def test_mcp_integration_selection_applies_only_to_current_pull(
     session: AsyncSession,
     svc_role: Role,
+    legacy_manifest: bool,
 ) -> None:
-    """An explicit choice resolves one pull without creating durable state."""
+    """An explicit choice resolves one pull without creating durable state.
+
+    Legacy manifests without hints also require a choice on every pull.
+    """
     chosen = await _create_mcp_integration(
         session,
         workspace_id=svc_role.workspace_id,
@@ -5172,7 +4523,9 @@ async def test_mcp_integration_selection_applies_only_to_current_pull(
     _patch_yaml_file(
         files,
         f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml",
-        _mcp_fields(source_mcp_id, slug="unmatched_mcp"),
+        {"mcp_integrations": [str(source_mcp_id)]}
+        if legacy_manifest
+        else _mcp_fields(source_mcp_id, slug="unmatched_mcp"),
     )
     service = WorkspaceSyncService(session=session, role=svc_role)
     snapshot, diagnostics = await service.parse_files(files, commit_sha="o" * 40)
@@ -5180,6 +4533,11 @@ async def test_mcp_integration_selection_applies_only_to_current_pull(
 
     unresolved = await service._prepare_snapshot_for_import(snapshot)
     assert len(unresolved.mcp_integration_mapping_requirements) == 1
+    if legacy_manifest:
+        assert unresolved.mcp_integration_mapping_requirements[0].slug is None
+        assert unresolved.mcp_integration_mapping_requirements[0].reason == (
+            "unresolved"
+        )
 
     mappings = {source_mcp_id: chosen.id}
     result = await service._import_snapshot(
@@ -5204,50 +4562,6 @@ async def test_mcp_integration_selection_applies_only_to_current_pull(
     )
     assert version is not None
     assert version.mcp_integrations == [str(chosen.id)]
-
-    replayed = await service._prepare_snapshot_for_import(snapshot)
-    assert len(replayed.mcp_integration_mapping_requirements) == 1
-    assert replayed.mcp_integration_mapping_requirements[0].reason == "unresolved"
-
-
-@pytest.mark.anyio
-async def test_mcp_integration_legacy_manifest_requires_a_choice_per_pull(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    """A legacy manifest without hints requires an explicit choice per pull."""
-    local = await _create_mcp_integration(
-        session,
-        workspace_id=svc_role.workspace_id,
-        slug="legacy_mcp",
-        name="Legacy",
-    )
-    source_mcp_id = uuid.uuid4()
-    source_id = "qa-mcp-legacy"
-    files = _agent_preset_git_tree(
-        source_id=source_id, slug=source_id, name="QA MCP legacy"
-    )
-    _patch_yaml_file(
-        files,
-        f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml",
-        {"mcp_integrations": [str(source_mcp_id)]},
-    )
-    service = WorkspaceSyncService(session=session, role=svc_role)
-    snapshot, diagnostics = await service.parse_files(files, commit_sha="p" * 40)
-    assert diagnostics == []
-
-    prepared = await service._prepare_snapshot_for_import(snapshot)
-    requirements = prepared.mcp_integration_mapping_requirements
-    assert len(requirements) == 1
-    assert requirements[0].slug is None
-    assert requirements[0].reason == "unresolved"
-
-    result = await service._import_snapshot(
-        snapshot,
-        sync_schedules=False,
-        requested_mcp_integration_mappings={source_mcp_id: local.id},
-    )
-    assert result.success is True, result.diagnostics
 
     replayed = await service._prepare_snapshot_for_import(snapshot)
     assert len(replayed.mcp_integration_mapping_requirements) == 1
@@ -5740,28 +5054,6 @@ async def test_agent_preset_export_emits_mcp_hints(
     }
 
 
-@pytest.mark.anyio
-async def test_agent_preset_export_without_mcp_refs_stays_unchanged(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    """Presets without MCP references keep manifests byte-identical to before."""
-    source_id = "qa-mcp-none"
-    files = _agent_preset_git_tree(
-        source_id=source_id, slug=source_id, name="QA MCP none"
-    )
-    version_path = f"{AGENT_PRESET_ROOT}/{source_id}/preset.yml"
-    service = WorkspaceSyncService(session=session, role=svc_role)
-    snapshot, diagnostics = await service.parse_files(files, commit_sha="z" * 40)
-    assert diagnostics == []
-    assert (await service._import_snapshot(snapshot, sync_schedules=False)).success
-
-    projection = await service.project_workspace(create_missing_mappings=False)
-    exported = yaml.safe_load(projection.files[version_path])
-    assert exported["mcp_integrations"] == []
-    assert "mcp_integration_hints" not in exported
-
-
 def _untyped_catalog_preset_git_tree(
     *, source_id: str, catalog_id: str
 ) -> dict[str, str]:
@@ -6013,34 +5305,6 @@ async def test_workspace_sync_preserves_matching_enabled_catalog_identity_and_ur
 
 
 @pytest.mark.anyio
-async def test_workspace_sync_workflow_without_catalog_reference_is_byte_identical(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    workflow_source_id = "qa-workflow-without-catalog"
-    service = WorkspaceSyncService(session=session, role=svc_role)
-    snapshot, diagnostics = await service.parse_files(
-        _workflow_git_tree(
-            source_id=workflow_source_id,
-            alias=workflow_source_id,
-            title="QA workflow without catalog",
-        ),
-        commit_sha="y" * 40,
-    )
-    assert diagnostics == []
-    original = serialize_workflow_spec(snapshot.spec.workflows[workflow_source_id])
-
-    prepared = await service._prepare_snapshot_for_import(snapshot)
-
-    assert prepared.diagnostics == []
-    assert prepared.catalog_mapping_requirements == []
-    assert (
-        serialize_workflow_spec(prepared.snapshot.spec.workflows[workflow_source_id])
-        == original
-    )
-
-
-@pytest.mark.anyio
 async def test_workspace_sync_detects_catalog_identity_conflict_across_resources(
     session: AsyncSession,
     svc_role: Role,
@@ -6107,11 +5371,15 @@ async def test_workspace_sync_detects_catalog_identity_conflict_across_resources
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("create_disabled_match", [False, True])
+@pytest.mark.parametrize(
+    ("dry_run", "create_disabled_match"),
+    [(False, False), (False, True), (True, False)],
+)
 async def test_agent_preset_sync_reports_unavailable_catalog_model_before_writes(
     session: AsyncSession,
     svc_role: Role,
     *,
+    dry_run: bool,
     create_disabled_match: bool,
 ) -> None:
     service = WorkspaceSyncService(session=session, role=svc_role)
@@ -6141,59 +5409,15 @@ async def test_agent_preset_sync_reports_unavailable_catalog_model_before_writes
             "model_name": "qa-unavailable-model",
         },
     )
-    snapshot, diagnostics = await service.parse_files(files, commit_sha="n" * 40)
-    assert diagnostics == []
-
-    result = await service._import_snapshot(snapshot, sync_schedules=False)
-
-    assert result.success is False
-    assert result.message == "Import failed: 1 validation error(s) found"
-    assert len(result.diagnostics) == 1
-    diagnostic = result.diagnostics[0]
-    assert diagnostic.error_type == "dependency"
-    assert diagnostic.workflow_path == preset_path
-    assert "no matching enabled model" in diagnostic.message
-    assert (
-        await session.scalar(
-            select(AgentPreset).where(
-                AgentPreset.workspace_id == svc_role.workspace_id,
-                AgentPreset.slug == "qa-unavailable-catalog",
-            )
-        )
-        is None
-    )
-
-
-@pytest.mark.anyio
-async def test_agent_preset_sync_dry_run_reports_unavailable_catalog_model(
-    session: AsyncSession,
-    svc_role: Role,
-) -> None:
-    files = _agent_preset_git_tree(
-        source_id="qa-unavailable-catalog-preview",
-        slug="qa-unavailable-catalog-preview",
-        name="QA unavailable catalog preview",
-    )
-    preset_path = f"{AGENT_PRESET_ROOT}/qa-unavailable-catalog-preview/preset.yml"
-    _patch_yaml_file(
-        files,
-        preset_path,
-        {
-            "catalog_id": str(uuid.uuid4()),
-            "model_provider": "custom-model-provider",
-            "model_name": "qa-unavailable-preview-model",
-        },
-    )
     transport = AsyncMock(
         read_files=AsyncMock(
             return_value=VcsTreeSnapshot(
-                commit_sha="o" * 40,
+                commit_sha="n" * 40,
                 tree_sha="preview-tree",
                 files=files,
             )
         )
     )
-    service = WorkspaceSyncService(session=session, role=svc_role)
     service._workspace_git_url = AsyncMock(
         return_value=GitUrl(
             host="github.com",
@@ -6207,7 +5431,7 @@ async def test_agent_preset_sync_dry_run_reports_unavailable_catalog_model(
         return_value=transport,
     ):
         result = await service.pull(
-            options=PullOptions(commit_sha="o" * 40, dry_run=True)
+            options=PullOptions(commit_sha="n" * 40, dry_run=dry_run)
         )
 
     assert result.success is False
@@ -6216,12 +5440,13 @@ async def test_agent_preset_sync_dry_run_reports_unavailable_catalog_model(
     diagnostic = result.diagnostics[0]
     assert diagnostic.error_type == "dependency"
     assert diagnostic.workflow_path == preset_path
-    assert "qa-unavailable-preview-model" in diagnostic.message
+    assert "no matching enabled model" in diagnostic.message
+    assert "qa-unavailable-model" in diagnostic.message
     assert (
         await session.scalar(
             select(AgentPreset).where(
                 AgentPreset.workspace_id == svc_role.workspace_id,
-                AgentPreset.slug == "qa-unavailable-catalog-preview",
+                AgentPreset.slug == "qa-unavailable-catalog",
             )
         )
         is None
@@ -6827,6 +6052,1051 @@ async def test_secret_metadata_import_rejects_invalid_external_reference_spec(
             session=session,
             role=svc_role,
         ).import_non_workflow_resources(snapshot.spec)
+
+
+_AWS_SECRET_ARN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:app-AbCdEf"
+_AWS_WHOLE_STRING_MAPPING = {"mode": "whole_string", "keys": ["TOKEN"], "fields": []}
+
+
+async def _aws_store(
+    session: AsyncSession,
+    role: Role,
+    *,
+    all_workspaces: bool = False,
+    authorize: bool = True,
+    name: str = "prod",
+    region: str = "us-east-1",
+    enabled: bool = True,
+    role_arn: str | None = "arn:aws:iam::123456789012:role/reader",
+) -> OrganizationSecretStore:
+    assert role.organization_id is not None
+    assert role.workspace_id is not None
+    store = OrganizationSecretStore(
+        organization_id=role.organization_id,
+        name=name,
+        provider="aws_secrets_manager",
+        config={
+            "provider": "aws_secrets_manager",
+            "role_arn": role_arn,
+            "region": region,
+            "external_id": "external-id",
+        },
+        all_workspaces=all_workspaces,
+        enabled=enabled,
+    )
+    session.add(store)
+    await session.flush()
+    if authorize:
+        session.add(
+            WorkspaceSecretStoreAuthorization(
+                organization_id=role.organization_id,
+                workspace_id=role.workspace_id,
+                store_id=store.id,
+            )
+        )
+        await session.flush()
+    return store
+
+
+@pytest.fixture
+def external_secret_stores_entitled(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    entitlement = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        "tracecat.workspace_sync.adapters.secret_metadata.check_entitlement",
+        entitlement,
+    )
+    return entitlement
+
+
+def _aws_secret_spec(**overrides: Any) -> dict[str, Any]:
+    return {
+        "version": 1,
+        "type": "secret_metadata",
+        "id": "default/vendor_api",
+        "name": "vendor_api",
+        "environment": "default",
+        "keys": ["TOKEN"],
+        "source": "aws_secrets_manager",
+        "store": "prod",
+        "remote_reference": _AWS_SECRET_ARN,
+        "key_mapping": {"mode": "whole_string", "keys": ["TOKEN"]},
+        **overrides,
+    }
+
+
+async def _import_secret_spec(
+    session: AsyncSession, role: Role, spec: dict[str, Any]
+) -> None:
+    service = WorkspaceSyncService(session=session, role=role)
+    files = {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{SECRET_METADATA_ROOT}/default/vendor_api.yml": _yaml(spec),
+    }
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="s" * 40)
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session,
+        role=role,
+    ).import_non_workflow_resources(snapshot.spec)
+
+
+@pytest.mark.anyio
+async def test_secret_metadata_projects_external_reference_without_values(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    store = await _aws_store(session, svc_role)
+    secret_service = SecretsService(session=session, role=svc_role)
+    session.add(
+        Secret(
+            workspace_id=svc_role.workspace_id,
+            name="vendor_api",
+            environment="default",
+            source=SecretSource.AWS_SECRETS_MANAGER,
+            store_id=store.id,
+            encrypted_keys=secret_service.encrypt_keys([]),
+            remote_reference=_AWS_SECRET_ARN,
+            remote_key_mapping=_AWS_WHOLE_STRING_MAPPING,
+        )
+    )
+    await session.flush()
+
+    projection = await SECRET_METADATA_RESOURCE_ADAPTER.project(
+        WorkspaceSyncService(session=session, role=svc_role)
+    )
+
+    [spec] = projection.specs.values()
+    assert spec.model_dump(mode="json", exclude_none=True) == {
+        "version": 1,
+        "type": "secret_metadata",
+        "id": "default/vendor_api",
+        "name": "vendor_api",
+        "environment": "default",
+        "secret_type": "custom",
+        "keys": ["TOKEN"],
+        "tags": [],
+        "source": "aws_secrets_manager",
+        "store": "prod",
+        "remote_reference": _AWS_SECRET_ARN,
+        "key_mapping": _AWS_WHOLE_STRING_MAPPING,
+    }
+
+
+@pytest.mark.anyio
+async def test_secret_metadata_import_recreates_external_reference(
+    session: AsyncSession,
+    svc_role: Role,
+    external_secret_stores_entitled: AsyncMock,
+) -> None:
+    store = await _aws_store(session, svc_role, all_workspaces=True, authorize=False)
+
+    await _import_secret_spec(session, svc_role, _aws_secret_spec())
+
+    secret = await session.scalar(
+        select(Secret).where(
+            Secret.workspace_id == svc_role.workspace_id,
+            Secret.name == "vendor_api",
+        )
+    )
+    assert secret is not None
+    assert secret.source == SecretSource.AWS_SECRETS_MANAGER
+    assert secret.store_id == store.id
+    assert secret.remote_reference == _AWS_SECRET_ARN
+    assert secret.remote_key_mapping == _AWS_WHOLE_STRING_MAPPING
+    assert (
+        SecretsService(session=session, role=svc_role).decrypt_keys(
+            secret.encrypted_keys
+        )
+        == []
+    )
+    grant = await session.scalar(
+        select(WorkspaceSecretStoreAuthorization).where(
+            WorkspaceSecretStoreAuthorization.workspace_id == svc_role.workspace_id,
+            WorkspaceSecretStoreAuthorization.store_id == store.id,
+        )
+    )
+    assert grant is not None
+
+
+@pytest.mark.anyio
+async def test_secret_metadata_import_updates_external_reference(
+    session: AsyncSession,
+    svc_role: Role,
+    external_secret_stores_entitled: AsyncMock,
+) -> None:
+    store = await _aws_store(session, svc_role)
+    secret_service = SecretsService(session=session, role=svc_role)
+    secret = Secret(
+        workspace_id=svc_role.workspace_id,
+        name="vendor_api",
+        environment="default",
+        source=SecretSource.AWS_SECRETS_MANAGER,
+        store_id=store.id,
+        encrypted_keys=secret_service.encrypt_keys([]),
+        remote_reference="prod/old",
+        remote_key_mapping=_AWS_WHOLE_STRING_MAPPING,
+    )
+    session.add(secret)
+    await session.flush()
+    json_mapping = {"mode": "json", "fields": [{"key": "PASSWORD", "field": "pw"}]}
+
+    await _import_secret_spec(
+        session,
+        svc_role,
+        _aws_secret_spec(keys=["PASSWORD"], key_mapping=json_mapping),
+    )
+
+    await session.refresh(secret)
+    assert secret.remote_reference == _AWS_SECRET_ARN
+    assert secret.remote_key_mapping == {**json_mapping, "keys": []}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("store_kwargs", "overrides", "match"),
+    [
+        (
+            {},
+            {
+                "remote_reference": (
+                    "arn:aws:secretsmanager:us-west-2:123456789012:secret:app-AbCdEf"
+                )
+            },
+            "region",
+        ),
+    ],
+)
+async def test_secret_metadata_import_rejects_unusable_external_reference(
+    session: AsyncSession,
+    svc_role: Role,
+    external_secret_stores_entitled: AsyncMock,
+    store_kwargs: dict[str, Any],
+    overrides: dict[str, Any],
+    match: str,
+) -> None:
+    await _aws_store(session, svc_role, **store_kwargs)
+
+    with pytest.raises(ValueError, match=match):
+        await _import_secret_spec(session, svc_role, _aws_secret_spec(**overrides))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("store_kwargs", "overrides"),
+    [
+        ({"authorize": False}, {}),
+        ({}, {"store": "missing"}),
+        ({}, {"store": None}),
+    ],
+)
+async def test_secret_metadata_import_leaves_reference_unlinked_without_matching_store(
+    session: AsyncSession,
+    svc_role: Role,
+    external_secret_stores_entitled: AsyncMock,
+    store_kwargs: dict[str, Any],
+    overrides: dict[str, Any],
+) -> None:
+    await _aws_store(session, svc_role, **store_kwargs)
+
+    await _import_secret_spec(session, svc_role, _aws_secret_spec(**overrides))
+
+    secret = await session.scalar(
+        select(Secret).where(
+            Secret.workspace_id == svc_role.workspace_id,
+            Secret.name == "vendor_api",
+        )
+    )
+    assert secret is not None
+    assert secret.source == SecretSource.AWS_SECRETS_MANAGER
+    assert secret.store_id is None
+    assert secret.remote_reference == _AWS_SECRET_ARN
+    assert secret.remote_key_mapping == _AWS_WHOLE_STRING_MAPPING
+    assert (
+        SecretsService(session=session, role=svc_role).decrypt_keys(
+            secret.encrypted_keys
+        )
+        == []
+    )
+    await session.refresh(secret, ["store"])
+    with pytest.raises(TracecatCredentialsError, match="missing its store"):
+        build_external_secret_reference(secret)
+
+
+@pytest.mark.anyio
+async def test_secret_metadata_unlinked_reference_can_be_linked_manually(
+    session: AsyncSession,
+    svc_role: Role,
+    external_secret_stores_entitled: AsyncMock,
+) -> None:
+    store = await _aws_store(session, svc_role)
+    await _import_secret_spec(session, svc_role, _aws_secret_spec(store="missing"))
+    secret = await session.scalar(
+        select(Secret).where(
+            Secret.workspace_id == svc_role.workspace_id,
+            Secret.name == "vendor_api",
+        )
+    )
+    assert secret is not None and secret.store_id is None
+
+    await SecretReferencesService(
+        session=session, role=svc_role
+    ).update_aws_secret_reference(secret, AwsSecretReferenceUpdate(store_id=store.id))
+    await session.refresh(secret, ["store"])
+
+    assert secret.store_id == store.id
+    assert build_external_secret_reference(secret).store_id == store.id
+
+    # A later pull that still names the missing store keeps the manual link.
+    await _import_secret_spec(
+        session,
+        svc_role,
+        _aws_secret_spec(store="missing", remote_reference="prod/other"),
+    )
+    await session.refresh(secret)
+    assert secret.store_id == store.id
+    assert secret.remote_reference == _AWS_SECRET_ARN
+
+
+@pytest.mark.anyio
+async def test_secret_metadata_projects_unlinked_reference_without_store(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    secret_service = SecretsService(session=session, role=svc_role)
+    session.add(
+        Secret(
+            workspace_id=svc_role.workspace_id,
+            name="vendor_api",
+            environment="default",
+            source=SecretSource.AWS_SECRETS_MANAGER,
+            encrypted_keys=secret_service.encrypt_keys([]),
+            remote_reference=_AWS_SECRET_ARN,
+            remote_key_mapping=_AWS_WHOLE_STRING_MAPPING,
+        )
+    )
+    await session.flush()
+
+    projection = await SECRET_METADATA_RESOURCE_ADAPTER.project(
+        WorkspaceSyncService(session=session, role=svc_role)
+    )
+
+    [spec] = projection.specs.values()
+    dumped = spec.model_dump(mode="json", exclude_none=True)
+    assert "store" not in dumped
+    assert dumped["source"] == "aws_secrets_manager"
+    assert dumped["remote_reference"] == _AWS_SECRET_ARN
+
+
+@pytest.fixture
+def store_mapping_entitled(
+    monkeypatch: pytest.MonkeyPatch, external_secret_stores_entitled: AsyncMock
+) -> None:
+    monkeypatch.setattr(
+        WorkspaceSyncService, "has_entitlement", AsyncMock(return_value=True)
+    )
+
+
+async def _secret_snapshot(
+    service: WorkspaceSyncService, *names: str, store: str = "missing"
+) -> WorkspaceRemoteSnapshot:
+    files = {MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())}
+    for name in names:
+        files[f"{SECRET_METADATA_ROOT}/default/{name}.yml"] = _yaml(
+            _aws_secret_spec(id=f"default/{name}", name=name, store=store)
+        )
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="m" * 40)
+    assert diagnostics == []
+    return snapshot
+
+
+async def _workspace_secret(session: AsyncSession, role: Role, name: str) -> Secret:
+    secret = await session.scalar(
+        select(Secret).where(
+            Secret.workspace_id == role.workspace_id, Secret.name == name
+        )
+    )
+    assert secret is not None
+    return secret
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_reports_unmatched_store_without_blocking(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    await _aws_store(session, svc_role, name="unauthorized", authorize=False)
+    available = await _aws_store(session, svc_role, name="available")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(
+        service, "vendor_api", "vendor_app", store="unauthorized"
+    )
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+
+    assert prepared.diagnostics == []
+    [requirement] = prepared.secret_store_mapping_requirements
+    assert requirement.source_store == "unauthorized"
+    assert requirement.reason == "unresolved"
+    assert [c.store_id for c in requirement.candidates] == [available.id]
+    assert [a.secret_name for a in requirement.affected_secrets] == [
+        "vendor_api",
+        "vendor_app",
+    ]
+
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+    assert result.success is True, result.diagnostics
+    for name in ("vendor_api", "vendor_app"):
+        assert (await _workspace_secret(session, svc_role, name)).store_id is None
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_links_every_secret_using_the_name(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    chosen = await _aws_store(session, svc_role, name="chosen")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(service, "vendor_api", "vendor_app")
+
+    result = await service._import_snapshot(
+        snapshot,
+        sync_schedules=False,
+        requested_secret_store_mappings={"missing": chosen.id},
+    )
+
+    assert result.success is True, result.diagnostics
+    for name in ("vendor_api", "vendor_app"):
+        secret = await _workspace_secret(session, svc_role, name)
+        assert secret.store_id == chosen.id
+        assert secret.remote_reference == _AWS_SECRET_ARN
+    # Linked secrets no longer need a choice on the next pull.
+    replayed = await service._prepare_snapshot_for_import(snapshot)
+    assert replayed.secret_store_mapping_requirements == []
+    assert replayed.diagnostics == []
+    # The preview compares against the linked store, so it shows no change.
+    assert {spec.store for spec in replayed.snapshot.spec.secret_metadata.values()} == {
+        "chosen"
+    }
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_rejects_unauthorized_choice(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    unauthorized = await _aws_store(
+        session, svc_role, name="unauthorized", authorize=False
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(service, "vendor_api")
+
+    result = await service._import_snapshot(
+        snapshot,
+        sync_schedules=False,
+        requested_secret_store_mappings={"missing": unauthorized.id},
+    )
+
+    assert result.success is False
+    assert [d.details["code"] for d in result.diagnostics] == [
+        "secret_store_mapping_invalid"
+    ]
+    [requirement] = result.secret_store_mapping_requirements or []
+    assert requirement.reason == "invalid_selection"
+    assert (
+        await session.scalar(
+            select(Secret).where(Secret.workspace_id == svc_role.workspace_id)
+        )
+        is None
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("mappings", "code"),
+    [
+        ({"missing": None}, "secret_store_reference_invalid"),
+        ({"other": None}, "secret_store_mapping_source_not_found"),
+    ],
+)
+async def test_secret_store_mapping_rejects_unusable_choice(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+    mappings: dict[str, None],
+    code: str,
+) -> None:
+    west = await _aws_store(session, svc_role, name="west", region="us-west-2")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(service, "vendor_api")
+
+    prepared = await service._prepare_snapshot_for_import(
+        snapshot,
+        requested_secret_store_mappings=dict.fromkeys(mappings, west.id),
+    )
+
+    assert code in [d.details["code"] for d in prepared.diagnostics]
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_keeps_picker_for_incompatible_choice(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    west = await _aws_store(session, svc_role, name="west", region="us-west-2")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(service, "vendor_api")
+
+    prepared = await service._prepare_snapshot_for_import(
+        snapshot, requested_secret_store_mappings={"missing": west.id}
+    )
+
+    [requirement] = prepared.secret_store_mapping_requirements
+    assert requirement.source_store == "missing"
+    assert requirement.reason == "invalid_selection"
+    assert "'west'" in requirement.message
+    assert [c.store_id for c in requirement.candidates] == [west.id]
+    assert [a.secret_name for a in requirement.affected_secrets] == ["vendor_api"]
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_preview_requires_external_secret_stores_entitlement(
+    session: AsyncSession,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def has_entitlement(_self: object, entitlement: Entitlement) -> bool:
+        return entitlement != Entitlement.EXTERNAL_SECRET_STORES
+
+    monkeypatch.setattr(WorkspaceSyncService, "has_entitlement", has_entitlement)
+    await _aws_store(session, svc_role, name="missing")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(service, "vendor_api")
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+
+    assert [d.details["code"] for d in prepared.diagnostics] == ["entitlement_required"]
+    assert prepared.diagnostics[0].details["entitlement"] == (
+        Entitlement.EXTERNAL_SECRET_STORES.value
+    )
+
+
+_AWS_WEST_SECRET_ARN = "arn:aws:secretsmanager:us-west-2:123456789012:secret:app-AbCdEf"
+
+
+async def _secret_specs_snapshot(
+    service: WorkspaceSyncService, *specs: dict[str, Any]
+) -> WorkspaceRemoteSnapshot:
+    files = {MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())}
+    for spec in specs:
+        files[f"{SECRET_METADATA_ROOT}/{spec['id']}.yml"] = _yaml(spec)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="n" * 40)
+    assert diagnostics == []
+    return snapshot
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_keeps_links_when_mapped_names_swap(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    alpha_store = await _aws_store(session, svc_role, name="alpha_store")
+    beta_store = await _aws_store(session, svc_role, name="beta_store")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    first = await _secret_specs_snapshot(
+        service,
+        _aws_secret_spec(id="default/alpha", name="alpha", store="src_alpha"),
+        _aws_secret_spec(id="default/beta", name="beta", store="src_beta"),
+    )
+    result = await service._import_snapshot(
+        first,
+        sync_schedules=False,
+        requested_secret_store_mappings={
+            "src_alpha": alpha_store.id,
+            "src_beta": beta_store.id,
+        },
+    )
+    assert result.success is True, result.diagnostics
+    alpha_id = (await _workspace_secret(session, svc_role, "alpha")).id
+    beta_id = (await _workspace_secret(session, svc_role, "beta")).id
+
+    swapped = await _secret_specs_snapshot(
+        service,
+        _aws_secret_spec(id="default/alpha", name="beta", store="src_alpha"),
+        _aws_secret_spec(id="default/beta", name="alpha", store="src_beta"),
+    )
+    prepared = await service._prepare_snapshot_for_import(swapped)
+    assert prepared.diagnostics == []
+    assert prepared.secret_store_mapping_requirements == []
+    result = await service._import_snapshot(swapped, sync_schedules=False)
+
+    assert result.success is True, result.diagnostics
+    alpha_row = await session.scalar(select(Secret).where(Secret.id == alpha_id))
+    beta_row = await session.scalar(select(Secret).where(Secret.id == beta_id))
+    assert alpha_row is not None and beta_row is not None
+    assert (alpha_row.name, alpha_row.store_id) == ("beta", alpha_store.id)
+    assert (beta_row.name, beta_row.store_id) == ("alpha", beta_store.id)
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_preview_matches_apply_for_manual_link(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    west = await _aws_store(session, svc_role, name="west", region="us-west-2")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(service, "vendor_api")
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+    assert result.success is True, result.diagnostics
+    secret = await _workspace_secret(session, svc_role, "vendor_api")
+    await SecretReferencesService(
+        session=session, role=svc_role
+    ).update_aws_secret_reference(
+        secret,
+        AwsSecretReferenceUpdate(
+            store_id=west.id, remote_reference=_AWS_WEST_SECRET_ARN
+        ),
+    )
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    assert prepared.diagnostics == []
+    assert prepared.secret_store_mapping_requirements == []
+    [spec] = prepared.snapshot.spec.secret_metadata.values()
+    assert (spec.store, spec.remote_reference) == ("west", _AWS_WEST_SECRET_ARN)
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+
+    assert result.success is True, result.diagnostics
+    await session.refresh(secret)
+    assert secret.store_id == west.id
+    assert secret.remote_reference == _AWS_WEST_SECRET_ARN
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_offers_picker_when_matching_store_cannot_read(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    east = await _aws_store(session, svc_role, name="east")
+    same_name = await _aws_store(session, svc_role, name="missing", region="us-west-2")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(service, "vendor_api")
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+
+    assert [d.details["code"] for d in prepared.diagnostics] == [
+        "secret_store_reference_invalid"
+    ]
+    [requirement] = prepared.secret_store_mapping_requirements
+    assert requirement.source_store == "missing"
+    assert requirement.reason == "invalid_selection"
+    assert [c.store_id for c in requirement.candidates] == [east.id, same_name.id]
+    result = await service._import_snapshot(
+        snapshot,
+        sync_schedules=False,
+        requested_secret_store_mappings={"missing": east.id},
+    )
+    assert result.success is True, result.diagnostics
+    assert (await _workspace_secret(session, svc_role, "vendor_api")).store_id == (
+        east.id
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "store_kwargs",
+    [{"enabled": False}, {"enabled": False, "role_arn": None}],
+    ids=["disabled", "setup_incomplete"],
+)
+async def test_secret_store_mapping_skips_unusable_matching_store(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+    store_kwargs: dict[str, Any],
+) -> None:
+    east = await _aws_store(session, svc_role, name="east")
+    await _aws_store(session, svc_role, name="missing", **store_kwargs)
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(service, "vendor_api")
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+
+    assert prepared.diagnostics == []
+    [requirement] = prepared.secret_store_mapping_requirements
+    assert requirement.reason == "unresolved"
+    assert [c.store_id for c in requirement.candidates] == [east.id]
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+    assert result.success is True, result.diagnostics
+    assert (await _workspace_secret(session, svc_role, "vendor_api")).store_id is None
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_preview_keeps_manual_link_for_storeless_spec(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    east = await _aws_store(session, svc_role, name="east")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_specs_snapshot(
+        service, _aws_secret_spec(store=None, secret_type="custom")
+    )
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+    assert result.success is True, result.diagnostics
+    secret = await _workspace_secret(session, svc_role, "vendor_api")
+    assert secret.store_id is None
+    await SecretReferencesService(
+        session=session, role=svc_role
+    ).update_aws_secret_reference(secret, AwsSecretReferenceUpdate(store_id=east.id))
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    assert prepared.diagnostics == []
+    assert prepared.secret_store_mapping_requirements == []
+    diffs = await service._resource_diffs_for_pull(
+        prepared.snapshot, sync_schedules=False
+    )
+    assert diffs == [], [(diff.source_path, diff.diff) for diff in diffs]
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+
+    assert result.success is True, result.diagnostics
+    await session.refresh(secret)
+    assert secret.store_id == east.id
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_preview_rejects_local_secret_target(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    await _aws_store(session, svc_role)
+    secret_service = SecretsService(session=session, role=svc_role)
+    session.add(
+        Secret(
+            workspace_id=svc_role.workspace_id,
+            name="vendor_api",
+            environment="default",
+            encrypted_keys=secret_service.encrypt_keys(
+                [SecretKeyValue(key="TOKEN", value=SecretStr("local"))]
+            ),
+        )
+    )
+    await session.flush()
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(service, "vendor_api", store="prod")
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+
+    assert [d.details.get("code") for d in prepared.diagnostics] == [
+        "secret_source_conflict"
+    ]
+    assert result.success is False
+    assert [d.details.get("code") for d in result.diagnostics] == [
+        "secret_source_conflict"
+    ]
+    secret = await _workspace_secret(session, svc_role, "vendor_api")
+    assert secret.source != SecretSource.AWS_SECRETS_MANAGER
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_preview_rejects_local_spec_for_aws_secret(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    await _aws_store(session, svc_role)
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    result = await service._import_snapshot(
+        await _secret_snapshot(service, "vendor_api", store="prod"),
+        sync_schedules=False,
+    )
+    assert result.success is True, result.diagnostics
+    snapshot = await _secret_specs_snapshot(
+        service,
+        {
+            "version": 1,
+            "type": "secret_metadata",
+            "id": "default/vendor_api",
+            "name": "vendor_api",
+            "environment": "default",
+            "keys": ["OTHER"],
+        },
+    )
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+
+    assert [d.details.get("code") for d in prepared.diagnostics] == [
+        "secret_source_conflict"
+    ]
+    assert result.success is False
+    secret = await _workspace_secret(session, svc_role, "vendor_api")
+    assert secret.source == SecretSource.AWS_SECRETS_MANAGER
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("store", ["prod", "missing"])
+async def test_secret_store_mapping_legacy_spec_keeps_reference_without_diff(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+    store: str,
+) -> None:
+    await _aws_store(session, svc_role)
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    result = await service._import_snapshot(
+        await _secret_snapshot(service, "vendor_api", store=store),
+        sync_schedules=False,
+    )
+    assert result.success is True, result.diagnostics
+    before = await _workspace_secret(session, svc_role, "vendor_api")
+    linked = (before.store_id, before.remote_reference, before.remote_key_mapping)
+    snapshot = await _secret_specs_snapshot(
+        service,
+        {
+            "version": 1,
+            "type": "secret_metadata",
+            "id": "default/vendor_api",
+            "name": "vendor_api",
+            "environment": "default",
+            "secret_type": "custom",
+            "keys": ["TOKEN"],
+            "description": "legacy export",
+        },
+    )
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    assert prepared.diagnostics == []
+    diffs = await service._resource_diffs_for_pull(
+        prepared.snapshot, sync_schedules=False
+    )
+    changed = [
+        line
+        for diff in diffs
+        for line in diff.diff.splitlines()
+        if line[:1] in "+-" and not line.startswith(("+++", "---"))
+    ]
+    assert changed and all(line[1:].startswith("description") for line in changed)
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+    assert result.success is True, result.diagnostics
+
+    secret = await _workspace_secret(session, svc_role, "vendor_api")
+    assert secret.description == "legacy export"
+    assert (secret.store_id, secret.remote_reference, secret.remote_key_mapping) == (
+        linked
+    )
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    diffs = await service._resource_diffs_for_pull(
+        prepared.snapshot, sync_schedules=False
+    )
+    assert diffs == [], [(diff.source_path, diff.diff) for diff in diffs]
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_unresolved_store_has_no_repeat_diff(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    await _aws_store(session, svc_role, name="available")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_specs_snapshot(
+        service, _aws_secret_spec(store="missing", secret_type="custom")
+    )
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+    assert result.success is True, result.diagnostics
+    assert (await _workspace_secret(session, svc_role, "vendor_api")).store_id is None
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    assert prepared.diagnostics == []
+    [requirement] = prepared.secret_store_mapping_requirements
+    assert requirement.source_store == "missing"
+    diffs = await service._resource_diffs_for_pull(
+        prepared.snapshot, sync_schedules=False
+    )
+    assert diffs == [], [(diff.source_path, diff.diff) for diff in diffs]
+
+
+_AWS_OTHER_SECRET_ARN = (
+    "arn:aws:secretsmanager:us-east-1:123456789012:secret:other-XyZ123"
+)
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_fallback_skips_row_vacated_by_rename(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    east = await _aws_store(session, svc_role, name="east")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    first = await _secret_specs_snapshot(
+        service, _aws_secret_spec(id="default/alpha", name="alpha", store="src")
+    )
+    result = await service._import_snapshot(
+        first,
+        sync_schedules=False,
+        requested_secret_store_mappings={"src": east.id},
+    )
+    assert result.success is True, result.diagnostics
+    old_id = (await _workspace_secret(session, svc_role, "alpha")).id
+
+    renamed = await _secret_specs_snapshot(
+        service,
+        _aws_secret_spec(id="default/alpha", name="beta", store="src"),
+        _aws_secret_spec(
+            id="default/new_alpha",
+            name="alpha",
+            store="src",
+            remote_reference=_AWS_OTHER_SECRET_ARN,
+        ),
+    )
+    prepared = await service._prepare_snapshot_for_import(renamed)
+    assert prepared.diagnostics == []
+    [requirement] = prepared.secret_store_mapping_requirements
+    assert [a.secret_name for a in requirement.affected_secrets] == ["alpha"]
+    result = await service._import_snapshot(renamed, sync_schedules=False)
+
+    assert result.success is True, result.diagnostics
+    beta = await _workspace_secret(session, svc_role, "beta")
+    alpha = await _workspace_secret(session, svc_role, "alpha")
+    assert (beta.id, beta.store_id) == (old_id, east.id)
+    assert alpha.id != old_id
+    assert (alpha.store_id, alpha.remote_reference) == (None, _AWS_OTHER_SECRET_ARN)
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_leave_unlinked_skips_name_match(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    await _aws_store(session, svc_role, name="missing", region="us-west-2")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(service, "vendor_api")
+    request = WorkflowSyncPullRequest.model_validate(
+        {
+            "commit_sha": "m" * 40,
+            "secret_store_mappings": [
+                {"source_store": "missing", "target_store_id": None}
+            ],
+        }
+    )
+    mappings = {
+        mapping.source_store: mapping.target_store_id
+        for mapping in request.secret_store_mappings
+    }
+
+    prepared = await service._prepare_snapshot_for_import(
+        snapshot, requested_secret_store_mappings=mappings
+    )
+    assert prepared.diagnostics == []
+    assert prepared.secret_store_mapping_requirements == []
+    result = await service._import_snapshot(
+        snapshot, sync_schedules=False, requested_secret_store_mappings=mappings
+    )
+
+    assert result.success is True, result.diagnostics
+    secret = await _workspace_secret(session, svc_role, "vendor_api")
+    assert (secret.store_id, secret.remote_reference) == (None, _AWS_SECRET_ARN)
+
+
+@pytest.mark.anyio
+async def test_secret_metadata_import_requires_external_secret_stores_entitlement(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    await _aws_store(session, svc_role)
+
+    with pytest.raises(EntitlementRequired):
+        await _import_secret_spec(session, svc_role, _aws_secret_spec())
+
+
+@pytest.mark.anyio
+async def test_secret_metadata_import_rejects_external_spec_for_local_secret(
+    session: AsyncSession,
+    svc_role: Role,
+    external_secret_stores_entitled: AsyncMock,
+) -> None:
+    await _aws_store(session, svc_role)
+    secret_service = SecretsService(session=session, role=svc_role)
+    session.add(
+        Secret(
+            workspace_id=svc_role.workspace_id,
+            name="vendor_api",
+            environment="default",
+            encrypted_keys=secret_service.encrypt_keys(
+                [SecretKeyValue(key="TOKEN", value=SecretStr("local"))]
+            ),
+        )
+    )
+    await session.flush()
+
+    with pytest.raises(ValueError, match="stored in Tracecat"):
+        await _import_secret_spec(session, svc_role, _aws_secret_spec())
+
+
+@pytest.mark.anyio
+async def test_secret_metadata_import_checks_entitlement_and_store_once_per_pull(
+    session: AsyncSession,
+    svc_role: Role,
+    external_secret_stores_entitled: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _aws_store(session, svc_role)
+    store_lookup = AsyncMock(wraps=SecretReferencesService.get_authorized_store_by_name)
+
+    async def lookup(self: SecretReferencesService, name: str):
+        return await store_lookup(self, name)
+
+    monkeypatch.setattr(SecretReferencesService, "get_authorized_store_by_name", lookup)
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    files = {MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())}
+    for name in ("vendor_api", "vendor_app"):
+        files[f"{SECRET_METADATA_ROOT}/default/{name}.yml"] = _yaml(
+            _aws_secret_spec(id=f"default/{name}", name=name)
+        )
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="s" * 40)
+    assert diagnostics == []
+
+    await WorkspaceResourceImportService(
+        session=session, role=svc_role
+    ).import_non_workflow_resources(snapshot.spec)
+
+    assert external_secret_stores_entitled.await_count == 1
+    assert store_lookup.await_count == 1
+    secrets = (
+        await session.execute(
+            select(Secret).where(Secret.workspace_id == svc_role.workspace_id)
+        )
+    ).scalars()
+    assert sorted(
+        s.name for s in secrets if s.source == SecretSource.AWS_SECRETS_MANAGER
+    ) == ["vendor_api", "vendor_app"]
+
+
+@pytest.mark.parametrize(
+    ("overrides", "match"),
+    [
+        ({"remote_reference": None}, "requires remote_reference"),
+        ({"keys": ["OTHER"]}, "output keys"),
+        ({"source": None}, "require source"),
+        ({"name": "Vendor-API"}, "snake_case"),
+        ({"secret_type": "ssh-key"}, "custom type"),
+    ],
+)
+def test_secret_metadata_spec_requires_complete_external_reference(
+    overrides: dict[str, Any], match: str
+) -> None:
+    spec = {k: v for k, v in _aws_secret_spec(**overrides).items() if v is not None}
+    with pytest.raises(ValidationError, match=match):
+        SecretMetadataResourceSpec.model_validate(spec)
 
 
 @pytest.mark.anyio
@@ -7680,18 +7950,6 @@ def _legacy_workflow_only_git_tree() -> dict[str, str]:
     }
 
 
-def _legacy_string_manifest_git_tree() -> dict[str, str]:
-    """Old workflow-only layout with the historical string-version manifest."""
-    return dict(
-        sorted(
-            {
-                MANIFEST_FILENAME: '{"version":"1"}',
-                **_legacy_workflow_only_git_tree(),
-            }.items()
-        )
-    )
-
-
 def _legacy_workflow_yaml(spec: dict[str, Any]) -> str:
     """Downgrade a modern workflow spec into the legacy on-disk shape.
 
@@ -7714,6 +7972,8 @@ def _agent_preset_git_tree(
     name: str,
     instructions: str | None = None,
     version_number: int = 1,
+    use_in_chat: bool | None = None,
+    is_workspace_default: bool | None = None,
 ) -> dict[str, str]:
     del version_number
     return {
@@ -7726,9 +7986,39 @@ def _agent_preset_git_tree(
                 "slug": slug,
                 "name": name,
                 "instructions": instructions,
+                **({"use_in_chat": use_in_chat} if use_in_chat is not None else {}),
+                **(
+                    {"is_workspace_default": is_workspace_default}
+                    if is_workspace_default is not None
+                    else {}
+                ),
             }
         ),
     }
+
+
+@contextmanager
+def _serve_remote_commits(
+    service: WorkspaceSyncService, *commits: tuple[str, dict[str, str]]
+) -> Iterator[None]:
+    """Serve each (commit SHA, files) pair as the next remote tree read by pull."""
+    snapshots = [
+        VcsTreeSnapshot(commit_sha=sha, tree_sha=f"tree-{index}", files=files)
+        for index, (sha, files) in enumerate(commits, start=1)
+    ]
+    transport = AsyncMock()
+    if len(snapshots) == 1:
+        transport.read_files.return_value = snapshots[0]
+    else:
+        transport.read_files.side_effect = snapshots
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        yield
 
 
 def _combined_git_tree(*trees: dict[str, str]) -> dict[str, str]:
@@ -8495,16 +8785,475 @@ def _assert_variable_exports_have_no_values(files: dict[str, str]) -> None:
         assert variable_spec["keys"] == ["mode", "threshold"]
 
 
-def _assert_workflows_have_no_schedules(files: dict[str, str]) -> None:
-    for path, content in files.items():
-        if not path.startswith(f"{WORKFLOW_ROOT}/"):
-            continue
-        workflow_spec = yaml.safe_load(content)
-        assert "schedules" not in workflow_spec
-
-
 def _yaml(data: dict[str, Any]) -> str:
     payload = dict(data)
     if payload.get("type") in {"agent_preset", "skill"}:
         payload["version"] = 2
     return yaml.safe_dump(payload, sort_keys=False)
+
+
+# ----- Workflow form block -----
+
+_PNG_DATA_URI = (
+    "data:image/png;base64,"
+    + base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16).decode()
+)
+
+# JSONB orders object keys by length and then bytewise (a, mm, zeta, model,
+# ...), so the author's order below only survives if it is stored separately.
+_FORM_EXPECTS: dict[str, Any] = {
+    "zeta": {"type": "str", "default": ""},
+    "model": {"type": 'enum["mba", "mbp"]'},
+    "mm": {"type": "str", "default": ""},
+    "justification": {"type": "str"},
+    "a": {"type": "bool", "default": False},
+    "for_someone_else": {"type": "bool", "default": False},
+}
+
+_FORM_BLOCK: dict[str, Any] = {
+    "status": "online",
+    "title": "Laptop request",
+    "success_message": "IT will follow up by email.",
+    "layout": [
+        {"notice": "Requests are reviewed within 2 business days.", "tone": "info"},
+        {
+            "field": "model",
+            "label": "Choose your laptop",
+            "widget": "cards",
+            "options": [
+                {"value": "mba", "label": "MacBook Air", "image": _PNG_DATA_URI},
+                {"value": "mbp", "label": "MacBook Pro 14"},
+            ],
+        },
+        {"field": "justification", "widget": "long_text"},
+        {"heading": "Delivery"},
+        {"field": "for_someone_else"},
+        # Not an input. A push never checks the form, so a pull must store
+        # this as written: otherwise renaming an input would block every pull.
+        {"field": "not_an_input"},
+    ],
+}
+
+
+def _form_workflow_git_tree(form: dict[str, Any] | None) -> dict[str, str]:
+    spec = _workflow_spec(
+        source_id="laptop-request",
+        title="Laptop request workflow",
+        alias="laptop-request",
+        folder_path="QA/Workflows",
+        actions=[
+            {
+                "ref": "reshape",
+                "action": "core.transform.reshape",
+                "args": {"value": "${{ TRIGGER.model }}"},
+            }
+        ],
+    )
+    spec["definition"]["entrypoint"]["expects"] = _FORM_EXPECTS
+    if form is not None:
+        spec["form"] = form
+    return {
+        MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest()),
+        f"{WORKFLOW_ROOT}/laptop-request/definition.yml": _yaml(spec),
+    }
+
+
+async def _pull_form_tree(
+    session: AsyncSession, role: Role, form: dict[str, Any] | None
+) -> tuple[WorkspaceSyncService, Any]:
+    """Pull a tree whose one workflow carries this form block."""
+    service = WorkspaceSyncService(session=session, role=role)
+    commit = hashlib.sha1(repr(form).encode()).hexdigest()
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha=commit,
+        tree_sha=f"tree-{commit}",
+        files=_form_workflow_git_tree(form),
+    )
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        patch(
+            "tracecat.workflow.management.management.RegistryLockService.resolve_lock_with_bindings",
+            AsyncMock(return_value=RegistryLock(origins={}, actions={})),
+        ),
+    ):
+        result = await service.pull(options=PullOptions(commit_sha=commit))
+    return service, result
+
+
+async def _only_form(session: AsyncSession, role: Role) -> Form | None:
+    return await session.scalar(
+        select(Form).where(Form.workspace_id == role.workspace_id)
+    )
+
+
+async def _exported_workflow(service: WorkspaceSyncService) -> dict[str, Any]:
+    projection = await service.project_workspace(create_missing_mappings=False)
+    return yaml.safe_load(
+        projection.files[f"{WORKFLOW_ROOT}/laptop-request/definition.yml"]
+    )
+
+
+@pytest.mark.anyio
+async def test_workflow_form_block_round_trips_as_written(
+    session: AsyncSession,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The block syncs as written, whether or not it still matches the inputs
+    and whatever the forms entitlement; the form stays inert behind the gate."""
+
+    async def entitled(_session: Any, _org_id: Any, entitlement: Entitlement) -> bool:
+        return entitlement is not Entitlement.FORMS
+
+    monkeypatch.setattr("tracecat.tiers.access.is_org_entitled", entitled)
+
+    service, result = await _pull_form_tree(session, svc_role, _FORM_BLOCK)
+
+    assert result.success is True
+    assert result.diagnostics == []
+    form = await _only_form(session, svc_role)
+    assert form is not None
+    assert form.status == FormStatus.ONLINE
+    exported = await _exported_workflow(service)
+    assert exported["form"] == _FORM_BLOCK
+    # The author's input order survives the trip with the form.
+    assert list(exported["definition"]["entrypoint"]["expects"]) == list(_FORM_EXPECTS)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "image",
+    ["https://example.com/laptop.png", "data:image/png;base64," + "A" * 400_000],
+    ids=["not-a-data-uri", "oversized"],
+)
+async def test_workflow_form_block_with_a_bad_image_fails_the_pull_unechoed(
+    session: AsyncSession,
+    svc_role: Role,
+    image: str,
+) -> None:
+    form = deepcopy(_FORM_BLOCK)
+    form["layout"][1]["options"][0]["image"] = image
+
+    _, result = await _pull_form_tree(session, svc_role, form)
+
+    assert result.success is False
+    [diagnostic] = result.diagnostics
+    assert diagnostic.error_type == "validation"
+    [error] = diagnostic.details["validation_errors"]
+    assert error["loc"][0] == "form"
+    # A form can hold large inline images: the diagnostic never echoes them.
+    assert "input" not in error
+    assert len(repr(diagnostic)) < 5_000
+    assert await _only_form(session, svc_role) is None
+
+
+@pytest.mark.anyio
+async def test_pull_without_form_block_clears_the_form_and_keeps_its_submissions(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service, first = await _pull_form_tree(session, svc_role, _FORM_BLOCK)
+    assert first.success is True
+    form = await _only_form(session, svc_role)
+    assert form is not None
+    form_id = form.id
+    session.add(
+        FormSubmission(
+            workspace_id=svc_role.workspace_id,
+            form_id=form_id,
+            answers={"model": "mba"},
+            definition_version=1,
+            wf_exec_id="wf-00000000000000000000000000000000/exec-1",
+        )
+    )
+    await session.commit()
+
+    _, second = await _pull_form_tree(session, svc_role, None)
+
+    assert second.success is True
+    session.expire_all()
+    form = await _only_form(session, svc_role)
+    assert form is not None
+    assert form.id == form_id
+    assert form.status == FormStatus.OFFLINE
+    assert stored_form_config(form) == FormConfig()
+    submissions = await session.scalars(
+        select(FormSubmission).where(FormSubmission.form_id == form_id)
+    )
+    assert len(submissions.all()) == 1
+    # Deleting the block in git removes it: the next push does not write it
+    # back, so the workflow no longer shows as modified.
+    assert "form" not in await _exported_workflow(service)
+
+
+@pytest.mark.anyio
+async def test_pull_needs_form_scopes_to_create_replace_or_clear_a_form(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A role without form write scopes cannot change a form through a pull."""
+    workflow_only = svc_role.model_copy(
+        update={"scopes": ADMIN_SCOPES - {"form:create", "form:update"}}
+    )
+
+    async def refused(form: dict[str, Any] | None) -> list[str]:
+        with pytest.raises(ScopeDeniedError) as exc_info:
+            await _pull_form_tree(session, workflow_only, form)
+        return exc_info.value.missing_scopes
+
+    # Creating a form is refused, but the workflow alone still pulls.
+    assert await refused(_FORM_BLOCK) == ["form:create", "form:update"]
+    _, plain = await _pull_form_tree(session, workflow_only, None)
+    assert plain.success is True
+    assert await _only_form(session, svc_role) is None
+
+    _, created = await _pull_form_tree(session, svc_role, _FORM_BLOCK)
+    assert created.success is True
+    assert await refused({**_FORM_BLOCK, "title": "Replaced"}) == [
+        "form:create",
+        "form:update",
+    ]
+    # A file without the block would take the online form offline. The import
+    # decides on the row it would clear, so the whole pull rolls back.
+    _, offline = await _pull_form_tree(session, workflow_only, None)
+    assert offline.success is False
+    [diagnostic] = offline.diagnostics
+    assert diagnostic.error_type == "transaction"
+    assert "needs form:update" in diagnostic.message
+    session.expire_all()
+    form = await _only_form(session, svc_role)
+    assert form is not None
+    assert (form.status, form.title) == (FormStatus.ONLINE, "Laptop request")
+
+    # Once cleared, the form has nothing left for a pull without the block
+    # to change, so the workflow pulls again.
+    _, cleared = await _pull_form_tree(session, svc_role, None)
+    assert cleared.success is True
+    _, again = await _pull_form_tree(session, workflow_only, None)
+    assert again.success is True
+
+
+# ----- Pull errors -----
+
+_REMOVED_ACTION = "tools.example.removed"
+_PULL_ERROR_COMMIT = "e" * 40
+
+
+def _workflow_with_action(*, source_id: str, title: str, action: str) -> dict[str, Any]:
+    return _workflow_spec(
+        source_id=source_id,
+        title=title,
+        alias=source_id,
+        folder_path="Examples",
+        actions=[{"ref": "step", "action": action, "args": {}}],
+    )
+
+
+def _missing_action_git_tree() -> dict[str, str]:
+    """Two new workflows; the second, in import order, uses a removed action."""
+    workflows = [
+        _workflow_with_action(
+            source_id="example-a-intake",
+            title="Example intake",
+            action="core.transform.reshape",
+        ),
+        _workflow_with_action(
+            source_id="example-b-enrich",
+            title="Example enrich",
+            action=_REMOVED_ACTION,
+        ),
+    ]
+    tree = {MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())}
+    for workflow in workflows:
+        tree[f"{WORKFLOW_ROOT}/{workflow['id']}/definition.yml"] = _yaml(workflow)
+    return tree
+
+
+async def _pull_missing_action_tree(
+    session: AsyncSession, role: Role, *, dry_run: bool
+) -> PullResult:
+    service = WorkspaceSyncService(session=session, role=role)
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha=_PULL_ERROR_COMMIT,
+        tree_sha="tree-pull-errors",
+        files=_missing_action_git_tree(),
+    )
+    service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="TracecatHQ", repo="git-sync-qa")
+    )
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        return await service.pull(
+            options=PullOptions(commit_sha=_PULL_ERROR_COMMIT, dry_run=dry_run)
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("registry_version_with_manifest")
+async def test_pull_dry_run_names_workflow_and_action_missing_from_registry(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A dry run fails on a new workflow whose action is in no registry, naming both."""
+    result = await _pull_missing_action_tree(session, svc_role, dry_run=True)
+
+    assert result.success is False
+    [diagnostic] = result.diagnostics
+    assert diagnostic.error_type == "dependency"
+    assert diagnostic.workflow_title == "Example enrich"
+    assert diagnostic.message == (
+        "Workflow 'Example enrich' uses action 'tools.example.removed', "
+        "which is in no registry"
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("registry_version_with_manifest")
+async def test_pull_dry_run_resolves_registry_once_for_all_workflows(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A multi-workflow preview resolves one registry lock over the union of its actions."""
+    resolve = RegistryLockService.resolve_lock_with_bindings
+    resolved_action_sets: list[set[str]] = []
+
+    async def counting_resolve(
+        self: RegistryLockService, action_names: set[str]
+    ) -> RegistryLock:
+        resolved_action_sets.append(set(action_names))
+        return await resolve(self, action_names)
+
+    with patch.object(
+        RegistryLockService, "resolve_lock_with_bindings", counting_resolve
+    ):
+        result = await _pull_missing_action_tree(session, svc_role, dry_run=True)
+
+    assert result.success is False
+    assert resolved_action_sets == [{"core.transform.reshape", _REMOVED_ACTION}]
+
+
+@pytest.mark.anyio
+async def test_pull_dry_run_reports_batch_registry_error_once(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """A registry error that isn't about one action is reported once, not per workflow."""
+    pending = BuiltinRegistryHasNoSelectionError(
+        "Builtin registry sync is still in progress. Please retry shortly."
+    )
+    with patch.object(
+        RegistryLockService,
+        "resolve_lock_with_bindings",
+        AsyncMock(side_effect=pending),
+    ):
+        result = await _pull_missing_action_tree(session, svc_role, dry_run=True)
+
+    assert result.success is False
+    [diagnostic] = result.diagnostics
+    assert diagnostic.error_type == "dependency"
+    assert diagnostic.workflow_title is None
+    assert diagnostic.message == str(pending)
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("registry_version_with_manifest")
+async def test_pull_apply_failure_past_validation_is_logged_and_names_workflow(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """An import that fails past validation logs the error and names the workflow and action."""
+    records: list[Record] = []
+    sink_id = logger.add(lambda message: records.append(message.record), level="ERROR")
+    try:
+        with patch.object(
+            WorkflowImportService,
+            "validate_workflows",
+            AsyncMock(return_value=[]),
+        ):
+            result = await _pull_missing_action_tree(session, svc_role, dry_run=False)
+    finally:
+        logger.remove(sink_id)
+
+    assert result.success is False
+    assert result.message == "Workspace import failed on workflow 'Example enrich'"
+    [diagnostic] = result.diagnostics
+    assert diagnostic.error_type == "transaction"
+    assert (
+        diagnostic.workflow_path == f"{WORKFLOW_ROOT}/example-b-enrich/definition.yml"
+    )
+    assert diagnostic.workflow_title == "Example enrich"
+    assert diagnostic.message.startswith(
+        "Failed to import workflow 'Example enrich': "
+        "Action 'tools.example.removed' not found in any registry."
+    )
+    [record] = [
+        record
+        for record in records
+        if record["message"] == "Workspace import transaction failed"
+    ]
+    assert record["exception"] is not None
+    assert record["extra"]["workspace_id"] == str(svc_role.workspace_id)
+    assert record["extra"]["commit_sha"] == _PULL_ERROR_COMMIT
+    assert record["extra"]["workflow_path"] == diagnostic.workflow_path
+    # The first workflow imported before the failure; the rollback undid it.
+    workflow_count = await session.scalar(
+        select(func.count())
+        .select_from(Workflow)
+        .where(Workflow.workspace_id == svc_role.workspace_id)
+    )
+    assert workflow_count == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("registry_version_with_manifest")
+async def test_pull_validation_resolves_registry_for_existing_workflow_updates(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    """An update gets an unlocked definition too, so validation rejects its missing action."""
+    session.add(
+        Workflow(
+            workspace_id=svc_role.workspace_id,
+            title="Example enrich",
+            description="Existing workflow synced before the action was removed",
+            alias="example-b-enrich",
+        )
+    )
+    await session.flush()
+    snapshot = WorkspaceRemoteSnapshot(
+        commit_sha=_PULL_ERROR_COMMIT,
+        files={},
+        spec=WorkspaceSpec(
+            workflows={
+                "example-b-enrich": WorkflowResourceSpec.model_validate(
+                    _workflow_with_action(
+                        source_id="example-b-enrich",
+                        title="Example enrich",
+                        action=_REMOVED_ACTION,
+                    )
+                )
+            }
+        ),
+    )
+
+    diagnostics = await WorkspaceSyncService(
+        session=session,
+        role=svc_role,
+    )._validate_workflow_import(snapshot)
+
+    [diagnostic] = diagnostics
+    assert diagnostic.error_type == "dependency"
+    assert diagnostic.message == (
+        "Workflow 'Example enrich' uses action 'tools.example.removed', "
+        "which is in no registry"
+    )

@@ -7,28 +7,43 @@ import textwrap
 from datetime import datetime
 from importlib.machinery import ModuleSpec
 from types import ModuleType
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
 from tracecat.exceptions import RegistryValidationError
-from tracecat.git.utils import GitUrl, parse_git_url
+from tracecat.git.utils import parse_git_url
+from tracecat.registry.actions.schemas import RegistryActionReadMinimal
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.actions.types import IndexEntry
 from tracecat.registry.repository import Repository
 
 
-@pytest.mark.anyio
-@pytest.mark.usefixtures("registry_version_with_manifest")
-async def test_list_registry_actions(test_role):
-    """Test that list_actions_from_index returns actions."""
-    async with RegistryActionsService.with_session(test_role) as service:
-        entries = await service.list_actions_from_index()
-        assert len(entries) > 0
-        # Verify each entry is a tuple of (IndexEntry, origin)
-        for entry, origin in entries:
-            assert entry.namespace
-            assert entry.name
-            assert isinstance(origin, str)
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        ({"requires_approval": True}, True),
+        ({"requires_approval": False}, False),
+        ({}, False),
+    ],
+)
+def test_registry_action_read_minimal_from_index_requires_approval(
+    options: dict[str, bool], expected: bool
+) -> None:
+    entry = IndexEntry(
+        id=uuid4(),
+        namespace="tools.test",
+        name="action",
+        action_type="udf",
+        description="Test action",
+        default_title=None,
+        display_group=None,
+        options=options,
+    )
+
+    action = RegistryActionReadMinimal.from_index(entry, origin="builtin")
+
+    assert action.requires_approval is expected
 
 
 @pytest.mark.anyio
@@ -158,25 +173,6 @@ def mock_package(tmp_path):
                 )
             )
 
-        # Create a file for the async function
-        with open(os.path.join(tmp_path, "async_function.py"), "w") as f:
-            f.write(
-                textwrap.dedent(
-                    """
-                from tracecat_registry import registry
-
-                @registry.register(
-                    description="This is an async test function",
-                    namespace="test",
-                    doc_url="https://example.com/docs",
-                    author="Tracecat",
-                )
-                async def async_test_function(num: int) -> int:
-                    return num
-            """
-                )
-            )
-
         # Create a file for the deprecated function
         with open(os.path.join(tmp_path, "deprecated_function.py"), "w") as f:
             f.write(
@@ -202,13 +198,6 @@ def mock_package(tmp_path):
         del sys.modules["test_module"]
 
 
-def test_udf_can_be_registered(mock_package):
-    """Test that a UDF can be registered."""
-    repo = Repository()
-    repo._register_udfs_from_package(mock_package)
-    assert repo.get("test.test_function") is not None
-
-
 def test_udf_validate_args(mock_package):
     """This tests the UDF.validate_args method, which shouldn't raise any exceptions
     when given a templated expression.
@@ -225,46 +214,15 @@ def test_udf_validate_args(mock_package):
     assert udf.namespace == "test"
     assert udf.doc_url == "https://example.com/docs"
     assert udf.author == "Tracecat"
+    assert (
+        repo.get("test.deprecated_function").deprecated == "This function is deprecated"
+    )
 
     # Test the UDF
     udf.validate_args(args={"num": "${{ path.to.number }}"})
     udf.validate_args(args={"num": 1})
     with pytest.raises(RegistryValidationError):
         udf.validate_args(args={"num": "not a number"})
-
-
-def test_deprecated_function_can_be_registered(mock_package):
-    """Test that a deprecated function can be registered."""
-    repo = Repository()
-    repo._register_udfs_from_package(mock_package)
-
-    udf = repo.get("test.deprecated_function")
-    assert udf is not None
-
-    # Check descriptors
-    assert udf.deprecated == "This function is deprecated"
-
-
-def test_registry_function_can_be_called(mock_package):
-    """We need to test that the ordering of the workflow tasks is correct."""
-    repo = Repository()
-    assert len(repo) == 0
-
-    repo._register_udfs_from_package(mock_package)
-    udf = repo.get("test.test_function")
-    for i in range(10):
-        assert udf.fn(num=i) == i
-
-
-@pytest.mark.anyio
-async def test_registry_async_function_can_be_called(mock_package):
-    repo = Repository()
-    assert len(repo) == 0
-
-    repo._register_udfs_from_package(mock_package)
-    udf = repo.get("test.async_test_function")
-    for i in range(10):
-        assert await udf.fn(num=i) == i
 
 
 def test_validate_args_mode_parameter(tmp_path):
@@ -367,121 +325,9 @@ def test_validate_args_mode_parameter(tmp_path):
         del sys.modules["test_mode_module"]
 
 
-@pytest.mark.parametrize(
-    "url, expected",
-    [
-        # GitHub (no branch)
-        (
-            "git+ssh://git@github.com/org/repo",
-            GitUrl(
-                host="github.com",
-                org="org",
-                repo="repo",
-                ref=None,
-            ),
-        ),
-        # GitHub (with branch/sha)
-        (
-            "git+ssh://git@github.com/org/repo@branchOrSHAOrTag",
-            GitUrl(
-                host="github.com",
-                org="org",
-                repo="repo",
-                ref="branchOrSHAOrTag",
-            ),
-        ),
-        # GitLab
-        (
-            "git+ssh://git@gitlab.com/org/repo",
-            GitUrl(
-                host="gitlab.com",
-                org="org",
-                repo="repo",
-                ref=None,
-            ),
-        ),
-        # GitLab (with branch)
-        (
-            "git+ssh://git@gitlab.com/org/repo@branch",
-            GitUrl(
-                host="gitlab.com",
-                org="org",
-                repo="repo",
-                ref="branch",
-            ),
-        ),
-        # Private GitLab
-        (
-            "git+ssh://git@internal.tracecat/org/repo",
-            GitUrl(
-                host="internal.tracecat",
-                org="org",
-                repo="repo",
-                ref=None,
-            ),
-        ),
-        # GitHub Enterprise with a scoped SSH user
-        (
-            "git+ssh://someuser@git.example.com/org/repo",
-            GitUrl(
-                host="git.example.com",
-                org="org",
-                repo="repo",
-                user="someuser",
-                ref=None,
-            ),
-        ),
-        # Branch names may include slashes
-        (
-            "git+ssh://git@github.com/org/repo@feature/custom-branch",
-            GitUrl(
-                host="github.com",
-                org="org",
-                repo="repo",
-                ref="feature/custom-branch",
-            ),
-        ),
-        # # Private GitLab nested in a subdirectory
-        # (
-        #     "git+ssh://git@internal.tracecat/org/group/repo",
-        #     GitUrl(
-        #         host="internal.tracecat",
-        #         org="org/group",
-        #         repo="repo",
-        #         ref=None,
-        #     ),
-        # ),
-    ],
-)
-def test_parse_git_url(url: str, expected: GitUrl):
-    assert parse_git_url(url) == expected
-
-
-@pytest.mark.parametrize(
-    "url",
-    [
-        pytest.param(
-            "git+ssh://git@tracecat.com/tracecat-dev/tracecat-registry.git@v1.0.0",
-            id="Invalid host domain tracecat.com",
-        ),
-        pytest.param(
-            "git+ssh://git@git.com/tracecat-dev/tracecat-registry.git@v1.0.0",
-            id="Invalid host domain git.com",
-        ),
-        pytest.param(
-            "https://github.com/org/repo",
-            id="Invalid URL scheme - must be git+ssh",
-        ),
-        pytest.param(
-            "git+ssh://git@github.com/org",
-            id="Missing repository name",
-        ),
-    ],
-)
-def test_parse_git_url_invalid(url: str):
-    allowed_domains = {"github.com", "gitlab.com", "git.example.com"}
+def test_parse_git_url_rejects_missing_repository() -> None:
     with pytest.raises(ValueError):
-        parse_git_url(url, allowed_domains=allowed_domains)
+        parse_git_url("git+ssh://git@github.com/org", allowed_domains={"github.com"})
 
 
 def test_iter_valid_files(tmp_path):

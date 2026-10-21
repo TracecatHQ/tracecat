@@ -1,0 +1,59 @@
+type: action
+definition:
+  title: Search audit events (RQL)
+  description: Returns the results of an RQL audit event query. Use event queries to detect and investigate console and API access, monitor privileged activities, and detect account compromise and unusual user behavior. Calls POST /search/event directly.
+  display_group: Palo Alto Networks (Prisma Cloud)
+  doc_url: https://pan.dev/prisma-cloud/api/cspm/search-events/
+  namespace: tools.pan_prisma
+  name: search_events
+  secrets:
+  - name: pan_prisma
+    keys:
+    - PRISMA_ACCESS_KEY_ID
+    - PRISMA_SECRET_KEY
+  expects:
+    query:
+      type: str
+      description: RQL query, e.g. event from cloud.audit_logs where operation = 'ConsoleLogin'.
+    timeRange:
+      type: dict[str, Any]
+      description: 'Time range object, see the Prisma Cloud Time Range Model. Examples: {"type": "relative", "value": {"amount": 24, "unit": "hour"}}, {"type": "to_now", "value": "epoch"}, or {"type": "absolute", "value": {"startTime": 1700000000000, "endTime": 1700086400000}}.'
+    limit:
+      type: int | None
+      description: Limit.
+      default: null
+    sort:
+      type: list[dict[str, Any]] | None
+      description: 'Sort fields, e.g. [{"field": "time", "direction": "desc"}].'
+      default: null
+    base_url:
+      type: str | None
+      description: Prisma Cloud API URL for your tenant's stack, e.g. https://api.prismacloud.io, https://api2.prismacloud.io or https://api.eu.prismacloud.io. Falls back to the workspace variable pan_prisma.base_url.
+      default: null
+  steps:
+  - ref: login
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.pan_prisma.base_url }}/login
+      method: POST
+      headers:
+        Accept: application/json
+        Content-Type: application/json
+      payload:
+        username: ${{ SECRETS.pan_prisma.PRISMA_ACCESS_KEY_ID }}
+        password: ${{ SECRETS.pan_prisma.PRISMA_SECRET_KEY }}
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.pan_prisma.base_url }}/search/event
+      method: POST
+      headers:
+        x-redlock-auth: ${{ steps.login.result.data.token }}
+        Accept: application/json
+        Content-Type: application/json
+      payload:
+        query: ${{ inputs.query }}
+        timeRange: ${{ inputs.timeRange }}
+        limit: ${{ inputs.limit }}
+        sort: ${{ inputs.sort }}
+  returns: ${{ steps.request.result }}

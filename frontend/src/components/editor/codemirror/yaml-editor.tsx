@@ -3,12 +3,7 @@
 import { closeBrackets } from "@codemirror/autocomplete"
 import { history } from "@codemirror/commands"
 import { yaml } from "@codemirror/lang-yaml"
-import {
-  bracketMatching,
-  HighlightStyle,
-  indentUnit,
-  syntaxHighlighting,
-} from "@codemirror/language"
+import { bracketMatching, indentUnit } from "@codemirror/language"
 import { type Diagnostic, linter, lintGutter } from "@codemirror/lint"
 import { EditorState } from "@codemirror/state"
 import {
@@ -19,15 +14,14 @@ import {
   ViewPlugin,
   type ViewUpdate,
 } from "@codemirror/view"
-import { tags } from "@lezer/highlight"
 import CodeMirror from "@uiw/react-codemirror"
 import { AlertTriangle, Check } from "lucide-react"
 import { useTheme } from "next-themes"
 import React, { useCallback, useMemo, useRef, useState } from "react"
 import { type Control, type FieldValues, useController } from "react-hook-form"
-import YAML from "yaml"
 import type { ActionRead } from "@/client"
 import { cn } from "@/lib/utils"
+import { parseYaml, stringifyYaml } from "@/lib/yaml"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -38,6 +32,7 @@ import {
   templatePillTheme,
 } from "./common"
 import { createSimpleTemplatePlugin } from "./highlight-plugin"
+import { tracecatSyntaxHighlighting } from "./syntax-highlight"
 
 const stripNewline = (value: string) => {
   return value.endsWith("\n") ? value.slice(0, -1) : value
@@ -80,7 +75,7 @@ export const YamlStyledEditor = React.forwardRef<
     () =>
       stripNewline(
         field.value
-          ? YAML.stringify(field.value, {
+          ? stringifyYaml(field.value, {
               lineWidth: 0, // Disable line wrapping
               minContentWidth: 0, // Allow content to extend beyond default width
             })
@@ -131,7 +126,7 @@ export const YamlStyledEditor = React.forwardRef<
   // Using refs to make this function stable and avoid extension recreation
   const commitToForm = useCallback(() => {
     try {
-      const obj = YAML.parse(bufferRef.current)
+      const obj = parseYaml(bufferRef.current)
       fieldRef.current.onChange(obj) // Push valid object to RHF
       setValidationErrors([])
       setHasErrors(false)
@@ -162,7 +157,7 @@ export const YamlStyledEditor = React.forwardRef<
   // Debounced validation for visual feedback to reduce re-renders during typing
   const validateYaml = useCallback((text: string) => {
     try {
-      YAML.parse(text)
+      parseYaml(text)
       setValidationErrors([])
       return true
     } catch (err) {
@@ -229,7 +224,7 @@ export const YamlStyledEditor = React.forwardRef<
           try {
             const content = view.state.doc.toString()
             if (content.trim()) {
-              YAML.parse(content)
+              parseYaml(content)
             }
             setHasErrors(false)
           } catch (_error) {
@@ -246,7 +241,7 @@ export const YamlStyledEditor = React.forwardRef<
       history(),
       indentUnit.of("  "),
       yaml(),
-      syntaxHighlighting(yamlSyntaxTheme),
+      tracecatSyntaxHighlighting,
       linter(customYamlLinter),
 
       bracketMatching(),
@@ -417,7 +412,7 @@ function customYamlLinter(view: EditorView): Diagnostic[] {
   }
 
   try {
-    YAML.parse(content)
+    parseYaml(content)
   } catch (error) {
     if (!(error instanceof Error)) {
       return []
@@ -466,28 +461,6 @@ function customYamlLinter(view: EditorView): Diagnostic[] {
   return diagnostics
 }
 
-const yamlSyntaxTheme = HighlightStyle.define([
-  { tag: tags.content, color: "hsl(var(--syntax-content))" },
-  {
-    tag: tags.propertyName,
-    color: "hsl(var(--syntax-property))",
-    fontWeight: "500",
-  },
-  { tag: tags.string, color: "hsl(var(--syntax-string))" },
-  { tag: tags.number, color: "hsl(var(--syntax-number))" },
-  { tag: tags.bool, color: "hsl(var(--syntax-literal))" },
-  { tag: tags.atom, color: "hsl(var(--syntax-literal))", fontWeight: "600" },
-  { tag: tags.keyword, color: "hsl(var(--syntax-literal))" },
-  {
-    tag: tags.comment,
-    color: "hsl(var(--syntax-comment))",
-    fontStyle: "italic",
-  },
-  {
-    tag: [tags.punctuation, tags.bracket, tags.brace],
-    color: "hsl(var(--syntax-content))",
-  },
-])
 const yamlEditorTheme = EditorView.theme({
   ".cm-content": {
     whiteSpace: "pre !important",
@@ -788,7 +761,7 @@ export function YamlViewOnlyEditor({
     return stripNewline(
       typeof value === "string"
         ? value
-        : YAML.stringify(value, {
+        : stringifyYaml(value, {
             lineWidth: 0, // Disable line wrapping
             minContentWidth: 0, // Allow content to extend beyond default width
           })
@@ -802,7 +775,7 @@ export function YamlViewOnlyEditor({
       // Core language support with proper indentation
       indentUnit.of("  "),
       yaml(),
-      syntaxHighlighting(yamlSyntaxTheme),
+      tracecatSyntaxHighlighting,
       bracketMatching(),
 
       // Read-only configuration

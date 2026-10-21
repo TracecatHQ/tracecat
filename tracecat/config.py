@@ -5,6 +5,7 @@ from enum import StrEnum
 from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import Literal, cast
 
+from tracecat import __version__
 from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
 from tracecat.auth.enums import AuthType
 from tracecat.executor.enums import ExecutorBackendType
@@ -219,6 +220,30 @@ TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED = env_bool(
     "TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED", default=True
 )
 """Prefer SquashFS registry artifacts when sidecars and mount support are available."""
+
+TRACECAT__EXECUTOR_SQUASHFS_MOUNT_MAX_ATTEMPTS = bound_env(
+    "TRACECAT__EXECUTOR_SQUASHFS_MOUNT_MAX_ATTEMPTS",
+    3,
+    lower=1,
+)
+"""Mount attempts per SquashFS artifact before falling back to extraction.
+
+Losers of a node-wide loop-device race retry; raise this before raising
+in-pod mount concurrency."""
+
+TRACECAT__EXECUTOR_REGISTRY_DOWNLOAD_SLOTS = bound_env(
+    "TRACECAT__EXECUTOR_REGISTRY_DOWNLOAD_SLOTS", 2, lower=1
+)
+"""Concurrent cold registry artifact downloads per executor process.
+
+Each download reserves its bytes against the cache cap before writing."""
+
+TRACECAT__EXECUTOR_REGISTRY_EXTRACT_SLOTS = bound_env(
+    "TRACECAT__EXECUTOR_REGISTRY_EXTRACT_SLOTS", 1, lower=1
+)
+"""Concurrent registry artifact extractions per executor process.
+
+unsquashfs already uses every visible core, so one is the default."""
 
 TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES = int(
     os.environ.get("TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES") or 64
@@ -697,7 +722,22 @@ TRACECAT__SANDBOX_DEFAULT_TIMEOUT = int(
 TRACECAT__SANDBOX_DEFAULT_MEMORY_MB = int(
     os.environ.get("TRACECAT__SANDBOX_DEFAULT_MEMORY_MB") or 2048
 )
-"""Default memory limit for sandbox execution in megabytes (2 GiB)."""
+"""Aggregate cgroup memory budget for action and Python sandboxes in MiB."""
+if TRACECAT__SANDBOX_DEFAULT_MEMORY_MB <= 0:
+    raise ValueError("TRACECAT__SANDBOX_DEFAULT_MEMORY_MB must be positive")
+
+_sandbox_address_space_mb = os.environ.get(
+    "TRACECAT__SANDBOX_ADDRESS_SPACE_MB", ""
+).strip()
+TRACECAT__SANDBOX_ADDRESS_SPACE_MB = (
+    int(_sandbox_address_space_mb) if _sandbox_address_space_mb else None
+)
+"""Per-process address-space cap in MiB; defaults to twice the memory budget."""
+if (
+    TRACECAT__SANDBOX_ADDRESS_SPACE_MB is not None
+    and TRACECAT__SANDBOX_ADDRESS_SPACE_MB <= 0
+):
+    raise ValueError("TRACECAT__SANDBOX_ADDRESS_SPACE_MB must be positive")
 
 TRACECAT__SANDBOX_PYPI_INDEX_URL = os.environ.get(
     "TRACECAT__SANDBOX_PYPI_INDEX_URL", "https://pypi.org/simple"
@@ -850,6 +890,15 @@ TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS = env_networks(
 )
 """Deployment-specific CIDRs blocked in addition to the filtered baseline."""
 
+TRACECAT__SANDBOX_DNS_ALLOWED_EGRESS_CIDRS = env_networks(
+    "TRACECAT__SANDBOX_DNS_ALLOWED_EGRESS_CIDRS"
+)
+"""Additional CIDRs reachable from sandboxes on TCP/UDP port 53 only.
+
+CNIs with socket-level load balancing (for example Cilium with socket LB)
+rewrite the resolver ClusterIP to a backend pod IP before the packet reaches
+NSTUN. List the backend CIDR here so DNS to those addresses is allowed."""
+
 TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS = env_bool(
     "TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS", default=False
 )
@@ -870,7 +919,28 @@ TRACECAT__EXECUTOR_BACKEND = ExecutorBackendType.from_config(
 TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
     os.environ.get("TRACECAT__EXECUTOR_CLIENT_TIMEOUT") or 300
 )
-"""Default timeout in seconds for executor client operations (default: 300s)."""
+"""Maximum seconds one action function call may run (default: 300s).
+
+The executor caps each UDF subprocess call at this value and uses it as the
+action timeout when the timeout is 0. Template totals and run_python follow the
+action's own timeout. Agent services also use it to bound executor tool calls."""
+
+TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT = float(
+    os.environ.get("TRACECAT__EXECUTOR_ACTIVITY_PLATFORM_TIMEOUT") or 600
+)
+"""Seconds added to an action's timeout for the executor activity's start-to-close timeout.
+
+The action timeout budgets only the action function call. This allowance covers
+platform work in the same activity (context materialization, secret resolution,
+registry artifacts, sandbox startup, and result storage)."""
+
+TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE = float(
+    os.environ.get("TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE") or 60
+)
+"""Seconds an action subprocess may run beyond the action timeout before it is killed.
+
+Covers sandbox startup, imports, and result serialization around the timed
+function call, which the action runner enforces itself."""
 
 # === Action Gateway === #
 TRACECAT__ACTION_GATEWAY_SOCKET = (
@@ -1370,6 +1440,75 @@ ENTERPRISE_EDITION = env_bool("ENTERPRISE_EDITION", default=False)
 
 TRACECAT__EE_MULTI_TENANT = env_bool("TRACECAT__EE_MULTI_TENANT", default=False)
 """Whether multi-tenant features are enabled for Enterprise Edition."""
+
+# === Managed tunnels (Pangolin) === #
+TRACECAT__PANGOLIN_ENDPOINT = os.environ.get("TRACECAT__PANGOLIN_ENDPOINT")
+"""Pangolin server URL that sites and machine clients connect to, e.g. Pangolin Cloud."""
+
+TRACECAT__PANGOLIN_API_URL = os.environ.get("TRACECAT__PANGOLIN_API_URL")
+"""Pangolin Integration API base URL (ending in /v1) used to provision managed tunnels."""
+
+TRACECAT__PANGOLIN_ORG_ID = os.environ.get("TRACECAT__PANGOLIN_ORG_ID")
+"""Pangolin organization that holds every managed tunnel's site, client, and resources."""
+
+TRACECAT__PANGOLIN_API_KEY = os.environ.get("TRACECAT__PANGOLIN_API_KEY")
+"""Pangolin organization API key. Managed tunnels are disabled when unset."""
+
+TRACECAT__PANGOLIN_API_KEY__ARN = os.environ.get("TRACECAT__PANGOLIN_API_KEY__ARN")
+"""AWS Secrets Manager ARN holding the Pangolin API key. Takes precedence over
+``TRACECAT__PANGOLIN_API_KEY``. Only the API service reads it."""
+
+# === Tunnel gateways === #
+TRACECAT__TUNNEL_GATEWAY_BACKEND = (
+    os.environ.get("TRACECAT__TUNNEL_GATEWAY_BACKEND", "none").strip().lower()
+)
+"""Who runs tunnel gateways: ``kubernetes`` (the API creates one per tunnel) or
+``none`` (gateways are run by hand, e.g. Docker Compose and most self-hosted installs)."""
+
+TRACECAT__TUNNEL_GATEWAY_NAMESPACE = os.environ.get(
+    "TRACECAT__TUNNEL_GATEWAY_NAMESPACE", "tracecat-tunnels"
+)
+"""Kubernetes namespace that holds tunnel gateway objects."""
+
+TRACECAT__TUNNEL_GATEWAY_IMAGE = os.environ.get(
+    "TRACECAT__TUNNEL_GATEWAY_IMAGE",
+    f"ghcr.io/tracecathq/tracecat-tunnel-gateway:{__version__}",
+)
+"""Container image for tunnel gateways created by the ``kubernetes`` backend.
+
+Defaults to this release's version tag. Pin a digest for an immutable image.
+"""
+
+TRACECAT__TUNNEL_GATEWAY_BLOCKED_CIDRS = env_networks(
+    "TRACECAT__TUNNEL_GATEWAY_BLOCKED_CIDRS"
+)
+"""Extra CIDRs, such as cluster pod and service ranges, that gateways never dial."""
+
+TRACECAT__TUNNEL_GATEWAY_API_URL = os.environ.get(
+    "TRACECAT__TUNNEL_GATEWAY_API_URL", TRACECAT__API_URL
+)
+"""Tracecat API URL that gateways poll for their policy."""
+
+TRACECAT__TUNNEL_GATEWAY_TUN_RESOURCE = os.environ.get(
+    "TRACECAT__TUNNEL_GATEWAY_TUN_RESOURCE", "squat.ai/tun"
+)
+"""Extended resource that grants a gateway pod ``/dev/net/tun``. Empty disables the request."""
+
+TRACECAT__TUNNEL_GATEWAY_RECONCILE_INTERVAL = float(
+    os.environ.get("TRACECAT__TUNNEL_GATEWAY_RECONCILE_INTERVAL") or 60
+)
+"""Seconds between reconciles of gateway objects against tunnels."""
+
+TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE = (
+    os.environ.get("TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE")
+    or f"tunnel-{{tunnel_id}}.{TRACECAT__TUNNEL_GATEWAY_NAMESPACE}.svc.cluster.local"
+)
+"""Host executors use to reach a tunnel's gateway. ``{tunnel_id}`` is replaced."""
+
+TRACECAT__TUNNEL_GATEWAY_PORT = int(
+    os.environ.get("TRACECAT__TUNNEL_GATEWAY_PORT") or 8080
+)
+"""Port tunnel gateways listen on."""
 
 # === Feature Flags === #
 TRACECAT__FEATURE_FLAGS: set[FeatureFlag] = set()

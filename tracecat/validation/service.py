@@ -8,6 +8,7 @@ from pydantic import (
     ConfigDict,
     ValidationError,
 )
+from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import (
@@ -18,7 +19,12 @@ from tracecat_registry import (
 from tracecat.auth.types import Role
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.dsl.common import DSLInput, ExecuteSubflowArgs
+from tracecat.db.models import WorkspaceTunnel
+from tracecat.dsl.common import (
+    DSLInput,
+    ExecuteSubflowArgs,
+    dependency_cycle_message,
+)
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.exceptions import RegistryValidationError, TracecatNotFoundError
@@ -33,13 +39,12 @@ from tracecat.expressions.validator.validator import (
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
-from tracecat.interactions.schemas import ResponseInteraction
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.secrets.service import SecretsService, secret_key_names
-from tracecat.tiers.entitlements import Entitlement, EntitlementService
-from tracecat.tiers.service import TierService
+from tracecat.tiers.access import is_org_entitled
+from tracecat.tiers.enums import Entitlement
 from tracecat.validation.common import json_schema_to_pydantic
 from tracecat.validation.schemas import (
     ActionValidationResult,
@@ -50,11 +55,6 @@ from tracecat.validation.schemas import (
     ValidationDetail,
     ValidationResult,
 )
-
-PERMITTED_INTERACTION_ACTIONS = [
-    "tools.slack.post_message",
-    "tools.slack.update_message",
-]
 
 
 def get_effective_environment(stmt: ActionStatement, default_environment: str) -> str:
@@ -375,7 +375,6 @@ async def validate_dsl_actions(
     """
     val_res: list[ActionValidationResult] = []
     # Validate the actions
-    agent_addons_entitled: bool | None = None
     for act_stmt in dsl.actions:
         details: list[ValidationDetail] = []
         # We validate the action args, but keep them as is
@@ -391,31 +390,6 @@ async def validate_dsl_actions(
         if result.status == "error" and result.detail:
             details.extend(result.detail)
 
-        # Entitlement gate: tool approvals are an enterprise feature
-        if (
-            act_stmt.action == "ai.agent"
-            and act_stmt.args.get("tool_approvals") is not None
-        ):
-            if agent_addons_entitled is None:
-                if role.organization_id is None:
-                    raise ValueError(
-                        "Role must have organization_id to validate entitlements"
-                    )
-                entitlement_svc = EntitlementService(TierService(session))
-                agent_addons_entitled = await entitlement_svc.is_entitled(
-                    role.organization_id, Entitlement.AGENT_ADDONS
-                )
-            if not agent_addons_entitled:
-                details.append(
-                    ValidationDetail(
-                        type="action",
-                        msg=(
-                            "`tool_approvals` requires the 'agent_addons' entitlement. "
-                            "Remove the field or upgrade your plan."
-                        ),
-                        loc=(act_stmt.ref, "tool_approvals"),
-                    )
-                )
         # Validate `run_if`
         if act_stmt.run_if and not is_template_only(act_stmt.run_if):
             details.append(
@@ -455,28 +429,6 @@ async def validate_dsl_actions(
                         type="action",
                         msg=f"Invalid `for_each` of type {type(act_stmt.for_each)}.",
                         loc=(act_stmt.ref, "for_each"),
-                    )
-                )
-        # Validate `interaction`
-        match act_stmt.interaction:
-            case ResponseInteraction():
-                if act_stmt.action not in PERMITTED_INTERACTION_ACTIONS:
-                    details.append(
-                        ValidationDetail(
-                            type="action",
-                            msg=f"Response interactions are only supported for the following actions:\n"
-                            f"{('\n'.join(f'- {x}' for x in PERMITTED_INTERACTION_ACTIONS))}\n",
-                            loc=(act_stmt.ref, "interaction"),
-                        )
-                    )
-            case None:
-                pass
-            case _:
-                details.append(
-                    ValidationDetail(
-                        type="action",
-                        msg=f"Unsupported `interaction` of type {type(act_stmt.interaction)}.",
-                        loc=(act_stmt.ref, "interaction"),
                     )
                 )
         if details:
@@ -643,10 +595,82 @@ def validate_entrypoint_expects(
     return results
 
 
+def validate_dsl_acyclic(dsl: DSLInput) -> list[DSLValidationResult]:
+    """Validate that action dependencies contain no cycles."""
+    if blocked := dsl.blocked_refs():
+        return [
+            DSLValidationResult(status="error", msg=dependency_cycle_message(blocked))
+        ]
+    return []
+
+
 def validate_dsl_entrypoint(dsl: DSLInput) -> list[DSLValidationResult]:
     """Validate the DSL entrypoint schema."""
 
     return validate_entrypoint_expects(dsl.entrypoint.expects)
+
+
+async def validate_dsl_tunnels(
+    session: AsyncSession, dsl: DSLInput, *, role: Role
+) -> list[DSLValidationResult]:
+    """Check every tunnel the workflow uses exists in the workspace and is entitled.
+
+    The executor repeats these checks at runtime; this catches mistakes at
+    commit and publish time instead.
+    """
+    uses: list[tuple[str | None, str]] = []
+    if dsl.config.tunnel:
+        uses.append((None, dsl.config.tunnel))
+    for act_stmt in dsl.actions:
+        if act_stmt.tunnel:
+            uses.append((act_stmt.ref, act_stmt.tunnel))
+    if not uses:
+        return []
+
+    if role.organization_id is None or role.workspace_id is None:
+        return [
+            DSLValidationResult(
+                status="error", msg="Tunnels require a workspace context"
+            )
+        ]
+    if not await is_org_entitled(session, role.organization_id, Entitlement.TUNNELS):
+        return [
+            DSLValidationResult(
+                status="error",
+                msg="Tunnels are not available on your current plan",
+                ref=ref,
+            )
+            for ref, _ in uses
+        ]
+
+    result = await session.execute(
+        select(WorkspaceTunnel.name).where(
+            WorkspaceTunnel.workspace_id == role.workspace_id,
+            WorkspaceTunnel.name.in_({name for _, name in uses}),
+        )
+    )
+    existing = set(result.scalars().all())
+    errors = [
+        DSLValidationResult(
+            status="error",
+            msg=f"Tunnel {name!r} not found in this workspace",
+            ref=ref,
+        )
+        for ref, name in uses
+        if name not in existing
+    ]
+    errors.extend(
+        DSLValidationResult(
+            status="error",
+            msg=f"Action {act_stmt.action!r} cannot use a tunnel",
+            ref=act_stmt.ref,
+        )
+        for act_stmt in dsl.actions
+        # The workflow default skips platform actions; only an explicit
+        # per-action tunnel on one is an error.
+        if act_stmt.tunnel and PlatformAction.is_interface(act_stmt.action)
+    )
+    return errors
 
 
 async def validate_dsl(
@@ -670,6 +694,7 @@ async def validate_dsl(
         return set()
 
     iterables: list[ValidationResult] = []
+    iterables.extend(ValidationResult.new(err) for err in validate_dsl_acyclic(dsl))
 
     # Tier 1: Entrypoint schema validation
     if validate_entrypoint:
@@ -687,6 +712,9 @@ async def validate_dsl(
             f"{len(dsl_args_errs)} DSL args validation errors", errs=dsl_args_errs
         )
         iterables.extend(ValidationResult.new(err) for err in dsl_args_errs)
+
+    tunnel_errs = await validate_dsl_tunnels(session, dsl, role=role)
+    iterables.extend(ValidationResult.new(err) for err in tunnel_errs)
 
     # Tier 3: Expression validation
     # When we reach this point, the inputs have been validated properly (ignoring templated expressions)

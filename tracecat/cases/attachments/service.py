@@ -15,7 +15,10 @@ from sqlalchemy.orm import selectinload
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.cases.attachments.schemas import CaseAttachmentCreate
-from tracecat.cases.schemas import AttachmentCreatedEvent, AttachmentDeletedEvent
+from tracecat.cases.event_schemas import (
+    AttachmentCreatedEvent,
+    AttachmentDeletedEvent,
+)
 from tracecat.contexts import ctx_run
 from tracecat.db.models import Case, CaseAttachment, File, Workspace
 from tracecat.exceptions import (

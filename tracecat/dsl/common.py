@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
@@ -20,6 +21,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic.json_schema import SkipJsonSchema
 from pydantic_core import PydanticCustomError
 from temporalio import workflow
 from temporalio.common import RetryPolicy, TypedSearchAttributes
@@ -42,6 +44,7 @@ from tracecat.dsl.schemas import (
     DSLEnvironment,
     DSLExecutionError,
     ExecutionContext,
+    FixedActionResult,
     RunContext,
     StreamID,
     TaskResult,
@@ -68,7 +71,6 @@ from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import ActionID
 from tracecat.identifiers.schedules import ScheduleUUID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
-from tracecat.interactions.schemas import ActionInteractionValidator
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.object import CollectionObject, InlineObject, StoredObject
@@ -129,6 +131,48 @@ class DSLEntrypoint(BaseModel):
         ),
     )
     """Trigger input schema."""
+    expects_order: SkipJsonSchema[Any] = Field(default=None, exclude=True)
+    """Author's key order for ``expects``. Load-only.
+
+    JSONB storage does not keep object key order, so stored workflows carry the
+    order as a list next to ``expects``. It is applied once at validation and
+    never serialized. It is only a presentation hint: a malformed one is
+    ignored rather than stopping a run.
+    """
+
+    @model_validator(mode="after")
+    def _apply_expects_order(self) -> Self:
+        if self.expects_order is None:
+            return self
+        self.expects = apply_expects_order(self.expects, self.expects_order)
+        # The hint is spent. Clearing it keeps a loaded entrypoint equal to the
+        # one that was saved.
+        self.expects_order = None
+        self.model_fields_set.discard("expects_order")
+        return self
+
+
+def apply_expects_order[T](
+    expects: Mapping[str, T] | None, order: object
+) -> dict[str, T] | None:
+    """Return ``expects`` with the keys named in ``order`` first.
+
+    Other keys follow in their existing order. ``order`` is read from storage,
+    so anything that is not a list of names is ignored.
+    """
+    if expects is None:
+        return None
+    if not isinstance(order, list | tuple) or not all(
+        isinstance(name, str) for name in order
+    ):
+        return dict(expects)
+    ordered = {name: expects[name] for name in order if name in expects}
+    return ordered | {name: expects[name] for name in expects if name not in ordered}
+
+
+def expects_key_order(expects: Mapping[str, Any] | None) -> list[str] | None:
+    """Return the key order of ``expects`` for storage, or None if empty."""
+    return list(expects) if expects else None
 
 
 def key2loc(key: str) -> str:
@@ -245,7 +289,6 @@ class DSLInput(BaseModel):
         - We need to map all actions to a scope.
         - Traverse the graph and map out the scopes
         - Outer scope ACTIONS cannot reference inner scope ACTIONS
-        - We need to validate that no actions outside the scope reference actions inside the scope.
         - We need to validate that no actions outside the scope reference actions inside the scope.
         """
         # Find scope open and close actions
@@ -658,9 +701,11 @@ class DSLInput(BaseModel):
     ) -> tuple[dict[str, str], dict[str, str | None], dict[str, str]]:
         """Assign scope IDs to actions using topological sort.
 
-        Returns a mapping of action ref -> scope ID.
-        Raises TracecatDSLError if an action is assigned to multiple scopes.
+        Returns action ref -> scope ID, scope -> parent scope, and scope -> opener action.
+        Raises TracecatDSLError on scope conflicts or dependency cycles.
         """
+        if blocked := self.blocked_refs():
+            raise TracecatDSLError(dependency_cycle_message(blocked))
 
         stmts = {a.ref: a for a in self.actions}
         scopes: dict[str, str] = {}
@@ -694,10 +739,8 @@ class DSLInput(BaseModel):
                         f"already in {scopes[action_ref]!r}, trying to assign to {scope!r}"
                     )
 
-        n_visited = 0
         while queue:
             ref, curr_scope = queue.popleft()
-            n_visited += 1
 
             # Check for conflict. If the action hasn't been assigned a scope, assign it.
             # Otherwise, if we somehow end up in a different scope, raise an error.
@@ -738,11 +781,19 @@ class DSLInput(BaseModel):
                 if indegrees[next_ref] == 0:
                     queue.append((next_ref, next_scope))
 
-        # Check if we have cycles
-        if n_visited != len(self.actions):
-            raise TracecatDSLError("Cycle detected in control-flow workflow")
-
         return scopes, scope_hierarchy, scope_openers
+
+    def blocked_refs(self) -> list[str]:
+        """Return refs that can never run: in or downstream of a dependency cycle."""
+        adj = self._to_adjacency()
+        indegrees = {action.ref: len(action.depends_on) for action in self.actions}
+        queue = deque(ref for ref, indegree in indegrees.items() if indegree == 0)
+        while queue:
+            for next_ref in adj[queue.popleft()]:
+                indegrees[next_ref] -= 1
+                if indegrees[next_ref] == 0:
+                    queue.append(next_ref)
+        return sorted(ref for ref, indegree in indegrees.items() if indegree)
 
     def _to_adjacency(self) -> dict[str, list[str]]:
         """Convert the DSLInput to an adjacency list."""
@@ -899,6 +950,13 @@ class DSLRunArgs(BaseModel):
     registry_lock: RegistryLock | None = Field(
         default=None,
         description="Registry version lock for action execution. Contains origins (origin -> version) and actions (action_name -> origin) mappings.",
+    )
+    fixed_action_results: dict[str, FixedActionResult] = Field(
+        default_factory=dict,
+        description=(
+            "Results reused from a previous run, keyed by action ref. "
+            "Matching root-scope actions use these instead of executing."
+        ),
     )
 
     @field_validator("wf_id", mode="before")
@@ -1215,6 +1273,13 @@ def edge_components_from_dep(dep_ref: str) -> AdjDst:
     raise ValueError(f"Invalid edge type: {path[0]} in {dep_ref!r}")
 
 
+def dependency_cycle_message(blocked_refs: list[str]) -> str:
+    return (
+        "Cycle detected in workflow dependencies. Actions in or downstream"
+        f" of the cycle: {', '.join(repr(ref) for ref in blocked_refs)}"
+    )
+
+
 def dep_from_edge_components(src_ref: str, edge_type: EdgeType) -> str:
     return f"{src_ref}.{edge_type.value}"
 
@@ -1326,11 +1391,6 @@ def build_action_statements_from_actions(
 
         control_flow = ActionControlFlow.model_validate(action.control_flow)
         args = _load_action_inputs_yaml(action.inputs) or {}
-        interaction = (
-            ActionInteractionValidator.validate_python(action.interaction)
-            if action.is_interactive and action.interaction
-            else None
-        )
         action_stmt = ActionStatement(
             id=action.id,
             ref=action.ref,
@@ -1343,8 +1403,8 @@ def build_action_statements_from_actions(
             start_delay=control_flow.start_delay,
             wait_until=control_flow.wait_until,
             join_strategy=control_flow.join_strategy,
-            interaction=interaction,
             environment=control_flow.environment,
+            tunnel=control_flow.tunnel,
             mask_output=control_flow.mask_output,
             unsafe_disable_secret_error_withholding=control_flow.unsafe_disable_secret_error_withholding,
         )

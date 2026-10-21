@@ -1,0 +1,150 @@
+type: action
+definition:
+  title: Test security policy match
+  description: Find the security rule that matches a traffic tuple with the XML API operational command test security-policy-match. Use it to confirm a block is effective or to explain why traffic was allowed.
+  display_group: Palo Alto Networks (PAN-OS)
+  doc_url: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/pan-os-xml-api-request-types/run-operational-mode-commands-api
+  namespace: tools.pan_os
+  name: test_security_policy_match
+  secrets:
+    - name: pan_os
+      keys:
+        - PANOS_API_KEY
+  expects:
+    source:
+      type: str
+      description: Source IP address.
+    destination:
+      type: str
+      description: Destination IP address.
+    protocol:
+      type: int
+      description: IP protocol number, e.g. 6 for TCP or 17 for UDP.
+      default: 6
+    destination_port:
+      type: int | None
+      description: Destination port.
+      default: null
+    from_zone:
+      type: str | None
+      description: Source zone.
+      default: null
+    to_zone:
+      type: str | None
+      description: Destination zone.
+      default: null
+    application:
+      type: str | None
+      description: Application, e.g. ssl.
+      default: null
+    source_user:
+      type: str | None
+      description: Source user.
+      default: null
+    target:
+      type: str | None
+      description: Managed firewall serial number when calling through Panorama.
+      default: null
+    base_url:
+      type: str | None
+      description: Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable pan_os.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
+      default: true
+  steps:
+    - ref: build_command
+      action: core.script.run_python
+      args:
+        inputs:
+          source: ${{ inputs.source }}
+          destination: ${{ inputs.destination }}
+          protocol: ${{ inputs.protocol }}
+          destination_port: ${{ inputs.destination_port }}
+          from_zone: ${{ inputs.from_zone }}
+          to_zone: ${{ inputs.to_zone }}
+          application: ${{ inputs.application }}
+          source_user: ${{ inputs.source_user }}
+          target: ${{ inputs.target }}
+        script: |
+          def _form(form, vsys=None, target=None):
+              if vsys:
+                  form["vsys"] = vsys
+              if target:
+                  form["target"] = target
+              return form
+
+          from xml.sax.saxutils import escape
+
+          def main(source, destination, protocol, destination_port, from_zone, to_zone, application, source_user, target):
+              fields = (
+                  ("from", from_zone),
+                  ("to", to_zone),
+                  ("source", source),
+                  ("destination", destination),
+                  ("protocol", protocol),
+                  ("destination-port", destination_port),
+                  ("application", application),
+                  ("source-user", source_user),
+              )
+              body = "".join(f"<{key}>{escape(str(value))}</{key}>" for key, value in fields if value is not None)
+              cmd = f"<test><security-policy-match>{body}</security-policy-match></test>"
+              return _form({"type": "op", "cmd": cmd}, None, target)
+    - ref: test
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pan_os.base_url }}/api/
+        method: POST
+        headers:
+          X-PAN-KEY: ${{ SECRETS.pan_os.PANOS_API_KEY }}
+        form_data: ${{ steps.build_command.result }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+    - ref: parse
+      action: core.script.run_python
+      args:
+        inputs:
+          text: ${{ steps.test.result.data }}
+        script: |
+          import xml.etree.ElementTree as ET
+          from xml.sax.saxutils import escape, quoteattr
+
+          def _to_dict(element):
+              node = {f"@{key}": value for key, value in element.attrib.items()}
+              children = list(element)
+              text = (element.text or "").strip()
+              if not children:
+                  if not node:
+                      return text
+                  if text:
+                      node["#text"] = text
+                  return node
+              for child in children:
+                  value = _to_dict(child)
+                  if child.tag in node:
+                      if not isinstance(node[child.tag], list):
+                          node[child.tag] = [node[child.tag]]
+                      node[child.tag].append(value)
+                  else:
+                      node[child.tag] = value
+              return node
+
+          def _parse(text):
+              root = ET.fromstring(text)
+              if root.get("status") != "success":
+                  detail = ET.tostring(root, encoding="unicode")[:2000]
+                  raise ValueError(f"PAN-OS XML API error (code {root.get('code')}): {detail}")
+              return root
+
+          def _lines(element):
+              if element is None:
+                  return []
+              return [line.strip() for line in element.itertext() if line.strip()]
+
+
+          def main(text):
+              root = _parse(text)
+              entries = root.findall("./result/rules/entry")
+              rules = [entry.get("name") or (entry.text or "").split(";")[0].strip() for entry in entries]
+              return {"matched_rules": [rule for rule in rules if rule], "result": _to_dict(root.find("./result"))}
+  returns: ${{ steps.parse.result }}

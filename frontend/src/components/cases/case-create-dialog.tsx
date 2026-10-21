@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -37,6 +38,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { caseHref } from "@/lib/cases/urls"
 import { useCreateCase } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -95,7 +97,7 @@ export function CreateCaseDialog({
       // Note: The response type is unknown, so we need to cast it
       const caseResponse = response as CaseRead | undefined
       if (caseResponse?.id) {
-        router.push(`/workspaces/${workspaceId}/cases/${caseResponse.id}`)
+        router.push(caseHref(workspaceId, caseResponse.id))
       }
     } catch (error) {
       if (error instanceof ApiError) {
@@ -116,7 +118,7 @@ export function CreateCaseDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[625px]">
+      <DialogContent size="lg" className="sm:max-w-[625px]">
         <DialogHeader>
           <DialogTitle>Create new case</DialogTitle>
           <DialogDescription>
@@ -124,70 +126,23 @@ export function CreateCaseDialog({
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="summary"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Summary</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="Brief description of the case..."
-                      {...field}
-                      value={field.value ?? ""}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Description</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Detailed description of the case..."
-                      className="min-h-[100px] text-xs"
-                      {...field}
-                      value={field.value ?? ""}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className="grid grid-cols-3 gap-4">
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <DialogBody>
               <FormField
                 control={form.control}
-                name="status"
+                name="summary"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Status</FormLabel>
+                    <FormLabel>Summary</FormLabel>
                     <FormControl>
-                      <Select
-                        value={field.value}
-                        onValueChange={field.onChange}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select status" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Object.values(STATUSES).map((status) => (
-                            <SelectItem key={status.value} value={status.value}>
-                              <div className="flex items-center gap-2">
-                                <status.icon className="h-3 w-3" />
-                                {status.label}
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Input
+                        placeholder="Brief description of the case..."
+                        {...field}
+                        value={field.value ?? ""}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -196,81 +151,135 @@ export function CreateCaseDialog({
 
               <FormField
                 control={form.control}
-                name="priority"
+                name="description"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Priority</FormLabel>
+                    <FormLabel>Description</FormLabel>
                     <FormControl>
-                      <Select
-                        value={field.value}
-                        onValueChange={field.onChange}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select priority" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Object.values(PRIORITIES).map((priority) => (
-                            <SelectItem
-                              key={priority.value}
-                              value={priority.value}
-                            >
-                              <div className="flex items-center gap-2">
-                                <priority.icon className="h-3 w-3" />
-                                {priority.label}
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Textarea
+                        placeholder="Detailed description of the case..."
+                        className="min-h-[100px] text-xs"
+                        {...field}
+                        value={field.value ?? ""}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name="severity"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Severity</FormLabel>
-                    <FormControl>
-                      <Select
-                        value={field.value}
-                        onValueChange={field.onChange}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select severity" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Object.values(SEVERITIES).map((severity) => (
-                            <SelectItem
-                              key={severity.value}
-                              value={severity.value}
-                            >
-                              <div className="flex items-center gap-2">
-                                <severity.icon className="h-3 w-3" />
-                                {severity.label}
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+              <div className="grid grid-cols-3 gap-4">
+                <FormField
+                  control={form.control}
+                  name="status"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Status</FormLabel>
+                      <FormControl>
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select status" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Object.values(STATUSES).map((status) => (
+                              <SelectItem
+                                key={status.value}
+                                value={status.value}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <status.icon className="h-3 w-3" />
+                                  {status.label}
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-            {form.formState.errors.root && (
-              <div className="text-sm text-red-500">
-                {form.formState.errors.root.message}
+                <FormField
+                  control={form.control}
+                  name="priority"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Priority</FormLabel>
+                      <FormControl>
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select priority" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Object.values(PRIORITIES).map((priority) => (
+                              <SelectItem
+                                key={priority.value}
+                                value={priority.value}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <priority.icon className="h-3 w-3" />
+                                  {priority.label}
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="severity"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Severity</FormLabel>
+                      <FormControl>
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select severity" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Object.values(SEVERITIES).map((severity) => (
+                              <SelectItem
+                                key={severity.value}
+                                value={severity.value}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <severity.icon className="h-3 w-3" />
+                                  {severity.label}
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
-            )}
 
+              {form.formState.errors.root && (
+                <div className="text-sm text-red-500">
+                  {form.formState.errors.root.message}
+                </div>
+              )}
+            </DialogBody>
             <DialogFooter>
-              <Button type="submit" disabled={createCaseIsPending}>
+              <Button size="sm" type="submit" disabled={createCaseIsPending}>
                 Create case
               </Button>
             </DialogFooter>

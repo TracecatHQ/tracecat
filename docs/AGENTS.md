@@ -30,6 +30,8 @@ All pages must be registered in `docs/docs.json` under `navigation.tabs`. When a
 
 Use icons for navigation sections, not individual pages. The only page-level icon is `lock`, and only when the entire page documents an Enterprise-only feature.
 
+Within each navigation group, list Enterprise pages (`icon: "lock"`) after all other pages so the locks sit together at the bottom of the group. Keep this order when you add or move a page.
+
 ## Links
 
 Use absolute paths from the docs root without `.mdx`:

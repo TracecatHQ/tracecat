@@ -1,0 +1,54 @@
+type: action
+definition:
+  name: run_logtest
+  namespace: tools.wazuh
+  title: Run logtest
+  description: "Test a log event against the ruleset and decoders to see which decoder and rule it matches and whether it raises an alert."
+  display_group: Wazuh
+  doc_url: https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.logtest_controller.run_logtest_tool
+  secrets:
+    - name: wazuh_wui
+      keys: ["WAZUH_WUI_USERNAME", "WAZUH_WUI_PASSWORD"]
+  expects:
+    event:
+      type: str
+      description: "Log event to test."
+    log_format:
+      type: str
+      description: "Log format (e.g. `syslog`, `json`, `eventchannel`, `audit`, `command`)."
+      default: "syslog"
+    location:
+      type: str
+      description: "Log location (e.g. `/var/log/auth.log`)."
+      default: "tracecat"
+    base_url:
+      type: str | None
+      description: "Wazuh server API URL (e.g. https://wazuh-manager:55000). Defaults to the `wazuh.base_url` variable."
+      default: null
+    verify_ssl:
+      type: bool
+      description: "If false, disables SSL verification for internal networks."
+      default: true
+  steps:
+    - ref: get_access_token
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/security/user/authenticate
+        method: POST
+        headers:
+          Authorization: Basic ${{ FN.to_base64(SECRETS.wazuh_wui.WAZUH_WUI_USERNAME + ":" + SECRETS.wazuh_wui.WAZUH_WUI_PASSWORD) }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/logtest
+        method: PUT
+        headers:
+          Authorization: Bearer ${{ steps.get_access_token.result.data.data.token }}
+          Content-Type: application/json
+        payload:
+          event: ${{ inputs.event }}
+          log_format: ${{ inputs.log_format }}
+          location: ${{ inputs.location }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.request.result.data }}

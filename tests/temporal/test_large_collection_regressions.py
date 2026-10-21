@@ -10,6 +10,7 @@ These tests validate two historical regressions:
 from __future__ import annotations
 
 import os
+import posixpath
 import re
 import uuid
 from collections.abc import Callable
@@ -159,8 +160,8 @@ async def _assert_refs_layout(
     assert manifest["element_kind"] == "stored_object"
     assert manifest["count"] == item_count
 
-    prefix = manifest_key.removesuffix("/manifest.json")
-    key_pattern = re.compile(rf"^{re.escape(prefix)}/items/\d+\.json$")
+    prefix = posixpath.dirname(manifest_key)
+    key_pattern = re.compile(rf"^{re.escape(prefix)}/items/\d+\.[0-9a-f]{{64}}\.json$")
 
     for chunk_ref in manifest["chunks"]:
         chunk_bytes = await blob.download_file(
@@ -379,10 +380,16 @@ async def test_scatter_gather_large_payload_stores_refs_not_raw_chunk_values(
     )
 
     # Depending on return/context shape, intermediate actions may be omitted from
-    # the final ACTIONS map. Scatter output location is deterministic per stream.
-    scatter_manifest_key = (
-        f"{test_role.workspace_id}/{wf_exec_id}/actions/<root>:0/scatter/manifest.json"
-    )
+    # the final ACTIONS map. Manifest keys are content-addressed, so list the prefix.
+    scatter_prefix = f"{test_role.workspace_id}/{wf_exec_id}/actions/<root>:0/scatter/"
+    async with blob.get_storage_client() as s3_client:
+        listing = await s3_client.list_objects_v2(
+            Bucket=gather_stored.manifest_ref.bucket,
+            Prefix=f"{scatter_prefix}manifest.",
+        )
+    scatter_manifest_keys = [obj.get("Key") for obj in listing.get("Contents", [])]
+    assert len(scatter_manifest_keys) == 1, scatter_manifest_keys
+    scatter_manifest_key = scatter_manifest_keys[0]
     await _assert_refs_layout(
         manifest_key=scatter_manifest_key,
         bucket=gather_stored.manifest_ref.bucket,

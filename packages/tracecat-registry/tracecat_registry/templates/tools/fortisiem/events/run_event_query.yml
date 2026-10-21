@@ -1,0 +1,93 @@
+type: action
+definition:
+  title: Run event query
+  description: Submit an event query, poll its progress until it is no longer below 100, then fetch the first chunk of results. Returns the query ID, the terminal progress response and the results response; page further with get_event_query_results using the returned query ID until totalCount is reached.
+  display_group: Fortinet FortiSIEM
+  doc_url: https://docs.fortinet.com/document/fortisiem/7.5.1/integration-api-guide/451674/events-and-report-integration
+  namespace: tools.fortisiem
+  name: run_event_query
+  secrets:
+    - name: fortisiem
+      keys:
+        - FORTISIEM_USERNAME
+        - FORTISIEM_PASSWORD
+  expects:
+    query_xml:
+      type: str
+      description: XML document that defines the event query, with a <Reports><Report> root containing the Name, CustomerScope, SelectClause, OrderByClause, PatternClause (SubPattern/SingleEvtConstr filter) and ReportInterval (Low/High epoch seconds, or Window unit/val) elements.
+    begin:
+      type: int
+      description: Result offset to start from. Use 0 for the first call.
+      default: 0
+    end:
+      type: int
+      description: Result range end for this chunk. For the first call, begin = 0 and end can be 1000; increase begin and end on later calls until totalCount is reached.
+      default: 1000
+    poll_interval:
+      type: float
+      description: Seconds between progress polls.
+      default: 5
+    poll_max_attempts:
+      type: int
+      description: Maximum number of progress polls. Set to 0 to poll until timeout.
+      default: 120
+    base_url:
+      type: str | None
+      description: FortiSIEM Supervisor URL, e.g. https://fortisiem.example.com. Falls back to the workspace variable fortisiem.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the Supervisor TLS certificate.
+      default: true
+  steps:
+    - ref: submit_query
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.fortisiem.base_url }}/phoenix/rest/query/eventQuery
+        method: POST
+        headers:
+          Content-Type: text/xml
+        content: ${{ inputs.query_xml }}
+        auth:
+          username: ${{ SECRETS.fortisiem.FORTISIEM_USERNAME }}
+          password: ${{ SECRETS.fortisiem.FORTISIEM_PASSWORD }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+    - ref: get_query_id
+      action: core.script.run_python
+      args:
+        inputs:
+          text: ${{ steps.submit_query.result.data }}
+        script: |
+          def main(text):
+              # The request API answers 200 with an XML error document (e.g. error code="255")
+              # when the query is invalid; a query ID is plain text.
+              query_id = str(text or "").strip()
+              if not query_id or "<" in query_id:
+                  raise ValueError(f"FortiSIEM eventQuery did not return a query ID: {query_id[:2000]}")
+              return query_id
+    - ref: poll_progress
+      action: core.http_poll
+      args:
+        url: ${{ inputs.base_url || VARS.fortisiem.base_url }}/phoenix/rest/query/progress/${{ steps.get_query_id.result }}
+        method: GET
+        auth:
+          username: ${{ SECRETS.fortisiem.FORTISIEM_USERNAME }}
+          password: ${{ SECRETS.fortisiem.FORTISIEM_PASSWORD }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        poll_interval: ${{ inputs.poll_interval }}
+        poll_max_attempts: ${{ inputs.poll_max_attempts }}
+        # Progress is a bare percentage; keep polling only while it is a number below 100.
+      poll_condition: 'lambda r: not str(r["data"]).strip().isdigit() or int(str(r["data"]).strip()) >= 100'
+    - ref: get_results
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.fortisiem.base_url }}/phoenix/rest/query/events/${{ steps.get_query_id.result }}/${{ inputs.begin }}/${{ inputs.end }}
+        method: GET
+        auth:
+          username: ${{ SECRETS.fortisiem.FORTISIEM_USERNAME }}
+          password: ${{ SECRETS.fortisiem.FORTISIEM_PASSWORD }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns:
+    queryId: ${{ steps.get_query_id.result }}
+    progress: ${{ steps.poll_progress.result }}
+    results: ${{ steps.get_results.result }}

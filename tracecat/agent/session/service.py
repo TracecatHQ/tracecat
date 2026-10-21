@@ -68,9 +68,9 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_INTERRUPT_CONTENT_MARKERS,
     DISPLAY_ONLY_SESSION_LINE_FLAG,
     is_approval_interrupt_tool_result,
-    is_continuation_control_artifact,
     is_display_only_session_line,
     is_model_context_session_line,
+    mark_hidden_continuation,
     session_line_uuid,
 )
 from tracecat.agent.service import AgentManagementService
@@ -115,6 +115,7 @@ from tracecat.chat.schemas import (
     ApprovalRead,
     BasicChatRequest,
     ChatMessage,
+    ChatPageContext,
     ChatReadMinimal,
     ChatRequest,
     ChatResponse,
@@ -123,6 +124,7 @@ from tracecat.chat.schemas import (
 )
 from tracecat.chat.service import ChatService
 from tracecat.chat.tools import (
+    WORKSPACE_CHAT_FORMS_TOOLS,
     filter_workspace_chat_tools_for_scopes,
     get_default_tools,
 )
@@ -142,13 +144,14 @@ from tracecat.exceptions import (
     TracecatServiceError,
     TracecatValidationError,
 )
+from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 from tracecat.service import BaseWorkspaceService
-from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
-from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
+from tracecat.workspaces.prompts import WorkspaceCopilotPrompts, form_page_context
 
 if TYPE_CHECKING:
     from tracecat_ee.agent.approvals.service import ApprovalMap, ApprovalResult
@@ -394,6 +397,18 @@ class _DecisionRow(NamedTuple):
     approved_at: datetime
 
 
+def _session_line_time(content: Mapping[str, Any]) -> datetime | None:
+    """When the runtime wrote a session line; rows are inserted in batches later."""
+    match content.get("timestamp"):
+        case str(raw):
+            try:
+                return datetime.fromisoformat(raw)
+            except ValueError:
+                return None
+        case _:
+            return None
+
+
 class AgentSessionService(BaseWorkspaceService):
     """Service for managing agent sessions and history."""
 
@@ -427,6 +442,30 @@ class AgentSessionService(BaseWorkspaceService):
             return None
         return list(BUILTIN_WORKSPACE_CHAT_SKILLS)
 
+    async def _forms_enabled(self) -> bool:
+        """Whether this organization has the forms flag and entitlement."""
+        if not is_feature_enabled(FeatureFlag.FORMS):
+            return False
+        return await is_org_entitled(
+            self.session, self.organization_id, Entitlement.FORMS
+        )
+
+    async def _page_context_prompt(
+        self, agent_session: AgentSession, page_context: ChatPageContext | None
+    ) -> str | None:
+        """Build the context line for the page a Workspace chat is docked on.
+
+        The line only echoes the ID the caller sent; the form tools still check
+        access. Only ``form`` pages exist, so forms must be enabled.
+        """
+        if (
+            page_context is None
+            or agent_session.entity_type != AgentSessionEntity.WORKSPACE_CHAT
+            or not await self._forms_enabled()
+        ):
+            return None
+        return form_page_context(page_context.id)
+
     async def _resolve_workspace_chat_actions(
         self,
         agent_session: AgentSession,
@@ -439,6 +478,11 @@ class AgentSessionService(BaseWorkspaceService):
         """
         defaults = await self._get_default_tools(AgentSessionEntity.WORKSPACE_CHAT)
         extras = agent_session.tools or []
+        if await self._forms_enabled():
+            defaults = [*defaults, *WORKSPACE_CHAT_FORMS_TOOLS]
+        else:
+            # Extras saved while forms were enabled would fail every turn.
+            extras = [tool for tool in extras if not tool.startswith("core.forms.")]
         merged = list(dict.fromkeys([*defaults, *extras]))
         # Chat tools execute under the executor service principal, which the
         # internal API routes authorize against the service allowlist rather than
@@ -1100,7 +1144,12 @@ class AgentSessionService(BaseWorkspaceService):
                 AgentSession.workspace_id == self.workspace_id,
                 AgentSession.curr_run_id == run_id,
             )
-            .values(curr_run_id=None, active_stream_id=None)
+            .values(
+                curr_run_id=None,
+                active_stream_id=None,
+                reserved_run_id=None,
+                reserved_at=None,
+            )
         )
         await self.session.execute(stmt)
         await self.session.commit()
@@ -1208,7 +1257,12 @@ class AgentSessionService(BaseWorkspaceService):
                 AgentSession.workspace_id == self.workspace_id,
                 AgentSession.active_stream_id == expected_stream_id,
             )
-            .values(curr_run_id=None, active_stream_id=None)
+            .values(
+                curr_run_id=None,
+                active_stream_id=None,
+                reserved_run_id=None,
+                reserved_at=None,
+            )
         )
         await self.session.execute(stmt)
         await self.session.commit()
@@ -1309,7 +1363,8 @@ class AgentSessionService(BaseWorkspaceService):
         # on later resumes.
         lines = []
         included_uuids: set[str] = set()
-        internal_uuids: set[str] = set()
+        # Internal and continuation rows left out of the rebuilt transcript.
+        dropped_uuids: set[str] = set()
         last_visible_uuid: str | None = None
         for entry in history_entries:
             history_content = _session_history_content(entry)
@@ -1325,7 +1380,7 @@ class AgentSessionService(BaseWorkspaceService):
                 is_model_context_session_line(content)
             ):
                 if line_uuid is not None:
-                    internal_uuids.add(line_uuid)
+                    dropped_uuids.add(line_uuid)
                 continue
 
             # Cancelled markers are UI-only timeline rows, not SDK transcript
@@ -1333,9 +1388,7 @@ class AgentSessionService(BaseWorkspaceService):
             if entry.kind == MessageKind.CANCELLED.value:
                 continue
 
-            if is_continuation_control_artifact(content, internal_uuids):
-                if line_uuid is not None:
-                    internal_uuids.add(line_uuid)
+            if mark_hidden_continuation(content, dropped_uuids, internal_row=False):
                 continue
 
             parent_uuid = content.get("parentUuid")
@@ -1991,13 +2044,6 @@ class AgentSessionService(BaseWorkspaceService):
             agent_session.backend_id, harness_type=agent_session.harness_type
         )
         async with self._build_agent_config(agent_session) as agent_config:
-            if agent_config.tool_approvals:
-                await check_entitlement(
-                    self.session,
-                    self.role,
-                    Entitlement.AGENT_ADDONS,
-                )
-
             run_id = agent_session.curr_run_id or uuid.uuid4()
             stream_id = agent_session.active_stream_id or uuid.uuid4()
             prepared_turn = PreparedAgentTurn(
@@ -2018,6 +2064,19 @@ class AgentSessionService(BaseWorkspaceService):
             agent_session.active_stream_id = stream_id
             agent_session.last_error = None
             self.session.add(agent_session)
+            # The caller's child start has no deadline, so recovery must never
+            # tombstone this run, even one adopted from a direct dispatch. The
+            # row was read without a lock: clear only while this run owns it,
+            # so a newer reservation keeps its marker.
+            await self.session.execute(
+                update(AgentSession)
+                .where(
+                    AgentSession.id == session_id,
+                    AgentSession.workspace_id == self.workspace_id,
+                    AgentSession.curr_run_id == run_id,
+                )
+                .values(reserved_run_id=None, reserved_at=None)
+            )
             await self.session.commit()
 
         return prepared_turn
@@ -2067,12 +2126,14 @@ class AgentSessionService(BaseWorkspaceService):
         # Parse request to extract user prompt
         user_prompt: str | None = None
         request_instructions: str | None = None
+        page_context: ChatPageContext | None = None
         is_continuation = False
 
         match request:
             case ContinueRunRequest():
                 is_continuation = True
             case VercelChatRequest(message=ui_message):
+                page_context = request.page_context
                 user_prompt = _extract_vercel_user_prompt(ui_message)
                 if user_prompt is None:
                     raise ValueError(
@@ -2102,19 +2163,22 @@ class AgentSessionService(BaseWorkspaceService):
         expected_title = agent_session.title
 
         # Build agent config and spawn workflow for new turn
+        page_context_prompt = await self._page_context_prompt(
+            agent_session, page_context
+        )
         async with self._build_agent_config(agent_session) as agent_config:
-            if request_instructions:
+            if request_instructions or page_context_prompt:
                 agent_config = replace(
                     agent_config,
                     instructions="\n\n".join(
                         part
-                        for part in (agent_config.instructions, request_instructions)
+                        for part in (
+                            agent_config.instructions,
+                            request_instructions,
+                            page_context_prompt,
+                        )
                         if part
                     ),
-                )
-            if agent_config.tool_approvals:
-                await check_entitlement(
-                    self.session, self.role, Entitlement.AGENT_ADDONS
                 )
             run_id = uuid.uuid4()
             # Per-turn stream id: use the HTTP-minted id when provided, else mint
@@ -2978,21 +3042,19 @@ class AgentSessionService(BaseWorkspaceService):
     ) -> list[ChatMessage]:
         """Render visible history rows into the interleaved chat timeline."""
         messages: list[ChatMessage] = []
-        internal_uuids: set[str] = set()
+        # Only rows in a hidden continuation chain, not every internal row.
+        hidden_chain_uuids: set[str] = set()
 
         for entry in entries:
             content = history.project(entry) if history is not None else entry.content
             if not content:
                 continue
 
-            if entry.kind == MessageKind.INTERNAL.value:
-                if line_uuid := session_line_uuid(content):
-                    internal_uuids.add(line_uuid)
-                continue
-
-            if is_continuation_control_artifact(content, internal_uuids):
-                if line_uuid := session_line_uuid(content):
-                    internal_uuids.add(line_uuid)
+            is_internal = entry.kind == MessageKind.INTERNAL.value
+            in_chain = mark_hidden_continuation(
+                content, hidden_chain_uuids, internal_row=is_internal
+            )
+            if is_internal or in_chain:
                 continue
 
             if entry.kind == MessageKind.COMPACTION.value:
@@ -3053,7 +3115,13 @@ class AgentSessionService(BaseWorkspaceService):
             inner_message = content.get("message") or content
             sanitized_message = sanitize_message_tool_inputs(inner_message)
             message = ClaudeSDKMessageTA.validate_python(sanitized_message)
-            messages.append(ChatMessage(id=str(entry.id), message=message))
+            messages.append(
+                ChatMessage(
+                    id=str(entry.id),
+                    message=message,
+                    created_at=_session_line_time(content),
+                )
+            )
 
             if msg_type != "assistant":
                 continue

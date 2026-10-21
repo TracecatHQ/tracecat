@@ -50,6 +50,9 @@ from tracecat.tables.schemas import (
     TableRowInsert,
     TableUpdate,
 )
+from tracecat.tables.search.router import (
+    require_semantic_search_entitlement,
+)
 from tracecat.tables.search.router import router as search_router
 from tracecat.tables.search.schemas import (
     TableSearchDisplayState,
@@ -721,6 +724,7 @@ async def test_http_selection_conflict_validation_and_permissions(
         authenticated_role
     )
     app.dependency_overrides[get_async_session] = database_session
+    app.dependency_overrides[require_semantic_search_entitlement] = lambda: None
 
     async def forbidden(request, exc):
         return JSONResponse(status_code=403, content={"detail": "Forbidden"})

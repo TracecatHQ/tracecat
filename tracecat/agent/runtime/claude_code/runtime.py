@@ -104,6 +104,7 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     is_synthetic_session_line,
 )
 from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
+from tracecat.agent.skill.builtin import PLATFORM_SKILL_PLUGIN_NAME
 from tracecat.integrations.mcp_validation import sanitize_mcp_command_args
 from tracecat.logger import logger
 from tracecat.runtime.errors import RuntimeErrorClassification
@@ -120,6 +121,7 @@ CLAUDE_PROJECT_DIR_MAX_LENGTH = 200
 _SESSION_FRAME_MARGIN = 4096
 CLAUDE_PROJECT_DIR_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
 LOG_PREVIEW_CHARS = 8000
+ROOT_MESSAGE_DONE_TIMEOUT_SECONDS = 120.0
 
 
 def _claude_project_dir_name(cwd: Path) -> str:
@@ -248,6 +250,9 @@ CLAUDE_CODE_STATEFUL_TOOLS = [
     "CronList",
     "EnterWorktree",
     "ExitWorktree",
+    # Session wakeups and agent discovery need an interactive harness.
+    "ScheduleWakeup",
+    "ListAgents",
 ]
 
 DISALLOWED_TOOLS = [
@@ -359,6 +364,9 @@ class ClaudeAgentRuntime:
         self._explicit_subagent_aliases: set[str] = set()
         self._registry_mcp_server_names: set[str] = {REGISTRY_MCP_SERVER_NAME}
         self._pending_approval_tool_ids: set[str] = set()
+        # Set while no root assistant message is streaming.
+        self._root_message_done = asyncio.Event()
+        self._root_message_done.set()
         self.client: ClaudeSDKClient | None = None
         self._was_interrupted: bool = False
         self._interrupt_requested: str | None = None
@@ -1107,6 +1115,19 @@ class ClaudeAgentRuntime:
         """
         await self._emit_approval_request(tool_name, tool_input, tool_use_id)
 
+        # The CLI runs a tool as soon as its block streams, so interrupting now
+        # would cut off the parallel calls the model has yet to write.
+        try:
+            await asyncio.wait_for(
+                self._root_message_done.wait(),
+                timeout=ROOT_MESSAGE_DONE_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            logger.warning(
+                "Assistant message still streaming, interrupting anyway",
+                tool_name=tool_name,
+            )
+
         logger.info("Approval request streamed, interrupting", tool_name=tool_name)
 
         await self._interrupt_once()
@@ -1477,6 +1498,13 @@ class ClaudeAgentRuntime:
                 mcpServers=mcp_server_configs or None,
                 disallowedTools=disallowed_tools,
                 maxTurns=subagent.max_turns,
+                # Preloading needs no Skill/Read grant; qualified names keep
+                # workspace namesakes from shadowing the staged plugin copy.
+                skills=[
+                    f"{PLATFORM_SKILL_PLUGIN_NAME}:{slug}"
+                    for slug in subagent.config.library_skills or []
+                ]
+                or None,
             )
 
         return definitions
@@ -1603,6 +1631,10 @@ class ClaudeAgentRuntime:
         env["ENABLE_TOOL_SEARCH"] = (
             "false" if payload.config.model_provider == "bedrock" else "true"
         )
+        # The CLI backgrounds subagents and Bash by default, ending the turn
+        # before results arrive. The sandbox never re-invokes the agent, so
+        # force synchronous execution.
+        env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] = "1"
         # Sandbox-safe Claude OTel env (no headers, no tenant endpoint — the
         # shim points the SDK at its OtelBridge).
         if payload.agent_otel_sandbox_env:
@@ -1909,6 +1941,13 @@ class ClaudeAgentRuntime:
                             if not first_stream_event_logged:
                                 first_stream_event_logged = True
                                 log_benchmark_phase("runtime_first_stream_event")
+
+                            if message.parent_tool_use_id is None:
+                                event_type = message.event.get("type")
+                                if event_type == "message_start":
+                                    self._root_message_done.clear()
+                                elif event_type == "message_stop":
+                                    self._root_message_done.set()
 
                             # Partial streaming delta - forward to UI.
                             # ping events are upstream keep-alives with no content

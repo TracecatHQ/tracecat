@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
+from saml2.saml import assertion_from_string
 
 from tracecat import config
 from tracecat.auth import saml
@@ -169,208 +170,137 @@ async def test_get_pending_org_invitation_returns_latest_match() -> None:
     assert result is invitation
 
 
+_INVITATION = SimpleNamespace(token="inv-123")
+
+
 @pytest.mark.anyio
-async def test_select_authorized_email_prefers_pending_invitation(
+@pytest.mark.parametrize(
+    (
+        "domains",
+        "multi_tenant",
+        "superadmin_allowed",
+        "invitations",
+        "candidates",
+        "expected_email",
+        "expected_invitation_lookups",
+    ),
+    [
+        pytest.param(
+            {"acme.com"},
+            None,
+            False,
+            [_INVITATION],
+            ["invitee@acme.com"],
+            "invitee@acme.com",
+            1,
+            id="prefers_pending_invitation",
+        ),
+        pytest.param(
+            {"acme.com"},
+            None,
+            False,
+            [None, _INVITATION],
+            ["primary@acme.com", "invitee@acme.com"],
+            "invitee@acme.com",
+            2,
+            id="prefers_later_invited_candidate_over_first_allowlisted",
+        ),
+        pytest.param(
+            {"example.com"},
+            None,
+            False,
+            [None],
+            ["user@example.com"],
+            "user@example.com",
+            1,
+            id="falls_back_to_allowlist",
+        ),
+        pytest.param(
+            {"example.com"},
+            None,
+            False,
+            [],
+            ["user@other.com"],
+            None,
+            0,
+            id="rejects_when_not_allowlisted_or_invited",
+        ),
+        pytest.param(
+            set(),
+            True,
+            False,
+            [_INVITATION],
+            ["invitee@example.com"],
+            None,
+            0,
+            id="rejects_invitation_without_domains",
+        ),
+        pytest.param(
+            set(),
+            False,
+            False,
+            [_INVITATION],
+            ["invitee@example.com"],
+            "invitee@example.com",
+            1,
+            id="allows_invitation_without_domains_in_single_tenant_when_env_not_set",
+        ),
+        pytest.param(
+            set(),
+            None,
+            True,
+            [],
+            ["admin@example.com"],
+            "admin@example.com",
+            0,
+            id="allows_superadmin_without_domains",
+        ),
+        pytest.param(
+            set(),
+            True,
+            False,
+            [],
+            ["admin@example.com"],
+            None,
+            0,
+            id="rejects_superadmin_without_domains_when_not_allowed",
+        ),
+    ],
+)
+async def test_select_authorized_email(
     monkeypatch: pytest.MonkeyPatch,
+    domains: set[str],
+    multi_tenant: bool | None,
+    superadmin_allowed: bool,
+    invitations: list[SimpleNamespace | None],
+    candidates: list[str],
+    expected_email: str | None,
+    expected_invitation_lookups: int,
 ) -> None:
-    fake_session = AsyncMock()
-    invitation = SimpleNamespace(token="inv-123")
+    if multi_tenant is not None:
+        monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", multi_tenant)
+        monkeypatch.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
     monkeypatch.setattr(
-        saml, "_get_active_org_domains", AsyncMock(return_value={"acme.com"})
+        saml, "_get_active_org_domains", AsyncMock(return_value=domains)
     )
     monkeypatch.setattr(
         saml,
         "is_superadmin_saml_bootstrap_allowed_for_org",
-        AsyncMock(return_value=False),
+        AsyncMock(return_value=superadmin_allowed),
     )
-    get_invitation_mock = AsyncMock(return_value=invitation)
+    get_invitation_mock = AsyncMock(side_effect=invitations)
     monkeypatch.setattr(saml, "get_pending_org_invitation", get_invitation_mock)
 
     email, pending_invitation = await saml._select_authorized_email(
-        fake_session, uuid.uuid4(), ["invitee@acme.com"]
+        AsyncMock(), uuid.uuid4(), candidates
     )
 
-    assert email == "invitee@acme.com"
-    assert pending_invitation is invitation
-    assert get_invitation_mock.await_count == 1
-
-
-@pytest.mark.anyio
-async def test_select_authorized_email_prefers_later_invited_candidate_over_first_allowlisted(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake_session = AsyncMock()
-    invitation = SimpleNamespace(token="inv-123")
-    monkeypatch.setattr(
-        saml, "_get_active_org_domains", AsyncMock(return_value={"acme.com"})
-    )
-    monkeypatch.setattr(
-        saml,
-        "is_superadmin_saml_bootstrap_allowed_for_org",
-        AsyncMock(return_value=False),
-    )
-    get_invitation_mock = AsyncMock(side_effect=[None, invitation])
-    monkeypatch.setattr(saml, "get_pending_org_invitation", get_invitation_mock)
-
-    email, pending_invitation = await saml._select_authorized_email(
-        fake_session,
-        uuid.uuid4(),
-        ["primary@acme.com", "invitee@acme.com"],
-    )
-
-    assert email == "invitee@acme.com"
-    assert pending_invitation is invitation
-    assert get_invitation_mock.await_count == 2
-
-
-@pytest.mark.anyio
-async def test_select_authorized_email_falls_back_to_allowlist(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake_session = AsyncMock()
-    monkeypatch.setattr(
-        saml, "_get_active_org_domains", AsyncMock(return_value={"example.com"})
-    )
-    monkeypatch.setattr(
-        saml,
-        "is_superadmin_saml_bootstrap_allowed_for_org",
-        AsyncMock(return_value=False),
-    )
-    monkeypatch.setattr(
-        saml, "get_pending_org_invitation", AsyncMock(return_value=None)
-    )
-
-    email, pending_invitation = await saml._select_authorized_email(
-        fake_session, uuid.uuid4(), ["user@example.com"]
-    )
-
-    assert email == "user@example.com"
-    assert pending_invitation is None
-
-
-@pytest.mark.anyio
-async def test_select_authorized_email_rejects_when_not_allowlisted_or_invited(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake_session = AsyncMock()
-    get_invitation_mock = AsyncMock(return_value=None)
-    monkeypatch.setattr(
-        saml, "_get_active_org_domains", AsyncMock(return_value={"example.com"})
-    )
-    monkeypatch.setattr(
-        saml,
-        "is_superadmin_saml_bootstrap_allowed_for_org",
-        AsyncMock(return_value=False),
-    )
-    monkeypatch.setattr(saml, "get_pending_org_invitation", get_invitation_mock)
-
-    email, pending_invitation = await saml._select_authorized_email(
-        fake_session, uuid.uuid4(), ["user@other.com"]
-    )
-
-    assert email is None
-    assert pending_invitation is None
-    get_invitation_mock.assert_not_called()
-
-
-@pytest.mark.anyio
-async def test_select_authorized_email_rejects_invitation_without_domains(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake_session = AsyncMock()
-    invitation = SimpleNamespace(token="inv-123")
-    get_invitation_mock = AsyncMock(return_value=invitation)
-    monkeypatch.setattr(saml, "_get_active_org_domains", AsyncMock(return_value=set()))
-    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
-    monkeypatch.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
-    monkeypatch.setattr(
-        saml,
-        "is_superadmin_saml_bootstrap_allowed_for_org",
-        AsyncMock(return_value=False),
-    )
-    monkeypatch.setattr(saml, "get_pending_org_invitation", get_invitation_mock)
-
-    email, pending_invitation = await saml._select_authorized_email(
-        fake_session, uuid.uuid4(), ["invitee@example.com"]
-    )
-
-    assert email is None
-    assert pending_invitation is None
-    get_invitation_mock.assert_not_called()
-
-
-@pytest.mark.anyio
-async def test_select_authorized_email_allows_invitation_without_domains_in_single_tenant_when_env_not_set(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake_session = AsyncMock()
-    invitation = SimpleNamespace(token="inv-123")
-    get_invitation_mock = AsyncMock(return_value=invitation)
-    monkeypatch.setattr(saml, "_get_active_org_domains", AsyncMock(return_value=set()))
-    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
-    monkeypatch.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
-    monkeypatch.setattr(
-        saml,
-        "is_superadmin_saml_bootstrap_allowed_for_org",
-        AsyncMock(return_value=False),
-    )
-    monkeypatch.setattr(saml, "get_pending_org_invitation", get_invitation_mock)
-
-    email, pending_invitation = await saml._select_authorized_email(
-        fake_session, uuid.uuid4(), ["invitee@example.com"]
-    )
-
-    assert email == "invitee@example.com"
-    assert pending_invitation is invitation
-    assert get_invitation_mock.await_count == 1
-
-
-@pytest.mark.anyio
-async def test_select_authorized_email_allows_superadmin_without_domains(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake_session = AsyncMock()
-    monkeypatch.setattr(saml, "_get_active_org_domains", AsyncMock(return_value=set()))
-    monkeypatch.setattr(
-        saml,
-        "is_superadmin_saml_bootstrap_allowed_for_org",
-        AsyncMock(return_value=True),
-    )
-    get_invitation_mock = AsyncMock(return_value=None)
-    monkeypatch.setattr(saml, "get_pending_org_invitation", get_invitation_mock)
-
-    email, pending_invitation = await saml._select_authorized_email(
-        fake_session, uuid.uuid4(), ["admin@example.com"]
-    )
-
-    assert email == "admin@example.com"
-    assert pending_invitation is None
-    get_invitation_mock.assert_not_called()
-
-
-@pytest.mark.anyio
-async def test_select_authorized_email_rejects_superadmin_without_domains_when_not_allowed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake_session = AsyncMock()
-    monkeypatch.setattr(saml, "_get_active_org_domains", AsyncMock(return_value=set()))
-    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
-    monkeypatch.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
-    monkeypatch.setattr(
-        saml,
-        "is_superadmin_saml_bootstrap_allowed_for_org",
-        AsyncMock(return_value=False),
-    )
-    get_invitation_mock = AsyncMock(return_value=None)
-    monkeypatch.setattr(saml, "get_pending_org_invitation", get_invitation_mock)
-
-    email, pending_invitation = await saml._select_authorized_email(
-        fake_session, uuid.uuid4(), ["admin@example.com"]
-    )
-
-    assert email is None
-    assert pending_invitation is None
-    get_invitation_mock.assert_not_called()
+    assert email == expected_email
+    if expected_email is not None and invitations[-1:] == [_INVITATION]:
+        assert pending_invitation is _INVITATION
+    else:
+        assert pending_invitation is None
+    assert get_invitation_mock.await_count == expected_invitation_lookups
 
 
 def test_should_allow_saml_user_auto_provisioning_for_first_superadmin() -> None:
@@ -402,84 +332,52 @@ def test_should_allow_saml_user_auto_provisioning_for_pending_invitation() -> No
 
 
 @pytest.mark.anyio
-async def test_is_first_superadmin_bootstrap_user_true_when_superadmin_and_no_users(
+@pytest.mark.parametrize(
+    ("email", "user_count", "expected"),
+    [
+        ("admin@example.com", 0, True),
+        ("admin@example.com", 2, False),
+        ("user@example.com", None, False),
+    ],
+    ids=["superadmin_and_no_users", "users_exist", "non_superadmin_email"],
+)
+async def test_is_first_superadmin_bootstrap_user(
     monkeypatch: pytest.MonkeyPatch,
+    email: str,
+    user_count: int | None,
+    expected: bool,
 ) -> None:
     monkeypatch.setattr(saml, "TRACECAT__AUTH_SUPERADMIN_EMAIL", "admin@example.com")
     fake_session = AsyncMock()
-    fake_session.execute.return_value = _FakeResult([0])
+    fake_session.execute.return_value = _FakeResult([user_count])
 
-    allowed = await saml.is_first_superadmin_bootstrap_user(
-        fake_session, "admin@example.com"
+    assert (
+        await saml.is_first_superadmin_bootstrap_user(fake_session, email) is expected
     )
-    assert allowed is True
+    if user_count is None:
+        fake_session.execute.assert_not_called()
 
 
 @pytest.mark.anyio
-async def test_is_first_superadmin_bootstrap_user_false_when_users_exist(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(saml, "TRACECAT__AUTH_SUPERADMIN_EMAIL", "admin@example.com")
-    fake_session = AsyncMock()
-    fake_session.execute.return_value = _FakeResult([2])
-
-    allowed = await saml.is_first_superadmin_bootstrap_user(
-        fake_session, "admin@example.com"
-    )
-    assert allowed is False
-
-
-@pytest.mark.anyio
-async def test_is_first_superadmin_bootstrap_user_false_for_non_superadmin_email(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(saml, "TRACECAT__AUTH_SUPERADMIN_EMAIL", "admin@example.com")
-    fake_session = AsyncMock()
-
-    allowed = await saml.is_first_superadmin_bootstrap_user(
-        fake_session, "user@example.com"
-    )
-    assert allowed is False
-    fake_session.execute.assert_not_called()
-
-
-@pytest.mark.anyio
-async def test_is_superadmin_saml_bootstrap_allowed_for_org_true_for_default_org(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("is_default_org", [True, False])
+async def test_is_superadmin_saml_bootstrap_allowed_only_for_default_org(
+    monkeypatch: pytest.MonkeyPatch, is_default_org: bool
 ) -> None:
     org_id = uuid.uuid4()
-    fake_session = AsyncMock()
     monkeypatch.setattr(
         saml, "is_first_superadmin_bootstrap_user", AsyncMock(return_value=True)
     )
     monkeypatch.setattr(
-        saml, "get_default_organization_id", AsyncMock(return_value=org_id)
+        saml,
+        "get_default_organization_id",
+        AsyncMock(return_value=org_id if is_default_org else uuid.uuid4()),
     )
 
     allowed = await saml.is_superadmin_saml_bootstrap_allowed_for_org(
-        fake_session, org_id, "admin@example.com"
+        AsyncMock(), org_id, "admin@example.com"
     )
 
-    assert allowed is True
-
-
-@pytest.mark.anyio
-async def test_is_superadmin_saml_bootstrap_allowed_for_org_false_for_non_default_org(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake_session = AsyncMock()
-    monkeypatch.setattr(
-        saml, "is_first_superadmin_bootstrap_user", AsyncMock(return_value=True)
-    )
-    monkeypatch.setattr(
-        saml, "get_default_organization_id", AsyncMock(return_value=uuid.uuid4())
-    )
-
-    allowed = await saml.is_superadmin_saml_bootstrap_allowed_for_org(
-        fake_session, uuid.uuid4(), "admin@example.com"
-    )
-
-    assert allowed is False
+    assert allowed is is_default_org
 
 
 @pytest.mark.parametrize(
@@ -531,3 +429,34 @@ def test_should_allow_saml_org_access_matrix(
         )
         is expected
     )
+
+
+def test_extract_candidate_emails_reads_parsed_assertion() -> None:
+    assertion = assertion_from_string("""
+        <saml2:Assertion xmlns:saml2="urn:oasis:names:tc:SAML:2.0:assertion">
+          <saml2:AttributeStatement>
+            <saml2:Attribute Name="http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress">
+              <saml2:AttributeValue>user@example.com</saml2:AttributeValue>
+            </saml2:Attribute>
+            <saml2:Attribute Name="email">
+              <saml2:AttributeValue>primary@example.com</saml2:AttributeValue>
+            </saml2:Attribute>
+          </saml2:AttributeStatement>
+        </saml2:Assertion>
+    """)
+
+    assert saml._extract_candidate_emails(saml.SAMLParser(assertion)) == [
+        "primary@example.com",
+        "user@example.com",
+    ]
+
+
+def test_saml_parser_rejects_assertion_without_attributes() -> None:
+    assertion = assertion_from_string(
+        '<saml2:Assertion xmlns:saml2="urn:oasis:names:tc:SAML:2.0:assertion"/>'
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        saml.SAMLParser(assertion).parse_to_dict()
+
+    assert exc_info.value.status_code == 400

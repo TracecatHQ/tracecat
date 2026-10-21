@@ -7,6 +7,7 @@ import {
   CaseTaskComposer,
 } from "@/components/cases/case-task-composer"
 import { CaseTaskRow } from "@/components/cases/case-task-row"
+import { sortCaseTasksByTitle } from "@/components/cases/case-task-status"
 import { DeleteCaseTaskDialog } from "@/components/cases/delete-case-task-dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -76,6 +77,13 @@ export function CaseTasksPanel({
     return map
   }, [workflows])
 
+  // Alphabetical by title. Sorted here on a copy, so the shared query cache
+  // keeps its server order for the switcher's ring and hover card.
+  const sortedTasks = useMemo(
+    () => sortCaseTasksByTitle(caseTasks ?? []),
+    [caseTasks]
+  )
+
   function handleDeleteTask(task: CaseTaskRead) {
     setTaskPendingDelete(task)
     setDeleteDialogOpen(true)
@@ -116,10 +124,11 @@ export function CaseTasksPanel({
           hover pills read as separate targets, not enough to break the list
           into cards. */}
       <div className={cn(CASE_TASKS_CONTAINER_CLASS, "flex flex-col gap-0.5")}>
-        {(caseTasks ?? []).map((task) => (
+        {sortedTasks.map((task) => (
           // Keyed by task.id, never index: `WorkflowTriggerDialog` renders as
           // a child of the row, and an index key would remount it — closing
-          // the dialog mid-flow — whenever a refetch reorders the list.
+          // the dialog mid-flow — whenever a rename or refetch reorders the
+          // list.
           <CaseTaskRow
             key={task.id}
             task={task}

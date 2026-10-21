@@ -120,17 +120,6 @@ from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import RuntimeErrorKind
 from tracecat.storage.object import InlineObject
 from tracecat.temporal.errors import extract_error_classification
-from tracecat.tiers import defaults as tier_defaults
-
-
-@pytest.fixture(autouse=True)
-def enable_agent_approvals_entitlement(monkeypatch):
-    """Enable agent approvals entitlement for all tests in this module."""
-    monkeypatch.setattr(
-        tier_defaults,
-        "DEFAULT_ENTITLEMENTS",
-        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"agent_addons": True}),
-    )
 
 
 @pytest.fixture(autouse=True)
@@ -578,6 +567,9 @@ async def agent_worker_factory(threadpool, monkeypatch: pytest.MonkeyPatch):
             workflows=[DurableAgentWorkflow],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=threadpool,
+            # Evict suspended workflows through the SDK before their worker exits.
+            # Garbage-collecting them later can run cleanup in another replay.
+            max_cached_workflows=0,
         )
 
     yield create_agent_worker

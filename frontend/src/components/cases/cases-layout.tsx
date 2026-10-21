@@ -3,24 +3,32 @@
 import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
+  CaseBatchResponse,
   CaseDropdownDefinitionRead,
   CaseDurationDefinitionRead,
   CaseFieldReadMinimal,
   CasePriority,
+  CaseQuery,
   CaseReadMinimal,
   CaseSearchAggregateRead,
   CaseSeverity,
   CaseStatus,
+  CasesSearchCasesData,
   CaseTagRead,
   CaseUpdate,
   WorkspaceMember,
 } from "@/client"
+import { CaseItem } from "@/components/cases/case-item"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
+import { CaseSidePanel } from "@/components/cases/case-side-panel"
 import {
   type CaseSortValue,
   DEFAULT_CASE_SORT,
 } from "@/components/cases/case-sort"
-import { CasesAccordion } from "@/components/cases/cases-accordion"
+import {
+  CasesAccordion,
+  orderCasesForDisplay,
+} from "@/components/cases/cases-accordion"
 import { CasesHeader } from "@/components/cases/cases-header"
 import { DeleteCaseAlertDialog } from "@/components/cases/delete-case-dialog"
 import type {
@@ -28,31 +36,33 @@ import type {
   SortDirection,
 } from "@/components/filters/filter-multi-select"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import type { CaseDateFilterValue, UseCasesFilters } from "@/hooks/use-cases"
-import { useBatchDeleteCases, useBatchUpdateCases } from "@/lib/hooks"
+import { useEntitlements } from "@/hooks/use-entitlements"
+import { runChunkedCaseBatch } from "@/lib/cases/batch"
+import { invalidateCaseHierarchy } from "@/lib/cases/invalidation"
+import { caseHref } from "@/lib/cases/urls"
+import { getApiErrorDetail } from "@/lib/errors"
+import {
+  useBatchChangeCaseParent,
+  useBatchDeleteCases,
+  useBatchUpdateCases,
+} from "@/lib/hooks"
 import { useQueryClient } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
-
-// Keep aligned with the CaseBatchUpdate and CaseBatchDelete schema cap.
-const CASE_BATCH_MAX_IDS = 1000
-
-/** Split case IDs into requests that satisfy the server batch-size contract. */
-export function chunkCaseIds(caseIds: string[]): string[][] {
-  const chunks: string[][] = []
-  for (let start = 0; start < caseIds.length; start += CASE_BATCH_MAX_IDS) {
-    chunks.push(caseIds.slice(start, start + CASE_BATCH_MAX_IDS))
-  }
-  return chunks
-}
 
 interface CasesLayoutProps {
   cases: CaseReadMinimal[]
   isLoading: boolean
   error: Error | null
   filters: UseCasesFilters
+  appliedSearchQuery: string
+  effectiveHierarchy: NonNullable<CasesSearchCasesData["hierarchy"]>
+  isSearchPending: boolean
   members?: WorkspaceMember[]
   tags?: CaseTagRead[]
+  onSearchModeChange?: (mode: "full_text" | "literal") => void
   onSearchChange: (query: string) => void
   onSortByChange: (value: CaseSortValue) => void
   onStatusChange: (status: CaseStatus[]) => void
@@ -71,11 +81,13 @@ interface CasesLayoutProps {
   onTagSortDirectionChange: (direction: SortDirection) => void
   onUpdatedAfterChange: (value: CaseDateFilterValue) => void
   onCreatedAfterChange: (value: CaseDateFilterValue) => void
+  onIncludeSubCasesChange?: (value: boolean) => void
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
   fieldDefinitions?: CaseFieldReadMinimal[]
   durationDefinitions?: CaseDurationDefinitionRead[]
   visibleColumnIds?: string[]
   onToggleColumn?: (columnId: string) => void
+  onStructuredFiltersChange?: (filters: CaseQuery["filters"]) => void
   onDropdownFilterChange: (ref: string, values: string[]) => void
   onDropdownModeChange: (ref: string, mode: FilterMode) => void
   onDropdownSortDirectionChange: (ref: string, direction: SortDirection) => void
@@ -83,18 +95,24 @@ interface CasesLayoutProps {
   stageCounts: CaseSearchAggregateRead["status_groups"] | null
   isCountsLoading: boolean
   isCountsFetching: boolean
+  isCountsError?: boolean
   hasNextPage: boolean
   isFetchingNextPage: boolean
   onLoadMore: () => void
 }
 
+/** Workspace case list with a promoted exact match and filtered results. */
 export function CasesLayout({
   cases,
   isLoading,
   error,
   filters,
+  appliedSearchQuery,
+  effectiveHierarchy,
+  isSearchPending,
   members,
   tags,
+  onSearchModeChange,
   onSearchChange,
   onSortByChange,
   onStatusChange,
@@ -113,11 +131,13 @@ export function CasesLayout({
   onTagSortDirectionChange,
   onUpdatedAfterChange,
   onCreatedAfterChange,
+  onIncludeSubCasesChange,
   dropdownDefinitions,
   fieldDefinitions,
   durationDefinitions,
   visibleColumnIds,
   onToggleColumn,
+  onStructuredFiltersChange,
   onDropdownFilterChange,
   onDropdownModeChange,
   onDropdownSortDirectionChange,
@@ -125,6 +145,7 @@ export function CasesLayout({
   stageCounts,
   isCountsLoading,
   isCountsFetching,
+  isCountsError = false,
   hasNextPage,
   isFetchingNextPage,
   onLoadMore,
@@ -135,19 +156,24 @@ export function CasesLayout({
   const [selectedCaseIds, setSelectedCaseIds] = useState<Set<string>>(new Set())
   const [isDeleting, setIsDeleting] = useState(false)
   const [isBulkUpdating, setIsBulkUpdating] = useState(false)
+  const [isChangingParent, setIsChangingParent] = useState(false)
   const [caseToDelete, setCaseToDelete] = useState<CaseReadMinimal | null>(null)
+  const [sidePanelCaseId, setSidePanelCaseId] = useState<string | null>(null)
 
   const { updateSelection, resetSelection } = useCaseSelection()
   const queryClient = useQueryClient()
   const { batchDeleteCases } = useBatchDeleteCases({ workspaceId })
   const { batchUpdateCases } = useBatchUpdateCases({ workspaceId })
+  const { batchChangeCaseParent } = useBatchChangeCaseParent({ workspaceId })
+  const { hasEntitlement } = useEntitlements()
+  const caseAddonsEnabled = hasEntitlement("case_addons")
   const { toast } = useToast()
 
   const handleSelectCase = useCallback(
     (id: string) => {
       setSelectedId(id)
       if (workspaceId) {
-        router.push(`/workspaces/${workspaceId}/cases/${id}`)
+        router.push(caseHref(workspaceId, id))
       }
     },
     [workspaceId, router]
@@ -177,134 +203,141 @@ export function CasesLayout({
     setSelectedCaseIds(new Set())
   }, [])
 
-  const handleBulkDelete = useCallback(async () => {
-    if (selectedCaseIds.size === 0) return
-
-    const caseIds = Array.from(selectedCaseIds)
-    const succeededIds = new Set<string>()
-    let failed = 0
-    try {
-      setIsDeleting(true)
-      for (const chunk of chunkCaseIds(caseIds)) {
-        const response = await batchDeleteCases({ case_ids: chunk })
-        for (const result of response.results) {
-          if (result.success) {
-            succeededIds.add(result.case_id)
-          }
-        }
-        failed += response.failed
-      }
-
-      if (failed > 0) {
-        toast({
-          variant: "destructive",
-          title: `${succeededIds.size} deleted, ${failed} failed`,
-          description: "Some selected cases could not be deleted.",
-        })
-        // Drop succeeded cases from the current selection so a retry targets
-        // the remainder without discarding selection changes made mid-flight.
-        setSelectedCaseIds(
-          (prev) => new Set([...prev].filter((id) => !succeededIds.has(id)))
-        )
-      } else {
-        toast({
-          title: `${caseIds.length} case(s) deleted`,
-          description: "The selected cases have been deleted successfully.",
-        })
-        setSelectedCaseIds(new Set())
-      }
-    } catch (err) {
-      console.error("Failed to delete cases:", err)
-      toast({
-        variant: "destructive",
-        title:
-          succeededIds.size > 0
-            ? `${succeededIds.size} deleted before a request failed`
-            : "Failed to delete cases",
-        description: "Please retry to delete the remaining cases.",
-      })
-      // Keep only unprocessed/failed cases selected so a retry cannot
-      // resubmit already-deleted IDs.
-      setSelectedCaseIds(
-        (prev) => new Set([...prev].filter((id) => !succeededIds.has(id)))
-      )
-    } finally {
-      // Refetch once per bulk operation, not once per chunk.
-      queryClient.invalidateQueries({ queryKey: ["cases"], exact: false })
-      setIsDeleting(false)
-    }
-  }, [batchDeleteCases, queryClient, selectedCaseIds, toast])
-
-  const handleBulkUpdate = useCallback(
-    async (
-      updates: Partial<CaseUpdate>,
-      options?: { successTitle?: string; successDescription?: string }
-    ) => {
+  /**
+   * Run a batch action on the selection. On partial failure the succeeded
+   * cases leave the selection, so a retry only targets the remainder.
+   */
+  const runSelectionBatch = useCallback(
+    async ({
+      request,
+      verb,
+      failureTitle,
+      successTitle,
+      successDescription,
+      clearOnSuccess,
+      setBusy,
+      invalidate,
+    }: {
+      request: (chunk: string[]) => Promise<CaseBatchResponse>
+      /** Past tense used in partial-failure toasts, e.g. "deleted". */
+      verb: string
+      failureTitle: string
+      successTitle: string
+      successDescription: string
+      clearOnSuccess: boolean
+      setBusy: (busy: boolean) => void
+      invalidate: () => Promise<void>
+    }) => {
       if (selectedCaseIds.size === 0) return
-
       const caseIds = Array.from(selectedCaseIds)
-      const succeededIds = new Set<string>()
-      let failed = 0
-
+      setBusy(true)
       try {
-        setIsBulkUpdating(true)
-
-        for (const chunk of chunkCaseIds(caseIds)) {
-          const response = await batchUpdateCases({
-            case_ids: chunk,
-            update: updates,
-          })
-          for (const result of response.results) {
-            if (result.success) {
-              succeededIds.add(result.case_id)
-            }
+        const result = await runChunkedCaseBatch(caseIds, request)
+        const { succeededIds } = result
+        if (result.error || result.failed > 0) {
+          if (result.error) {
+            console.error(`Failed batch case action (${verb}):`, result.error)
           }
-          failed += response.failed
-        }
-
-        if (failed > 0) {
           toast({
             variant: "destructive",
-            title: `${succeededIds.size} updated, ${failed} failed`,
-            description: "Some selected cases could not be updated.",
+            title: result.error
+              ? succeededIds.size > 0
+                ? `${succeededIds.size} ${verb} before a request failed`
+                : failureTitle
+              : `${succeededIds.size} ${verb}, ${result.failed} failed`,
+            description: result.error
+              ? "Please retry the remaining cases."
+              : (result.errors[0] ??
+                `Some selected cases could not be ${verb}.`),
           })
-          // Drop succeeded cases from the current selection so a retry targets
-          // the remainder without discarding selection changes made mid-flight.
+          // Keep selection changes made mid-flight; only drop what succeeded.
           setSelectedCaseIds(
             (prev) => new Set([...prev].filter((id) => !succeededIds.has(id)))
           )
         } else {
-          toast({
-            title:
-              options?.successTitle ||
-              `Updated ${caseIds.length} case${caseIds.length > 1 ? "s" : ""}`,
-            description:
-              options?.successDescription ||
-              "The selected cases have been updated successfully.",
-          })
+          toast({ title: successTitle, description: successDescription })
+          if (clearOnSuccess) {
+            setSelectedCaseIds(new Set())
+          }
         }
-      } catch (err) {
-        console.error("Failed to update cases:", err)
-        toast({
-          variant: "destructive",
-          title:
-            succeededIds.size > 0
-              ? `${succeededIds.size} updated before a request failed`
-              : "Failed to update cases",
-          description: "Please retry to update the remaining cases.",
-        })
-        // Keep only unprocessed/failed cases selected so a retry targets
-        // just the remainder.
-        setSelectedCaseIds(
-          (prev) => new Set([...prev].filter((id) => !succeededIds.has(id)))
-        )
       } finally {
         // Refetch once per bulk operation, not once per chunk.
-        queryClient.invalidateQueries({ queryKey: ["cases"], exact: false })
-        setIsBulkUpdating(false)
+        await invalidate()
+        setBusy(false)
       }
     },
-    [batchUpdateCases, queryClient, selectedCaseIds, toast]
+    [selectedCaseIds, toast]
+  )
+
+  const invalidateCases = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ["cases"], exact: false }),
+    [queryClient]
+  )
+
+  const handleBulkDelete = useCallback(
+    () =>
+      runSelectionBatch({
+        request: (chunk) => batchDeleteCases({ case_ids: chunk }),
+        verb: "deleted",
+        failureTitle: "Failed to delete cases",
+        successTitle: `${selectedCaseIds.size} case(s) deleted`,
+        successDescription:
+          "The selected cases have been deleted successfully.",
+        clearOnSuccess: true,
+        setBusy: setIsDeleting,
+        invalidate: invalidateCases,
+      }),
+    [batchDeleteCases, invalidateCases, runSelectionBatch, selectedCaseIds]
+  )
+
+  const handleBulkUpdate = useCallback(
+    (
+      updates: Partial<CaseUpdate>,
+      options?: { successTitle?: string; successDescription?: string }
+    ) => {
+      const count = selectedCaseIds.size
+      return runSelectionBatch({
+        request: (chunk) =>
+          batchUpdateCases({ case_ids: chunk, update: updates }),
+        verb: "updated",
+        failureTitle: "Failed to update cases",
+        successTitle:
+          options?.successTitle ||
+          `Updated ${count} case${count > 1 ? "s" : ""}`,
+        successDescription:
+          options?.successDescription ||
+          "The selected cases have been updated successfully.",
+        clearOnSuccess: false,
+        setBusy: setIsBulkUpdating,
+        invalidate: invalidateCases,
+      })
+    },
+    [batchUpdateCases, invalidateCases, runSelectionBatch, selectedCaseIds]
+  )
+
+  const handleSetParent = useCallback(
+    (parent: { id: string; short_id: string } | null) => {
+      const count = selectedCaseIds.size
+      return runSelectionBatch({
+        request: (chunk) =>
+          batchChangeCaseParent({
+            caseIds: chunk,
+            parentId: parent?.id ?? null,
+          }),
+        verb: "updated",
+        failureTitle: parent
+          ? "Failed to group cases"
+          : "Failed to remove from parent",
+        successTitle: parent
+          ? `Grouped under ${parent.short_id}`
+          : "Removed from parent",
+        successDescription: `Applied to ${count} case${count === 1 ? "" : "s"}.`,
+        clearOnSuccess: true,
+        setBusy: setIsChangingParent,
+        invalidate: () => invalidateCaseHierarchy(queryClient),
+      })
+    },
+    [batchChangeCaseParent, queryClient, runSelectionBatch, selectedCaseIds]
   )
 
   // Sync selection state with context
@@ -316,8 +349,12 @@ export function CasesLayout({
         clearSelection: handleClearSelection,
         deleteSelected: handleBulkDelete,
         bulkUpdateSelectedCases: handleBulkUpdate,
+        setParentForSelectedCases: caseAddonsEnabled
+          ? handleSetParent
+          : undefined,
         isDeleting,
         isUpdating: isBulkUpdating,
+        isChangingParent,
       })
     } else {
       resetSelection()
@@ -327,8 +364,11 @@ export function CasesLayout({
     handleClearSelection,
     handleBulkDelete,
     handleBulkUpdate,
+    handleSetParent,
+    caseAddonsEnabled,
     isDeleting,
     isBulkUpdating,
+    isChangingParent,
     resetSelection,
     updateSelection,
   ])
@@ -370,7 +410,12 @@ export function CasesLayout({
 
   const headerProps = {
     searchQuery: filters.searchQuery,
+    appliedSearchQuery,
+    effectiveHierarchy,
+    isSearchPending,
     onSearchChange,
+    searchMode: filters.searchMode,
+    onSearchModeChange,
     sortBy: filters.sortBy,
     onSortByChange,
     statusFilter: filters.statusFilter,
@@ -405,6 +450,8 @@ export function CasesLayout({
     onUpdatedAfterChange,
     createdAfter: filters.createdAfter,
     onCreatedAfterChange,
+    includeSubCases: filters.includeSubCases,
+    onIncludeSubCasesChange,
     members,
     tags,
     dropdownDefinitions,
@@ -413,11 +460,14 @@ export function CasesLayout({
     visibleColumnIds,
     onToggleColumn,
     dropdownFilters: filters.dropdownFilters,
+    structuredFilters: filters.structuredFilters,
+    onStructuredFiltersChange,
     onDropdownFilterChange,
     onDropdownModeChange,
     onDropdownSortDirectionChange,
     totalCaseCount: cases.length,
     displayCaseCount: totalFilteredCaseEstimate,
+    isCountsError,
     selectedCount: selectedCaseIds.size,
     onSelectAll: handleSelectAll,
     onDeselectAll: handleDeselectAll,
@@ -433,6 +483,34 @@ export function CasesLayout({
     Object.values(filters.dropdownFilters).some((filter) =>
       Boolean(filter.sortDirection)
     )
+
+  const exactMatch = cases.find((caseData) => caseData.is_exact_match)
+  const filteredCases = cases.filter((caseData) => !caseData.is_exact_match)
+  const filteredStageCounts = stageCounts ? { ...stageCounts } : null
+  const exactMatchInFilters = exactMatch && !exactMatch.is_outside_filters
+  if (exactMatchInFilters && filteredStageCounts) {
+    const status = exactMatch.status
+    filteredStageCounts[status] = Math.max(
+      0,
+      (filteredStageCounts[status] ?? 0) - 1
+    )
+  }
+  const ordinaryTotal =
+    totalFilteredCaseEstimate === null
+      ? null
+      : Math.max(0, totalFilteredCaseEstimate - (exactMatchInFilters ? 1 : 0))
+  const displayOrderedCases = [
+    ...(exactMatch ? [exactMatch] : []),
+    ...orderCasesForDisplay(filteredCases, hasExplicitSort),
+  ]
+
+  const handleOpenInSidePanel = useCallback((caseData: CaseReadMinimal) => {
+    setSidePanelCaseId(caseData.id)
+  }, [])
+
+  const handleCloseSidePanel = useCallback(() => {
+    setSidePanelCaseId(null)
+  }, [])
 
   if (isLoading) {
     return (
@@ -460,7 +538,7 @@ export function CasesLayout({
           <CasesHeader {...headerProps} />
           <div className="flex flex-1 items-center justify-center">
             <span className="text-sm text-red-500">
-              Failed to load cases: {error.message}
+              Failed to load cases: {getApiErrorDetail(error) ?? error.message}
             </span>
           </div>
         </div>
@@ -475,37 +553,100 @@ export function CasesLayout({
     >
       <div className="flex size-full flex-col">
         <CasesHeader {...headerProps} />
-        <div className="min-h-0 flex-1">
-          <CasesAccordion
-            cases={cases}
-            selectedId={selectedId}
-            selectedCaseIds={selectedCaseIdsSet}
-            onSelect={handleSelectCase}
-            onCheckChange={handleCheckChange}
-            onDeleteRequest={handleDeleteRequest}
-            tags={tags}
-            members={members}
-            dropdownDefinitions={dropdownDefinitions}
-            fieldMetadataById={fieldMetadataById}
-            durationNamesById={durationNamesById}
-            visibleColumnIds={visibleColumnIds}
-            prioritySortDirection={filters.prioritySortDirection}
-            severitySortDirection={filters.severitySortDirection}
-            assigneeSortDirection={filters.assigneeSortDirection}
-            tagSortDirection={filters.tagSortDirection}
-            hasExplicitSort={hasExplicitSort}
-            statusFilter={filters.statusFilter}
-            statusMode={filters.statusMode}
-            totalFilteredCaseEstimate={totalFilteredCaseEstimate}
-            stageCounts={stageCounts}
-            isCountsLoading={isCountsLoading}
-            isCountsFetching={isCountsFetching}
-            hasNextPage={hasNextPage}
-            isFetchingNextPage={isFetchingNextPage}
-            onLoadMore={onLoadMore}
-          />
-        </div>
+        {cases.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
+            <p className="text-sm text-muted-foreground">
+              {hasNextPage
+                ? "No cases loaded yet."
+                : "No cases match the current filters."}
+            </p>
+            {hasNextPage && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isFetchingNextPage}
+                onClick={onLoadMore}
+              >
+                {isFetchingNextPage ? "Loading cases..." : "Load more cases"}
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col">
+            {exactMatch && (
+              <section aria-label="Exact match" className="shrink-0 border-b">
+                <p className="px-4 py-2 text-xs text-muted-foreground">
+                  Exact match
+                  {exactMatch.is_outside_filters &&
+                    " · Outside current filters"}
+                </p>
+                <div className="ml-[18px]">
+                  <CaseItem
+                    caseData={exactMatch}
+                    isSelected={
+                      (sidePanelCaseId ?? selectedId) === exactMatch.id
+                    }
+                    isChecked={selectedCaseIdsSet.has(exactMatch.id)}
+                    onCheckChange={(checked) =>
+                      handleCheckChange(exactMatch.id, checked)
+                    }
+                    onClick={() => handleSelectCase(exactMatch.id)}
+                    onDeleteRequest={handleDeleteRequest}
+                    onOpenInSidePanel={handleOpenInSidePanel}
+                    tags={tags}
+                    members={members}
+                    dropdownDefinitions={dropdownDefinitions}
+                    fieldMetadataById={fieldMetadataById}
+                    durationNamesById={durationNamesById}
+                    visibleColumnIds={visibleColumnIds}
+                  />
+                </div>
+              </section>
+            )}
+            <CasesAccordion
+              cases={filteredCases}
+              selectedId={sidePanelCaseId ?? selectedId}
+              selectedCaseIds={selectedCaseIdsSet}
+              onSelect={handleSelectCase}
+              onCheckChange={handleCheckChange}
+              onDeleteRequest={handleDeleteRequest}
+              onOpenInSidePanel={handleOpenInSidePanel}
+              tags={tags}
+              members={members}
+              dropdownDefinitions={dropdownDefinitions}
+              fieldMetadataById={fieldMetadataById}
+              durationNamesById={durationNamesById}
+              visibleColumnIds={visibleColumnIds}
+              prioritySortDirection={filters.prioritySortDirection}
+              severitySortDirection={filters.severitySortDirection}
+              assigneeSortDirection={filters.assigneeSortDirection}
+              tagSortDirection={filters.tagSortDirection}
+              hasExplicitSort={hasExplicitSort}
+              statusFilter={filters.statusFilter}
+              statusMode={filters.statusMode}
+              totalFilteredCaseEstimate={ordinaryTotal}
+              stageCounts={filteredStageCounts}
+              isCountsLoading={isCountsLoading}
+              isCountsFetching={isCountsFetching}
+              hasNextPage={hasNextPage}
+              isFetchingNextPage={isFetchingNextPage}
+              onLoadMore={onLoadMore}
+            />
+          </div>
+        )}
       </div>
+      {workspaceId && (
+        <CaseSidePanel
+          caseId={sidePanelCaseId}
+          cases={displayOrderedCases}
+          workspaceId={workspaceId}
+          onCaseChange={setSidePanelCaseId}
+          onClose={handleCloseSidePanel}
+          hasNextPage={hasNextPage}
+          isFetchingNextPage={isFetchingNextPage}
+          onLoadMore={onLoadMore}
+        />
+      )}
     </DeleteCaseAlertDialog>
   )
 }

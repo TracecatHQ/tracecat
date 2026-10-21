@@ -12,18 +12,37 @@ from tracecat.agent.preset.schemas import (
     AgentPresetToolPolicyPreview,
     AgentPresetToolPolicyRead,
     AgentPresetUpdate,
+    AgentPresetValidationErrorResponse,
     AgentPresetVersionDiff,
     AgentPresetVersionRead,
     AgentPresetVersionReadMinimal,
+    AgentPresetWorkflowReference,
 )
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.preset.workflow_references import (
+    AgentPresetWorkflowReferenceService,
+)
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
+from tracecat.pagination import (
+    CursorPaginatedResponse,
+    CursorPaginationParams,
+    PageParams,
+)
 
 router = APIRouter(prefix="/agent/presets", tags=["agent-presets"])
+
+
+def _validation_error(exc: TracecatValidationError) -> HTTPException:
+    detail = exc.detail if exc.detail is not None else str(exc)
+    if isinstance(detail, dict) and "message" not in detail:
+        detail = {**detail, "message": str(exc)}
+    return HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=detail,
+    )
 
 
 @router.get("", response_model=list[AgentPresetReadMinimal])
@@ -32,18 +51,52 @@ async def list_agent_presets(
     *,
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
+    use_in_chat: bool | None = Query(default=None),
 ) -> list[AgentPresetReadMinimal]:
     """List all agent presets for the current workspace."""
     service = AgentPresetService(session, role=role)
-    presets = await service.list_presets()
+    presets = await service.list_presets(use_in_chat=use_in_chat)
     return await service.build_preset_list_reads(presets)
+
+
+@router.get(
+    "/workflow-references",
+    response_model=CursorPaginatedResponse[AgentPresetWorkflowReference],
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Invalid cursor",
+        },
+    },
+)
+@require_scope("agent:read", "workflow:read")
+async def list_agent_preset_workflow_references(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None, max_length=8192),
+) -> CursorPaginatedResponse[AgentPresetWorkflowReference]:
+    """Page through the workflows that run each agent preset."""
+    service = AgentPresetWorkflowReferenceService(session, role=role)
+    try:
+        return await service.list_references(PageParams(limit=limit, cursor=cursor))
+    except TracecatValidationError as exc:
+        raise _validation_error(exc) from exc
 
 
 @router.post(
     "/tool-policy",
     response_model=AgentPresetToolPolicyRead,
     responses={
-        status.HTTP_400_BAD_REQUEST: {"description": "Invalid tool policy selections"},
+        status.HTTP_400_BAD_REQUEST: {
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Invalid tool policy selections",
+        },
     },
 )
 @require_scope("agent:read")
@@ -57,16 +110,19 @@ async def preview_tool_policy(
     try:
         return await AgentPresetService(session, role=role).preview_tool_policy(params)
     except TracecatValidationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=exc.detail if exc.detail is not None else str(exc),
-        ) from exc
+        raise _validation_error(exc) from exc
 
 
 @router.post(
     "",
     response_model=AgentPresetRead,
     status_code=status.HTTP_201_CREATED,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Invalid agent preset configuration",
+        },
+    },
 )
 @require_scope("agent:create")
 async def create_agent_preset(
@@ -80,11 +136,8 @@ async def create_agent_preset(
     try:
         preset = await service.create_preset(params)
         return await service.build_preset_read(preset)
-    except TracecatValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from e
+    except TracecatValidationError as exc:
+        raise _validation_error(exc) from exc
 
 
 @router.get("/{preset_id}", response_model=AgentPresetRead)
@@ -123,7 +176,16 @@ async def get_agent_preset_by_slug(
     return await service.build_preset_read(preset)
 
 
-@router.patch("/{preset_id}", response_model=AgentPresetRead)
+@router.patch(
+    "/{preset_id}",
+    response_model=AgentPresetRead,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Invalid agent preset configuration",
+        },
+    },
+)
 @require_scope("agent:update")
 async def update_agent_preset(
     *,
@@ -141,6 +203,8 @@ async def update_agent_preset(
         )
     try:
         preset = await service.update_preset(preset, params)
+    except TracecatValidationError as exc:
+        raise _validation_error(exc) from exc
     except TracecatNotFoundError as e:
         # The preset can be soft-deleted between the lookup above and the
         # service's row lock; surface that race as a 404, not a 500.
@@ -180,6 +244,12 @@ async def delete_agent_preset(
 @router.get(
     "/{preset_id}/versions",
     response_model=CursorPaginatedResponse[AgentPresetVersionReadMinimal],
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Invalid agent preset configuration",
+        },
+    },
 )
 @require_scope("agent:read")
 async def list_agent_preset_versions(
@@ -202,14 +272,25 @@ async def list_agent_preset_versions(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset {preset_id} not found",
         )
-    versions = await service.list_versions(
-        preset_id,
-        CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
-    )
-    return versions
+    try:
+        return await service.list_versions(
+            preset_id,
+            CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
+        )
+    except TracecatValidationError as exc:
+        raise _validation_error(exc) from exc
 
 
-@router.get("/{preset_id}/versions/{version_id}", response_model=AgentPresetVersionRead)
+@router.get(
+    "/{preset_id}/versions/{version_id}",
+    response_model=AgentPresetVersionRead,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Invalid agent preset configuration",
+        },
+    },
+)
 @require_scope("agent:read")
 async def get_agent_preset_version(
     *,
@@ -229,12 +310,21 @@ async def get_agent_preset_version(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset version '{version_id}' not found",
         )
-    return await service.build_version_read(version)
+    try:
+        return await service.build_version_read(version)
+    except TracecatValidationError as exc:
+        raise _validation_error(exc) from exc
 
 
 @router.get(
     "/{preset_id}/versions/{version_id}/compare",
     response_model=AgentPresetVersionDiff,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Invalid agent preset configuration",
+        },
+    },
 )
 @require_scope("agent:read")
 async def compare_agent_preset_versions(
@@ -265,12 +355,21 @@ async def compare_agent_preset_versions(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset version '{compare_to}' not found",
         )
-    return await service.compare_versions(base_version, compare_version)
+    try:
+        return await service.compare_versions(base_version, compare_version)
+    except TracecatValidationError as exc:
+        raise _validation_error(exc) from exc
 
 
 @router.post(
     "/{preset_id}/versions/{version_id}/restore",
     response_model=AgentPresetRead,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Invalid agent preset configuration",
+        },
+    },
 )
 @require_scope("agent:update")
 async def restore_agent_preset_version(
@@ -303,10 +402,7 @@ async def restore_agent_preset_version(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
     except TracecatValidationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
+        raise _validation_error(exc) from exc
     return await service.build_preset_read(restored)
 
 

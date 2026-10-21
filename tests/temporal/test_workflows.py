@@ -219,9 +219,6 @@ def dict_to_exec_context(expected_dict: dict[str, Any]) -> ExecutionContext:
             result_typename=task_result.get("result_typename", "unknown"),
             error=task_result.get("error"),
             error_typename=task_result.get("error_typename"),
-            interaction=task_result.get("interaction"),
-            interaction_id=task_result.get("interaction_id"),
-            interaction_type=task_result.get("interaction_type"),
             collection_index=task_result.get("collection_index"),
         )
     return ExecutionContext(
@@ -284,9 +281,6 @@ async def test_resolve_execution_context_preserves_task_result_metadata() -> Non
                 result_typename="CustomType",
                 error={"message": "oops"},
                 error_typename="dict",
-                interaction={"kind": "test"},
-                interaction_id="interaction_1",
-                interaction_type="test",
                 collection_index=0,
             )
         },
@@ -300,9 +294,6 @@ async def test_resolve_execution_context_preserves_task_result_metadata() -> Non
     assert task.result_typename == "CustomType"
     assert task.error == {"message": "oops"}
     assert task.error_typename == "dict"
-    assert task.interaction == {"kind": "test"}
-    assert task.interaction_id == "interaction_1"
-    assert task.interaction_type == "test"
     assert task.collection_index == 0
 
 
@@ -400,9 +391,6 @@ def raw_data_to_exec_context(raw_data: dict[str, Any]) -> ExecutionContext:
             result_typename=task_result.get("result_typename", "unknown"),
             error=task_result.get("error"),
             error_typename=task_result.get("error_typename"),
-            interaction=task_result.get("interaction"),
-            interaction_id=task_result.get("interaction_id"),
-            interaction_type=task_result.get("interaction_type"),
             collection_index=task_result.get("collection_index"),
         )
     trigger_data = raw_data.get("TRIGGER")
@@ -6085,9 +6073,6 @@ async def test_workflow_scatter_gather(
                     result_typename=task_result.result_typename,
                     error=normalize_error_line_numbers(task_result.error),
                     error_typename=task_result.error_typename,
-                    interaction=task_result.interaction,
-                    interaction_id=task_result.interaction_id,
-                    interaction_type=task_result.interaction_type,
                     collection_index=task_result.collection_index,
                 )
                 for ref, task_result in resolved_result["ACTIONS"].items()

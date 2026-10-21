@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter
 
+from tracecat.agent.preset.schemas import AgentPresetToolSummary
 from tracecat.core.schemas import Schema
 from tracecat.tags.schemas import TagRead
 
@@ -49,10 +50,12 @@ class AgentPresetDirectoryItem(BaseModel):
     name: str
     slug: str
     description: str | None
+    use_in_chat: bool = Field(default=False)
     model_provider: str
     model_name: str
     folder_id: uuid.UUID | None
     tags: list[TagRead]
+    tool_summary: AgentPresetToolSummary = Field(default_factory=AgentPresetToolSummary)
     created_at: datetime
     updated_at: datetime
 

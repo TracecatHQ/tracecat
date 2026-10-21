@@ -10,7 +10,9 @@ from typing import Literal
 
 from tracecat.config import (
     TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES,
+    TRACECAT__SANDBOX_ADDRESS_SPACE_MB,
     TRACECAT__SANDBOX_CACHE_DIR,
+    TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
     TRACECAT__SANDBOX_NSJAIL_PATH,
     TRACECAT__SANDBOX_PYPI_EXTRA_INDEX_URLS,
     TRACECAT__SANDBOX_PYPI_INDEX_URL,
@@ -139,6 +141,11 @@ _WORKLOAD_LAUNCHER_NAME = ".tracecat-workload-launcher.py"
 _WORKLOAD_STARTED_MARKER = b"\x00tracecat-workload-started\x00"
 _FAILURE_STDERR_TAIL_CHARS = 8192
 _NSJAIL_LOG_LINE_PATTERN = re.compile(r"^\[[A-Z]\]\[")
+
+
+def python_path_mount(index: int) -> str:
+    """Return the jail path where ``SandboxConfig.python_path_dirs[index]`` is mounted."""
+    return f"/pythonpath/{index}"
 
 
 def workload_stderr_tail(stderr: str, *, limit: int) -> str:
@@ -466,7 +473,7 @@ class NsjailExecutor:
                 if not python_path_dir.exists():
                     continue
                 lines.append(
-                    f'mount {{ src: "{python_path_dir}" dst: "/pythonpath/{i}" is_bind: true rw: false }}'
+                    f'mount {{ src: "{python_path_dir}" dst: "{python_path_mount(i)}" is_bind: true rw: false }}'
                 )
             lines.append(
                 f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: true }}'
@@ -563,7 +570,7 @@ class NsjailExecutor:
                     pythonpath_parts.append("/packages")
             for i, python_path_dir in enumerate(config.python_path_dirs):
                 if python_path_dir.exists():
-                    pythonpath_parts.append(f"/pythonpath/{i}")
+                    pythonpath_parts.append(python_path_mount(i))
             if user_pythonpath:
                 pythonpath_parts.append(user_pythonpath)
             if pythonpath_parts:
@@ -730,7 +737,8 @@ class NsjailExecutor:
             network=SandboxNetworkRequest(SandboxNetworkPurpose.INSTALL),
             resources=ResourceLimits(
                 timeout_seconds=timeout_seconds,
-                memory_mb=2048,  # Same as execution
+                memory_mb=TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
+                address_space_mb=TRACECAT__SANDBOX_ADDRESS_SPACE_MB,
             ),
         )
 
@@ -814,6 +822,8 @@ class NsjailExecutor:
         # Validate inputs to prevent injection into protobuf config
         _validate_path(job_dir, "job_dir")
         _validate_path(self.rootfs, "rootfs")
+        if self.cgroup_mount is not None:
+            _validate_path(self.cgroup_mount, "cgroup_mount")
         for i, registry_path in enumerate(config.registry_paths):
             _validate_path(registry_path, f"registry_path_{i}")
         _validate_path(config.tracecat_app_dir, "tracecat_app_dir")
@@ -930,6 +940,16 @@ class NsjailExecutor:
                 f"time_limit: {int(config.timeout_seconds)}",
             ]
         )
+
+        if self.cgroup_mount is not None:
+            lines.extend(
+                [
+                    "use_cgroupv2: true",
+                    f'cgroupv2_mount: "{self.cgroup_mount}"',
+                    f"cgroup_mem_max: {config.resources.memory_mb * 1024 * 1024}",
+                    "cgroup_mem_swap_max: 0",
+                ]
+            )
 
         # Launch through the same executor-owned proof shim used by script and
         # install phases. minimal_runner.py remains the actual workload.

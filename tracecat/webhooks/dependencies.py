@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from ipaddress import ip_address, ip_network
-from typing import TYPE_CHECKING, Annotated, Any, cast
+from typing import TYPE_CHECKING, Annotated, cast
 
 import orjson
 from fastapi import Depends, Header, HTTPException, Request, status
@@ -24,12 +24,10 @@ from tracecat.db.engine import (
 )
 from tracecat.db.models import Webhook, WorkflowDefinition, Workspace
 from tracecat.dsl.schemas import TriggerInputs
-from tracecat.ee.interactions.connectors import parse_slack_interaction_input
-from tracecat.ee.interactions.enums import InteractionCategory
-from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.logger import logger
+from tracecat.middleware.request import resolve_client_ip
 from tracecat.observability.sentry import capture_api_exception
 from tracecat.observability.types import AlertPriority
 from tracecat.webhooks.schemas import NDJSON_CONTENT_TYPES
@@ -39,14 +37,6 @@ if TYPE_CHECKING:
     from tracecat.dsl.common import DSLInput
 
 API_KEY_HEADER = "x-tracecat-api-key"
-
-
-def _extract_client_ip(request: Request) -> str | None:
-    # Assume proxy middleware already validated/sanitized headers; treat
-    # X-Forwarded-For as untrusted and rely on the resolved client host.
-    if request.client:
-        return request.client.host
-    return None
 
 
 def _ip_allowed(client_ip: str, cidr_list: Sequence[str]) -> bool:
@@ -120,7 +110,7 @@ async def validate_incoming_webhook(
 
         updated = False
 
-        client_ip = _extract_client_ip(request)
+        client_ip = resolve_client_ip(request)
         if webhook.allowlisted_cidrs:
             if client_ip is None:
                 logger.warning(
@@ -316,39 +306,6 @@ async def parse_webhook_payload(
             ) from e
 
     return cast(TriggerInputs, result)
-
-
-def parse_interaction_payload(
-    category: InteractionCategory,
-    payload: TriggerInputs | None = Depends(parse_webhook_payload),
-) -> InteractionInput:
-    if payload is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Missing interaction payload",
-        )
-    logger.info("Parsed interaction payload", payload=payload)
-    match category:
-        case InteractionCategory.SLACK:
-            # Specific steps to handle interactive Slack payloads
-            # according to https://api.slack.com/interactivity/handling#payloads
-            if not isinstance(payload, dict):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Malformed Slack interaction payload",
-                )
-            if "payload" not in payload:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Missing payload field in Slack interaction payload",
-                )
-            payload_obj = cast(dict[str, Any], orjson.loads(payload["payload"]))
-            return parse_slack_interaction_input(payload_obj)
-        case _:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid interaction category",
-            )
 
 
 PayloadDep = Annotated[TriggerInputs | None, Depends(parse_webhook_payload)]

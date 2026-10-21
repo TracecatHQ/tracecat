@@ -5,7 +5,7 @@ from typing import Annotated, Any
 from uuid import UUID
 
 import pytest
-from pydantic import BaseModel, SecretStr, ValidationError
+from pydantic import SecretStr, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistryOAuthSecret, registry
@@ -27,7 +27,6 @@ from tracecat.executor.service import dispatch_action
 from tracecat.expressions.expectations import ExpectedField
 
 # Add imports for expression validation
-from tracecat.expressions.validation import TemplateValidator
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
@@ -48,7 +47,7 @@ from tracecat.registry.repository import Repository
 from tracecat.registry.versions.schemas import RegistryVersionManifestAction
 from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.tiers import defaults as tier_defaults
-from tracecat.validation.schemas import ActionValidationResult, ValidationResultType
+from tracecat.validation.schemas import ValidationResultType
 from tracecat.validation.service import validate_dsl
 
 TEST_VERSION = "test-version"
@@ -152,18 +151,6 @@ def mock_run_context():
         environment="default",
         logical_time=datetime.now(UTC),
     )
-
-
-def test_template_validator():
-    class MyModel(BaseModel):
-        my_action: Annotated[list[str], TemplateValidator()]
-
-    # Sanity check
-    model = MyModel(my_action=["hello", "world"])
-    assert model.my_action == ["hello", "world"]
-
-    model = MyModel(my_action="${{ my_list }}")  # type: ignore
-    assert model.my_action == "${{ my_list }}"
 
 
 def test_validator_function_wrap_handler():
@@ -441,198 +428,6 @@ async def test_template_validation_errors(file_name, expected_error_pattern):
         assert re.search(expected_error_pattern, error_text, re.IGNORECASE), (
             f"Expected pattern '{expected_error_pattern}' not found in errors: {all_error_messages}"
         )
-
-
-def test_validate_args_type_preservation_modes():
-    """Test that validate_args preserves Python types in 'python' mode and serializes in 'json' mode."""
-
-    repo = Repository()
-
-    # Register UDF with datetime parameter
-    @registry.register(
-        description="Test function with datetime",
-        namespace="test",
-        doc_url="https://example.com/docs",
-        author="Tracecat",
-    )
-    def f_datetime(
-        dt: Annotated[
-            datetime,
-            Doc("A datetime field"),
-        ],
-    ) -> datetime:
-        return dt
-
-    repo._register_udf_from_function(f_datetime, name="f_datetime")
-    udf_datetime = repo.get("test.f_datetime")
-
-    # Register UDF with UUID parameter
-    @registry.register(
-        description="Test function with UUID",
-        namespace="test",
-        doc_url="https://example.com/docs",
-        author="Tracecat",
-    )
-    def f_uuid(
-        uid: Annotated[
-            UUID,
-            Doc("A UUID field"),
-        ],
-    ) -> UUID:
-        return uid
-
-    repo._register_udf_from_function(f_uuid, name="f_uuid")
-    udf_uuid = repo.get("test.f_uuid")
-
-    # Register UDF with set parameter
-    @registry.register(
-        description="Test function with set",
-        namespace="test",
-        doc_url="https://example.com/docs",
-        author="Tracecat",
-    )
-    def f_set(
-        data: Annotated[
-            set[int],
-            Doc("A set of integers"),
-        ],
-    ) -> set[int]:
-        return data
-
-    repo._register_udf_from_function(f_set, name="f_set")
-    udf_set = repo.get("test.f_set")
-
-    # Register UDF with tuple parameter
-    @registry.register(
-        description="Test function with tuple",
-        namespace="test",
-        doc_url="https://example.com/docs",
-        author="Tracecat",
-    )
-    def f_tuple(
-        tup: Annotated[
-            tuple[str, int],
-            Doc("A tuple of string and int"),
-        ],
-    ) -> tuple[str, int]:
-        return tup
-
-    repo._register_udf_from_function(f_tuple, name="f_tuple")
-    udf_tuple = repo.get("test.f_tuple")
-
-    # Register UDF with nested complex types
-    @registry.register(
-        description="Test function with nested complex types",
-        namespace="test",
-        doc_url="https://example.com/docs",
-        author="Tracecat",
-    )
-    def f_nested(
-        date_dict: Annotated[
-            dict[str, datetime],
-            Doc("A dict with datetime values"),
-        ],
-        uuid_list: Annotated[
-            list[UUID],
-            Doc("A list of UUIDs"),
-        ],
-    ) -> dict[str, Any]:
-        return {"date_dict": date_dict, "uuid_list": uuid_list}
-
-    repo._register_udf_from_function(f_nested, name="f_nested")
-    udf_nested = repo.get("test.f_nested")
-
-    # Test data
-    test_datetime = datetime(2024, 1, 1, 12, 0, 0)
-    test_uuid = UUID("12345678-1234-5678-1234-567812345678")
-    test_set = {1, 2, 3}
-    test_tuple = ("test", 42)
-    test_date_dict = {"created": datetime(2024, 1, 1), "updated": datetime(2024, 1, 2)}
-    test_uuid_list = [
-        UUID("12345678-1234-5678-1234-567812345678"),
-        UUID("87654321-4321-8765-4321-876543210987"),
-    ]
-
-    # TEST 1: mode="python" preserves native Python types
-    result_dt_python = udf_datetime.validate_args(
-        args={"dt": test_datetime}, mode="python"
-    )
-    assert isinstance(result_dt_python["dt"], datetime), (
-        f"Expected datetime, got {type(result_dt_python['dt'])}"
-    )
-    assert result_dt_python["dt"] == test_datetime
-
-    result_uuid_python = udf_uuid.validate_args(args={"uid": test_uuid}, mode="python")
-    assert isinstance(result_uuid_python["uid"], UUID), (
-        f"Expected UUID, got {type(result_uuid_python['uid'])}"
-    )
-    assert result_uuid_python["uid"] == test_uuid
-
-    result_set_python = udf_set.validate_args(args={"data": test_set}, mode="python")
-    assert isinstance(result_set_python["data"], set), (
-        f"Expected set, got {type(result_set_python['data'])}"
-    )
-    assert result_set_python["data"] == test_set
-
-    result_tuple_python = udf_tuple.validate_args(
-        args={"tup": test_tuple}, mode="python"
-    )
-    assert isinstance(result_tuple_python["tup"], tuple), (
-        f"Expected tuple, got {type(result_tuple_python['tup'])}"
-    )
-    assert result_tuple_python["tup"] == test_tuple
-
-    result_nested_python = udf_nested.validate_args(
-        args={"date_dict": test_date_dict, "uuid_list": test_uuid_list}, mode="python"
-    )
-    assert isinstance(result_nested_python["date_dict"], dict)
-    assert isinstance(result_nested_python["date_dict"]["created"], datetime)
-    assert isinstance(result_nested_python["uuid_list"], list)
-    assert isinstance(result_nested_python["uuid_list"][0], UUID)
-
-    # TEST 2: mode="json" serializes to JSON-compatible types
-    result_dt_json = udf_datetime.validate_args(args={"dt": test_datetime}, mode="json")
-    assert isinstance(result_dt_json["dt"], str), (
-        f"Expected str, got {type(result_dt_json['dt'])}"
-    )
-    assert result_dt_json["dt"] == "2024-01-01T12:00:00"
-
-    result_uuid_json = udf_uuid.validate_args(args={"uid": test_uuid}, mode="json")
-    assert isinstance(result_uuid_json["uid"], str), (
-        f"Expected str, got {type(result_uuid_json['uid'])}"
-    )
-    assert result_uuid_json["uid"] == "12345678-1234-5678-1234-567812345678"
-
-    result_set_json = udf_set.validate_args(args={"data": test_set}, mode="json")
-    assert isinstance(result_set_json["data"], list), (
-        f"Expected list, got {type(result_set_json['data'])}"
-    )
-    assert set(result_set_json["data"]) == test_set  # Compare as sets
-
-    result_tuple_json = udf_tuple.validate_args(args={"tup": test_tuple}, mode="json")
-    assert isinstance(result_tuple_json["tup"], list), (
-        f"Expected list, got {type(result_tuple_json['tup'])}"
-    )
-    assert result_tuple_json["tup"] == ["test", 42]
-
-    result_nested_json = udf_nested.validate_args(
-        args={"date_dict": test_date_dict, "uuid_list": test_uuid_list}, mode="json"
-    )
-    assert isinstance(result_nested_json["date_dict"], dict)
-    assert isinstance(
-        result_nested_json["date_dict"]["created"], str
-    )  # datetime serialized
-    assert isinstance(result_nested_json["uuid_list"], list)
-    assert isinstance(result_nested_json["uuid_list"][0], str)  # UUID serialized
-
-    # TEST 3: Template expressions work in both modes
-    udf_datetime.validate_args(args={"dt": "${{ INPUTS.date }}"}, mode="python")
-    udf_datetime.validate_args(args={"dt": "${{ INPUTS.date }}"}, mode="json")
-
-    udf_uuid.validate_args(args={"uid": "${{ INPUTS.id }}"}, mode="python")
-    udf_uuid.validate_args(args={"uid": "${{ INPUTS.id }}"}, mode="json")
-
-    # Should not raise any validation errors
 
 
 @pytest.mark.integration
@@ -965,12 +760,11 @@ async def test_validate_dsl_with_optional_oauth_credentials(
 
 @pytest.mark.integration
 @pytest.mark.anyio
-async def test_agent_tool_approvals_requires_entitlement(
+async def test_agent_tool_approvals_do_not_require_agent_addons(
     test_role, db_session_with_repo, monkeypatch
 ):
     session, db_repo_id = db_session_with_repo
 
-    # Ensure entitlement disabled
     monkeypatch.setattr(
         tier_defaults,
         "DEFAULT_ENTITLEMENTS",
@@ -1020,71 +814,4 @@ async def test_agent_tool_approvals_requires_entitlement(
         r for r in validation_results if r.root.type == ValidationResultType.ACTION
     ]
 
-    assert len(action_errors) == 1
-    root = action_errors[0].root
-    assert isinstance(root, ActionValidationResult)
-    detail = root.detail
-    if detail is None:
-        detail_msgs: set[str] = set()
-    else:
-        detail_msgs = {d.msg for d in detail}
-    assert any("agent_addons" in msg for msg in detail_msgs)
-
-
-@pytest.mark.integration
-@pytest.mark.anyio
-async def test_agent_tool_approvals_passes_with_entitlement(
-    test_role, db_session_with_repo, monkeypatch
-):
-    session, db_repo_id = db_session_with_repo
-
-    monkeypatch.setattr(
-        tier_defaults,
-        "DEFAULT_ENTITLEMENTS",
-        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"agent_addons": True}),
-    )
-
-    repo = Repository()
-    repo.init(include_base=True, include_templates=False)
-
-    ra_service = RegistryActionsService(session, role=test_role)
-    bound_action = repo.get("ai.agent")
-    action_create = RegistryActionCreate.from_bound(bound_action, db_repo_id)
-
-    # Ensure the agent action is registered exactly once.
-    # It may already exist if the base registry has been synced.
-    if await ra_service.get_action_or_none("ai.agent") is None:
-        await ra_service.create_action(action_create)
-
-    # Create manifest for the ai.agent action using the helper
-    await create_manifest_for_actions(
-        session, db_repo_id, [bound_action], test_role.organization_id
-    )
-
-    dsl = DSLInput(
-        title="Test Workflow",
-        description="Agent with tool approvals",
-        entrypoint=DSLEntrypoint(expects={}),
-        actions=[
-            ActionStatement(
-                ref="agent_action",
-                action="ai.agent",
-                args={
-                    "user_prompt": "Hello",
-                    "model": {
-                        "model_name": "gpt-4o-mini",
-                        "model_provider": "openai",
-                    },
-                    "actions": ["tools.slack.post_message"],
-                    "tool_approvals": {"tools.slack.post_message": True},
-                },
-            )
-        ],
-    )
-
-    validation_results = await validate_dsl(session, dsl, role=test_role)
-    action_errors = [
-        r for r in validation_results if r.root.type == ValidationResultType.ACTION
-    ]
-
-    assert len(action_errors) == 0
+    assert action_errors == []

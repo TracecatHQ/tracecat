@@ -130,23 +130,6 @@ def _make_resume_transaction(**overrides) -> ResumeTransaction:
 
 
 @pytest.mark.anyio
-async def test_store_and_load_auth_code_roundtrip() -> None:
-    data = _make_auth_code_data()
-    await storage.store_auth_code(data)
-
-    loaded = await storage.load_and_delete_auth_code(data.code)
-
-    assert loaded is not None
-    assert loaded.code == data.code
-    assert loaded.user_id == data.user_id
-    assert loaded.email == data.email
-    assert loaded.organization_id == data.organization_id
-    assert loaded.is_platform_superuser == data.is_platform_superuser
-    assert loaded.scope == data.scope
-    assert loaded.resource == data.resource
-
-
-@pytest.mark.anyio
 async def test_load_and_delete_auth_code_is_one_time_use() -> None:
     data = _make_auth_code_data()
     await storage.store_auth_code(data)
@@ -154,7 +137,7 @@ async def test_load_and_delete_auth_code_is_one_time_use() -> None:
     first = await storage.load_and_delete_auth_code(data.code)
     second = await storage.load_and_delete_auth_code(data.code)
 
-    assert first is not None
+    assert first == data
     assert second is None
 
 
@@ -170,19 +153,6 @@ async def test_load_and_delete_auth_code_returns_none_for_unknown() -> None:
 
 
 @pytest.mark.anyio
-async def test_store_and_load_resume_transaction_roundtrip() -> None:
-    txn = _make_resume_transaction()
-    await storage.store_resume_transaction(txn)
-
-    loaded = await storage.load_and_delete_resume_transaction(txn.transaction_id)
-
-    assert loaded is not None
-    assert loaded.transaction_id == txn.transaction_id
-    assert loaded.authorize_params == txn.authorize_params
-    assert loaded.bound_ip == txn.bound_ip
-
-
-@pytest.mark.anyio
 async def test_load_and_delete_resume_transaction_is_one_time_use() -> None:
     txn = _make_resume_transaction()
     await storage.store_resume_transaction(txn)
@@ -190,21 +160,8 @@ async def test_load_and_delete_resume_transaction_is_one_time_use() -> None:
     first = await storage.load_and_delete_resume_transaction(txn.transaction_id)
     second = await storage.load_and_delete_resume_transaction(txn.transaction_id)
 
-    assert first is not None
+    assert first == txn
     assert second is None
-
-
-# ---------------------------------------------------------------------------
-# JTI tracking
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.anyio
-async def test_store_jti(fake_redis: _InMemoryRedis) -> None:
-    await storage.store_jti("jti-abc")
-
-    raw = fake_redis.raw_get("mcp-oidc:jti:jti-abc")
-    assert raw is not None
 
 
 # ---------------------------------------------------------------------------

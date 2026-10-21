@@ -1569,7 +1569,7 @@
     },
     {
       "slug": "servicenow-mcp",
-      "docs": "https://www.servicenow.com/docs/r/intelligent-experiences/enable-ai-experiences/connect-mcp-server-client.html",
+      "docs": "https://www.servicenow.com/docs/r/intelligent-experiences/connect-mcp-server-client.html",
       "connection_spec": {
         "server_type": "http",
         "auth_type": "OAUTH2",
@@ -1589,7 +1589,7 @@
           {
             "key": "MCP_SERVER_NAME",
             "label": "MCP server name",
-            "description": "Name of the MCP server created in MCP Server Console.",
+            "description": "Name of the MCP server created in MCP Server Console. Use sn_mcp_server_default for the preconfigured Quickstart Server.",
             "required": true,
             "secret": false,
             "target": "server_uri"
@@ -1597,7 +1597,7 @@
           {
             "key": "client_id",
             "label": "OAuth client ID",
-            "description": "Client ID of an OAuth inbound integration created in Machine Identity Console > Inbound integrations (grant type Authorization code, token format JWT) with <your Tracecat URL>/integrations/callback as the redirect URL.",
+            "description": "Client ID of an OAuth inbound integration created in Machine Identity Console > Inbound integrations (OAuth - Authorization code grant, token format JWT) with <your Tracecat URL>/integrations/callback as the redirect URL. Leave \"Allow access only to APIs in selected scope\" cleared so Tracecat can list tools.",
             "required": true,
             "secret": false,
             "target": "oauth_client"

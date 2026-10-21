@@ -1,0 +1,111 @@
+type: action
+definition:
+  title: Create address
+  description: Create an address object in the candidate configuration with POST /restapi/{version}/Objects/Addresses?name=. Provide exactly one of ip_netmask, ip_range, ip_wildcard, or fqdn. Commit to apply the change.
+  display_group: Palo Alto Networks (PAN-OS)
+  doc_url: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api
+  namespace: tools.pan_os
+  name: create_address
+  secrets:
+    - name: pan_os
+      keys:
+        - PANOS_API_KEY
+  expects:
+    name:
+      type: str
+      description: Address object name (max 63 characters).
+    ip_netmask:
+      type: str | None
+      description: IP address with or without CIDR mask, e.g. 203.0.113.10 or 10.0.0.0/24.
+      default: null
+    ip_range:
+      type: str | None
+      description: IP range, e.g. 10.0.0.1-10.0.0.20.
+      default: null
+    ip_wildcard:
+      type: str | None
+      description: IP wildcard mask, e.g. 10.20.1.0/0.0.248.255.
+      default: null
+    fqdn:
+      type: str | None
+      description: Fully qualified domain name.
+      default: null
+    description:
+      type: str | None
+      description: Address object description.
+      default: null
+    tags:
+      type: list[str] | None
+      description: Tags to apply. Tags must already exist.
+      default: null
+    location:
+      type: str
+      description: 'Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.'
+      default: vsys
+    vsys:
+      type: str
+      description: Virtual system when location is vsys.
+      default: vsys1
+    device_group:
+      type: str | None
+      description: Panorama device group when location is device-group.
+      default: null
+    base_url:
+      type: str | None
+      description: Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable pan_os.base_url.
+      default: null
+    api_version:
+      type: str | None
+      description: PAN-OS REST API version, e.g. v11.1 or v10.2. Falls back to the workspace variable pan_os.api_version, then v11.1.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
+      default: true
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          name: ${{ inputs.name }}
+          ip_netmask: ${{ inputs.ip_netmask }}
+          ip_range: ${{ inputs.ip_range }}
+          ip_wildcard: ${{ inputs.ip_wildcard }}
+          fqdn: ${{ inputs.fqdn }}
+          description: ${{ inputs.description }}
+          tags: ${{ inputs.tags }}
+        script: |
+          TYPES = {"ip_netmask": "ip-netmask", "ip_range": "ip-range", "ip_wildcard": "ip-wildcard", "fqdn": "fqdn"}
+
+          def _values(ip_netmask, ip_range, ip_wildcard, fqdn):
+              given = dict(zip(TYPES.values(), (ip_netmask, ip_range, ip_wildcard, fqdn)))
+              return {key: value for key, value in given.items() if value}
+
+
+          def main(name, ip_netmask, ip_range, ip_wildcard, fqdn, description, tags):
+              values = _values(ip_netmask, ip_range, ip_wildcard, fqdn)
+              if len(values) != 1:
+                  raise ValueError("Provide exactly one of ip_netmask, ip_range, ip_wildcard, or fqdn.")
+              entry = {"@name": name, **values}
+              if description is not None:
+                  entry["description"] = description
+              if tags:
+                  entry["tag"] = {"member": tags}
+              return {"entry": entry}
+    - ref: create
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pan_os.base_url }}/restapi/${{ inputs.api_version || VARS.pan_os.api_version || "v11.1" }}/Objects/Addresses
+        method: POST
+        headers:
+          X-PAN-KEY: ${{ SECRETS.pan_os.PANOS_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        params:
+          location: ${{ inputs.location }}
+          vsys: ${{ inputs.vsys if inputs.location == "vsys" else None }}
+          device-group: ${{ inputs.device_group if inputs.location == "device-group" else None }}
+          name: ${{ inputs.name }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.create.result }}

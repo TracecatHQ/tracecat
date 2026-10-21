@@ -17,7 +17,8 @@ export const LEVEL_ACTIONS: Record<
   none: [],
   read: ["read"],
   write: ["read", "create", "update"],
-  execute: ["read", "execute"],
+  // `submit` is how a form is executed: `form:submit`.
+  execute: ["read", "execute", "submit"],
   admin: [
     "read",
     "create",
@@ -27,6 +28,7 @@ export const LEVEL_ACTIONS: Record<
     "remove",
     "manage",
     "execute",
+    "submit",
   ],
 }
 
@@ -39,6 +41,11 @@ export const RESOURCE_CATEGORIES: Record<
     label: "Workflows",
     description: "Workflow automation and execution",
     resources: ["workflow", "schedule"],
+  },
+  forms: {
+    label: "Forms",
+    description: "Forms, submitting them, and their submissions",
+    resources: ["form"],
   },
   cases: {
     label: "Cases",
@@ -57,8 +64,8 @@ export const RESOURCE_CATEGORIES: Record<
   },
   secrets: {
     label: "Secrets",
-    description: "Credential and secret management",
-    resources: ["secret"],
+    description: "Credential, secret, and network tunnel management",
+    resources: ["secret", "tunnel"],
   },
   integrations: {
     label: "Integrations",
@@ -296,4 +303,33 @@ export function rolesForScope<T extends { scopes?: ScopeRead[] }>(
   return workspaceId === null
     ? roles
     : roles.filter((role) => !isOrgLevelRole(role))
+}
+
+/** Abbreviate a role name to its uppercased word initials. */
+export function abbreviateRoleName(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase()
+}
+
+/** Abbreviate a name to its first three non-space characters, uppercased. */
+export function abbreviateName(name: string): string {
+  return name.replace(/\s+/g, "").slice(0, 3).toUpperCase()
+}
+
+/** Map an organization role slug to the tier shown in the members table. */
+export function organizationTier(
+  roleSlug: string | null | undefined
+): "Owner" | "Admin" | "Member" {
+  switch (roleSlug) {
+    case "organization-owner":
+      return "Owner"
+    case "organization-admin":
+      return "Admin"
+    default:
+      return "Member"
+  }
 }

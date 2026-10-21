@@ -16,6 +16,11 @@ from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.catalog.types import ModelKey
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.preset.types import SkillBindingSpec
+from tracecat.agent.skill.library.catalog import load_library
+from tracecat.agent.skill.library.service import (
+    SkillLibraryService,
+    normalize_library_slugs,
+)
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     ResolvedAgentsConfig,
@@ -32,6 +37,7 @@ from tracecat.db.models import (
     MCPIntegration,
     Skill,
     SkillVersion,
+    Workspace,
 )
 from tracecat.db.soft_delete import with_deleted
 from tracecat.dsl.enums import PlatformAction
@@ -187,6 +193,12 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
     ) -> ResourceProjection:
         """Build one Git-owned desired head snapshot per preset."""
         assigner = await self.source_id_assigner(workspace_service)
+        default_preset_id = await workspace_service.session.scalar(
+            select(Workspace.default_agent_preset_id).where(
+                Workspace.id == workspace_service.workspace_id,
+                Workspace.organization_id == workspace_service.organization_id,
+            )
+        )
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
         for preset in presets:
@@ -201,6 +213,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 id=source_id,
                 slug=preset.slug,
                 name=preset.name,
+                use_in_chat=preset.use_in_chat,
+                is_workspace_default=preset.id == default_preset_id,
                 folder_path=preset.folder.path if preset.folder else None,
                 tags=sorted(tag.name for tag in preset.tags),
                 instructions=execution.instructions,
@@ -216,6 +230,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 namespaces=sorted(execution.namespaces or []),
                 mcp_integrations=mcp_integrations,
                 mcp_integration_hints=mcp_integration_hints,
+                library_skills=normalize_library_slugs(execution.library_skills),
                 retries=execution.retries,
                 enable_thinking=execution.enable_thinking,
                 enable_internet_access=execution.enable_internet_access,
@@ -838,6 +853,39 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             return reference.preset_name
         return reference.workflow_title
 
+    async def library_skill_diagnostics(
+        self,
+        workspace_service: SyncMappingService,
+        presets: dict[str, AgentPresetResourceSpec],
+    ) -> list[PullDiagnostic]:
+        """Block pulls referencing skills absent from this deployment's catalog."""
+        requested = {slug for spec in presets.values() for slug in spec.library_skills}
+        missing = requested - load_library().keys()
+        diagnostics: list[PullDiagnostic] = []
+        for source_id, spec in sorted(presets.items()):
+            if not (
+                preset_missing := sorted(missing.intersection(spec.library_skills))
+            ):
+                continue
+            diagnostics.append(
+                PullDiagnostic(
+                    workflow_path=self.source_path(source_id),
+                    workflow_title=spec.name,
+                    error_type="dependency",
+                    message=(
+                        "This pull requires unavailable library skills: "
+                        f"{', '.join(preset_missing)}. Update the destination to a "
+                        "release containing these skills, or update the source "
+                        "agent to remove or replace the references."
+                    ),
+                    details={
+                        "code": "library_skill_not_found",
+                        "slugs": preset_missing,
+                    },
+                )
+            )
+        return diagnostics
+
     async def correlate_mcp_integration_refs(
         self,
         workspace_service: SyncMappingService,
@@ -1281,6 +1329,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         # Compute the parent-after-subagent order up front so pass 2 can resolve
         # subagent refs once their child presets already exist.
         import_order = self._preset_import_order(presets)
+        if any(spec.is_workspace_default is not None for spec in presets.values()):
+            check_scopes(workspace_service.role, "workspace:update")
         await self._lock_import_dependencies(workspace_service, presets)
         swap = await self.plan_name_swap(
             workspace_service,
@@ -1334,6 +1384,14 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             await self._replace_agent_tags(workspace_service, preset, spec.tags)
             preset_by_source_id[source_id] = preset
 
+        # Validate and lock every bound library install once, not per preset.
+        if library_slugs := sorted(
+            {slug for spec in presets.values() for slug in spec.library_skills}
+        ):
+            await SkillLibraryService(
+                workspace_service.session, role=workspace_service.role
+            ).validate_bindable(library_slugs)
+
         # Pass 2: walk presets in topological order so every subagent child has
         # already been upserted by the time its parent resolves references.
         for source_id in import_order:
@@ -1362,7 +1420,49 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 binding_specs=binding_specs,
             )
             imported.append(self.imported_resource(source_id, preset.id))
+        await self._reconcile_workspace_default(
+            workspace_service, presets, preset_by_source_id
+        )
         return imported
+
+    async def _reconcile_workspace_default(
+        self,
+        workspace_service: SyncMappingService,
+        specs: Mapping[str, AgentPresetResourceSpec],
+        presets: Mapping[str, AgentPreset],
+    ) -> None:
+        """Apply explicit default flags using destination-local preset identities."""
+        default_flags = {
+            presets[source_id].id: spec.is_workspace_default
+            for source_id, spec in specs.items()
+            if spec.is_workspace_default is not None
+        }
+        if not default_flags:
+            return
+        workspace = (
+            await workspace_service.session.scalars(
+                select(Workspace)
+                .where(
+                    Workspace.id == workspace_service.workspace_id,
+                    Workspace.organization_id == workspace_service.organization_id,
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).one()
+        default_id = next(
+            (preset_id for preset_id, enabled in default_flags.items() if enabled),
+            None,
+        )
+        if default_id is not None:
+            workspace.default_agent_preset_id = default_id
+        elif (
+            workspace.default_agent_preset_id is not None
+            and default_flags.get(workspace.default_agent_preset_id) is False
+        ):
+            workspace.default_agent_preset_id = None
+        workspace_service.session.add(workspace)
+        await workspace_service.session.flush()
 
     async def _lock_import_dependencies(
         self,
@@ -1414,6 +1514,10 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         :class:`TracecatValidationError` on duplicate slugs or cyclic
         references.
         """
+        if sum(spec.is_workspace_default is True for spec in presets.values()) > 1:
+            raise TracecatValidationError(
+                "Only one agent preset can be the workspace default"
+            )
         # Index slug -> source id so subagent refs (which name slugs) can be
         # mapped back to specs; duplicate slugs make the graph ambiguous.
         slug_to_source_id: dict[str, str] = {}
@@ -1463,6 +1567,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
     ) -> None:
         """Copy non-versioned metadata fields onto ``preset``."""
         preset.name = spec.name
+        if spec.use_in_chat is not None:
+            preset.use_in_chat = spec.use_in_chat
 
     def _apply_preset_head_spec(
         self,
@@ -1702,6 +1808,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             "namespaces": spec.namespaces or None,
             "tool_approvals": _tool_approvals(spec.tool_approvals),
             "mcp_integrations": spec.mcp_integrations or None,
+            "library_skills": normalize_library_slugs(spec.library_skills) or None,
             "retries": spec.retries,
             "enable_thinking": spec.enable_thinking,
             "enable_internet_access": spec.enable_internet_access,

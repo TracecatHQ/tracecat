@@ -7,11 +7,12 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import orjson
 import pytest
-from claude_agent_sdk.types import UserMessage
+from claude_agent_sdk.types import AssistantMessage, ThinkingBlock, UserMessage
 
 from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_CONTINUATION_PROMPT,
     MODEL_CONTEXT_PROMPT_PREFIX,
+    mark_hidden_continuation,
 )
 from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
@@ -50,40 +51,6 @@ def _build_service() -> tuple[AgentSessionService, AgentSession]:
     )
     agent_session.id = uuid.uuid4()
     return service, agent_session
-
-
-@pytest.mark.anyio
-async def test_list_messages_preserves_compaction_metadata() -> None:
-    service, agent_session = _build_service()
-    compaction_entry = SimpleNamespace(
-        id=uuid.uuid4(),
-        kind=MessageKind.COMPACTION.value,
-        content={
-            "type": "system",
-            "subtype": "compact_boundary",
-            "compactMetadata": {
-                "preTokens": 128000,
-                "trigger": "auto",
-            },
-        },
-    )
-
-    service.get_session = AsyncMock(return_value=agent_session)
-    service.session.execute = AsyncMock(
-        side_effect=[
-            _mock_scalar_result([]),
-            _mock_scalar_result([compaction_entry]),
-        ]
-    )
-
-    messages = await service.list_messages(agent_session.id)
-
-    assert len(messages) == 1
-    assert messages[0].kind == MessageKind.COMPACTION
-    assert messages[0].compaction == {
-        "phase": "completed",
-        "pre_tokens": 128000,
-    }
 
 
 @pytest.mark.anyio
@@ -482,3 +449,72 @@ async def test_list_messages_skips_misclassified_continuation_artifacts() -> Non
 
     assert len(messages) == 1
     assert messages[0].message is not None
+
+
+@pytest.mark.anyio
+async def test_list_messages_keeps_thinking_after_internal_context_rows() -> None:
+    # Claude Code parents each step to internal attachment and skill-load rows;
+    # the reasoning that follows them is part of the turn, not a continuation.
+    service, agent_session = _build_service()
+    entries = [
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.INTERNAL.value,
+            content={
+                "type": "user",
+                "uuid": "skill-uuid",
+                "isMeta": True,
+                "message": {"role": "user", "content": "Base directory for skill"},
+            },
+        ),
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.INTERNAL.value,
+            content={
+                "type": "attachment",
+                "uuid": "attachment-uuid",
+                "parentUuid": "skill-uuid",
+            },
+        ),
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.CHAT_MESSAGE.value,
+            content={
+                "type": "assistant",
+                "uuid": "thinking-uuid",
+                "parentUuid": "attachment-uuid",
+                "message": {
+                    "role": "assistant",
+                    "model": "claude-sonnet",
+                    "content": [
+                        {"type": "thinking", "thinking": "Check the cases first."}
+                    ],
+                },
+            },
+        ),
+    ]
+
+    service.get_session = AsyncMock(return_value=agent_session)
+    service.session.execute = AsyncMock(
+        side_effect=[
+            _mock_scalar_result([]),
+            _mock_scalar_result(entries),
+        ]
+    )
+
+    messages = await service.list_messages(agent_session.id)
+
+    assert len(messages) == 1
+    assert isinstance(messages[0].message, AssistantMessage)
+    assert isinstance(messages[0].message.content[0], ThinkingBlock)
+
+
+@pytest.mark.parametrize("parent_uuid", [["parent"], {"id": "parent"}, None])
+def test_mark_hidden_continuation_ignores_malformed_parent(
+    parent_uuid: object,
+) -> None:
+    hidden = {"parent"}
+    line = {"uuid": "child", "parentUuid": parent_uuid}
+
+    assert not mark_hidden_continuation(line, hidden, internal_row=True)
+    assert hidden == {"parent"}

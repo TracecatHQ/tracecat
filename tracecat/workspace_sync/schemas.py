@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from typing import Any, Literal
 
@@ -11,9 +12,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import CaseEventType
 from tracecat.dsl.common import DSLInput
+from tracecat.secrets.enums import SecretSource, SecretType
+from tracecat.secrets.schemas import (
+    AWS_SECRET_ID_PATTERN,
+    EXPRESSION_SECRET_NAME_PATTERN,
+    AwsSecretKeyMapping,
+)
 from tracecat.sync import CommitInfo, PullResourceDiff
 from tracecat.workflow.store.schemas import (
     RemoteCaseTrigger,
+    RemoteForm,
     RemoteWebhook,
     RemoteWorkflowSchedule,
     RemoteWorkflowTag,
@@ -151,6 +159,10 @@ class WorkflowResourceSpec(BaseModel):
         default=None,
         description="Case-event trigger config, if the workflow has one.",
     )
+    form: RemoteForm | None = Field(
+        default=None,
+        description="Form config and status, if the workflow has a configured form.",
+    )
     definition: DSLInput = Field(
         description="The workflow DSL: the executable graph and its metadata.",
     )
@@ -227,6 +239,14 @@ class AgentPresetResourceSpec(BaseModel):
         min_length=1, description="Unique preset slug used for cross-references."
     )
     name: str = Field(min_length=1, description="Human-readable preset name.")
+    use_in_chat: bool | None = Field(
+        default=None,
+        description="Whether the preset appears in chat mentions. Omit to preserve local state.",
+    )
+    is_workspace_default: bool | None = Field(
+        default=None,
+        description="Whether this preset is the workspace default. Omit to preserve local state.",
+    )
     folder_path: str | None = Field(
         default=None, description="Workspace folder the preset lives under, if any."
     )
@@ -283,6 +303,11 @@ class AgentPresetResourceSpec(BaseModel):
         default_factory=dict,
         exclude_if=lambda value: not value,
         description="Portable identity hints keyed by source MCP integration id.",
+    )
+    library_skills: list[str] = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
+        description="Tracecat library skill slugs; must be installed on import.",
     )
     retries: int = Field(
         default=3,
@@ -609,6 +634,25 @@ class SecretMetadataResourceSpec(BaseModel):
     description: str | None = Field(
         default=None, description="Optional secret description."
     )
+    source: SecretSource | None = Field(
+        default=None,
+        description="Where the values live. Omitted for secrets stored in Tracecat.",
+    )
+    store: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Name of the organization secret store an externally backed secret reads from. Omitted when the secret isn't linked to a store.",
+    )
+    remote_reference: str | None = Field(
+        default=None,
+        pattern=AWS_SECRET_ID_PATTERN,
+        max_length=2048,
+        description="Secret name or ARN in the external store.",
+    )
+    key_mapping: AwsSecretKeyMapping | None = Field(
+        default=None,
+        description="How the external value maps onto the declared keys.",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -617,6 +661,32 @@ class SecretMetadataResourceSpec(BaseModel):
         if isinstance(data, dict) and ({"value", "values"} & data.keys()):
             raise ValueError("secret value material is not allowed in Git")
         return data
+
+    @model_validator(mode="after")
+    def validate_external_reference(self) -> SecretMetadataResourceSpec:
+        """Require a reference and mapping for external secrets, and none otherwise."""
+        reference = (self.store, self.remote_reference, self.key_mapping)
+        if self.source != SecretSource.AWS_SECRETS_MANAGER:
+            if any(part is not None for part in reference):
+                raise ValueError(
+                    "store, remote_reference, and key_mapping require source "
+                    "aws_secrets_manager"
+                )
+            return self
+        if self.key_mapping is None or self.remote_reference is None:
+            raise ValueError(
+                "AWS-backed secret metadata requires remote_reference and key_mapping"
+            )
+        if self.secret_type not in (None, SecretType.CUSTOM.value):
+            raise ValueError("AWS-backed secrets must use the custom type")
+        if not re.fullmatch(EXPRESSION_SECRET_NAME_PATTERN, self.name):
+            raise ValueError(
+                "AWS-backed secret names must be snake_case and start with a "
+                "letter or underscore"
+            )
+        if sorted(self.keys) != sorted(self.key_mapping.output_keys()):
+            raise ValueError("keys must match the key_mapping output keys")
+        return self
 
 
 # Resource-map fields on :class:`WorkspaceSpec`, paired with their sync resource

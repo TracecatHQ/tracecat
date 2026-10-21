@@ -10,14 +10,20 @@ icon: "lock"
 
 Use Git sync to export workspace configuration to a repository you own as a pull request, then pull a reviewed commit into a workspace.
 
+## Permissions
+
+Organization admins configure providers. Workspace admins connect or change a workspace repository. Workspace editors can push and pull from an existing connection; viewers cannot sync.
+
+For custom roles, provider setup requires `org:settings:update`, changing the workspace connection requires `workspace:update`, and the workspace Git sync page requires `workspace_sync:sync` to push and pull.
+
 ## Connect a provider
 
 <Steps>
-  <Step title="Open organization Git sync settings">
-    Open `Git sync` in the organization sidebar (`/organization/vcs`). It requires the `git_sync` entitlement.
+  <Step title="Open organization Git providers">
+    Open `Git providers` in the organization sidebar (`/organization/vcs`).
 
     <Frame>
-      ![Organization Git sync settings with GitHub and GitLab provider cards](/img/manage-platform/git-sync-settings.png)
+      ![Organization Git providers with GitHub, GitLab, and Bitbucket connections](/img/manage-platform/git-sync-settings.jpg)
     </Frame>
   </Step>
   <Step title="Connect your provider">
@@ -43,19 +49,31 @@ Use Git sync to export workspace configuration to a repository you own as a pull
 ## Bind a workspace
 
 <Steps>
-  <Step title="Open workspace Git sync settings">
-    Open workspace `Settings` and select `Git sync`, then pick a `Provider`.
+  <Step title="Open workspace Git sync">
+    Open `Git sync` in the workspace sidebar, then choose a `Provider` configured by your organization admin.
   </Step>
-  <Step title="Set the repository URL and save">
-    For GitHub, `Select` lists repositories granted to the installation and `Manual` accepts any git+ssh URL; for GitLab or either Bitbucket provider, enter the URL directly. Click `Save`.
+  <Step title="Connect the repository">
+    Paste the repository's SSH clone URL and click `Connect`. For GitHub, you can also choose a repository from the GitHub App installation list.
 
-    For Bitbucket Cloud, use `git+ssh://git@bitbucket.org/example-workspace/example-repo.git`.
+    Use `git@github.com:example-org/example-repo.git`, `ssh://git@github.com/example-org/example-repo.git`, or `git+ssh://git@github.com/example-org/example-repo.git`. HTTPS repository URLs and bare paths such as `example-org/example-repo` are not accepted.
 
-    For Data Center, use `git+ssh://git@bitbucket.example.com/PROJECT/repository.git`. The hostname must match the configured instance. Put the port and context path only in the organization instance URL. Tracecat uses HTTPS with your HTTP access token for Git and API requests.
+    For Bitbucket Cloud, use `git@bitbucket.org:example-workspace/example-repo.git`. For Data Center, use `git+ssh://git@bitbucket.example.com/PROJECT/repository.git`. Its hostname must match the configured instance. Put the port and context path in the organization instance URL; Tracecat uses HTTPS with your HTTP access token for Git and API requests.
 
-    The URL form is `git+ssh://git@github.com/example-org/example-repo.git`. An `@branch` suffix pins the base branch for exports and the commit list for pulls; omit it to use the default branch.
+    <Frame>
+      ![Connect a repository with a GitLab provider and SSH clone URL](/img/manage-platform/git-sync-connect.jpg)
+    </Frame>
   </Step>
 </Steps>
+
+### Change the connection
+
+Click `Edit` beside the repository name. Use `Branch` to choose the base branch for new exports and the commit list for pulls. A stored URL ending in `@branch` pins that branch; a URL without the suffix uses the repository default.
+
+Click `Change` beside the repository to edit its SSH URL, then `Save`. Changing the repository or pinned branch clears the current previews. `Disconnect` stops push and pull until you connect a repository again; it preserves workspace and repository content.
+
+<Frame>
+  ![Repository connection editor with an SSH URL, branch selector, and disconnect action](/img/manage-platform/git-sync-edit-repository.jpg)
+</Frame>
 
 ## What an export contains
 
@@ -63,9 +81,14 @@ A full export writes `tracecat.json` and one directory per resource type: workfl
 
 Exports carry configuration, not data:
 
+- Forms export as a [`form:` block](/automations/triggers/forms#git-sync) in their workflow's `definition.yml`, with no submissions.
 - Tables export their column schema and no rows.
 - Variables export key names and no values.
 - Secrets export metadata only; a secret file with a `value` or `values` key fails import.
+  [AWS-backed secrets](/automations/core-concepts/external-secret-stores) also export
+  their store name, secret name or ARN, and key mapping. If the target workspace
+  has no authorized store with that name, the pull preview asks you to choose one.
+  The choice applies to every secret that uses that store name.
 
 ## Push and open a pull request
 
@@ -73,17 +96,17 @@ Use the `Push` tab to push the full workspace configuration.
 
 <Steps>
   <Step title="Choose a branch and commit message">
-    On the `Push` tab, enter a `Commit message` and choose a `Branch`; `Create new branch...` cuts one from the base branch. Tracecat blocks pushing to the base branch itself.
+    On the `Push` tab, use the branch picker beside `Into` to choose an existing branch or enter a new branch name and click `Create`. Enter a commit message. New branches start from the base branch. Tracecat blocks direct pushes to both the base branch and the repository default branch.
 
     <Frame>
-      ![Workspace settings Git sync Push tab with commit message and branch fields](/img/manage-platform/git-sync-workspace-push.png)
+      ![Git sync Push tab with grouped resource changes, target branch, and commit message](/img/manage-platform/git-sync-workspace-push.jpg)
     </Frame>
   </Step>
   <Step title="Preview changes">
-    Click `Preview changes` to diff the export against the target branch without writing.
+    Click `Preview` to compare with the target branch, or the base branch when creating a branch. Expand a resource group to review its file changes. Use `Preview again` after making more edits.
   </Step>
   <Step title="Push">
-    Click `Push & open PR` (`Update branch & open PR` for an existing branch, `MR` on GitLab). Tracecat commits only changed files, deletes stale files, and reuses an open pull request on the same branch.
+    Click `Push and open PR` (`Push and open MR` on GitLab); the button includes the change count after a preview. Use the adjacent menu to choose `Push only` when you want a commit without a pull request. Tracecat commits only changed files, deletes stale files, and reuses an open pull request on the same branch.
 
     The pull request body names the workspace and the publishing user's email.
   </Step>
@@ -125,19 +148,27 @@ A merged pull request changes nothing in a workspace until you or your pipeline 
 
 <Steps>
   <Step title="Choose a commit">
-    On the `Pull` tab, pick a commit from the base branch under `Pull from commit`.
+    On the `Pull` tab, use the commit picker beside `From` to choose a commit from the base branch.
 
     <Frame>
-      ![Workspace settings Git sync Pull tab with commit selector and preview](/img/manage-platform/git-sync-workspace-pull.png)
+      ![Git sync Pull tab with grouped changes, commit selector, and schedule-overwrite control](/img/manage-platform/git-sync-workspace-pull.jpg)
     </Frame>
   </Step>
   <Step title="Preview changes">
-    Click `Preview changes` to dry-run the pull. When a preset or action references a model or MCP integration with more than one match, choose the target here.
+    Click `Preview` to dry-run the pull. If Tracecat cannot resolve a model, MCP integration, or secret store, choose its target in the matching dialog, then click `Save and preview again`. Use `Choose matches` to reopen unresolved choices. Resolve any validation errors before pulling.
+
+    <Frame>
+      ![Match model and MCP references before pulling a commit](/img/manage-platform/git-sync-manual-matching.jpg)
+    </Frame>
   </Step>
   <Step title="Apply">
-    Click `Apply pull`. Tracecat enables it only after a successful preview for the same commit and options. A pull overwrites resources with the same ID and leaves schedules untouched unless you check `Overwrite schedules`.
+    Click `Pull into <workspace>`; the button includes the change count after a preview. Tracecat enables it only after a successful preview for the same commit and options. A pull updates matching workspace resources and leaves schedules untouched unless you check `Overwrite schedules`. Changing the commit, schedule option, or reference matches requires another preview.
   </Step>
 </Steps>
+
+<Warning>
+  A pull can overwrite local edits made after the preview. Coordinate workspace edits, run one push or pull at a time, and wait for it to finish before starting another. Leaving the page does not cancel an in-flight sync. A push exports the workspace state when you submit it, so preview again after editing resources.
+</Warning>
 
 Until you publish a pulled workflow, its runs resolve actions against the workspace's current registry versions. Publishing it records the registry lock.
 
@@ -148,13 +179,13 @@ Until you publish a pulled workflow, its runs resolve actions against the worksp
     Bind staging and production workspaces to the same repository. Role assignments are per workspace, so grant `workspace_sync:sync` (`workspace-editor` and above) in each.
   </Step>
   <Step title="Push from staging">
-    Build in staging, then `Push & open PR` from its `Push` tab.
+    Build in staging, then choose `Push and open PR` (`MR` on GitLab) from its `Push` tab.
   </Step>
   <Step title="Review and merge">
     Merge the pull request in your repository, where branch protection and required reviews apply.
   </Step>
   <Step title="Pull into production">
-    In production, select the merged commit, click `Preview changes`, then `Apply pull`. Publish any workflow that needs a registry lock.
+    In production, select the merged commit, click `Preview`, then `Pull into <workspace>`. Publish any workflow that needs a registry lock.
   </Step>
 </Steps>
 

@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: Update watch list entry state by value
+  description: Enable or disable a watch list entry identified by its value within a watch list.
+  display_group: Fortinet FortiSIEM
+  doc_url: https://docs.fortinet.com/document/fortisiem/7.5.1/integration-api-guide/893786/watchlist-integration#update-state-of-watch-list-entry-by-watch-list-entry-value
+  namespace: tools.fortisiem
+  name: update_watchlist_entry_state_by_value
+  secrets:
+    - name: fortisiem
+      keys:
+        - FORTISIEM_USERNAME
+        - FORTISIEM_PASSWORD
+  expects:
+    watchlistId:
+      type: int
+      description: Watch list ID.
+    value:
+      type: str
+      description: Entry value of watch list entry.
+    state:
+      type: bool
+      description: Set specific entry to true/false state.
+    custId:
+      type: int | None
+      description: Customer ID.
+      default: null
+    base_url:
+      type: str | None
+      description: FortiSIEM Supervisor URL, e.g. https://fortisiem.example.com. Falls back to the workspace variable fortisiem.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the Supervisor TLS certificate.
+      default: true
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.fortisiem.base_url }}/phoenix/rest/watchlist/entry/active
+        method: POST
+        params:
+          watchlistId: ${{ inputs.watchlistId }}
+          value: ${{ inputs.value }}
+          state: ${{ inputs.state }}
+          custId: ${{ inputs.custId }}
+        auth:
+          username: ${{ SECRETS.fortisiem.FORTISIEM_USERNAME }}
+          password: ${{ SECRETS.fortisiem.FORTISIEM_PASSWORD }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.call_api.result }}

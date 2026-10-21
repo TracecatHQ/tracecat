@@ -18,7 +18,6 @@ from tracecat.dsl.view import Position
 from tracecat.identifiers.action import ActionID
 from tracecat.identifiers.action import ref as _ref
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort
-from tracecat.interactions.schemas import ActionInteraction
 
 
 class ActionEdge(TypedDict):
@@ -65,6 +64,12 @@ class ActionControlFlow(Schema):
         default=None,
         description="Override environment for this action's execution",
     )
+    tunnel: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=63,
+        description="Workspace tunnel to route this action's HTTP(S) traffic through",
+    )
     mask_output: bool = Field(
         default=False,
         description=(
@@ -93,6 +98,14 @@ class ActionControlFlow(Schema):
         return v
 
 
+class ActionLockStatus(Schema):
+    ref: str
+    locked_execution_id: str
+    available: bool = Field(
+        description="False when the locked run no longer exists, e.g. after history retention."
+    )
+
+
 class ActionRead(Schema):
     id: ActionID
     type: str
@@ -101,11 +114,10 @@ class ActionRead(Schema):
     status: str
     inputs: str
     control_flow: ActionControlFlow = Field(default_factory=ActionControlFlow)
-    is_interactive: bool
-    interaction: ActionInteraction | None = None
     position_x: float = 0.0
     position_y: float = 0.0
     upstream_edges: list[ActionEdge] = Field(default_factory=list)
+    locked_execution_id: str | None = None
 
     @model_validator(mode="after")
     def normalize_agent_timeout(self) -> Self:
@@ -127,7 +139,6 @@ class ActionReadMinimal(Schema):
     title: str
     description: str
     status: str
-    is_interactive: bool
 
 
 class ActionCreate(Schema):
@@ -139,8 +150,6 @@ class ActionCreate(Schema):
     control_flow: ActionControlFlow | None = Field(
         default=None, json_schema_extra={"mode": "json"}
     )
-    is_interactive: bool = Field(default=False)
-    interaction: ActionInteraction | None = None
     position_x: float = Field(default=0.0)
     position_y: float = Field(default=0.0)
     upstream_edges: list[ActionEdge] = Field(default_factory=list)
@@ -162,11 +171,17 @@ class ActionUpdate(Schema):
     control_flow: ActionControlFlow | None = Field(
         default=None, json_schema_extra={"mode": "json"}
     )
-    is_interactive: bool | None = None
-    interaction: ActionInteraction | None = None
     position_x: float | None = None
     position_y: float | None = None
     upstream_edges: list[ActionEdge] | None = None
+    locked_execution_id: str | None = Field(
+        default=None,
+        max_length=255,
+        description=(
+            "Lock the action to this past execution: draft runs reuse its "
+            "result. Set null to unlock."
+        ),
+    )
 
     @field_validator("inputs", mode="after")
     def validate_inputs(cls, v: str) -> str:

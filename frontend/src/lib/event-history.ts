@@ -1,7 +1,6 @@
 import type {
   AgentOutput,
   DSLRunArgs,
-  InteractionInput,
   RunActionInput,
   WorkflowEventType,
   WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_,
@@ -133,17 +132,6 @@ export function isRunActionInput(
     actionInput !== null &&
     "task" in actionInput &&
     typeof (actionInput as RunActionInput).task === "object"
-  )
-}
-
-export function isInteractionInput(
-  actionInput: unknown
-): actionInput is InteractionInput {
-  return (
-    typeof actionInput === "object" &&
-    actionInput !== null &&
-    "interaction_id" in actionInput &&
-    typeof (actionInput as InteractionInput).interaction_id === "string"
   )
 }
 

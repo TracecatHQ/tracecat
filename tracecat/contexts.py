@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.dsl.schemas import ROOT_STREAM, RunContext, StreamID
-from tracecat.interactions.schemas import InteractionContext
 
 if TYPE_CHECKING:
     from tracecat.secrets.masking import SecretMaskCollector
@@ -28,7 +27,6 @@ __all__ = [
     "ctx_run",
     "ctx_role",
     "ctx_logger",
-    "ctx_interaction",
     "ctx_stream_id",
     "ctx_session",
     "ctx_request_audit",
@@ -53,9 +51,6 @@ class RequestAuditContext:
 ctx_run: ContextVar[RunContext | None] = ContextVar("run", default=None)
 ctx_role: ContextVar[Role | None] = ContextVar("role", default=None)
 ctx_logger: ContextVar[loguru.Logger | None] = ContextVar("logger", default=None)
-ctx_interaction: ContextVar[InteractionContext | None] = ContextVar(
-    "interaction", default=None
-)
 ctx_request_audit: ContextVar[RequestAuditContext | None] = ContextVar(
     "request-audit", default=None
 )

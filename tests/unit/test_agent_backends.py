@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 from collections.abc import Iterator
 from dataclasses import replace
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 from uuid import UUID, uuid4
@@ -122,6 +123,24 @@ def test_disabled_plugins_cannot_be_selected():
         registry.get_agent_backend("external")
 
 
+def test_subagent_approvals_need_an_enabled_backend_that_runs_them():
+    class ApprovingBackend(DefaultBackend):
+        subagent_approvals = True
+
+    # The built-in backend never runs approval-gated subagents.
+    assert DefaultBackend.subagent_approvals is False
+    with patch.object(registry, "entry_points", return_value=[]):
+        assert not registry.subagent_approvals_available()
+    registry.get_agent_backends.cache_clear()
+    provider = ApprovingBackend()
+    with patch.object(
+        registry, "entry_points", return_value=[entry("external", lambda: provider)]
+    ):
+        assert registry.subagent_approvals_available()
+        with patch.object(provider, "is_enabled", return_value=False):
+            assert not registry.subagent_approvals_available()
+
+
 @pytest.mark.parametrize(
     "missing",
     ["name", "task_queue", "default_harness", "supported_harnesses", "workflow"],
@@ -169,6 +188,8 @@ def test_discovery_rejects_missing_required_attributes(missing: str):
         ("supported_harnesses", "claude_code"),
         ("supported_harnesses", ["claude_code"]),
         ("supported_harnesses", frozenset({"claude_code", 123})),
+        ("subagent_approvals", "yes"),
+        ("subagent_approvals", 1),
         ("workflow", None),
         ("workflow", object()),
     ],
@@ -382,6 +403,8 @@ async def test_builtin_dispatch_preserves_workflow_contract():
     assert request.workflow_id == f"agent/{ctx.run_id}"
     assert request.workflow_type.name == "DurableAgentWorkflow"
     assert rpc.await_args.kwargs["retry"] is False
+    # Recovery waits out this deadline before tombstoning a missing turn.
+    assert rpc.await_args.kwargs["timeout"] == timedelta(seconds=30)
     ctx.db.rollback.assert_not_awaited()
 
 
@@ -469,7 +492,7 @@ async def test_dispatch_rejects_missing_or_owned_session_before_preparation(miss
         WorkflowExecutionStatus.RUNNING,
         WorkflowExecutionStatus.CONTINUED_AS_NEW,
         None,
-        RPCError("not found", RPCStatusCode.NOT_FOUND, b""),
+        # NOT_FOUND recovery is covered in tests/backends.
         RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""),
         TimeoutError("lookup timed out"),
     ],
@@ -1340,48 +1363,6 @@ async def test_default_cancel_keeps_workflow_control_when_executor_signal_fails(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("operation", ["approvals", "cancel", "lifecycle"])
-async def test_backend_resolves_one_client_and_handle_per_operation(operation):
-    run_id = uuid4()
-    handle = Mock(
-        execute_update=AsyncMock(return_value=True),
-        describe=AsyncMock(
-            return_value=SimpleNamespace(status=WorkflowExecutionStatus.RUNNING)
-        ),
-    )
-    client = Mock(get_workflow_handle_for=Mock(return_value=handle))
-    backend = DefaultBackend()
-    with (
-        patch(
-            "tracecat.agent.backends.base.get_temporal_client", return_value=client
-        ) as connect,
-        patch("tracecat.agent.backends.base.signal_turn_cancel"),
-    ):
-        match operation:
-            case "approvals":
-                await backend.submit_approvals(
-                    run_id,
-                    WorkflowApprovalSubmission(approvals={}, new_stream_id=uuid4()),
-                )
-            case "cancel":
-                await backend.cancel(run_id)
-            case "lifecycle":
-                with patch.object(
-                    backend,
-                    "_run_control",
-                    side_effect=AssertionError("read used control path"),
-                ):
-                    assert (
-                        await backend.get_turn_lifecycle(run_id)
-                        == TurnLifecycle.RUNNING
-                    )
-    connect.assert_awaited_once()
-    client.get_workflow_handle_for.assert_called_once_with(
-        DurableAgentWorkflow.run, f"agent/{run_id}"
-    )
-
-
-@pytest.mark.anyio
 async def test_handle_construction_failure_is_definitive_before_submission():
     client = Mock(
         get_workflow_handle_for=Mock(side_effect=ValueError("invalid workflow"))
@@ -1395,13 +1376,39 @@ async def test_handle_construction_failure_is_definitive_before_submission():
 
 
 @pytest.mark.anyio
-async def test_backend_handle_reuses_supplied_client():
-    run_id = uuid4()
-    handle = Mock()
-    client = Mock(get_workflow_handle_for=Mock(return_value=handle))
-    with patch("tracecat.agent.backends.base.get_temporal_client") as connect:
-        assert await DefaultBackend().handle(run_id, client=client) is handle
-    connect.assert_not_called()
-    client.get_workflow_handle_for.assert_called_once_with(
-        DurableAgentWorkflow.run, f"agent/{run_id}"
+async def test_default_backend_runs_sessions_up_to_timeout_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.agent.backends.default.config.TRACECAT__AGENT_SANDBOX_TIMEOUT",
+        5400,
     )
+    workspace_id = uuid4()
+    args = await DefaultBackend().build_workflow_args(
+        SessionWorkflowContext(
+            session_id=uuid4(),
+            backend_id="default",
+            harness_type=None,
+            title="Chat",
+            entity_type=AgentSessionEntity.WORKSPACE_CHAT,
+            entity_id=workspace_id,
+            tools=None,
+            agent_preset_id=None,
+            agent_preset_version_id=None,
+            role=Role(
+                type="user",
+                workspace_id=workspace_id,
+                organization_id=uuid4(),
+                user_id=uuid4(),
+                service_id="tracecat-api",
+            ),
+            config=AgentConfig(
+                model_name="claude-sonnet-4-5", model_provider="anthropic"
+            ),
+            prompt="hello",
+            run_id=uuid4(),
+            stream_id=uuid4(),
+        )
+    )
+
+    assert args.agent_args.timeout_seconds == 5400

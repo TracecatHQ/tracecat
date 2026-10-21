@@ -138,8 +138,21 @@ async def resolve_agents_config(
     parent_slug: str | None = None,
     include_runtime_config: bool = False,
     follow_latest_versions: bool = False,
+    supports_subagent_approvals: bool = False,
 ) -> ResolvedAgentsConfigResult:
-    """Resolve and validate preset-backed subagent refs."""
+    """Resolve and validate preset-backed subagent refs.
+
+    Args:
+        service: Reads preset versions, policies, and configs.
+        agents: The subagent refs to resolve.
+        parent_preset_id: The parent's preset, which a ref may not reference.
+        parent_slug: The parent's slug, which a ref may not reference.
+        include_runtime_config: Also resolve each subagent's runtime config.
+        follow_latest_versions: Resolve each ref's current version, not its pin.
+        supports_subagent_approvals: Whether the caller supports approval-gated
+            subagents. Runtime callers must hold their requests for a decision
+            in the parent turn; authoring callers use available backend support.
+    """
 
     config = AgentSubagentsConfig.model_validate({} if agents is None else agents)
     aliases: set[str] = set()
@@ -207,14 +220,15 @@ async def resolve_agents_config(
             raise TracecatValidationError(
                 f"Subagent preset '{ref.preset}' cannot define its own agents in v1"
             )
-        tool_policy = await service.resolve_preset_tool_policy(
-            version, use_latest_skill_versions=follow_latest_versions
-        )
-        if has_manual_tool_approvals(tool_policy.tool_approvals):
-            raise TracecatValidationError(
-                f"Subagent preset '{ref.preset}' uses manual approvals, "
-                "which are not supported for subagents yet."
+        if not supports_subagent_approvals:
+            tool_policy = await service.resolve_preset_tool_policy(
+                version, use_latest_skill_versions=follow_latest_versions
             )
+            if has_manual_tool_approvals(tool_policy.tool_approvals):
+                raise TracecatValidationError(
+                    f"Subagent preset '{ref.preset}' uses manual approvals, "
+                    "which are not supported for subagents yet."
+                )
 
         binding = ResolvedAttachedSubagentRef(
             preset=ref.preset,

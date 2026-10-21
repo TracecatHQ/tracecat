@@ -1,0 +1,103 @@
+type: action
+definition:
+  title: Update address
+  description: Update an address object in the candidate configuration. Reads it with GET /config/objects/v1/addresses/{id}, applies only the provided fields, and writes it with PUT /config/objects/v1/addresses/{id}. Push the candidate configuration to apply the change.
+  display_group: Palo Alto Networks (Strata Cloud Manager)
+  doc_url: https://pan.dev/scm/api/config/ngfw/objects/update-addresses-by-id/
+  namespace: tools.pan_strata
+  name: update_address
+  secrets:
+    - type: oauth
+      provider_id: pan_strata
+      grant_type: client_credentials
+  expects:
+    address_id:
+      type: str
+      description: Address object UUID.
+    name:
+      type: str | None
+      description: New name.
+      default: null
+    ip_netmask:
+      type: str | None
+      description: IP address with or without CIDR mask, e.g. 203.0.113.10 or 10.0.0.0/24.
+      default: null
+    ip_range:
+      type: str | None
+      description: IP range, e.g. 10.0.0.1-10.0.0.20.
+      default: null
+    ip_wildcard:
+      type: str | None
+      description: IP wildcard mask, e.g. 10.20.1.0/0.0.248.255.
+      default: null
+    fqdn:
+      type: str | None
+      description: Fully qualified domain name, e.g. malicious.example.com.
+      default: null
+    description:
+      type: str | None
+      description: New description.
+      default: null
+    tags:
+      type: list[str] | None
+      description: Replacement tag list.
+      default: null
+    base_url:
+      type: str | None
+      description: SCM API base URL. Falls back to the workspace variable pan_strata.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
+      default: null
+  steps:
+    - ref: get
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pan_strata.base_url || "https://api.strata.paloaltonetworks.com" }}/config/objects/v1/addresses/${{ FN.url_encode(inputs.address_id) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
+          Accept: application/json
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          current: ${{ steps.get.result.data }}
+          name: ${{ inputs.name }}
+          ip_netmask: ${{ inputs.ip_netmask }}
+          ip_range: ${{ inputs.ip_range }}
+          ip_wildcard: ${{ inputs.ip_wildcard }}
+          fqdn: ${{ inputs.fqdn }}
+          description: ${{ inputs.description }}
+          tags: ${{ inputs.tags }}
+        script: |
+          TYPES = ("ip_netmask", "ip_range", "ip_wildcard", "fqdn")
+
+          def main(current, name, ip_netmask, ip_range, ip_wildcard, fqdn, description, tags):
+              body = {key: value for key, value in current.items() if key != "id"}
+              values = {
+                  key: value
+                  for key, value in zip(TYPES, (ip_netmask, ip_range, ip_wildcard, fqdn))
+                  if value
+              }
+              if len(values) > 1:
+                  raise ValueError("Provide at most one of ip_netmask, ip_range, ip_wildcard, or fqdn.")
+              if values:
+                  for key in TYPES:
+                      body.pop(key, None)
+                  body.update(values)
+              if name is not None:
+                  body["name"] = name
+              if description is not None:
+                  body["description"] = description
+              if tags is not None:
+                  body["tag"] = tags
+              return body
+    - ref: update
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pan_strata.base_url || "https://api.strata.paloaltonetworks.com" }}/config/objects/v1/addresses/${{ FN.url_encode(inputs.address_id) }}
+        method: PUT
+        headers:
+          Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
+          Accept: application/json
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.update.result }}

@@ -61,6 +61,7 @@ jest.mock("@/components/ui/dialog", () => ({
     </mockDialogContext.Provider>
   ),
   DialogClose: ({ children }: { children: ReactNode }) => <>{children}</>,
+  DialogBody: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   DialogContent: ({ children }: { children: ReactNode }) =>
     mockReact.useContext(mockDialogContext) ? (
       <div role="dialog">{children}</div>

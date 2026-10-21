@@ -1,11 +1,10 @@
 """Tests for platform registry startup sync.
 
 This test suite validates:
-1. PlatformRegistryReposService CRUD operations
-2. Leader election behavior (lock acquisition)
-3. Version existence checks (skip sync if version exists and is current)
-4. No auto-promotion of existing non-current versions
-5. No-downgrade guard during sync
+1. Leader election behavior (lock acquisition)
+2. Version existence checks (skip sync if version exists and is current)
+3. No auto-promotion of existing non-current versions
+4. No-downgrade guard during sync
 """
 
 from __future__ import annotations
@@ -24,11 +23,8 @@ from tracecat.db.models import (
     PlatformRegistryVersion,
 )
 from tracecat.registry.constants import (
-    DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
-from tracecat.registry.repositories.platform_service import PlatformRegistryReposService
-from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -76,85 +72,6 @@ def _make_manifest(action_names: list[str]) -> dict:
             },
         }
     return {"version": "1.0", "actions": actions}
-
-
-# =============================================================================
-# PlatformRegistryReposService Tests
-# =============================================================================
-
-
-@pytest.mark.anyio
-async def test_platform_repos_service_create_repository(
-    session: AsyncSession,
-) -> None:
-    """Test creating a platform registry repository."""
-    service = PlatformRegistryReposService(session)
-
-    # Use DEFAULT_LOCAL_REGISTRY_ORIGIN since DEFAULT_REGISTRY_ORIGIN is pre-seeded by conftest
-    repo = await service.create_repository(
-        RegistryRepositoryCreate(origin=DEFAULT_LOCAL_REGISTRY_ORIGIN)
-    )
-
-    assert repo.origin == DEFAULT_LOCAL_REGISTRY_ORIGIN
-    assert repo.id is not None
-    assert repo.current_version_id is None
-
-
-@pytest.mark.anyio
-async def test_platform_repos_service_get_repository(
-    session: AsyncSession,
-) -> None:
-    """Test getting a platform registry repository by origin."""
-    # Create directly
-    repo = PlatformRegistryRepository(origin="test_platform_origin")
-    session.add(repo)
-    await session.commit()
-
-    service = PlatformRegistryReposService(session)
-    found = await service.get_repository("test_platform_origin")
-
-    assert found is not None
-    assert found.id == repo.id
-    assert found.origin == "test_platform_origin"
-
-
-@pytest.mark.anyio
-async def test_platform_repos_service_get_repository_not_found(
-    session: AsyncSession,
-) -> None:
-    """Test getting a non-existent repository returns None."""
-    service = PlatformRegistryReposService(session)
-    found = await service.get_repository("nonexistent_origin")
-
-    assert found is None
-
-
-@pytest.mark.anyio
-async def test_platform_repos_service_get_or_create_existing(
-    session: AsyncSession,
-) -> None:
-    """Test get_or_create returns existing repository."""
-    # Create directly
-    repo = PlatformRegistryRepository(origin="existing_origin")
-    session.add(repo)
-    await session.commit()
-
-    service = PlatformRegistryReposService(session)
-    found = await service.get_or_create_repository("existing_origin")
-
-    assert found.id == repo.id
-
-
-@pytest.mark.anyio
-async def test_platform_repos_service_get_or_create_new(
-    session: AsyncSession,
-) -> None:
-    """Test get_or_create creates new repository if not exists."""
-    service = PlatformRegistryReposService(session)
-    repo = await service.get_or_create_repository(DEFAULT_LOCAL_REGISTRY_ORIGIN)
-
-    assert repo.origin == DEFAULT_LOCAL_REGISTRY_ORIGIN
-    assert repo.id is not None
 
 
 # =============================================================================

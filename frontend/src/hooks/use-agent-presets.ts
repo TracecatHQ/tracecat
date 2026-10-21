@@ -8,9 +8,12 @@ import {
   type AgentPresetMoveToFolder,
   type AgentPresetRead,
   type AgentPresetReadMinimal,
+  type AgentPresetToolPolicyPreview,
+  type AgentPresetToolPolicyRead,
   type AgentPresetUpdate,
   type AgentPresetVersionRead,
   type AgentPresetVersionReadMinimal,
+  type AgentPresetWorkflowReference,
   type AgentTagRead,
   agentFoldersCreateFolder,
   agentFoldersDeleteFolder,
@@ -24,7 +27,9 @@ import {
   agentPresetsGetAgentPresetVersion,
   agentPresetsListAgentPresets,
   agentPresetsListAgentPresetVersions,
+  agentPresetsListAgentPresetWorkflowReferences,
   agentPresetsMoveAgentPresetToFolder,
+  agentPresetsPreviewToolPolicy,
   agentPresetsRestoreAgentPresetVersion,
   agentPresetsUpdateAgentPreset,
   agentTagsCreateAgentTag,
@@ -33,14 +38,31 @@ import {
   agentTagsUpdateAgentTag,
   type TagCreate,
   type TagUpdate,
+  workspacesUpdateWorkspace,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
+import { getAgentPresetErrorMessage } from "@/lib/agent-presets"
 import {
   getApiErrorDetail,
   retryHandler,
   type TracecatApiError,
 } from "@/lib/errors"
 import { useMutation, useQueries, useQuery, useQueryClient } from "@/lib/query"
+
+/** Preview unsaved skill tools without surfacing validation failures as toasts. */
+export function useAgentPresetToolPolicyPreview(
+  workspaceId: string,
+  requestBody: AgentPresetToolPolicyPreview,
+  { enabled }: { enabled: boolean }
+) {
+  return useQuery<AgentPresetToolPolicyRead>({
+    queryKey: ["agent-preset-tool-policy-preview", workspaceId, requestBody],
+    queryFn: () => agentPresetsPreviewToolPolicy({ workspaceId, requestBody }),
+    enabled: enabled && Boolean(workspaceId),
+    retry: false,
+    meta: { suppressErrorToast: true },
+  })
+}
 
 async function listAllAgentFolders({
   workspaceId,
@@ -83,9 +105,53 @@ async function listAllAgentTags(workspaceId: string): Promise<AgentTagRead[]> {
   return agentTags
 }
 
+async function listAllAgentPresetWorkflowReferences(
+  workspaceId: string
+): Promise<AgentPresetWorkflowReference[]> {
+  const references: AgentPresetWorkflowReference[] = []
+  let cursor: string | undefined
+
+  do {
+    const response = await agentPresetsListAgentPresetWorkflowReferences({
+      workspaceId,
+      limit: 200,
+      cursor,
+    })
+    references.push(...response.items)
+    cursor = response.next_cursor ?? undefined
+  } while (cursor)
+
+  return references
+}
+
+/** List the workflows whose drafts run each agent preset. */
+export function useAgentPresetWorkflowReferences(
+  workspaceId: string,
+  { enabled = true }: { enabled?: boolean } = {}
+) {
+  const { data, isLoading, error } = useQuery<
+    AgentPresetWorkflowReference[],
+    TracecatApiError
+  >({
+    queryKey: ["agent-preset-workflow-references", workspaceId],
+    queryFn: () => listAllAgentPresetWorkflowReferences(workspaceId),
+    enabled: enabled && Boolean(workspaceId),
+    retry: retryHandler,
+    // Each fetch walks every page of a workspace-wide scan.
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  })
+
+  return {
+    workflowReferences: data,
+    workflowReferencesIsLoading: isLoading,
+    workflowReferencesError: error,
+  }
+}
+
 export function useAgentPresets(
   workspaceId?: string,
-  { enabled = true }: { enabled?: boolean } = {}
+  { enabled = true, useInChat }: { enabled?: boolean; useInChat?: boolean } = {}
 ) {
   const {
     data: presets,
@@ -93,12 +159,15 @@ export function useAgentPresets(
     error: presetsError,
     refetch: refetchPresets,
   } = useQuery<AgentPresetReadMinimal[], TracecatApiError>({
-    queryKey: ["agent-presets", workspaceId],
+    queryKey: ["agent-presets", workspaceId, { useInChat }],
     queryFn: async () => {
       if (!workspaceId) {
         throw new Error("workspaceId is required to list agent presets")
       }
-      return await agentPresetsListAgentPresets({ workspaceId })
+      return await agentPresetsListAgentPresets({
+        workspaceId,
+        useInChat,
+      })
     },
     enabled: enabled && Boolean(workspaceId),
     retry: retryHandler,
@@ -294,6 +363,9 @@ export function useCreateAgentPreset(workspaceId: string) {
         queryKey: ["agent-directory-items", workspaceId],
       })
       queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references", workspaceId],
+      })
+      queryClient.invalidateQueries({
         queryKey: ["agent-preset-versions", workspaceId, preset.id],
       })
       toast({
@@ -302,10 +374,10 @@ export function useCreateAgentPreset(workspaceId: string) {
       })
     },
     onError: (error) => {
-      const detail =
-        typeof error.body?.detail === "string"
-          ? error.body.detail
-          : "Failed to create agent preset."
+      const detail = getAgentPresetErrorMessage(
+        error,
+        "Failed to create agent preset."
+      )
       toast({
         title: "Create failed",
         description: detail,
@@ -339,7 +411,7 @@ export function useUpdateAgentPreset(workspaceId: string) {
         presetId,
         requestBody,
       }),
-    onSuccess: (preset) => {
+    onSuccess: (preset, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["agent-presets", workspaceId],
       })
@@ -349,6 +421,12 @@ export function useUpdateAgentPreset(workspaceId: string) {
       queryClient.invalidateQueries({
         queryKey: ["agent-directory-items", workspaceId],
       })
+      // Only a slug change re-resolves which workflows run the preset.
+      if ("slug" in variables) {
+        queryClient.invalidateQueries({
+          queryKey: ["agent-preset-workflow-references", workspaceId],
+        })
+      }
       queryClient.invalidateQueries({
         queryKey: ["agent-preset-versions", workspaceId, preset.id],
       })
@@ -361,10 +439,10 @@ export function useUpdateAgentPreset(workspaceId: string) {
       })
     },
     onError: (error) => {
-      const detail =
-        typeof error.body?.detail === "string"
-          ? error.body.detail
-          : "Failed to update agent preset."
+      const detail = getAgentPresetErrorMessage(
+        error,
+        "Failed to update agent preset."
+      )
       toast({
         title: "Update failed",
         description: detail,
@@ -398,11 +476,15 @@ export function useDeleteAgentPreset(workspaceId: string) {
         presetId,
       }),
     onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] })
       queryClient.invalidateQueries({
         queryKey: ["agent-presets", workspaceId],
       })
       queryClient.invalidateQueries({
         queryKey: ["agent-directory-items", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references", workspaceId],
       })
       const label = variables.presetName ?? variables.presetId
       toast({
@@ -430,6 +512,34 @@ export function useDeleteAgentPreset(workspaceId: string) {
     deleteAgentPresetIsPending,
     deleteAgentPresetError,
   }
+}
+
+/** Set the workspace's default agent without changing other workspace settings. */
+export function useSetDefaultAgent(workspaceId: string) {
+  const queryClient = useQueryClient()
+  const { mutate: setDefaultAgent, isPending: isSettingDefaultAgent } =
+    useMutation({
+      mutationFn: (presetId: string) =>
+        workspacesUpdateWorkspace({
+          workspaceId,
+          requestBody: { default_agent_preset_id: presetId },
+        }),
+      onSuccess: async () => {
+        await queryClient.invalidateQueries({
+          queryKey: ["workspace", workspaceId],
+        })
+        toast({ title: "Default agent updated" })
+      },
+      onError: () => {
+        toast({
+          title: "Could not set default agent",
+          description: "Please try again.",
+          variant: "destructive",
+        })
+      },
+    })
+
+  return { setDefaultAgent, isSettingDefaultAgent }
 }
 
 export function useRestoreAgentPresetVersion(workspaceId: string) {
@@ -469,10 +579,10 @@ export function useRestoreAgentPresetVersion(workspaceId: string) {
       })
     },
     onError: (error) => {
-      const detail =
-        typeof error.body?.detail === "string"
-          ? error.body.detail
-          : "Failed to restore preset version."
+      const detail = getAgentPresetErrorMessage(
+        error,
+        "Failed to restore preset version."
+      )
       toast({
         title: "Restore failed",
         description: detail,

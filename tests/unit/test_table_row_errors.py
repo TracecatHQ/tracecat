@@ -1,5 +1,6 @@
 """Row validation and constraint translation preserve safe error boundaries."""
 
+from typing import cast
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -92,3 +93,18 @@ async def test_unrecognized_database_errors_are_not_client_errors(
     with pytest.raises(error_type) as exc:
         await _execute_row_write(failed_write(), [TableColumn(name="record_key")])
     assert exc.value is error
+
+
+@pytest.mark.anyio
+async def test_update_row_rejects_empty_data(
+    tables_service: BaseTablesService, json_table: Table
+) -> None:
+    with pytest.raises(TableRowError) as exc:
+        await tables_service.update_row(json_table, uuid4(), {})
+
+    assert exc.value.detail == {
+        "code": "empty_update",
+        "column": None,
+        "message": "Row update must include at least one column.",
+    }
+    cast(AsyncMock, tables_service.session).connection.assert_not_called()

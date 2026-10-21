@@ -109,6 +109,7 @@ def _post_attachment(
                 "message": "File MIME type application/x-test is not allowed",
                 "content_type": "application/x-test",
                 "allowed_types": ["text/plain"],
+                "detected_types": None,
             },
             id="mime-type",
         ),
@@ -201,9 +202,13 @@ def test_malformed_binary_declared_text_is_415(
     assert response.json() == {
         "detail": {
             "error": "unsupported_content_type",
-            "message": "Unknown or unsupported file type",
+            "message": (
+                "File content does not match declared MIME type text/plain "
+                "(detected: application/octet-stream)"
+            ),
             "content_type": "text/plain",
             "allowed_types": ["text/plain"],
+            "detected_types": ["application/octet-stream"],
         }
     }
 

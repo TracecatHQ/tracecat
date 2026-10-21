@@ -22,7 +22,10 @@ import pytest
 from pydantic import BaseModel
 from temporalio.api.enums.v1 import EventType, ParentClosePolicy, PendingActivityState
 from temporalio.api.failure.v1 import Failure
-from temporalio.api.history.v1 import HistoryEvent
+from temporalio.api.history.v1 import (
+    HistoryEvent,
+    WorkflowExecutionTerminatedEventAttributes,
+)
 from temporalio.client import Client, WorkflowHandle
 from temporalio.converter import DefaultPayloadConverter
 
@@ -63,8 +66,6 @@ from tracecat.workflow.executions.service import (
 )
 from tracecat.workspaces.service import WorkspaceService
 
-pytestmark = pytest.mark.usefixtures("db")
-
 
 @pytest.fixture
 def mock_client() -> Mock:
@@ -73,35 +74,15 @@ def mock_client() -> Mock:
 
 
 @pytest.fixture
-def mock_role(svc_workspace) -> Role:
+def mock_role() -> Role:
     """Create a test role for the service."""
     return Role(
         type="service",
-        workspace_id=svc_workspace.id,
+        workspace_id=uuid.uuid4(),
         user_id=None,
         service_id="tracecat-service",
         scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
     )
-
-
-@pytest.fixture
-def workspace_with_unlimited_timeout(svc_workspace) -> Workspace:
-    """Create a workspace with unlimited timeout enabled."""
-    svc_workspace.settings = {
-        "workflow_unlimited_timeout_enabled": True,
-        "workflow_default_timeout_seconds": None,
-    }
-    return svc_workspace
-
-
-@pytest.fixture
-def workspace_with_default_timeout(svc_workspace) -> Workspace:
-    """Create a workspace with a default timeout."""
-    svc_workspace.settings = {
-        "workflow_unlimited_timeout_enabled": False,
-        "workflow_default_timeout_seconds": 600,
-    }
-    return svc_workspace
 
 
 @pytest.fixture
@@ -312,6 +293,69 @@ class TestWorkflowExecutionEvents:
 
             # Verify EventFailure.from_history_event was called
             mock_event_failure.assert_awaited_once_with(failure_event)
+
+    @pytest.mark.parametrize(
+        ("reason", "expected_message"),
+        [
+            (
+                "Workflow task failed: payload size exceeded",
+                "Workflow terminated: Workflow task failed: payload size exceeded",
+            ),
+            ("", "Workflow terminated without a reason."),
+        ],
+    )
+    async def test_workflow_terminated_events_include_reason(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+        reason: str,
+        expected_message: str,
+    ) -> None:
+        """Termination reasons surface in both full and compact execution events."""
+        terminated_event = HistoryEvent(
+            event_id=7,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED,
+            task_id=7,
+            workflow_execution_terminated_event_attributes=WorkflowExecutionTerminatedEventAttributes(
+                reason=reason
+            ),
+        )
+        terminated_event.event_time.FromSeconds(1640995200)
+
+        def make_handle() -> Mock:
+            async def mock_fetch_history_events(**kwargs):
+                yield terminated_event
+
+            handle = Mock(spec=WorkflowHandle)
+            handle.fetch_history_events.return_value = mock_fetch_history_events()
+            handle.fetch_history = AsyncMock(
+                return_value=Mock(events=[terminated_event])
+            )
+            handle.describe = AsyncMock(
+                return_value=Mock(raw_description=Mock(pending_activities=[]))
+            )
+            return handle
+
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            side_effect=lambda *args, **kwargs: make_handle()
+        )
+
+        events = await workflow_executions_service.list_workflow_execution_events(
+            workflow_exec_id
+        )
+        assert len(events) == 1
+        assert events[0].event_type == WorkflowEventType.WORKFLOW_EXECUTION_TERMINATED
+        assert events[0].failure == EventFailure(message=expected_message)
+
+        compact = (
+            await workflow_executions_service.list_workflow_execution_events_compact(
+                workflow_exec_id
+            )
+        )
+        assert len(compact) == 1
+        assert compact[0].action_ref == WF_FAILURE_REF
+        assert compact[0].status == WorkflowExecutionEventStatus.TERMINATED
+        assert compact[0].action_error == EventFailure(message=expected_message)
 
     async def test_workflow_completed_synthetic_event_creation(
         self,
@@ -869,145 +913,6 @@ class TestWorkflowExecutionEvents:
                                     workflow_event.action_error == mock_workflow_failure
                                 )
 
-    async def test_workflow_failure_event_with_different_timestamps(
-        self,
-        workflow_executions_service: WorkflowExecutionsService,
-        workflow_exec_id: WorkflowExecutionID,
-    ) -> None:
-        """Test that workflow failure synthetic event uses correct timestamps."""
-        failure_timestamp = 1640995260  # 2022-01-01 00:01:00 UTC
-
-        failure_event = create_mock_history_event(
-            event_id=50,
-            event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED,  # type: ignore
-            event_time_seconds=failure_timestamp,
-            failure_message="Custom failure message",
-        )
-
-        # Mock the workflow handle and history events
-        mock_handle = Mock(spec=WorkflowHandle)
-
-        async def mock_fetch_history_events(**kwargs):
-            """Mock async generator for history events."""
-            yield failure_event
-
-        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
-        workflow_executions_service._client.get_workflow_handle_for = Mock(
-            return_value=mock_handle
-        )
-
-        # Mock EventFailure.from_history_event
-        with patch(
-            "tracecat.workflow.executions.service.EventFailure.from_history_event",
-            new_callable=AsyncMock,
-        ) as mock_event_failure:
-            mock_failure = EventFailure(message="Custom failure message", cause=None)
-            mock_event_failure.return_value = mock_failure
-
-            # Call the method under test
-            events = await workflow_executions_service.list_workflow_execution_events_compact(
-                workflow_exec_id
-            )
-
-            # Assertions
-            assert len(events) == 1
-            event = events[0]
-
-            # Verify timestamps match the failure event timestamp
-            expected_time = datetime.datetime.fromtimestamp(
-                failure_timestamp, tz=datetime.UTC
-            )
-            assert event.schedule_time == expected_time
-            assert event.start_time == expected_time
-            assert event.close_time == expected_time
-
-    async def test_empty_workflow_execution_history(
-        self,
-        workflow_executions_service: WorkflowExecutionsService,
-        workflow_exec_id: WorkflowExecutionID,
-    ) -> None:
-        """Test handling of empty workflow execution history."""
-        # Mock the workflow handle with empty history
-        mock_handle = Mock(spec=WorkflowHandle)
-
-        async def mock_fetch_history_events(**kwargs):
-            """Mock async generator with no events."""
-            # Async generator that yields nothing
-            if False:  # Make this an async generator that never yields
-                yield
-
-        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
-        workflow_executions_service._client.get_workflow_handle_for = Mock(
-            return_value=mock_handle
-        )
-
-        # Call the method under test
-        events = (
-            await workflow_executions_service.list_workflow_execution_events_compact(
-                workflow_exec_id
-            )
-        )
-
-        # Assertions
-        assert len(events) == 0
-
-    async def test_workflow_failure_event_with_cause(
-        self,
-        workflow_executions_service: WorkflowExecutionsService,
-        workflow_exec_id: WorkflowExecutionID,
-    ) -> None:
-        """Test workflow failure synthetic event creation with detailed cause information."""
-        complex_cause = {
-            "type": "ApplicationError",
-            "details": "Database connection failed",
-            "stack_trace": ["line1", "line2", "line3"],
-            "retry_count": 3,
-        }
-
-        failure_event = create_mock_history_event(
-            event_id=200,
-            event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED,  # type: ignore
-            failure_message="Database operation failed",
-            failure_cause=complex_cause,
-        )
-
-        # Mock the workflow handle and history events
-        mock_handle = Mock(spec=WorkflowHandle)
-
-        async def mock_fetch_history_events(**kwargs):
-            """Mock async generator for history events."""
-            yield failure_event
-
-        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
-        workflow_executions_service._client.get_workflow_handle_for = Mock(
-            return_value=mock_handle
-        )
-
-        # Mock EventFailure.from_history_event
-        with patch(
-            "tracecat.workflow.executions.service.EventFailure.from_history_event",
-            new_callable=AsyncMock,
-        ) as mock_event_failure:
-            mock_failure = EventFailure(
-                message="Database operation failed", cause=complex_cause
-            )
-            mock_event_failure.return_value = mock_failure
-
-            # Call the method under test
-            events = await workflow_executions_service.list_workflow_execution_events_compact(
-                workflow_exec_id
-            )
-
-            # Assertions
-            assert len(events) == 1
-            event = events[0]
-
-            # Verify the failure object contains the complex cause
-            assert event.action_error == mock_failure
-            if event.action_error:
-                assert event.action_error.message == "Database operation failed"
-                assert event.action_error.cause == complex_cause
-
     async def test_pending_activity_marks_started(
         self,
         workflow_executions_service: WorkflowExecutionsService,
@@ -1274,56 +1179,74 @@ class TestWorkflowExecutionEvents:
         assert event.action_input == {"value": "visible-input"}
         assert event.should_mask_output is True
 
-    async def test_compact_child_workflow_preserves_mask_output_metadata(
+    @pytest.mark.parametrize(
+        ("workflow_type_name", "memo_target", "memo", "expected_ref"),
+        [
+            pytest.param(
+                "DSLWorkflow",
+                "ChildWorkflowMemo",
+                ChildWorkflowMemo(action_ref="masked_child", mask_output=True),
+                "masked_child",
+                id="child_preserves_memo",
+            ),
+            pytest.param(
+                "DSLWorkflow",
+                "ChildWorkflowMemo",
+                ValueError("bad memo"),
+                "Unknown Child Workflow",
+                id="child_memo_parse_fails",
+            ),
+            pytest.param(
+                "DurableAgentWorkflow",
+                "AgentActionMemo",
+                AgentActionMemo(action_ref="masked_agent", mask_output=True),
+                "masked_agent",
+                id="agent_preserves_memo",
+            ),
+            pytest.param(
+                "DurableAgentWorkflow",
+                "AgentActionMemo",
+                ValueError("bad memo"),
+                "unknown_agent_action",
+                id="agent_memo_parse_fails",
+            ),
+        ],
+    )
+    async def test_compact_child_or_agent_workflow_mask_output_metadata(
         self,
+        workflow_type_name: str,
+        memo_target: str,
+        memo: ChildWorkflowMemo | AgentActionMemo | Exception,
+        expected_ref: str,
     ) -> None:
-        """Child workflow compact events restore redaction metadata from memo."""
-        initiated = create_mock_child_workflow_initiated_event(event_id=1)
+        """Compact events restore redaction metadata from memo and fail closed
+        (masked) when the memo cannot be parsed."""
+        workflow_id = (
+            cast(WorkflowExecutionID, f"agent/{uuid.uuid4()}")
+            if workflow_type_name == "DurableAgentWorkflow"
+            and isinstance(memo, Exception)
+            else None
+        )
+        initiated = create_mock_child_workflow_initiated_event(
+            event_id=1,
+            workflow_type_name=workflow_type_name,
+            workflow_id=workflow_id,
+        )
         unreadable = UnreadableTemporalPayload(
             error_type="decode_error",
             encoding="json/plain",
             payload_size_bytes=0,
         )
-
-        with (
-            patch(
-                "tracecat.workflow.executions.schemas.ChildWorkflowMemo.from_temporal",
-                new_callable=AsyncMock,
-            ) as mock_memo,
-            patch(
-                "tracecat.workflow.executions.schemas.extract_first",
-                new_callable=AsyncMock,
-            ) as mock_extract_first,
-        ):
-            mock_memo.return_value = ChildWorkflowMemo(
-                action_ref="masked_child",
-                mask_output=True,
-            )
-            mock_extract_first.return_value = unreadable
-
-            event = await WorkflowExecutionEventCompact.from_initiated_child_workflow(
-                initiated
-            )
-
-        assert event is not None
-        assert event.action_ref == "masked_child"
-        assert event.should_mask_output is True
-
-    async def test_compact_child_workflow_defaults_masked_when_memo_parse_fails(
-        self,
-    ) -> None:
-        """Malformed child workflow memo metadata should fail closed for results."""
-        initiated = create_mock_child_workflow_initiated_event(event_id=1)
-        unreadable = UnreadableTemporalPayload(
-            error_type="decode_error",
-            encoding="json/plain",
-            payload_size_bytes=0,
+        memo_mock = (
+            AsyncMock(side_effect=memo)
+            if isinstance(memo, Exception)
+            else AsyncMock(return_value=memo)
         )
 
         with (
             patch(
-                "tracecat.workflow.executions.schemas.ChildWorkflowMemo.from_temporal",
-                AsyncMock(side_effect=ValueError("bad memo")),
+                f"tracecat.workflow.executions.schemas.{memo_target}.from_temporal",
+                memo_mock,
             ),
             patch(
                 "tracecat.workflow.executions.schemas.extract_first",
@@ -1335,78 +1258,7 @@ class TestWorkflowExecutionEvents:
             )
 
         assert event is not None
-        assert event.action_ref == "Unknown Child Workflow"
-        assert event.should_mask_output is True
-
-    async def test_compact_agent_workflow_preserves_mask_output_metadata(
-        self,
-    ) -> None:
-        """Agent compact events restore redaction metadata from memo."""
-        initiated = create_mock_child_workflow_initiated_event(
-            event_id=1,
-            workflow_type_name="DurableAgentWorkflow",
-        )
-        unreadable = UnreadableTemporalPayload(
-            error_type="decode_error",
-            encoding="json/plain",
-            payload_size_bytes=0,
-        )
-
-        with (
-            patch(
-                "tracecat.workflow.executions.schemas.AgentActionMemo.from_temporal",
-                new_callable=AsyncMock,
-            ) as mock_memo,
-            patch(
-                "tracecat.workflow.executions.schemas.extract_first",
-                new_callable=AsyncMock,
-            ) as mock_extract_first,
-        ):
-            mock_memo.return_value = AgentActionMemo(
-                action_ref="masked_agent",
-                mask_output=True,
-            )
-            mock_extract_first.return_value = unreadable
-
-            event = await WorkflowExecutionEventCompact.from_initiated_child_workflow(
-                initiated
-            )
-
-        assert event is not None
-        assert event.action_ref == "masked_agent"
-        assert event.should_mask_output is True
-
-    async def test_compact_agent_workflow_defaults_masked_when_memo_parse_fails(
-        self,
-    ) -> None:
-        """Malformed agent memo metadata should fail closed for results."""
-        initiated = create_mock_child_workflow_initiated_event(
-            event_id=1,
-            workflow_type_name="DurableAgentWorkflow",
-            workflow_id=cast(WorkflowExecutionID, f"agent/{uuid.uuid4()}"),
-        )
-        unreadable = UnreadableTemporalPayload(
-            error_type="decode_error",
-            encoding="json/plain",
-            payload_size_bytes=0,
-        )
-
-        with (
-            patch(
-                "tracecat.workflow.executions.schemas.AgentActionMemo.from_temporal",
-                AsyncMock(side_effect=ValueError("bad memo")),
-            ),
-            patch(
-                "tracecat.workflow.executions.schemas.extract_first",
-                AsyncMock(return_value=unreadable),
-            ),
-        ):
-            event = await WorkflowExecutionEventCompact.from_initiated_child_workflow(
-                initiated
-            )
-
-        assert event is not None
-        assert event.action_ref == "unknown_agent_action"
+        assert event.action_ref == expected_ref
         assert event.should_mask_output is True
 
     async def test_compact_masked_action_result_redacts_leaf_values(
@@ -1688,13 +1540,32 @@ class TestWorkflowExecutionEvents:
         )
         assert completed_event.result == {"secret": "[REDACTED]"}
 
-    async def test_list_events_defaults_masked_when_child_memo_parse_fails(
+    @pytest.mark.parametrize(
+        ("workflow_type_name", "memo_target", "workflow_id"),
+        [
+            pytest.param("DSLWorkflow", "ChildWorkflowMemo", None, id="child"),
+            pytest.param(
+                "DurableAgentWorkflow",
+                "AgentActionMemo",
+                f"agent/{uuid.uuid4()}",
+                id="agent",
+            ),
+        ],
+    )
+    async def test_list_events_defaults_masked_when_memo_parse_fails(
         self,
         workflow_executions_service: WorkflowExecutionsService,
         workflow_exec_id: WorkflowExecutionID,
+        workflow_type_name: str,
+        memo_target: str,
+        workflow_id: str | None,
     ) -> None:
-        """Malformed child workflow memo metadata should fail closed for results."""
-        initiated = create_mock_child_workflow_initiated_event(event_id=1)
+        """Malformed child workflow or agent memo metadata should fail closed for results."""
+        initiated = create_mock_child_workflow_initiated_event(
+            event_id=1,
+            workflow_type_name=workflow_type_name,
+            workflow_id=cast(WorkflowExecutionID | None, workflow_id),
+        )
         completed = create_mock_child_workflow_completed_event(
             event_id=2,
             initiated_event_id=1,
@@ -1715,7 +1586,7 @@ class TestWorkflowExecutionEvents:
 
         with (
             patch(
-                "tracecat.workflow.executions.schemas.ChildWorkflowMemo.from_temporal",
+                f"tracecat.workflow.executions.schemas.{memo_target}.from_temporal",
                 AsyncMock(side_effect=ValueError("bad memo")),
             ),
             patch(
@@ -1725,61 +1596,6 @@ class TestWorkflowExecutionEvents:
             patch(
                 "tracecat.workflow.executions.service.extract_first",
                 AsyncMock(return_value={"secret": "child-output"}),
-            ),
-        ):
-            events = await workflow_executions_service.list_workflow_execution_events(
-                workflow_exec_id
-            )
-
-        completed_event = next(
-            event
-            for event in events
-            if event.event_type == WorkflowEventType.CHILD_WORKFLOW_EXECUTION_COMPLETED
-        )
-        assert completed_event.result == {"secret": "[REDACTED]"}
-        assert completed_event.event_group is not None
-
-    async def test_list_events_defaults_masked_when_agent_memo_parse_fails(
-        self,
-        workflow_executions_service: WorkflowExecutionsService,
-        workflow_exec_id: WorkflowExecutionID,
-    ) -> None:
-        """Malformed agent memo metadata should fail closed for results."""
-        initiated = create_mock_child_workflow_initiated_event(
-            event_id=1,
-            workflow_type_name="DurableAgentWorkflow",
-            workflow_id=cast(WorkflowExecutionID, f"agent/{uuid.uuid4()}"),
-        )
-        completed = create_mock_child_workflow_completed_event(
-            event_id=2,
-            initiated_event_id=1,
-        )
-        unreadable = UnreadableTemporalPayload(
-            error_type="decode_error",
-            encoding="json/plain",
-            payload_size_bytes=0,
-        )
-        mock_handle = Mock(spec=WorkflowHandle)
-        mock_handle.fetch_history = AsyncMock(
-            return_value=Mock(events=[initiated, completed])
-        )
-        mock_handle.describe = AsyncMock(return_value=Mock())
-        workflow_executions_service._client.get_workflow_handle_for = Mock(
-            return_value=mock_handle
-        )
-
-        with (
-            patch(
-                "tracecat.workflow.executions.schemas.AgentActionMemo.from_temporal",
-                AsyncMock(side_effect=ValueError("bad memo")),
-            ),
-            patch(
-                "tracecat.workflow.executions.schemas.extract_first",
-                AsyncMock(return_value=unreadable),
-            ),
-            patch(
-                "tracecat.workflow.executions.service.extract_first",
-                AsyncMock(return_value={"secret": "agent-output"}),
             ),
         ):
             events = await workflow_executions_service.list_workflow_execution_events(
@@ -2200,13 +2016,68 @@ class TestTimeoutResolution:
     """Test workspace-level timeout resolution logic."""
 
     @pytest.mark.anyio
-    async def test_unlimited_timeout_enabled_returns_none(
-        self, mock_client: Mock, workspace_with_unlimited_timeout: Workspace
+    @pytest.mark.parametrize(
+        ("settings", "seconds", "expected"),
+        [
+            pytest.param(
+                {
+                    "workflow_unlimited_timeout_enabled": True,
+                    "workflow_default_timeout_seconds": None,
+                },
+                300,
+                None,
+                id="unlimited_enabled_returns_none",
+            ),
+            pytest.param(
+                {
+                    "workflow_unlimited_timeout_enabled": False,
+                    "workflow_default_timeout_seconds": 600,
+                },
+                300,
+                datetime.timedelta(seconds=600),
+                id="workspace_default_used",
+            ),
+            pytest.param(
+                {}, 300, datetime.timedelta(seconds=300), id="dsl_timeout_fallback"
+            ),
+            pytest.param({}, 0, None, id="unlimited_when_no_timeouts"),
+            pytest.param(
+                None,
+                300,
+                datetime.timedelta(seconds=300),
+                id="no_workspace_uses_dsl_timeout",
+            ),
+            pytest.param(
+                {
+                    "workflow_unlimited_timeout_enabled": True,
+                    "workflow_default_timeout_seconds": 600,
+                },
+                300,
+                None,
+                id="unlimited_overrides_all",
+            ),
+        ],
+    )
+    async def test_resolve_execution_timeout(
+        self,
+        mock_client: Mock,
+        settings: dict[str, Any] | None,
+        seconds: int,
+        expected: datetime.timedelta | None,
     ) -> None:
-        """Test that unlimited timeout enabled returns None (unlimited)."""
+        workspace = (
+            None
+            if settings is None
+            else Workspace(
+                id=uuid.uuid4(),
+                name="test-workspace",
+                organization_id=uuid.uuid4(),
+                settings=settings,
+            )
+        )
         role = Role(
             type="service",
-            workspace_id=workspace_with_unlimited_timeout.id,
+            workspace_id=workspace.id if workspace else None,
             user_id=None,
             service_id="tracecat-service",
             scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
@@ -2215,151 +2086,14 @@ class TestTimeoutResolution:
 
         with patch.object(WorkspaceService, "with_session") as mock_ws_service:
             mock_svc = Mock()
-
-            async def mock_get_workspace(workspace_id):
-                return workspace_with_unlimited_timeout
-
-            mock_svc.get_workspace = mock_get_workspace
+            mock_svc.get_workspace = AsyncMock(return_value=workspace)
             mock_ws_service.return_value.__aenter__.return_value = mock_svc
 
-            result = await service._resolve_execution_timeout(seconds=300)
+            result = await service._resolve_execution_timeout(seconds=seconds)
 
-            assert result is None
-
-    @pytest.mark.anyio
-    async def test_workspace_default_timeout_used(
-        self, mock_client: Mock, workspace_with_default_timeout: Workspace
-    ) -> None:
-        """Test that workspace default timeout is used when set."""
-        role = Role(
-            type="service",
-            workspace_id=workspace_with_default_timeout.id,
-            user_id=None,
-            service_id="tracecat-service",
-            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
-        )
-        service = WorkflowExecutionsService(client=mock_client, role=role)
-
-        with patch.object(WorkspaceService, "with_session") as mock_ws_service:
-            mock_svc = Mock()
-
-            async def mock_get_workspace(workspace_id):
-                return workspace_with_default_timeout
-
-            mock_svc.get_workspace = mock_get_workspace
-            mock_ws_service.return_value.__aenter__.return_value = mock_svc
-
-            result = await service._resolve_execution_timeout(seconds=300)
-
-            assert result == datetime.timedelta(seconds=600)
-
-    @pytest.mark.anyio
-    async def test_dsl_timeout_fallback(
-        self, mock_client: Mock, svc_workspace: Workspace
-    ) -> None:
-        """Test that DSL timeout is used when no workspace override."""
-        # Workspace with no timeout settings
-        svc_workspace.settings = {}
-
-        role = Role(
-            type="service",
-            workspace_id=svc_workspace.id,
-            user_id=None,
-            service_id="tracecat-service",
-            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
-        )
-        service = WorkflowExecutionsService(client=mock_client, role=role)
-
-        with patch.object(WorkspaceService, "with_session") as mock_ws_service:
-            mock_svc = Mock()
-
-            async def mock_get_workspace(workspace_id):
-                return svc_workspace
-
-            mock_svc.get_workspace = mock_get_workspace
-            mock_ws_service.return_value.__aenter__.return_value = mock_svc
-
-            result = await service._resolve_execution_timeout(seconds=300)
-
-            assert result == datetime.timedelta(seconds=300)
-
-    @pytest.mark.anyio
-    async def test_unlimited_when_no_timeouts(
-        self, mock_client: Mock, svc_workspace: Workspace
-    ) -> None:
-        """Test that unlimited is used when no timeouts are set."""
-        # Workspace with no timeout settings
-        svc_workspace.settings = {}
-
-        role = Role(
-            type="service",
-            workspace_id=svc_workspace.id,
-            user_id=None,
-            service_id="tracecat-service",
-            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
-        )
-        service = WorkflowExecutionsService(client=mock_client, role=role)
-
-        with patch.object(WorkspaceService, "with_session") as mock_ws_service:
-            mock_svc = Mock()
-
-            async def mock_get_workspace(workspace_id):
-                return svc_workspace
-
-            mock_svc.get_workspace = mock_get_workspace
-            mock_ws_service.return_value.__aenter__.return_value = mock_svc
-
-            result = await service._resolve_execution_timeout(seconds=0)
-
-            assert result is None
-
-    @pytest.mark.anyio
-    async def test_no_workspace_uses_dsl_timeout(self, mock_client: Mock) -> None:
-        """Test that DSL timeout is used when no workspace ID."""
-        role = Role(
-            type="service",
-            workspace_id=None,
-            user_id=None,
-            service_id="tracecat-service",
-            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
-        )
-        service = WorkflowExecutionsService(client=mock_client, role=role)
-
-        result = await service._resolve_execution_timeout(seconds=300)
-
-        assert result == datetime.timedelta(seconds=300)
-
-    @pytest.mark.anyio
-    async def test_precedence_unlimited_overrides_all(
-        self, mock_client: Mock, svc_workspace: Workspace
-    ) -> None:
-        """Test that unlimited timeout overrides workspace default and DSL timeout."""
-        svc_workspace.settings = {
-            "workflow_unlimited_timeout_enabled": True,
-            "workflow_default_timeout_seconds": 600,
-        }
-
-        role = Role(
-            type="service",
-            workspace_id=svc_workspace.id,
-            user_id=None,
-            service_id="tracecat-service",
-            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
-        )
-        service = WorkflowExecutionsService(client=mock_client, role=role)
-
-        with patch.object(WorkspaceService, "with_session") as mock_ws_service:
-            mock_svc = Mock()
-
-            async def mock_get_workspace(workspace_id):
-                return svc_workspace
-
-            mock_svc.get_workspace = mock_get_workspace
-            mock_ws_service.return_value.__aenter__.return_value = mock_svc
-
-            result = await service._resolve_execution_timeout(seconds=300)
-
-            assert result is None
+        assert result == expected
+        if workspace is None:
+            mock_ws_service.assert_not_called()
 
 
 def test_event_failure_extract_root_cause_message_returns_deepest_message() -> None:

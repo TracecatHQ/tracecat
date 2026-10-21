@@ -18,6 +18,7 @@ from tracecat.search.embeddings.service import WorkspaceEmbeddingService
 from tracecat.tables.search.router import (
     get_table_search,
     get_table_search_progress,
+    require_semantic_search_entitlement,
     router,
     select_table_search_column,
 )
@@ -182,6 +183,7 @@ async def test_selection_422_contract_covers_domain_and_request_errors(
         authenticated_role
     )
     app.dependency_overrides[get_async_session] = database_session
+    app.dependency_overrides[require_semantic_search_entitlement] = lambda: None
     select = AsyncMock(
         side_effect=ValueError("Only TEXT columns support semantic search")
     )
@@ -248,6 +250,7 @@ async def test_progress_uses_flat_shared_query_contract(
         yield AsyncMock(spec=AsyncSession)
 
     app.dependency_overrides[get_async_session] = database_session
+    app.dependency_overrides[require_semantic_search_entitlement] = lambda: None
     progress = AsyncMock(return_value=TableSearchProgressPage(generation=1, items=[]))
     monkeypatch.setattr(TableSearchService, "progress", progress)
     async with httpx.AsyncClient(

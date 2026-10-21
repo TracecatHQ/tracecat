@@ -50,7 +50,7 @@ def make_reference(
     secret_arn: str = SECRET_ARN,
     region: str = REGION,
     store_enabled: bool = True,
-    role_arn: str = ROLE_ARN,
+    role_arn: str | None = ROLE_ARN,
     external_id: str = EXTERNAL_ID,
 ) -> ExternalSecretReference:
     return ExternalSecretReference(
@@ -217,12 +217,16 @@ async def test_binary_value_rejected(fake_aws: type[_FakeSession]) -> None:
     assert exc_info.value.code == AwsSecretResolutionErrorCode.BINARY_VALUE
 
 
-async def test_disabled_store_and_region_mismatch_skip_network(
+async def test_disabled_incomplete_store_and_region_mismatch_skip_network(
     fake_aws: type[_FakeSession],
 ) -> None:
     with pytest.raises(AwsSecretResolutionError) as disabled:
         await resolve_aws_secret_references([make_reference(store_enabled=False)])
     assert disabled.value.code == AwsSecretResolutionErrorCode.STORE_DISABLED
+
+    with pytest.raises(AwsSecretResolutionError) as incomplete:
+        await resolve_aws_secret_references([make_reference(role_arn=None)])
+    assert incomplete.value.code == AwsSecretResolutionErrorCode.STORE_DISABLED
 
     with pytest.raises(AwsSecretResolutionError) as mismatch:
         await resolve_aws_secret_references([make_reference(region="eu-west-1")])

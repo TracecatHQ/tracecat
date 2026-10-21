@@ -17,6 +17,7 @@ from tracecat.storage.object import (
     ObjectRef,
     ObjectStorage,
     StoredObject,
+    content_addressed_key,
 )
 from tracecat.storage.utils import (
     cached_blob_download,
@@ -69,6 +70,7 @@ class S3ObjectStorage(ObjectStorage):
 
         # Externalize to S3
         sha256 = compute_sha256(serialized)
+        key = content_addressed_key(key, sha256)
 
         await blob.ensure_bucket_exists(self.bucket)
         await blob.upload_file(

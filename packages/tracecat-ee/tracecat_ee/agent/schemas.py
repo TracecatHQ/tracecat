@@ -4,7 +4,10 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tracecat import config
-from tracecat.agent.common.types import MCPServerConfig
+from tracecat.agent.common.types import (
+    MCPServerConfig,
+    read_reasoning_effort_as_enable_thinking,
+)
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import OutputType
 
@@ -69,6 +72,12 @@ class AgentActionArgs(BaseModel):
     base_url: str | None = None
     tool_approvals: dict[str, bool] | None = None
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
+
+    @model_validator(mode="before")
+    @classmethod
+    def read_reasoning_effort(cls, data: Any) -> Any:
+        """Accept activity results that a newer worker wrote."""
+        return read_reasoning_effort_as_enable_thinking(data)
 
     @field_validator("agents", mode="before")
     @classmethod

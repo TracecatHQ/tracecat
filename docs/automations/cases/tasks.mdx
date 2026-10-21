@@ -1,27 +1,95 @@
 ---
 title: "Case tasks"
-description: "Add follow-up work to a case, track completion, and start workflows from tasks."
+description: "Break a case into follow-up work, assign owners, track progress, and start workflows from tasks."
 icon: "lock"
 ---
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
-Add a task to a case to track one follow-up step.
-The `Tasks` control shows completed and total task counts.
+Tasks break a case into follow-up steps, such as containment, notification, or evidence collection.
+Each task has its own status, priority, assignee, and optional workflow, so you can see what is left before you close the case.
+
+![Case tasks](/img/cases/case-tasks-list.png)
 
 ## Add a task
 
-Set a task's title, description, status, priority, assignee, and optional workflow.
-Use `To do`, `In progress`, `Completed`, or `Blocked` to show the task state, which the case keeps alongside comments and evidence.
+1. Open a case and select the tasks control in the case toolbar. It shows completed and total task counts, such as `1/4`.
+2. Select `Add task`.
+3. Enter a `Task title` and an optional description.
+4. Set the status, priority, and assignee, then pick a workflow with `Workflow`.
+5. Select `Create task`.
 
-![Case tasks](/img/cases/case-tasks.png)
+![Add a case task](/img/cases/case-tasks.png)
 
-## Trigger workflows from cases
+Right-click a task to edit it, change its status, assignee, priority, or workflow, view its workflow runs, or delete it.
 
-Set a workflow on a task, then start it from the task UI. If the workflow has an Input schema, enter those inputs in the dialog; otherwise, Tracecat shows [generated case inputs](/automations/triggers/task-triggers).
+## Track progress
+
+| Status | Use it when |
+| --- | --- |
+| `To do` | Nobody has started the task |
+| `In progress` | Someone is working on the task |
+| `Completed` | The task is done and counts toward the completed total |
+| `Blocked` | The task is waiting on someone or something else |
+
+The tasks control lists every task with its status so you can jump to open work from anywhere in the case.
+
+## Start workflows from tasks
+
+<Steps>
+  <Step title="Set a workflow">
+    Pick a workflow with `Workflow` when you add the task, or right-click the task and select `Set workflow`.
+  </Step>
+  <Step title="Run the workflow">
+    Select the workflow button on the task row, such as `Reset user credentials`.
+    If the workflow has an Input schema, fill in `Configure workflow inputs` and select `Trigger`.
+    Otherwise, Tracecat passes generated case inputs; see [Task triggers](/automations/triggers/task-triggers) for the payload.
+  </Step>
+</Steps>
+
+Use task workflows for repeatable response steps an analyst should approve, such as `Reset user credentials` or `Isolate host`.
+Use a [case trigger](/automations/cases/workflow-triggers) instead when the workflow should run automatically.
+
+## View workflow runs for a task
+
+Every run started from a task is linked to that task, so you can review what already ran before you run it again.
+
+<Steps>
+  <Step title="Open the task menu">
+    Right-click the task and select `View workflow runs`.
+
+    ![View workflow runs menu item](/img/cases/case-task-menu.png)
+  </Step>
+  <Step title="Review the runs">
+    The `Workflow runs` drawer lists the task's runs, newest first, with each run's workflow, status, and start time.
+    Select a run to open its execution in the workflow builder.
+    Select `Load more` to see older runs.
+
+    ![Workflow runs for a task](/img/cases/case-task-workflow-runs.png)
+  </Step>
+</Steps>
+
+The drawer lists runs started from the task row.
+Runs started by case triggers or `/` commands do not appear here.
+
+## Manage tasks from workflows
+
+Use `core.cases.create_task`, `core.cases.update_task`, and `core.cases.list_tasks` to add a response checklist when a case opens or to complete tasks as automation finishes.
+
+```yaml
+- ref: add_containment_task
+  action: core.cases.create_task
+  args:
+    case_id: ${{ TRIGGER.case_id }}
+    title: Reset credentials for affected user
+    priority: high
+    status: todo
+```
+
+Case triggers can also react to task events such as `task_created`, `task_status_changed`, and `task_assignee_changed`.
 
 ## Related pages
 
-- See [Case management](/automations/cases) to manage the case record around a task.
+- See [Workflow triggers](/automations/cases/workflow-triggers) to compare task workflows with case triggers and `/` commands.
+- See [Tasks](/automations/core-actions/case-actions/tasks) for the task action inputs.
 - See [Task triggers](/automations/triggers/task-triggers) to reference the task trigger payload.
-- See [Comment triggers](/automations/triggers/comment-triggers) to run a published workflow with `/` from a case comment.

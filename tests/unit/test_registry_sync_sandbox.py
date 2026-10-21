@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import stat
+import sys
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -15,9 +16,14 @@ from tracecat.exceptions import RegistryError, RegistrySyncContentError
 from tracecat.registry.sync.artifact import (
     RegistryArtifactBuildError,
 )
-from tracecat.registry.sync.sandbox import _PACKAGING_SCRIPT, RegistrySyncSandbox
+from tracecat.registry.sync.sandbox import (
+    _DISCOVERY_SCRIPT,
+    _PACKAGING_SCRIPT,
+    RegistrySyncSandbox,
+)
 from tracecat.registry.sync.schemas import (
     SyncErrorCode,
+    SyncResultAdapter,
     SyncResultError,
     SyncResultSuccess,
 )
@@ -28,6 +34,16 @@ from tracecat.sandbox.types import (
     SandboxResult,
 )
 from tracecat.ssh import SshEnv
+
+
+@pytest.fixture(autouse=True)
+def delegated_cgroup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    root = tmp_path / "cgroup"
+    root.mkdir()
+    (root / "cgroup.subtree_control").write_text("memory")
+    (root / "cgroup.procs").touch()
+    monkeypatch.setenv("TRACECAT__SANDBOX_CGROUP_PATH", str(root))
+    return root
 
 
 @pytest.mark.anyio
@@ -73,7 +89,8 @@ async def test_registry_install_runs_in_nsjail_with_private_cache(
 
     assert result == expected_site_packages
     executor_cls.assert_called_once_with(
-        cache_dir=str(output_dir / "sandbox-install" / "sandbox-cache")
+        cache_dir=str(output_dir / "sandbox-install" / "sandbox-cache"),
+        cgroup_mount=tmp_path / "cgroup",
     )
 
 
@@ -202,75 +219,45 @@ async def test_registry_clone_uses_scoped_agent_and_strict_host_keys(
 
 
 @pytest.mark.anyio
-async def test_registry_clone_stops_when_keyscan_times_out(
+@pytest.mark.parametrize(
+    ("execute_kwargs", "error"),
+    [
+        pytest.param(
+            {"side_effect": SandboxTimeoutError("synthetic keyscan timeout")},
+            "host key scan timed out",
+            id="timeout",
+        ),
+        pytest.param(
+            {
+                "return_value": SandboxResult(
+                    success=False,
+                    error="RuntimeError: synthetic ssh-keyscan failure",
+                )
+            },
+            "host key scan failed",
+            id="command_fails",
+        ),
+        pytest.param(
+            {"return_value": SandboxResult(success=True, output="\n")},
+            "returned no host keys",
+            id="empty_output",
+        ),
+    ],
+)
+async def test_registry_clone_stops_when_keyscan_fails(
     tmp_path: Path,
     mocker,
+    execute_kwargs: dict[str, object],
+    error: str,
 ) -> None:
-    execute = mocker.AsyncMock(
-        side_effect=SandboxTimeoutError("synthetic keyscan timeout")
-    )
+    execute = mocker.AsyncMock(**execute_kwargs)
     mocker.patch(
         "tracecat.registry.sync.sandbox.NsjailExecutor",
         return_value=mocker.Mock(execute=execute),
     )
     temporary_agent = mocker.patch("tracecat.registry.sync.sandbox.temporary_ssh_agent")
 
-    with pytest.raises(RegistryError, match="host key scan timed out"):
-        await RegistrySyncSandbox().clone_repository(
-            git_url="git+ssh://git@git.example.test/acme/registry.git",
-            commit_sha="a" * 40,
-            ssh_key="fake-private-key",
-            work_dir=tmp_path / "sync",
-            timeout_seconds=90,
-        )
-
-    execute.assert_awaited_once()
-    temporary_agent.assert_not_called()
-
-
-@pytest.mark.anyio
-async def test_registry_clone_stops_when_keyscan_command_fails(
-    tmp_path: Path,
-    mocker,
-) -> None:
-    execute = mocker.AsyncMock(
-        return_value=SandboxResult(
-            success=False,
-            error="RuntimeError: synthetic ssh-keyscan failure",
-        )
-    )
-    mocker.patch(
-        "tracecat.registry.sync.sandbox.NsjailExecutor",
-        return_value=mocker.Mock(execute=execute),
-    )
-    temporary_agent = mocker.patch("tracecat.registry.sync.sandbox.temporary_ssh_agent")
-
-    with pytest.raises(RegistryError, match="host key scan failed"):
-        await RegistrySyncSandbox().clone_repository(
-            git_url="git+ssh://git@git.example.test/acme/registry.git",
-            commit_sha="a" * 40,
-            ssh_key="fake-private-key",
-            work_dir=tmp_path / "sync",
-            timeout_seconds=90,
-        )
-
-    execute.assert_awaited_once()
-    temporary_agent.assert_not_called()
-
-
-@pytest.mark.anyio
-async def test_registry_clone_stops_when_keyscan_returns_empty_output(
-    tmp_path: Path,
-    mocker,
-) -> None:
-    execute = mocker.AsyncMock(return_value=SandboxResult(success=True, output="\n"))
-    mocker.patch(
-        "tracecat.registry.sync.sandbox.NsjailExecutor",
-        return_value=mocker.Mock(execute=execute),
-    )
-    temporary_agent = mocker.patch("tracecat.registry.sync.sandbox.temporary_ssh_agent")
-
-    with pytest.raises(RegistryError, match="returned no host keys"):
+    with pytest.raises(RegistryError, match=error):
         await RegistrySyncSandbox().clone_repository(
             git_url="git+ssh://git@git.example.test/acme/registry.git",
             commit_sha="a" * 40,
@@ -480,7 +467,9 @@ async def test_registry_discovery_runs_without_network_or_worker_environment(
             "commit_sha",
             "validate",
             "organization_id",
+            "registry_site_packages",
         }
+        assert inputs["registry_site_packages"] == "/pythonpath/1"
         return SandboxResult(
             success=True,
             output=SyncResultSuccess(actions=[]).model_dump(mode="json"),
@@ -715,3 +704,124 @@ async def test_registry_discovery_raises_typed_content_error(
         )
 
     assert exc_info.value.code == SyncErrorCode.PACKAGE_NOT_FOUND
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    ["import", "attribute", "missing_submodule", "registry_frame", "trusted"],
+)
+def test_discovery_script_reports_registry_dependency_conflicts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    scenario: str,
+) -> None:
+    module_name = "tracecat.registry.sync.entrypoint"
+    registry_site_packages = tmp_path / "registry-site-packages"
+    from_registry = scenario != "trusted"
+    root = registry_site_packages if from_registry else tmp_path / "trusted"
+    dependency = ModuleType("shared_dep")
+    dependency.__file__ = str(root / "shared_dep" / "__init__.py")
+    dependency.__path__ = [str(root / "shared_dep")]
+    monkeypatch.setitem(sys.modules, "shared_dep", dependency)
+
+    class _ConflictingFinder:
+        @staticmethod
+        def find_spec(name: str, *_args: object, **_kwargs: object) -> None:
+            if name != module_name:
+                return None
+            match scenario:
+                case "attribute":
+                    raise AttributeError("no attribute 'helper'", obj=dependency)
+                case "missing_submodule":
+                    # The shadowing parent lacks the submodule; only its path says so.
+                    raise ModuleNotFoundError(
+                        "No module named 'shared_dep.sub'", name="shared_dep.sub"
+                    )
+                case "registry_frame":
+                    # Registry code raises while importing; only its frame says so.
+                    exec(
+                        compile(
+                            "raise ImportError('cannot import name helper')",
+                            str(root / "shared_dep" / "compat.py"),
+                            "exec",
+                        ),
+                        {},
+                    )
+                case _:
+                    pass
+            raise ImportError(
+                "cannot import name 'helper'",
+                name="shared_dep",
+                path=dependency.__file__,
+            )
+
+    monkeypatch.delitem(sys.modules, module_name, raising=False)
+    monkeypatch.setattr(sys, "meta_path", [_ConflictingFinder(), *sys.meta_path])
+    namespace: dict[str, object] = {}
+    exec(compile(_DISCOVERY_SCRIPT, "script.py", "exec"), namespace)
+    main = cast(Callable[..., object], namespace["main"])
+
+    def run() -> object:
+        return main(
+            origin="git+ssh://git@git.example.test/acme/registry.git",
+            package_name="registry",
+            repository_id=str(uuid4()),
+            registry_site_packages=str(registry_site_packages),
+        )
+
+    if not from_registry:
+        # Tracecat's own import failures keep the generic path, which pages us.
+        with pytest.raises(ImportError):
+            run()
+        return
+
+    result = SyncResultAdapter.validate_python(run())
+    assert isinstance(result, SyncResultError)
+    assert result.error_code == SyncErrorCode.IMPORT_FAILED
+    assert result.error.startswith("Registry dependencies conflict")
+    assert isinstance(result.to_exception(), RegistrySyncContentError)
+
+
+@pytest.mark.parametrize("error_type", [ImportError, AttributeError])
+@pytest.mark.parametrize("from_registry", [True, False])
+def test_discovery_script_attributes_action_load_import_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    error_type: type[Exception],
+    from_registry: bool,
+) -> None:
+    registry_site_packages = tmp_path / "registry-site-packages"
+    root = registry_site_packages if from_registry else tmp_path / "trusted"
+    dependency = ModuleType("shared_dep")
+    dependency.__file__ = str(root / "shared_dep" / "__init__.py")
+
+    async def load_and_serialize_installed_actions(**_kwargs: object) -> None:
+        if error_type is AttributeError:
+            raise AttributeError("no attribute 'helper'", obj=dependency)
+        raise ImportError(
+            "cannot import name 'helper'",
+            name="shared_dep",
+            path=dependency.__file__,
+        )
+
+    entrypoint = ModuleType("tracecat.registry.sync.entrypoint")
+    entrypoint.__dict__["load_and_serialize_installed_actions"] = (
+        load_and_serialize_installed_actions
+    )
+    monkeypatch.setitem(sys.modules, entrypoint.__name__, entrypoint)
+    monkeypatch.delitem(sys.modules, "shared_dep", raising=False)
+    namespace: dict[str, object] = {}
+    exec(compile(_DISCOVERY_SCRIPT, "script.py", "exec"), namespace)
+    main = cast(Callable[..., object], namespace["main"])
+
+    result = SyncResultAdapter.validate_python(
+        main(
+            origin="git+ssh://git@git.example.test/acme/registry.git",
+            package_name="registry",
+            repository_id=str(uuid4()),
+            registry_site_packages=str(registry_site_packages),
+        )
+    )
+
+    assert isinstance(result, SyncResultError)
+    assert result.error_code == (SyncErrorCode.IMPORT_FAILED if from_registry else None)

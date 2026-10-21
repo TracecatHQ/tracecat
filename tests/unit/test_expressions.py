@@ -1,17 +1,8 @@
-import os
-import uuid
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
-import httpx
 import pytest
-import respx
-from httpx import Response
-from pydantic import SecretStr
 
-from tracecat import config
-from tracecat.auth.types import Role
-from tracecat.db.models import Secret
 from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions.common import (
     ExprContext,
@@ -37,10 +28,6 @@ from tracecat.expressions.validator.validator import (
     TemplateActionValidationContext,
 )
 from tracecat.logger import logger
-from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
-from tracecat.secrets.enums import SecretType
-from tracecat.secrets.schemas import SecretKeyValue, SecretRead
 from tracecat.validation.common import get_validators
 from tracecat.validation.schemas import (
     ExprBaseValidationResult,
@@ -257,48 +244,10 @@ def test_find_secrets_in_complex_expression():
     )
 
 
-# ------------------------------ New fixtures ------------------------------ #
-
-
-@pytest.fixture
-def simple_secret_expr():
-    return "${{ SECRETS.alpha.KEY }}"
-
-
-@pytest.fixture
-def complex_secret_expr():
-    return "${{ FN.join(':', [SECRETS.alpha.KEY, SECRETS.beta.SECRET, 'tail']) }}"
-
-
-@pytest.fixture
-def mixed_args_obj(simple_secret_expr, complex_secret_expr):
-    return {
-        "headers": {
-            "Auth": complex_secret_expr,
-            "Init": simple_secret_expr,
-        },
-        "payload": [
-            "no templates here",
-            "${{ 'prefix-' + SECRETS.gamma.TOKEN }}",
-        ],
-    }
-
-
 # ------------------------------ Corner case tests ------------------------------ #
 
 
-def test_evaluate_templated_secret(test_role: Role):
-    TEST_SECRETS = {
-        "my_secret": [
-            SecretKeyValue(key="TEST_API_KEY_1", value=SecretStr("1234567890")),
-            SecretKeyValue(key="NOISE_1", value=SecretStr("asdfasdf")),
-        ],
-        "other_secret": [
-            SecretKeyValue(key="test_api_key_2", value=SecretStr("@@@@@@@@@")),
-            SecretKeyValue(key="NOISE_2", value=SecretStr("aaaaaaaaaaaaa")),
-        ],
-    }
-
+def test_evaluate_templated_secret():
     mock_templated_kwargs = {
         "question_generation": {
             "questions": [
@@ -321,7 +270,7 @@ def test_evaluate_templated_secret(test_role: Role):
             },
         ],
     }
-    exptected = {
+    expected = {
         "question_generation": {
             "questions": [
                 "This is a 1234567890 secret @@@@@@@@@",
@@ -343,59 +292,20 @@ def test_evaluate_templated_secret(test_role: Role):
             },
         ],
     }
+    secret_ctx = {
+        ExprContext.SECRETS: {
+            "my_secret": {"TEST_API_KEY_1": "1234567890", "NOISE_1": "asdfasdf"},
+            "other_secret": {"test_api_key_2": "@@@@@@@@@", "NOISE_2": "aaaaaaaaaaaaa"},
+        }
+    }
 
-    base_secrets_url = f"{config.TRACECAT__API_URL}/secrets"
-
-    def format_secrets_as_json(secrets: list[SecretRead]) -> dict[str, str]:
-        """Format secrets as a dict."""
-        secret_dict = {}
-        for secret in secrets:
-            secret_dict[secret.name] = {
-                kv.key: kv.value.get_secret_value()
-                for kv in decrypt_keyvalues(
-                    secret.encrypted_keys, key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
-                )
-            }
-        return secret_dict
-
-    def get_secret(secret_name: str) -> SecretRead:
-        with httpx.Client(base_url=config.TRACECAT__API_URL) as client:
-            response = client.get(f"/secrets/{secret_name}")
-            response.raise_for_status()
-        return SecretRead.model_validate(response.json())
-
-    with respx.mock:
-        # Mock workflow getter from API side
-        for secret_name, secret_keys in TEST_SECRETS.items():
-            secret = Secret(
-                id=uuid.uuid4(),
-                name=secret_name,
-                workspace_id=uuid.uuid4(),
-                # Explicitly set the concrete secret type so enums can be resolved during serialization.
-                type=SecretType.CUSTOM.value,
-                # Ensure the environment matches the default API environment to mimic production payloads.
-                environment=DEFAULT_SECRETS_ENVIRONMENT,
-                encrypted_keys=encrypt_keyvalues(
-                    secret_keys, key=os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
-                ),
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
-                tags=None,
-            )
-            secret_payload = SecretRead.from_database(secret).model_dump(mode="json")
-
-            # Mock hitting get secrets endpoint
-            respx.get(f"{base_secrets_url}/{secret_name}").mock(
-                return_value=Response(200, json=secret_payload)
-            )
-
-        # Start test
-        secret_paths = extract_templated_secrets(mock_templated_kwargs)
-        secret_names = [path.split(".")[0] for path in secret_paths]
-        secrets = [get_secret(secret_name) for secret_name in secret_names]
-        secret_ctx = {ExprContext.SECRETS: format_secrets_as_json(secrets)}
-        actual = eval_templated_object(obj=mock_templated_kwargs, operand=secret_ctx)
-    assert actual == exptected
+    assert sorted(extract_templated_secrets(mock_templated_kwargs)) == [
+        "my_secret.NOISE_1",
+        "my_secret.TEST_API_KEY_1",
+        "other_secret.test_api_key_2",
+    ]
+    actual = eval_templated_object(obj=mock_templated_kwargs, operand=secret_ctx)
+    assert actual == expected
 
 
 def test_eval_templated_object():
@@ -1644,64 +1554,67 @@ def test_validate_template_action_key_expressions(expr, expected):
         assert_validation_result(actual, **ex)
 
 
-def test_multiple_secrets_in_single_template():
-    expr = "${{ FN.concat(SECRETS.a.K1, '-', SECRETS.a.K2, '-', SECRETS.b.K3) }}"
-    got = sorted(extract_templated_secrets(expr))
-    assert got == sorted(["a.K1", "a.K2", "b.K3"])
-
-
-def test_trims_whitespace_and_newlines_inside_template():
-    expr = "${{  FN.to_base64(  SECRETS.a.K1  +\n  '-'  +  SECRETS.b.K2  )  }}"
-    got = sorted(extract_templated_secrets(expr))
-    assert got == sorted(["a.K1", "b.K2"])
-
-
-def test_multiple_templates_in_one_string():
-    s = "before ${{ SECRETS.a.K1 }} mid ${{ FN.upper(SECRETS.b.K2) }} after"
-    got = sorted(extract_templated_secrets(s))
-    assert got == sorted(["a.K1", "b.K2"])
-
-
-def test_detection_in_dict_keys_and_values():
-    obj = {
-        "${{ FN.lower(SECRETS.a.K1) }}": "${{ SECRETS.b.K2 }}",
-        "k2": "${{ FN.len(SECRETS.c.K3) }}",
-    }
-    got = sorted(extract_templated_secrets(obj))
-    assert got == sorted(["a.K1", "b.K2", "c.K3"])
-
-
-def test_underscore_and_case_in_identifiers():
-    expr = "${{ FN.f(SECRETS.alpha_beta.GAMMA_DELTA + SECRETS.xYz.A_b1) }}"
-    got = sorted(extract_templated_secrets(expr))
-    assert got == sorted(["alpha_beta.GAMMA_DELTA", "xYz.A_b1"])
-
-
-def test_duplicates_are_deduped():
-    expr = "${{ SECRETS.a.K1 + SECRETS.a.K1 + FN.id(SECRETS.a.K1) + SECRETS.b.K2 }}"
-    got = sorted(extract_templated_secrets(expr))
-    assert got == sorted(["a.K1", "b.K2"])  # no duplicates
-
-
-def test_ignores_non_template_mentions():
-    s = "SECRETS.a.K1 not inside template; and ${{ 'SECRETS.a.K1' }} as string"
-    got = extract_templated_secrets(s)
-    assert got == []
-
-
-def test_mixed_nested_object():
-    mixed_args_obj = {
-        "config": {
-            "auth": "${{ SECRETS.alpha.KEY }}",
-            "nested": {"value": "${{ FN.concat(SECRETS.beta.SECRET, '-suffix') }}"},
-        },
-        "items": [
-            "${{ SECRETS.gamma.TOKEN }}",
-            {"inner": "${{ SECRETS.alpha.KEY }}"},  # duplicate should be deduped
-        ],
-    }
-    got = sorted(extract_templated_secrets(mixed_args_obj))
-    assert got == sorted(["alpha.KEY", "beta.SECRET", "gamma.TOKEN"])
+@pytest.mark.parametrize(
+    ("obj", "expected"),
+    [
+        pytest.param(
+            "${{ FN.concat(SECRETS.a.K1, '-', SECRETS.a.K2, '-', SECRETS.b.K3) }}",
+            ["a.K1", "a.K2", "b.K3"],
+            id="multiple_secrets_in_single_template",
+        ),
+        pytest.param(
+            "${{  FN.to_base64(  SECRETS.a.K1  +\n  '-'  +  SECRETS.b.K2  )  }}",
+            ["a.K1", "b.K2"],
+            id="trims_whitespace_and_newlines_inside_template",
+        ),
+        pytest.param(
+            "before ${{ SECRETS.a.K1 }} mid ${{ FN.upper(SECRETS.b.K2) }} after",
+            ["a.K1", "b.K2"],
+            id="multiple_templates_in_one_string",
+        ),
+        pytest.param(
+            {
+                "${{ FN.lower(SECRETS.a.K1) }}": "${{ SECRETS.b.K2 }}",
+                "k2": "${{ FN.len(SECRETS.c.K3) }}",
+            },
+            ["a.K1", "b.K2", "c.K3"],
+            id="detection_in_dict_keys_and_values",
+        ),
+        pytest.param(
+            "${{ FN.f(SECRETS.alpha_beta.GAMMA_DELTA + SECRETS.xYz.A_b1) }}",
+            ["alpha_beta.GAMMA_DELTA", "xYz.A_b1"],
+            id="underscore_and_case_in_identifiers",
+        ),
+        pytest.param(
+            "${{ SECRETS.a.K1 + SECRETS.a.K1 + FN.id(SECRETS.a.K1) + SECRETS.b.K2 }}",
+            ["a.K1", "b.K2"],
+            id="duplicates_are_deduped",
+        ),
+        pytest.param(
+            "SECRETS.a.K1 not inside template; and ${{ 'SECRETS.a.K1' }} as string",
+            [],
+            id="ignores_non_template_mentions",
+        ),
+        pytest.param(
+            {
+                "config": {
+                    "auth": "${{ SECRETS.alpha.KEY }}",
+                    "nested": {
+                        "value": "${{ FN.concat(SECRETS.beta.SECRET, '-suffix') }}"
+                    },
+                },
+                "items": [
+                    "${{ SECRETS.gamma.TOKEN }}",
+                    {"inner": "${{ SECRETS.alpha.KEY }}"},
+                ],
+            },
+            ["alpha.KEY", "beta.SECRET", "gamma.TOKEN"],
+            id="mixed_nested_object_dedupes",
+        ),
+    ],
+)
+def test_extract_templated_secrets(obj: Any, expected: list[str]) -> None:
+    assert sorted(extract_templated_secrets(obj)) == expected
 
 
 def test_collect_expressions_captures_vars_references():

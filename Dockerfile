@@ -35,7 +35,7 @@ RUN g++ -std=c++20 -O2 -Wall -Wextra -Werror -Wformat=2 \
 # ====================
 # Stage 2: Create minimal sandbox rootfs
 # ====================
-FROM node:22.13.1-slim AS node-bin
+FROM node:22.23.4-slim AS node-bin
 FROM python:3.12-slim-bookworm AS sandbox-rootfs
 
 ARG TARGETARCH
@@ -101,8 +101,8 @@ RUN set -eu; \
     duckdb --version; \
     test "$(duckdb -csv -noheader -c "SELECT count(*) FROM duckdb_extensions() WHERE extension_name IN ('json', 'httpfs', 'inet', 'fts') AND installed AND loaded;")" = "4"
 
-COPY --from=ghcr.io/astral-sh/uv:0.9.15 /uv /usr/local/bin/uv
-COPY --from=ghcr.io/astral-sh/uv:0.9.15 /uvx /usr/local/bin/uvx
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uvx /usr/local/bin/uvx
 COPY --from=node-bin /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-bin /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
@@ -117,7 +117,8 @@ ENV HOME=/tmp PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 # ====================
 # Stage 3: Shared base with runtime dependencies
 # ====================
-FROM ghcr.io/astral-sh/uv:0.9.15-python3.12-bookworm-slim AS base
+FROM python:3.12-slim-bookworm AS base
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /uvx /usr/local/bin/
 
 ENV HOST=0.0.0.0 PORT=8000
 
@@ -219,8 +220,8 @@ WORKDIR /app
 # ====================
 FROM base AS plugin-skills
 
-ARG TRACECAT_PLUGINS_REF=a41bbdbb4ad3d5e5cf15eda8a6e3d8c3018393cd
-ARG TRACECAT_PLUGINS_ARCHIVE_SHA256=e3c67cc4ae2cf0319fe4455b507d0500999600de4f52d93c7c673d9b00a2096f
+ARG TRACECAT_PLUGINS_REF=9fdaa69a4519f2a6e26f4a2ee9ca7fb000f0ac6e
+ARG TRACECAT_PLUGINS_ARCHIVE_SHA256=8e2d1eebb507e5193a2eca9a1b78a699806ff0263d3165c818a5f02903eb8584
 
 # Pinned to a tracecat-plugins commit on main. Bump both values when the
 # vendored skills change so the trusted payload is verified before extraction.

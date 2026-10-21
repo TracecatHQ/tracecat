@@ -5,18 +5,11 @@ import {
   type ChatStatus,
   getToolName,
   isToolUIPart,
-  type ToolUIPart,
-  type UIDataTypes,
   type UIMessage,
-  type UIMessagePart,
-  type UITools,
 } from "ai"
 import {
-  CheckIcon,
-  ChevronRightIcon,
   Loader2,
   MousePointerClickIcon,
-  PencilIcon,
   RefreshCcwIcon,
   XIcon,
 } from "lucide-react"
@@ -24,9 +17,9 @@ import { motion } from "motion/react"
 import {
   type ChangeEvent,
   type FocusEvent,
-  memo,
   type ReactNode,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -55,11 +48,6 @@ import {
   PromptInputTextarea,
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input"
-import {
-  Reasoning,
-  ReasoningContent,
-  ReasoningTrigger,
-} from "@/components/ai-elements/reasoning"
 import { Response } from "@/components/ai-elements/response"
 import {
   Source,
@@ -67,79 +55,90 @@ import {
   SourcesContent,
   SourcesTrigger,
 } from "@/components/ai-elements/sources"
+import { useScopeCheck } from "@/components/auth/scope-guard"
+import { AgentTurn, groupThread } from "@/components/chat/agent-turn"
 import {
-  getStatusBadge,
-  Tool,
-  ToolContent,
-  ToolHeader,
-  type ToolHeaderProps,
-  ToolInput,
-  ToolOutput,
-} from "@/components/ai-elements/tool"
+  AGENT_EXECUTE_REQUIRED_MESSAGE,
+  ApprovalComposerContext,
+  ApprovalRequestPart,
+  ApprovalsAlreadyDecidedError,
+} from "@/components/chat/approval-request-part"
 import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
 import { ChatToolsPicker } from "@/components/chat/chat-tools-picker"
-import { SmoothResponse } from "@/components/chat/smooth-response"
-import { CodeEditor } from "@/components/editor/codemirror/code-editor"
+import {
+  getRunningLineLabel,
+  isAwaitingOutput,
+  MessageParts,
+  RunningLine,
+} from "@/components/chat/message-part"
 import { getIcon, ProviderIcon } from "@/components/icons"
-import { JsonViewWithControls } from "@/components/json-viewer"
-import { Dots } from "@/components/loading/dots"
 import { MentionHint } from "@/components/mentions/mention-hint"
 import { MentionPopover } from "@/components/mentions/mention-popover"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
-import { Textarea } from "@/components/ui/textarea"
+import { Trace } from "@/components/ui/trace"
 import { toast } from "@/components/ui/use-toast"
 import {
   makeContinueMessage,
   parseChatError,
   useAdoptServerTranscript,
   useCancelChatTurn,
+  useGetChatVercel,
   useUpdateChat,
   useVercelChat,
 } from "@/hooks/use-chat"
+import {
+  ChatVerbosityContext,
+  getChatVerbosityPolicy,
+  useChatVerbosityPreference,
+} from "@/hooks/use-chat-verbosity"
+import { useFormsAccess } from "@/hooks/use-forms-access"
 import { useMentions } from "@/hooks/use-mentions"
 import { useOverflowBadges } from "@/hooks/use-overflow-badges"
-import {
-  SubagentStreamContext,
-  useSubagentTranscript,
-} from "@/hooks/use-subagent-stream"
+import { SubagentStreamContext } from "@/hooks/use-subagent-stream"
 import { isAgentToolSelectable } from "@/lib/agent-tools"
 import {
-  type ApprovalCard,
   CANCELLED_DATA_PART_TYPE,
+  collectCancelledTurns,
   ENTITY_TO_INVALIDATION,
-  getCancelledPartToolCallIds,
+  getPendingApprovalIds,
   getSessionLastError,
   isApprovalCardArray,
-  isInterruptArtifactError,
-  isToolApprovedDecision,
-  isToolDeniedDecision,
   type ModelInfo,
+  markLiveDenials,
   toUIMessage,
   transformMessages,
 } from "@/lib/chat"
 import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
 import { findAgentMention, type MentionRange } from "@/lib/mentions"
 import { useQueryClient } from "@/lib/query"
-import { getSubagentSessionId, SUBAGENT_TOOL_NAME } from "@/lib/subagent-stream"
 import { cn } from "@/lib/utils"
+import { PageContext } from "@/providers/chat-page-context"
 import type { ChatSurface } from "@/types/chat-surface"
 import { ARTIFACT_DATA_PART_TYPE } from "@/types/workspace-chat-artifacts"
 
-const AGENT_TOOL_NAMES = new Set(["Agent", "Task"])
-const AGENT_TOOL_TARGET_KEYS = ["subagent_type", "agent_type", "type", "name"]
-const AGENT_TOOL_NESTED_INPUT_KEYS = ["args", "input", "tool_input"]
+/** How often an idle pane checks whether a waiting approval was decided. */
+const APPROVAL_REFRESH_MS = 5_000
 
-const TOOL_ICON_PROPS = { className: "size-5 p-[3px]" } as const
-
-function messageHasVisibleParts(message: UIMessage): boolean {
+/** Whether a message draws anything in the thread. */
+function messageHasVisibleParts(message: Pick<UIMessage, "parts">): boolean {
   return message.parts.some((part) => part.type !== ARTIFACT_DATA_PART_TYPE)
+}
+
+/**
+ * Whether a message is a request the server can run as a turn: a user prompt
+ * with text, or an approval submission. Reloaded history can also hold
+ * user-role tool results, which are neither.
+ */
+function isTurnRequest({ role, parts }: UIMessage): boolean {
+  return (
+    role === "user" &&
+    parts.some(
+      (part) =>
+        (part.type === "text" && part.text.length > 0) ||
+        part.type === "data-continue"
+    )
+  )
 }
 
 /**
@@ -155,25 +154,6 @@ class SubmitAbandonedError extends Error {
     super(reason)
     this.name = "SubmitAbandonedError"
   }
-}
-
-/**
- * Whether a part counts as assistant content when attributing a cancelled
- * marker to the message the user stopped. Structural parts (step-start) and
- * data-* markers can share a message with the live-streamed cancelled marker,
- * and must not stop the marker from tagging the preceding content message
- * that holds the interrupted tool calls.
- */
-function isCancelAttributionContentPart(
-  part: UIMessage["parts"][number]
-): boolean {
-  if (part.type === "step-start" || part.type.startsWith("data-")) {
-    return false
-  }
-  if (part.type === "text" || part.type === "reasoning") {
-    return typeof part.text === "string" && part.text.trim().length > 0
-  }
-  return true
 }
 
 function matchingUserTextPartKeys(
@@ -242,6 +222,8 @@ export interface ChatSessionPaneProps {
   /** Called whenever the underlying chat transport status changes. */
   onStatusChange?: (status: ChatStatus) => void
   modelInfo?: ModelInfo
+  /** Shown in the message area until the conversation has content. */
+  emptyState?: ReactNode
   toolsEnabled?: boolean
   /** Whether `@` offers agent presets on this surface. */
   agentMentionsSupported?: boolean
@@ -289,6 +271,8 @@ export interface ChatSessionPaneProps {
   presetSelector?: ChatPresetSelector
   /** Selects the chat stream projection and surrounding UI surface. */
   surface?: ChatSurface
+  /** Center the thread and prompt in a readable column. Defaults to on for workspace chat. */
+  centered?: boolean
   /**
    * Reconnect to the live event stream on mount. Defaults to true. Set to
    * false for terminal sessions whose history is already loaded, to avoid
@@ -296,6 +280,8 @@ export interface ChatSessionPaneProps {
    */
   resume?: boolean
 }
+
+export { AGENT_EXECUTE_REQUIRED_MESSAGE }
 
 export function ChatSessionPane({
   chat,
@@ -308,6 +294,7 @@ export function ChatSessionPane({
   onData,
   onStatusChange,
   modelInfo,
+  emptyState,
   toolsEnabled = true,
   agentMentionsSupported = false,
   mcpEnabled = false,
@@ -320,9 +307,12 @@ export function ChatSessionPane({
   inputDisabledPlaceholder,
   presetSelector,
   surface = "regular",
+  centered,
   resume = true,
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
+  const pageContext = useContext(PageContext)
+  const formsAccess = useFormsAccess()
   const promptInputContainerRef = useRef<HTMLDivElement>(null)
   const promptTextareaFocusedRef = useRef(false)
   const shouldRestoreInputFocusRef = useRef(false)
@@ -375,6 +365,9 @@ export function ChatSessionPane({
 
   // Read-only state includes ownership, backend availability, and entitlements.
   const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
+  // Sending, retrying and approving all run the agent. `undefined` means the
+  // scopes are still loading, which must not disable anything.
+  const cannotExecuteAgents = useScopeCheck("agent:execute") === false
   let readonlyDescription =
     chat && "user_id" in chat
       ? "This legacy conversation is read-only."
@@ -389,15 +382,26 @@ export function ChatSessionPane({
     [chat?.messages]
   )
   const isWorkspaceChat = surface === "workspace-chat"
-  const chatContentCenterClass = isWorkspaceChat
+  const isCentered = centered ?? isWorkspaceChat
+  const chatContentCenterClass = isCentered
     ? "mx-auto w-full max-w-[56rem]"
     : undefined
-  const promptCenterClass = isWorkspaceChat
+  const promptCenterClass = isCentered
     ? "relative mx-auto w-full max-w-[56rem]"
     : "relative"
-  const promptInputClassName = isWorkspaceChat
+  const promptInputClassName = isCentered
     ? "[&_[data-slot=input-group]]:rounded-2xl [&_[data-slot=input-group]]:border-muted-foreground/25 [&_[data-slot=input-group]]:shadow-none"
     : undefined
+  // A session opened to send its first message has no stream to resume, and a
+  // resume that finds none resets the send's status. Only that is frozen per
+  // chat; later resume changes still re-arm the reconnect.
+  const [openedToSend, setOpenedToSend] = useState(() => ({
+    chatId: chat?.id,
+    value: Boolean(pendingMessage),
+  }))
+  if (openedToSend.chatId !== chat?.id) {
+    setOpenedToSend({ chatId: chat?.id, value: Boolean(pendingMessage) })
+  }
   const {
     sendMessage,
     messages,
@@ -413,8 +417,11 @@ export function ChatSessionPane({
     messages: uiMessages,
     modelInfo,
     onData,
-    resume,
+    pageContext,
+    resume: resume && !openedToSend.value,
   })
+  const [verbosity] = useChatVerbosityPreference()
+  const verbosityPolicy = getChatVerbosityPolicy(verbosity)
   const subagentStreamContext = useMemo(
     () =>
       subagentStore ? { store: subagentStore, workspaceId, status } : null,
@@ -442,6 +449,20 @@ export function ChatSessionPane({
     serverMessages: uiMessages,
     liveMessages: messages,
     setMessages,
+  })
+
+  // Another tab or the Inbox can decide an approval this pane shows as
+  // waiting. Poll the session while one waits and the pane is idle, so the
+  // decision replaces the stale card through the adoption above.
+  const awaitingApproval = useMemo(
+    () => status === "ready" && getPendingApprovalIds(messages).size > 0,
+    [status, messages]
+  )
+  useGetChatVercel({
+    chatId: chat?.id,
+    workspaceId,
+    enabled: awaitingApproval,
+    refetchInterval: awaitingApproval ? APPROVAL_REFRESH_MS : false,
   })
 
   useEffect(() => {
@@ -472,7 +493,8 @@ export function ChatSessionPane({
 
   // Send pending message on mount (used after forking)
   useEffect(() => {
-    if (!pendingMessage || isReadonly || !chat || !modelInfo) return
+    if (!pendingMessage || isReadonly || cannotExecuteAgents) return
+    if (!chat || !modelInfo) return
 
     const messageKey = `${chat.id}:${pendingMessage}`
     if (pendingMessageSentRef.current === messageKey) return
@@ -484,6 +506,7 @@ export function ChatSessionPane({
   }, [
     pendingMessage,
     isReadonly,
+    cannotExecuteAgents,
     chat,
     modelInfo,
     clearError,
@@ -494,30 +517,29 @@ export function ChatSessionPane({
   // Allow input when ready OR in error state (so user can retry after transient failures)
   const canSubmit = status === "ready" || status === "error"
 
-  const isWaitingForResponse = useMemo(() => {
-    if (status === "submitted") return true
-    if (status === "streaming") {
-      const lastMessage = messages[messages.length - 1]
-      if (!lastMessage || lastMessage.role !== "assistant") return true
-
-      const lastPart = lastMessage.parts[lastMessage.parts.length - 1]
-      if (!lastPart) return true
-
-      const isStreamingVisual =
-        (lastPart.type === "text" && lastPart.text.length > 0) ||
-        (lastPart.type === "reasoning" && lastPart.text.length > 0) ||
-        (isToolUIPart(lastPart) && lastPart.state === "input-streaming")
-
-      if (lastPart.type === "data-approval-request") return false
-
-      return !isStreamingVisual
-    }
-    return false
-  }, [status, messages])
-
+  const isWaitingForResponse = useMemo(
+    () => isAwaitingOutput(status, messages),
+    [status, messages]
+  )
   const isOptimisticBeforeSendPending = optimisticMessageText !== null
   const isInputDisabled =
-    isReadonly || inputDisabled || isOptimisticBeforeSendPending || !canSubmit
+    isReadonly ||
+    cannotExecuteAgents ||
+    inputDisabled ||
+    isOptimisticBeforeSendPending ||
+    !canSubmit
+
+  let composerPlaceholder = placeholder
+  if (isReadonly) {
+    composerPlaceholder = readonlyDescription
+  } else if (cannotExecuteAgents) {
+    composerPlaceholder = AGENT_EXECUTE_REQUIRED_MESSAGE
+  } else if (
+    (inputDisabled || isOptimisticBeforeSendPending) &&
+    inputDisabledPlaceholder
+  ) {
+    composerPlaceholder = inputDisabledPlaceholder
+  }
 
   const isGeneratingTurn = status === "submitted" || status === "streaming"
   const [cancelRequested, setCancelRequested] = useState(false)
@@ -527,7 +549,8 @@ export function ChatSessionPane({
   }, [isGeneratingTurn])
 
   const handleStop = useCallback(async () => {
-    if (!chat?.id || cancelRequested || isReadonly) return
+    if (!chat?.id || cancelRequested || isReadonly || cannotExecuteAgents)
+      return
     setCancelRequested(true)
     try {
       await cancelChatTurn({ chatId: chat.id })
@@ -538,7 +561,13 @@ export function ChatSessionPane({
         description: parseChatError(error),
       })
     }
-  }, [cancelChatTurn, cancelRequested, chat?.id, isReadonly])
+  }, [
+    cancelChatTurn,
+    cancelRequested,
+    chat?.id,
+    isReadonly,
+    cannotExecuteAgents,
+  ])
   const isInputDisabledRef = useRef(isInputDisabled)
   isInputDisabledRef.current = isInputDisabled
   /** Guards `handleSubmit` against re-entry while it awaits a preset write. */
@@ -600,12 +629,55 @@ export function ChatSessionPane({
     }
   }, [isInputDisabled])
 
+  /**
+   * Approval IDs the session still waits on, read fresh from the server, or
+   * null when it cannot be read. A waiting approval's card is always in the
+   * session's history, so a missing card means it was decided.
+   */
+  const fetchPendingApprovalIds = useCallback(async () => {
+    if (!chat?.id) return null
+    const queryKey = ["chat", chat.id, workspaceId, "vercel"]
+    try {
+      await queryClient.refetchQueries(
+        { queryKey, exact: true },
+        { throwOnError: true }
+      )
+    } catch {
+      return null
+    }
+    const fresh = queryClient.getQueryData<
+      AgentSessionReadVercel | ChatReadVercel
+    >(queryKey)
+    return fresh
+      ? getPendingApprovalIds((fresh.messages ?? []).map(toUIMessage))
+      : null
+  }, [chat?.id, queryClient, workspaceId])
+
+  const [sentDecisions, setSentDecisions] = useState<ApprovalDecision[]>([])
   const handleSubmitApprovals = useCallback(
-    async (decisionPayload: ApprovalDecision[]) => {
-      if (isReadonly || !decisionPayload.length) return
+    async (decisionPayload: ApprovalDecision[]): Promise<string[]> => {
+      if (isReadonly || !decisionPayload.length) return []
+      // Another tab or the Inbox may have decided these since this pane last
+      // refreshed, so submit only the decisions the session still waits on.
+      const pendingIds = await fetchPendingApprovalIds()
+      const decisions = pendingIds
+        ? decisionPayload.filter(({ tool_call_id }) =>
+            pendingIds.has(tool_call_id)
+          )
+        : decisionPayload
+      if (decisions.length === 0) {
+        toast({
+          title: "Already decided",
+          description:
+            "This approval was decided elsewhere. The chat now shows the outcome.",
+        })
+        throw new ApprovalsAlreadyDecidedError()
+      }
       try {
         clearError()
-        await sendMessage(makeContinueMessage(decisionPayload))
+        await sendMessage(makeContinueMessage(decisions))
+        setSentDecisions((prev) => [...prev, ...decisions])
+        return decisions.map(({ tool_call_id }) => tool_call_id)
       } catch (error) {
         console.error("Failed to submit approvals", error)
         toast({
@@ -617,7 +689,30 @@ export function ChatSessionPane({
         throw error
       }
     },
-    [clearError, isReadonly, sendMessage]
+    [clearError, fetchPendingApprovalIds, isReadonly, sendMessage]
+  )
+
+  const [sentApprovalIds, setSentApprovalIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  )
+  const [deniedApprovalIds, setDeniedApprovalIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set())
+  const handleSubmitComposerApprovals = useCallback(
+    async (decisionPayload: ApprovalDecision[]): Promise<string[]> => {
+      const sentIds = await handleSubmitApprovals(decisionPayload)
+      const sent = new Set(sentIds)
+      const deniedIds = decisionPayload
+        .filter(
+          ({ action, tool_call_id }) =>
+            action === "deny" && sent.has(tool_call_id)
+        )
+        .map(({ tool_call_id }) => tool_call_id)
+      setSentApprovalIds((prev) => new Set([...prev, ...sentIds]))
+      setDeniedApprovalIds((prev) => new Set([...prev, ...deniedIds]))
+      return sentIds
+    },
+    [handleSubmitApprovals]
   )
 
   useEffect(() => {
@@ -712,7 +807,11 @@ export function ChatSessionPane({
 
   const commitSelectedTools = useCallback(
     (next: string[]) => {
-      if (areToolListsEqual(selectedToolsRef.current, next)) {
+      // Changing a session's tools is a session update that needs agent:execute.
+      if (
+        cannotExecuteAgents ||
+        areToolListsEqual(selectedToolsRef.current, next)
+      ) {
         return
       }
 
@@ -727,7 +826,7 @@ export function ChatSessionPane({
       pendingPersistedToolsRef.current = next
       void queuePersistTools(next)
     },
-    [chat, isReadonly, queuePersistTools]
+    [cannotExecuteAgents, chat, isReadonly, queuePersistTools]
   )
 
   const persistMcpChainRef = useRef<Promise<void>>(Promise.resolve())
@@ -901,50 +1000,81 @@ export function ChatSessionPane({
   )
 
   const transformedMessages = useMemo(
-    () => transformMessages(messages),
+    () => transformMessages(markLiveDenials(messages, sentDecisions)),
+    [messages, sentDecisions]
+  )
+
+  // Reads the merged thread so a continuation folded into an earlier card
+  // still keeps its working line.
+  const runningLineLabel = useMemo(
+    () => getRunningLineLabel(status, transformedMessages, verbosityPolicy),
+    [status, transformedMessages, verbosityPolicy]
+  )
+  const threadBlocks = useMemo(
+    () => groupThread(transformedMessages),
+    [transformedMessages]
+  )
+  // The latest turn's undecided calls, answered from the prompt box.
+  const composerApprovals = useMemo(() => {
+    const lastBlock = threadBlocks.at(-1)
+    if (isReadonly || lastBlock?.kind !== "turn") return []
+    return lastBlock.messages
+      .flatMap((message) => message.parts)
+      .flatMap((part) =>
+        part.type === "data-approval-request" && isApprovalCardArray(part.data)
+          ? part.data
+          : []
+      )
+      .filter(
+        (approval) =>
+          (!approval.status || approval.status === "pending") &&
+          !sentApprovalIds.has(approval.tool_call_id)
+      )
+  }, [isReadonly, sentApprovalIds, threadBlocks])
+  const approvalComposerContext = useMemo(
+    () =>
+      isReadonly
+        ? null
+        : {
+            composerIds: new Set(
+              composerApprovals.map(({ tool_call_id }) => tool_call_id)
+            ),
+            sentIds: sentApprovalIds,
+            deniedIds: deniedApprovalIds,
+          },
+    [composerApprovals, deniedApprovalIds, isReadonly, sentApprovalIds]
+  )
+  const lastMessageId = messages.at(-1)?.id
+
+  // Response actions go on the latest message on screen when it is the
+  // assistant's. That need not be the transcript's last message: a
+  // continuation whose results render in the cards that opened them shows
+  // nothing of its own.
+  const latestResponseIndex = useMemo(() => {
+    for (let index = transformedMessages.length - 1; index >= 0; index--) {
+      const { role, parts } = transformedMessages[index]
+      if (parts.some(isShownPart)) {
+        return role === "assistant" ? index : -1
+      }
+    }
+    return -1
+  }, [transformedMessages])
+
+  // Retry resends the request that started the latest turn, whichever message
+  // shows the action: the user's prompt, or the approval submission whose
+  // continuation failed. Regenerating from a later record would submit the
+  // record before it instead, and reloaded history splits one turn into
+  // several assistant records, some with only tool calls, followed by system
+  // records such as a compaction boundary.
+  const retryMessageId = useMemo(
+    () => messages.findLast(isTurnRequest)?.id,
     [messages]
   )
 
-  // Messages whose turn the user stopped, plus the tool calls those
-  // interrupts aborted. The live stream appends the data-cancelled part to
-  // the assistant message itself, while reloaded history renders the
-  // persisted marker as a standalone system message that follows the
-  // assistant content — cover both so interrupted tool calls in the
-  // preceding message render accurately. The marker's `tool_call_ids`
-  // payload is the structured signal recorded by the backend at interrupt
-  // time; tool call IDs are globally unique, so one session-wide set works.
-  const { cancelledTurnMessageIds, interruptedToolCallIds } = useMemo(() => {
-    const ids = new Set<string>()
-    const toolCallIds = new Set<string>()
-    let lastContentMessageId: string | null = null
-    for (const message of transformedMessages) {
-      const parts = message.parts ?? []
-      let hasCancelledPart = false
-      let hasContentParts = false
-      for (const part of parts) {
-        if (part.type === CANCELLED_DATA_PART_TYPE) {
-          hasCancelledPart = true
-          for (const toolCallId of getCancelledPartToolCallIds(
-            (part as { data?: unknown }).data
-          )) {
-            toolCallIds.add(toolCallId)
-          }
-        } else if (isCancelAttributionContentPart(part)) {
-          hasContentParts = true
-        }
-      }
-      if (hasCancelledPart) {
-        ids.add(message.id)
-        if (!hasContentParts && lastContentMessageId) {
-          ids.add(lastContentMessageId)
-        }
-      }
-      if (hasContentParts) {
-        lastContentMessageId = message.id
-      }
-    }
-    return { cancelledTurnMessageIds: ids, interruptedToolCallIds: toolCallIds }
-  }, [transformedMessages])
+  const { cancelledTurnMessageIds, interruptedToolCallIds } = useMemo(
+    () => collectCancelledTurns(transformedMessages),
+    [transformedMessages]
+  )
 
   const invalidateEntityQueries = useCallback(
     (toolNames: string[]) => {
@@ -1158,7 +1288,7 @@ export function ChatSessionPane({
       ? presetSelector.label
       : null
 
-  const promptComposer = (
+  const promptBox = (
     <div ref={promptInputContainerRef} className={promptCenterClass}>
       {isReadonly ? (
         <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
@@ -1192,6 +1322,7 @@ export function ChatSessionPane({
                 removeDisabled={
                   isUpdatingTools ||
                   isReadonly ||
+                  cannotExecuteAgents ||
                   inputDisabled ||
                   !toolsEnabled
                 }
@@ -1209,14 +1340,7 @@ export function ChatSessionPane({
               onFocus={handleInputFocus}
               onBlur={handleInputBlur}
               onSelect={mentions.handleSelectionChange}
-              placeholder={
-                isReadonly
-                  ? readonlyDescription
-                  : (inputDisabled || isOptimisticBeforeSendPending) &&
-                      inputDisabledPlaceholder
-                    ? inputDisabledPlaceholder
-                    : placeholder
-              }
+              placeholder={composerPlaceholder}
               value={input}
               autoFocus={autoFocusInput && !isReadonly && !inputDisabled}
               disabled={isInputDisabled}
@@ -1233,8 +1357,11 @@ export function ChatSessionPane({
                   selectedMcpIntegrations={selectedMcpIntegrations}
                   onMcpChange={commitSelectedMcpIntegrations}
                   mcpEnabled={sessionMcpEnabled}
-                  disabled={inputDisabled || isUpdatingTools}
+                  disabled={
+                    inputDisabled || isUpdatingTools || cannotExecuteAgents
+                  }
                   surface={surface}
+                  formsEnabled={formsAccess === "enabled"}
                   mcpIntegrationsHref={`/workspaces/${workspaceId}/mcp-servers`}
                 />
               )}
@@ -1248,7 +1375,10 @@ export function ChatSessionPane({
                   label={activePresetLabel}
                   showSpinner={presetSelector?.showSpinner}
                   disabled={
-                    presetSelector?.disabled || inputDisabled || !canSubmit
+                    presetSelector?.disabled ||
+                    inputDisabled ||
+                    cannotExecuteAgents ||
+                    !canSubmit
                   }
                   onClear={() => void presetSelector?.onSelect(null)}
                 />
@@ -1262,6 +1392,7 @@ export function ChatSessionPane({
               <PromptInputSubmit
                 disabled={
                   isReadonly ||
+                  cannotExecuteAgents ||
                   (isGeneratingTurn
                     ? isCancellingChatTurn || cancelRequested
                     : isInputDisabled || !input.trim())
@@ -1277,13 +1408,26 @@ export function ChatSessionPane({
     </div>
   )
 
-  const showEmptyHero =
-    isWorkspaceChat &&
-    !isReadonly &&
+  const promptComposer =
+    composerApprovals.length > 0 && !isGeneratingTurn ? (
+      <div ref={promptInputContainerRef} className={promptCenterClass}>
+        <ApprovalRequestPart
+          key={composerApprovals.map((a) => a.tool_call_id).join(":")}
+          variant="composer"
+          approvals={composerApprovals}
+          onSubmit={handleSubmitComposerApprovals}
+        />
+      </div>
+    ) : (
+      promptBox
+    )
+
+  const isEmptyConversation =
     !displayedError &&
     !optimisticMessageText &&
     !isWaitingForResponse &&
     !transformedMessages.some(messageHasVisibleParts)
+  const showEmptyHero = isWorkspaceChat && !isReadonly && isEmptyConversation
 
   if (showEmptyHero) {
     return (
@@ -1316,91 +1460,95 @@ export function ChatSessionPane({
               {optimisticMessageText ? (
                 <OptimisticPendingMessage text={optimisticMessageText} />
               ) : null}
-              {transformedMessages.map(({ id, role, parts }) => {
-                const visibleParts = parts?.filter(
-                  (part) => part.type !== ARTIFACT_DATA_PART_TYPE
-                )
-                if (!visibleParts?.length) {
-                  return null
+              {emptyState && isEmptyConversation ? (
+                <div className="flex min-h-[50vh] items-center justify-center">
+                  {emptyState}
+                </div>
+              ) : null}
+              {threadBlocks.map((block, blockIndex) => {
+                if (block.kind === "prompt") {
+                  const { message } = block
+                  if (!messageHasVisibleParts(message)) {
+                    return null
+                  }
+                  return (
+                    <div key={message.id} className="group relative">
+                      <MessageParts
+                        message={message}
+                        status={status}
+                        isLastMessage={message.id === lastMessageId}
+                        turnCancelled={cancelledTurnMessageIds.has(message.id)}
+                        interruptedToolCallIds={interruptedToolCallIds}
+                      />
+                    </div>
+                  )
                 }
-
-                // Track whether this message is the latest entry so we can keep its actions visible.
-                const isLastMessage = id === messages[messages.length - 1].id
-                const sourceUrlParts = visibleParts.filter(
-                  (part) => part.type === "source-url"
+                // Keep the latest response's actions visible.
+                const holdsLatestResponse =
+                  latestResponseIndex >= block.startIndex &&
+                  latestResponseIndex <= block.endIndex
+                const sourceUrlParts = block.messages.flatMap((message) =>
+                  message.parts.filter((part) => part.type === "source-url")
                 )
                 return (
-                  <div key={id} className="group relative">
-                    {role === "assistant" && sourceUrlParts.length > 0 && (
-                      <Sources>
-                        <SourcesTrigger count={sourceUrlParts.length} />
-                        {sourceUrlParts.map((part, partIdx) => (
-                          <SourcesContent key={`${id}-${part.type}-${partIdx}`}>
-                            <Source
-                              href={"url" in part ? part.url : "#"}
-                              title={"url" in part ? part.url : "Source"}
-                            />
+                  <div
+                    key={`turn-${block.startIndex}`}
+                    className="group relative"
+                  >
+                    {verbosityPolicy.showSources &&
+                      sourceUrlParts.length > 0 && (
+                        <Sources className="py-1">
+                          <SourcesTrigger count={sourceUrlParts.length} />
+                          <SourcesContent>
+                            {sourceUrlParts.map((part) => (
+                              <Source
+                                key={part.sourceId}
+                                href={part.url}
+                                title={part.title ?? part.url}
+                              />
+                            ))}
                           </SourcesContent>
-                        ))}
-                      </Sources>
-                    )}
-
-                    {visibleParts.map((part, partIdx) => (
-                      <MemoizedMessagePart
-                        key={`${id}-${part.type}-${partIdx}`}
-                        part={part}
-                        partIdx={partIdx}
-                        id={id}
-                        role={role}
-                        status={status}
-                        isLastMessage={isLastMessage}
-                        turnCancelled={cancelledTurnMessageIds.has(id)}
-                        interruptedToolCallIds={interruptedToolCallIds}
-                        onSubmitApprovals={
-                          isReadonly ? undefined : handleSubmitApprovals
-                        }
-                      />
-                    ))}
-                    {role === "assistant" &&
+                        </Sources>
+                      )}
+                    <AgentTurn
+                      messages={block.messages}
+                      startedAt={block.startedAt}
+                      status={status}
+                      isLive={
+                        blockIndex === threadBlocks.length - 1 &&
+                        isGeneratingTurn
+                      }
+                      isSuperseded={blockIndex < threadBlocks.length - 1}
+                      lastMessageId={lastMessageId}
+                      cancelledMessageIds={cancelledTurnMessageIds}
+                      interruptedToolCallIds={interruptedToolCallIds}
+                      onSubmitApprovals={
+                        isReadonly ? undefined : handleSubmitApprovals
+                      }
+                    />
+                    {/* Retry starts a run, so it follows the composer's gate. */}
+                    {holdsLatestResponse &&
                       !isWaitingForResponse &&
-                      !isReadonly && (
-                        // Render response actions for assistant messages and reveal them on hover for older messages.
-                        <Actions
-                          className={cn(
-                            "mt-4",
-                            // Apply a smooth transition so the actions fade in and out gracefully.
-                            "transition-opacity duration-200 ease-out",
-                            // Hide actions by default for non-last messages and reveal them when the message group is hovered.
-                            !isLastMessage &&
-                              "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
-                          )}
-                        >
-                          {isLastMessage && (
-                            <Action
-                              size="sm"
-                              onClick={() => regenerate()}
-                              label="Retry"
-                              tooltip="Retry"
-                            >
-                              <RefreshCcwIcon className="size-3" />
-                            </Action>
-                          )}
+                      !isReadonly &&
+                      !cannotExecuteAgents &&
+                      !inputDisabled && (
+                        <Actions className="mt-4">
+                          <Action
+                            size="sm"
+                            onClick={() =>
+                              regenerate({ messageId: retryMessageId })
+                            }
+                            label="Retry"
+                            tooltip="Retry"
+                          >
+                            <RefreshCcwIcon className="size-3" />
+                          </Action>
                         </Actions>
                       )}
                   </div>
                 )
               })}
-              {isWaitingForResponse && (
-                <motion.div
-                  className="mt-5"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.3, ease: "easeInOut" }}
-                >
-                  <Dots />
-                </motion.div>
-              )}
+              {runningLineLabel && <ThinkingLine label={runningLineLabel} />}
             </ConversationContent>
             <ConversationScrollButton />
           </Conversation>
@@ -1416,9 +1564,13 @@ export function ChatSessionPane({
   )
 
   return (
-    <SubagentStreamContext.Provider value={subagentStreamContext}>
-      {conversationView}
-    </SubagentStreamContext.Provider>
+    <ChatVerbosityContext.Provider value={verbosity}>
+      <SubagentStreamContext.Provider value={subagentStreamContext}>
+        <ApprovalComposerContext.Provider value={approvalComposerContext}>
+          {conversationView}
+        </ApprovalComposerContext.Provider>
+      </SubagentStreamContext.Provider>
+    </ChatVerbosityContext.Provider>
   )
 }
 
@@ -1545,16 +1697,25 @@ function OptimisticPendingMessage({ text }: { text: string }) {
           <Response>{text}</Response>
         </MessageContent>
       </Message>
-      <motion.div
-        className="mt-5"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.3, ease: "easeInOut" }}
-      >
-        <Dots />
-      </motion.div>
+      <ThinkingLine label="Thinking..." />
     </>
+  )
+}
+
+/** The running line below the thread, faded in. */
+function ThinkingLine({ label }: { label: string }) {
+  return (
+    <motion.div
+      className="mt-5"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.3, ease: "easeInOut" }}
+    >
+      <Trace>
+        <RunningLine label={label} />
+      </Trace>
+    </motion.div>
   )
 }
 
@@ -1644,802 +1805,19 @@ function PromptModelIndicator({ modelInfo }: { modelInfo: ModelInfo }) {
   )
 }
 
-const EMPTY_INTERRUPTED_TOOL_CALL_IDS: ReadonlySet<string> = new Set()
-
-export function MessagePart({
-  part,
-  partIdx,
-  id,
-  role,
-  status,
-  isLastMessage,
-  turnCancelled = false,
-  interruptedToolCallIds = EMPTY_INTERRUPTED_TOOL_CALL_IDS,
-  onSubmitApprovals,
-}: {
-  part: UIMessagePart<UIDataTypes, UITools>
-  partIdx: number
-  id: string
-  role: UIMessage["role"]
-  status?: ChatStatus
-  isLastMessage: boolean
-  turnCancelled?: boolean
-  /**
-   * Tool call IDs the backend marked as aborted by a user interrupt
-   * (structured metadata from the data-cancelled part).
-   */
-  interruptedToolCallIds?: ReadonlySet<string>
-  onSubmitApprovals?: (decisions: ApprovalDecision[]) => Promise<void>
-}) {
-  if (part.type === CANCELLED_DATA_PART_TYPE) {
-    return (
-      <div key={`${id}-${partIdx}`} className="w-full py-2">
-        <span className="text-xs text-muted-foreground">Interrupted</span>
-        <div className="mt-2 border-t" />
-      </div>
-    )
-  }
-
-  if (part.type === "data-approval-request") {
-    const payload = (part as { data?: unknown }).data
-    const approvals = isApprovalCardArray(payload) ? payload : []
-    return (
-      <ApprovalRequestPart
-        key={`${id}-${partIdx}`}
-        approvals={approvals}
-        onSubmit={onSubmitApprovals}
-      />
-    )
-  }
-
-  if (part.type === "text") {
-    return (
-      <Message key={`${id}-${partIdx}`} from={role}>
-        <MessageContent variant="flat">
-          <SmoothResponse
-            text={part.text}
-            animate={status === "streaming" && isLastMessage}
-          />
-        </MessageContent>
-      </Message>
-    )
-  }
-
-  if (part.type === "reasoning") {
-    return (
-      <Reasoning
-        key={`${id}-${partIdx}`}
-        className="w-full"
-        defaultOpen={status === "streaming" && isLastMessage}
-        isStreaming={status === "streaming" && isLastMessage}
-      >
-        <ReasoningTrigger />
-        <ReasoningContent>{part.text}</ReasoningContent>
-      </Reasoning>
-    )
-  }
-
-  if (isToolUIPart(part)) {
-    const toolName = getToolName(part).replaceAll("__", ".")
-    const toolTitle = getToolTitle(toolName, part.input)
-    // Derive an error state for streaming when servers send
-    // a tool output that encodes validation feedback in `output`
-    // rather than `errorText`.
-    const partErrorText =
-      part.state === "output-error" ? part.errorText : undefined
-    const outputErrorText = asInputRecord(part.output)?.errorText
-    const derivedErrorText = partErrorText ?? outputErrorText
-    // In a turn the user stopped, tool calls that never completed (still
-    // pending) or that only "failed" because the SDK aborted them are
-    // interruptions, not tool errors — don't show a stale spinner or leak
-    // internal abort messages. The backend reports aborted calls as
-    // structured metadata (interruptedToolCallIds); the error-text substring
-    // check is a legacy fallback for histories persisted before that
-    // metadata existed.
-    const isPendingState =
-      part.state === "input-streaming" || part.state === "input-available"
-    // The structured ids are authoritative on their own: the backend records
-    // them at interrupt time, so they apply even when the cancelled marker
-    // landed in a different message than the tool calls it aborted. The
-    // state/error-text heuristics still require the turn-level flag.
-    const isInterrupted =
-      interruptedToolCallIds.has(part.toolCallId) ||
-      (turnCancelled &&
-        (isPendingState ||
-          (typeof derivedErrorText === "string" &&
-            isInterruptArtifactError(derivedErrorText))))
-    let derivedState: ToolHeaderProps["state"]
-    if (isInterrupted) {
-      derivedState = "output-interrupted"
-    } else if (derivedErrorText) {
-      derivedState = "output-error"
-    } else {
-      derivedState = part.state
-    }
-    if (toolName === SUBAGENT_TOOL_NAME) {
-      return (
-        <SubagentToolPart
-          key={`${id}-${partIdx}`}
-          part={part}
-          state={derivedState}
-          errorText={derivedErrorText}
-        />
-      )
-    }
-    return (
-      <Tool key={`${id}-${partIdx}`}>
-        <ToolHeader
-          title={toolTitle}
-          type={part.type}
-          state={derivedState}
-          icon={getIcon(toolName, TOOL_ICON_PROPS)}
-        />
-        <ToolContent>
-          <ToolInput input={part.input} />
-          {isInterrupted ? (
-            <div className="text-[11px] text-muted-foreground">
-              Stopped before completion
-            </div>
-          ) : (
-            <ToolOutput
-              output={part.output}
-              errorText={
-                typeof derivedErrorText === "string"
-                  ? derivedErrorText
-                  : undefined
-              }
-            />
-          )}
-        </ToolContent>
-      </Tool>
-    )
-  }
-
-  return null
-}
-
-function getNonEmptyString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null
-}
-
 /**
- * Card for a `subagent` tool call: the child's alias, its task, a status, and
- * the child session's transcript (live while streaming, persisted once done).
- * Read-only: child approvals and input are not handled here.
+ * Whether a part counts as response content when placing response actions.
+ * The cancelled marker and approval cards count. Other data parts don't: a
+ * compaction badge is a status line rather than a response, and the rest,
+ * such as an approval submission, render nothing.
  */
-function SubagentToolPart({
-  part,
-  state,
-  errorText,
-}: {
-  part: ToolUIPart
-  state: ToolHeaderProps["state"]
-  errorText?: unknown
-}) {
-  const input = asInputRecord(part.input)
-  const alias = getNonEmptyString(input?.alias) ?? "Subagent"
-  const task = getNonEmptyString(input?.task)
-  // Live failures wrap the child result in errorText; its output is the reason.
-  const errorMessage =
-    typeof errorText === "string"
-      ? errorText
-      : getNonEmptyString(asInputRecord(errorText)?.output)
-  // A preliminary output only links the child session; the child is running.
-  const isPreliminary =
-    part.state === "output-available" && part.preliminary === true
-  const cardState = isPreliminary ? "input-available" : state
-  const finished =
-    cardState !== "input-streaming" && cardState !== "input-available"
-
-  // Error outputs may drop the session id the preliminary output carried, so
-  // keep the last one seen for this card.
-  const outputSessionId =
-    getSubagentSessionId(part.output) ?? getSubagentSessionId(errorText)
-  const lastSessionIdRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (outputSessionId) {
-      lastSessionIdRef.current = outputSessionId
-    }
-  }, [outputSessionId])
-  const sessionId = outputSessionId ?? lastSessionIdRef.current
-
-  return (
-    <Tool defaultOpen>
-      <ToolHeader
-        title={alias}
-        type={part.type}
-        state={cardState}
-        icon={
-          <MousePointerClickIcon className="size-4 text-muted-foreground" />
-        }
-      />
-      <ToolContent>
-        {task ? (
-          <Collapsible>
-            <CollapsibleTrigger className="group/task flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground">
-              <ChevronRightIcon className="size-3 transition-transform group-data-[state=open]/task:rotate-90" />
-              Task
-            </CollapsibleTrigger>
-            <CollapsibleContent className="pt-1.5">
-              <p className="whitespace-pre-wrap text-xs text-muted-foreground">
-                {task}
-              </p>
-            </CollapsibleContent>
-          </Collapsible>
-        ) : null}
-        <SubagentTranscript sessionId={sessionId} finished={finished} />
-        {cardState === "output-interrupted" ? (
-          <div className="text-[11px] text-muted-foreground">
-            Stopped before completion
-          </div>
-        ) : null}
-        {cardState === "output-error" ? (
-          <ToolOutput
-            output={undefined}
-            errorText={errorMessage || "Subagent failed"}
-          />
-        ) : null}
-      </ToolContent>
-    </Tool>
-  )
-}
-
-function SubagentTranscript({
-  sessionId,
-  finished,
-}: {
-  sessionId: string | null
-  finished: boolean
-}) {
-  const {
-    messages,
-    isLive,
-    isLoading,
-    isError,
-    isRecoveryPaused,
-    retryRecovery,
-  } = useSubagentTranscript({ sessionId, finished })
-  const recoveryNotice = isRecoveryPaused ? (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-      <span>Transcript recovery paused.</span>
-      <Button
-        variant="link"
-        size="sm"
-        className="h-auto p-0 text-xs"
-        onClick={retryRecovery}
-        aria-label="Retry transcript loading"
-      >
-        Retry
-      </Button>
-    </div>
-  ) : null
-
-  if (messages.length === 0) {
-    if (isRecoveryPaused) return recoveryNotice
-    let placeholder = "Waiting for the agent to start..."
-    if (isError) {
-      placeholder = "Could not load transcript"
-    } else if (isLoading) {
-      placeholder = "Loading transcript..."
-    } else if (finished) {
-      placeholder = "No transcript available"
-    }
-    return <p className="text-xs text-muted-foreground">{placeholder}</p>
-  }
-
-  const status: ChatStatus | undefined =
-    isLive && !finished ? "streaming" : undefined
-  const lastMessageId = messages[messages.length - 1].id
-  return (
-    <div className="space-y-2 border-l pl-3">
-      {messages.map(({ id, role, parts }) => (
-        <div key={id}>
-          {parts
-            .filter((part) => part.type !== ARTIFACT_DATA_PART_TYPE)
-            .map((part, partIdx) => (
-              <MemoizedMessagePart
-                key={`${id}-${part.type}-${partIdx}`}
-                part={part}
-                partIdx={partIdx}
-                id={id}
-                role={role}
-                status={status}
-                isLastMessage={id === lastMessageId}
-              />
-            ))}
-        </div>
-      ))}
-      {recoveryNotice}
-    </div>
-  )
-}
-
-function getToolTitle(toolName: string, input: unknown): string {
-  if (!AGENT_TOOL_NAMES.has(toolName)) {
-    return toolName
-  }
-
-  const agentTarget = getAgentToolTarget(input)
-  return agentTarget ? `${toolName}: ${agentTarget}` : toolName
-}
-
-function getAgentToolTarget(input: unknown, depth = 0): string | null {
-  if (depth > 2) {
-    return null
-  }
-
-  const inputRecord = asInputRecord(input)
-  if (!inputRecord) {
-    return null
-  }
-
-  for (const key of AGENT_TOOL_TARGET_KEYS) {
-    const value = inputRecord[key]
-    if (typeof value === "string" && value.trim()) {
-      return value.trim()
-    }
-  }
-
-  for (const key of AGENT_TOOL_NESTED_INPUT_KEYS) {
-    const nestedTarget = getAgentToolTarget(inputRecord[key], depth + 1)
-    if (nestedTarget) {
-      return nestedTarget
-    }
-  }
-
-  return null
-}
-
-function asInputRecord(input: unknown): Record<string, unknown> | null {
-  if (typeof input === "string") {
-    const trimmed = input.trim()
-    if (!trimmed) {
-      return null
-    }
-    try {
-      const parsed: unknown = JSON.parse(trimmed)
-      return asInputRecord(parsed)
-    } catch {
-      return null
-    }
-  }
-
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return null
-  }
-
-  return input as Record<string, unknown>
-}
-
-const MemoizedMessagePart = memo(MessagePart, (prev, next) => {
-  if (
-    prev.partIdx !== next.partIdx ||
-    prev.id !== next.id ||
-    prev.role !== next.role ||
-    prev.status !== next.status ||
-    prev.isLastMessage !== next.isLastMessage ||
-    prev.turnCancelled !== next.turnCancelled ||
-    prev.interruptedToolCallIds !== next.interruptedToolCallIds ||
-    prev.onSubmitApprovals !== next.onSubmitApprovals
-  ) {
+function isShownPart(part: UIMessage["parts"][number]): boolean {
+  if (part.type === "step-start") {
     return false
   }
-
-  const prevPart = prev.part
-  const nextPart = next.part
-
-  if (prevPart.type !== nextPart.type) {
-    return false
-  }
-
-  if (prevPart.type === "text" || prevPart.type === "reasoning") {
-    return prevPart.text === (nextPart as typeof prevPart).text
-  }
-
-  if (isToolUIPart(prevPart) && isToolUIPart(nextPart)) {
-    return (
-      prevPart.toolCallId === nextPart.toolCallId &&
-      prevPart.state === nextPart.state &&
-      prevPart.input === nextPart.input &&
-      prevPart.output === nextPart.output &&
-      ("errorText" in prevPart
-        ? (prevPart as { errorText?: string }).errorText
-        : undefined) ===
-        ("errorText" in nextPart
-          ? (nextPart as { errorText?: string }).errorText
-          : undefined)
-    )
-  }
-
-  return prevPart === nextPart
-})
-MemoizedMessagePart.displayName = "MessagePart"
-
-type DecisionState = {
-  action: ApprovalDecision["action"] | undefined
-  reason?: string
-  overrideArgs?: string
-}
-
-function submittedDecisionFromApproval(
-  approval: ApprovalCard
-): DecisionState | undefined {
-  if (approval.status === "approved") {
-    if (
-      isToolApprovedDecision(approval.decision) &&
-      approval.decision.override_args !== undefined
-    ) {
-      return {
-        action: "override",
-        overrideArgs: formatArgs(approval.decision.override_args),
-      }
-    }
-    return { action: "approve" }
-  }
-
-  if (approval.status === "rejected") {
-    const reason =
-      approval.reason ??
-      (isToolDeniedDecision(approval.decision) &&
-      typeof approval.decision.message === "string"
-        ? approval.decision.message
-        : undefined)
-    return { action: "deny", reason }
-  }
-
-  return undefined
-}
-
-function approvalStateKey(approval: ApprovalCard): string {
-  return JSON.stringify({
-    id: approval.tool_call_id,
-    status: approval.status ?? "pending",
-    decision: approval.decision ?? null,
-    reason: approval.reason ?? null,
-  })
-}
-
-function ApprovalRequestPart({
-  approvals,
-  onSubmit,
-}: {
-  approvals: ApprovalCard[]
-  onSubmit?: (decisions: ApprovalDecision[]) => Promise<void>
-}) {
-  const [decisions, setDecisions] = useState<Record<string, DecisionState>>({})
-  const [submittedDecisions, setSubmittedDecisions] = useState<
-    Record<string, DecisionState>
-  >({})
-  const [submitting, setSubmitting] = useState(false)
-
-  const approvalsKey = useMemo(
-    () => approvals.map(approvalStateKey).join(":"),
-    [approvals]
-  )
-
-  useEffect(() => {
-    const nextSubmittedDecisions: Record<string, DecisionState> = {}
-    for (const approval of approvals) {
-      const submittedDecision = submittedDecisionFromApproval(approval)
-      if (submittedDecision) {
-        nextSubmittedDecisions[approval.tool_call_id] = submittedDecision
-      }
-    }
-    setDecisions({})
-    setSubmittedDecisions(nextSubmittedDecisions)
-  }, [approvalsKey])
-
-  const hasSelectedPendingDecision =
-    approvals.length > 0 &&
-    approvals.some((approval) => {
-      if (submittedDecisions[approval.tool_call_id]) {
-        return false
-      }
-      return Boolean(decisions[approval.tool_call_id]?.action)
-    })
-
-  const allApprovalsSubmitted =
-    approvals.length > 0 &&
-    approvals.every((approval) =>
-      Boolean(submittedDecisions[approval.tool_call_id])
-    )
-
-  const setDecision = useCallback(
-    (toolCallId: string, update: Partial<DecisionState>) => {
-      setDecisions((prev) => ({
-        ...prev,
-        [toolCallId]: {
-          ...prev[toolCallId],
-          ...update,
-        },
-      }))
-    },
-    []
-  )
-
-  const handleSubmit = useCallback(async () => {
-    if (!onSubmit || !hasSelectedPendingDecision) {
-      toast({
-        title: "Pending decisions",
-        description:
-          "Choose an action for at least one tool before continuing.",
-      })
-      return
-    }
-
-    const payload: ApprovalDecision[] = []
-    const acceptedDecisions: Record<string, DecisionState> = {}
-    for (const approval of approvals) {
-      if (submittedDecisions[approval.tool_call_id]) {
-        continue
-      }
-      const decision = decisions[approval.tool_call_id]
-      if (!decision?.action) {
-        continue
-      }
-      if (decision.action === "approve") {
-        payload.push({ tool_call_id: approval.tool_call_id, action: "approve" })
-        acceptedDecisions[approval.tool_call_id] = decision
-      } else if (decision.action === "override") {
-        try {
-          const parsed = decision.overrideArgs
-            ? JSON.parse(decision.overrideArgs)
-            : {}
-          payload.push({
-            tool_call_id: approval.tool_call_id,
-            action: "override",
-            override_args: parsed,
-          })
-          acceptedDecisions[approval.tool_call_id] = decision
-        } catch {
-          toast({
-            variant: "destructive",
-            title: "Invalid JSON",
-            description: `Fix override args for ${approval.tool_name} and try again.`,
-          })
-          return
-        }
-      } else if (decision.action === "deny") {
-        payload.push({
-          tool_call_id: approval.tool_call_id,
-          action: "deny",
-          reason: decision.reason ?? "",
-        })
-        acceptedDecisions[approval.tool_call_id] = decision
-      }
-    }
-
-    try {
-      setSubmitting(true)
-      await onSubmit(payload)
-      setSubmittedDecisions((prev) => ({
-        ...prev,
-        ...acceptedDecisions,
-      }))
-      setDecisions((prev) => {
-        const next = { ...prev }
-        for (const toolCallId of Object.keys(acceptedDecisions)) {
-          delete next[toolCallId]
-        }
-        return next
-      })
-    } catch (error) {
-      console.error(error)
-    } finally {
-      setSubmitting(false)
-    }
-  }, [
-    approvals,
-    decisions,
-    hasSelectedPendingDecision,
-    onSubmit,
-    submittedDecisions,
-  ])
-
-  const disabled = !onSubmit
-
-  if (!approvals.length) {
-    return null
-  }
-
   return (
-    <div className="space-y-4">
-      <div className="space-y-3">
-        {approvals.map((approval, index) => {
-          const actionId = approval.tool_name.replaceAll("__", ".")
-          const decision = decisions[approval.tool_call_id]
-          const submittedDecision = submittedDecisions[approval.tool_call_id]
-          const visibleDecision = submittedDecision ?? decision
-          const isSubmitted = Boolean(submittedDecision)
-          const initialOverrideArgs = formatArgs(approval.args)
-          const isLastApproval = index === approvals.length - 1
-          return (
-            <div
-              key={approval.tool_call_id}
-              data-testid={`approval-card-${approval.tool_call_id}`}
-              className={cn(
-                "space-y-3 rounded-md border border-border/60 bg-background p-3 transition-colors",
-                isSubmitted && "bg-muted/10",
-                !isSubmitted &&
-                  visibleDecision?.action !== undefined &&
-                  "border-foreground/20"
-              )}
-            >
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2.5">
-                    {getIcon(actionId, TOOL_ICON_PROPS)}
-                    <p className="min-w-0 truncate font-medium text-sm">
-                      {actionId}
-                    </p>
-                    {isSubmitted ? null : getStatusBadge("approval-requested")}
-                  </div>
-                </div>
-                <JsonViewWithControls
-                  src={approval.args}
-                  className="max-h-64"
-                  showControls={false}
-                  defaultExpanded
-                />
-                <div className="flex w-full flex-wrap justify-start gap-1 sm:w-auto [&>button]:h-6 [&>button]:rounded-lg">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={disabled || submitting || isSubmitted}
-                    onClick={() =>
-                      setDecision(approval.tool_call_id, {
-                        action: "approve",
-                        reason: undefined,
-                        overrideArgs: undefined,
-                      })
-                    }
-                    className={cn(
-                      visibleDecision?.action === "approve" &&
-                        "border-success/55 text-success hover:border-success/65 hover:bg-background hover:text-success disabled:opacity-100"
-                    )}
-                  >
-                    <CheckIcon className="mr-1 size-3" />
-                    Approve
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={disabled || submitting || isSubmitted}
-                    onClick={() =>
-                      setDecision(approval.tool_call_id, {
-                        action: "override",
-                        reason: undefined,
-                        overrideArgs:
-                          decision?.overrideArgs ?? initialOverrideArgs,
-                      })
-                    }
-                    className={cn(
-                      visibleDecision?.action === "override" &&
-                        "border-success/55 text-success hover:border-success/65 hover:bg-background hover:text-success disabled:opacity-100"
-                    )}
-                  >
-                    <PencilIcon className="mr-1 size-3" />
-                    Edit + approve
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={disabled || submitting || isSubmitted}
-                    onClick={() =>
-                      setDecision(approval.tool_call_id, {
-                        action: "deny",
-                        overrideArgs: undefined,
-                      })
-                    }
-                    className={cn(
-                      visibleDecision?.action === "deny" &&
-                        "border-destructive/55 text-destructive hover:border-destructive/65 hover:bg-background hover:text-destructive disabled:opacity-100"
-                    )}
-                  >
-                    <XIcon className="mr-1 size-3" />
-                    Deny
-                  </Button>
-                </div>
-              </div>
-              {visibleDecision?.action === "override" && (
-                <div
-                  data-testid={`approval-override-editor-${approval.tool_call_id}`}
-                >
-                  <CodeEditor
-                    value={visibleDecision.overrideArgs ?? initialOverrideArgs}
-                    language="json"
-                    readOnly={disabled || submitting || isSubmitted}
-                    onChange={(value) => {
-                      if (isSubmitted) {
-                        return
-                      }
-                      setDecision(approval.tool_call_id, {
-                        ...(decision ?? {}),
-                        action: "override",
-                        overrideArgs: value,
-                      })
-                    }}
-                    className={cn(
-                      "text-xs",
-                      "[&_.cm-editor]:!border [&_.cm-editor]:!border-input [&_.cm-editor]:!bg-background [&_.cm-editor]:rounded-md",
-                      "[&_.cm-scroller]:h-auto [&_.cm-scroller]:min-h-24 [&_.cm-scroller]:max-h-80 [&_.cm-scroller]:overflow-auto"
-                    )}
-                  />
-                </div>
-              )}
-              {visibleDecision?.action === "deny" && (
-                <Textarea
-                  className="text-xs"
-                  rows={3}
-                  value={visibleDecision.reason ?? ""}
-                  onChange={(event) =>
-                    setDecision(approval.tool_call_id, {
-                      ...(decision ?? {}),
-                      action: "deny",
-                      reason: event.target.value,
-                    })
-                  }
-                  placeholder="Share a short reason"
-                  disabled={disabled || submitting || isSubmitted}
-                />
-              )}
-              {isLastApproval && (
-                <div className="flex flex-wrap justify-end gap-2 pt-1">
-                  <Button
-                    type="button"
-                    variant={allApprovalsSubmitted ? "outline" : "default"}
-                    onClick={handleSubmit}
-                    disabled={
-                      disabled ||
-                      submitting ||
-                      allApprovalsSubmitted ||
-                      !hasSelectedPendingDecision
-                    }
-                    className={cn(
-                      "h-6 gap-1 px-2 text-xs",
-                      allApprovalsSubmitted &&
-                        "border-border bg-muted text-muted-foreground disabled:opacity-100"
-                    )}
-                  >
-                    {submitting ? (
-                      <Loader2 className="size-3 animate-spin" />
-                    ) : (
-                      <CheckIcon className="size-3" />
-                    )}
-                    {submitting && "Submitting..."}
-                    {!submitting && allApprovalsSubmitted && "Submitted"}
-                    {!submitting && !allApprovalsSubmitted && "Submit"}
-                  </Button>
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-      {disabled && (
-        <p className="text-xs text-muted-foreground">
-          Approval submission is not available in this context.
-        </p>
-      )}
-    </div>
+    !part.type.startsWith("data-") ||
+    part.type === CANCELLED_DATA_PART_TYPE ||
+    part.type === "data-approval-request"
   )
-}
-
-function formatArgs(args: unknown): string {
-  if (args == null) return "{}"
-  if (typeof args === "string") {
-    try {
-      return JSON.stringify(JSON.parse(args), null, 2)
-    } catch {
-      return args
-    }
-  }
-  try {
-    return JSON.stringify(args, null, 2)
-  } catch {
-    return String(args)
-  }
 }

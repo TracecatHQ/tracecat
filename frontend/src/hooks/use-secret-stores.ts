@@ -22,6 +22,10 @@ import {
   type WorkspaceSecretStoreRead,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
+import {
+  isRequestValidationErrorArray,
+  type RequestValidationError,
+} from "@/lib/errors"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 const ORG_SECRET_STORES_KEY = ["organization-secret-stores"]
@@ -323,12 +327,38 @@ export function useAwsSecretReferences(workspaceId: string) {
   }
 }
 
-function describeApiError(err: ApiError): string {
+const VALIDATION_FIELD_LABELS: Record<string, string> = {
+  role_arn: "Role ARN",
+  region: "Region",
+  name: "Name",
+  remote_reference: "Secret name or ARN",
+  key: "Output key",
+  field: "JSON field",
+}
+
+/** Render one pydantic validation error without exposing its raw regex. */
+function describeValidationError(error: RequestValidationError): string {
+  const field = [...error.loc]
+    .reverse()
+    .find((part) => Object.hasOwn(VALIDATION_FIELD_LABELS, part))
+  const label = field ? VALIDATION_FIELD_LABELS[field] : null
+  if (error.type === "string_pattern_mismatch") {
+    return `${label ?? "A field"} is not in the expected format.`
+  }
+  const message = error.msg.replace(/^Value error, /, "")
+  return label ? `${label}: ${message}` : message
+}
+
+/** Describe an API error for a toast, translating 422 validation details. */
+export function describeApiError(err: ApiError): string {
   const body = err.body
   if (body && typeof body === "object" && "detail" in body) {
     const detail = (body as { detail: unknown }).detail
     if (typeof detail === "string") {
       return detail
+    }
+    if (isRequestValidationErrorArray(detail) && detail.length > 0) {
+      return detail.map(describeValidationError).join("\n")
     }
   }
   return err.message

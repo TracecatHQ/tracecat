@@ -1,0 +1,56 @@
+type: action
+definition:
+  name: block_ip
+  namespace: tools.wazuh
+  title: Block IP address
+  description: "Block an IP address on agents with an Active Response script (`firewall-drop` by default). The agents must have the script installed."
+  display_group: Wazuh
+  doc_url: https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.active_response_controller.run_command
+  secrets:
+    - name: wazuh_wui
+      keys: ["WAZUH_WUI_USERNAME", "WAZUH_WUI_PASSWORD"]
+  expects:
+    ip_address:
+      type: str
+      description: "IP address to block. Sent as `alert.data.srcip`."
+    agents_list:
+      type: list[str]
+      description: "Agent IDs to block the IP address on."
+    command:
+      type: enum['!firewall-drop', '!host-deny', '!route-null', '!netsh', '!win_route-null', '!firewalld-drop']
+      description: "Active Response script to run. Use `!netsh` or `!win_route-null` for Windows agents."
+      default: "!firewall-drop"
+    base_url:
+      type: str | None
+      description: "Wazuh server API URL (e.g. https://wazuh-manager:55000). Defaults to the `wazuh.base_url` variable."
+      default: null
+    verify_ssl:
+      type: bool
+      description: "If false, disables SSL verification for internal networks."
+      default: true
+  steps:
+    - ref: get_access_token
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/security/user/authenticate
+        method: POST
+        headers:
+          Authorization: Basic ${{ FN.to_base64(SECRETS.wazuh_wui.WAZUH_WUI_USERNAME + ":" + SECRETS.wazuh_wui.WAZUH_WUI_PASSWORD) }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/active-response
+        method: PUT
+        headers:
+          Authorization: Bearer ${{ steps.get_access_token.result.data.data.token }}
+          Content-Type: application/json
+        params:
+          agents_list: ${{ FN.join(inputs.agents_list, ",") }}
+        payload:
+          command: ${{ inputs.command }}
+          alert:
+            data:
+              srcip: ${{ inputs.ip_address }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.request.result.data }}

@@ -20,12 +20,13 @@ from tracecat.agent.preset.resolver import (
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
-    AgentPresetSkillBindingRead,
+    AgentPresetToolSummary,
     AgentPresetUpdate,
-    AgentPresetVersionReadMinimal,
     build_agent_preset_read_minimal,
+    build_agent_preset_tool_summary,
     build_subagent_eligibility,
 )
+from tracecat.agent.preset.types import EffectivePresetTools
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     AnyAttachedSubagentRef,
@@ -43,6 +44,7 @@ def make_agent_preset(
     tool_approvals: dict[str, bool] | None = None,
     agents: dict[str, object] | None = None,
     enable_internet_access: bool = False,
+    use_in_chat: bool = False,
 ) -> AgentPreset:
     timestamp = datetime(2026, 3, 9, tzinfo=UTC)
     return AgentPreset(
@@ -51,6 +53,7 @@ def make_agent_preset(
         name=name,
         slug=slug,
         description=None,
+        use_in_chat=use_in_chat,
         model_provider="openai",
         model_name="gpt-4o-mini",
         current_version_id=None,
@@ -84,6 +87,7 @@ def test_agent_preset_create_trims_required_fields() -> None:
     assert payload.slug == "triage-preset"
     assert payload.model_name == "gpt-4o-mini"
     assert payload.model_provider == "openai"
+    assert payload.use_in_chat is False
 
 
 def test_agent_preset_create_rejects_catalog_without_legacy_model_fields() -> None:
@@ -137,17 +141,6 @@ def test_agent_preset_create_ignores_legacy_skill_version_id() -> None:
 
     assert payload.skills is not None
     assert payload.skills[0].model_dump(mode="json") == {"skill_id": str(skill_id)}
-
-
-def test_agent_preset_skill_binding_read_requires_stored_version() -> None:
-    with pytest.raises(ValidationError):
-        AgentPresetSkillBindingRead.model_validate(
-            {
-                "skill_id": str(uuid.uuid4()),
-                "skill_name": "triage-skill",
-                "skill_version": 1,
-            }
-        )
 
 
 @pytest.mark.parametrize(
@@ -240,10 +233,12 @@ def test_agent_preset_read_minimal_exposes_capabilities() -> None:
                 "core.cases.create_case": True,
             },
             enable_internet_access=True,
-        )
+        ),
+        supports_subagent_approvals=False,
     )
 
     dumped = payload.model_dump(mode="json")
+    assert payload.tool_summary == AgentPresetToolSummary()
     assert dumped["capabilities"] == ["approvals", "internet_access"]
     assert dumped["current_version_subagent_eligibility"] == {
         "eligible": False,
@@ -265,7 +260,8 @@ def test_agent_preset_read_minimal_exposes_current_version_subagent_eligibility(
             slug="parent-preset",
             tool_approvals={"core.http_request": True},
             agents={"subagents": []},
-        )
+        ),
+        supports_subagent_approvals=False,
     )
 
     dumped = payload.model_dump(mode="json")
@@ -285,10 +281,23 @@ def test_build_subagent_eligibility_allows_no_attached_children() -> None:
     eligibility = build_subagent_eligibility(
         agents_config={"subagents": []},
         tool_approvals={"core.http_request": False},
+        supports_subagent_approvals=False,
     )
 
     assert eligibility.eligible is True
     assert eligibility.reasons == []
+
+
+def test_build_subagent_eligibility_allows_approvals_when_a_backend_runs_them() -> None:
+    eligibility = build_subagent_eligibility(
+        agents_config={"subagents": []},
+        tool_approvals={"core.http_request": True},
+        supports_subagent_approvals=True,
+    )
+
+    assert eligibility.eligible is True
+    assert eligibility.reasons == []
+    assert eligibility.message is None
     assert eligibility.message is None
 
 
@@ -398,17 +407,13 @@ def test_agents_config_rejects_misspelled_subagents_field() -> None:
         AgentSubagentsConfig.model_validate({"subagent": [{"preset": "analyst"}]})
 
 
-def test_resolved_agents_config_rejects_other_unknown_fields() -> None:
-    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-        ResolvedAgentsConfig.model_validate({"enabled": False, "disabled": True})
-
-
 def test_build_subagent_eligibility_rejects_nested_subagents() -> None:
     eligibility = build_subagent_eligibility(
         agents_config={
             "subagents": [{"preset": "nested-child"}],
         },
-        tool_approvals={},
+        tool_approvals={"core.http_request": True},
+        supports_subagent_approvals=True,
     )
 
     assert eligibility.eligible is False
@@ -417,24 +422,6 @@ def test_build_subagent_eligibility_rejects_nested_subagents() -> None:
         "This version defines its own subagents. Remove those subagents before "
         "attaching this version as a subagent."
     )
-
-
-def test_agent_preset_version_read_schema_accepts_legacy_whitespace_model_fields() -> (
-    None
-):
-    payload = AgentPresetVersionReadMinimal.model_validate(
-        {
-            "id": "522b4d28-ae2b-4705-bb53-c3aa9071fe16",
-            "preset_id": "f3af894f-3d0e-484d-8a2c-36931ca68cc0",
-            "workspace_id": "6b2bb4d8-8461-486d-b4ca-e10a5a19d2f2",
-            "version": 1,
-            "created_at": "2026-03-09T00:00:00Z",
-            "updated_at": "2026-03-09T00:00:00Z",
-        }
-    )
-
-    assert payload.version == 1
-    assert str(payload.workspace_id) == "6b2bb4d8-8461-486d-b4ca-e10a5a19d2f2"
 
 
 @pytest.mark.parametrize(
@@ -447,7 +434,30 @@ def test_agent_preset_update_rejects_null_for_non_nullable_fields(
         AgentPresetUpdate.model_validate({field_name: None})
 
 
-def test_agent_preset_update_allows_omitting_non_nullable_fields() -> None:
-    update = AgentPresetUpdate.model_validate({"name": "Renamed"})
-    assert update.retries is None
-    assert "retries" not in update.model_fields_set
+@pytest.mark.parametrize(
+    "actions, namespaces",
+    [
+        ((), []),
+        (
+            ("tools.virustotal.lookup_url", "core.cases.read", "tools.virustotal.scan"),
+            ["core.cases", "tools.virustotal"],
+        ),
+    ],
+)
+def test_build_agent_preset_tool_summary(
+    actions: tuple[str, ...], namespaces: list[str]
+) -> None:
+    """Summaries count registry actions and report distinct sorted namespaces."""
+    policy = EffectivePresetTools(
+        actions=actions,
+        skill_actions=(),
+        mcp_grants=(),
+        mcp_slugs=(),
+        tool_approvals={},
+        requires_internet_access=False,
+        blocked_tools=(),
+        internet_sources=(),
+    )
+    assert build_agent_preset_tool_summary(policy) == AgentPresetToolSummary(
+        tool_count=len(actions), namespaces=namespaces
+    )

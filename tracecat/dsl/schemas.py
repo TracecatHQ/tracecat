@@ -21,11 +21,9 @@ from tracecat.dsl.enums import (
     PlatformAction,
     StreamErrorHandlingStrategy,
 )
-from tracecat.exceptions import TracecatValidationError
 from tracecat.expressions.validation import ExpressionStr, RequiredExpressionStr
 from tracecat.identifiers import WorkflowExecutionID, WorkflowRunID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
-from tracecat.interactions.schemas import ActionInteraction, InteractionContext
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.storage.object import InlineObject, StoredObject
@@ -106,15 +104,6 @@ class MaterializedTaskResult(TypedDict):
     error_typename: str | None
     """The Python type name of the error if one occurred."""
 
-    interaction: Any | None
-    """Interaction metadata for interactive actions."""
-
-    interaction_id: str | None
-    """ID of the interaction if this was an interactive action."""
-
-    interaction_type: str | None
-    """Type of interaction if this was an interactive action."""
-
 
 class MaterializedExecutionContext(TypedDict, total=False):
     """ExecutionContext with all StoredObjects materialized to raw values.
@@ -161,15 +150,6 @@ class TaskResult(BaseModel):
 
     error_typename: str | None = None
     """The Python type name of the error if one occurred."""
-
-    interaction: Any | None = None
-    """Interaction metadata for interactive actions."""
-
-    interaction_id: str | None = None
-    """ID of the interaction if this was an interactive action."""
-
-    interaction_type: str | None = None
-    """Type of interaction if this was an interactive action."""
 
     collection_index: int | None = None
     """Index into a stored collection for scatter items.
@@ -289,10 +269,18 @@ class TaskResult(BaseModel):
             result_typename=self.result_typename,
             error=self.error,
             error_typename=self.error_typename,
-            interaction=self.interaction,
-            interaction_id=self.interaction_id,
-            interaction_type=self.interaction_type,
         )
+
+
+class FixedActionResult(BaseModel):
+    """An action result reused from a previous run of the workflow."""
+
+    result: TaskResult
+    source_execution_id: str
+    """Workflow execution that produced the result."""
+    source_event_id: int
+    """Scheduled event ID of the action in the source execution."""
+    mask_output: bool = False
 
 
 class ActionRetryPolicy(BaseModel):
@@ -338,11 +326,6 @@ class ActionStatement(BaseModel):
 
     depends_on: list[str] = Field(default_factory=list, description="Task dependencies")
 
-    interaction: ActionInteraction | None = Field(
-        default=None,
-        description="Whether the action is interactive.",
-    )
-
     """Control flow options"""
 
     run_if: ExpressionStr | None = Field(
@@ -379,6 +362,15 @@ class ActionStatement(BaseModel):
         default=None,
         description="Override environment for this action's execution. Can be a template expression.",
     )
+    tunnel: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=63,
+        description=(
+            "Name of a workspace tunnel to route this action's HTTP(S) traffic through. "
+            "Overrides the workflow's default tunnel."
+        ),
+    )
     mask_output: bool = Field(
         default=False,
         description=(
@@ -397,14 +389,6 @@ class ActionStatement(BaseModel):
     @property
     def title(self) -> str:
         return self.ref.capitalize().replace("_", " ")
-
-    @model_validator(mode="after")
-    def validate_interaction(self):
-        if self.interaction and self.for_each:
-            raise TracecatValidationError(
-                "Interaction is not allowed when for_each is provided."
-            )
-        return self
 
     @model_validator(mode="after")
     def apply_agent_timeout_policy(self) -> Self:
@@ -443,6 +427,12 @@ class DSLConfig(BaseModel):
         description="Workflow timeout in seconds. If set to 0, the workflow has no timeout.",
     )
     """Workflow timeout in seconds. If set to 0, the workflow has no timeout."""
+    tunnel: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=63,
+        description="Default workspace tunnel for actions that do not set their own.",
+    )
 
 
 class Trigger(BaseModel):
@@ -476,6 +466,8 @@ class RunContext(BaseModel):
     environment: str
     logical_time: datetime
     """The logical start time for the workflow run."""
+    tunnel: str | None = None
+    """The workflow's default tunnel name, if any."""
 
     @field_validator("wf_id", mode="before")
     @classmethod
@@ -585,7 +577,6 @@ class RunActionInput(BaseModel):
     exec_context: ExecutionContext
     run_context: RunContext
     # This gets passed in from the worker
-    interaction_context: InteractionContext | None = None
     stream_id: StreamID = ROOT_STREAM
     session_id: uuid.UUID | None = None
     """ID for a streamable session, if any."""

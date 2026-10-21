@@ -22,7 +22,7 @@ from tracecat_registry import ctx, registry, types
 async def create_task(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to create a task for."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to create a task for."),
     ],
     title: Annotated[
         str,
@@ -98,7 +98,7 @@ async def get_task(
 async def list_tasks(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to list tasks for."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to list tasks for."),
     ],
 ) -> list[types.CaseTaskRead]:
     """List all tasks for a case."""

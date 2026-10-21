@@ -23,6 +23,12 @@ export type AgentPresetDetailActionsState = {
   canSubmit: boolean
   submitLabel: string
   submit: () => void
+  /** True when the form differs from the saved preset. */
+  isDirty: boolean
+  /** True when saving cuts a new version rather than editing metadata only. */
+  cutsVersion: boolean
+  /** Resets the form to the saved preset. */
+  discard: () => void
 }
 
 type AgentPresetDetailContextValue = {

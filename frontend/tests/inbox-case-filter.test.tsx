@@ -19,7 +19,7 @@ import {
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 const mockUseScopeCheck = jest.fn<boolean | undefined, [string]>()
-let mockAgentAddonsEnabled = true
+let mockCaseAddonsEnabled = true
 let mockEntitlementsLoading = false
 
 jest.mock("@/client", () => ({
@@ -34,7 +34,7 @@ jest.mock("@/components/auth/scope-guard", () => ({
 jest.mock("@/hooks/use-entitlements", () => ({
   useEntitlements: () => ({
     hasEntitlement: (key: string) =>
-      key === "agent_addons" && mockAgentAddonsEnabled,
+      key === "case_addons" && mockCaseAddonsEnabled,
     isLoading: mockEntitlementsLoading,
   }),
 }))
@@ -75,7 +75,7 @@ describe("Inbox case filtering", () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockUseScopeCheck.mockReturnValue(true)
-    mockAgentAddonsEnabled = true
+    mockCaseAddonsEnabled = true
     mockEntitlementsLoading = false
   })
 
@@ -221,7 +221,7 @@ describe("Inbox case filtering", () => {
     ).not.toBeInTheDocument()
 
     mockUseScopeCheck.mockReturnValue(true)
-    mockAgentAddonsEnabled = false
+    mockCaseAddonsEnabled = false
     rerender(
       <CaseAgentRunsAction caseId={CASE_ID} workspaceId="workspace-test" />
     )

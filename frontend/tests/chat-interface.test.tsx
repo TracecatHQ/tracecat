@@ -7,14 +7,24 @@ import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/components/chat/chat-session-pane", () => ({
+  AGENT_EXECUTE_REQUIRED_MESSAGE: "agent:execute required",
   ChatSessionPane: ({
+    chat,
     mcpEnabled,
     onBeforeSend,
+    inputDisabled,
   }: {
+    chat?: { id: string }
     mcpEnabled: boolean
     onBeforeSend?: (message: string) => Promise<string | null>
+    inputDisabled?: boolean
   }) => (
-    <div data-mcp-enabled={String(mcpEnabled)} data-testid="chat-session-pane">
+    <div
+      data-mcp-enabled={String(mcpEnabled)}
+      data-input-disabled={String(Boolean(inputDisabled))}
+      data-testid="chat-session-pane"
+    >
+      {chat && <p>Transcript of {chat.id}</p>}
       {onBeforeSend && (
         <button type="button" onClick={() => void onBeforeSend("Hello")}>
           Send first message
@@ -76,12 +86,9 @@ jest.mock("@/hooks/use-chat-preset-manager", () => ({
     showPresetSpinner: false,
   }),
 }))
+const mockUseChatReadiness = jest.fn()
 jest.mock("@/lib/hooks", () => ({
-  useChatReadiness: () => ({
-    ready: true,
-    loading: false,
-    modelInfo: { name: "gpt-test", provider: "openai", baseUrl: null },
-  }),
+  useChatReadiness: () => mockUseChatReadiness(),
 }))
 jest.mock("@/hooks/use-workspace", () => ({
   useWorkspaceMembers: () => ({ members: [] }),
@@ -109,6 +116,11 @@ const multipleBackends = [
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockUseChatReadiness.mockReturnValue({
+    ready: true,
+    loading: false,
+    modelInfo: { name: "gpt-test", provider: "openai", baseUrl: null },
+  })
   mockListChats.mockReturnValue([])
   mockGetChat.mockReturnValue(undefined)
   mockCreateChat.mockResolvedValue({ id: "chat-1" })
@@ -455,5 +467,176 @@ describe("ChatInterface backend selection", () => {
     expect(onChatSelect).toHaveBeenCalledWith("chat-1")
     expect(screen.getByTestId("chat-session-pane")).toBeInTheDocument()
     expect(mockCreateChat).not.toHaveBeenCalled()
+  })
+})
+
+describe("ChatInterface agent:execute gating", () => {
+  beforeEach(() => {
+    mockUseScopeCheck.mockReset()
+  })
+
+  it("does not create a chat without agent:execute and says why", async () => {
+    setScopeResult("agent:execute", false)
+    renderChat({ surface: "regular" })
+
+    expect(
+      await screen.findByText("agent:execute required")
+    ).toBeInTheDocument()
+    expect(mockCreateChat).not.toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "New chat" })).toBeDisabled()
+  })
+
+  it("auto-creates a chat with agent:execute", async () => {
+    setScopeResult("agent:execute", true)
+    renderChat({ surface: "regular" })
+
+    await waitFor(() => expect(mockCreateChat).toHaveBeenCalledTimes(1))
+    expect(screen.queryByText("agent:execute required")).not.toBeInTheDocument()
+  })
+
+  it("waits for scopes to load before creating a chat", async () => {
+    setScopeResult("agent:execute", undefined)
+    const view = renderChat({ surface: "regular" })
+
+    // Loading scopes hold creation and show no denial.
+    expect(mockCreateChat).not.toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "New chat" })).toBeDisabled()
+    expect(screen.queryByText("agent:execute required")).not.toBeInTheDocument()
+
+    setScopeResult("agent:execute", true)
+    view.rerender(
+      <ChatInterface
+        entityId="workspace-1"
+        entityType="copilot"
+        surface="regular"
+      />
+    )
+
+    await waitFor(() => expect(mockCreateChat).toHaveBeenCalledTimes(1))
+  })
+
+  it("holds the first message of a draft chat until agent:execute resolves", async () => {
+    // A deferred chat creates its session on the first send.
+    mockUseFeatureFlag.mockReturnValue({
+      isFeatureEnabled: (flag) => flag === "agent-runtime",
+      isLoading: false,
+      hasFeatureData: true,
+    })
+    mockUseAgentBackends.mockReturnValue({
+      ...discoveryReady,
+      backends: multipleBackends,
+      backendsLoading: false,
+    })
+    setScopeResult("agent:execute", undefined)
+    const view = renderChat({ surface: "regular" })
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Send first message" })
+    )
+    expect(mockCreateChat).not.toHaveBeenCalled()
+
+    setScopeResult("agent:execute", true)
+    view.rerender(
+      <ChatInterface
+        entityId="workspace-1"
+        entityType="copilot"
+        surface="regular"
+      />
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Send first message" }))
+    await waitFor(() => expect(mockCreateChat).toHaveBeenCalledTimes(1))
+  })
+})
+
+describe("ChatInterface model readiness", () => {
+  beforeEach(() => {
+    mockUseScopeCheck.mockReset()
+    setScopeResult("agent:execute", true)
+  })
+
+  it("says the default is not enabled here instead of linking to org settings", () => {
+    // Changing the org default cannot grant this workspace access to it.
+    mockUseChatReadiness.mockReturnValue({
+      ready: false,
+      loading: false,
+      reason: "default_not_enabled",
+    })
+    renderChat({ surface: "regular" })
+
+    expect(screen.getByText("Default model not enabled")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: /No default model/ })
+    ).not.toBeInTheDocument()
+  })
+
+  it("says the org disabled the workspace's models when none are left", () => {
+    // A subset whose models the org disabled leaves the workspace with none.
+    mockUseChatReadiness.mockReturnValue({
+      ready: false,
+      loading: false,
+      reason: "subset_disabled",
+    })
+    renderChat({ surface: "regular" })
+
+    expect(screen.getByText("Workspace models disabled")).toBeInTheDocument()
+    expect(
+      screen.getByText(/organization admin can enable more models/)
+    ).toBeInTheDocument()
+  })
+
+  it("keeps an existing chat's transcript when no model is usable", () => {
+    // Only starting or continuing a chat needs a model; history stays readable.
+    mockUseChatReadiness.mockReturnValue({
+      ready: false,
+      loading: false,
+      reason: "default_not_enabled",
+    })
+    mockListChats.mockReturnValue([
+      {
+        id: "chat-1",
+        title: "Existing chat",
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ])
+    mockGetChat.mockReturnValue({ id: "chat-1", backend_id: "oss" })
+    renderChat({ surface: "regular" })
+
+    expect(screen.getByText("Transcript of chat-1")).toBeInTheDocument()
+    expect(screen.getByTestId("chat-session-pane")).toHaveAttribute(
+      "data-input-disabled",
+      "true"
+    )
+    expect(
+      screen.queryByText("Default model not enabled")
+    ).not.toBeInTheDocument()
+  })
+
+  it("shows the role denial instead of model setup without agent:execute", () => {
+    // Model setup is not the viewer's to fix.
+    setScopeResult("agent:execute", false)
+    mockUseChatReadiness.mockReturnValue({
+      ready: false,
+      loading: false,
+      reason: "no_model",
+    })
+    renderChat({ surface: "regular" })
+
+    expect(screen.getByText("agent:execute required")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: /No default model/ })
+    ).not.toBeInTheDocument()
+  })
+
+  it("links to agent settings when the org has no default model", () => {
+    mockUseChatReadiness.mockReturnValue({
+      ready: false,
+      loading: false,
+      reason: "no_model",
+    })
+    renderChat({ surface: "regular" })
+
+    expect(
+      screen.getByRole("link", { name: /No default model/ })
+    ).toHaveAttribute("href", "/organization/settings/agent")
   })
 })

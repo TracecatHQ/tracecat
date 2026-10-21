@@ -222,6 +222,43 @@ async def test_discovery_servers_share_total_budget(
 
 
 @pytest.mark.anyio
+async def test_budget_timeout_firing_early_skips_remaining_servers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    contacted: list[str] = []
+
+    async def hang(
+        self: UserMCPClient, name: str, config: MCPHttpServerConfig
+    ) -> dict[str, MCPToolDefinition]:
+        contacted.append(name)
+        await asyncio.Event().wait()
+        return {}
+
+    monkeypatch.setattr(UserMCPClient, "_discover_server_tools", hang)
+    monkeypatch.setattr(
+        user_client, "MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS", 1, raising=False
+    )
+    monkeypatch.setattr(
+        user_client, "MCP_DISCOVERY_TIMEOUT_SECONDS", 0.05, raising=False
+    )
+    # Event loops may run a timer slightly before its deadline.
+    timeout_at = asyncio.timeout_at
+    monkeypatch.setattr(
+        asyncio,
+        "timeout_at",
+        lambda when: timeout_at(None if when is None else when - 0.04),
+    )
+    result = await asyncio.wait_for(
+        UserMCPClient(
+            [_mcp_server("first"), _mcp_server("second")]
+        ).discover_tools_detailed(),
+        timeout=1,
+    )
+    assert contacted == ["first"]
+    assert result.failed_servers["second"] == "UserMCPDiscoveryBudgetExceededError"
+
+
+@pytest.mark.anyio
 async def test_strict_discovery_raises_budget_error_for_uncontacted_server(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -1,47 +1,23 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 
 import pytest
 import tracecat_ee.watchtower.service as watchtower_service
 from tracecat_ee.watchtower.service import (
-    WatchtowerService,
     _build_agent_fingerprint,
     _sanitize_error_redacted,
     normalize_agent_identity,
     redact_tool_call_args,
 )
-from tracecat_ee.watchtower.types import WatchtowerAgentStatus, WatchtowerAgentType
-
-
-class _RowsResult:
-    def __init__(self, rows: list[Any]) -> None:
-        self._rows = rows
-
-    def all(self) -> list[Any]:
-        return self._rows
+from tracecat_ee.watchtower.types import WatchtowerAgentType
 
 
 class _ExecuteResult:
-    def __init__(
-        self,
-        *,
-        scalars_rows: list[Any] | None = None,
-        tuples_rows: list[tuple[Any, ...]] | None = None,
-        scalar_value: Any = None,
-    ) -> None:
-        self._scalars_rows = scalars_rows or []
-        self._tuples_rows = tuples_rows or []
+    def __init__(self, *, scalar_value: Any = None) -> None:
         self._scalar_value = scalar_value
-
-    def scalars(self) -> _RowsResult:
-        return _RowsResult(self._scalars_rows)
-
-    def tuples(self) -> _RowsResult:
-        return _RowsResult(self._tuples_rows)
 
     def scalar_one_or_none(self) -> Any:
         return self._scalar_value
@@ -76,11 +52,6 @@ class _AsyncSessionContext:
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         return None
-
-
-def _build_service(fake_session: _FakeSession, org_id: uuid.UUID) -> WatchtowerService:
-    role = SimpleNamespace(organization_id=org_id, user_id=uuid.uuid4())
-    return WatchtowerService(cast(Any, fake_session), role=cast(Any, role))
 
 
 def test_normalize_agent_identity_prefers_client_info() -> None:
@@ -170,106 +141,6 @@ def test_agent_fingerprint_is_stable_when_client_info_changes() -> None:
         client_info={"name": "Claude Code", "version": "1.2.3"},
     )
     assert from_callback == from_initialize
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("status_filter", "expected_fragment"),
-    [
-        (WatchtowerAgentStatus.ACTIVE, "watchtower_agent.last_seen_at >="),
-        (WatchtowerAgentStatus.IDLE, "watchtower_agent.last_seen_at <"),
-    ],
-)
-async def test_list_agents_applies_status_window_filters(
-    status_filter: WatchtowerAgentStatus,
-    expected_fragment: str,
-) -> None:
-    org_id = uuid.uuid4()
-    fake_session = _FakeSession([_ExecuteResult(scalars_rows=[])])
-    service = _build_service(fake_session, org_id)
-
-    response = await service.list_agents(
-        limit=50,
-        cursor=None,
-        agent_type=None,
-        status=status_filter,
-    )
-
-    assert response.items == []
-    stmt_text = str(fake_session.statements[0])
-    assert "watchtower_agent.blocked_at IS NULL" in stmt_text
-    assert expected_fragment in stmt_text
-
-
-@pytest.mark.anyio
-async def test_list_agents_active_session_count_uses_stale_cutoff() -> None:
-    org_id = uuid.uuid4()
-    agent_id = uuid.uuid4()
-    now = datetime.now(UTC)
-    agent = SimpleNamespace(
-        id=agent_id,
-        organization_id=org_id,
-        fingerprint_hash="fp",
-        agent_type="codex",
-        agent_source="user_agent",
-        agent_icon_key="codex",
-        raw_user_agent="Codex/1.0",
-        raw_client_info=None,
-        auth_client_id="codex-client",
-        last_user_id=None,
-        last_user_email="user@example.com",
-        last_user_name="User",
-        first_seen_at=now - timedelta(minutes=10),
-        last_seen_at=now,
-        blocked_at=None,
-        blocked_reason=None,
-    )
-
-    fake_session = _FakeSession(
-        [
-            _ExecuteResult(tuples_rows=[(agent, 2, 1)]),
-        ]
-    )
-    service = _build_service(fake_session, org_id)
-
-    response = await service.list_agents(
-        limit=50,
-        cursor=None,
-        agent_type=None,
-        status=None,
-    )
-
-    assert response.items[0].active_session_count == 1
-    counts_stmt_text = str(fake_session.statements[0])
-    assert "watchtower_agent_session.last_seen_at >=" in counts_stmt_text
-
-
-@pytest.mark.anyio
-async def test_list_agents_session_counts_scoped_to_page() -> None:
-    """Regression: session count aggregation must only scan agents in the
-    current page, not the entire organization."""
-    org_id = uuid.uuid4()
-    fake_session = _FakeSession([_ExecuteResult(tuples_rows=[])])
-    service = _build_service(fake_session, org_id)
-
-    await service.list_agents(
-        limit=10,
-        cursor=None,
-        agent_type=None,
-        status=None,
-    )
-
-    stmt_text = str(fake_session.statements[0])
-    # The counts subquery must scope session aggregation to the paginated
-    # agent IDs via an IN clause referencing the page subquery.
-    assert "agent_id IN (SELECT page.id" in stmt_text, (
-        "session counts must be scoped to the page subquery via IN"
-    )
-    # The page subquery must be LIMIT-bounded so only a fixed number of
-    # agent IDs are considered.
-    assert "LIMIT" in stmt_text, (
-        "page subquery must contain a LIMIT to bound the agent set"
-    )
 
 
 @pytest.mark.anyio

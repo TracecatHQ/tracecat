@@ -1,16 +1,14 @@
 import Cookies from "js-cookie"
 import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import {
+  type ActionLockStatus,
   type ActionRead,
   type ActionsDeleteActionData,
   type ActionUpdate,
-  type AgentCatalogRead,
-  type AgentCustomProviderRead,
   type AgentGetProviderCredentialConfigResponse,
   type AgentGetProvidersStatusResponse,
-  type AgentModelAccessRead,
   type AgentSessionsListSessionsData,
   type AgentSessionsListSessionsResponse,
   type AgentSettingsRead,
@@ -21,6 +19,7 @@ import {
   type AwsAssumeRoleAccessRead,
   actionsDeleteAction,
   actionsGetAction,
+  actionsListActionLockStatuses,
   actionsUpdateAction,
   agentCreateProviderCredentials,
   agentDeleteProviderCredentials,
@@ -80,7 +79,9 @@ import {
   caseDropdownsUpdateDropdownDefinition,
   caseDropdownsUpdateDropdownOption,
   casesAddTag,
+  casesBatchClearParent,
   casesBatchDeleteCases,
+  casesBatchSetParent,
   casesBatchUpdateCases,
   casesCreateCase,
   casesCreateComment,
@@ -139,9 +140,6 @@ import {
   invitationsCreateInvitation,
   invitationsResendInvitation,
   invitationsRevokeInvitation,
-  listCatalog,
-  listCustomProviders,
-  listEnabledModels,
   type MCPIntegrationCreate,
   type MCPIntegrationRead,
   type MCPIntegrationTestConnectionRequest,
@@ -350,6 +348,7 @@ import {
   type WorkflowsMoveWorkflowToFolderData,
   type WorkflowsRemoveTagData,
   type WorkflowsUpdateWorkflowData,
+  type WorkspaceAgentModelListResponse,
   type WorkspaceCreate,
   type WorkspaceReadMinimal,
   type WorkspaceUpdate,
@@ -507,6 +506,12 @@ export function useAction(
       queryClient.invalidateQueries({
         queryKey: ["workflow", workflowId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["action-lock-status", workspaceId, workflowId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references", workspaceId],
+      })
       // Add a small delay before clearing the saving state to show feedback
       setTimeout(() => {
         setIsSaving(false)
@@ -526,6 +531,32 @@ export function useAction(
   }
 }
 
+/** Refs of locked actions whose locked run no longer exists. */
+export function useActionLockStatuses(
+  workspaceId: string,
+  workflowId: string | null,
+  enabled: boolean
+) {
+  const { data } = useQuery<ActionLockStatus[], Error>({
+    queryKey: ["action-lock-status", workspaceId, workflowId],
+    queryFn: async () =>
+      await actionsListActionLockStatuses({
+        workspaceId,
+        workflowId: workflowId ?? "",
+      }),
+    enabled: enabled && Boolean(workspaceId) && Boolean(workflowId),
+    staleTime: 60_000,
+  })
+  const staleLockedRefs = useMemo(
+    () =>
+      new Set(
+        (data ?? []).filter((status) => !status.available).map((s) => s.ref)
+      ),
+    [data]
+  )
+  return { staleLockedRefs }
+}
+
 export function useDeleteAction() {
   const queryClient = useQueryClient()
   const { mutateAsync: deleteAction } = useMutation({
@@ -535,6 +566,9 @@ export function useDeleteAction() {
       const { actionId, workspaceId } = variables
       queryClient.invalidateQueries({
         queryKey: ["actions", actionId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references", workspaceId],
       })
     },
     onError: toastMutationError("deleting the action"),
@@ -599,6 +633,9 @@ export function useGraphOperations(workspaceId: string, workflowId: string) {
         // Update the graph cache with the latest structural state.
         queryClient.setQueryData(["graph", workspaceId, workflowId], graph)
         queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+        queryClient.invalidateQueries({
+          queryKey: ["agent-preset-workflow-references", workspaceId],
+        })
       }
     },
     onError: (error) => {
@@ -826,6 +863,10 @@ export function useWorkflowManager(
       await workflowsCreateWorkflow(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflows"] })
+      // An imported or duplicated workflow can run a preset.
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references", workspaceId],
+      })
       toast({
         title: "Created workflow",
         description: "Your workflow has been created successfully.",
@@ -866,6 +907,9 @@ export function useWorkflowManager(
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflows"] })
       queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references", workspaceId],
+      })
       toast({
         title: "Deleted workflow",
         description: "Your workflow has been deleted successfully.",
@@ -949,6 +993,9 @@ export function useWorkflowManager(
         queryClient.invalidateQueries({ queryKey: ["directory-items"] })
         // Keep an already-loaded builder view in step with a dashboard rename.
         queryClient.invalidateQueries({ queryKey: ["workflow"] })
+        queryClient.invalidateQueries({
+          queryKey: ["agent-preset-workflow-references", workspaceId],
+        })
       },
       onError: (error: TracecatApiError) => {
         // Transport failures rethrow a raw error with no `body`, so read the
@@ -1244,6 +1291,9 @@ export function useCreateManualWorkflowExecution(workflowId: string) {
       })
       await queryClient.refetchQueries({
         queryKey: ["compact-workflow-execution", wf_exec_id],
+      })
+      await queryClient.invalidateQueries({
+        queryKey: ["case-task-workflow-runs"],
       })
     },
     onError: (error: TracecatApiError<Record<string, string>>) => {
@@ -2023,6 +2073,7 @@ export function useGetRegistryAction(actionName?: string) {
 
 // For selector node
 interface UseRegistryActionsOptions {
+  staleTime?: number
   versions?: string[]
   includeLocked?: boolean
 }
@@ -2034,6 +2085,7 @@ export function useRegistryActions(options?: UseRegistryActionsOptions) {
     error: registryActionsError,
   } = useQuery<RegistryActionReadMinimal[]>({
     queryKey: ["registry_actions", options?.versions, options?.includeLocked],
+    staleTime: options?.staleTime,
     queryFn: async () => {
       return await registryActionsListRegistryActions({
         includeLocked: options?.includeLocked,
@@ -2137,6 +2189,7 @@ export function useRegistryRepositories() {
     ) => await registryRepositoriesDeleteRegistryRepository(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["registry_repositories"] })
+      queryClient.invalidateQueries({ queryKey: ["registry_actions"] })
       toast({
         title: "Deleted registry repository",
         description: "Registry repository deleted successfully.",
@@ -2217,7 +2270,11 @@ export function useRepositoryCommits(
 
 export function useOrgMembers() {
   const queryClient = useQueryClient()
-  const { data: orgMembers } = useQuery<OrgMemberRead[]>({
+  const {
+    data: orgMembers,
+    isLoading: orgMembersIsLoading,
+    error: orgMembersError,
+  } = useQuery<OrgMemberRead[]>({
     queryKey: ["org-members"],
     queryFn: async () => await organizationListOrgMembers(),
   })
@@ -2353,6 +2410,8 @@ export function useOrgMembers() {
 
   return {
     orgMembers,
+    orgMembersIsLoading,
+    orgMembersError,
     updateOrgMember,
     updateOrgMemberIsPending,
     updateOrgMemberError,
@@ -2770,8 +2829,13 @@ export function useGitHubAppManifest() {
   }
 }
 
-export function useGitHubAppCredentialsStatus() {
-  // Get GitHub App credentials status
+/**
+ * Fetch whether the organization has GitHub App credentials configured.
+ */
+export function useGitHubAppCredentialsStatus(options?: {
+  enabled?: boolean
+  suppressErrorToast?: boolean
+}) {
   const {
     data: credentialsStatus,
     isLoading: credentialsStatusIsLoading,
@@ -2780,6 +2844,10 @@ export function useGitHubAppCredentialsStatus() {
   } = useQuery<VcsGetGithubAppCredentialsStatusResponse>({
     queryKey: ["github-app-credentials-status"],
     queryFn: async () => await vcsGetGithubAppCredentialsStatus(),
+    enabled: options?.enabled !== false,
+    ...(options?.suppressErrorToast
+      ? { retry: false, meta: { suppressErrorToast: true } }
+      : {}),
   })
 
   return {
@@ -3581,6 +3649,26 @@ export function useBatchInsertRows() {
   }
 }
 
+/**
+ * Invalidate every query that lists a table's rows: search, the row list and
+ * its pages. For anything that adds a row, wherever it was added from.
+ */
+export function invalidateTableRowQueries(
+  queryClient: QueryClient,
+  workspaceId: string,
+  tableId: string
+) {
+  queryClient.invalidateQueries({
+    queryKey: ["table-search", workspaceId, tableId],
+  })
+  queryClient.invalidateQueries({
+    queryKey: ["rows", tableId],
+  })
+  queryClient.invalidateQueries({
+    queryKey: ["rows", "paginated", tableId, workspaceId],
+  })
+}
+
 export function useInsertRow() {
   const queryClient = useQueryClient()
 
@@ -3592,20 +3680,11 @@ export function useInsertRow() {
     mutationFn: async (params: TablesInsertRowData) =>
       await tablesInsertRow(params),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ["table-search", variables.workspaceId, variables.tableId],
-      })
-      queryClient.invalidateQueries({
-        queryKey: ["rows", variables.tableId],
-      })
-      queryClient.invalidateQueries({
-        queryKey: [
-          "rows",
-          "paginated",
-          variables.tableId,
-          variables.workspaceId,
-        ],
-      })
+      invalidateTableRowQueries(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
     onError: (error: TracecatApiError) => {
       if (error.status === 409) {
@@ -4064,6 +4143,41 @@ export function useBatchUpdateCases({ workspaceId }: { workspaceId: string }) {
     batchUpdateCasesIsPending,
     batchUpdateCasesError,
   }
+}
+
+/**
+ * Set or clear (`parentId: null`) the parent of a collection of cases in one
+ * server-side batch.
+ */
+export function useBatchChangeCaseParent({
+  workspaceId,
+}: {
+  workspaceId: string
+}) {
+  const {
+    mutateAsync: batchChangeCaseParent,
+    isPending: batchChangeCaseParentIsPending,
+  } = useMutation({
+    mutationFn: async ({
+      caseIds,
+      parentId,
+    }: {
+      caseIds: string[]
+      parentId: string | null
+    }) =>
+      parentId
+        ? await casesBatchSetParent({
+            workspaceId,
+            requestBody: { case_ids: caseIds, parent_id: parentId },
+          })
+        : await casesBatchClearParent({
+            workspaceId,
+            requestBody: { case_ids: caseIds },
+          }),
+    // Cache invalidation is the caller's responsibility, as for batch update.
+  })
+
+  return { batchChangeCaseParent, batchChangeCaseParentIsPending }
 }
 
 /** Delete a collection of cases in one server-side batch. */
@@ -5460,14 +5574,23 @@ export function useIntegrationProvider({
     data: integration,
     isLoading: integrationIsLoading,
     error: integrationError,
-  } = useQuery<IntegrationRead, TracecatApiError>({
+  } = useQuery<IntegrationRead | null, TracecatApiError>({
     queryKey: ["integration", providerId, workspaceId, grantType],
-    queryFn: async () =>
-      await integrationsGetIntegration({
-        providerId,
-        workspaceId,
-        grantType,
-      }),
+    queryFn: async () => {
+      try {
+        return await integrationsGetIntegration({
+          providerId,
+          workspaceId,
+          grantType,
+        })
+      } catch (error) {
+        // No integration row yet means the provider is not configured.
+        if (error instanceof ApiError && error.status === 404) {
+          return null
+        }
+        throw error
+      }
+    },
     retry: retryHandler,
     enabled: Boolean(providerId && workspaceId),
     staleTime: 5 * 60 * 1000,
@@ -5774,162 +5897,37 @@ export function useAgentSessions(
   }
 }
 
-const AGENT_MODEL_PAGE_SIZE = 100
-
-async function fetchAllProvidersPaginated(): Promise<
-  AgentCustomProviderRead[]
-> {
-  const items: AgentCustomProviderRead[] = []
-  let cursor: string | undefined
-
-  do {
-    const response = await listCustomProviders({
-      cursor,
-      limit: AGENT_MODEL_PAGE_SIZE,
-    })
-    items.push(...response.items)
-    cursor = response.next_cursor ?? undefined
-  } while (cursor)
-
-  return items
-}
-
-async function fetchAllWorkspaceAgentModels(
-  workspaceId: string
-): Promise<AgentCatalogRead[]> {
-  // The workspace-models endpoint returns the full effective set (no
-  // pagination); org enablement caps the list naturally.
-  const response = await getWorkspaceModels({ workspaceId })
-  return response.items
-}
-
-async function fetchAllOrgCatalogEntries(): Promise<AgentCatalogRead[]> {
-  const items: AgentCatalogRead[] = []
-  let cursor: string | undefined
-
-  do {
-    const response = await listCatalog({
-      cursor,
-      limit: AGENT_MODEL_PAGE_SIZE,
-    })
-    items.push(...response.items)
-    cursor = response.next_cursor ?? undefined
-  } while (cursor)
-
-  return items
-}
-
-async function fetchAllOrgEnabledAccessRows(): Promise<AgentModelAccessRead[]> {
-  const items: AgentModelAccessRead[] = []
-  let cursor: string | undefined
-
-  do {
-    const response = await listEnabledModels({
-      cursor,
-      limit: AGENT_MODEL_PAGE_SIZE,
-    })
-    items.push(...response.items)
-    cursor = response.next_cursor ?? undefined
-  } while (cursor)
-
-  return items
-}
-
 /**
- * Fetch the AI models that are enabled for the given workspace via
- * AgentModelAccess. Use this anywhere a workspace-scoped picker should
- * only show models the workspace is allowed to use.
+ * Fetch the AI models enabled for the given workspace, each labelled with its
+ * custom provider, and the workspace's default model. Use this anywhere a
+ * workspace-scoped picker should only show models the workspace may use.
  */
 export function useWorkspaceAgentModels(
   workspaceId: string | null | undefined
 ) {
-  const enabled = Boolean(workspaceId)
-
   const {
-    data: models,
+    data,
     isLoading: modelsLoading,
     error: modelsError,
-  } = useQuery<AgentCatalogRead[], ApiError>({
+  } = useQuery<WorkspaceAgentModelListResponse, ApiError>({
     queryKey: ["workspace", workspaceId, "agent-models"],
-    queryFn: async () => fetchAllWorkspaceAgentModels(workspaceId as string),
-    enabled,
-    retry: retryHandler,
-  })
-
-  const {
-    data: providers,
-    isLoading: providersLoading,
-    error: providersError,
-  } = useQuery<AgentCustomProviderRead[], ApiError>({
-    queryKey: ["organization", "agent-providers"],
-    queryFn: fetchAllProvidersPaginated,
-    enabled,
+    // The full effective set, unpaginated; org enablement keeps it small.
+    queryFn: async () =>
+      await getWorkspaceModels({ workspaceId: workspaceId as string }),
+    enabled: Boolean(workspaceId),
     retry: retryHandler,
   })
 
   return {
-    models,
-    providers,
-    catalogLoading: modelsLoading,
-    catalogError: modelsError,
-    providersLoading,
-    providersError,
-    modelsLoading: modelsLoading || providersLoading,
-    modelsError: modelsError ?? providersError,
-  }
-}
-
-/**
- * Fetch the AI models that are enabled at the organization level (i.e.
- * AgentModelAccess rows with workspace_id === null), joined against the
- * full catalog. Use this for org-wide pickers like the default model
- * setting.
- */
-export function useOrgAgentModels() {
-  const {
-    data: catalogEntries,
-    isLoading: catalogLoading,
-    error: catalogError,
-  } = useQuery<AgentCatalogRead[], ApiError>({
-    queryKey: ["organization", "agent-catalog"],
-    queryFn: fetchAllOrgCatalogEntries,
-    retry: retryHandler,
-  })
-
-  const {
-    data: accessRows,
-    isLoading: accessLoading,
-    error: accessError,
-  } = useQuery<AgentModelAccessRead[], ApiError>({
-    queryKey: ["organization", "agent-model-access"],
-    queryFn: fetchAllOrgEnabledAccessRows,
-    retry: retryHandler,
-  })
-
-  const {
-    data: providers,
-    isLoading: providersLoading,
-    error: providersError,
-  } = useQuery<AgentCustomProviderRead[], ApiError>({
-    queryKey: ["organization", "agent-providers"],
-    queryFn: fetchAllProvidersPaginated,
-    retry: retryHandler,
-  })
-
-  const orgEnabledCatalogIds = new Set(
-    (accessRows ?? [])
-      .filter((row) => row.workspace_id === null)
-      .map((row) => row.catalog_id)
-  )
-  const models = (catalogEntries ?? []).filter((entry) =>
-    orgEnabledCatalogIds.has(entry.id)
-  )
-
-  return {
-    models,
-    providers,
-    modelsLoading: catalogLoading || accessLoading || providersLoading,
-    modelsError: catalogError ?? accessError ?? providersError,
+    models: data?.items,
+    /** The org default model, when it is enabled for this workspace. */
+    defaultCatalogId: data?.default_catalog_id ?? null,
+    /** Whether the org has a default model, enabled here or not. */
+    hasOrgDefault: data?.has_org_default ?? false,
+    /** The workspace has a subset, and the org disabled every model in it. */
+    workspaceSubsetDisabled: data?.workspace_subset_disabled ?? false,
+    modelsLoading,
+    modelsError,
   }
 }
 
@@ -5987,6 +5985,11 @@ export function useAgentDefaultModel() {
       queryClient.invalidateQueries({ queryKey: ["agent-default-model"] })
       queryClient.invalidateQueries({
         queryKey: ["agent-default-model-selection"],
+      })
+      // Workspace pages read the default through their agent-models view.
+      queryClient.invalidateQueries({
+        queryKey: ["workspace"],
+        predicate: (query) => query.queryKey[2] === "agent-models",
       })
     },
   })
@@ -6139,12 +6142,13 @@ export function useDeleteProviderCredentials() {
  * Are we ready to chat?
  * Returns { ready, reason, modelInfo }
  *  ready   – boolean
- *  reason  – "no_model" | null
+ *  reason  – "no_model" | "default_not_enabled" | "subset_disabled" | null
  *  modelInfo – model info (if any)
  *
- * Catalog entries are server-validated, so the frontend does not gate on
- * provider credentials. Runtime invocation errors surface through the normal
- * send-error path.
+ * Without a model override, chat uses the org default model if it is enabled
+ * for the workspace. Catalog entries are server-validated, so the frontend
+ * does not gate on provider credentials. Runtime invocation errors surface
+ * through the normal send-error path.
  */
 
 interface ChatReadinessOptions {
@@ -6155,15 +6159,20 @@ interface ChatReadinessOptions {
   }
 }
 
-export function useChatReadiness(options?: ChatReadinessOptions) {
-  const { defaultModel, defaultModelSelection, defaultModelLoading } =
-    useAgentDefaultModel()
-  const { models, providers, modelsLoading } = useOrgAgentModels()
+export function useChatReadiness(
+  workspaceId: string | null | undefined,
+  options?: ChatReadinessOptions
+) {
+  const {
+    models,
+    defaultCatalogId,
+    hasOrgDefault,
+    workspaceSubsetDisabled,
+    modelsLoading,
+  } = useWorkspaceAgentModels(workspaceId)
   const modelOverride = options?.modelOverride
 
-  const loading = defaultModelLoading || modelsLoading
-
-  if (loading) {
+  if (modelsLoading) {
     return {
       ready: false,
       loading: true,
@@ -6183,35 +6192,28 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
     }
   }
 
-  /* no default model set */
-  if (!defaultModelSelection && !defaultModel) {
-    return {
-      ready: false,
-      loading: false,
-      reason: "no_model",
-    }
-  }
-
-  /* unknown model selection -> treat as no model */
-  const modelCfg = defaultModelSelection
-    ? (models?.find((model) => model.id === defaultModelSelection.catalog_id) ??
-      null)
-    : (models?.find((model) => model.model_name === defaultModel) ?? null)
+  /* no default model, or it is not enabled for this workspace */
+  const modelCfg = defaultCatalogId
+    ? (models?.find((model) => model.id === defaultCatalogId) ?? null)
+    : null
   if (!modelCfg) {
+    let reason = "no_model"
+    if (workspaceSubsetDisabled) {
+      reason = "subset_disabled"
+    } else if (hasOrgDefault) {
+      reason = "default_not_enabled"
+    }
     return {
       ready: false,
       loading: false,
-      reason: "no_model",
+      reason,
     }
   }
 
-  const baseUrl =
-    providers?.find((provider) => provider.id === modelCfg.custom_provider_id)
-      ?.base_url ?? null
   const modelInfo: ModelInfo = {
     name: modelCfg.model_name,
     provider: modelCfg.model_provider,
-    baseUrl,
+    baseUrl: modelCfg.custom_provider_base_url ?? null,
   }
   return {
     ready: true,
@@ -6647,6 +6649,7 @@ export function useRbacRoles(options: { enabled?: boolean } = {}) {
       await rbacUpdateRole({ roleId, requestBody: params }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rbac-roles", "org"] })
+      queryClient.invalidateQueries({ queryKey: ["org-members"] })
       toast({
         title: "Role updated",
         description: "Role updated successfully.",
@@ -6694,6 +6697,7 @@ export function useRbacRoles(options: { enabled?: boolean } = {}) {
     mutationFn: async (roleId: string) => await rbacDeleteRole({ roleId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rbac-roles", "org"] })
+      queryClient.invalidateQueries({ queryKey: ["org-members"] })
       toast({
         title: "Role deleted",
         description: "Role deleted successfully.",
@@ -6749,6 +6753,25 @@ export function useRbacRoles(options: { enabled?: boolean } = {}) {
   }
 }
 
+/** Short reason for a failed add of one user to an RBAC group. */
+function getAddGroupMemberFailureReason(error: unknown): string {
+  const apiError = error as Partial<TracecatApiError>
+  const detail = apiError.body?.detail
+  if (typeof detail === "string") {
+    return detail
+  }
+  switch (apiError.status) {
+    case 403:
+      return "You don't have permission to add group members."
+    case 404:
+      return "The group or user does not exist."
+    case 409:
+      return "This user is already a member of the group."
+    default:
+      return "Failed to add member"
+  }
+}
+
 /**
  * Hook to manage RBAC groups.
  */
@@ -6767,14 +6790,6 @@ export function useRbacGroups() {
       return response.items
     },
   })
-
-  // Get single group
-  const getGroup = useCallback(
-    async (groupId: string): Promise<GroupReadWithMembers> => {
-      return await rbacGetGroup({ groupId })
-    },
-    []
-  )
 
   // Create group
   const {
@@ -6837,6 +6852,7 @@ export function useRbacGroups() {
       await rbacUpdateGroup({ groupId, requestBody: params }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rbac-groups", "org"] })
+      queryClient.invalidateQueries({ queryKey: ["org-members"] })
       toast({
         title: "Group updated",
         description: "Group updated successfully.",
@@ -6878,6 +6894,7 @@ export function useRbacGroups() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rbac-groups", "org"] })
       queryClient.invalidateQueries({ queryKey: ["rbac-assignments"] })
+      queryClient.invalidateQueries({ queryKey: ["org-members"] })
       toast({
         title: "Group deleted",
         description: "Group deleted successfully.",
@@ -6909,57 +6926,55 @@ export function useRbacGroups() {
     },
   })
 
-  // Add group member
+  // Add group members. There is no bulk endpoint, so add users one by one.
   const {
-    mutateAsync: addGroupMember,
-    isPending: addGroupMemberIsPending,
-    error: addGroupMemberError,
+    mutateAsync: addGroupMembers,
+    isPending: addGroupMembersIsPending,
+    error: addGroupMembersError,
   } = useMutation({
     mutationFn: async ({
       groupId,
-      userId,
+      userIds,
     }: {
       groupId: string
-      userId: string
-    }) =>
-      await rbacAddGroupMember({ groupId, requestBody: { user_id: userId } }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-groups", "org"] })
-      toast({
-        title: "Member added",
-        description: "Member added to the group successfully.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      switch (error.status) {
-        case 403:
-          toast({
-            title: "Permission denied",
-            description: "You don't have permission to add group members.",
-            variant: "destructive",
+      userIds: string[]
+    }) => {
+      // Each add takes an organization-wide lock, so run them one at a time.
+      const failures: { userId: string; reason: string }[] = []
+      for (const userId of userIds) {
+        try {
+          await rbacAddGroupMember({
+            groupId,
+            requestBody: { user_id: userId },
           })
-          break
-        case 404:
-          toast({
-            title: "Not found",
-            description: "The group or user does not exist.",
-            variant: "destructive",
+        } catch (error) {
+          failures.push({
+            userId,
+            reason: getAddGroupMemberFailureReason(error),
           })
-          break
-        case 409:
-          toast({
-            title: "Already a member",
-            description: "This user is already a member of the group.",
-            variant: "destructive",
-          })
-          break
-        default:
-          toast({
-            title: "Failed to add member",
-            description: String(error.body?.detail ?? error.message),
-            variant: "destructive",
-          })
+        }
       }
+      return {
+        failedUserIds: failures.map((failure) => failure.userId),
+        failures,
+      }
+    },
+    onSuccess: ({ failedUserIds, failures }, { userIds }) => {
+      queryClient.invalidateQueries({ queryKey: ["rbac-groups", "org"] })
+      queryClient.invalidateQueries({ queryKey: ["org-members"] })
+      const total = userIds.length
+      const noun = total === 1 ? "member" : "members"
+      if (failedUserIds.length > 0) {
+        toast({
+          title: `Added ${total - failedUserIds.length} of ${total} ${noun}`,
+          description: [
+            ...new Set(failures.map((failure) => failure.reason)),
+          ].join("\n"),
+          variant: "destructive",
+        })
+        return
+      }
+      toast({ title: `${total} ${noun} added` })
     },
   })
 
@@ -6978,6 +6993,7 @@ export function useRbacGroups() {
     }) => await rbacRemoveGroupMember({ groupId, userId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rbac-groups", "org"] })
+      queryClient.invalidateQueries({ queryKey: ["org-members"] })
       toast({
         title: "Member removed",
         description: "Member removed from the group successfully.",
@@ -7013,7 +7029,6 @@ export function useRbacGroups() {
     groups: groups ?? [],
     isLoading,
     error,
-    getGroup,
     createGroup,
     createGroupIsPending,
     createGroupError,
@@ -7023,13 +7038,29 @@ export function useRbacGroups() {
     deleteGroup,
     deleteGroupIsPending,
     deleteGroupError,
-    addGroupMember,
-    addGroupMemberIsPending,
-    addGroupMemberError,
+    addGroupMembers,
+    addGroupMembersIsPending,
+    addGroupMembersError,
     removeGroupMember,
     removeGroupMemberIsPending,
     removeGroupMemberError,
   }
+}
+
+/**
+ * Hook to fetch a single RBAC group with its members.
+ */
+export function useRbacGroup(groupId: string) {
+  const {
+    data: group,
+    isLoading,
+    error,
+  } = useQuery<GroupReadWithMembers>({
+    queryKey: ["rbac-groups", "org", groupId],
+    queryFn: async () => await rbacGetGroup({ groupId }),
+  })
+
+  return { group, isLoading, error }
 }
 
 /**
@@ -7068,6 +7099,7 @@ export function useRbacAssignments(options?: {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rbac-assignments"] })
       queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+      queryClient.invalidateQueries({ queryKey: ["org-members"] })
       toast({
         title: "Assignment created",
         description: "Role assigned to group successfully.",
@@ -7127,6 +7159,7 @@ export function useRbacAssignments(options?: {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rbac-assignments"] })
       queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+      queryClient.invalidateQueries({ queryKey: ["org-members"] })
       toast({
         title: "Assignment updated",
         description: "Assignment updated successfully.",
@@ -7169,6 +7202,7 @@ export function useRbacAssignments(options?: {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rbac-assignments"] })
       queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+      queryClient.invalidateQueries({ queryKey: ["org-members"] })
       toast({
         title: "Assignment deleted",
         description: "Assignment removed successfully.",

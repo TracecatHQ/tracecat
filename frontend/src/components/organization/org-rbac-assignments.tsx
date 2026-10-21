@@ -32,6 +32,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -431,92 +432,91 @@ function AssignmentFormDialog({
   }
 
   return (
-    <DialogContent>
-      <form onSubmit={handleSubmit}>
+    <DialogContent size="md">
+      <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 py-4">
-          <div className="space-y-2">
-            <Label htmlFor="assignment-group">Group</Label>
-            <Select value={groupId} onValueChange={setGroupId}>
-              <SelectTrigger id="assignment-group">
-                <SelectValue placeholder="Select a group" />
-              </SelectTrigger>
-              <SelectContent>
-                {groups.map((group) => (
-                  <SelectItem key={group.id} value={group.id}>
-                    {group.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <DialogBody>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="assignment-group">Group</Label>
+              <Select value={groupId} onValueChange={setGroupId}>
+                <SelectTrigger id="assignment-group">
+                  <SelectValue placeholder="Select a group" />
+                </SelectTrigger>
+                <SelectContent>
+                  {groups.map((group) => (
+                    <SelectItem key={group.id} value={group.id}>
+                      {group.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="assignment-role">Role</Label>
-            <Select value={roleId} onValueChange={setRoleId}>
-              <SelectTrigger id="assignment-role">
-                <SelectValue placeholder="Select a role" />
-              </SelectTrigger>
-              <SelectContent>
-                {rolesForScope(
-                  roles,
-                  workspaceId === "org-wide" ? null : workspaceId
-                ).map((role) => (
-                  <SelectItem key={role.id} value={role.id}>
-                    {role.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+            <div className="space-y-2">
+              <Label htmlFor="assignment-role">Role</Label>
+              <Select value={roleId} onValueChange={setRoleId}>
+                <SelectTrigger id="assignment-role">
+                  <SelectValue placeholder="Select a role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {rolesForScope(
+                    roles,
+                    workspaceId === "org-wide" ? null : workspaceId
+                  ).map((role) => (
+                    <SelectItem key={role.id} value={role.id}>
+                      {role.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="assignment-workspace">Scope</Label>
-            <Select
-              value={workspaceId}
-              onValueChange={(value) => {
-                setWorkspaceId(value)
-                setRoleId("")
-              }}
-            >
-              <SelectTrigger id="assignment-workspace">
-                <SelectValue placeholder="Select scope" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="org-wide">
-                  <div className="flex items-center gap-2">
-                    <GlobeIcon className="size-4 text-blue-500" />
-                    Organization-wide
-                  </div>
-                </SelectItem>
-                {workspaces?.map((workspace) => (
-                  <SelectItem key={workspace.id} value={workspace.id}>
+            <div className="space-y-2">
+              <Label htmlFor="assignment-workspace">Scope</Label>
+              <Select
+                value={workspaceId}
+                onValueChange={(value) => {
+                  setWorkspaceId(value)
+                  setRoleId("")
+                }}
+              >
+                <SelectTrigger id="assignment-workspace">
+                  <SelectValue placeholder="Select scope" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="org-wide">
                     <div className="flex items-center gap-2">
-                      <FolderIcon className="size-4 text-muted-foreground" />
-                      {workspace.name}
+                      <GlobeIcon className="size-4 text-blue-500" />
+                      Organization-wide
                     </div>
                   </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Organization-wide assignments apply to all workspaces. Workspace
-              assignments only apply within that workspace.
-            </p>
+                  {workspaces?.map((workspace) => (
+                    <SelectItem key={workspace.id} value={workspace.id}>
+                      <div className="flex items-center gap-2">
+                        <FolderIcon className="size-4 text-muted-foreground" />
+                        {workspace.name}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Organization-wide assignments apply to all workspaces. Workspace
+                assignments only apply within that workspace.
+              </p>
+            </div>
           </div>
-        </div>
+        </DialogBody>
         <DialogFooter>
           <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
+            size="sm"
+            type="submit"
+            disabled={!groupId || !roleId || isPending}
           >
-            Cancel
-          </Button>
-          <Button type="submit" disabled={!groupId || !roleId || isPending}>
             {isPending ? "Creating..." : "Create assignment"}
           </Button>
         </DialogFooter>
@@ -551,8 +551,8 @@ function AssignmentEditDialog({
   }
 
   return (
-    <DialogContent>
-      <form onSubmit={handleSubmit}>
+    <DialogContent size="sm">
+      <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
         <DialogHeader>
           <DialogTitle>Change role assignment</DialogTitle>
           <DialogDescription>
@@ -564,37 +564,33 @@ function AssignmentEditDialog({
             .
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 py-4">
-          <div className="space-y-2">
-            <Label htmlFor="edit-role">Role</Label>
-            <Select value={roleId} onValueChange={setRoleId}>
-              <SelectTrigger id="edit-role">
-                <SelectValue placeholder="Select a role" />
-              </SelectTrigger>
-              <SelectContent>
-                {legacy && (
-                  <SelectItem value={legacy.id} disabled>
-                    {legacy.name} (not assignable here)
-                  </SelectItem>
-                )}
-                {options.map((role) => (
-                  <SelectItem key={role.id} value={role.id}>
-                    {role.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <DialogBody>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-role">Role</Label>
+              <Select value={roleId} onValueChange={setRoleId}>
+                <SelectTrigger id="edit-role">
+                  <SelectValue placeholder="Select a role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {legacy && (
+                    <SelectItem value={legacy.id} disabled>
+                      {legacy.name} (not assignable here)
+                    </SelectItem>
+                  )}
+                  {options.map((role) => (
+                    <SelectItem key={role.id} value={role.id}>
+                      {role.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-        </div>
+        </DialogBody>
         <DialogFooter>
           <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button
+            size="sm"
             type="submit"
             disabled={!roleId || roleId === assignment.role_id || isPending}
           >

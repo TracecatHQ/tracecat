@@ -71,6 +71,7 @@ async def main() -> None:
     assert result == {"uid": 1000, "result": 42}, result
     print("PASS real run_python sandbox and bundled executables", flush=True)
 
+    run_smoke("tests.smoke_executor_cgroup")
     for case in ("nsjail-current-builtin", "nsjail-squashfs"):
         run_smoke("tests.unit.test_executor_sandbox_nsjail", "--run-smoke", case)
     for flag in ("--run-nsjail-harness-smoke", "--run-nsjail-duckdb-smoke"):

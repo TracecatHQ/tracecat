@@ -4,6 +4,7 @@ import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -194,3 +195,32 @@ async def test_unexpected_exchange_error_is_not_reclassified(
 
     assert caught.value is failure
     context.service.store_integration.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_callback_resolves_scopes_for_state_workspace(
+    callback_context: CallbackContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    context = callback_context
+    workspace_scopes = frozenset({"integration:create", "integration:read"})
+    compute_scopes = AsyncMock(return_value=workspace_scopes)
+    monkeypatch.setattr(router, "compute_effective_scopes", compute_scopes)
+
+    await router.oauth_callback(
+        session=context.session,
+        role=context.role,
+        code="synthetic-code",
+        state=str(context.state.state),
+    )
+
+    compute_scopes.assert_awaited_once()
+    assert compute_scopes.await_args is not None
+    resolved_for = compute_scopes.await_args.args[0]
+    assert resolved_for.workspace_id == context.state.workspace_id
+    service_factory = cast(MagicMock, router.IntegrationService)
+    service_role = service_factory.call_args.kwargs["role"]
+    assert service_role.workspace_id == context.state.workspace_id
+    assert service_role.scopes == workspace_scopes
+    current_role = ctx_role.get()
+    assert current_role is not None
+    assert current_role.scopes == workspace_scopes

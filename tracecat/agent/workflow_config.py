@@ -178,6 +178,7 @@ def agent_config_to_payload(config: AgentConfig) -> AgentConfigPayload:
             else None
         ),
         builtin_skills=config.builtin_skills,
+        library_skills=config.library_skills,
     )
 
 
@@ -210,4 +211,5 @@ def agent_config_from_payload(payload: AgentConfigPayload) -> AgentConfig:
             else None
         ),
         builtin_skills=payload.builtin_skills,
+        library_skills=payload.library_skills,
     )

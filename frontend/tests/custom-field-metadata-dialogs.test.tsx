@@ -154,4 +154,43 @@ describe("custom field metadata dialogs", () => {
       })
     })
   })
+
+  it.each([
+    {
+      type: "MULTI_SELECT" as const,
+      default: '["beta","gamma"]',
+      expectedDefault: ["beta", "gamma"],
+    },
+    { type: "SELECT" as const, default: "beta", expectedDefault: "beta" },
+  ])(
+    "keeps existing $type options and default when saving unchanged",
+    async ({ type, default: fieldDefault, expectedDefault }) => {
+      const user = userEvent.setup()
+      renderWithQueryClient(
+        <EditCustomFieldDialog
+          open
+          field={{
+            ...existingField,
+            type,
+            default: fieldDefault,
+            options: ["alpha", "beta", "gamma"],
+          }}
+          onOpenChange={jest.fn()}
+        />
+      )
+
+      await user.click(screen.getByRole("button", { name: "Save changes" }))
+
+      await waitFor(() => {
+        expect(mockCasesUpdateField).toHaveBeenCalledWith({
+          workspaceId: "workspace-1",
+          fieldId: "analyst_verdict_v2",
+          requestBody: expect.objectContaining({
+            options: ["alpha", "beta", "gamma"],
+            default: expectedDefault,
+          }),
+        })
+      })
+    }
+  )
 })

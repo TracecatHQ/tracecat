@@ -55,6 +55,11 @@ export type AgentArtifact = BaseArtifact & {
   type: "agent"
 }
 
+export type FormArtifact = BaseArtifact & {
+  type: "form"
+  status?: "online" | "offline" | null
+}
+
 export type AlertArtifact = BaseArtifact & {
   type: "alert"
 }
@@ -78,6 +83,7 @@ export type WorkspaceChatArtifact =
   | RunArtifact
   | TableArtifact
   | AgentArtifact
+  | FormArtifact
   | AlertArtifact
   | IntegrationArtifact
   | SecretArtifact
@@ -201,6 +207,12 @@ function isArtifact(value: unknown): value is WorkspaceChatArtifact {
       return value.rowCount === undefined || typeof value.rowCount === "number"
     case "agent":
       return true
+    case "form":
+      return (
+        value.status === undefined ||
+        value.status === null ||
+        isStringInSet(value.status, ["online", "offline"])
+      )
     case "alert":
     case "integration":
     case "secret":

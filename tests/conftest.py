@@ -33,7 +33,7 @@ import redis
 import tracecat_registry.integrations.aws_boto3 as boto3_module
 from minio import Minio
 from minio.error import S3Error
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, delete, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -1662,6 +1662,9 @@ async def db_session_with_repo(test_role):
                 logger.error("Error cleaning up repo", e=e)
 
 
+_svc_org_committed = False
+
+
 @pytest.fixture
 async def svc_organization(session: AsyncSession) -> AsyncGenerator[Organization, None]:
     """Service test fixture. Create an organization for service tests."""
@@ -1681,24 +1684,28 @@ async def svc_organization(session: AsyncSession) -> AsyncGenerator[Organization
         await session.commit()
         await session.refresh(org)
 
-    # Also ensure the organization exists in the default engine
-    async with get_async_session_context_manager() as global_session:
-        await global_session.execute(text("SET LOCAL lock_timeout = '5s'"))
-        await global_session.execute(text("SET LOCAL statement_timeout = '30s'"))
-        result = await global_session.execute(
-            select(Organization).where(Organization.id == TEST_ORG_ID)
-        )
-        existing = result.scalar_one_or_none()
-        if existing is None:
-            global_session.add(
-                Organization(
-                    id=TEST_ORG_ID,
-                    name="Test Organization",
-                    slug=f"test-org-{TEST_ORG_ID.hex[:8]}",
-                    is_active=True,
-                )
+    # Also ensure the organization exists in the default engine. It is committed
+    # and never deleted, so one check per xdist worker is enough.
+    global _svc_org_committed
+    if not _svc_org_committed:
+        async with get_async_session_context_manager() as global_session:
+            await global_session.execute(text("SET LOCAL lock_timeout = '5s'"))
+            await global_session.execute(text("SET LOCAL statement_timeout = '30s'"))
+            result = await global_session.execute(
+                select(Organization).where(Organization.id == TEST_ORG_ID)
             )
-            await global_session.commit()
+            existing = result.scalar_one_or_none()
+            if existing is None:
+                global_session.add(
+                    Organization(
+                        id=TEST_ORG_ID,
+                        name="Test Organization",
+                        slug=f"test-org-{TEST_ORG_ID.hex[:8]}",
+                        is_active=True,
+                    )
+                )
+                await global_session.commit()
+        _svc_org_committed = True
 
     yield org
 
@@ -1751,48 +1758,16 @@ async def svc_workspace(
                 await global_cleanup_session.execute(
                     text("SET LOCAL statement_timeout = '30s'")
                 )
-                result = await global_cleanup_session.execute(
-                    select(Workspace).where(Workspace.id == workspace.id)
+                # Core DELETE lets FK ON DELETE CASCADE do the work in one
+                # statement instead of the ORM loading every child collection.
+                await global_cleanup_session.execute(
+                    delete(Workspace).where(Workspace.id == workspace.id)
                 )
-                global_workspace = result.scalar_one_or_none()
-                if global_workspace:
-                    await global_cleanup_session.delete(global_workspace)
-                    await global_cleanup_session.commit()
-                    logger.debug("Cleaned up workspace from global session")
+                await global_cleanup_session.commit()
         except Exception as e:
             logger.error(f"Error cleaning up workspace from global session: {e}")
-
-        # Clean up workspace from test session
-        try:
-            if session.is_active:
-                # Reset transaction state in case it was aborted
-                try:
-                    # Try to roll back any active transaction first
-                    await session.rollback()
-                    # Then delete and commit in a fresh transaction
-                    await session.delete(workspace)
-                    await session.commit()
-                except Exception as inner_e:
-                    logger.error(f"Failed to clean up in existing session: {inner_e}")
-                    # If that fails, try with a completely new session
-                    await session.close()
-                    async with get_async_session_context_manager() as new_session:
-                        # Set timeouts to avoid deadlocks with parallel workers
-                        await new_session.execute(text("SET LOCAL lock_timeout = '5s'"))
-                        await new_session.execute(
-                            text("SET LOCAL statement_timeout = '30s'")
-                        )
-                        # Fetch the workspace again in the new session by logical ID
-                        result = await new_session.execute(
-                            select(Workspace).where(Workspace.id == workspace.id)
-                        )
-                        db_workspace = result.scalar_one_or_none()
-                        if db_workspace:
-                            await new_session.delete(db_workspace)
-                            await new_session.commit()
-        except Exception as e:
-            # Log the error but don't raise it to prevent test teardown failures
-            logger.error(f"Error during workspace cleanup: {e}")
+        # The test-session copy is discarded when the `session` fixture rolls
+        # back its outer transaction, so no explicit delete is needed here.
 
 
 @pytest.fixture

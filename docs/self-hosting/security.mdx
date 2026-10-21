@@ -126,7 +126,7 @@ To enable nsjail, set the following in your `.env`:
 TRACECAT__EXECUTOR_BACKEND=nsjail
 ```
 
-The legacy `ephemeral` value remains an alias for `nsjail`.
+The legacy `ephemeral` value remains an alias for `nsjail`. For Docker Compose, use the sandbox overlay in the [startup instructions](/self-hosting/docker-compose#start-tracecat) to supply container permissions and cgroup delegation.
 
 <Warning>
   The `direct` backend does not sandbox ordinary workflow actions.
@@ -144,23 +144,21 @@ nsjail requires:
 
 ### Resource limits
 
-When you enable nsjail, agent sandboxes get a cgroup v2 memory budget shared by their child processes. Python scripts and custom actions use a per-process virtual address-space cap.
+When you enable nsjail, each agent, Python script, custom action, and dependency-install sandbox gets a cgroup v2 memory budget shared by its child processes.
 
 | Sandbox | Memory cap | Configure with | CPU time | File size | Processes |
 | :------ | :--------- | :------------- | :------- | :-------- | :-------- |
 | `core.script.run_python` and custom actions | 2048 MB | `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` | 300 s | 256 MB | 64 |
-| Dependency installation for `core.script.run_python` | 2048 MB | Fixed | 300 s | 256 MB | 64 |
+| Dependency installation for `core.script.run_python` | 2048 MB | `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` | 300 s | 256 MB | 64 |
 | Agents | 4096 MB | `TRACECAT__AGENT_SANDBOX_MEMORY_MB` | Agent timeout ceiling | 256 MB | 128 |
 
-Pass `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` to your action executor and `TRACECAT__AGENT_SANDBOX_MEMORY_MB` to `agent-executor`. Docker Compose forwards the agent settings; Kubernetes deployments must add them to the agent executor container.
+Pass `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` to your action executor and `TRACECAT__AGENT_SANDBOX_MEMORY_MB` to `agent-executor`. Docker Compose forwards both settings. Helm chart 0.7.0 or newer exposes them as `executor.sandboxMemoryMib` and `agentExecutor.sandboxMemoryMib` and provides the required executor cgroup bootstrap.
 
-Agent sandboxes also have a per-process address-space guard (`rlimit_as`), defaulting to twice the memory budget: 8192 MiB with the default 4096 MiB budget. Set `TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB=16384` to override it with 16 GiB. Size this guard above your workload's peak virtual size, since runtimes can reserve address space before using RAM. Stdio MCP connection probes use the same policy with a memory budget capped at 1024 MiB.
+Sandboxes also have a per-process address-space guard (`rlimit_as`), defaulting to twice the memory budget: 4096 MiB for actions and Python, and 8192 MiB for agents. Set `TRACECAT__SANDBOX_ADDRESS_SPACE_MB=8192` or `TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB=16384` to override the respective guard. Size this guard above your workload's peak virtual size, since runtimes can reserve address space before using RAM. Stdio MCP connection probes use the same policy with a memory budget capped at 1024 MiB.
 
-Agent nsjail requires a writable cgroup v2 subtree with the memory controller enabled. The Compose sandbox overlay starts `python -m tracecat.agent.sandbox.cgroup` as root to prepare the container's subtree, then drops privileges to `apiuser` before starting the worker. Other deployments must use that bootstrap with an isolated, writable container cgroup namespace, or delegate a subtree and set `TRACECAT__AGENT_SANDBOX_CGROUP_PATH=/sys/fs/cgroup/agent-sandboxes`. The worker rejects missing delegation before accepting activities.
+NsJail requires a writable cgroup v2 subtree with the memory controller enabled. The Compose sandbox overlay starts `python -m tracecat.sandbox.bootstrap` for executors and `python -m tracecat.agent.sandbox.cgroup` for agent executors as root to prepare the container's subtree, then drops privileges to `apiuser` before starting the worker. Other deployments must use that bootstrap with an isolated, writable container cgroup namespace, or delegate a subtree and set `TRACECAT__SANDBOX_CGROUP_PATH=/sys/fs/cgroup/action-sandboxes` for executors or `TRACECAT__AGENT_SANDBOX_CGROUP_PATH=/sys/fs/cgroup/agent-sandboxes` for agent executors. Both workers reject missing delegation before accepting activities.
 
 Set concurrency so all sandbox budgets plus worker overhead fit within the outer container limit. Tracecat does not resize concurrency automatically. A per-sandbox limit cannot prevent a container OOM when the sum of concurrent workloads exceeds that outer limit.
-
-For Python scripts and custom actions, the memory setting still controls `rlimit_as` per process. Python can raise `MemoryError` at this limit; native runtimes can abort.
 
 Tracecat reports an action or agent run that exceeds the memory, CPU time, or file size limit as `sandbox.resource_limit_exceeded`. The failure is attributed to the workload, is not retried, and the error names the env var that controls the cap.
 

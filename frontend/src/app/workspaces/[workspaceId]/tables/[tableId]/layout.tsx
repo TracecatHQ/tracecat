@@ -4,8 +4,8 @@ import { XIcon } from "lucide-react"
 import type React from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ControlsHeader } from "@/components/nav/controls-header"
-import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import {
+  TABLE_PANEL_TITLES,
   TablePanelProvider,
   useTablePanel,
 } from "@/components/tables/table-panel-context"
@@ -13,16 +13,10 @@ import { TableSelectionProvider } from "@/components/tables/table-selection-cont
 import { TableSidePanelContent } from "@/components/tables/table-side-panel"
 import { Button } from "@/components/ui/button"
 import { ResizableSidebar } from "@/components/ui/resizable-sidebar"
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { SidebarInset } from "@/components/ui/sidebar"
 import { WorkspaceChatSidebar } from "@/components/workspaces/workspace-chat-sidebar"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceChatOpen } from "@/hooks/use-workspace-chat-open"
-
-const PANEL_TITLES: Record<string, string> = {
-  "view-json": "View JSON",
-  "edit-text": "Edit text",
-  "edit-json": "Edit JSON",
-}
 
 export default function TableDetailLayout({
   children,
@@ -38,8 +32,7 @@ export default function TableDetailLayout({
   return (
     <TableSelectionProvider>
       <TablePanelProvider>
-        <SidebarProvider>
-          <AppSidebar />
+        <>
           <SidebarInset className="min-w-0 flex-1 mr-px">
             <div className="flex h-full flex-col">
               <ControlsHeader
@@ -52,7 +45,7 @@ export default function TableDetailLayout({
           </SidebarInset>
           <TableSidePanel />
           {canShowChat && chatOpen && <WorkspaceChatSidebar />}
-        </SidebarProvider>
+        </>
       </TablePanelProvider>
     </TableSelectionProvider>
   )
@@ -68,7 +61,7 @@ function TableSidePanel() {
       <div className="flex h-full flex-col">
         <div className="flex shrink-0 items-center justify-between px-4 py-2">
           <span className="truncate text-sm font-medium">
-            {PANEL_TITLES[panelContent.mode] ?? "Panel"}
+            {TABLE_PANEL_TITLES[panelContent.mode]}
           </span>
           <Button
             variant="ghost"

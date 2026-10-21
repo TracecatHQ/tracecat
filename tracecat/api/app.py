@@ -32,6 +32,12 @@ from tracecat_ee.secrets.references.router import (
     stores_router as workspace_secret_stores_router,
 )
 from tracecat_ee.secrets.stores.router import router as org_secret_stores_router
+from tracecat_ee.tunnels.gateways import (
+    kubernetes_enabled,
+    start_tunnel_gateway_reconciler,
+)
+from tracecat_ee.tunnels.router import gateway_router as tunnel_gateway_router
+from tracecat_ee.tunnels.router import router as tunnels_router
 from tracecat_ee.watchtower.router import router as watchtower_router
 
 from tracecat import __version__ as APP_VERSION
@@ -54,6 +60,7 @@ from tracecat.agent.router import router as agent_router
 from tracecat.agent.router import workspace_router as agent_workspace_router
 from tracecat.agent.session.router import router as agent_session_router
 from tracecat.agent.skill.folders.router import router as skill_folders_router
+from tracecat.agent.skill.library.router import router as skill_library_router
 from tracecat.agent.skill.router import router as agent_skill_router
 from tracecat.agent.skill.tags.definitions_router import (
     router as skill_tag_definitions_router,
@@ -74,6 +81,7 @@ from tracecat.api.common import (
     query_timeout_exception_handler,
     table_row_exception_handler,
     tracecat_exception_handler,
+    without_inputs,
 )
 from tracecat.api.lifespan import LifespanTaskSupervisor
 from tracecat.auth.credentials import authenticated_user_only
@@ -108,6 +116,7 @@ from tracecat.cases.durations.consumer import start_case_duration_sync_consumer
 from tracecat.cases.durations.router import router as case_durations_router
 from tracecat.cases.router import case_fields_router as case_fields_router
 from tracecat.cases.router import cases_router as cases_router
+from tracecat.cases.rows.router import linked_cases_router as case_linked_cases_router
 from tracecat.cases.rows.router import router as case_rows_router
 from tracecat.cases.tag_definitions.router import (
     router as case_tag_definitions_router,
@@ -136,6 +145,10 @@ from tracecat.exceptions import (
 )
 from tracecat.feature_flags import FeatureFlag, FlagLike, is_feature_enabled
 from tracecat.feature_flags.router import router as feature_flags_router
+from tracecat.forms.exceptions import FormError, form_error_handler
+from tracecat.forms.router import intake_router as forms_intake_router
+from tracecat.forms.router import router as forms_router
+from tracecat.forms.storage import run_file_expiry
 from tracecat.inbox.router import router as inbox_router
 from tracecat.integrations.router import (
     integrations_router,
@@ -288,6 +301,13 @@ async def lifespan(app: FastAPI):
         start_case_duration_sync_consumer,
         name="case_duration_sync_consumer",
     )
+    supervisor.spawn_stoppable(run_file_expiry, name="form_file_expiry")
+
+    if kubernetes_enabled():
+        supervisor.spawn_stoppable(
+            start_tunnel_gateway_reconciler,
+            name="tunnel_gateway_reconciler",
+        )
 
     # SMTP configuration is loaded at process startup; enabling it needs a restart.
     if SMTPTransport.from_config() is not None:
@@ -416,7 +436,7 @@ def validation_exception_handler(request: Request, exc: Exception) -> Response:
         "API Model Validation error",
         method=request.method,
         path=request.url.path,
-        errors=ser_errors,
+        errors=without_inputs(ser_errors),
     )
     return ORJSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -603,6 +623,8 @@ def create_app(**kwargs) -> FastAPI:
     _include_workspace_scoped_router(app, workspace_secret_stores_router)
     _include_workspace_scoped_router(app, secrets_router)
     _include_workspace_scoped_router(app, variables_router)
+    _include_workspace_scoped_router(app, tunnels_router)
+    app.include_router(tunnel_gateway_router)
     _include_workspace_scoped_router(app, schedules_router)
     _include_workspace_scoped_router(app, tags_router)
     app.include_router(users_router)
@@ -621,6 +643,7 @@ def create_app(**kwargs) -> FastAPI:
     _include_workspace_scoped_router(app, agent_tag_definitions_router)
     _include_workspace_scoped_router(app, agent_skill_router)
     _include_workspace_scoped_router(app, skill_folders_router)
+    _include_workspace_scoped_router(app, skill_library_router)
     _include_workspace_scoped_router(app, skill_tag_definitions_router)
     _include_workspace_scoped_router(app, skill_tags_router)
     _include_workspace_scoped_router(app, agent_session_router)
@@ -638,9 +661,12 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(org_secrets_router)
     app.include_router(org_secret_stores_router)
     _include_workspace_scoped_router(app, tables_router)
+    _include_workspace_scoped_router(app, forms_router)
+    app.include_router(forms_intake_router)
     _include_workspace_scoped_router(app, cases_router)
     _include_workspace_scoped_router(app, case_versions_router)
     _include_workspace_scoped_router(app, case_rows_router)
+    _include_workspace_scoped_router(app, case_linked_cases_router)
     _include_workspace_scoped_router(app, case_fields_router)
     _include_workspace_scoped_router(app, case_tags_router)
     _include_workspace_scoped_router(app, case_tag_definitions_router)
@@ -756,6 +782,7 @@ def create_app(**kwargs) -> FastAPI:
     )
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(TableRowError, table_row_exception_handler)
+    app.add_exception_handler(FormError, form_error_handler)
     app.add_exception_handler(
         TracecatQueryTimeoutError,
         query_timeout_exception_handler,

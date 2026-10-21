@@ -22,9 +22,16 @@ from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 from tracecat.identifiers import WorkspaceID
 from tracecat.pagination import Page, PageParams, paginate
-from tracecat.secrets.schemas import SecretStoreCreate, SecretStoreUpdate
+from tracecat.secrets.schemas import (
+    SecretStoreConfig,
+    SecretStoreCreate,
+    SecretStoreUpdate,
+    SecretStoreWorkspaceUsage,
+)
 from tracecat.service import BaseOrgService
 from tracecat_ee.secrets.stores.backends import get_backend, parse_store_config
+
+_NOT_READY_MESSAGE = "Finish setting up the store before enabling it."
 
 
 class SecretStoresService(BaseOrgService):
@@ -99,6 +106,44 @@ class SecretStoresService(BaseOrgService):
             await set_rls_context_from_role(self.session, self.role)
         return dict(result.tuples().all())
 
+    async def workspace_usage(
+        self, store_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, list[SecretStoreWorkspaceUsage]]:
+        """Count referencing secrets per store and workspace, most used first."""
+        if not store_ids:
+            return {}
+        count = func.count(Secret.id)
+        stmt = (
+            select(Secret.store_id, Secret.workspace_id, count)
+            .join(
+                OrganizationSecretStore, Secret.store_id == OrganizationSecretStore.id
+            )
+            .where(
+                Secret.store_id.in_(store_ids),
+                OrganizationSecretStore.organization_id == self.organization_id,
+            )
+            .group_by(Secret.store_id, Secret.workspace_id)
+            .order_by(count.desc(), Secret.workspace_id)
+        )
+        # Same RLS bypass as count_references: org sessions cannot see `secret`.
+        await set_rls_context(
+            self.session, self.organization_id, None, self.role.user_id, bypass=True
+        )
+        try:
+            result = await self.session.execute(stmt)
+        finally:
+            await set_rls_context_from_role(self.session, self.role)
+        usage: dict[uuid.UUID, list[SecretStoreWorkspaceUsage]] = {}
+        for store_id, workspace_id, secret_count in result.tuples():
+            if store_id is None:
+                continue
+            usage.setdefault(store_id, []).append(
+                SecretStoreWorkspaceUsage(
+                    workspace_id=workspace_id, secret_count=secret_count
+                )
+            )
+        return usage
+
     async def _has_arn_references(self, store_id: uuid.UUID) -> bool:
         """Whether any workspace secret references the store by full ARN."""
         stmt = select(
@@ -120,7 +165,10 @@ class SecretStoresService(BaseOrgService):
     @audit_log(resource_type="organization_secret_store", action="create")
     async def create_store(self, params: SecretStoreCreate) -> OrganizationSecretStore:
         """Create a store. Server-owned config fields are generated here."""
-        config = get_backend(params.provider).new_config(params.config)
+        backend = get_backend(params.provider)
+        config = backend.new_config(params.config)
+        if params.enabled and not backend.is_ready(config):
+            raise ValueError(_NOT_READY_MESSAGE)
         store = OrganizationSecretStore(
             organization_id=self.organization_id,
             name=params.name,
@@ -143,6 +191,7 @@ class SecretStoresService(BaseOrgService):
         """Update store metadata. Server-owned config fields are never changed."""
         fields = params.model_dump(exclude_unset=True)
         fields.pop("config", None)
+        config: SecretStoreConfig | None = None
         if params.config is not None:
             # Block concurrent reference creation between the check and commit.
             await self.session.refresh(store, with_for_update=True)
@@ -156,6 +205,13 @@ class SecretStoresService(BaseOrgService):
                     "Update or remove secrets that reference this store by ARN"
                     " before changing its region."
                 )
+        # Parse the saved config only when needed, so a store with an
+        # unparseable config can still be renamed or disabled.
+        if fields.get("enabled", store.enabled):
+            ready_config = config if config is not None else parse_store_config(store)
+            if not get_backend(store.provider).is_ready(ready_config):
+                raise ValueError(_NOT_READY_MESSAGE)
+        if config is not None:
             store.config = config.model_dump(mode="json")
         for field, value in fields.items():
             setattr(store, field, value)

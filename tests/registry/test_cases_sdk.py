@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+import ast
+import inspect
+from copy import deepcopy
+from datetime import UTC, date, datetime
+from decimal import Decimal
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -62,6 +68,39 @@ async def test_aggregate_cases_uses_exact_gateway_path(
     client = TracecatClient(action_gateway_socket="/tmp/aggregate-cases-test.sock")
     assert await client.cases.aggregate_cases(spec) == response
     assert len(requests) == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("order_by", ["assignee", "tags"])
+async def test_relationship_sort_uses_gateway_query(
+    monkeypatch: pytest.MonkeyPatch,
+    order_by: str,
+) -> None:
+    """The SDK forwards case sort keys on the existing gateway protocol."""
+    requests: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        values = (
+            orjson.loads(request.content)
+            if request.method == "POST"
+            else request.url.params
+        )
+        assert values["order_by"] == order_by
+        assert values["sort"] == "asc"
+        return httpx.Response(200, json={"items": [], "has_more": False})
+
+    def create_transport(*, uds: str) -> httpx.MockTransport:
+        return httpx.MockTransport(handle)
+
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", create_transport)
+    client = TracecatClient(action_gateway_socket="/tmp/synthetic-case-sort.sock")
+    await client.cases.list_cases(order_by=order_by, sort="asc")
+    await client.cases.search_cases(order_by=order_by, sort="asc")
+    assert [request.url.path for request in requests] == [
+        "/internal/cases",
+        "/internal/cases/search",
+    ]
 
 
 @pytest.mark.anyio
@@ -250,3 +289,180 @@ async def test_update_comment_simple_only_sends_content(
         "/comments/comment-id/simple",
         json={"content": "Updated content"},
     )
+
+
+@pytest.mark.anyio
+async def test_list_linked_cases_uses_table_row_path(
+    cases_client: CasesClient, mock_tracecat_client: MagicMock
+) -> None:
+    mock_tracecat_client.get.return_value = {"items": [], "next_cursor": None}
+
+    await cases_client.list_linked_cases(
+        "table-id", "row-id", limit=5, exclude_case_id="CASE-0001", sort="asc"
+    )
+
+    mock_tracecat_client.get.assert_called_once_with(
+        "/tables/table-id/rows/row-id/cases",
+        params={"limit": 5, "sort": "asc", "exclude_case_id": "CASE-0001"},
+    )
+
+
+@pytest.mark.anyio
+async def test_search_cases_canonical_gateway_body_and_detail_flags(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The registry forwards the server-owned AST and exact relative path."""
+    workspace_case_id = str(uuid4())
+    parent_id = str(uuid4())
+    filters = {
+        "or": [
+            {"field": "priority", "op": "eq", "value": "critical"},
+            {"field": "fields.risk_score", "op": "gte", "value": 80},
+        ]
+    }
+    requests: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert request.method == "POST"
+        assert (
+            str(request.url) == "http://tracecat-action-gateway/internal/cases/search"
+        )
+        assert orjson.loads(request.content) == {
+            "limit": 7,
+            "search_term": "powershell encoded",
+            "search_mode": "full_text",
+            "search_columns": ["description"],
+            "short_id": "CASE-0042",
+            "case_id": workspace_case_id,
+            "parent_id": parent_id,
+            "hierarchy": "all",
+            "filters": filters,
+            "include_rows": True,
+            "include_payload": True,
+            "include_durations": True,
+            "include_count": False,
+            "field_ids": ["risk_score"],
+            "assignee_id": ["unassigned"],
+            "tags": ["synthetic-tag"],
+            "dropdown": ["verdict:selected"],
+            "order_by": "short_id",
+            "sort": "asc",
+        }
+        return httpx.Response(200, json={"items": [], "total_estimate": None})
+
+    def create_transport(*, uds: str) -> httpx.MockTransport:
+        return httpx.MockTransport(handle)
+
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", create_transport)
+    client = TracecatClient(action_gateway_socket="/tmp/synthetic-case-search.sock")
+    response = await client.cases.search_cases(
+        limit=7,
+        search_term="powershell encoded",
+        search_mode="full_text",
+        search_columns=["description"],
+        short_id="CASE-0042",
+        case_id=workspace_case_id,
+        parent_id=parent_id,
+        hierarchy="all",
+        filters=filters,
+        include_rows=True,
+        include_payload=True,
+        include_durations=True,
+        include_count=False,
+        field_ids=["risk_score"],
+        assignee_id=["unassigned"],
+        tags=["synthetic-tag"],
+        dropdown=["verdict:selected"],
+        order_by="short_id",
+        sort="asc",
+    )
+    assert response["items"] == [] and response["total_estimate"] is None
+    assert len(requests) == 1
+
+
+@pytest.mark.anyio
+async def test_search_cases_serializes_native_filter_scalars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Real HTTP encoding preserves nested scalar values without mutating input."""
+    timestamp = datetime(2026, 1, 2, 3, 4, tzinfo=UTC)
+    day = date(2026, 1, 2)
+    assignee = uuid4()
+    amount = Decimal("12345678901234567890.123456789")
+    filters = {
+        "and": [
+            {"field": "created_at", "op": "gte", "value": timestamp},
+            {
+                "or": [
+                    {"field": "updated_at", "op": "eq", "value": day},
+                    {
+                        "not": {
+                            "field": "assignee",
+                            "op": "in",
+                            "value": [assignee],
+                        }
+                    },
+                ]
+            },
+            {"field": "fields.amount", "op": "gte", "value": amount},
+            {"field": "assignee", "op": "is_null", "value": None},
+        ]
+    }
+    original = deepcopy(filters)
+    requests: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        clauses = orjson.loads(request.content)["filters"]["and"]
+        assert datetime.fromisoformat(clauses[0]["value"]) == timestamp
+        alternatives = clauses[1]["or"]
+        assert date.fromisoformat(alternatives[0]["value"]) == day
+        assert alternatives[1]["not"]["value"] == [str(assignee)]
+        assert clauses[2]["value"] == str(amount)
+        assert clauses[3] == {
+            "field": "assignee",
+            "op": "is_null",
+            "value": None,
+        }
+        return httpx.Response(200, json={"items": [], "has_more": False})
+
+    def create_transport(*, uds: str) -> httpx.MockTransport:
+        return httpx.MockTransport(handle)
+
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", create_transport)
+    client = TracecatClient(action_gateway_socket="/tmp/synthetic-case-search.sock")
+    await client.cases.search_cases(filters=filters)
+    assert len(requests) == 1
+    assert filters == original
+
+
+def test_case_search_sdk_stub_signatures_match_client() -> None:
+    """Both synchronous and asynchronous declarations expose every SDK option."""
+    module = ast.parse(
+        (
+            Path(__file__).parents[2]
+            / "packages/tracecat-registry/tracecat_registry/ctx.pyi"
+        ).read_text()
+    )
+    declarations = [
+        node
+        for node in ast.walk(module)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        and node.name == "search_cases"
+    ]
+    assert len(declarations) == 2
+    source_signature = inspect.signature(CasesClient.search_cases)
+    source_names = list(source_signature.parameters)
+    for declaration in declarations:
+        assert [
+            arg.arg for arg in (*declaration.args.args, *declaration.args.kwonlyargs)
+        ] == source_names
+        for arg in declaration.args.kwonlyargs:
+            assert arg.annotation is not None
+            assert (
+                ast.unparse(arg.annotation)
+                == source_signature.parameters[arg.arg].annotation
+            )
+        assert declaration.returns is not None
+        assert ast.unparse(declaration.returns) == source_signature.return_annotation

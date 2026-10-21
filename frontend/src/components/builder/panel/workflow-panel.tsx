@@ -28,6 +28,7 @@ import { ControlledYamlField } from "@/components/builder/panel/action-panel-fie
 import { CopyButton } from "@/components/copy-button"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
+import { TunnelSelect } from "@/components/tunnels/tunnel-select"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -50,6 +51,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -98,6 +100,7 @@ const createWorkflowUpdateFormSchema = (workspaceId: string) =>
         .string()
         .max(100, { message: "Environment cannot exceed 100 characters" })
         .optional(),
+      tunnel: z.string().max(63).optional(),
       timeout: z
         .number()
         .min(0, { message: "Timeout must be at least 0 seconds" })
@@ -472,6 +475,7 @@ function getWorkflowFormValues(
     title: workflow.title,
     alias: workflow.alias,
     environment: workflow.config?.environment || "default",
+    tunnel: workflow.config?.tunnel || undefined,
     timeout: workflow.config?.timeout || 0,
     // Use undefined for empty objects so the YAML editor shows empty instead of {}
     expects:
@@ -518,6 +522,7 @@ function WorkflowSettingsPanel({
           ...values,
           config: {
             environment: values.environment,
+            tunnel: values.tunnel ?? null,
             timeout: values.timeout,
           },
         }
@@ -737,6 +742,32 @@ function WorkflowSettingsPanel({
                       onChange={field.onChange}
                     />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {/* Tunnel */}
+            <FormField
+              name="tunnel"
+              control={methods.control}
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs">Default tunnel</FormLabel>
+                  <FormControl>
+                    <TunnelSelect
+                      value={field.value}
+                      onChange={(value) => {
+                        field.onChange(value)
+                        void methods.handleSubmit(onSubmit)()
+                      }}
+                      noneLabel="No tunnel"
+                    />
+                  </FormControl>
+                  <FormDescription className="text-xs">
+                    Route HTTP(S) traffic from every action through this tunnel
+                    unless the action sets its own.
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

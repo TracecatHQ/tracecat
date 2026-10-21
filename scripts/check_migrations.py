@@ -23,6 +23,15 @@ LINEAR_HISTORY_BASE = "2f14222e0d12"
 # match the shipped graph. They become inert once the rewrite is on every base
 # and may then be deleted.
 AUDITED_REWRITES: Mapping[str, tuple[tuple[bytes, bytes], ...]] = {
+    # #3736 (d9107f689ccf) and #3662 (e379e38b8495) both revised d45011587673
+    # and merged without a rebase. Sub-cases runs after skill library installs.
+    "d9107f689ccf": (
+        (b"Revises: d45011587673\n", b"Revises: e379e38b8495\n"),
+        (
+            b'down_revision: str | None = "d45011587673"\n',
+            b'down_revision: str | None = "e379e38b8495"\n',
+        ),
+    ),
     "9680c861644a": (
         (b"Revises: a7c3e9f1b2d4\n", b"Revises: bc3124ad3437\n"),
         (

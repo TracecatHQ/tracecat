@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 import uuid
-from collections import defaultdict
 from collections.abc import Sequence
-from typing import Any
+from datetime import datetime
+from typing import Literal
 
 import sqlalchemy as sa
-from asyncpg.exceptions import UndefinedTableError
-from sqlalchemy import exc as sa_exc
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from tracecat.auth.types import Role
+from tracecat.cases.event_schemas import (
+    TableRowLinkedEvent,
+    TableRowUnlinkedEvent,
+)
+from tracecat.cases.rows.hydration import CaseRowHydrator
 from tracecat.cases.rows.schemas import (
     CaseLinkedTableRead,
     CaseTableRowBatchLinkResponse,
@@ -21,18 +24,22 @@ from tracecat.cases.rows.schemas import (
     CaseTableRowLinkCreate,
     CaseTableRowRead,
 )
-from tracecat.cases.schemas import TableRowLinkedEvent, TableRowUnlinkedEvent
-from tracecat.cases.service import CaseEventsService
+from tracecat.cases.schemas import (
+    CaseReadMinimal,
+)
+from tracecat.cases.service import CaseEventsService, CasesService
 from tracecat.db.models import Case, CaseTableRow, Table
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import (
     CursorPaginatedResponse,
+    CursorPaginationParams,
     PageParams,
     paginate,
 )
-from tracecat.service import BaseWorkspaceService
+from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tables.schemas import TableColumnRead
 from tracecat.tables.service import TablesService
+from tracecat.tiers.enums import Entitlement
 
 # Linked-row caps. The case page pages through every row linked to a case, so
 # these caps bound how much link data one case can accumulate:
@@ -130,6 +137,26 @@ class CaseTableRowsService(BaseWorkspaceService):
         )
         return int((await self.session.scalar(stmt)) or 0)
 
+    async def _page_links_by_row_id(
+        self,
+        link_filters: Sequence[sa.ColumnElement[bool]],
+        row_ids: Sequence[uuid.UUID],
+    ) -> dict[uuid.UUID, tuple[uuid.UUID, datetime, datetime]]:
+        """Map each row ID to its link's ``(id, created_at, updated_at)``."""
+        if not row_ids:
+            return {}
+        stmt = select(
+            CaseTableRow.row_id,
+            CaseTableRow.id,
+            CaseTableRow.created_at,
+            CaseTableRow.updated_at,
+        ).where(*link_filters, CaseTableRow.row_id.in_(row_ids))
+        result = await self.session.execute(stmt)
+        return {
+            row_id: (link_id, created_at, updated_at)
+            for row_id, link_id, created_at, updated_at in result.tuples().all()
+        }
+
     async def _link_cap_violation(
         self, case_id: uuid.UUID, table_id: uuid.UUID
     ) -> str | None:
@@ -162,8 +189,40 @@ class CaseTableRowsService(BaseWorkspaceService):
         reverse: bool = False,
         include_row_data: bool = True,
         table_id: uuid.UUID | None = None,
+        order_by: str | None = None,
+        sort: Literal["asc", "desc"] | None = None,
+        search_term: str | None = None,
+        search_column: str | None = None,
     ) -> CursorPaginatedResponse[CaseTableRowRead]:
-        """List linked rows, with an exact total when filtered by table."""
+        """List linked rows, with an exact total when filtered by table.
+
+        ``order_by``, ``sort``, ``search_term`` and ``search_column`` sort and
+        filter on row data with the same semantics as ``TablesService.list_rows``.
+        They apply to one table's rows, so they require ``table_id``.
+
+        Raises:
+            TracecatNotFoundError: If the table does not exist
+            ValueError: If a row data parameter is given without ``table_id``,
+                or is invalid for the table
+        """
+        row_data_params = (order_by, sort, search_term, search_column)
+        if any(param is not None for param in row_data_params):
+            if table_id is None:
+                raise ValueError(
+                    "order_by, sort, search_term and search_column require table_id"
+                )
+            return await self._list_rows_by_row_data(
+                case_id=case_id,
+                table_id=table_id,
+                limit=limit,
+                cursor=cursor,
+                include_row_data=include_row_data,
+                order_by=order_by,
+                sort=sort,
+                search_term=search_term,
+                search_column=search_column,
+            )
+
         filters = [
             CaseTableRow.workspace_id == self.workspace_id,
             CaseTableRow.case_id == case_id,
@@ -205,6 +264,74 @@ class CaseTableRowsService(BaseWorkspaceService):
             has_more=page.has_more,
             has_previous=page.has_previous,
             total_estimate=total_estimate,
+        )
+
+    async def _list_rows_by_row_data(
+        self,
+        *,
+        case_id: uuid.UUID,
+        table_id: uuid.UUID,
+        limit: int,
+        cursor: str | None,
+        include_row_data: bool,
+        order_by: str | None,
+        sort: Literal["asc", "desc"] | None,
+        search_term: str | None,
+        search_column: str | None,
+    ) -> CursorPaginatedResponse[CaseTableRowRead]:
+        """List one table's linked rows, sorted and searched on row data.
+
+        The table's rows are paginated, restricted to the rows linked to the
+        case, so sorting and searching cover every linked row rather than one
+        page. Links whose row no longer exists are not returned.
+        """
+        table = await self.tables.get_table(table_id)
+        link_filters = [
+            CaseTableRow.workspace_id == self.workspace_id,
+            CaseTableRow.case_id == case_id,
+            CaseTableRow.table_id == table_id,
+        ]
+        page = await self.tables.list_rows(
+            table,
+            CursorPaginationParams(limit=limit, cursor=cursor),
+            search_term=search_term,
+            order_by=order_by,
+            sort=sort,
+            search_column=search_column,
+            row_ids=select(CaseTableRow.row_id).where(*link_filters),
+        )
+
+        links_by_row_id = await self._page_links_by_row_id(
+            link_filters, [row["id"] for row in page.items]
+        )
+
+        items: list[CaseTableRowRead] = []
+        for row in page.items:
+            # A link removed since the page was read is skipped.
+            if (link := links_by_row_id.get(row["id"])) is None:
+                continue
+            link_id, created_at, updated_at = link
+            items.append(
+                CaseTableRowRead(
+                    id=link_id,
+                    case_id=case_id,
+                    table_id=table_id,
+                    table_name=table.name,
+                    row_id=row["id"],
+                    row_data=row if include_row_data else None,
+                    is_row_available=True,
+                    created_at=created_at,
+                    updated_at=updated_at,
+                )
+            )
+
+        return CursorPaginatedResponse(
+            items=items,
+            next_cursor=page.next_cursor,
+            prev_cursor=page.prev_cursor,
+            has_more=page.has_more,
+            has_previous=page.has_previous,
+            total_estimate=await self._count_table_links(case_id, table_id),
         )
 
     async def list_linked_tables(
@@ -529,90 +656,67 @@ class CaseTableRowsService(BaseWorkspaceService):
         return link
 
     async def hydrate_case_rows(
-        self,
-        *,
-        case_ids: list[uuid.UUID],
-        include_row_data: bool,
+        self, *, case_ids: list[uuid.UUID], include_row_data: bool
     ) -> dict[uuid.UUID, list[CaseTableRowRead]]:
-        if not case_ids:
-            return {}
-        stmt = (
-            select(CaseTableRow)
-            .where(
-                CaseTableRow.workspace_id == self.workspace_id,
-                CaseTableRow.case_id.in_(case_ids),
-            )
-            .order_by(CaseTableRow.created_at.desc(), CaseTableRow.id.desc())
-        )
-        links = (await self.session.execute(stmt)).scalars().all()
-        hydrated = await self._hydrate_links(links, include_row_data=include_row_data)
-        grouped: dict[uuid.UUID, list[CaseTableRowRead]] = defaultdict(list)
-        for row in hydrated:
-            grouped[row.case_id].append(row)
-        return grouped
+        return await CaseRowHydrator(
+            self.session, self.role, tables=self.tables
+        ).hydrate_case_rows(case_ids=case_ids, include_row_data=include_row_data)
 
     async def _hydrate_links(
-        self,
-        links: Sequence[CaseTableRow],
-        *,
-        include_row_data: bool,
+        self, links: Sequence[CaseTableRow], *, include_row_data: bool
     ) -> list[CaseTableRowRead]:
-        tables_by_id = await self._get_tables_by_id([link.table_id for link in links])
-        rows_by_table_id: dict[uuid.UUID, dict[uuid.UUID, dict[str, Any]]] = {}
-        if include_row_data:
-            row_ids_by_table_id: dict[uuid.UUID, set[uuid.UUID]] = defaultdict(set)
-            for link in links:
-                if link.table_id in tables_by_id:
-                    row_ids_by_table_id[link.table_id].add(link.row_id)
-
-            for table_id, row_ids in row_ids_by_table_id.items():
-                try:
-                    rows_by_table_id[table_id] = await self.tables.get_rows(
-                        tables_by_id[table_id], list(row_ids)
-                    )
-                except sa_exc.DBAPIError as exc:
-                    if not isinstance(exc.orig, UndefinedTableError):
-                        raise
-
-        hydrated: list[CaseTableRowRead] = []
-
-        for link in links:
-            table = tables_by_id.get(link.table_id)
-            row_data: dict[str, Any] | None = None
-            is_available = False
-            if include_row_data and table is not None:
-                row_data = rows_by_table_id.get(link.table_id, {}).get(link.row_id)
-                is_available = row_data is not None
-            elif not include_row_data:
-                is_available = True
-
-            hydrated.append(
-                CaseTableRowRead(
-                    id=link.id,
-                    case_id=link.case_id,
-                    table_id=link.table_id,
-                    table_name=table.name if table else None,
-                    row_id=link.row_id,
-                    row_data=row_data,
-                    is_row_available=is_available,
-                    created_at=link.created_at,
-                    updated_at=link.updated_at,
-                )
-            )
-
-        return hydrated
+        return await CaseRowHydrator(
+            self.session, self.role, tables=self.tables
+        )._hydrate_links(links, include_row_data=include_row_data)
 
     async def _get_tables_by_id(
         self, table_ids: list[uuid.UUID]
     ) -> dict[uuid.UUID, Table]:
-        if not table_ids:
-            return {}
-        stmt = select(Table).where(
-            Table.workspace_id == self.workspace_id,
-            Table.id.in_(set(table_ids)),
+        return await CaseRowHydrator(
+            self.session, self.role, tables=self.tables
+        )._get_tables_by_id(table_ids)
+
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    async def list_linked_cases(
+        self,
+        *,
+        table_id: uuid.UUID,
+        row_id: uuid.UUID,
+        params: CursorPaginationParams,
+        exclude_case_id: uuid.UUID | None = None,
+        order_by: Literal[
+            "created_at",
+            "updated_at",
+            "priority",
+            "severity",
+            "status",
+            "tasks",
+            "assignee",
+            "tags",
+        ]
+        | None = None,
+        sort: Literal["asc", "desc"] | None = None,
+    ) -> CursorPaginatedResponse[CaseReadMinimal]:
+        """List the cases linked to one table row.
+
+        Links outlive their row, so a deleted row still lists the cases that
+        linked it. Only the table has to exist.
+        """
+        table_exists = await self.session.scalar(
+            select(Table.id).where(
+                Table.workspace_id == self.workspace_id,
+                Table.id == table_id,
+            )
         )
-        tables = (await self.session.execute(stmt)).scalars().all()
-        return {table.id: table for table in tables}
+        if table_exists is None:
+            raise TracecatNotFoundError(f"Table {table_id} not found")
+        return await CasesService(self.session, self.role).search_cases(
+            params=params,
+            linked_row=(table_id, row_id),
+            exclude_case_id=exclude_case_id,
+            order_by=order_by,
+            sort=sort,
+        )
 
     async def get_case_or_raise(self, case_id: uuid.UUID) -> Case:
         stmt = select(Case).where(

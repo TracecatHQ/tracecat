@@ -41,6 +41,13 @@ from tracecat.invitations.service import (
 router = APIRouter(prefix="/invitations", tags=["invitations"])
 
 
+def _invitation_read(invitation: Invitation) -> InvitationRead:
+    """Serialize an authenticated invitation response with group IDs."""
+    read = InvitationRead.model_validate(invitation)
+    read.group_ids = [group.group_id for group in invitation.groups]
+    return read
+
+
 def _get_user_display_name_and_email(
     user: User | None,
 ) -> tuple[str | None, str | None]:
@@ -86,7 +93,7 @@ async def create_invitation(
             detail="An invitation already exists for this email",
         ) from e
 
-    read = InvitationRead.model_validate(invitation)
+    read = _invitation_read(invitation)
     if await service.is_scim_connected():
         read.warning = (
             f"{invitation.email} is invited manually into an organization "
@@ -288,7 +295,7 @@ async def resend_invitation(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
 
-    return InvitationRead.model_validate(invitation)
+    return _invitation_read(invitation)
 
 
 @router.get("/{invitation_id}/token", response_model=InvitationTokenRead)

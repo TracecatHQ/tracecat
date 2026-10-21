@@ -13,7 +13,10 @@ import { z } from "zod"
 import type { TableColumnRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Spinner } from "@/components/loading/spinner"
-import { TableSearchColumnControl } from "@/components/tables/table-search-column-control"
+import {
+  TableSearchColumnDialog,
+  TableSearchColumnMenuItem,
+} from "@/components/tables/table-search-column-control"
 import { useTableSearchContext } from "@/components/tables/table-search-context"
 import {
   AlertDialog,
@@ -43,6 +46,8 @@ type TableViewColumnMenuType =
   | "edit"
   | "set-natural-key"
   | "drop-natural-key"
+  | "enable-vector-search"
+  | "disable-vector-search"
   | null
 
 export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
@@ -107,7 +112,14 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
                 Create unique index
               </DropdownMenuItem>
             ))}
-          <TableSearchColumnControl column={column} />
+          <TableSearchColumnMenuItem
+            column={column}
+            onSelectAction={(enabled) =>
+              setActiveType(
+                enabled ? "enable-vector-search" : "disable-vector-search"
+              )
+            }
+          />
           {canDeleteColumn && (
             <DropdownMenuItem
               className="py-1 text-xs text-destructive"
@@ -138,6 +150,18 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
         tableId={tableId}
         column={column}
         open={activeType === "drop-natural-key"}
+        onOpenChange={onOpenChange}
+      />
+      <TableSearchColumnDialog
+        column={column}
+        enabled
+        open={activeType === "enable-vector-search"}
+        onOpenChange={onOpenChange}
+      />
+      <TableSearchColumnDialog
+        column={column}
+        enabled={false}
+        open={activeType === "disable-vector-search"}
         onOpenChange={onOpenChange}
       />
     </>

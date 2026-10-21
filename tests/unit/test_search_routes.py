@@ -23,8 +23,11 @@ from tracecat.executor.action_gateway.app import (
 )
 from tracecat.search.embeddings.types import EmbeddingError, EmbeddingErrorCode
 from tracecat.search.retrieval import TableRetrievalService
+from tracecat.search.router import (
+    require_semantic_search_entitlement,
+    semantic_search,
+)
 from tracecat.search.router import router as search_router
-from tracecat.search.router import semantic_search
 from tracecat.search.schemas import SearchRequest
 from tracecat.search.types import SearchError, SearchErrorCode
 from tracecat.tables.internal_router import router
@@ -216,6 +219,7 @@ async def test_raw_surrogate_request_returns_safe_422(test_role, body, gateway):
     app.dependency_overrides[get_args(ExecutorWorkspaceRole)[1].dependency] = lambda: (
         test_role
     )
+    app.dependency_overrides[require_semantic_search_entitlement] = lambda: None
     app.add_exception_handler(
         RequestValidationError,
         validation_exception_handler if gateway else api_validation_exception_handler,
@@ -244,6 +248,7 @@ async def test_encoding_guard_preserves_normal_body_validation(test_role, body):
     app.dependency_overrides[get_args(ExecutorWorkspaceRole)[1].dependency] = lambda: (
         test_role
     )
+    app.dependency_overrides[require_semantic_search_entitlement] = lambda: None
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://synthetic"
     ) as http:
@@ -262,6 +267,7 @@ async def test_valid_escaped_surrogate_pair_reaches_search(test_role):
     app.dependency_overrides[get_args(ExecutorWorkspaceRole)[1].dependency] = lambda: (
         test_role
     )
+    app.dependency_overrides[require_semantic_search_entitlement] = lambda: None
     with patch(
         "tracecat.search.router.TableRetrievalService.search",
         new=AsyncMock(side_effect=SearchError(SearchErrorCode.NOT_FOUND)),

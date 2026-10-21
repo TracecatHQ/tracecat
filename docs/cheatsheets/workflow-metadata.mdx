@@ -14,7 +14,7 @@ Wrap a field in `${{ ... }}` to use it in an expression.
 | `ENV.workflow.dispatch_type` | `push` when the caller supplied the workflow definition, `pull` when the run fetched the committed definition |
 | `ENV.workflow.execution_id` | Unique ID of this workflow execution |
 | `ENV.workflow.run_id` | UUID of this execution's current run attempt |
-| `ENV.workflow.trigger_type` | `manual`, `scheduled`, `webhook`, or `case` |
+| `ENV.workflow.trigger_type` | `manual`, `scheduled`, `webhook`, `case`, or `form` |
 | `ENV.workflow.logical_time` | Logical timestamp of the current action; `FN.now()` returns it. A `run_if` evaluated before any action has run sees `None` |
 | `ENV.environment` | The [Workflow environment](/automations/workflows#environments) the run executes in |
 

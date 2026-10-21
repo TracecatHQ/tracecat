@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import orjson
 import pytest
@@ -19,97 +18,6 @@ from tracecat.agent.stream.events import (
 )
 from tracecat.chat import tokens
 from tracecat.redis.client import RedisClient
-
-
-async def _empty_event_stream() -> AsyncIterator[None]:
-    if False:
-        yield
-
-
-def test_sse_vercel_format_uses_vercel_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
-    workspace_id = uuid.uuid4()
-    session_id = uuid.uuid4()
-    client = SimpleNamespace()
-    stream = AgentStream(
-        client=cast(RedisClient, client),
-        workspace_id=workspace_id,
-        session_id=session_id,
-    )
-    expected_stream = _empty_event_stream()
-    adapter = Mock(return_value=expected_stream)
-
-    monkeypatch.setattr("tracecat.agent.adapter.vercel.sse_vercel", adapter)
-
-    result = stream.sse(
-        AsyncMock(return_value=False),
-        last_id="0-0",
-        format="vercel",
-    )
-
-    assert result is expected_stream
-    adapter.assert_called_once()
-
-
-@pytest.mark.anyio
-async def test_per_turn_stream_key_includes_stream_id() -> None:
-    workspace_id = uuid.uuid4()
-    session_id = uuid.uuid4()
-    stream_id = uuid.uuid4()
-    client = SimpleNamespace(delete=AsyncMock(return_value=1))
-
-    per_turn = AgentStream(
-        client=cast(RedisClient, client),
-        workspace_id=workspace_id,
-        session_id=session_id,
-        stream_id=stream_id,
-    )
-    per_session = AgentStream(
-        client=cast(RedisClient, client),
-        workspace_id=workspace_id,
-        session_id=session_id,
-    )
-
-    assert per_turn._stream_key == (
-        f"agent-stream:{workspace_id}:{session_id}:{stream_id}"
-    )
-    assert per_session._stream_key == f"agent-stream:{workspace_id}:{session_id}"
-    # A new turn's key never collides with a prior turn's key.
-    assert per_turn._stream_key != per_session._stream_key
-
-
-@pytest.mark.anyio
-async def test_clear_buffer_deletes_key_without_cursor_write() -> None:
-    workspace_id = uuid.uuid4()
-    session_id = uuid.uuid4()
-    client = SimpleNamespace(delete=AsyncMock(return_value=1))
-    stream = AgentStream(
-        client=cast(RedisClient, client),
-        workspace_id=workspace_id,
-        session_id=session_id,
-    )
-
-    await stream.clear_buffer()
-
-    client.delete.assert_awaited_once_with(stream._stream_key)
-
-
-@pytest.mark.anyio
-async def test_min_entry_id_returns_oldest_or_none() -> None:
-    workspace_id = uuid.uuid4()
-    session_id = uuid.uuid4()
-    client = SimpleNamespace(
-        xrange=AsyncMock(return_value=[("1717426372768-0", {})]),
-    )
-    stream = AgentStream(
-        client=cast(RedisClient, client),
-        workspace_id=workspace_id,
-        session_id=session_id,
-    )
-
-    assert await stream.min_entry_id() == "1717426372768-0"
-
-    client.xrange = AsyncMock(return_value=[])
-    assert await stream.min_entry_id() is None
 
 
 @pytest.mark.anyio

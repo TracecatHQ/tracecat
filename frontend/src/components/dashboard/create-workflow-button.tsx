@@ -18,6 +18,7 @@ import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -121,73 +122,81 @@ function ImportWorkflowDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px]">
+      <DialogContent size="md" className="sm:max-w-[600px]">
         <DialogHeader>
           <DialogTitle>Import workflow from file</DialogTitle>
           <DialogDescription>
             Import a workflow from a YAML or JSON file.
           </DialogDescription>
         </DialogHeader>
+        <DialogBody>
+          <Form {...form}>
+            <form
+              id={IMPORT_WORKFLOW_FORM_ID}
+              onSubmit={form.handleSubmit(onSubmit)}
+              className="space-y-8"
+            >
+              <FormField
+                control={form.control}
+                name="file"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>YAML / JSON</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="file"
+                        className="min-h-9 py-2"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) {
+                            field.onChange(file)
+                          }
+                        }}
+                      />
+                    </FormControl>
+                    <FormDescription>Upload file (max 5MB)</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-            <FormField
-              control={form.control}
-              name="file"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>YAML / JSON</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="file"
-                      className="min-h-9 py-2"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        if (file) {
-                          field.onChange(file)
-                        }
-                      }}
-                    />
-                  </FormControl>
-                  <FormDescription>Upload file (max 5MB)</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="use_workflow_id"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                  <FormControl>
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                    />
-                  </FormControl>
-                  <div className="space-y-1 leading-none">
-                    <FormLabel>Use workflow ID from file</FormLabel>
-                    <FormDescription>
-                      When checked, the system will use the workflow ID provided
-                      in the YAML/JSON file. If not checked, a new ID will be
-                      generated.
-                    </FormDescription>
-                  </div>
-                </FormItem>
-              )}
-            />
-
-            <Button type="submit">Upload</Button>
-          </form>
-        </Form>
-        {validationErrors && (
-          <div className="flex h-36 flex-col space-y-2 overflow-auto rounded-md border border-rose-500 bg-rose-100 p-2 font-mono text-xs text-rose-600">
-            <span className="font-semibold">Validation errors</span>
-            <Separator className="bg-rose-400" />
-            <pre>{validationErrors}</pre>
-          </div>
-        )}
+              <FormField
+                control={form.control}
+                name="use_workflow_id"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <div className="space-y-1 leading-none">
+                      <FormLabel>Use workflow ID from file</FormLabel>
+                      <FormDescription>
+                        When checked, the system will use the workflow ID
+                        provided in the YAML/JSON file. If not checked, a new ID
+                        will be generated.
+                      </FormDescription>
+                    </div>
+                  </FormItem>
+                )}
+              />
+            </form>
+          </Form>
+          {validationErrors && (
+            <div className="flex h-36 flex-col space-y-2 overflow-auto rounded-md border border-rose-500 bg-rose-100 p-2 font-mono text-xs text-rose-600">
+              <span className="font-semibold">Validation errors</span>
+              <Separator className="bg-rose-400" />
+              <pre>{validationErrors}</pre>
+            </div>
+          )}
+        </DialogBody>
+        <DialogFooter>
+          <Button size="sm" type="submit" form={IMPORT_WORKFLOW_FORM_ID}>
+            Upload
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
@@ -238,7 +247,7 @@ function CreateFolderDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent size="sm" className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>Create new folder</DialogTitle>
           <DialogDescription>
@@ -249,38 +258,31 @@ function CreateFolderDialog({
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit(handleCreateFolder)}
-            className="space-y-4"
+            className="flex min-h-0 flex-1 flex-col"
           >
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Folder name</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="Enter folder name"
-                      {...field}
-                      autoFocus
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
+            <DialogBody>
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Folder name</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Enter folder name"
+                        {...field}
+                        autoFocus
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </DialogBody>
             <DialogFooter>
-              <Button
-                variant="outline"
-                type="button"
-                onClick={() => {
-                  form.reset()
-                  onOpenChange(false)
-                }}
-              >
-                Cancel
+              <Button size="sm" type="submit">
+                Create
               </Button>
-              <Button type="submit">Create</Button>
             </DialogFooter>
           </form>
         </Form>
@@ -290,6 +292,8 @@ function CreateFolderDialog({
 }
 
 // Main Create Workflow Button Component
+const IMPORT_WORKFLOW_FORM_ID = "import-workflow-form"
+
 export function CreateWorkflowButton({
   view,
   currentFolderPath,

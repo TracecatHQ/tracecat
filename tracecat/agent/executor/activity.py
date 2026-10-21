@@ -82,7 +82,10 @@ from tracecat.agent.runtime.claude_code.broker import (
     ConcurrentSessionTurnError,
 )
 from tracecat.agent.runtime.session_paths import build_agent_sandbox_path_mapping
-from tracecat.agent.runtime_services import get_claude_runtime_broker
+from tracecat.agent.runtime_services import (
+    get_claude_runtime_broker,
+    get_otel_delivery_pool,
+)
 from tracecat.agent.sandbox.llm_proxy import (
     LLM_SOCKET_NAME,
     LLMProxyError,
@@ -102,6 +105,7 @@ from tracecat.agent.skill.builtin import (
     PLATFORM_SKILL_PLUGIN_DIR,
 )
 from tracecat.agent.skill.builtin.staging import stage_platform_skill_plugin
+from tracecat.agent.skill.library.catalog import get_library_skills
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import AgentConfig, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
@@ -690,6 +694,7 @@ class SandboxedAgentExecutor:
                     self._otel_receiver = OtelSocketReceiver(
                         socket_path=otel_socket_path,
                         plan=otel_plan,
+                        pool=get_otel_delivery_pool(),
                         expected_workspace_id=self.input.workspace_id,
                         expected_organization_id=self.input.role.organization_id,
                         expected_session_id=self.input.session_id,
@@ -1224,13 +1229,23 @@ class SandboxedAgentExecutor:
 
     async def _stage_builtin_skills(self, plugin_dir: Path) -> None:
         """Stage platform guidance outside the workspace skill directory."""
-        if not self.input.config.builtin_skills:
+        config = self.input.config
+        # Skills are session-wide in Claude Code, so child skills are visible
+        # to the parent too.
+        slugs: list[str] = list(config.library_skills or [])
+        for subagent in self.input.subagents:
+            slugs.extend(subagent.config.library_skills or [])
+        library_slugs = list(dict.fromkeys(slugs))
+        if not config.builtin_skills and not library_slugs:
             return
+        # Unknown slugs fail the run rather than silently dropping guidance.
+        library_skills = get_library_skills(library_slugs)
         await asyncio.to_thread(
             stage_platform_skill_plugin,
-            asset_names=self.input.config.builtin_skills,
+            asset_names=config.builtin_skills or [],
             vendored_root=Path(app_config.TRACECAT__COPILOT_SKILLS_DIR),
             plugin_root=plugin_dir,
+            library_skills=library_skills,
         )
 
     async def _ensure_cached_skill_dir(

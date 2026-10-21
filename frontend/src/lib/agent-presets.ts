@@ -3,9 +3,40 @@ import type {
   AgentPresetRead,
   AgentPresetUpdate,
 } from "@/client"
+import { getApiErrorDetail } from "@/lib/errors"
 import { slugify } from "@/lib/utils"
 
 export type AgentPresetFormMode = "create" | "edit"
+
+/** Return a readable preset error, including the effective tool limit. */
+export function getAgentPresetErrorMessage(
+  error: unknown,
+  fallback: string
+): string {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "body" in error &&
+    typeof error.body === "object" &&
+    error.body !== null &&
+    "detail" in error.body
+  ) {
+    const detail = error.body.detail
+    if (
+      typeof detail === "object" &&
+      detail !== null &&
+      "code" in detail &&
+      detail.code === "agent_tool_limit_exceeded" &&
+      "tool_count" in detail &&
+      typeof detail.tool_count === "number" &&
+      "max_tools" in detail &&
+      typeof detail.max_tools === "number"
+    ) {
+      return `This agent has ${detail.tool_count} tools; the limit is ${detail.max_tools}.`
+    }
+  }
+  return getApiErrorDetail(error) ?? fallback
+}
 
 /**
  * Backend preset fields whose change makes the API cut a new preset version.
@@ -23,6 +54,7 @@ export const AGENT_PRESET_PUBLISHING_FIELDS: ReadonlySet<string> = new Set([
   "namespaces",
   "tool_approvals",
   "mcp_integrations",
+  "library_skills",
   "agents",
   "retries",
   "enable_thinking",
@@ -94,6 +126,7 @@ export function buildDuplicateAgentPresetPayload(
     namespaces: preset.namespaces ?? null,
     tool_approvals: preset.tool_approvals ?? null,
     mcp_integrations: preset.mcp_integrations ?? null,
+    library_skills: preset.library_skills ?? null,
     agents: preset.agents,
     retries: preset.retries,
     enable_thinking: preset.enable_thinking,

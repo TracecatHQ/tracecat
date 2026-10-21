@@ -11,10 +11,12 @@ if TYPE_CHECKING:
         CatalogMappingRequirement,
         McpIntegrationMappingRequirement,
         PullDiagnostic,
+        SecretStoreMappingRequirement,
     )
     from tracecat.workspace_sync.schemas import (
         AgentPresetResourceSpec,
         McpIntegrationHint,
+        SecretMetadataResourceSpec,
         WorkflowResourceSpec,
         WorkspaceRemoteSnapshot,
     )
@@ -97,10 +99,22 @@ class CorrelatedMcpIntegrationRefs:
     requirements: list[McpIntegrationMappingRequirement]
 
 
-class PreparedSnapshot(NamedTuple):
+@dataclass(frozen=True, slots=True)
+class CorrelatedSecretStores:
+    """Secret metadata with mapped store names, plus diagnostics and requirements."""
+
+    secret_metadata: dict[str, SecretMetadataResourceSpec]
+    diagnostics: list[PullDiagnostic]
+    requirements: list[SecretStoreMappingRequirement]
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedSnapshot:
     """Snapshot with deployment-local references resolved, plus any diagnostics."""
 
     snapshot: WorkspaceRemoteSnapshot
     diagnostics: list[PullDiagnostic]
     catalog_mapping_requirements: list[CatalogMappingRequirement]
     mcp_integration_mapping_requirements: list[McpIntegrationMappingRequirement]
+    secret_store_mapping_requirements: list[SecretStoreMappingRequirement]
+    library_skill_installs: list[str]

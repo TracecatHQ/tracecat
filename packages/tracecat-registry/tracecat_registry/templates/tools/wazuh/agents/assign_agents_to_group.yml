@@ -1,0 +1,52 @@
+type: action
+definition:
+  name: assign_agents_to_group
+  namespace: tools.wazuh
+  title: Assign agents to group
+  description: "Assign agents to a group, e.g. move compromised hosts into a containment group with a restrictive configuration."
+  display_group: Wazuh
+  doc_url: https://documentation.wazuh.com/current/user-manual/api/reference.html#operation/api.controllers.agent_controller.put_multiple_agent_single_group
+  secrets:
+    - name: wazuh_wui
+      keys: ["WAZUH_WUI_USERNAME", "WAZUH_WUI_PASSWORD"]
+  expects:
+    agents_list:
+      type: list[str]
+      description: "Agent IDs to assign to the group."
+    group_id:
+      type: str
+      description: "Group ID (name of the group)."
+    force_single_group:
+      type: bool
+      description: "If true, removes the agents from all their other groups."
+      default: false
+    base_url:
+      type: str | None
+      description: "Wazuh server API URL (e.g. https://wazuh-manager:55000). Defaults to the `wazuh.base_url` variable."
+      default: null
+    verify_ssl:
+      type: bool
+      description: "If false, disables SSL verification for internal networks."
+      default: true
+  steps:
+    - ref: get_access_token
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/security/user/authenticate
+        method: POST
+        headers:
+          Authorization: Basic ${{ FN.to_base64(SECRETS.wazuh_wui.WAZUH_WUI_USERNAME + ":" + SECRETS.wazuh_wui.WAZUH_WUI_PASSWORD) }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.wazuh.base_url }}/agents/group
+        method: PUT
+        headers:
+          Authorization: Bearer ${{ steps.get_access_token.result.data.data.token }}
+        params:
+          agents_list: ${{ FN.join(inputs.agents_list, ",") }}
+          group_id: ${{ inputs.group_id }}
+          force_single_group: ${{ inputs.force_single_group }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.request.result.data }}

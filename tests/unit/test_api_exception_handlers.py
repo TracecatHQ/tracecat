@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from unittest.mock import Mock
+
 import pytest
 from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 from temporalio.service import RPCError, RPCStatusCode
 
+from tracecat.api import app as api_app
 from tracecat.api.app import (
     _install_scim_exception_handlers,
     authorization_exception_handler,
@@ -31,7 +35,9 @@ from tracecat.exceptions import (
     TracecatRLSViolationError,
     TracecatValidationError,
 )
+from tracecat.executor.action_gateway import app as action_gateway_app
 from tracecat.executor.action_gateway.app import create_app as create_action_gateway_app
+from tracecat.forms.schemas import FormValidateRequest
 from tracecat.query.errors import (
     TracecatQueryOverflowError,
     TracecatQueryTimeoutError,
@@ -345,3 +351,37 @@ def test_http_errors_keep_status_and_use_the_correct_envelope(
         assert response.headers["www-authenticate"] == "Bearer"
     if status_code == 405:
         assert "GET" in response.headers["allow"]
+
+
+@pytest.mark.parametrize("gateway", [False, True])
+def test_validation_errors_leave_the_rejected_input_out_of_logs(
+    monkeypatch: pytest.MonkeyPatch, gateway: bool
+) -> None:
+    # Valid base64 of the right size, but not a PNG: the image validator
+    # rejects it, and the error's input is the whole data URI.
+    image = "data:image/png;base64," + "A" * 4000
+    module = action_gateway_app if gateway else api_app
+    logged = Mock()
+    monkeypatch.setattr(module, "logger", logged)
+    app = FastAPI()
+    app.add_exception_handler(
+        RequestValidationError, module.validation_exception_handler
+    )
+
+    async def validate(params: FormValidateRequest) -> None:
+        return None
+
+    app.add_api_route("/validate", validate, methods=["POST"])
+    option = {"value": "a", "image": image}
+    body = {"config": {"layout": [{"field": "model", "options": [option]}]}}
+    with TestClient(app) as client:
+        response = client.post("/validate", json=body)
+
+    assert response.status_code == 422
+    [error] = response.json()["detail"]
+    assert error["msg"] == "Value error, Image content is not a valid png file"
+    assert error["loc"][-1] == "image"
+    logged.error.assert_called_once()
+    assert "A" * 100 not in str(logged.error.call_args)
+    # The executor keeps a gateway error with the run, so it is left out there too.
+    assert ("input" in error) is not gateway
