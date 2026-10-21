@@ -347,7 +347,13 @@ function WorkflowView({
   workflowId: string
 }) {
   return (
-    <WorkflowProvider workspaceId={workspaceId} workflowId={workflowId}>
+    // Remount per workflow so builder state (selected node, drafts, canvas)
+    // from the previous workflow never leaks into the next one.
+    <WorkflowProvider
+      key={workflowId}
+      workspaceId={workspaceId}
+      workflowId={workflowId}
+    >
       <ReactFlowProvider>
         <WorkflowBuilderProvider>{children}</WorkflowBuilderProvider>
       </ReactFlowProvider>
