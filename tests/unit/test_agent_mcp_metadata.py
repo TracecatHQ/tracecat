@@ -3,14 +3,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from claude_agent_sdk.types import (
-    AssistantMessage,
-    TextBlock,
-    ThinkingBlock,
-    ToolResultBlock,
-    ToolUseBlock,
-    UserMessage,
-)
+from claude_agent_sdk.types import AssistantMessage, TextBlock, ThinkingBlock
 from pydantic import ValidationError
 
 from tracecat.agent.mcp.metadata import (
@@ -195,24 +188,3 @@ def test_sanitize_message_tool_inputs_keeps_supported_user_blocks() -> None:
 
     assert sanitized == message
     mock_logger.warning.assert_not_called()
-
-
-def test_sanitize_message_tool_inputs_keeps_legacy_untyped_blocks() -> None:
-    legacy_messages = [
-        AssistantMessage(
-            content=[
-                TextBlock(text="hello"),
-                ToolUseBlock(id="toolu_1", name="lookup", input={"q": "x"}),
-            ],
-            model="claude",
-        ),
-        UserMessage(content=[ToolResultBlock(tool_use_id="toolu_1", content="ok")]),
-    ]
-
-    for legacy in legacy_messages:
-        dumped = ClaudeSDKMessageTA.dump_python(legacy, mode="json")
-        with patch("tracecat.agent.mcp.metadata.logger") as mock_logger:
-            sanitized = sanitize_message_tool_inputs(dumped)
-
-        assert ClaudeSDKMessageTA.validate_python(sanitized) == legacy
-        mock_logger.warning.assert_not_called()

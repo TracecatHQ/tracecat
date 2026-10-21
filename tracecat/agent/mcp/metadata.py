@@ -144,8 +144,7 @@ def sanitize_message_tool_inputs(message: dict[str, Any]) -> dict[str, Any]:
         for block in content:
             if isinstance(block, dict):
                 block_type = block.get("type")
-                # Legacy rows dumped from SDK dataclasses carry no type key.
-                if block_type is not None and block_type not in SDK_CONTENT_BLOCK_TYPES:
+                if block_type not in SDK_CONTENT_BLOCK_TYPES:
                     dropped.add(str(block_type))
                     continue
                 match block_type:
