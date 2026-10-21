@@ -5,10 +5,9 @@ import type React from "react"
 import { createContext, useCallback, useContext, useRef, useState } from "react"
 import { InboxChat } from "@/components/inbox/inbox-chat"
 import { ControlsHeader } from "@/components/nav/controls-header"
-import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { Button } from "@/components/ui/button"
 import { ResizableSidebar } from "@/components/ui/resizable-sidebar"
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { SidebarInset } from "@/components/ui/sidebar"
 import type { InboxSessionItem } from "@/lib/agents"
 
 interface InboxChatContextValue {
@@ -59,8 +58,7 @@ export default function InboxLayout({
         registerOnClose,
       }}
     >
-      <SidebarProvider>
-        <AppSidebar />
+      <>
         {/* Main content inset */}
         <SidebarInset className="min-w-0 flex-1 mr-px">
           <div className="flex h-full flex-col">
@@ -106,7 +104,7 @@ export default function InboxLayout({
             </div>
           </ResizableSidebar>
         )}
-      </SidebarProvider>
+      </>
     </InboxChatContext.Provider>
   )
 }

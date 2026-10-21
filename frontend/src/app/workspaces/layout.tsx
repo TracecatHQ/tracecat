@@ -289,33 +289,30 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
     return <>{children}</>
   }
 
-  // Cases pages have their own layout with an optional chat sidebar.
-  if (isCasesPage) {
-    return <>{children}</>
-  }
+  // Cases, Inbox, Tables and Forms layouts render their own inset and side
+  // panels. The app sidebar stays here, outside the route loading boundary,
+  // so it is not unmounted while those segments load.
+  const routeOwnsInset =
+    isCasesPage ||
+    isInboxPage ||
+    isTablesPage ||
+    Boolean(pathname?.match(/\/forms(\/|$)/))
 
-  // Inbox pages have their own layout with chat sidebar
-  if (isInboxPage) {
-    return <>{children}</>
-  }
-
-  // Tables and Forms pages have their own layouts.
-  if (isTablesPage || pathname?.match(/\/forms(\/|$)/)) {
-    return <>{children}</>
-  }
-
-  // All other workspace pages get the app sidebar
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset>
-        <CaseSelectionProvider>
-          <div className="flex h-full flex-1 flex-col">
-            <ControlsHeader />
-            <div className="flex-1 overflow-y-scroll">{children}</div>
-          </div>
-        </CaseSelectionProvider>
-      </SidebarInset>
+      {routeOwnsInset ? (
+        children
+      ) : (
+        <SidebarInset>
+          <CaseSelectionProvider>
+            <div className="flex h-full flex-1 flex-col">
+              <ControlsHeader />
+              <div className="flex-1 overflow-y-scroll">{children}</div>
+            </div>
+          </CaseSelectionProvider>
+        </SidebarInset>
+      )}
     </SidebarProvider>
   )
 }

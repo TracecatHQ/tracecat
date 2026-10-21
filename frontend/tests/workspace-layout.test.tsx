@@ -324,16 +324,16 @@ describe("WorkspaceLayout forms intake", () => {
   )
 
   it.each([
-    ["/workspaces/workspace-1/workflows", true],
-    ["/workspaces/workspace-1/forms/form-1", false],
-  ])("gives a reader on %s the shell: %p", (pathname, withShell) => {
+    "/workspaces/workspace-1/workflows",
+    "/workspaces/workspace-1/forms/form-1",
+  ])("gives a reader on %s the shell", (pathname) => {
     mockPathname = pathname
     mockScopes = { "workspace:read": true, "form:read": true }
 
     renderLayout()
 
     expect(screen.getByText("Workspace content")).toBeInTheDocument()
-    expect(Boolean(screen.queryByRole("navigation"))).toBe(withShell)
+    expect(screen.getByRole("navigation")).toBeInTheDocument()
     expect(mockSetLastWorkspaceId).toHaveBeenCalledWith("workspace-1")
   })
 })
