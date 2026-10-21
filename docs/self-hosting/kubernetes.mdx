@@ -375,7 +375,7 @@ tracecat:
 ```
 
 - `tunnels.gateway.blockedCidrs` is required. List every pod and service CIDR in the cluster, including secondary VPC ranges.
-- For self-hosted Pangolin, also set `tracecat.pangolin.endpoint` and `tracecat.pangolin.apiUrl`. On EKS, use `externalSecrets.pangolin.secretArn` instead of `existingSecret`.
+- For self-hosted Pangolin, also set `tracecat.pangolin.endpoint` and `tracecat.pangolin.apiUrl`. To read the key from AWS Secrets Manager, set `externalSecrets.pangolin.enabled` and `externalSecrets.pangolin.secretArn` instead of `existingSecret`.
 - Gateways need `NET_ADMIN` and `/dev/net/tun`, so the tunnels namespace enforces the `privileged` Pod Security level. The chart's admission policy (Kubernetes 1.30+) limits pods there to the gateway image, and its NetworkPolicy admits only executors and allows egress to Pangolin on TCP 443 and UDP 21820.
 - The gateway image follows the Tracecat image tag, so each upgrade restarts every gateway briefly.
 
