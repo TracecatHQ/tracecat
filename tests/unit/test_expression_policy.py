@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+from tests._registry_utils import core_udfs, input_schema_for
 from tracecat.dsl.schemas import TemplateExecutionContext
 from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions.policy import (
@@ -17,7 +18,6 @@ from tracecat.expressions.policy import (
     expression_policy,
     resolve_action_args,
 )
-from tracecat.registry.repository import Repository
 from tracecat.secrets.constants import MASK_VALUE
 
 
@@ -1348,13 +1348,6 @@ def test_preserve_splices_null_into_embedded_reference_as_native_rendering() -> 
     )
 
 
-@pytest.fixture(scope="module")
-def base_registry() -> Repository:
-    repo = Repository()
-    repo.init(include_base=True, include_templates=False)
-    return repo
-
-
 @pytest.mark.parametrize(
     ("action", "parameter"),
     sorted(
@@ -1368,9 +1361,6 @@ def base_registry() -> Repository:
         }
     ),
 )
-def test_policy_overrides_target_registered_inputs(
-    base_registry: Repository, action: str, parameter: str
-) -> None:
+def test_policy_overrides_target_registered_inputs(action: str, parameter: str) -> None:
     # A stale entry after an action or input rename silently drops the override.
-    expects = base_registry.get(action).get_interface()["expects"]
-    assert parameter in expects["properties"]
+    assert parameter in input_schema_for(core_udfs()[action])["properties"]

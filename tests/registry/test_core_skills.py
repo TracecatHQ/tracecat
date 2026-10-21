@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator
-from typing import Any, cast
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -16,7 +16,7 @@ from tracecat_registry.core.skills import (
     update_skill,
 )
 
-from tracecat.registry.repository import Repository
+from tests._registry_utils import core_udfs, input_schema_for
 
 SKILL_UUID = uuid.uuid4()
 FILES = [{"path": "SKILL.md", "content_base64": "IyBUcmlhZ2U="}]
@@ -246,34 +246,22 @@ DEPRECATED_ACTIONS = (
 )
 
 
-@pytest.fixture(scope="module")
-def registry() -> Repository:
-    repo = Repository()
-    repo.init(include_base=True, include_templates=False)
-    return repo
-
-
-def _input_schema_for(registry: Repository, name: str) -> dict[str, Any]:
-    return registry.get(f"ai.skill.{name}").get_interface()["expects"]
-
-
 @pytest.mark.parametrize(("name", "inputs"), STABLE_1_2_1_INPUTS.items())
 def test_stable_skill_action_inputs_are_still_accepted(
-    registry: Repository, name: str, inputs: set[str]
+    name: str, inputs: set[str]
 ) -> None:
-    schema = _input_schema_for(registry, name)
+    schema = input_schema_for(core_udfs()[f"ai.skill.{name}"])
     assert inputs <= schema["properties"].keys()
     assert set(schema.get("required", [])) <= inputs
 
 
-def test_update_skill_schema_marks_legacy_fields_deprecated(
-    registry: Repository,
-) -> None:
-    properties = _input_schema_for(registry, "update_skill")["properties"]
+def test_update_skill_schema_marks_legacy_fields_deprecated() -> None:
+    properties = input_schema_for(update_skill)["properties"]
     for field in ("files", "delete_paths", "skill_uuid"):
         assert properties[field]["deprecated"] is True
 
 
 @pytest.mark.parametrize("name", DEPRECATED_ACTIONS)
-def test_legacy_skill_actions_are_deprecated(registry: Repository, name: str) -> None:
-    assert registry.get(f"ai.skill.{name}").deprecated
+def test_legacy_skill_actions_are_deprecated(name: str) -> None:
+    udf = core_udfs()[f"ai.skill.{name}"]
+    assert getattr(udf, "__tracecat_udf_kwargs")["deprecated"]
