@@ -46,6 +46,7 @@ from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.storage import blob
+from tracecat.storage.backends import S3ObjectStorage
 from tracecat.storage.collection import materialize_collection_values
 from tracecat.storage.object import (
     CollectionObject,
@@ -684,6 +685,7 @@ async def test_wide_gather_of_small_results_completes(
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.regression
+@pytest.mark.parametrize("externalization_enabled", [True, False])
 @pytest.mark.parametrize(
     "patched",
     [
@@ -698,8 +700,9 @@ async def test_bound_gather_input_histories_replay(
     test_executor_worker_factory: WorkerFactory,
     monkeypatch: pytest.MonkeyPatch,
     patched: bool,
+    externalization_enabled: bool,
 ) -> None:
-    """Over-budget gather histories replay on the path they were recorded with.
+    """Gather histories replay after either externalization configuration change.
 
     The pre-patch history is recorded with the patch hidden, as a worker from
     before the patch would: it passes every item inline and stores no parts.
@@ -727,6 +730,9 @@ async def test_bound_gather_input_histories_replay(
         wf_id=TEST_WF_ID,
     )
     run_args.trigger_inputs = trigger_inputs
+    monkeypatch.setattr(
+        config, "TRACECAT__RESULT_EXTERNALIZATION_ENABLED", externalization_enabled
+    )
 
     current_patched = scheduler.workflow.patched
 
@@ -770,13 +776,20 @@ async def test_bound_gather_input_histories_replay(
     assert len(finalize_input["parts"]) == len(part_stores)
     assert len(finalize_input["collection"]) == (0 if patched else SMALL_ITEM_COUNT)
 
-    replay_result = await Replayer(
-        workflows=[DSLWorkflow],
-        workflow_runner=new_sandbox_runner(),
-        data_converter=temporal_client.data_converter,
-        interceptors=[RuntimeErrorAttributionInterceptor()],
-    ).replay_workflow(history, raise_on_replay_failure=False)
-    assert replay_result.replay_failure is None
+    for replay_externalization in (
+        externalization_enabled,
+        not externalization_enabled,
+    ):
+        monkeypatch.setattr(
+            config, "TRACECAT__RESULT_EXTERNALIZATION_ENABLED", replay_externalization
+        )
+        replay_result = await Replayer(
+            workflows=[DSLWorkflow],
+            workflow_runner=new_sandbox_runner(),
+            data_converter=temporal_client.data_converter,
+            interceptors=[RuntimeErrorAttributionInterceptor()],
+        ).replay_workflow(history, raise_on_replay_failure=False)
+        assert replay_result.replay_failure is None
 
 
 @pytest.mark.anyio
@@ -900,6 +913,8 @@ async def test_looped_subflow_inline_results_exceeding_activity_limit_completes(
     )
     assert len(orjson.dumps(items)) > 2 * 1024 * 1024
     storage = get_object_storage()
+    assert isinstance(storage, S3ObjectStorage)
+    monkeypatch.setattr(storage, "threshold_bytes", 128 * 1024)
     trigger_inputs = await storage.store(
         f"tests/regression/loop-aggregation/{uuid.uuid4().hex}/trigger.json",
         {"items": items},

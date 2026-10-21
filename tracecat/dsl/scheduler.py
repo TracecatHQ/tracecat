@@ -20,7 +20,6 @@ with workflow.unsafe.imports_passed_through():
     from pydantic_core import to_json
     from temporalio.exceptions import ApplicationError
 
-    from tracecat import config
     from tracecat.concurrency import cooperative
     from tracecat.contexts import ctx_stream_id
     from tracecat.dsl.action import (
@@ -136,9 +135,10 @@ async def bound_collection_activity_input(
     Returns `(items, [])` when the items fit the inline budget. Otherwise stores
     them as size-bounded collection parts, one activity at a time so no single
     workflow task carries them all, and returns `([], parts)`.
+
+    Transport partitioning is independent of result externalization settings
+    so worker configuration changes cannot alter commands during replay.
     """
-    if not config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
-        return list(items), []
     partitions = _partition_by_size(items, COLLECTION_ACTIVITY_INPUT_BUDGET_BYTES)
     if partitions is None or not workflow.patched(
         WorkflowPatch.BOUND_COLLECTION_ACTIVITY_INPUT
