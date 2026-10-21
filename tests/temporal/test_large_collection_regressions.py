@@ -34,6 +34,10 @@ from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.dsl import scheduler
+from tracecat.dsl.action import (
+    FinalizeGatherActivityInput,
+    SynchronizeCollectionObjectActivityInput,
+)
 from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.enums import WaitStrategy
 from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
@@ -42,6 +46,7 @@ from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.storage import blob
+from tracecat.storage.collection import materialize_collection_values
 from tracecat.storage.object import (
     CollectionObject,
     ExternalObject,
@@ -141,6 +146,45 @@ def _configure_storage_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "TRACECAT__DB_ENCRYPTION_KEY", "test-encryption-key")
     monkeypatch.setenv("TRACECAT__LOCAL_REPOSITORY_ENABLED", "1")
     monkeypatch.setattr(config, "TRACECAT__LOCAL_REPOSITORY_ENABLED", True)
+
+
+async def _assert_bounded_aggregate_input(
+    client: Client,
+    wf_exec_id: str,
+    *,
+    activity_name: str,
+    item_count: int,
+    expect_parts: bool,
+) -> None:
+    aggregate_inputs = []
+    part_inputs = []
+    async for event in client.get_workflow_handle(wf_exec_id).fetch_history_events():
+        if not event.HasField("activity_task_scheduled_event_attributes"):
+            continue
+        attrs = event.activity_task_scheduled_event_attributes
+        if attrs.activity_type.name == "store_collection_part_activity":
+            assert attrs.input.ByteSize() < 2 * 1024 * 1024
+            part_inputs.append(attrs.input)
+        elif attrs.activity_type.name == activity_name:
+            assert attrs.input.ByteSize() < 2 * 1024 * 1024
+            aggregate_inputs.append(attrs.input)
+
+    assert len(aggregate_inputs) == 1
+    assert bool(part_inputs) == expect_parts
+    decoded = await client.data_converter.decode(aggregate_inputs[0].payloads)
+    input_type = (
+        FinalizeGatherActivityInput
+        if activity_name == "finalize_gather_activity"
+        else SynchronizeCollectionObjectActivityInput
+    )
+    aggregate = input_type.model_validate(decoded[0])
+    if expect_parts:
+        assert aggregate.collection == []
+        assert len(aggregate.parts) == len(part_inputs)
+        assert sum(part.count for part in aggregate.parts) == item_count
+    else:
+        assert aggregate.parts == []
+        assert len(aggregate.collection) == item_count
 
 
 async def _assert_refs_layout(
@@ -620,10 +664,14 @@ async def test_wide_gather_of_small_results_completes(
     )
     assert isinstance(gather_stored, CollectionObject)
     assert gather_stored.count == item_count
-    for index in (0, item_count // 2, item_count - 1):
-        item = await storage.retrieve(gather_stored.at(index))
-        assert item["idx"] == index
-        assert item["payload"].startswith(sentinel)
+    assert await materialize_collection_values(gather_stored) == items
+    await _assert_bounded_aggregate_input(
+        temporal_client,
+        wf_exec_id,
+        activity_name="finalize_gather_activity",
+        item_count=item_count,
+        expect_parts=input_budget_bytes is not None,
+    )
 
     gather_prefix = action_collection_prefix(
         str(test_role.workspace_id), wf_exec_id, str(ROOT_STREAM), "gather"
@@ -826,3 +874,89 @@ async def test_looped_subflow_results_over_budget_use_stored_parts(
         str(test_role.workspace_id), wf_exec_id, str(ROOT_STREAM), "call_child"
     )
     assert await _list_parts(collection.manifest_ref.bucket, call_child_prefix)
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.regression
+async def test_looped_subflow_inline_results_exceeding_activity_limit_completes(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bound child results at the production budget, preserving every value."""
+    _configure_storage_credentials(monkeypatch)
+    monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", False)
+    monkeypatch.setattr(
+        config, "TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES", 128 * 1024
+    )
+    items = _build_large_items(
+        item_count=200,
+        item_size_bytes=WIDE_GATHER_ITEM_SIZE_BYTES,
+        sentinel=f"__loop-aggregation-{uuid.uuid4().hex}__",
+    )
+    assert len(orjson.dumps(items)) > 2 * 1024 * 1024
+    storage = get_object_storage()
+    trigger_inputs = await storage.store(
+        f"tests/regression/loop-aggregation/{uuid.uuid4().hex}/trigger.json",
+        {"items": items},
+    )
+    child_alias = f"inline-child-{uuid.uuid4().hex[:8]}"
+    child_dsl = DSLInput(
+        title="Child inline result",
+        description="Return one small inline payload",
+        entrypoint=DSLEntrypoint(ref="identity"),
+        actions=[
+            ActionStatement(
+                ref="identity",
+                action="core.transform.reshape",
+                args={"value": "${{ TRIGGER }}"},
+            )
+        ],
+        returns="${{ ACTIONS.identity.result }}",
+    )
+    await _create_and_commit_workflow(child_dsl, test_role, alias=child_alias)
+    parent_dsl = DSLInput(
+        title="Looped inline result aggregation",
+        description="Combine individually inline child results larger than 2 MiB",
+        entrypoint=DSLEntrypoint(ref="call_child"),
+        actions=[
+            ActionStatement(
+                ref="call_child",
+                action="core.workflow.execute",
+                for_each="${{ for var.item in TRIGGER.items }}",
+                args={
+                    "workflow_alias": child_alias,
+                    "trigger_inputs": "${{ var.item }}",
+                    "wait_strategy": WaitStrategy.WAIT.value,
+                },
+            )
+        ],
+        returns="${{ ACTIONS.call_child.result }}",
+    )
+    wf_exec_id = generate_test_exec_id(
+        f"looped-subflow-inline-results-{uuid.uuid4().hex[:8]}"
+    )
+    result = await _run_workflow(
+        temporal_client=temporal_client,
+        worker_factory=test_worker_factory,
+        executor_worker_factory=test_executor_worker_factory,
+        wf_exec_id=wf_exec_id,
+        run_args=DSLRunArgs(
+            dsl=parent_dsl,
+            role=test_role,
+            wf_id=TEST_WF_ID,
+            trigger_inputs=trigger_inputs,
+        ),
+    )
+    assert await to_data(result) == items
+    await _assert_bounded_aggregate_input(
+        temporal_client,
+        wf_exec_id,
+        activity_name="synchronize_collection_object_activity",
+        item_count=len(items),
+        expect_parts=True,
+    )
