@@ -62,10 +62,7 @@ from tracecat.workflow.case_triggers.schemas import (
     is_case_trigger_configured,
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
-from tracecat.workflow.management.management import (
-    WorkflowsManagementService,
-    build_action_control_flow,
-)
+from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import WorkflowUpdate
 from tracecat.workflow.schedules.schemas import ScheduleCreate, ScheduleRead
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
@@ -706,8 +703,6 @@ async def validate_workflow_edit_document(
     if document.definition.actions:
         try:
             dsl = workflow_edit_document_to_dsl(document)
-            for act_stmt in dsl.actions:
-                build_action_control_flow(act_stmt)
         except (TracecatValidationError, ValidationError, ValueError) as exc:
             raise WorkflowEditError(f"Invalid workflow definition: {exc}") from exc
         if validate_definition:
