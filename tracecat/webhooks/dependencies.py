@@ -27,6 +27,7 @@ from tracecat.dsl.schemas import TriggerInputs
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.logger import logger
+from tracecat.middleware.request import resolve_client_ip
 from tracecat.observability.sentry import capture_api_exception
 from tracecat.observability.types import AlertPriority
 from tracecat.webhooks.schemas import NDJSON_CONTENT_TYPES
@@ -36,14 +37,6 @@ if TYPE_CHECKING:
     from tracecat.dsl.common import DSLInput
 
 API_KEY_HEADER = "x-tracecat-api-key"
-
-
-def _extract_client_ip(request: Request) -> str | None:
-    # Assume proxy middleware already validated/sanitized headers; treat
-    # X-Forwarded-For as untrusted and rely on the resolved client host.
-    if request.client:
-        return request.client.host
-    return None
 
 
 def _ip_allowed(client_ip: str, cidr_list: Sequence[str]) -> bool:
@@ -117,7 +110,7 @@ async def validate_incoming_webhook(
 
         updated = False
 
-        client_ip = _extract_client_ip(request)
+        client_ip = resolve_client_ip(request)
         if webhook.allowlisted_cidrs:
             if client_ip is None:
                 logger.warning(
