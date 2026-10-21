@@ -9,12 +9,25 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, Any
 
+from pydantic import Field
 from typing_extensions import Doc
 
 from tracecat_registry import ctx, registry
 from tracecat_registry.sdk.agents import CursorPage
 
 SkillId = Annotated[str, Doc("Skill slug (e.g., 'triage-assistant') or skill ID.")]
+
+LEGACY_UPDATE_FIELD_SCHEMA_EXTRA: dict[str, Any] = {
+    "x-tracecat-deprecation-message": "Use `operations` instead."
+}
+LEGACY_SKILL_UUID_SCHEMA_EXTRA: dict[str, Any] = {
+    "x-tracecat-deprecation-message": "Use `skill_id` instead."
+}
+LegacySkillUuid = Annotated[
+    uuid.UUID | None,
+    Doc("Deprecated canonical skill UUID. Use skill_id instead."),
+    Field(deprecated=True, json_schema_extra=LEGACY_SKILL_UUID_SCHEMA_EXTRA),
+]
 
 
 @registry.register(
@@ -51,11 +64,14 @@ async def get_skill(
             "Omit to return the skill with its draft_files manifest."
         ),
     ] = None,
+    skill_uuid: LegacySkillUuid = None,
 ) -> dict[str, Any]:
     if path is not None:
-        return await ctx.agents.aio.get_skill_draft_file(skill_id=skill_id, path=path)
-    skill = await ctx.agents.aio.get_skill(skill_id)
-    draft = await ctx.agents.aio.get_skill_draft(skill_id)
+        return await ctx.agents.aio.get_skill_draft_file(
+            skill_id=skill_id, path=path, skill_uuid=skill_uuid
+        )
+    skill = await ctx.agents.aio.get_skill(skill_id, skill_uuid=skill_uuid)
+    draft = await ctx.agents.aio.get_skill_draft(skill_id, skill_uuid=skill_uuid)
     return {**skill, "draft_files": draft.get("files", [])}
 
 
@@ -81,13 +97,15 @@ async def create_skill(
 async def update_skill(
     skill_id: SkillId,
     operations: Annotated[
-        list[dict[str, Any]],
+        list[dict[str, Any]] | None,
         Doc(
             "File operations applied in order. Each has an 'op' of "
             "'upsert_text_file' (path, content, optional content_type), "
-            "'delete_file' (path), or 'move_file' (from_path, to_path)."
+            "'delete_file' (path), or 'move_file' (from_path, to_path). "
+            "If omitted, the current version is republished directly, with the "
+            "deprecated files/delete_paths applied when given."
         ),
-    ],
+    ] = None,
     base_revision: Annotated[
         int | None,
         Doc(
@@ -95,15 +113,43 @@ async def update_skill(
             "draft changed since. Omit to apply on top of the latest draft."
         ),
     ] = None,
+    files: Annotated[
+        list[dict[str, Any]] | None,
+        Doc(
+            "Deprecated files to add or replace, published immediately. Use operations instead."
+        ),
+        Field(deprecated=True, json_schema_extra=LEGACY_UPDATE_FIELD_SCHEMA_EXTRA),
+    ] = None,
+    delete_paths: Annotated[
+        list[str] | None,
+        Doc(
+            "Deprecated file paths to remove, published immediately. Use operations instead."
+        ),
+        Field(deprecated=True, json_schema_extra=LEGACY_UPDATE_FIELD_SCHEMA_EXTRA),
+    ] = None,
+    skill_uuid: LegacySkillUuid = None,
 ) -> dict[str, Any]:
+    if operations is None:
+        # 1.2.1 contract: omitted operations publish directly, even with no file changes.
+        if base_revision is not None:
+            raise ValueError("base_revision requires operations")
+        return await _publish_merged_files(
+            skill_id=skill_id,
+            files=files,
+            delete_paths=delete_paths,
+            skill_uuid=skill_uuid,
+        )
+    if files is not None or delete_paths is not None:
+        raise ValueError("Pass either operations or files/delete_paths, not both")
     revision = base_revision
     if revision is None:
-        draft = await ctx.agents.aio.get_skill_draft(skill_id)
+        draft = await ctx.agents.aio.get_skill_draft(skill_id, skill_uuid=skill_uuid)
         revision = draft["draft_revision"]
     return await ctx.agents.aio.patch_skill_draft(
         skill_id=skill_id,
         base_revision=revision,
         operations=operations,
+        skill_uuid=skill_uuid,
     )
 
 
@@ -140,9 +186,11 @@ async def list_skill_versions(
         str | None, Doc("Optional cursor from a previous response.")
     ] = None,
     reverse: Annotated[bool, Doc("Whether to reverse sort order.")] = False,
+    skill_uuid: LegacySkillUuid = None,
 ) -> CursorPage:
     return await ctx.agents.aio.list_skill_versions(
         skill_id=skill_id,
+        skill_uuid=skill_uuid,
         limit=limit,
         cursor=cursor,
         reverse=reverse,
@@ -158,8 +206,203 @@ async def list_skill_versions(
 async def restore_skill_version(
     skill_id: SkillId,
     version_id: Annotated[uuid.UUID, Doc("Version ID from list_skill_versions.")],
+    skill_uuid: LegacySkillUuid = None,
 ) -> dict[str, Any]:
     return await ctx.agents.aio.restore_skill_version(
         skill_id=skill_id,
+        skill_uuid=skill_uuid,
         version_id=version_id,
     )
+
+
+async def _publish_merged_files(
+    *,
+    skill_id: str,
+    files: list[dict[str, Any]] | None,
+    delete_paths: list[str] | None,
+    skill_uuid: uuid.UUID | None,
+) -> dict[str, Any]:
+    skill = await ctx.agents.aio.get_skill(skill_id, skill_uuid=skill_uuid)
+    current_version_id = skill.get("current_version_id")
+    merged: dict[str, dict[str, Any]] = {}
+    if current_version_id is not None:
+        snapshot = await ctx.agents.aio.get_skill_version(
+            skill_id=skill_id,
+            skill_uuid=skill_uuid,
+            version_id=current_version_id,
+        )
+        for file in snapshot.get("files", []):
+            merged[file["path"]] = {
+                "path": file["path"],
+                "content_base64": file["content_base64"],
+                "content_type": file["content_type"],
+            }
+    for path in delete_paths or ():
+        merged.pop(path, None)
+    for file in files or ():
+        merged[file["path"]] = file
+    if not merged:
+        raise ValueError("Skill update must leave at least one file")
+    return await ctx.agents.aio.publish_skill_version(
+        skill_id=skill_id,
+        skill_uuid=skill_uuid,
+        base_version_id=current_version_id,
+        files=list(merged.values()),
+    )
+
+
+# 1.2.1 actions restored so saved workflows keep running.
+
+
+@registry.register(
+    default_title="Get agent skill version",
+    display_group="Agent Skills",
+    description="Get one immutable published skill version by ID, including publish-compatible file contents.",
+    namespace="ai.skill",
+)
+async def get_skill_version(
+    skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
+    version_id: Annotated[uuid.UUID, Doc("Skill version UUID.")],
+    skill_uuid: Annotated[
+        uuid.UUID | None, Doc("Optional canonical skill UUID.")
+    ] = None,
+) -> dict[str, Any]:
+    return await ctx.agents.aio.get_skill_version(
+        skill_id=skill_id,
+        skill_uuid=skill_uuid,
+        version_id=version_id,
+    )
+
+
+@registry.register(
+    default_title="Publish agent skill version",
+    display_group="Agent Skills",
+    description="Publish a complete file set as a new immutable skill version.",
+    namespace="ai.skill",
+)
+async def publish_skill_version(
+    skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
+    files: Annotated[
+        list[dict[str, Any]],
+        Doc(
+            "Complete version file set. Each file requires path and content_base64, with optional content_type."
+        ),
+    ],
+    base_version_id: Annotated[
+        str | None,
+        Doc(
+            "Current version UUID observed before publishing. Omit or use null for the first version."
+        ),
+    ] = None,
+    skill_uuid: Annotated[
+        uuid.UUID | None, Doc("Optional canonical skill UUID.")
+    ] = None,
+) -> dict[str, Any]:
+    return await ctx.agents.aio.publish_skill_version(
+        skill_id=skill_id,
+        skill_uuid=skill_uuid,
+        base_version_id=base_version_id,
+        files=files,
+    )
+
+
+@registry.register(
+    default_title="Archive agent skill",
+    display_group="Agent Skills",
+    description="Archive (delete) a workspace skill.",
+    namespace="ai.skill",
+    deprecated="Use ai.skill.delete_skill instead.",
+)
+async def archive_skill(
+    skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
+    skill_uuid: Annotated[
+        uuid.UUID | None, Doc("Optional canonical skill UUID.")
+    ] = None,
+) -> None:
+    await ctx.agents.aio.archive_skill(skill_id, skill_uuid=skill_uuid)
+
+
+@registry.register(
+    default_title="Get agent skill draft",
+    display_group="Agent Skills",
+    description="Get the current mutable draft state for a workspace agent skill, including its file manifest and validation errors.",
+    namespace="ai.skill",
+    deprecated="Use ai.skill.get_skill instead.",
+)
+async def get_skill_draft(
+    skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
+    skill_uuid: Annotated[
+        uuid.UUID | None, Doc("Optional canonical skill UUID.")
+    ] = None,
+) -> dict[str, Any]:
+    return await ctx.agents.aio.get_skill_draft(skill_id, skill_uuid=skill_uuid)
+
+
+@registry.register(
+    default_title="Get agent skill draft file",
+    display_group="Agent Skills",
+    description="Get one file from the current mutable draft for a workspace agent skill.",
+    namespace="ai.skill",
+    deprecated="Use ai.skill.get_skill with path instead.",
+)
+async def get_skill_draft_file(
+    skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
+    path: Annotated[str, Doc("Draft file path (e.g., 'SKILL.md').")],
+    skill_uuid: Annotated[
+        uuid.UUID | None, Doc("Optional canonical skill UUID.")
+    ] = None,
+) -> dict[str, Any]:
+    return await ctx.agents.aio.get_skill_draft_file(
+        skill_id=skill_id,
+        path=path,
+        skill_uuid=skill_uuid,
+    )
+
+
+@registry.register(
+    default_title="Update agent skill draft",
+    display_group="Agent Skills",
+    description="Apply file operations to a workspace agent skill draft without publishing.",
+    namespace="ai.skill",
+    deprecated="Use ai.skill.update_skill instead.",
+)
+async def update_skill_draft(
+    skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
+    base_revision: Annotated[
+        int,
+        Doc(
+            "Draft revision observed before editing (from get_skill or get_skill_draft). Rejected with a conflict if the draft changed."
+        ),
+    ],
+    operations: Annotated[
+        list[dict[str, Any]],
+        Doc(
+            "Draft operations applied in order. Each has an 'op' of 'upsert_text_file' (path, content, optional content_type), 'delete_file' (path), or 'move_file' (from_path, to_path)."
+        ),
+    ],
+    skill_uuid: Annotated[
+        uuid.UUID | None, Doc("Optional canonical skill UUID.")
+    ] = None,
+) -> dict[str, Any]:
+    return await ctx.agents.aio.patch_skill_draft(
+        skill_id=skill_id,
+        base_revision=base_revision,
+        operations=operations,
+        skill_uuid=skill_uuid,
+    )
+
+
+@registry.register(
+    default_title="Publish agent skill draft",
+    display_group="Agent Skills",
+    description="Publish the current draft as a new immutable skill version.",
+    namespace="ai.skill",
+    deprecated="Use ai.skill.publish_skill instead.",
+)
+async def publish_skill_draft(
+    skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
+    skill_uuid: Annotated[
+        uuid.UUID | None, Doc("Optional canonical skill UUID.")
+    ] = None,
+) -> dict[str, Any]:
+    return await ctx.agents.aio.publish_skill_draft(skill_id, skill_uuid=skill_uuid)

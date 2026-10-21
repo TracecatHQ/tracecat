@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+from tests._registry_utils import core_udfs, input_schema_for
 from tracecat.dsl.schemas import TemplateExecutionContext
 from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions.policy import (
@@ -255,9 +256,43 @@ def test_case_task_trigger_values_redact_nested_secrets(action: str) -> None:
     }
 
 
-def test_agent_skill_draft_operations_redact_nested_secrets() -> None:
+@pytest.mark.parametrize(
+    "action", ["ai.skill.publish_skill_version", "ai.skill.update_skill"]
+)
+def test_agent_skill_legacy_files_redact_nested_secrets(action: str) -> None:
     prepared = _resolve_root(
-        "ai.skill.update_skill",
+        action,
+        {
+            "skill_id": "triage-assistant",
+            "files": [
+                {
+                    "path": "SKILL.md",
+                    "content_base64": "${{ SECRETS.api.FILE_BASE64 }}",
+                    "content_type": "text/markdown",
+                }
+            ],
+        },
+        {"SECRETS": {"api": {"FILE_BASE64": "cnVudGltZS1zZWNyZXQ="}}},
+    )
+
+    assert prepared == {
+        "skill_id": "triage-assistant",
+        "files": [
+            {
+                "path": "SKILL.md",
+                "content_base64": MASK_VALUE,
+                "content_type": "text/markdown",
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "action", ["ai.skill.update_skill", "ai.skill.update_skill_draft"]
+)
+def test_agent_skill_draft_operations_redact_nested_secrets(action: str) -> None:
+    prepared = _resolve_root(
+        action,
         {
             "skill_id": "triage-assistant",
             "operations": [
@@ -1311,3 +1346,21 @@ def test_preserve_splices_null_into_embedded_reference_as_native_rendering() -> 
     assert prepared["definition_yaml"] == (
         "description: None\ntitle: abc\nghost: ${{ inputs.missing }}\n"
     )
+
+
+@pytest.mark.parametrize(
+    ("action", "parameter"),
+    sorted(
+        {
+            *(
+                (a, param)
+                for a, params in REDACT_PARAMETERS.items()
+                for param in params
+            ),
+            *PRESERVE_PARAMETERS,
+        }
+    ),
+)
+def test_policy_overrides_target_registered_inputs(action: str, parameter: str) -> None:
+    # A stale entry after an action or input rename silently drops the override.
+    assert parameter in input_schema_for(core_udfs()[action])["properties"]
