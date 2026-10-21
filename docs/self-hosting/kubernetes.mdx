@@ -352,6 +352,33 @@ The chart supports Kubernetes Ingress and Istio VirtualService for external traf
   </Tab>
 </Tabs>
 
+## Tunnels
+
+[Tunnels](/manage-platform/tunnels) need the `tunnels` Enterprise entitlement. With `tunnels.enabled: true`, the `api` service creates a `tunnel-<id>` Secret, Deployment, and Service per tunnel in `tunnels.namespace`, and reconciles them every minute.
+
+```yaml
+api:
+  serviceAccount:
+    create: true
+
+tunnels:
+  enabled: true
+  gateway:
+    blockedCidrs:
+      - "10.0.0.0/16"     # pod / VPC CIDR
+      - "172.20.0.0/16"   # service CIDR
+
+tracecat:
+  pangolin:
+    orgId: "<pangolin-org-id>"
+    existingSecret: "tracecat-pangolin-credentials"  # key: apiKey
+```
+
+- `tunnels.gateway.blockedCidrs` is required. List every pod and service CIDR in the cluster, including secondary VPC ranges.
+- For self-hosted Pangolin, also set `tracecat.pangolin.endpoint` and `tracecat.pangolin.apiUrl`. On EKS, use `externalSecrets.pangolin.secretArn` instead of `existingSecret`.
+- Gateways need `NET_ADMIN` and `/dev/net/tun`, so the tunnels namespace enforces the `privileged` Pod Security level. The chart's admission policy (Kubernetes 1.30+) limits pods there to the gateway image, and its NetworkPolicy admits only executors and allows egress to Pangolin on TCP 443 and UDP 21820.
+- The gateway image follows the Tracecat image tag, so each upgrade restarts every gateway briefly.
+
 ## Installation
 
 <Steps>
