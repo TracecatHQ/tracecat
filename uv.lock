@@ -10,6 +10,10 @@ resolution-markers = [
     "python_full_version < '3.13' and sys_platform != 'win32'",
 ]
 
+[options]
+exclude-newer = "2026-10-14T16:17:10.843269358Z"
+exclude-newer-span = "P7D"
+
 [manifest]
 members = [
     "tracecat",

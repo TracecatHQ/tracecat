@@ -99,6 +99,8 @@ tracecat-ee = { workspace = true }
 members = ["packages/*"]
 
 [tool.uv]
+# Supply-chain cooldown: only resolve releases published at least 7 days ago.
+exclude-newer = "7 days"
 # Keep overrides only for requirements that conflict with our pinned versions.
 override-dependencies = [
     # LiteLLM requires boto3>=1.43.1,<2.0; aioboto3 pins boto3<1.40.62.
