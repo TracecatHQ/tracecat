@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 from claude_agent_sdk.types import AssistantMessage, TextBlock, ThinkingBlock
 from pydantic import ValidationError
@@ -141,3 +143,48 @@ def test_sanitize_message_tool_inputs_keeps_message_with_only_redacted_thinking(
 
     assert isinstance(validated, AssistantMessage)
     assert validated.content == []
+
+
+def test_sanitize_message_tool_inputs_drops_and_logs_unknown_block_types() -> None:
+    message = {
+        "role": "assistant",
+        "model": "custom-model",
+        "content": [
+            {"type": "future_block", "payload": "opaque"},
+            {"type": "text", "text": "done"},
+            {"type": "server_tool_use", "id": "srv_1", "name": "advisor", "input": {}},
+            {
+                "type": "advisor_tool_result",
+                "tool_use_id": "srv_1",
+                "content": {"type": "advisor_result"},
+            },
+        ],
+    }
+
+    with patch("tracecat.agent.mcp.metadata.logger") as mock_logger:
+        sanitized = sanitize_message_tool_inputs(message)
+
+    assert [block["type"] for block in sanitized["content"]] == [
+        "text",
+        "server_tool_use",
+        "advisor_tool_result",
+    ]
+    mock_logger.warning.assert_called_once()
+    assert mock_logger.warning.call_args.kwargs["block_types"] == ["future_block"]
+    assert isinstance(ClaudeSDKMessageTA.validate_python(sanitized), AssistantMessage)
+
+
+def test_sanitize_message_tool_inputs_keeps_supported_user_blocks() -> None:
+    message = {
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "hi"},
+            {"type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"},
+        ],
+    }
+
+    with patch("tracecat.agent.mcp.metadata.logger") as mock_logger:
+        sanitized = sanitize_message_tool_inputs(message)
+
+    assert sanitized == message
+    mock_logger.warning.assert_not_called()

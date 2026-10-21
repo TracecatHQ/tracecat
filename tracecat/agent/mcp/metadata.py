@@ -11,6 +11,18 @@ from tracecat.logger import logger
 PROXY_TOOL_METADATA_KEY = "__tracecat"
 PROXY_TOOL_CALL_ID_KEY = "tool_call_id"
 
+# Content block types the claude-agent-sdk message parser can represent.
+SDK_CONTENT_BLOCK_TYPES = frozenset(
+    {
+        "text",
+        "thinking",
+        "tool_use",
+        "tool_result",
+        "server_tool_use",
+        "advisor_tool_result",
+    }
+)
+
 
 def strip_proxy_tool_metadata(args: Mapping[str, Any] | None) -> dict[str, Any]:
     """Return tool arguments without Tracecat-internal proxy metadata.
@@ -108,9 +120,9 @@ def sanitize_message_tool_inputs(message: dict[str, Any]) -> dict[str, Any]:
 
     Strips proxy-only metadata from tool-call inputs, coerces thinking blocks
     whose ``signature`` is missing or null to an empty string, since
-    non-Anthropic providers emit unsigned reasoning blocks, and drops
-    ``redacted_thinking`` blocks (e.g. LiteLLM-encrypted reasoning), which
-    have no SDK content block type and carry no readable text.
+    non-Anthropic providers emit unsigned reasoning blocks, and drops (and
+    logs) content blocks the SDK cannot represent, such as LiteLLM
+    ``redacted_thinking`` blocks, mirroring the SDK's live message parser.
 
     Args:
         message: Raw persisted message payload.
@@ -130,13 +142,26 @@ def sanitize_message_tool_inputs(message: dict[str, Any]) -> dict[str, Any]:
                 part["args"] = strip_proxy_tool_metadata(raw_args)
 
     if isinstance(content := sanitized.get("content"), list):
-        content[:] = [
+        kept = [
             block
             for block in content
-            if not (
-                isinstance(block, dict) and block.get("type") == "redacted_thinking"
-            )
+            if not isinstance(block, dict)
+            or block.get("type") in SDK_CONTENT_BLOCK_TYPES
         ]
+        if len(kept) != len(content):
+            logger.warning(
+                "Dropping unsupported content blocks from persisted message",
+                block_types=sorted(
+                    {
+                        str(block.get("type"))
+                        for block in content
+                        if isinstance(block, dict)
+                        and block.get("type") not in SDK_CONTENT_BLOCK_TYPES
+                    }
+                ),
+                role=sanitized.get("role"),
+            )
+            content[:] = kept
         for block in content:
             if not isinstance(block, dict):
                 continue
