@@ -1,7 +1,7 @@
 # Tunnel gateway: a Pangolin machine client plus the Tracecat gateway proxy.
 # Executors send tunneled HTTP(S) traffic to the proxy, which only forwards
 # to the tunnel's allowlisted targets over the Pangolin tunnel.
-FROM ghcr.io/astral-sh/uv:0.9.15-python3.12-bookworm-slim
+FROM ghcr.io/astral-sh/uv:0.9.17-python3.12-bookworm-slim
 
 ARG TARGETARCH
 ARG PANGOLIN_CLI_VERSION=0.18.1
