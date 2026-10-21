@@ -1066,6 +1066,8 @@ async def _run_nsjail_fatal_signal_smoke_case(tmp_path: Path) -> None:
             await asyncio.sleep(0.1)
         else:
             execution.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await execution
             pytest.fail("sandbox workload did not start")
         # A node drain stops the pod scope, which SIGTERMs NsJail itself.
         processes[-1].send_signal(signal.SIGTERM)
