@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from claude_agent_sdk.types import AssistantMessage, ThinkingBlock
+import pytest
+from claude_agent_sdk.types import AssistantMessage, TextBlock, ThinkingBlock
+from pydantic import ValidationError
 
 from tracecat.agent.mcp.metadata import (
     PROXY_TOOL_CALL_ID_KEY,
@@ -91,3 +93,51 @@ def test_sanitize_message_tool_inputs_coerces_null_thinking_signature() -> None:
     validated = ClaudeSDKMessageTA.validate_python(sanitized)
     assert isinstance(validated, AssistantMessage)
     assert isinstance(validated.content[0], ThinkingBlock)
+
+
+def test_sanitize_message_tool_inputs_drops_redacted_thinking_blocks() -> None:
+    message = {
+        "id": "msg_123",
+        "type": "message",
+        "role": "assistant",
+        "model": "custom-model",
+        "content": [
+            {
+                "type": "redacted_thinking",
+                "data": "litellm_encrypted_reasoning:opaque",
+            },
+            {"type": "thinking", "thinking": "reasoning", "signature": "sig"},
+            {"type": "text", "text": "done"},
+        ],
+        "stop_reason": "end_turn",
+        "stop_sequence": None,
+    }
+
+    with pytest.raises(ValidationError):
+        ClaudeSDKMessageTA.validate_python(message)
+
+    sanitized = sanitize_message_tool_inputs(message)
+
+    assert [block["type"] for block in sanitized["content"]] == ["thinking", "text"]
+    assert message["content"][0]["type"] == "redacted_thinking"
+    validated = ClaudeSDKMessageTA.validate_python(sanitized)
+    assert isinstance(validated, AssistantMessage)
+    assert isinstance(validated.content[0], ThinkingBlock)
+    assert isinstance(validated.content[1], TextBlock)
+
+
+def test_sanitize_message_tool_inputs_keeps_message_with_only_redacted_thinking() -> (
+    None
+):
+    message = {
+        "role": "assistant",
+        "model": "custom-model",
+        "content": [{"type": "redacted_thinking", "data": "opaque"}],
+    }
+
+    validated = ClaudeSDKMessageTA.validate_python(
+        sanitize_message_tool_inputs(message)
+    )
+
+    assert isinstance(validated, AssistantMessage)
+    assert validated.content == []

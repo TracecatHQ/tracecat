@@ -106,9 +106,11 @@ def build_registry_tool_schema(
 def sanitize_message_tool_inputs(message: dict[str, Any]) -> dict[str, Any]:
     """Normalize a persisted message payload for SDK message validation.
 
-    Strips proxy-only metadata from tool-call inputs and coerces thinking
-    blocks whose ``signature`` is missing or null to an empty string, since
-    non-Anthropic providers emit unsigned reasoning blocks.
+    Strips proxy-only metadata from tool-call inputs, coerces thinking blocks
+    whose ``signature`` is missing or null to an empty string, since
+    non-Anthropic providers emit unsigned reasoning blocks, and drops
+    ``redacted_thinking`` blocks (e.g. LiteLLM-encrypted reasoning), which
+    have no SDK content block type and carry no readable text.
 
     Args:
         message: Raw persisted message payload.
@@ -128,6 +130,13 @@ def sanitize_message_tool_inputs(message: dict[str, Any]) -> dict[str, Any]:
                 part["args"] = strip_proxy_tool_metadata(raw_args)
 
     if isinstance(content := sanitized.get("content"), list):
+        content[:] = [
+            block
+            for block in content
+            if not (
+                isinstance(block, dict) and block.get("type") == "redacted_thinking"
+            )
+        ]
         for block in content:
             if not isinstance(block, dict):
                 continue
