@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import weakref
-from collections.abc import Callable, Coroutine, Mapping
+from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from typing import Any, Never, cast
 
 import dateparser
@@ -450,6 +450,25 @@ async def _load_collection_input(
         items.extend(StoredObjectValidator.validate_python(item) for item in page)
     items.extend(collection)
     return items
+
+
+async def _map_bounded[T, R](
+    fn: Callable[[T], Awaitable[R]], items: Sequence[T]
+) -> list[R]:
+    """Apply `fn` to each item with bounded concurrency, preserving order."""
+    semaphore = asyncio.Semaphore(config.TRACECAT__S3_CONCURRENCY_LIMIT)
+
+    async def run(item: T) -> R:
+        async with semaphore:
+            return await fn(item)
+
+    tasks = [asyncio.ensure_future(run(item)) for item in items]
+    try:
+        return await asyncio.gather(*tasks)
+    finally:
+        # Stop siblings once one fails so a failed activity leaves no stray reads.
+        for task in tasks:
+            task.cancel()
 
 
 async def _store_list_result(key: str, items: list[Any]) -> StoredObject:
@@ -917,15 +936,18 @@ class DSLActivities:
         with activity_error_boundary(_materialization_error_classification):
             collection = await _load_collection_input(input.parts, input.collection)
         if config.TRACECAT__RESULT_EXTERNALIZATION_ENABLED:
-            refs: list[dict[str, Any]] = []
-            for i, obj in enumerate(collection):
+
+            async def copy_item(indexed: tuple[int, StoredObject]) -> dict[str, Any]:
+                i, obj = indexed
                 with activity_error_boundary(_materialization_error_classification):
                     value = await storage.retrieve(obj)
                 with activity_error_boundary(_result_persistence_error_classification):
                     stored = await storage.store(
                         collection_item_key(input.key, i), value
                     )
-                refs.append(_dump_chunk_ref(stored))
+                return _dump_chunk_ref(stored)
+
+            refs = await _map_bounded(copy_item, list(enumerate(collection)))
             with activity_error_boundary(_result_persistence_error_classification):
                 return await store_collection(
                     input.key,
@@ -934,7 +956,7 @@ class DSLActivities:
                 )
 
         with activity_error_boundary(_materialization_error_classification):
-            values = [await storage.retrieve(obj) for obj in collection]
+            values = await _map_bounded(storage.retrieve, collection)
         return InlineObject(data=values, typename="list")
 
     @staticmethod
@@ -970,7 +992,7 @@ class DSLActivities:
         storage = get_object_storage()
         with activity_error_boundary(_materialization_error_classification):
             collection = await _load_collection_input(input.parts, input.collection)
-            values = [await storage.retrieve(obj) for obj in collection]
+            values = await _map_bounded(storage.retrieve, collection)
 
         if input.drop_nulls:
             values = [v for v in values if v is not None]

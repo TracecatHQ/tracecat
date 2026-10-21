@@ -25,17 +25,20 @@ pytestmark = [
     pytest.mark.usefixtures("registry_version_with_manifest"),
 ]
 
+from temporalio.api.enums.v1 import EventType
 from temporalio.client import Client
-from temporalio.worker import Worker
+from temporalio.worker import Replayer, Worker
 
-from tests.shared import TEST_WF_ID, generate_test_exec_id, to_data
+from tests.shared import TEST_WF_ID, generate_test_exec_id, recorded_patch_ids, to_data
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.dsl import scheduler
 from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.enums import WaitStrategy
-from tracecat.dsl.schemas import ActionStatement, GatherArgs, ScatterArgs
+from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
+from tracecat.dsl.schemas import ROOT_STREAM, ActionStatement, GatherArgs, ScatterArgs
+from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.storage import blob
@@ -43,8 +46,10 @@ from tracecat.storage.object import (
     CollectionObject,
     ExternalObject,
     StoredObjectValidator,
+    action_collection_prefix,
     get_object_storage,
 )
+from tracecat.temporal.patches import WorkflowPatch
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import WorkflowUpdate
@@ -505,59 +510,15 @@ async def test_scatter_gather_massive_payload_50x2mb_e2e(
 
 WIDE_GATHER_ITEM_COUNT = 1000
 WIDE_GATHER_ITEM_SIZE_BYTES = 15 * 1024
+SMALL_INPUT_BUDGET_BYTES = 4 * 1024
+SMALL_ITEM_COUNT = 20
+SMALL_ITEM_SIZE_BYTES = 512
 
 
-@pytest.mark.anyio
-@pytest.mark.integration
-@pytest.mark.slow
-@pytest.mark.regression
-@pytest.mark.parametrize(
-    ("item_count", "input_budget_bytes"),
-    [
-        pytest.param(WIDE_GATHER_ITEM_COUNT, None, id="default-budget"),
-        pytest.param(200, 16 * 1024, id="stored-parts"),
-    ],
-)
-async def test_wide_gather_of_small_inline_results_completes(
-    test_role: Role,
-    temporal_client: Client,
-    test_worker_factory: WorkerFactory,
-    test_executor_worker_factory: WorkerFactory,
-    monkeypatch: pytest.MonkeyPatch,
-    item_count: int,
-    input_budget_bytes: int | None,
-) -> None:
-    """Regression: a gather whose inline items sum past Temporal's limits completes.
-
-    Each per-stream result stays below the externalization threshold, so it is
-    passed inline. 1,000 x 15 KB sums to ~15 MB, well over the 2 MB activity
-    input limit, and previously terminated the workflow. The stored-parts case
-    shrinks the activity input budget so the gather input is split into parts.
-    """
-    _configure_storage_credentials(monkeypatch)
-    if input_budget_bytes is not None:
-        monkeypatch.setattr(
-            scheduler, "COLLECTION_ACTIVITY_INPUT_BUDGET_BYTES", input_budget_bytes
-        )
-    monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", False)
-    monkeypatch.setattr(
-        config, "TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES", 128 * 1024
-    )
-    sentinel = f"__wide-gather-sentinel-{uuid.uuid4().hex}__"
-    items = _build_large_items(
-        item_count=item_count,
-        item_size_bytes=WIDE_GATHER_ITEM_SIZE_BYTES,
-        sentinel=sentinel,
-    )
-    storage = get_object_storage()
-    trigger_inputs = await storage.store(
-        f"tests/regression/wide-gather/{uuid.uuid4().hex}/trigger.json",
-        {"items": items},
-    )
-
-    dsl = DSLInput(
-        title="Wide gather of small inline results",
-        description="Gather many small results whose sum exceeds activity limits",
+def _scatter_reshape_gather_dsl(title: str) -> DSLInput:
+    return DSLInput(
+        title=title,
+        description="Scatter trigger items, reshape each, and gather them",
         entrypoint=DSLEntrypoint(ref="scatter"),
         actions=[
             ActionStatement(
@@ -580,8 +541,68 @@ async def test_wide_gather_of_small_inline_results_completes(
         ],
     )
 
+
+async def _list_parts(bucket: str, prefix: str) -> list[Any]:
+    async with blob.get_storage_client() as s3_client:
+        listing = await s3_client.list_objects_v2(
+            Bucket=bucket, Prefix=f"{prefix}/parts/"
+        )
+    return listing.get("Contents", [])
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.regression
+@pytest.mark.parametrize(
+    ("item_count", "input_budget_bytes"),
+    [
+        pytest.param(WIDE_GATHER_ITEM_COUNT, None, id="default-budget"),
+        pytest.param(200, 16 * 1024, id="stored-parts"),
+    ],
+)
+async def test_wide_gather_of_small_results_completes(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    item_count: int,
+    input_budget_bytes: int | None,
+) -> None:
+    """Regression: a gather whose items sum past Temporal's limits completes.
+
+    1,000 x 15 KB sums to ~15 MB, well over the 2 MB activity input limit, and
+    previously terminated the workflow. Each item now exceeds the gather inline
+    threshold and is externalized, so the gather input holds only handles. The
+    stored-parts case shrinks the activity input budget so those handles are
+    split into stored parts.
+    """
+    _configure_storage_credentials(monkeypatch)
+    if input_budget_bytes is not None:
+        monkeypatch.setattr(
+            scheduler, "COLLECTION_ACTIVITY_INPUT_BUDGET_BYTES", input_budget_bytes
+        )
+    monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", False)
+    monkeypatch.setattr(
+        config, "TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES", 128 * 1024
+    )
+    sentinel = f"__wide-gather-sentinel-{uuid.uuid4().hex}__"
+    items = _build_large_items(
+        item_count=item_count,
+        item_size_bytes=WIDE_GATHER_ITEM_SIZE_BYTES,
+        sentinel=sentinel,
+    )
+    storage = get_object_storage()
+    trigger_inputs = await storage.store(
+        f"tests/regression/wide-gather/{uuid.uuid4().hex}/trigger.json",
+        {"items": items},
+    )
+
+    dsl = _scatter_reshape_gather_dsl("Wide gather of small results")
+
     wf_exec_id = generate_test_exec_id(
-        f"{test_wide_gather_of_small_inline_results_completes.__name__}-{uuid.uuid4().hex[:8]}"
+        f"{test_wide_gather_of_small_results_completes.__name__}-{uuid.uuid4().hex[:8]}"
     )
     run_args = DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID)
     run_args.trigger_inputs = trigger_inputs
@@ -604,11 +625,204 @@ async def test_wide_gather_of_small_inline_results_completes(
         assert item["idx"] == index
         assert item["payload"].startswith(sentinel)
 
-    parts_prefix = (
-        f"{test_role.workspace_id}/{wf_exec_id}/actions/<root>:0/gather/parts/"
+    gather_prefix = action_collection_prefix(
+        str(test_role.workspace_id), wf_exec_id, str(ROOT_STREAM), "gather"
     )
-    async with blob.get_storage_client() as s3_client:
-        listing = await s3_client.list_objects_v2(
-            Bucket=gather_stored.manifest_ref.bucket, Prefix=parts_prefix
+    parts = await _list_parts(gather_stored.manifest_ref.bucket, gather_prefix)
+    assert bool(parts) == (input_budget_bytes is not None)
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.regression
+@pytest.mark.parametrize(
+    "patched",
+    [
+        pytest.param(False, id="pre-patch-history"),
+        pytest.param(True, id="patched-history"),
+    ],
+)
+async def test_bound_gather_input_histories_replay(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    patched: bool,
+) -> None:
+    """Over-budget gather histories replay on the path they were recorded with.
+
+    The pre-patch history is recorded with the patch hidden, as a worker from
+    before the patch would: it passes every item inline and stores no parts.
+    """
+    _configure_storage_credentials(monkeypatch)
+    monkeypatch.setattr(
+        scheduler, "COLLECTION_ACTIVITY_INPUT_BUDGET_BYTES", SMALL_INPUT_BUDGET_BYTES
+    )
+    monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", False)
+    items = _build_large_items(
+        item_count=SMALL_ITEM_COUNT,
+        item_size_bytes=SMALL_ITEM_SIZE_BYTES,
+        sentinel=f"__gather-replay-sentinel-{uuid.uuid4().hex}__",
+    )
+    trigger_inputs = await get_object_storage().store(
+        f"tests/regression/gather-replay/{uuid.uuid4().hex}/trigger.json",
+        {"items": items},
+    )
+    wf_exec_id = generate_test_exec_id(
+        f"{test_bound_gather_input_histories_replay.__name__}-{uuid.uuid4().hex[:8]}"
+    )
+    run_args = DSLRunArgs(
+        dsl=_scatter_reshape_gather_dsl("Bound gather input replay"),
+        role=test_role,
+        wf_id=TEST_WF_ID,
+    )
+    run_args.trigger_inputs = trigger_inputs
+
+    current_patched = scheduler.workflow.patched
+
+    def recording_patched(patch_id: str) -> bool:
+        if patch_id == WorkflowPatch.BOUND_COLLECTION_ACTIVITY_INPUT:
+            return patched and current_patched(patch_id)
+        return current_patched(patch_id)
+
+    with monkeypatch.context() as recording:
+        recording.setattr(scheduler.workflow, "patched", recording_patched)
+        await _run_workflow(
+            temporal_client=temporal_client,
+            worker_factory=test_worker_factory,
+            executor_worker_factory=test_executor_worker_factory,
+            wf_exec_id=wf_exec_id,
+            run_args=run_args,
         )
-    assert bool(listing.get("Contents")) == (input_budget_bytes is not None)
+
+    history = await temporal_client.get_workflow_handle(wf_exec_id).fetch_history()
+    patch_ids = await recorded_patch_ids(temporal_client, history)
+    assert (WorkflowPatch.BOUND_COLLECTION_ACTIVITY_INPUT.value in patch_ids) is patched
+    scheduled = [
+        event.activity_task_scheduled_event_attributes
+        for event in history.events
+        if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+    ]
+    part_stores = [
+        attrs
+        for attrs in scheduled
+        if attrs.activity_type.name == "store_collection_part_activity"
+    ]
+    (finalize,) = [
+        attrs
+        for attrs in scheduled
+        if attrs.activity_type.name == "finalize_gather_activity"
+    ]
+    (finalize_input,) = await temporal_client.data_converter.decode(
+        finalize.input.payloads
+    )
+    assert bool(part_stores) is patched
+    assert len(finalize_input["parts"]) == len(part_stores)
+    assert len(finalize_input["collection"]) == (0 if patched else SMALL_ITEM_COUNT)
+
+    replay_result = await Replayer(
+        workflows=[DSLWorkflow],
+        workflow_runner=new_sandbox_runner(),
+        data_converter=temporal_client.data_converter,
+        interceptors=[RuntimeErrorAttributionInterceptor()],
+    ).replay_workflow(history, raise_on_replay_failure=False)
+    assert replay_result.replay_failure is None
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.regression
+async def test_looped_subflow_results_over_budget_use_stored_parts(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: WorkerFactory,
+    test_executor_worker_factory: WorkerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: looped subflow results past the input budget still synchronize.
+
+    Shrinks the activity input budget so the child results passed to the
+    synchronize activity are split into stored parts, read back in order.
+    """
+    _configure_storage_credentials(monkeypatch)
+    monkeypatch.setattr(
+        scheduler, "COLLECTION_ACTIVITY_INPUT_BUDGET_BYTES", SMALL_INPUT_BUDGET_BYTES
+    )
+    monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", False)
+    sentinel = f"__looped-subflow-parts-sentinel-{uuid.uuid4().hex}__"
+    items = _build_large_items(
+        item_count=SMALL_ITEM_COUNT,
+        item_size_bytes=SMALL_ITEM_SIZE_BYTES,
+        sentinel=sentinel,
+    )
+    storage = get_object_storage()
+    trigger_inputs = await storage.store(
+        f"tests/regression/looped-subflow-parts/{uuid.uuid4().hex}/trigger.json",
+        {"items": items},
+    )
+
+    child_alias = f"parts-child-{uuid.uuid4().hex[:8]}"
+    child_dsl = DSLInput(
+        title="Child passthrough",
+        description="Returns trigger payload unchanged",
+        entrypoint=DSLEntrypoint(ref="identity"),
+        actions=[
+            ActionStatement(
+                ref="identity",
+                action="core.transform.reshape",
+                args={"value": "${{ TRIGGER }}"},
+            )
+        ],
+        returns="${{ ACTIONS.identity.result }}",
+    )
+    _ = await _create_and_commit_workflow(child_dsl, test_role, alias=child_alias)
+
+    parent_dsl = DSLInput(
+        title="Looped subflow with stored result parts",
+        description="Execute child with for_each whose results exceed the budget",
+        entrypoint=DSLEntrypoint(ref="call_child"),
+        actions=[
+            ActionStatement(
+                ref="call_child",
+                action="core.workflow.execute",
+                for_each="${{ for var.item in TRIGGER.items }}",
+                args={
+                    "workflow_alias": child_alias,
+                    "trigger_inputs": "${{ var.item }}",
+                    "wait_strategy": WaitStrategy.WAIT.value,
+                },
+            ),
+        ],
+    )
+
+    wf_exec_id = generate_test_exec_id(
+        f"{test_looped_subflow_results_over_budget_use_stored_parts.__name__}-{uuid.uuid4().hex[:8]}"
+    )
+    run_args = DSLRunArgs(dsl=parent_dsl, role=test_role, wf_id=TEST_WF_ID)
+    run_args.trigger_inputs = trigger_inputs
+    result = await _run_workflow(
+        temporal_client=temporal_client,
+        worker_factory=test_worker_factory,
+        executor_worker_factory=test_executor_worker_factory,
+        wf_exec_id=wf_exec_id,
+        run_args=run_args,
+    )
+
+    raw_context = await to_data(result)
+    collection = StoredObjectValidator.validate_python(
+        raw_context["ACTIONS"]["call_child"]["result"]
+    )
+    assert isinstance(collection, CollectionObject)
+    assert collection.count == SMALL_ITEM_COUNT
+    for index in range(SMALL_ITEM_COUNT):
+        item = await storage.retrieve(collection.at(index))
+        assert item["idx"] == index
+        assert item["payload"].startswith(sentinel)
+
+    call_child_prefix = action_collection_prefix(
+        str(test_role.workspace_id), wf_exec_id, str(ROOT_STREAM), "call_child"
+    )
+    assert await _list_parts(collection.manifest_ref.bucket, call_child_prefix)

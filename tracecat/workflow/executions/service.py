@@ -731,33 +731,28 @@ class WorkflowExecutionsService:
                     action_ref=WF_TRIGGER_REF,
                     action_input=action_input,
                 )
-            # ── synthetic compact event for top-level workflow failure ──
-            elif event.event_type is EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
+            # ── synthetic compact event for top-level workflow failure or termination ──
+            elif event.event_type in (
+                EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED,
+                EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED,
+            ):
                 failure = await EventFailure.from_history_event(event)
+                status = (
+                    WorkflowExecutionEventStatus.TERMINATED
+                    if event.event_type
+                    == EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED
+                    else WorkflowExecutionEventStatus.FAILED
+                )
                 id2event[event.event_id] = WorkflowExecutionEventCompact(
                     source_event_id=event.event_id,
                     schedule_time=event.event_time.ToDatetime(datetime.UTC),
                     start_time=event.event_time.ToDatetime(datetime.UTC),
                     close_time=event.event_time.ToDatetime(datetime.UTC),
                     curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
-                    status=WorkflowExecutionEventStatus.FAILED,
+                    status=status,
                     action_name=WF_FAILURE_REF,
                     action_ref=WF_FAILURE_REF,
                     action_error=failure,
-                )
-                continue
-            # ── synthetic compact event for top-level workflow termination ──
-            elif event.event_type is EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED:
-                id2event[event.event_id] = WorkflowExecutionEventCompact(
-                    source_event_id=event.event_id,
-                    schedule_time=event.event_time.ToDatetime(datetime.UTC),
-                    start_time=event.event_time.ToDatetime(datetime.UTC),
-                    close_time=event.event_time.ToDatetime(datetime.UTC),
-                    curr_event_type=WorkflowEventType.WORKFLOW_EXECUTION_TERMINATED,
-                    status=WorkflowExecutionEventStatus.TERMINATED,
-                    action_name=WF_FAILURE_REF,
-                    action_ref=WF_FAILURE_REF,
-                    action_error=EventFailure.from_terminated_event(event),
                 )
                 continue
             # ── synthetic compact event for top-level workflow completion ──
@@ -1353,24 +1348,17 @@ class WorkflowExecutionsService:
                             result=result,
                         )
                     )
-                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
+                case (
+                    EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED
+                    | EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED
+                ):
                     events.append(
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=WorkflowEventType.WORKFLOW_EXECUTION_FAILED,
+                            event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
                             task_id=event.task_id,
                             failure=await EventFailure.from_history_event(event),
-                        )
-                    )
-                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED:
-                    events.append(
-                        WorkflowExecutionEvent(
-                            event_id=event.event_id,
-                            event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=WorkflowEventType.WORKFLOW_EXECUTION_TERMINATED,
-                            task_id=event.task_id,
-                            failure=EventFailure.from_terminated_event(event),
                         )
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED:
