@@ -94,7 +94,7 @@ Set all four on the `api` service to enable [managed tunnels](/manage-platform/t
 | `TRACECAT__PANGOLIN_API_KEY` | | Pangolin organization API key with site, client, and private resource permissions. Store it in your secrets manager. |
 | `TRACECAT__PANGOLIN_API_KEY__ARN` | | AWS Secrets Manager ARN of the Pangolin API key, used instead of `TRACECAT__PANGOLIN_API_KEY`. Read by the `api` service only. |
 
-These settings control the [tunnel gateways](/manage-platform/tunnels#run-the-tunnel-gateway) that the `api` service runs. Executors read `TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE` and `TRACECAT__TUNNEL_GATEWAY_PORT` to find a tunnel's gateway.
+These settings control the [tunnel gateways](/self-hosting/kubernetes#tunnels) that the `api` service runs on Kubernetes. Executors read `TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE` and `TRACECAT__TUNNEL_GATEWAY_PORT` to find a tunnel's gateway.
 
 | Variable | Default | Description |
 | :------- | :------ | :---------- |
