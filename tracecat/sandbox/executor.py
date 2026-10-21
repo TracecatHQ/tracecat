@@ -199,7 +199,7 @@ def _usable_result(
     outcome: ResultEnvelopeOutcome | None,
     completed: NsjailCompletedProcess,
 ) -> SandboxResult | None:
-    """Return the decoded result unless a drain kill truncated its write."""
+    """Return the decoded result, discarding any invalid envelope under a drain kill."""
     if outcome is None:
         return None
     if (
