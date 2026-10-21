@@ -102,7 +102,8 @@ async def update_skill(
             "File operations applied in order. Each has an 'op' of "
             "'upsert_text_file' (path, content, optional content_type), "
             "'delete_file' (path), or 'move_file' (from_path, to_path). "
-            "If omitted, the deprecated files/delete_paths are published directly."
+            "If omitted, the current version is republished directly, with the "
+            "deprecated files/delete_paths applied when given."
         ),
     ] = None,
     base_revision: Annotated[
@@ -130,6 +131,8 @@ async def update_skill(
 ) -> dict[str, Any]:
     if operations is None:
         # 1.2.1 contract: omitted operations publish directly, even with no file changes.
+        if base_revision is not None:
+            raise ValueError("base_revision requires operations")
         return await _publish_merged_files(
             skill_id=skill_id,
             files=files,

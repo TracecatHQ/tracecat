@@ -189,6 +189,14 @@ async def test_update_skill_without_inputs_republishes_current_version(
 
 
 @pytest.mark.anyio
+async def test_update_skill_rejects_base_revision_without_operations(
+    skill_registry_context: MagicMock,
+) -> None:
+    with pytest.raises(ValueError, match="base_revision requires operations"):
+        await update_skill("triage", files=FILES, base_revision=1)
+
+
+@pytest.mark.anyio
 async def test_update_skill_rejects_operations_with_legacy_files(
     skill_registry_context: MagicMock,
 ) -> None:
