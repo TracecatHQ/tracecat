@@ -945,13 +945,13 @@ function ToolbarLinkItem({ href, label }: { href?: string; label: string }) {
       {href ? (
         <Link
           href={href}
-          className="flex w-full items-center"
+          className="flex w-full items-center gap-2"
           onClick={(e) => e.stopPropagation()}
         >
           {content}
         </Link>
       ) : (
-        <div className="flex items-center">{content}</div>
+        <div className="flex items-center gap-2">{content}</div>
       )}
     </CommandItem>
   )
