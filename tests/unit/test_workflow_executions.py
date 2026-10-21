@@ -22,7 +22,10 @@ import pytest
 from pydantic import BaseModel
 from temporalio.api.enums.v1 import EventType, ParentClosePolicy, PendingActivityState
 from temporalio.api.failure.v1 import Failure
-from temporalio.api.history.v1 import HistoryEvent
+from temporalio.api.history.v1 import (
+    HistoryEvent,
+    WorkflowExecutionTerminatedEventAttributes,
+)
 from temporalio.client import Client, WorkflowHandle
 from temporalio.converter import DefaultPayloadConverter
 
@@ -290,6 +293,69 @@ class TestWorkflowExecutionEvents:
 
             # Verify EventFailure.from_history_event was called
             mock_event_failure.assert_awaited_once_with(failure_event)
+
+    @pytest.mark.parametrize(
+        ("reason", "expected_message"),
+        [
+            (
+                "Workflow task failed: payload size exceeded",
+                "Workflow terminated: Workflow task failed: payload size exceeded",
+            ),
+            ("", "Workflow terminated without a reason."),
+        ],
+    )
+    async def test_workflow_terminated_events_include_reason(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+        reason: str,
+        expected_message: str,
+    ) -> None:
+        """Termination reasons surface in both full and compact execution events."""
+        terminated_event = HistoryEvent(
+            event_id=7,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED,
+            task_id=7,
+            workflow_execution_terminated_event_attributes=WorkflowExecutionTerminatedEventAttributes(
+                reason=reason
+            ),
+        )
+        terminated_event.event_time.FromSeconds(1640995200)
+
+        def make_handle() -> Mock:
+            async def mock_fetch_history_events(**kwargs):
+                yield terminated_event
+
+            handle = Mock(spec=WorkflowHandle)
+            handle.fetch_history_events.return_value = mock_fetch_history_events()
+            handle.fetch_history = AsyncMock(
+                return_value=Mock(events=[terminated_event])
+            )
+            handle.describe = AsyncMock(
+                return_value=Mock(raw_description=Mock(pending_activities=[]))
+            )
+            return handle
+
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            side_effect=lambda *args, **kwargs: make_handle()
+        )
+
+        events = await workflow_executions_service.list_workflow_execution_events(
+            workflow_exec_id
+        )
+        assert len(events) == 1
+        assert events[0].event_type == WorkflowEventType.WORKFLOW_EXECUTION_TERMINATED
+        assert events[0].failure == EventFailure(message=expected_message)
+
+        compact = (
+            await workflow_executions_service.list_workflow_execution_events_compact(
+                workflow_exec_id
+            )
+        )
+        assert len(compact) == 1
+        assert compact[0].action_ref == WF_FAILURE_REF
+        assert compact[0].status == WorkflowExecutionEventStatus.TERMINATED
+        assert compact[0].action_error == EventFailure(message=expected_message)
 
     async def test_workflow_completed_synthetic_event_creation(
         self,
