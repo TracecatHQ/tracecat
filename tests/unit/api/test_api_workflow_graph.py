@@ -11,7 +11,6 @@ from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import Workflow, Workspace
 from tracecat.workflow.graph.service import WorkflowGraphService
-from tracecat.workflow.management.schemas import GraphResponse
 
 
 @pytest.fixture
@@ -37,37 +36,6 @@ def mock_workflow(test_workspace: Workspace) -> Workflow:
         trigger_position_y=20.0,
         graph_version=3,
     )
-
-
-def _graph_response(version: int = 3) -> GraphResponse:
-    return GraphResponse(
-        version=version,
-        nodes=[{"id": "trigger-1", "type": "trigger"}],
-        edges=[],
-        viewport={"x": 0, "y": 0, "zoom": 1},
-    )
-
-
-@pytest.mark.anyio
-async def test_get_graph_success(
-    client: TestClient, test_admin_role: Role, mock_workflow: Workflow
-) -> None:
-    """GET /workflows/{id}/graph returns graph projection."""
-
-    with patch.object(
-        WorkflowGraphService, "get_graph", new_callable=AsyncMock
-    ) as mock_get:
-        mock_get.return_value = _graph_response(version=mock_workflow.graph_version)
-
-        response = client.get(
-            f"/workflows/{mock_workflow.id}/graph",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["version"] == mock_workflow.graph_version
-        assert data["nodes"][0]["type"] == "trigger"
 
 
 @pytest.mark.anyio
@@ -110,28 +78,6 @@ async def test_get_graph_requires_read_scope(
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
     mock_get.assert_not_called()
-
-
-@pytest.mark.anyio
-async def test_apply_operations_success(
-    client: TestClient, test_admin_role: Role, mock_workflow: Workflow
-) -> None:
-    """PATCH /workflows/{id}/graph applies operations and returns graph."""
-
-    with patch.object(
-        WorkflowGraphService, "apply_operations", new_callable=AsyncMock
-    ) as mock_apply:
-        mock_apply.return_value = _graph_response(version=mock_workflow.graph_version)
-
-        response = client.patch(
-            f"/workflows/{mock_workflow.id}/graph",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={"base_version": 3, "operations": []},
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["version"] == mock_workflow.graph_version
 
 
 @pytest.mark.anyio

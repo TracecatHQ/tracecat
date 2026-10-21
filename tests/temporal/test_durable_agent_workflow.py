@@ -567,6 +567,9 @@ async def agent_worker_factory(threadpool, monkeypatch: pytest.MonkeyPatch):
             workflows=[DurableAgentWorkflow],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=threadpool,
+            # Evict suspended workflows through the SDK before their worker exits.
+            # Garbage-collecting them later can run cleanup in another replay.
+            max_cached_workflows=0,
         )
 
     yield create_agent_worker

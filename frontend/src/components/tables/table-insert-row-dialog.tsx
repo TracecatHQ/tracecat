@@ -346,7 +346,7 @@ export function TableRowFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent size="sm" className="max-w-3xl">
+      <DialogContent size="lg" className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit row" : "Add new row"}</DialogTitle>
           <DialogDescription>{resolvedDescription}</DialogDescription>
@@ -357,33 +357,31 @@ export function TableRowFormDialog({
             className="flex min-h-0 flex-1 flex-col"
           >
             <DialogBody>
-              <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
-                <div className="space-y-4 pr-1">
-                  {columns.map((column) => (
-                    <FormField
-                      key={column.name}
-                      control={form.control}
-                      name={column.name}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="flex items-center gap-2">
-                            <span>{column.name}</span>
-                            <SqlTypeBadge type={column.type as SqlType} />
-                            {isColumnRequired(column) && (
-                              <span className="text-xs text-muted-foreground">
-                                (required)
-                              </span>
-                            )}
-                          </FormLabel>
-                          <FormControl>
-                            <DynamicInput column={column} field={field} />
-                          </FormControl>
-                          <FormMessage className="text-xs" />
-                        </FormItem>
-                      )}
-                    />
-                  ))}
-                </div>
+              <div className="space-y-4">
+                {columns.map((column) => (
+                  <FormField
+                    key={column.name}
+                    control={form.control}
+                    name={column.name}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-2">
+                          <span>{column.name}</span>
+                          <SqlTypeBadge type={column.type as SqlType} />
+                          {isColumnRequired(column) && (
+                            <span className="text-xs text-muted-foreground">
+                              (required)
+                            </span>
+                          )}
+                        </FormLabel>
+                        <FormControl>
+                          <DynamicInput column={column} field={field} />
+                        </FormControl>
+                        <FormMessage className="text-xs" />
+                      </FormItem>
+                    )}
+                  />
+                ))}
               </div>
             </DialogBody>
             <DialogFooter>

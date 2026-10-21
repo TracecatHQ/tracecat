@@ -26,6 +26,11 @@ jest.mock("@/components/auth/scope-guard", () => ({
     mockUseScopeCheck(scope, anyOf),
 }))
 
+let mockFormsAccess = "hidden"
+jest.mock("@/hooks/use-forms-access", () => ({
+  useFormsAccess: () => mockFormsAccess,
+}))
+
 jest.mock("@/components/locked-feature-modal", () => ({
   LockedFeatureChip: () => <span>Locked</span>,
   LockedFeatureModal: () => null,
@@ -43,17 +48,17 @@ jest.mock("@/components/sidebar/sidebar-user-nav", () => ({
       title: string
       href: string
       isActive?: boolean
+      locked?: boolean
     }[]
   }) => (
     <nav>
       {manageItems.map((item) => (
-        <a
-          href={item.href}
-          data-active={item.isActive ? "true" : "false"}
-          key={item.href}
-        >
-          {item.title}
-        </a>
+        <span key={item.href}>
+          <a href={item.href} data-active={item.isActive ? "true" : "false"}>
+            {item.title}
+          </a>
+          {item.locked ? <span>Requires upgrade</span> : null}
+        </span>
       ))}
     </nav>
   ),
@@ -163,7 +168,32 @@ describe("AppSidebar", () => {
         ? (mockScopes[scope] ?? false)
         : (anyOf ?? []).some((candidate) => mockScopes[candidate])
     )
+    mockFormsAccess = "hidden"
   })
+
+  it.each([
+    ["hidden", { "form:read": true, "form:update": true }, false],
+    ["loading", { "form:read": true, "form:update": true }, false],
+    ["enabled", { "form:read": true, "form:update": true }, true],
+    ["locked", { "form:read": true, "form:submission:read": true }, true],
+    ["enabled", { "form:read": true, "form:submit": true }, false],
+    // The list itself needs `form:read`.
+    ["enabled", { "form:update": true, "form:submission:read": true }, false],
+  ])(
+    "links to Forms when access is %s with %j: %p",
+    (access, scopes, shown) => {
+      mockScopes = { "workflow:read": true, ...scopes }
+      mockFormsAccess = access
+
+      render(<AppSidebar />)
+
+      const titles = screen.getAllByRole("link").map((link) => link.textContent)
+      // Right after Workflows.
+      expect(titles.indexOf("Forms")).toBe(
+        shown ? titles.indexOf("Workflows") + 1 : -1
+      )
+    }
+  )
 
   it("hides Chat when the user can execute agents but cannot read them", () => {
     mockScopes = {

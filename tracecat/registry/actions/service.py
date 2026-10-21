@@ -202,6 +202,35 @@ class SecretAggregate(TypedDict):
     secret_type: str | None
 
 
+def action_browse_sort_key(action_name: str) -> tuple[int, str, str, str, str]:
+    """Stable ordering for browsing action names and seek cursors."""
+    namespace, name = action_name.rsplit(".", 1)
+    return 0, namespace.casefold(), name.casefold(), namespace, name
+
+
+def action_search_sort_key(
+    action_name: str, query: str
+) -> tuple[int, str, str, str, str]:
+    """Put exact and prefix matches ahead of broader substring matches."""
+    namespace, name = action_name.rsplit(".", 1)
+    normalized_query = query.casefold()
+    name_parts = (
+        action_name.casefold(),
+        namespace.casefold(),
+        namespace.rsplit(".", 1)[-1].casefold(),
+        name.casefold(),
+    )
+    if normalized_query in name_parts:
+        rank = 0
+    elif any(part.startswith(normalized_query) for part in name_parts):
+        rank = 1
+    elif normalized_query in action_name.casefold():
+        rank = 2
+    else:
+        rank = 3
+    return rank, action_name.casefold(), action_name, "", ""
+
+
 def _infer_secret_type_from_keys(keys: list[str]) -> str:
     """Infer registry secret_type from key shape.
 
@@ -424,8 +453,16 @@ class RegistryActionsService(BaseOrgService):
                 options=row.options or {},
             )
             entries.append((entry, row.origin))
-        return await self._filter_index_entries_by_entitlements(
+        filtered = await self._filter_index_entries_by_entitlements(
             entries, include_locked=include_locked
+        )
+        # Sort after deduplication and entitlement filtering so org overrides
+        # retain precedence while browsing has a stable order across pages.
+        return sorted(
+            filtered,
+            key=lambda item: action_browse_sort_key(
+                f"{item[0].namespace}.{item[0].name}"
+            ),
         )
 
     async def list_actions_from_index_by_repository(
@@ -1048,7 +1085,7 @@ class RegistryActionsService(BaseOrgService):
         *,
         limit: int | None = None,
     ) -> list[tuple[IndexEntry, str]]:
-        """Search actions by name or description using ilike.
+        """Search actions by literal, case-insensitive name or description text.
 
         Searches both org-scoped and platform registries.
 
@@ -1061,8 +1098,6 @@ class RegistryActionsService(BaseOrgService):
         """
         if not query:
             return []
-
-        search_pattern = f"%{query}%"
 
         # Org-scoped query - select explicit columns for UNION ALL compatibility
         org_statement = (
@@ -1093,10 +1128,12 @@ class RegistryActionsService(BaseOrgService):
                 RegistryRepository.organization_id == self.organization_id,
                 RegistryRepository.current_version_id == RegistryVersion.id,
                 or_(
-                    func.concat(RegistryIndex.namespace, ".", RegistryIndex.name).ilike(
-                        search_pattern
+                    func.concat(
+                        RegistryIndex.namespace, ".", RegistryIndex.name
+                    ).icontains(query, autoescape=True, escape="\\"),
+                    RegistryIndex.description.icontains(
+                        query, autoescape=True, escape="\\"
                     ),
-                    RegistryIndex.description.ilike(search_pattern),
                 ),
             )
         )
@@ -1132,16 +1169,19 @@ class RegistryActionsService(BaseOrgService):
                 or_(
                     func.concat(
                         PlatformRegistryIndex.namespace, ".", PlatformRegistryIndex.name
-                    ).ilike(search_pattern),
-                    PlatformRegistryIndex.description.ilike(search_pattern),
+                    ).icontains(query, autoescape=True, escape="\\"),
+                    PlatformRegistryIndex.description.icontains(
+                        query, autoescape=True, escape="\\"
+                    ),
                 ),
             )
         )
 
-        # Combine with UNION ALL and optionally apply limit
-        combined = union_all(org_statement, platform_statement)
-        if limit is not None:
-            combined = combined.limit(limit)
+        # Org overrides must be considered first when the same action is indexed
+        # in both registries. Limit only after deduplication and relevance ranking.
+        combined = union_all(org_statement, platform_statement).order_by(
+            text("source"), text("namespace"), text("name"), text("id")
+        )
         result = await self.session.execute(combined)
         rows = typing_cast(list[_SearchIndexRow], result.all())
         allow_custom_origins = await self._allow_custom_origins_for_rows(
@@ -1179,7 +1219,15 @@ class RegistryActionsService(BaseOrgService):
                 )
             )
 
-        return await self._filter_index_entries_by_entitlements(entries)
+        filtered = await self._filter_index_entries_by_entitlements(entries)
+        # Rank only visible, deduplicated actions so the limit selects the most
+        # relevant available results rather than whichever rows SQL returned first.
+        filtered.sort(
+            key=lambda item: action_search_sort_key(
+                f"{item[0].namespace}.{item[0].name}", query
+            )
+        )
+        return filtered[:limit] if limit is not None else filtered
 
     async def get_aggregated_secrets(self) -> list[SecretDefinition]:
         """Aggregate secrets from all actions in both org and platform registries.

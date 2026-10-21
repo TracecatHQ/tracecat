@@ -23,6 +23,7 @@ import {
   DialogBody,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -43,6 +44,8 @@ const headerFormSchema = z.object({
   key: z.string(),
   value: z.string(),
 })
+
+const AUDIT_WEBHOOK_FORM_ID = "audit-webhook-form"
 
 const auditDialogFormSchema = z
   .object({
@@ -493,6 +496,7 @@ export function AuditSettingsForm({
             <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
               <Form {...form}>
                 <form
+                  id={AUDIT_WEBHOOK_FORM_ID}
                   onSubmit={form.handleSubmit(onSubmit)}
                   className="space-y-6"
                 >
@@ -609,6 +613,7 @@ export function AuditSettingsForm({
                             value={field.value}
                             onChange={field.onChange}
                             language="json"
+                            wrapLongLines
                             className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[120px]"
                           />
                         </FormControl>
@@ -653,38 +658,37 @@ export function AuditSettingsForm({
                       </FormItem>
                     )}
                   />
-
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={form.handleSubmit(onTestForm)}
-                      disabled={
-                        testAuditWebhookIsPending ||
-                        updateAuditSettingsIsPending ||
-                        formUrlIsEmpty
-                      }
-                      className="gap-2"
-                    >
-                      <SendIcon className="size-3.5" />
-                      {testAuditWebhookIsPending ? "Testing..." : "Test"}
-                    </Button>
-                    <Button
-                      type="submit"
-                      disabled={
-                        updateAuditSettingsIsPending ||
-                        testAuditWebhookIsPending
-                      }
-                    >
-                      {updateAuditSettingsIsPending
-                        ? "Saving..."
-                        : "Save changes"}
-                    </Button>
-                  </div>
                 </form>
               </Form>
             </div>
           </DialogBody>
+          <DialogFooter>
+            <Button
+              size="sm"
+              type="button"
+              variant="outline"
+              onClick={form.handleSubmit(onTestForm)}
+              disabled={
+                testAuditWebhookIsPending ||
+                updateAuditSettingsIsPending ||
+                formUrlIsEmpty
+              }
+              className="gap-2"
+            >
+              <SendIcon className="size-3.5" />
+              {testAuditWebhookIsPending ? "Testing..." : "Test"}
+            </Button>
+            <Button
+              size="sm"
+              type="submit"
+              form={AUDIT_WEBHOOK_FORM_ID}
+              disabled={
+                updateAuditSettingsIsPending || testAuditWebhookIsPending
+              }
+            >
+              {updateAuditSettingsIsPending ? "Saving..." : "Save changes"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

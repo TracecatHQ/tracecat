@@ -122,7 +122,7 @@ function ImportWorkflowDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="sm" className="sm:max-w-[600px]">
+      <DialogContent size="md" className="sm:max-w-[600px]">
         <DialogHeader>
           <DialogTitle>Import workflow from file</DialogTitle>
           <DialogDescription>
@@ -131,7 +131,11 @@ function ImportWorkflowDialog({
         </DialogHeader>
         <DialogBody>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+            <form
+              id={IMPORT_WORKFLOW_FORM_ID}
+              onSubmit={form.handleSubmit(onSubmit)}
+              className="space-y-8"
+            >
               <FormField
                 control={form.control}
                 name="file"
@@ -178,8 +182,6 @@ function ImportWorkflowDialog({
                   </FormItem>
                 )}
               />
-
-              <Button type="submit">Upload</Button>
             </form>
           </Form>
           {validationErrors && (
@@ -190,6 +192,11 @@ function ImportWorkflowDialog({
             </div>
           )}
         </DialogBody>
+        <DialogFooter>
+          <Button size="sm" type="submit" form={IMPORT_WORKFLOW_FORM_ID}>
+            Upload
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
@@ -285,6 +292,8 @@ function CreateFolderDialog({
 }
 
 // Main Create Workflow Button Component
+const IMPORT_WORKFLOW_FORM_ID = "import-workflow-form"
+
 export function CreateWorkflowButton({
   view,
   currentFolderPath,

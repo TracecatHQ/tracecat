@@ -3,12 +3,20 @@ from typing import cast
 from uuid import uuid4
 
 import pytest
-from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
+from claude_agent_sdk.types import (
+    AssistantMessage,
+    TextBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+    UserMessage,
+)
 
 from tracecat.agent.adapter.vercel import (
     DataEventPayload,
     DataUIPart,
     ToolUIPartInputAvailable,
+    ToolUIPartOutputAvailable,
+    ToolUIPartOutputError,
     VercelStreamContext,
     convert_chat_messages_to_ui,
 )
@@ -22,6 +30,7 @@ def _approval_message(
     status: ApprovalStatus,
     *,
     tool_call_id: str = "toolu_123",
+    reason: str | None = None,
 ) -> ChatMessage:
     return ChatMessage(
         id=str(uuid4()),
@@ -32,9 +41,62 @@ def _approval_message(
             tool_name="core.cases.list_cases",
             tool_call_args={"limit": 100},
             status=status,
+            reason=reason,
             created_at=datetime.now(UTC),
         ),
     )
+
+
+def test_convert_chat_messages_to_ui_carries_message_time() -> None:
+    recorded = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+    message = ChatMessage(
+        id=str(uuid4()),
+        message=AssistantMessage(content=[TextBlock(text="Done.")], model="claude"),
+        created_at=recorded,
+    )
+
+    [ui_message] = convert_chat_messages_to_ui([message])
+
+    assert ui_message.metadata == {"created_at": recorded.isoformat()}
+
+
+def _decided_call(
+    status: ApprovalStatus,
+    *,
+    result: str,
+    is_error: bool,
+    reason: str | None = None,
+) -> list[ChatMessage]:
+    """A tool call that needed approval, its decision, and its recorded result."""
+    tool_call_id = "toolu_gated"
+    return [
+        ChatMessage(
+            id=str(uuid4()),
+            message=AssistantMessage(
+                content=[
+                    ToolUseBlock(
+                        id=tool_call_id,
+                        name="core__cases__list_cases",
+                        input={"limit": 100},
+                    )
+                ],
+                model="model",
+            ),
+        ),
+        _approval_message(status, tool_call_id=tool_call_id, reason=reason),
+        ChatMessage(
+            id=str(uuid4()),
+            message=UserMessage(
+                content=[
+                    ToolResultBlock(
+                        tool_use_id=tool_call_id,
+                        content=result,
+                        is_error=is_error,
+                    )
+                ]
+            ),
+        ),
+    ]
 
 
 def test_convert_chat_messages_to_ui_emits_pending_approval_request() -> None:
@@ -62,6 +124,78 @@ def test_convert_chat_messages_to_ui_keeps_resolved_card_while_batch_pending() -
         "approved",
         "pending",
     ]
+
+
+def test_convert_chat_messages_to_ui_tags_denied_call_result() -> None:
+    """A denied call's result carries the denial, so reloads don't show an error."""
+    messages = convert_chat_messages_to_ui(
+        _decided_call(
+            ApprovalStatus.REJECTED,
+            result="Tool denied by user: not today\n\nDo not retry it.",
+            is_error=True,
+            reason="not today",
+        )
+    )
+
+    assert len(messages) == 1
+    part = cast(ToolUIPartOutputError, messages[0].parts[0])
+    assert part["state"] == "output-error"
+    assert part.get("callProviderMetadata") == {
+        "tracecat": {"approval": "rejected", "reason": "not today"}
+    }
+
+
+def test_convert_chat_messages_to_ui_leaves_approved_call_result_untagged() -> None:
+    """Only denials are tagged: an approved call's result renders as usual."""
+    messages = convert_chat_messages_to_ui(
+        _decided_call(ApprovalStatus.APPROVED, result="[]", is_error=False)
+    )
+
+    assert len(messages) == 1
+    part = cast(ToolUIPartOutputAvailable, messages[0].parts[0])
+    assert part["state"] == "output-available"
+    assert "callProviderMetadata" not in part
+
+
+def test_convert_chat_messages_to_ui_shows_approved_override_args() -> None:
+    """A call approved with edited arguments shows the arguments it ran with."""
+    call, approval, result = _decided_call(
+        ApprovalStatus.APPROVED, result="[]", is_error=False
+    )
+    assert approval.approval is not None
+    approval.approval.decision = {
+        "kind": "tool-approved",
+        "override_args": {"limit": 5},
+    }
+
+    messages = convert_chat_messages_to_ui([call, approval, result])
+
+    part = cast(ToolUIPartOutputAvailable, messages[0].parts[0])
+    assert part["input"] == {"limit": 5}
+
+
+def test_convert_chat_messages_to_ui_records_when_a_call_completed() -> None:
+    """The merged result row's time survives, so later steps time from it."""
+    called_at = datetime(2026, 1, 1, 0, 0, 2, tzinfo=UTC)
+    completed_at = datetime(2026, 1, 1, 0, 0, 32, tzinfo=UTC)
+    call, approval, result = _decided_call(
+        ApprovalStatus.REJECTED, result="denied", is_error=True, reason="no"
+    )
+    call.created_at = called_at
+    result.created_at = completed_at
+
+    messages = convert_chat_messages_to_ui([call, approval, result])
+
+    assert len(messages) == 1
+    assert messages[0].metadata == {"created_at": called_at.isoformat()}
+    part = cast(ToolUIPartOutputError, messages[0].parts[0])
+    assert part.get("callProviderMetadata") == {
+        "tracecat": {
+            "approval": "rejected",
+            "reason": "no",
+            "completed_at": completed_at.isoformat(),
+        }
+    }
 
 
 def test_convert_chat_messages_to_ui_emits_cancelled_marker() -> None:

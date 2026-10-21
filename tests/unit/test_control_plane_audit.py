@@ -20,7 +20,11 @@ from tracecat.auth.types import Role
 from tracecat.contexts import RequestAuditContext, ctx_request_audit, ctx_role
 from tracecat.db.models import WebhookApiKey
 from tracecat.dsl.common import DSLInput
-from tracecat.exceptions import ScopeDeniedError, TracecatValidationError
+from tracecat.exceptions import (
+    ScopeDeniedError,
+    TracecatConflictError,
+    TracecatValidationError,
+)
 from tracecat.identifiers import ScheduleUUID
 from tracecat.identifiers.workflow import (
     WorkflowUUID,
@@ -227,6 +231,7 @@ def _edit_source() -> SimpleNamespace:
         error_handler=None,
         entrypoint=None,
         expects=None,
+        expects_order=None,
         config=None,
         returns=None,
         trigger_position_x=None,
@@ -507,6 +512,7 @@ def _webhook_session() -> SimpleNamespace:
 
 async def _webhook_create(mp: pytest.MonkeyPatch, role: Role):
     session = _webhook_session()
+    mp.setattr(webhook_service, "get_webhook", AsyncMock(return_value=None))
     webhook = await webhook_service.create_webhook(
         role=role,
         session=cast(Any, session),
@@ -686,6 +692,58 @@ async def test_control_plane_audit_wiring(
     assert len(wire_events) == len(expected_events)
     for payload, expected_event in zip(wire_events, expected_events, strict=True):
         _assert_wire_event(role, payload, expected_event)
+
+
+@pytest.mark.anyio
+async def test_webhook_create_rejects_existing_workflow_webhook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role, calls = _role(), []
+    _capture_events(monkeypatch, calls)
+    session = _webhook_session()
+    monkeypatch.setattr(
+        webhook_service,
+        "get_webhook",
+        AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4())),
+    )
+    role_token = ctx_role.set(role)
+    try:
+        with pytest.raises(TracecatConflictError):
+            await webhook_service.create_webhook(
+                role=role,
+                session=cast(Any, session),
+                workflow_id=WorkflowUUID.new_uuid4(),
+                params=WebhookCreate(status="online"),
+            )
+    finally:
+        ctx_role.reset(role_token)
+    session.add.assert_not_called()
+    session.commit.assert_not_awaited()
+    assert AuditEventStatus.SUCCESS not in [call["status"] for call in calls]
+
+
+@pytest.mark.anyio
+async def test_webhook_create_route_returns_conflict_for_existing_webhook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = _role()
+    monkeypatch.setattr(
+        webhook_service,
+        "create_webhook",
+        AsyncMock(side_effect=TracecatConflictError("exists")),
+    )
+    role_token = ctx_role.set(role)
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            await workflow_management_router.create_webhook(
+                role=cast(Any, role),
+                session=cast(Any, _session()),
+                workflow_id=WorkflowUUID.new_uuid4(),
+                params=WebhookCreate(status="online"),
+            )
+    finally:
+        ctx_role.reset(role_token)
+    assert exc_info.value.status_code == 409
 
 
 @pytest.mark.anyio

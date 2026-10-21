@@ -11,9 +11,16 @@ module.exports = {
         },
       },
     ],
+    // The AI SDK ships ESM only, so its dist files need a CJS transform.
+    "^.+\\.m?js$": [
+      "ts-jest",
+      { tsconfig: { allowJs: true, jsx: "react-jsx", module: "commonjs" } },
+    ],
   },
   testPathIgnorePatterns: ["/node_modules/", "/.next/", "/tests/smoke/"],
-  transformIgnorePatterns: ["node_modules/(?!(yaml)/)"],
+  transformIgnorePatterns: [
+    "/node_modules/(?!(\\.pnpm|yaml|ai|@ai-sdk|@shadcn|@workflow)/)",
+  ],
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",
     "^lucide-react/dynamicIconImports$":

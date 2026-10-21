@@ -6,6 +6,7 @@ import {
   Check,
   ChevronDown,
   ClockPlus,
+  ExternalLinkIcon,
   FileText,
   FileUpIcon,
   Flag,
@@ -22,6 +23,7 @@ import {
   Plus,
   TagsIcon,
   Trash2,
+  UngroupIcon,
   User,
   X,
 } from "lucide-react"
@@ -78,6 +80,7 @@ import {
   WorkflowsCatalogViewToggle,
 } from "@/components/dashboard/workflows-catalog-view-toggle"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
+import { CreateFormDialog } from "@/components/forms/forms-dashboard"
 import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
 import { Spinner } from "@/components/loading/spinner"
 import { FolderPathBreadcrumb } from "@/components/nav/folder-path-breadcrumb"
@@ -96,6 +99,7 @@ import { TableInsertButton } from "@/components/tables/table-insert-button"
 import { TableSearchBadge } from "@/components/tables/table-search-badge"
 import { TableSearchProvider } from "@/components/tables/table-search-context"
 import { CreateTagDialog } from "@/components/tags/create-tag-dialog"
+import { CreateTunnelButton } from "@/components/tunnels/workspace-tunnels"
 import { useQueryClient } from "@/lib/query"
 import { groupLibraryProviders } from "@/lib/skill-library"
 
@@ -150,6 +154,7 @@ import {
 import { Kbd } from "@/components/ui/kbd"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Switch } from "@/components/ui/switch"
 import {
   Tooltip,
   TooltipContent,
@@ -169,10 +174,13 @@ import {
   useAgentTagCatalog,
 } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useFormDetail, useUpdateForm } from "@/hooks/use-forms"
+import { useFormsAccess } from "@/hooks/use-forms-access"
 import { useSkillLibrary } from "@/hooks/use-skill-library"
 import { useSkillTagCatalog } from "@/hooks/use-skill-tags"
 import { useSkill } from "@/hooks/use-skills"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
+import { getFormErrorDetail } from "@/lib/forms/errors"
 import {
   useCaseDropdownDefinitions,
   useCaseDurationDefinitions,
@@ -1573,7 +1581,7 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
                       className="size-3 text-muted-foreground"
                       aria-hidden
                     />
-                    <span>Group under parent case...</span>
+                    <span>Group case</span>
                   </span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
@@ -1583,8 +1591,11 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
                   }}
                 >
                   <span className="flex items-center gap-2">
-                    <X className="size-3 text-muted-foreground" aria-hidden />
-                    <span>Remove from parent case</span>
+                    <UngroupIcon
+                      className="size-3 text-muted-foreground"
+                      aria-hidden
+                    />
+                    <span>Ungroup case</span>
                   </span>
                 </DropdownMenuItem>
               </>
@@ -2097,6 +2108,152 @@ function CaseDetailActions({
   )
 }
 
+/**
+ * Forms list actions: push to Git (forms travel inside the workflow file)
+ * and create a form.
+ */
+function FormsListActions() {
+  const enabled = useFormsAccess() === "enabled"
+  const canCreate = useScopeCheck("form:create") === true
+  // The New form dialog picks from the workflow list.
+  const canReadWorkflows = useScopeCheck("workflow:read") === true
+  const [createOpen, setCreateOpen] = useState(false)
+
+  if (!enabled) {
+    return null
+  }
+  return (
+    <>
+      <WorkspaceResourceSyncActions
+        label="workflows and forms"
+        branchSlug="forms"
+        resources={["workflow"]}
+      />
+      {canCreate && canReadWorkflows && (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 bg-background"
+            onClick={() => setCreateOpen(true)}
+          >
+            <Plus className="mr-1 size-3.5" />
+            New form
+          </Button>
+          <CreateFormDialog open={createOpen} onOpenChange={setCreateOpen} />
+        </>
+      )}
+    </>
+  )
+}
+
+/** "Forms / <title>" and the switch that puts the form online or offline. */
+function FormBreadcrumb({
+  formId,
+  workspaceId,
+}: {
+  formId: string
+  workspaceId: string
+}) {
+  const enabled = useFormsAccess() === "enabled"
+  const canEdit = useScopeCheck("form:update") === true
+  const { data: form, isLoading: formIsLoading } = useFormDetail(
+    { workspaceId, formId },
+    { enabled }
+  )
+  const { mutateAsync: updateForm, isPending: updateFormIsPending } =
+    useUpdateForm({
+      workspaceId,
+      formId,
+    })
+
+  if (!enabled) {
+    return <h1 className="text-sm font-semibold">Forms</h1>
+  }
+
+  async function setOnline(next: boolean) {
+    try {
+      await updateForm({ status: next ? "online" : "offline" })
+    } catch (error) {
+      toast({
+        title: next
+          ? "Couldn't put the form online"
+          : "Couldn't take the form offline",
+        description:
+          getFormErrorDetail(error)?.message ?? "Something went wrong.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const online = form?.status === "online"
+  const label = form
+    ? form.config.title || form.workflow_title
+    : (!formIsLoading && "Form not found") || null
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <Breadcrumb className="min-w-0">
+        <BreadcrumbList className="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden whitespace-nowrap text-sm">
+          <BreadcrumbItem>
+            <BreadcrumbLink
+              asChild
+              className="font-semibold hover:no-underline"
+            >
+              <Link href={`/workspaces/${workspaceId}/forms`}>Forms</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator className="shrink-0">
+            <span className="text-muted-foreground">/</span>
+          </BreadcrumbSeparator>
+          <BreadcrumbItem className="min-w-0 [&>span]:truncate">
+            <BreadcrumbEntityPage label={label} skeletonClassName="h-4 w-28" />
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+      {form && (
+        <div className="flex flex-none items-center gap-2 text-xs text-muted-foreground">
+          <Switch
+            checked={online}
+            disabled={!canEdit || updateFormIsPending}
+            aria-label="Form online"
+            onCheckedChange={setOnline}
+          />
+          <span>{online ? "Online" : "Offline"}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Form detail action: open the form as a requester, in a new tab. */
+function FormDetailActions({
+  formId,
+  workspaceId,
+}: {
+  formId: string
+  workspaceId: string
+}) {
+  const enabled = useFormsAccess() === "enabled"
+  const { data: form } = useFormDetail({ workspaceId, formId }, { enabled })
+
+  if (!enabled || !form) {
+    return null
+  }
+  return (
+    <Button
+      asChild
+      variant="outline"
+      size="sm"
+      className="h-7 gap-1.5 bg-background"
+    >
+      <a href={`/forms/${form.id}`} target="_blank" rel="noopener noreferrer">
+        <ExternalLinkIcon className="size-3.5" />
+        Open
+      </a>
+    </Button>
+  )
+}
+
 function TableBreadcrumb({
   tableId,
   workspaceId,
@@ -2294,6 +2451,24 @@ function getPageConfig(
     }
   }
 
+  if (pagePath.startsWith("/forms")) {
+    const formMatch = pagePath.match(/^\/forms\/([^/]+)$/)
+    if (formMatch) {
+      const formId = formMatch[1]
+      return {
+        title: <FormBreadcrumb formId={formId} workspaceId={workspaceId} />,
+        actions: (
+          <FormDetailActions formId={formId} workspaceId={workspaceId} />
+        ),
+      }
+    }
+
+    return {
+      title: "Forms",
+      actions: <FormsListActions />,
+    }
+  }
+
   if (pagePath.startsWith("/tables")) {
     // Check if this is a table detail page
     const tableMatch = pagePath.match(/^\/tables\/([^/]+)$/)
@@ -2424,6 +2599,13 @@ function getPageConfig(
     return {
       title: "MCP access",
       actions: <McpAccessActions />,
+    }
+  }
+
+  if (pagePath === "/tunnels") {
+    return {
+      title: "Tunnels",
+      actions: <CreateTunnelButton />,
     }
   }
 

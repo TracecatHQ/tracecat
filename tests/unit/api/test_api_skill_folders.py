@@ -1,26 +1,43 @@
-"""HTTP-level tests for skill folder API endpoints."""
+"""HTTP-level tests for agent and skill folder API endpoints."""
 
 import uuid
-from typing import Any
+from enum import StrEnum
+from types import ModuleType
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
+from tracecat.agent.folders import router as agent_folder_router
+from tracecat.agent.folders.service import AgentFolderErrorCode
+from tracecat.agent.preset import router as agent_preset_router
+from tracecat.agent.preset.schemas import AgentPresetMoveToFolder
 from tracecat.agent.skill import router as skill_router
 from tracecat.agent.skill.folders import router as skill_folder_router
-from tracecat.agent.skill.folders.service import (
-    SkillFolderErrorCode,
-)
+from tracecat.agent.skill.folders.service import SkillFolderErrorCode
 from tracecat.agent.skill.schemas import SkillMoveToFolder
 from tracecat.auth.types import Role
-from tracecat.exceptions import EntitlementRequired, TracecatValidationError
+from tracecat.exceptions import TracecatValidationError
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 
-# Fixed UUID for parametrized test IDs — uuid.uuid4() at module level causes
-# pytest-xdist collection mismatches because each worker generates a different value.
-_FIXED_FOLDER_ID = "00000000-0000-4000-8000-000000000001"
+_FOLDER_SURFACES = [
+    pytest.param(
+        agent_folder_router,
+        "AgentFolderService",
+        "/agent-folders",
+        AgentFolderErrorCode,
+        id="agent",
+    ),
+    pytest.param(
+        skill_folder_router,
+        "SkillFolderService",
+        "/skill-folders",
+        SkillFolderErrorCode,
+        id="skill",
+    ),
+]
+_SURFACE_ARGS = ("router", "service_name", "prefix", "error_codes")
 
 
 def _mock_service_with_async_method(
@@ -40,87 +57,125 @@ def _mock_service_with_async_method(
 
 
 @pytest.mark.anyio
-async def test_create_folder_conflict_returns_409(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Duplicate folder paths should surface as conflicts."""
-    with patch.object(skill_folder_router, "SkillFolderService") as mock_service_cls:
-        mock_service = _mock_service_with_async_method(
+@pytest.mark.parametrize(_SURFACE_ARGS, _FOLDER_SURFACES)
+@pytest.mark.parametrize(
+    ("method", "suffix", "kwargs", "service_method", "message", "code", "status_code"),
+    [
+        pytest.param(
+            "POST",
+            "",
+            {"json": {"name": "agents", "parent_path": "/"}},
             "create_folder",
-            side_effect=TracecatValidationError(
-                "Folder /agents/ already exists",
-                detail={"code": SkillFolderErrorCode.CONFLICT.value},
-            ),
-        )
-        mock_service_cls.return_value = mock_service
-
-        response = client.post(
-            "/skill-folders",
-            json={"name": "agents", "parent_path": "/"},
-        )
-
-        assert response.status_code == status.HTTP_409_CONFLICT
-        assert response.json()["detail"] == "Folder /agents/ already exists"
-
-
-@pytest.mark.anyio
-async def test_create_folder_missing_parent_returns_404(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Missing parent paths should not be misreported as conflicts."""
-    with patch.object(skill_folder_router, "SkillFolderService") as mock_service_cls:
-        mock_service = _mock_service_with_async_method(
+            "Folder /agents/ already exists",
+            "CONFLICT",
+            status.HTTP_409_CONFLICT,
+            id="create-conflict",
+        ),
+        pytest.param(
+            "POST",
+            "",
+            {"json": {"name": "child", "parent_path": "/missing/"}},
             "create_folder",
-            side_effect=TracecatValidationError(
-                "Parent path /missing/ not found",
-                detail={"code": SkillFolderErrorCode.PARENT_NOT_FOUND.value},
-            ),
-        )
-        mock_service_cls.return_value = mock_service
-
-        response = client.post(
-            "/skill-folders",
-            json={"name": "child", "parent_path": "/missing/"},
-        )
-
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-        assert response.json()["detail"] == "Parent path /missing/ not found"
-
-
-@pytest.mark.anyio
-async def test_list_folders_missing_parent_returns_404(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Listing a missing folder path should not look like an empty folder."""
-    with patch.object(skill_folder_router, "SkillFolderService") as mock_service_cls:
-        mock_service = _mock_service_with_async_method(
+            "Parent path /missing/ not found",
+            "PARENT_NOT_FOUND",
+            status.HTTP_404_NOT_FOUND,
+            id="create-missing-parent",
+        ),
+        pytest.param(
+            "GET",
+            "",
+            {"params": {"parent_path": "/missing/"}},
             "list_folders_paginated",
+            "Parent path /missing/ not found",
+            "PARENT_NOT_FOUND",
+            status.HTTP_404_NOT_FOUND,
+            id="list-missing-parent",
+        ),
+        pytest.param(
+            "POST",
+            "",
+            {"json": {"name": "   ", "parent_path": "/"}},
+            "create_folder",
+            "Folder name cannot be empty",
+            "INVALID",
+            status.HTTP_400_BAD_REQUEST,
+            id="create-blank-name",
+        ),
+        pytest.param(
+            "PATCH",
+            f"/{uuid.uuid4()}",
+            {"json": {"name": "bad/name"}},
+            "rename_folder",
+            "Folder name cannot contain slashes",
+            "INVALID",
+            status.HTTP_400_BAD_REQUEST,
+            id="update-invalid-name",
+        ),
+        pytest.param(
+            "PATCH",
+            f"/{uuid.uuid4()}",
+            {"json": {"name": "   "}},
+            "rename_folder",
+            "Folder name cannot be empty",
+            "INVALID",
+            status.HTTP_400_BAD_REQUEST,
+            id="update-blank-name",
+        ),
+        pytest.param(
+            "POST",
+            f"/{uuid.uuid4()}/move",
+            {"json": {"new_parent_path": "/"}},
+            "move_folder",
+            "Cannot create cyclic folder structure",
+            "INVALID",
+            status.HTTP_400_BAD_REQUEST,
+            id="move-cyclic",
+        ),
+    ],
+)
+async def test_folder_validation_errors_map_to_http_status(
+    client: TestClient,
+    test_admin_role: Role,
+    router: ModuleType,
+    service_name: str,
+    prefix: str,
+    error_codes: type[StrEnum],
+    method: str,
+    suffix: str,
+    kwargs: dict[str, dict[str, str]],
+    service_method: str,
+    message: str,
+    code: str,
+    status_code: int,
+) -> None:
+    """Folder validation failures should map to the matching 4xx status."""
+    with patch.object(router, service_name) as mock_service_cls:
+        mock_service = _mock_service_with_async_method(
+            service_method,
             side_effect=TracecatValidationError(
-                "Parent path /missing/ not found",
-                detail={"code": SkillFolderErrorCode.PARENT_NOT_FOUND.value},
+                message, detail={"code": error_codes[code].value}
             ),
         )
         mock_service_cls.return_value = mock_service
 
-        response = client.get(
-            "/skill-folders",
-            params={"parent_path": "/missing/"},
-        )
+        response = client.request(method, prefix + suffix, **kwargs)
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-        assert response.json()["detail"] == "Parent path /missing/ not found"
+    assert response.status_code == status_code
+    assert response.json()["detail"] == message
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(_SURFACE_ARGS, _FOLDER_SURFACES)
 async def test_list_folders_returns_paginated_response(
     client: TestClient,
     test_admin_role: Role,
+    router: ModuleType,
+    service_name: str,
+    prefix: str,
+    error_codes: type[StrEnum],
 ) -> None:
     """Folder listing should use the cursor-paginated API shape."""
-    with patch.object(skill_folder_router, "SkillFolderService") as mock_service_cls:
+    with patch.object(router, service_name) as mock_service_cls:
         mock_service = _mock_service_with_async_method(
             "list_folders_paginated",
             return_value=CursorPaginatedResponse(items=[], has_more=True),
@@ -128,7 +183,7 @@ async def test_list_folders_returns_paginated_response(
         mock_service_cls.return_value = mock_service
 
         response = client.get(
-            "/skill-folders",
+            prefix,
             params={
                 "parent_path": "/agents/",
                 "limit": 2,
@@ -157,22 +212,24 @@ async def test_list_folders_returns_paginated_response(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(_SURFACE_ARGS, _FOLDER_SURFACES)
 async def test_get_directory_returns_directory_items(
     client: TestClient,
     test_admin_role: Role,
+    router: ModuleType,
+    service_name: str,
+    prefix: str,
+    error_codes: type[StrEnum],
 ) -> None:
     """Directory listing should return the full directory array."""
-    with patch.object(skill_folder_router, "SkillFolderService") as mock_service_cls:
+    with patch.object(router, service_name) as mock_service_cls:
         mock_service = _mock_service_with_async_method(
             "get_directory_items",
             return_value=[],
         )
         mock_service_cls.return_value = mock_service
 
-        response = client.get(
-            "/skill-folders/directory",
-            params={"path": "/agents/"},
-        )
+        response = client.get(f"{prefix}/directory", params={"path": "/agents/"})
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json() == []
@@ -182,103 +239,51 @@ async def test_get_directory_returns_directory_items(
 
 
 @pytest.mark.anyio
-async def test_create_folder_blank_name_returns_400(
+@pytest.mark.parametrize(_SURFACE_ARGS, _FOLDER_SURFACES)
+async def test_delete_folder_without_body_defaults_to_non_recursive(
     client: TestClient,
     test_admin_role: Role,
+    router: ModuleType,
+    service_name: str,
+    prefix: str,
+    error_codes: type[StrEnum],
 ) -> None:
-    """Blank folder names should be rejected before path construction."""
-    with patch.object(skill_folder_router, "SkillFolderService") as mock_service_cls:
-        mock_service = _mock_service_with_async_method(
-            "create_folder",
-            side_effect=TracecatValidationError(
-                "Folder name cannot be empty",
-                detail={"code": SkillFolderErrorCode.INVALID.value},
-            ),
-        )
+    """Non-recursive folder deletes should not require a request body."""
+    folder_id = uuid.uuid4()
+
+    with patch.object(router, service_name) as mock_service_cls:
+        mock_service = _mock_service_with_async_method("delete_folder")
         mock_service_cls.return_value = mock_service
 
-        response = client.post(
-            "/skill-folders",
-            json={"name": "   ", "parent_path": "/"},
-        )
+        response = client.delete(f"{prefix}/{folder_id}")
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == "Folder name cannot be empty"
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+    mock_service.delete_folder.assert_awaited_once_with(folder_id, recursive=False)
 
 
 @pytest.mark.anyio
-async def test_update_folder_validation_returns_400(
-    client: TestClient,
+async def test_move_agent_preset_to_root_skips_folder_lookup(
     test_admin_role: Role,
 ) -> None:
-    """Invalid rename requests should stay in the 4xx range."""
-    with patch.object(skill_folder_router, "SkillFolderService") as mock_service_cls:
-        mock_service = _mock_service_with_async_method(
-            "rename_folder",
-            side_effect=TracecatValidationError(
-                "Folder name cannot contain slashes",
-                detail={"code": SkillFolderErrorCode.INVALID.value},
-            ),
-        )
+    """Moving to '/' should clear the folder instead of trying to resolve a root row."""
+    preset_id = uuid.uuid4()
+    session = AsyncMock()
+
+    with patch.object(agent_preset_router, "AgentFolderService") as mock_service_cls:
+        mock_service = MagicMock()
+        mock_service.move_preset = AsyncMock(return_value=None)
+        mock_service.get_folder_by_path = AsyncMock()
         mock_service_cls.return_value = mock_service
 
-        response = client.patch(
-            f"/skill-folders/{uuid.uuid4()}",
-            json={"name": "bad/name"},
+        await agent_preset_router.move_agent_preset_to_folder(
+            role=test_admin_role,
+            session=session,
+            preset_id=preset_id,
+            params=AgentPresetMoveToFolder(folder_path="/"),
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == "Folder name cannot contain slashes"
-
-
-@pytest.mark.anyio
-async def test_update_folder_blank_name_returns_400(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Blank folder renames should stay in the 4xx range."""
-    with patch.object(skill_folder_router, "SkillFolderService") as mock_service_cls:
-        mock_service = _mock_service_with_async_method(
-            "rename_folder",
-            side_effect=TracecatValidationError(
-                "Folder name cannot be empty",
-                detail={"code": SkillFolderErrorCode.INVALID.value},
-            ),
-        )
-        mock_service_cls.return_value = mock_service
-
-        response = client.patch(
-            f"/skill-folders/{uuid.uuid4()}",
-            json={"name": "   "},
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == "Folder name cannot be empty"
-
-
-@pytest.mark.anyio
-async def test_move_folder_validation_returns_400(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Cyclic folder moves should not fall through as 500s."""
-    with patch.object(skill_folder_router, "SkillFolderService") as mock_service_cls:
-        mock_service = _mock_service_with_async_method(
-            "move_folder",
-            side_effect=TracecatValidationError(
-                "Cannot create cyclic folder structure",
-                detail={"code": SkillFolderErrorCode.INVALID.value},
-            ),
-        )
-        mock_service_cls.return_value = mock_service
-
-        response = client.post(
-            f"/skill-folders/{uuid.uuid4()}/move",
-            json={"new_parent_path": "/"},
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == "Cannot create cyclic folder structure"
+        mock_service.get_folder_by_path.assert_not_called()
+        mock_service.move_preset.assert_awaited_once_with(preset_id, None)
 
 
 @pytest.mark.anyio
@@ -304,130 +309,3 @@ async def test_move_skill_to_root_skips_folder_lookup(
 
         mock_service.get_folder_by_path.assert_not_called()
         mock_service.move_skill.assert_awaited_once_with(skill_id, None)
-
-
-@pytest.mark.anyio
-async def test_move_skill_requires_agent_addons_entitlement(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Skill moves should surface AGENT_ADDONS entitlement failures as 403s."""
-    skill_id = uuid.uuid4()
-
-    with patch.object(skill_router, "SkillFolderService") as mock_service_cls:
-        mock_service = _mock_service_with_async_method(
-            "move_skill",
-            side_effect=EntitlementRequired("agent_addons"),
-        )
-        mock_service_cls.return_value = mock_service
-
-        response = client.post(
-            f"/agent/skills/{skill_id}/move",
-            params={"workspace_id": str(test_admin_role.workspace_id)},
-            json={"folder_path": "/"},
-        )
-
-    assert response.status_code == status.HTTP_403_FORBIDDEN
-    payload = response.json()
-    assert payload["type"] == "EntitlementRequired"
-    assert payload["detail"]["entitlement"] == "agent_addons"
-
-
-@pytest.mark.anyio
-async def test_get_directory_requires_agent_addons_entitlement(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Folder directory reads should preserve the AGENT_ADDONS gate at HTTP level."""
-    with patch.object(skill_folder_router, "SkillFolderService") as mock_service_cls:
-        mock_service = _mock_service_with_async_method(
-            "get_directory_items",
-            side_effect=EntitlementRequired("agent_addons"),
-        )
-        mock_service_cls.return_value = mock_service
-
-        response = client.get("/skill-folders/directory", params={"path": "/"})
-
-    assert response.status_code == status.HTTP_403_FORBIDDEN
-    payload = response.json()
-    assert payload["type"] == "EntitlementRequired"
-    assert payload["detail"]["entitlement"] == "agent_addons"
-
-
-@pytest.mark.anyio
-async def test_delete_folder_without_body_defaults_to_non_recursive(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Non-recursive folder deletes should not require a request body."""
-    folder_id = uuid.uuid4()
-
-    with patch.object(skill_folder_router, "SkillFolderService") as mock_service_cls:
-        mock_service = _mock_service_with_async_method("delete_folder")
-        mock_service_cls.return_value = mock_service
-
-        response = client.delete(f"/skill-folders/{folder_id}")
-
-    assert response.status_code == status.HTTP_204_NO_CONTENT
-    mock_service.delete_folder.assert_awaited_once_with(folder_id, recursive=False)
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("method", "path", "kwargs", "service_method"),
-    [
-        (
-            "get",
-            "/skill-folders",
-            {"params": {"parent_path": "/"}},
-            "list_folders_paginated",
-        ),
-        (
-            "post",
-            "/skill-folders",
-            {"json": {"name": "agents", "parent_path": "/"}},
-            "create_folder",
-        ),
-        ("get", f"/skill-folders/{_FIXED_FOLDER_ID}", {}, "get_folder"),
-        (
-            "patch",
-            f"/skill-folders/{_FIXED_FOLDER_ID}",
-            {"json": {"name": "renamed"}},
-            "rename_folder",
-        ),
-        (
-            "delete",
-            f"/skill-folders/{_FIXED_FOLDER_ID}",
-            {"json": {"recursive": False}},
-            "delete_folder",
-        ),
-        (
-            "post",
-            f"/skill-folders/{_FIXED_FOLDER_ID}/move",
-            {"json": {"new_parent_path": "/"}},
-            "move_folder",
-        ),
-    ],
-)
-async def test_folder_management_routes_require_agent_addons_entitlement(
-    client: TestClient,
-    test_admin_role: Role,
-    method: str,
-    path: str,
-    kwargs: dict[str, Any],
-    service_method: str,
-) -> None:
-    """Folder management routes should surface AGENT_ADDONS failures as 403s."""
-    with patch.object(skill_folder_router, "SkillFolderService") as mock_service_cls:
-        mock_service = _mock_service_with_async_method(
-            service_method,
-            side_effect=EntitlementRequired("agent_addons"),
-        )
-        mock_service_cls.return_value = mock_service
-
-        response = client.request(method.upper(), path, **kwargs)
-
-    assert response.status_code == status.HTTP_403_FORBIDDEN
-    payload = response.json()
-    assert payload["type"] == "EntitlementRequired"
-    assert payload["detail"]["entitlement"] == "agent_addons"

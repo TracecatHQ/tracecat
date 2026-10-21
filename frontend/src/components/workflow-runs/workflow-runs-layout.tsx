@@ -13,6 +13,7 @@ import {
   ChevronRightIcon,
   CircleHelpIcon,
   CirclePauseIcon,
+  ClipboardListIcon,
   Clock3Icon,
   FlagTriangleRightIcon,
   Minus,
@@ -62,6 +63,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import { useFormsAccess } from "@/hooks/use-forms-access"
 import {
   groupWorkflowRunsByStatus,
   useWorkflowExecutionResetPoints,
@@ -236,6 +238,12 @@ const TRIGGER_FILTER_OPTIONS: Array<{
     label: "Case",
     icon: SignalIcon,
     iconClassName: "text-orange-600",
+  },
+  {
+    value: "form",
+    label: "Form",
+    icon: ClipboardListIcon,
+    iconClassName: "text-sky-600",
   },
 ]
 
@@ -998,6 +1006,15 @@ export function WorkflowRunsLayout() {
   const [statusFilter, setStatusFilter] = useState<RunStatus[]>([])
   const [statusMode, setStatusMode] = useState<FilterMode>("include")
   const [triggerFilter, setTriggerFilter] = useState<TriggerType[]>([])
+  // With the `forms` flag off no run can come from a form.
+  const formsHidden = useFormsAccess() === "hidden"
+  const triggerFilterOptions = useMemo(
+    () =>
+      TRIGGER_FILTER_OPTIONS.filter(
+        (option) => !formsHidden || option.value !== "form"
+      ),
+    [formsHidden]
+  )
   const [userFilter, setUserFilter] = useState<string[]>([])
   const [startTimeFilter, setStartTimeFilter] = useState<TimeFilterState>(() =>
     createDefaultTimeFilterState()
@@ -1476,7 +1493,7 @@ export function WorkflowRunsLayout() {
             placeholder="Trigger"
             icon={WebhookIcon}
             value={triggerFilter}
-            options={TRIGGER_FILTER_OPTIONS}
+            options={triggerFilterOptions}
             onChange={setTriggerFilter}
             mode="include"
             onModeChange={() => {}}

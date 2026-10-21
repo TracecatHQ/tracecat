@@ -289,37 +289,19 @@ class TestWorkflowFolderService:
         # Parent should still exist
         assert await folder_service.get_folder(parent.id) is not None
 
-    async def test_delete_folder_recursive(
-        self, folder_service: WorkflowFolderService
-    ) -> None:
-        """Test deleting a folder tree recursively."""
-        # Create a folder hierarchy
-        parent = await folder_service.create_folder(name="parent", parent_path="/")
-        child = await folder_service.create_folder(name="child", parent_path="/parent/")
-        grandchild = await folder_service.create_folder(
-            name="grandchild", parent_path="/parent/child/"
-        )
-
-        # Store IDs for verification
-        parent_id, child_id, grandchild_id = parent.id, child.id, grandchild.id
-
-        # Delete parent recursively
-        await folder_service.delete_folder(parent_id, recursive=True)
-
-        # Verify all folders are deleted
-        assert await folder_service.get_folder(parent_id) is None
-        assert await folder_service.get_folder(child_id) is None
-        assert await folder_service.get_folder(grandchild_id) is None
-
     async def test_delete_folder_recursive_clears_workflows(
         self,
         folder_service: WorkflowFolderService,
         workflow_id: WorkflowID,
         session: AsyncSession,
     ) -> None:
-        """Test recursive folder delete moves contained workflows to root."""
+        """Test recursive folder delete removes the folder tree and moves
+        contained workflows to root."""
         parent = await folder_service.create_folder(name="parent", parent_path="/")
         child = await folder_service.create_folder(name="child", parent_path="/parent/")
+        grandchild = await folder_service.create_folder(
+            name="grandchild", parent_path="/parent/child/"
+        )
         workflow = await folder_service.move_workflow(workflow_id, child)
         assert workflow.folder_id == child.id
 
@@ -333,6 +315,8 @@ class TestWorkflowFolderService:
         )
         assert workflow_folder_id is None
         assert remaining_child is None
+        assert await folder_service.get_folder(parent.id) is None
+        assert await folder_service.get_folder(grandchild.id) is None
 
     async def test_workflows_in_folder(
         self,

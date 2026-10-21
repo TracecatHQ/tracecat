@@ -108,6 +108,7 @@ REDACT_PARAMETERS: Mapping[str, frozenset[str]] = {
     "core.table.insert_rows": frozenset({"rows_data"}),
     "core.table.update_row": frozenset({"row_data"}),
     "core.cases.insert_row": frozenset({"row"}),
+    "core.forms.update_form": frozenset({"config"}),
     "ai.agent.create_preset": frozenset(
         {
             "instructions",
@@ -147,9 +148,7 @@ REDACT_PARAMETERS: Mapping[str, frozenset[str]] = {
         }
     ),
     "ai.skill.create_skill": frozenset({"name", "description"}),
-    "ai.skill.update_skill": frozenset({"files"}),
-    "ai.skill.update_skill_draft": frozenset({"operations"}),
-    "ai.skill.publish_skill_version": frozenset({"files"}),
+    "ai.skill.update_skill": frozenset({"operations"}),
 }
 
 

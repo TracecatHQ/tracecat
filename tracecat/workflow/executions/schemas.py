@@ -745,6 +745,10 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
     child_wf_wait_strategy: WaitStrategy | None = None
     # SSE streaming for agents
     session: Session[TSessionEvent] | None = None
+    fixed_from_execution_id: WorkflowExecutionID | None = None
+    """Set when the result was reused from this earlier execution instead of running."""
+    fixed_from_event_id: int | None = None
+    """Scheduled event ID of the reused result in ``fixed_from_execution_id``."""
 
     @property
     def should_mask_output(self) -> bool:
@@ -981,6 +985,13 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
 class WorkflowExecutionCreate(BaseModel):
     workflow_id: AnyWorkflowID
     inputs: TriggerInputs | None = None
+    case_task_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Case task that started this run. The run is then listed under "
+            "the task's workflow runs."
+        ),
+    )
     time_anchor: datetime | None = Field(
         default=None,
         description=(

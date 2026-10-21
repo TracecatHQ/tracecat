@@ -70,7 +70,7 @@ RUN set -eu; \
     test "$(duckdb -csv -noheader -c "SELECT count(*) FROM duckdb_extensions() WHERE extension_name IN ('json', 'httpfs', 'inet', 'fts') AND installed AND loaded;")" = "4"
 
 # Install uv for fast package management
-COPY --from=ghcr.io/astral-sh/uv:0.9.15 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.9.17 /uv /usr/local/bin/uv
 
 # Create sandbox user (UID 1000) - matches common container user mappings
 RUN useradd -m -u 1000 sandbox

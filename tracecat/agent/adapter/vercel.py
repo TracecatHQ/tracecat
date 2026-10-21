@@ -10,6 +10,7 @@ import dataclasses
 import json
 import uuid
 from collections.abc import AsyncIterable, AsyncIterator, Iterator
+from datetime import datetime
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -1020,6 +1021,8 @@ class MutableToolPart:
     input: Any
     output: Any | None = None
     error_text: str | None = None
+    # When the result row was recorded; the row itself merges into this part.
+    completed_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.input, dict):
@@ -1086,7 +1089,23 @@ class MutableToolPart:
             output=content,
         )
 
-    def to_ui_part(self) -> ToolUIPart:
+    def _result_metadata(
+        self, extra: ProviderMetadata | None
+    ) -> ProviderMetadata | None:
+        """Merge the completion time into the result's Tracecat metadata."""
+        if self.completed_at is None:
+            return extra
+        tracecat = {
+            **(extra or {}).get("tracecat", {}),
+            "completed_at": self.completed_at.isoformat(),
+        }
+        return {**(extra or {}), "tracecat": tracecat}
+
+    def to_ui_part(
+        self, *, result_metadata: ProviderMetadata | None = None
+    ) -> ToolUIPart:
+        """Build the UI part, attaching ``result_metadata`` to a recorded result."""
+        result_metadata = self._result_metadata(result_metadata)
         if self.state == "input-available":
             return ToolUIPartInputAvailable(
                 type=self.type,
@@ -1095,20 +1114,26 @@ class MutableToolPart:
                 input=self.input,
             )
         if self.state == "output-available":
-            return ToolUIPartOutputAvailable(
+            available = ToolUIPartOutputAvailable(
                 type=self.type,
                 toolCallId=self.tool_call_id,
                 state="output-available",
                 input=self.input,
                 output=self.output,
             )
-        return ToolUIPartOutputError(
+            if result_metadata is not None:
+                available["callProviderMetadata"] = result_metadata
+            return available
+        error = ToolUIPartOutputError(
             type=self.type,
             toolCallId=self.tool_call_id,
             state="output-error",
             input=self.input,
             errorText=self.error_text or "",
         )
+        if result_metadata is not None:
+            error["callProviderMetadata"] = result_metadata
+        return error
 
 
 @dataclasses.dataclass
@@ -1116,6 +1141,7 @@ class MutableMessage:
     id: str
     role: Literal["system", "user", "assistant"]
     parts: list[MutableToolPart | UIMessagePart]
+    created_at: datetime | None = None
 
 
 UIMessagesTA: pydantic.TypeAdapter[list[UIMessage]] = pydantic.TypeAdapter(
@@ -1247,6 +1273,29 @@ def convert_chat_messages_to_ui(
         and message.approval.status == ApprovalStatus.PENDING
         for message in messages
     )
+    # Denied calls record an error result for the model. Tag it so the UI shows
+    # the denial rather than a tool error, even after the approval card is gone.
+    denied_results: dict[str, ProviderMetadata] = {
+        message.approval.tool_call_id: {
+            "tracecat": {"approval": "rejected", "reason": message.approval.reason}
+        }
+        for message in messages
+        if message.kind == MessageKind.APPROVAL_REQUEST
+        and message.approval is not None
+        and message.approval.status == ApprovalStatus.REJECTED
+    }
+    # A call approved with edited arguments ran with those, so show them.
+    approved_overrides: dict[str, dict[str, Any]] = {
+        message.approval.tool_call_id: override_args
+        for message in messages
+        if message.kind == MessageKind.APPROVAL_REQUEST
+        and message.approval is not None
+        and message.approval.status == ApprovalStatus.APPROVED
+        and isinstance(message.approval.decision, dict)
+        and isinstance(
+            override_args := message.approval.decision.get("override_args"), dict
+        )
+    }
 
     for chat_message in messages:
         # Handle compaction status badges from DB (kind=COMPACTION)
@@ -1333,7 +1382,12 @@ def convert_chat_messages_to_ui(
 
         assert message_data is not None
 
-        mutable_message = MutableMessage(id=message_id, role=role, parts=[])
+        mutable_message = MutableMessage(
+            id=message_id,
+            role=role,
+            parts=[],
+            created_at=chat_message.created_at,
+        )
         approval_payload = _extract_approval_payload_from_message(message_data)
 
         for part_type, part in _iter_message_parts(message_data):
@@ -1368,7 +1422,9 @@ def convert_chat_messages_to_ui(
                         tool_input = tool_input.get("args", tool_input)
                     # Normalize MCP registry prefix
                     tool_name = normalize_mcp_tool_name(tool_name)
-                    tool_input = sanitize_agent_tool_input(tool_name, tool_input)
+                    tool_input = sanitize_agent_tool_input(
+                        tool_name, approved_overrides.get(part.id, tool_input)
+                    )
                     tool_part = MutableToolPart(
                         type=f"tool-{tool_name}",
                         tool_call_id=part.id,
@@ -1387,6 +1443,7 @@ def convert_chat_messages_to_ui(
                         existing.set_result(
                             part.content, structured_error, is_error=part.is_error
                         )
+                        existing.completed_at = chat_message.created_at
                     else:
                         # Create fallback part when no existing tool entry is found
                         tool_part = MutableToolPart.with_result(
@@ -1422,16 +1479,22 @@ def convert_chat_messages_to_ui(
         parts: list[UIMessagePart] = []
         for part in message.parts:
             if isinstance(part, MutableToolPart):
-                parts.append(part.to_ui_part())
+                parts.append(
+                    part.to_ui_part(
+                        result_metadata=denied_results.get(part.tool_call_id)
+                    )
+                )
             else:
                 parts.append(part)
-        raw_messages.append(
-            {
-                "id": message.id,
-                "role": message.role,
-                "parts": parts,
-            }
-        )
+        raw_message: dict[str, Any] = {
+            "id": message.id,
+            "role": message.role,
+            "parts": parts,
+        }
+        # Lets the UI tell how long a turn took once it reloads from history.
+        if message.created_at is not None:
+            raw_message["metadata"] = {"created_at": message.created_at.isoformat()}
+        raw_messages.append(raw_message)
 
     return UIMessagesTA.validate_python(raw_messages)
 

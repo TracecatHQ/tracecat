@@ -10,6 +10,11 @@ from typing import Any, cast
 from aiocache import Cache
 from pydantic import ValidationError
 from sqlalchemy import and_, or_, select, union_all
+from tracecat_ee.tunnels.routing import (
+    TunnelRouteError,
+    effective_tunnel,
+    resolve_tunnel_route,
+)
 
 from tracecat import config
 from tracecat.auth.executor_tokens import ExecutionOrigin, mint_executor_token
@@ -28,6 +33,7 @@ from tracecat.db.models import (
     RegistryVersion,
 )
 from tracecat.dsl.common import context_locator, create_default_execution_context
+from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import (
     ActionStatement,
     DSLEnvironment,
@@ -46,6 +52,7 @@ from tracecat.exceptions import (
 from tracecat.executor import registry_resolver
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.error_policy import chained_error_classification
+from tracecat.executor.minimal_runner import ActionTimeoutError
 from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
     ExecutorResultSuccess,
@@ -367,6 +374,10 @@ async def _prepare_step_context(
         executor_token=executor_token,  # Mint new token for step
         logical_time=parent_resolved.logical_time,
         secret_projection=parent_resolved.secret_projection,
+        tunnel_name=parent_resolved.tunnel_name,
+        tunnel_proxy_url=parent_resolved.tunnel_proxy_url,
+        tunnel_gateway_ip=parent_resolved.tunnel_gateway_ip,
+        tunnel_gateway_port=parent_resolved.tunnel_gateway_port,
     )
 
 
@@ -448,7 +459,8 @@ async def _execute_template_action(
         input: The original RunActionInput
         ctx: Dispatch context containing the role
         resolved_context: Pre-resolved context with secrets and template definition
-        timeout: Execution timeout
+        timeout: The action's own timeout, unclamped. invoke_once enforces it
+            across all of the template's steps.
         provenance: Authored input-source and secret-path mapping for this invocation
 
     Returns:
@@ -594,7 +606,8 @@ async def _invoke_step(
         resolved_context: Pre-resolved context for the step
         input: The original RunActionInput
         ctx: Dispatch context containing the role
-        timeout: Execution timeout
+        timeout: The action's own timeout, unclamped. Each UDF subprocess call
+            is capped at the deployment's maximum.
         provenance: Authored input-source and secret-path mapping for this invocation
 
     Returns:
@@ -613,11 +626,12 @@ async def _invoke_step(
             )
         case "udf":
             # Leaf node - execute via backend
+            call_timeout = _udf_call_timeout(resolved_context, timeout)
             result = await backend.execute(
                 input=input,
                 role=ctx.role,
                 resolved_context=resolved_context,
-                timeout=timeout,
+                timeout=call_timeout,
             )
             if isinstance(result, ExecutorResultSuccess):
                 # Opaque code can transform credentials without an AST observer.
@@ -638,11 +652,49 @@ async def _invoke_step(
                 # Error response from backend
                 error_data = result.error
                 exec_result = ExecutorActionErrorInfo.model_validate(error_data)
+                if (
+                    exec_result.type == ActionTimeoutError.__name__
+                    and call_timeout < timeout
+                ):
+                    # The deployment cap, not the action's timeout, ended the call.
+                    exec_result.message = _timeout_message(
+                        timeout, capped_at=call_timeout
+                    )
                 raise ExecutionError(info=exec_result)
         case _:
             raise ValueError(
                 f"Unknown action type: {resolved_context.action_impl.type}"
             )
+
+
+def _action_timeout(input: RunActionInput) -> float:
+    """Return the action's own timeout, unclamped.
+
+    A timeout of 0 or less falls back to the deployment's maximum.
+    """
+    requested = input.task.retry_policy.timeout
+    return requested if requested > 0 else config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
+
+
+def _udf_call_timeout(resolved_context: ResolvedContext, timeout: float) -> float:
+    """Cap one UDF subprocess call at the deployment's maximum.
+
+    run_python runs in its own sandbox and keeps the action's own timeout.
+    """
+    if resolved_context.action_impl.action_name == PlatformAction.RUN_PYTHON:
+        return timeout
+    return min(timeout, config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT)
+
+
+def _timeout_message(action_timeout: float, *, capped_at: float | None = None) -> str:
+    """Describe an action timeout by the action's own timeout, or the cap that hit."""
+    if capped_at is None:
+        return f"Action execution timed out after {action_timeout:g}s"
+    return (
+        f"Action execution timed out after {capped_at:g}s, this deployment's maximum "
+        "action timeout (TRACECAT__EXECUTOR_CLIENT_TIMEOUT). The action's own timeout "
+        f"is {action_timeout:g}s."
+    )
 
 
 def _attach_loop_context(info: ExecutorActionErrorInfo, iteration: int | None) -> None:
@@ -780,6 +832,18 @@ async def prepare_resolved_context(
     # Generate executor token for SDK authentication
     executor_token = _mint_action_executor_token(input, role)
 
+    tunnel_route = None
+    if tunnel_name := effective_tunnel(input):
+        if PlatformAction.is_interface(action_name):
+            raise TunnelRouteError(f"Action {action_name!r} cannot use a tunnel")
+        tunnel_route = await resolve_tunnel_route(
+            name=tunnel_name,
+            workspace_id=role.workspace_id,
+            organization_id=role.organization_id,
+            wf_exec_id=str(input.run_context.wf_exec_id),
+            action_ref=task.ref,
+        )
+
     resolved_context = ResolvedContext(
         secrets=secrets,
         variables=workspace_variables,
@@ -791,6 +855,10 @@ async def prepare_resolved_context(
         executor_token=executor_token,
         logical_time=logical_time,
         secret_projection=secret_projection,
+        tunnel_name=tunnel_route.tunnel_name if tunnel_route else None,
+        tunnel_proxy_url=tunnel_route.proxy_url if tunnel_route else None,
+        tunnel_gateway_ip=tunnel_route.gateway_ip if tunnel_route else None,
+        tunnel_gateway_port=tunnel_route.gateway_port if tunnel_route else None,
     )
 
     return PreparedContext(
@@ -814,7 +882,8 @@ async def invoke_once(
     """
     role = ctx.role
     action_name = input.task.action
-    timeout = config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
+    # Budgets the action's function calls; platform preparation is excluded.
+    timeout = _action_timeout(input)
 
     # Ensure organization_id is set (workflows are always org-scoped)
     if role.organization_id is None:
@@ -845,16 +914,35 @@ async def invoke_once(
         # Sandboxed backends set this in their subprocess from resolved_context.logical_time
         ctx_logical_time.set(resolved_context.logical_time)
 
-        # Delegate execution to _invoke_step (shared logic for template/udf)
-        # This handles both template orchestration and UDF execution
-        action_result = await _invoke_step(
-            backend=backend,
-            resolved_context=resolved_context,
-            input=input,
-            ctx=ctx,
-            timeout=timeout,
-            provenance=prepared.provenance or {},
+        # A template is one action, so all its steps share the action's
+        # timeout; cancelling the running step terminates its subprocess. A
+        # single UDF call is timed inside the runner instead, so subprocess
+        # startup doesn't count toward it.
+        template_scope = asyncio.timeout(
+            timeout if resolved_context.action_impl.type == "template" else None
         )
+        try:
+            async with template_scope:
+                # Delegate execution to _invoke_step (shared logic for template/udf)
+                # This handles both template orchestration and UDF execution
+                action_result = await _invoke_step(
+                    backend=backend,
+                    resolved_context=resolved_context,
+                    input=input,
+                    ctx=ctx,
+                    timeout=timeout,
+                    provenance=prepared.provenance or {},
+                )
+        except TimeoutError:
+            # A TimeoutError raised by a step itself propagates unchanged.
+            if template_scope.expired():
+                raise ActionTimeoutError(_timeout_message(timeout)) from None
+            raise
+        # Synchronous work after the last await can cross the deadline before
+        # the scope fires. A template that finishes late is still a timeout.
+        deadline = template_scope.when()
+        if deadline is not None and asyncio.get_running_loop().time() >= deadline:
+            raise ActionTimeoutError(_timeout_message(timeout))
 
     except ExecutionError as e:
         # ExecutionError already has proper error info, just add loop context if needed

@@ -552,9 +552,20 @@ async def list_cases_by_row(
         Doc("Pagination cursor used to fetch a specific page when paginate=true."),
     ] = None,
     order_by: Annotated[
-        Literal["created_at", "updated_at", "priority", "severity", "status", "tasks"]
+        Literal[
+            "created_at",
+            "updated_at",
+            "priority",
+            "severity",
+            "status",
+            "tasks",
+            "assignee",
+            "tags",
+        ]
         | None,
-        Doc("The field to order the cases by."),
+        Doc(
+            "The field to order by. Assignee uses lowercase email; tags uses the first normalized tag alphabetically. Missing values sort last."
+        ),
     ] = None,
     sort: Annotated[
         Literal["asc", "desc"] | None,
@@ -605,9 +616,20 @@ async def list_cases(
         Doc("Reverse pagination direction when paginate=true."),
     ] = False,
     order_by: Annotated[
-        Literal["created_at", "updated_at", "priority", "severity", "status", "tasks"]
+        Literal[
+            "created_at",
+            "updated_at",
+            "priority",
+            "severity",
+            "status",
+            "tasks",
+            "assignee",
+            "tags",
+        ]
         | None,
-        Doc("The field to order the cases by."),
+        Doc(
+            "The field to order by. Assignee uses lowercase email; tags uses the first normalized tag alphabetically. Missing values sort last."
+        ),
     ] = None,
     sort: Annotated[
         Literal["asc", "desc"] | None,
@@ -617,6 +639,32 @@ async def list_cases(
         bool,
         Doc("If true, return cursor pagination metadata along with items."),
     ] = False,
+    include_payload: Annotated[
+        bool,
+        Doc(
+            "Return the full payload when both payload selectors are omitted or empty."
+        ),
+    ] = False,
+    payload_fields: Annotated[
+        list[str] | None,
+        Doc(
+            "Return only these top-level payload keys, e.g. ['alert_id', 'score']. "
+            "Automatically includes the subset regardless of include_payload. "
+            "Dots are literal; selected objects are returned whole. Missing keys "
+            "are omitted and null values preserved. An empty list acts as omitted; "
+            "an empty string selects the literal empty key."
+        ),
+    ] = None,
+    payload_paths: Annotated[
+        list[list[str]] | None,
+        Doc(
+            "Up to 100 nested object paths, e.g. [['alert', 'source', 'ip']]. Each path "
+            "contains 1 to 32 literal keys. Preserves nesting and combines with "
+            "payload_fields, including the subset automatically. Selected parents "
+            "include their whole value; missing paths are omitted and nulls preserved. "
+            "Arrays are selected whole, without index traversal. An empty list is omitted."
+        ),
+    ] = None,
 ) -> list[types.CaseReadMinimal] | types.CaseListResponse:
     if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
         raise TracecatValidationError(
@@ -632,6 +680,12 @@ async def list_cases(
         params["order_by"] = order_by
     if sort is not None:
         params["sort"] = sort
+    if include_payload:
+        params["include_payload"] = include_payload
+    if payload_fields:
+        params["payload_fields"] = payload_fields
+    if payload_paths:
+        params["payload_paths"] = payload_paths
     response = await ctx.cases.aio.list_cases(**params)
     if paginate:
         return response
@@ -648,6 +702,18 @@ async def search_cases(
     search_term: Annotated[
         str | None,
         Doc("Text to search for in case summary and description."),
+    ] = None,
+    search_mode: Annotated[
+        Literal["full_text", "literal"] | None,
+        Doc(
+            "Explicit words/phrases or escaped substring. Omitted preserves legacy matching."
+        ),
+    ] = None,
+    search_columns: Annotated[
+        list[Literal["summary", "description"]] | None,
+        Doc(
+            "Search selected text fields; requires an explicit search_mode. Omitted searches both."
+        ),
     ] = None,
     status: Annotated[
         StatusType | list[StatusType] | None,
@@ -702,18 +768,80 @@ async def search_cases(
         Doc("Reverse pagination direction when paginate=true."),
     ] = False,
     order_by: Annotated[
-        Literal["created_at", "updated_at", "priority", "severity", "status", "tasks"]
+        Literal[
+            "relevance",
+            "created_at",
+            "updated_at",
+            "priority",
+            "severity",
+            "status",
+            "tasks",
+            "assignee",
+            "tags",
+            "id",
+            "short_id",
+        ]
         | None,
-        Doc("The field to order the cases by."),
+        Doc(
+            "The field to order by. Relevance requires search_mode='full_text' and descending sort. Assignee uses lowercase email; tags uses the first normalized tag alphabetically. Missing values sort last."
+        ),
     ] = None,
     sort: Annotated[
         Literal["asc", "desc"] | None,
         Doc("The direction to order the cases by."),
     ] = None,
+    short_id: Annotated[
+        str | None, Doc("Exact short ID, such as CASE-0042 or 42.")
+    ] = None,
+    case_id: Annotated[str | None, Doc("Exact case UUID.")] = None,
+    filters: Annotated[
+        dict[str, Any] | None,
+        Doc(
+            "Shared AND/OR/NOT JSON filter tree. Tags use in/contains/is_null; scalar exclusions omit unset values unless ORed with is_null. Payload equality: {'field': 'payload.metadata.product.vendor_name', 'op': 'eq', 'value': 'Microsoft'}. Payload paths support only eq/ne/is_null. Use dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Combine with and/or/not; JSON scalar types are preserved. is_null matches missing paths, not explicit JSON null."
+        ),
+    ] = None,
+    hierarchy: Annotated[
+        Literal["all", "top_level"], Doc("Case hierarchy scope.")
+    ] = "all",
+    parent_id: Annotated[
+        str | None, Doc("Return sub-cases of this parent UUID.")
+    ] = None,
+    include_rows: Annotated[bool, Doc("Include linked table rows.")] = False,
+    field_ids: Annotated[
+        list[str] | None, Doc("Include requested custom field values.")
+    ] = None,
+    include_durations: Annotated[bool, Doc("Include duration values.")] = False,
+    include_count: Annotated[bool, Doc("Include exact total_estimate.")] = True,
     paginate: Annotated[
         bool,
         Doc("If true, return cursor pagination metadata along with items."),
     ] = False,
+    include_payload: Annotated[
+        bool,
+        Doc(
+            "Return the full payload when both payload selectors are omitted or empty."
+        ),
+    ] = False,
+    payload_fields: Annotated[
+        list[str] | None,
+        Doc(
+            "Return only these top-level payload keys, e.g. ['alert_id', 'score']. "
+            "Automatically includes the subset regardless of include_payload. "
+            "Dots are literal; selected objects are returned whole. Missing keys "
+            "are omitted and null values preserved. An empty list acts as omitted; "
+            "an empty string selects the literal empty key."
+        ),
+    ] = None,
+    payload_paths: Annotated[
+        list[list[str]] | None,
+        Doc(
+            "Up to 100 nested object paths, e.g. [['alert', 'source', 'ip']]. Each path "
+            "contains 1 to 32 literal keys. Preserves nesting and combines with "
+            "payload_fields, including the subset automatically. Selected parents "
+            "include their whole value; missing paths are omitted and nulls preserved. "
+            "Arrays are selected whole, without index traversal. An empty list is omitted."
+        ),
+    ] = None,
 ) -> list[types.CaseReadMinimal] | types.CaseListResponse:
     """Search cases based on various criteria."""
     if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
@@ -752,6 +880,31 @@ async def search_cases(
         params["order_by"] = order_by
     if sort is not None:
         params["sort"] = sort
+    if payload_fields:
+        params["payload_fields"] = payload_fields
+    if payload_paths:
+        params["payload_paths"] = payload_paths
+    if hierarchy != "all":
+        params["hierarchy"] = hierarchy
+    if include_rows:
+        params["include_rows"] = True
+    if include_durations:
+        params["include_durations"] = True
+    if include_payload:
+        params["include_payload"] = True
+    if not include_count:
+        params["include_count"] = False
+    for name, value in (
+        ("search_mode", search_mode),
+        ("search_columns", search_columns),
+        ("short_id", short_id),
+        ("case_id", case_id),
+        ("filters", filters),
+        ("parent_id", parent_id),
+        ("field_ids", field_ids),
+    ):
+        if value is not None:
+            params[name] = value
     response = await ctx.cases.aio.search_cases(**params)
     if paginate:
         return response

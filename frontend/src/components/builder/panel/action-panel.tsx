@@ -1,5 +1,6 @@
 "use client"
 
+import { ActionRunHistory } from "@/components/builder/panel/action-run-history"
 import "react18-json-view/src/style.css"
 
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -10,6 +11,7 @@ import {
   Database,
   ExternalLinkIcon,
   FileTextIcon,
+  HistoryIcon,
   LayoutListIcon,
   LinkIcon,
   ListIcon,
@@ -25,7 +27,6 @@ import type React from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { FormProvider, useForm, useWatch } from "react-hook-form"
 import type { ImperativePanelHandle } from "react-resizable-panels"
-import YAML from "yaml"
 import { z } from "zod"
 import {
   $JoinStrategy,
@@ -63,6 +64,7 @@ import { getIcon } from "@/components/icons"
 import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import { TunnelSelect } from "@/components/tunnels/tunnel-select"
 import {
   Accordion,
   AccordionContent,
@@ -128,6 +130,10 @@ import {
   type TracecatJsonSchema,
 } from "@/lib/schema"
 import { cn, slugifyActionRef } from "@/lib/utils"
+import {
+  parseYaml as parsePyYaml,
+  stringifyYaml as stringifyPyYaml,
+} from "@/lib/yaml"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -201,6 +207,7 @@ const actionFormSchema = z.object({
     .max(1000, "Environment must be less than 1000 characters")
     .transform((val) => normalizeOptionalExpression(val))
     .optional(),
+  tunnel: z.string().max(63).optional(),
   mask_output: z.boolean().default(false),
   unsafe_disable_secret_error_withholding: z.boolean().default(false),
 })
@@ -215,9 +222,9 @@ enum SaveState {
 }
 // Helper function to safely parse YAML
 const parseYaml = (str: string | undefined) =>
-  str ? YAML.parse(str) : undefined
+  str ? parsePyYaml(str) : undefined
 const stringifyYaml = (obj: unknown | undefined) =>
-  obj ? YAML.stringify(obj) : ""
+  obj ? stringifyPyYaml(obj) : ""
 
 // Helper function to reconstruct YAML preserving original structure when possible
 export const reconstructYamlFromForm = (
@@ -257,13 +264,13 @@ export const reconstructYamlFromForm = (
       }
     })
 
-    return YAML.stringify(updated, {
+    return stringifyPyYaml(updated, {
       indent: 2,
       lineWidth: -1, // Don't wrap lines
     })
   } catch (_error) {
     // Fallback to clean YAML if original is unparseable.
-    return YAML.stringify(formChanges)
+    return stringifyPyYaml(formChanges)
   }
 }
 
@@ -284,6 +291,7 @@ function shouldShowOptionalFieldByDefault(
 
 export type ActionPanelTabs =
   | "inputs"
+  | "history"
   | "schema"
   | "control-flow"
   | "template-inputs"
@@ -342,6 +350,7 @@ function ActionPanelContent({
       join_strategy: actionControlFlow?.join_strategy,
       wait_until: actionControlFlow?.wait_until || undefined,
       environment: actionControlFlow?.environment || undefined,
+      tunnel: actionControlFlow?.tunnel || undefined,
       mask_output: actionControlFlow?.mask_output ?? false,
       unsafe_disable_secret_error_withholding:
         actionControlFlow?.unsafe_disable_secret_error_withholding ?? false,
@@ -359,6 +368,7 @@ function ActionPanelContent({
       actionControlFlow?.join_strategy,
       actionControlFlow?.wait_until,
       actionControlFlow?.environment,
+      actionControlFlow?.tunnel,
       actionControlFlow?.mask_output,
       actionControlFlow?.unsafe_disable_secret_error_withholding,
     ]
@@ -619,6 +629,7 @@ function ActionPanelContent({
             join_strategy: values.join_strategy,
             wait_until: values.wait_until,
             environment: values.environment,
+            tunnel: values.tunnel ?? null,
             mask_output: values.mask_output ?? false,
             unsafe_disable_secret_error_withholding:
               values.unsafe_disable_secret_error_withholding ?? false,
@@ -967,6 +978,13 @@ function ActionPanelContent({
                     <SplitIcon className="mr-2 size-4" />
                     <span>Control flow</span>
                   </TabsTrigger>
+                  <TabsTrigger
+                    className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    value="history"
+                  >
+                    <HistoryIcon className="mr-2 size-4" />
+                    <span>History</span>
+                  </TabsTrigger>
                   {registryAction.is_template && (
                     <TabsTrigger
                       className="flex h-full min-w-24 items-center justify-center rounded-none py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
@@ -1238,6 +1256,13 @@ function ActionPanelContent({
                     </div>
                   </SectionErrorBoundary>
                 </TabsContent>
+                <TabsContent value="history">
+                  <ActionRunHistory
+                    action={action}
+                    workflowId={workflowId}
+                    updateAction={updateAction}
+                  />
+                </TabsContent>
                 <TabsContent value="schema">
                   <SectionErrorBoundary>
                     <div className="mt-4 space-y-6 px-4">
@@ -1365,6 +1390,28 @@ function ActionPanelContent({
                                   value={field.value || ""}
                                   onChange={field.onChange}
                                   placeholder="Type @ to begin an expression..."
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      <ControlFlowField
+                        label="Tunnel"
+                        description="Route this action's HTTP(S) traffic through a workspace tunnel, otherwise the workflow's default tunnel is used."
+                      >
+                        <FormField
+                          name="tunnel"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <FormControl>
+                                <TunnelSelect
+                                  value={field.value}
+                                  onChange={field.onChange}
+                                  noneLabel="Workflow default"
                                 />
                               </FormControl>
                             </FormItem>

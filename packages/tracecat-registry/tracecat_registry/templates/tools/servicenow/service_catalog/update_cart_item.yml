@@ -1,0 +1,53 @@
+type: action
+definition:
+  title: Update cart item
+  description: Update the quantity or variables of an item in the caller's cart.
+  display_group: ServiceNow
+  doc_url: https://www.servicenow.com/docs/r/api-reference/rest-apis/c_ServiceCatalogAPI.html#servicecat-PUT-cart
+  namespace: tools.servicenow
+  name: update_cart_item
+  secrets:
+  - type: oauth
+    provider_id: servicenow
+    grant_type: client_credentials
+  expects:
+    cart_item_id:
+      type: str
+      description: sys_id of the cart item.
+    sysparm_quantity:
+      type: int | None
+      description: New quantity.
+      default: null
+    variables:
+      type: dict[str, Any] | None
+      description: Form variable values keyed by variable name. Use get_catalog_item to list an item's variables.
+      default: null
+    base_url:
+      type: str | None
+      description: ServiceNow instance URL, e.g. https://<instance>.service-now.com. Defaults to the `servicenow.base_url` workspace variable.
+      default: null
+  steps:
+  - ref: build_body
+    action: core.script.run_python
+    args:
+      inputs:
+        fields: null
+        values:
+          sysparm_quantity: ${{ inputs.sysparm_quantity }}
+          variables: ${{ inputs.variables }}
+      script: |
+        def main(fields, values):
+            body = dict(fields or {})
+            body.update({k: v for k, v in values.items() if v is not None})
+            return body
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.servicenow.base_url }}/api/sn_sc/servicecatalog/cart/${{ FN.url_encode(inputs.cart_item_id) }}
+      method: PUT
+      headers:
+        Authorization: Bearer ${{ SECRETS.servicenow_oauth.SERVICENOW_SERVICE_TOKEN }}
+        Accept: application/json
+        Content-Type: application/json
+      payload: ${{ steps.build_body.result }}
+  returns: ${{ steps.request.result }}

@@ -236,7 +236,7 @@ function CreateSecretStoreDialog({
           onClose={onClose}
         />
       ) : (
-        <DialogContent size="sm">
+        <DialogContent size="md">
           <DialogHeader>
             <DialogTitle>{provider.createTitle}</DialogTitle>
             <DialogDescription>{provider.createDescription}</DialogDescription>
@@ -610,7 +610,7 @@ function StoreSetupDialogContent({
   }
 
   return (
-    <DialogContent size="sm" className="sm:max-w-3xl">
+    <DialogContent size="lg" className="sm:max-w-3xl">
       <DialogHeader>
         <DialogTitle>{provider.setupTitle}</DialogTitle>
         <DialogDescription>{provider.setupDescription}</DialogDescription>
@@ -978,7 +978,7 @@ function EditSecretStoreDialog({
         if (!open) onClose()
       }}
     >
-      <DialogContent size="sm">
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>Edit {store.name}</DialogTitle>
           <DialogDescription>

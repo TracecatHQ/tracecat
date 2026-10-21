@@ -121,7 +121,12 @@ def test_branch_and_scheduled_builds_do_not_promote_latest(
 def test_only_serialized_promotion_can_publish_latest() -> None:
     workflow = yaml.safe_load(IMAGE_WORKFLOW.read_text())
     promotion = workflow["jobs"]["promote-latest"]
-    assert set(promotion["needs"]) == {"validate", "merge-api", "build-and-push-ui"}
+    assert set(promotion["needs"]) == {
+        "validate",
+        "merge-api",
+        "build-and-push-ui",
+        "merge-tunnel-gateway",
+    }
     # The implicit success() gate must require both tag-publishing jobs to succeed.
     assert promotion["if"] == "needs.validate.outputs.latest == 'true'"
     assert promotion["concurrency"] == {
@@ -204,7 +209,7 @@ def test_ui_build_pushes_only_metadata_tags() -> None:
 
 @pytest.mark.parametrize("version", ["1.2.1", "1.3.0"])
 @pytest.mark.parametrize("fail_api", [False, True])
-def test_promotion_updates_both_images_from_the_same_stable_tag(
+def test_promotion_updates_all_images_from_the_same_stable_tag(
     tmp_path: Path, version: str, fail_api: bool
 ) -> None:
     workflow = yaml.safe_load(IMAGE_WORKFLOW.read_text())
@@ -233,7 +238,11 @@ def test_promotion_updates_both_images_from_the_same_stable_tag(
         check=False,
     )
     assert (result.returncode != 0) == fail_api, result.stderr
-    images = ["tracecat"] if fail_api else ["tracecat", "tracecat-ui"]
+    images = (
+        ["tracecat"]
+        if fail_api
+        else ["tracecat", "tracecat-ui", "tracecat-tunnel-gateway"]
+    )
     assert args_file.read_text().splitlines() == [
         arg
         for image in images

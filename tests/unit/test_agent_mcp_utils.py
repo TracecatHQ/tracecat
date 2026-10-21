@@ -8,32 +8,26 @@ from tracecat.agent.mcp.utils import (
 )
 
 
-def test_normalize_mcp_tool_name_canonical_registry_prefix() -> None:
-    assert (
-        normalize_mcp_tool_name("mcp__tracecat-registry__tools__slack__post_message")
-        == "tools.slack.post_message"
-    )
-
-
-def test_normalize_mcp_tool_name_legacy_registry_prefix() -> None:
-    assert (
-        normalize_mcp_tool_name("mcp__tracecat_registry__tools__slack__post_message")
-        == "tools.slack.post_message"
-    )
-
-
-def test_normalize_mcp_tool_name_canonical_registry_user_mcp_prefix() -> None:
-    assert (
-        normalize_mcp_tool_name("mcp__tracecat-registry__mcp__Linear__list_issues")
-        == "mcp.Linear.list_issues"
-    )
-
-
-def test_normalize_mcp_tool_name_legacy_registry_user_mcp_prefix() -> None:
-    assert (
-        normalize_mcp_tool_name("mcp__tracecat_registry__mcp__Linear__list_issues")
-        == "mcp.Linear.list_issues"
-    )
+@pytest.mark.parametrize(
+    ("tool_name", "expected"),
+    [
+        (
+            "mcp__tracecat-registry__tools__slack__post_message",
+            "tools.slack.post_message",
+        ),
+        (
+            "mcp__tracecat_registry__tools__slack__post_message",
+            "tools.slack.post_message",
+        ),
+        ("mcp__tracecat-registry__mcp__Linear__list_issues", "mcp.Linear.list_issues"),
+        ("mcp__tracecat_registry__mcp__Linear__list_issues", "mcp.Linear.list_issues"),
+    ],
+    ids=["canonical", "legacy", "canonical-user-mcp", "legacy-user-mcp"],
+)
+def test_normalize_mcp_tool_name_registry_prefixes(
+    tool_name: str, expected: str
+) -> None:
+    assert normalize_mcp_tool_name(tool_name) == expected
 
 
 @pytest.mark.parametrize(

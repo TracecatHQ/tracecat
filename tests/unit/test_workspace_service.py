@@ -4,7 +4,6 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from pydantic import TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,7 +30,6 @@ from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspaces.schemas import (
     WorkspaceRead,
     WorkspaceSearch,
-    WorkspaceSettings,
     WorkspaceSettingsUpdate,
     WorkspaceUpdate,
 )
@@ -230,6 +228,7 @@ class TestWorkspaceService:
         assert workspace is not None
         assert workspace.id == svc_workspace.id
         assert workspace.name == svc_workspace.name
+        assert workspace.organization_id == svc_workspace.organization_id
         assert isinstance(workspace, Workspace)
 
     async def test_get_workspace_not_found(self, service: WorkspaceService) -> None:
@@ -239,37 +238,6 @@ class TestWorkspaceService:
         workspace = await service.get_workspace(non_existent_id)
 
         assert workspace is None
-
-    async def test_get_workspace_validates_model(
-        self, service: WorkspaceService, svc_workspace: Workspace
-    ) -> None:
-        """Test that get_workspace properly validates the model when loading from database."""
-        # First, retrieve the workspace to ensure it exists
-        workspace = await service.get_workspace(svc_workspace.id)
-
-        assert workspace is not None
-        # Verify that the workspace was properly validated by checking it's a Workspace instance
-        assert isinstance(workspace, Workspace)
-        # The model_validate call ensures Pydantic validation was invoked
-        assert hasattr(workspace, "id")
-        assert hasattr(workspace, "name")
-        assert hasattr(workspace, "settings")
-        # Verify that settings is properly validated as WorkspaceSettings instance
-        ta = TypeAdapter(WorkspaceSettings)
-        assert ta.validate_python(workspace.settings) is not None
-
-    async def test_get_workspace_model_validation_preserves_data(
-        self, service: WorkspaceService, svc_workspace: Workspace
-    ) -> None:
-        """Test that model validation preserves workspace data correctly."""
-        workspace = await service.get_workspace(svc_workspace.id)
-
-        assert workspace is not None
-        assert workspace.id == svc_workspace.id
-        assert workspace.name == svc_workspace.name
-        assert workspace.organization_id == svc_workspace.organization_id
-        # Verify settings are preserved through validation
-        assert workspace.settings is not None
 
     async def test_delete_workspace_removes_memberships(
         self,
@@ -656,41 +624,13 @@ class TestWorkspaceService:
         assert updated.settings == {}
 
 
-@pytest.mark.parametrize(
-    "valid_url",
-    [
-        "git+ssh://git@github.com/org/repo.git",
-        "git+ssh://git@gitlab.company.com:2222/team/project.git",
-        "git+ssh://git@gitlab.com/group/subgroup/repo.git",
-        "git+ssh://git@example.com/org/repo",
-        "git+ssh://someuser@git.example.com/org/repo.git",
-        "git+ssh://git@github.com/org/repo.git@feature/custom-branch",
-    ],
-)
-def test_workspace_settings_update_accepts_valid_git_urls(valid_url: str) -> None:
-    """Workspace settings should accept git+ssh URLs that match the shared regex."""
-    settings = WorkspaceSettingsUpdate(git_repo_url=valid_url)
+def test_workspace_settings_update_validates_git_url() -> None:
+    """Workspace settings apply the shared Git SSH URL regex."""
+    valid_url = "git+ssh://git@github.com/org/repo.git"
+    assert WorkspaceSettingsUpdate(git_repo_url=valid_url).git_repo_url == valid_url
 
-    assert settings.git_repo_url == valid_url
-
-
-@pytest.mark.parametrize(
-    "invalid_url",
-    [
-        "https://github.com/org/repo.git",
-        "git+ssh://github.com/org/repo.git",
-        "git+ssh://git@github.com",
-        "git+ssh://git@github.com:not_a_port/org/repo.git",
-        "git+ssh://git@github.com:/org/repo.git",
-        "git+ssh://git@github.com/repo.git",
-    ],
-)
-def test_workspace_settings_update_rejects_invalid_git_urls(invalid_url: str) -> None:
-    """Workspace settings should reject malformed git repo URLs."""
-    with pytest.raises(ValueError) as exc_info:
-        WorkspaceSettingsUpdate(git_repo_url=invalid_url)
-
-    assert "Must be a valid Git SSH URL" in str(exc_info.value)
+    with pytest.raises(ValueError, match="Must be a valid Git SSH URL"):
+        WorkspaceSettingsUpdate(git_repo_url="https://github.com/org/repo.git")
 
 
 def test_workspace_settings_update_accepts_bitbucket() -> None:

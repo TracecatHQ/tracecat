@@ -8,14 +8,17 @@ import type {
   CaseDurationDefinitionRead,
   CaseFieldReadMinimal,
   CasePriority,
+  CaseQuery,
   CaseReadMinimal,
   CaseSearchAggregateRead,
   CaseSeverity,
   CaseStatus,
+  CasesSearchCasesData,
   CaseTagRead,
   CaseUpdate,
   WorkspaceMember,
 } from "@/client"
+import { CaseItem } from "@/components/cases/case-item"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
 import { CaseSidePanel } from "@/components/cases/case-side-panel"
 import {
@@ -33,12 +36,14 @@ import type {
   SortDirection,
 } from "@/components/filters/filter-multi-select"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import type { CaseDateFilterValue, UseCasesFilters } from "@/hooks/use-cases"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { runChunkedCaseBatch } from "@/lib/cases/batch"
 import { invalidateCaseHierarchy } from "@/lib/cases/invalidation"
 import { caseHref } from "@/lib/cases/urls"
+import { getApiErrorDetail } from "@/lib/errors"
 import {
   useBatchChangeCaseParent,
   useBatchDeleteCases,
@@ -52,8 +57,12 @@ interface CasesLayoutProps {
   isLoading: boolean
   error: Error | null
   filters: UseCasesFilters
+  appliedSearchQuery: string
+  effectiveHierarchy: NonNullable<CasesSearchCasesData["hierarchy"]>
+  isSearchPending: boolean
   members?: WorkspaceMember[]
   tags?: CaseTagRead[]
+  onSearchModeChange?: (mode: "full_text" | "literal") => void
   onSearchChange: (query: string) => void
   onSortByChange: (value: CaseSortValue) => void
   onStatusChange: (status: CaseStatus[]) => void
@@ -78,6 +87,7 @@ interface CasesLayoutProps {
   durationDefinitions?: CaseDurationDefinitionRead[]
   visibleColumnIds?: string[]
   onToggleColumn?: (columnId: string) => void
+  onStructuredFiltersChange?: (filters: CaseQuery["filters"]) => void
   onDropdownFilterChange: (ref: string, values: string[]) => void
   onDropdownModeChange: (ref: string, mode: FilterMode) => void
   onDropdownSortDirectionChange: (ref: string, direction: SortDirection) => void
@@ -85,18 +95,24 @@ interface CasesLayoutProps {
   stageCounts: CaseSearchAggregateRead["status_groups"] | null
   isCountsLoading: boolean
   isCountsFetching: boolean
+  isCountsError?: boolean
   hasNextPage: boolean
   isFetchingNextPage: boolean
   onLoadMore: () => void
 }
 
+/** Workspace case list with a promoted exact match and filtered results. */
 export function CasesLayout({
   cases,
   isLoading,
   error,
   filters,
+  appliedSearchQuery,
+  effectiveHierarchy,
+  isSearchPending,
   members,
   tags,
+  onSearchModeChange,
   onSearchChange,
   onSortByChange,
   onStatusChange,
@@ -121,6 +137,7 @@ export function CasesLayout({
   durationDefinitions,
   visibleColumnIds,
   onToggleColumn,
+  onStructuredFiltersChange,
   onDropdownFilterChange,
   onDropdownModeChange,
   onDropdownSortDirectionChange,
@@ -128,6 +145,7 @@ export function CasesLayout({
   stageCounts,
   isCountsLoading,
   isCountsFetching,
+  isCountsError = false,
   hasNextPage,
   isFetchingNextPage,
   onLoadMore,
@@ -392,7 +410,12 @@ export function CasesLayout({
 
   const headerProps = {
     searchQuery: filters.searchQuery,
+    appliedSearchQuery,
+    effectiveHierarchy,
+    isSearchPending,
     onSearchChange,
+    searchMode: filters.searchMode,
+    onSearchModeChange,
     sortBy: filters.sortBy,
     onSortByChange,
     statusFilter: filters.statusFilter,
@@ -437,11 +460,14 @@ export function CasesLayout({
     visibleColumnIds,
     onToggleColumn,
     dropdownFilters: filters.dropdownFilters,
+    structuredFilters: filters.structuredFilters,
+    onStructuredFiltersChange,
     onDropdownFilterChange,
     onDropdownModeChange,
     onDropdownSortDirectionChange,
     totalCaseCount: cases.length,
     displayCaseCount: totalFilteredCaseEstimate,
+    isCountsError,
     selectedCount: selectedCaseIds.size,
     onSelectAll: handleSelectAll,
     onDeselectAll: handleDeselectAll,
@@ -458,10 +484,25 @@ export function CasesLayout({
       Boolean(filter.sortDirection)
     )
 
-  const displayOrderedCases = useMemo(
-    () => orderCasesForDisplay(cases, hasExplicitSort),
-    [cases, hasExplicitSort]
-  )
+  const exactMatch = cases.find((caseData) => caseData.is_exact_match)
+  const filteredCases = cases.filter((caseData) => !caseData.is_exact_match)
+  const filteredStageCounts = stageCounts ? { ...stageCounts } : null
+  const exactMatchInFilters = exactMatch && !exactMatch.is_outside_filters
+  if (exactMatchInFilters && filteredStageCounts) {
+    const status = exactMatch.status
+    filteredStageCounts[status] = Math.max(
+      0,
+      (filteredStageCounts[status] ?? 0) - 1
+    )
+  }
+  const ordinaryTotal =
+    totalFilteredCaseEstimate === null
+      ? null
+      : Math.max(0, totalFilteredCaseEstimate - (exactMatchInFilters ? 1 : 0))
+  const displayOrderedCases = [
+    ...(exactMatch ? [exactMatch] : []),
+    ...orderCasesForDisplay(filteredCases, hasExplicitSort),
+  ]
 
   const handleOpenInSidePanel = useCallback((caseData: CaseReadMinimal) => {
     setSidePanelCaseId(caseData.id)
@@ -497,7 +538,7 @@ export function CasesLayout({
           <CasesHeader {...headerProps} />
           <div className="flex flex-1 items-center justify-center">
             <span className="text-sm text-red-500">
-              Failed to load cases: {error.message}
+              Failed to load cases: {getApiErrorDetail(error) ?? error.message}
             </span>
           </div>
         </div>
@@ -512,37 +553,87 @@ export function CasesLayout({
     >
       <div className="flex size-full flex-col">
         <CasesHeader {...headerProps} />
-        <div className="min-h-0 flex-1">
-          <CasesAccordion
-            cases={cases}
-            selectedId={sidePanelCaseId ?? selectedId}
-            selectedCaseIds={selectedCaseIdsSet}
-            onSelect={handleSelectCase}
-            onCheckChange={handleCheckChange}
-            onDeleteRequest={handleDeleteRequest}
-            onOpenInSidePanel={handleOpenInSidePanel}
-            tags={tags}
-            members={members}
-            dropdownDefinitions={dropdownDefinitions}
-            fieldMetadataById={fieldMetadataById}
-            durationNamesById={durationNamesById}
-            visibleColumnIds={visibleColumnIds}
-            prioritySortDirection={filters.prioritySortDirection}
-            severitySortDirection={filters.severitySortDirection}
-            assigneeSortDirection={filters.assigneeSortDirection}
-            tagSortDirection={filters.tagSortDirection}
-            hasExplicitSort={hasExplicitSort}
-            statusFilter={filters.statusFilter}
-            statusMode={filters.statusMode}
-            totalFilteredCaseEstimate={totalFilteredCaseEstimate}
-            stageCounts={stageCounts}
-            isCountsLoading={isCountsLoading}
-            isCountsFetching={isCountsFetching}
-            hasNextPage={hasNextPage}
-            isFetchingNextPage={isFetchingNextPage}
-            onLoadMore={onLoadMore}
-          />
-        </div>
+        {cases.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4">
+            <p className="text-sm text-muted-foreground">
+              {hasNextPage
+                ? "No cases loaded yet."
+                : "No cases match the current filters."}
+            </p>
+            {hasNextPage && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isFetchingNextPage}
+                onClick={onLoadMore}
+              >
+                {isFetchingNextPage ? "Loading cases..." : "Load more cases"}
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col">
+            {exactMatch && (
+              <section aria-label="Exact match" className="shrink-0 border-b">
+                <p className="px-4 py-2 text-xs text-muted-foreground">
+                  Exact match
+                  {exactMatch.is_outside_filters &&
+                    " · Outside current filters"}
+                </p>
+                <div className="ml-[18px]">
+                  <CaseItem
+                    caseData={exactMatch}
+                    isSelected={
+                      (sidePanelCaseId ?? selectedId) === exactMatch.id
+                    }
+                    isChecked={selectedCaseIdsSet.has(exactMatch.id)}
+                    onCheckChange={(checked) =>
+                      handleCheckChange(exactMatch.id, checked)
+                    }
+                    onClick={() => handleSelectCase(exactMatch.id)}
+                    onDeleteRequest={handleDeleteRequest}
+                    onOpenInSidePanel={handleOpenInSidePanel}
+                    tags={tags}
+                    members={members}
+                    dropdownDefinitions={dropdownDefinitions}
+                    fieldMetadataById={fieldMetadataById}
+                    durationNamesById={durationNamesById}
+                    visibleColumnIds={visibleColumnIds}
+                  />
+                </div>
+              </section>
+            )}
+            <CasesAccordion
+              cases={filteredCases}
+              selectedId={sidePanelCaseId ?? selectedId}
+              selectedCaseIds={selectedCaseIdsSet}
+              onSelect={handleSelectCase}
+              onCheckChange={handleCheckChange}
+              onDeleteRequest={handleDeleteRequest}
+              onOpenInSidePanel={handleOpenInSidePanel}
+              tags={tags}
+              members={members}
+              dropdownDefinitions={dropdownDefinitions}
+              fieldMetadataById={fieldMetadataById}
+              durationNamesById={durationNamesById}
+              visibleColumnIds={visibleColumnIds}
+              prioritySortDirection={filters.prioritySortDirection}
+              severitySortDirection={filters.severitySortDirection}
+              assigneeSortDirection={filters.assigneeSortDirection}
+              tagSortDirection={filters.tagSortDirection}
+              hasExplicitSort={hasExplicitSort}
+              statusFilter={filters.statusFilter}
+              statusMode={filters.statusMode}
+              totalFilteredCaseEstimate={ordinaryTotal}
+              stageCounts={filteredStageCounts}
+              isCountsLoading={isCountsLoading}
+              isCountsFetching={isCountsFetching}
+              hasNextPage={hasNextPage}
+              isFetchingNextPage={isFetchingNextPage}
+              onLoadMore={onLoadMore}
+            />
+          </div>
+        )}
       </div>
       {workspaceId && (
         <CaseSidePanel

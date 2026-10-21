@@ -249,6 +249,9 @@ export function WorkflowProvider({
       // dashboard keeps showing the old name after a rename in the builder.
       queryClient.invalidateQueries({ queryKey: ["workflows"] })
       queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-preset-workflow-references", workspaceId],
+      })
     },
     onError: (error: TracecatApiError) => {
       console.error("Failed to update workflow:", error)

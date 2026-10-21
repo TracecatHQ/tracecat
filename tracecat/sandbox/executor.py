@@ -143,6 +143,11 @@ _FAILURE_STDERR_TAIL_CHARS = 8192
 _NSJAIL_LOG_LINE_PATTERN = re.compile(r"^\[[A-Z]\]\[")
 
 
+def python_path_mount(index: int) -> str:
+    """Return the jail path where ``SandboxConfig.python_path_dirs[index]`` is mounted."""
+    return f"/pythonpath/{index}"
+
+
 def workload_stderr_tail(stderr: str, *, limit: int) -> str:
     """Return the trailing workload-authored stderr with nsjail log lines removed.
 
@@ -468,7 +473,7 @@ class NsjailExecutor:
                 if not python_path_dir.exists():
                     continue
                 lines.append(
-                    f'mount {{ src: "{python_path_dir}" dst: "/pythonpath/{i}" is_bind: true rw: false }}'
+                    f'mount {{ src: "{python_path_dir}" dst: "{python_path_mount(i)}" is_bind: true rw: false }}'
                 )
             lines.append(
                 f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: true }}'
@@ -565,7 +570,7 @@ class NsjailExecutor:
                     pythonpath_parts.append("/packages")
             for i, python_path_dir in enumerate(config.python_path_dirs):
                 if python_path_dir.exists():
-                    pythonpath_parts.append(f"/pythonpath/{i}")
+                    pythonpath_parts.append(python_path_mount(i))
             if user_pythonpath:
                 pythonpath_parts.append(user_pythonpath)
             if pythonpath_parts:

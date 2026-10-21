@@ -1,280 +1,127 @@
 from datetime import datetime
-from typing import Annotated, Any, Literal, Union, get_args, get_origin
+from typing import Any
 
-from pydantic import BaseModel
+import pytest
+from pydantic import ValidationError
 
 from tracecat.validation.common import json_schema_to_pydantic
 
-
-def test_simple_schema():
-    schema = {
-        "type": "object",
-        "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
-        "required": ["name"],
-    }
-
-    Model = json_schema_to_pydantic(schema)
-
-    assert issubclass(Model, BaseModel)
-    # Check for Annotated[str, ...]
-    name_type_annotation = Model.__annotations__["name"]
-    assert get_origin(name_type_annotation) is Annotated
-    assert get_args(name_type_annotation)[0] is str
-
-    # Check for Optional[Annotated[int, ...]]
-    age_type_annotation = Model.__annotations__["age"]
-    assert get_origin(age_type_annotation) is Union
-    age_args = get_args(age_type_annotation)
-    assert type(None) in age_args
-    annotated_int_type = next(arg for arg in age_args if arg is not type(None))
-    assert get_origin(annotated_int_type) is Annotated
-    assert get_args(annotated_int_type)[0] is int
-
-
-def test_nested_object():
-    schema = {
+_ADDRESS_DEFS = {
+    "Address": {
         "type": "object",
         "properties": {
-            "user": {
-                "type": "object",
-                "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
-            }
+            "street": {"type": "string"},
+            "city": {"type": "string"},
         },
+        "required": ["city"],
     }
+}
 
-    Model = json_schema_to_pydantic(schema)
-
-    assert issubclass(Model, BaseModel)
-    # Check for Optional[Annotated[NestedModel, ...]]
-    user_type_annotation = Model.__annotations__["user"]
-    assert get_origin(user_type_annotation) is Union
-    user_args = get_args(user_type_annotation)
-    assert type(None) in user_args
-    annotated_user_type = next(arg for arg in user_args if arg is not type(None))
-    assert get_origin(annotated_user_type) is Annotated
-    NestedUserModel = get_args(annotated_user_type)[0]
-    assert issubclass(NestedUserModel, BaseModel)
-
-    # Check types within the nested model
-    # name is Optional[Annotated[str, ...]] because it's not in 'required' of the nested object
-    name_type_annotation_nested = NestedUserModel.__annotations__["name"]
-    assert get_origin(name_type_annotation_nested) is Union
-    name_args_nested = get_args(name_type_annotation_nested)
-    assert type(None) in name_args_nested
-    annotated_str_type_nested = next(
-        arg for arg in name_args_nested if arg is not type(None)
-    )
-    assert get_origin(annotated_str_type_nested) is Annotated
-    assert get_args(annotated_str_type_nested)[0] is str
-
-    # age is Optional[Annotated[int, ...]]
-    age_type_annotation_nested = NestedUserModel.__annotations__["age"]
-    assert get_origin(age_type_annotation_nested) is Union
-    age_args_nested = get_args(age_type_annotation_nested)
-    assert type(None) in age_args_nested
-    annotated_int_type_nested = next(
-        arg for arg in age_args_nested if arg is not type(None)
-    )
-    assert get_origin(annotated_int_type_nested) is Annotated
-    assert get_args(annotated_int_type_nested)[0] is int
-
-
-def test_array_field():
-    schema = {
-        "type": "object",
-        "properties": {"numbers": {"type": "array", "items": {"type": "integer"}}},
-    }
-
-    Model = json_schema_to_pydantic(schema)
-
-    assert issubclass(Model, BaseModel)
-    # Check for Optional[Annotated[list[int], ...]]
-    numbers_type_annotation = Model.__annotations__["numbers"]
-    assert get_origin(numbers_type_annotation) is Union
-    numbers_args = get_args(numbers_type_annotation)
-    assert type(None) in numbers_args
-    annotated_list_type = next(arg for arg in numbers_args if arg is not type(None))
-    assert get_origin(annotated_list_type) is Annotated
-    list_type_args = get_args(annotated_list_type)
-    assert list_type_args[0].__origin__ is list  # Check that it's a list
-    assert list_type_args[0].__args__[0] is int  # Check that list items are int
-
-
-def test_reference():
-    schema = {
-        "type": "object",
-        "properties": {"address": {"$ref": "#/definitions/Address"}},
-        "definitions": {
-            "Address": {
+_COMPLEX_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "description": "The user's name"},
+        "age": {"type": "integer"},
+        "is_student": {"type": "boolean"},
+        "grades": {"type": "array", "items": {"type": "number"}},
+        "user": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
+        },
+        "items_list": {
+            "type": "array",
+            "items": {
                 "type": "object",
+                "title": "ListItem",
                 "properties": {
-                    "street": {"type": "string"},
-                    "city": {"type": "string"},
+                    "item_id": {"type": "integer"},
+                    "item_name": {"type": "string"},
                 },
-            }
+                "required": ["item_id", "item_name"],
+            },
         },
-    }
+        "address": {"$ref": "#/definitions/Address"},
+    },
+    "required": ["name"],
+    "definitions": _ADDRESS_DEFS,
+}
 
-    Model = json_schema_to_pydantic(schema)
 
-    assert issubclass(Model, BaseModel)
-    # Check for Optional[Annotated[AddressModel, ...]]
-    address_type_annotation = Model.__annotations__["address"]
-    assert get_origin(address_type_annotation) is Union
-    address_args = get_args(address_type_annotation)
-    assert type(None) in address_args
-    annotated_address_type = next(arg for arg in address_args if arg is not type(None))
-    assert get_origin(annotated_address_type) is Annotated
-    AddressModel = get_args(annotated_address_type)[0]
-    assert issubclass(AddressModel, BaseModel)
+def test_complex_schema_validates_conforming_data() -> None:
+    Model = json_schema_to_pydantic(_COMPLEX_SCHEMA)
 
-    # Check types within the referenced model
-    # street is Optional[Annotated[str, ...]]
-    street_type_annotation = AddressModel.__annotations__["street"]
-    assert get_origin(street_type_annotation) is Union
-    street_args = get_args(street_type_annotation)
-    assert type(None) in street_args
-    annotated_str_type_street = next(
-        arg for arg in street_args if arg is not type(None)
+    validated = Model.model_validate(
+        {
+            "name": "Ada",
+            "age": 36,
+            "is_student": False,
+            "grades": [1.5, 2],
+            "user": {"name": "nested"},
+            "items_list": [{"item_id": 1, "item_name": "one"}],
+            "address": {"city": "London"},
+        },
     )
-    assert get_origin(annotated_str_type_street) is Annotated
-    assert get_args(annotated_str_type_street)[0] is str
-    # city is Optional[Annotated[str, ...]]
-    city_type_annotation = AddressModel.__annotations__["city"]
-    assert get_origin(city_type_annotation) is Union
-    city_args = get_args(city_type_annotation)
-    assert type(None) in city_args
-    annotated_str_type_city = next(arg for arg in city_args if arg is not type(None))
-    assert get_origin(annotated_str_type_city) is Annotated
-    assert get_args(annotated_str_type_city)[0] is str
+    dumped = validated.model_dump()
 
-
-def test_required_fields():
-    schema = {
-        "type": "object",
-        "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
-        "required": ["name"],
-    }
-
-    Model = json_schema_to_pydantic(schema)
-
-    # name is Annotated[str, ...] because it's required
-    name_type_annotation = Model.__annotations__["name"]
-    assert get_origin(name_type_annotation) is Annotated
-    assert get_args(name_type_annotation)[0] is str
-
-    # age is Optional[Annotated[int, ...]] because it's not required
-    age_type_annotation = Model.__annotations__["age"]
-    assert get_origin(age_type_annotation) is Union
-    age_args = get_args(age_type_annotation)
-    assert type(None) in age_args
-    annotated_int_type = next(arg for arg in age_args if arg is not type(None))
-    assert get_origin(annotated_int_type) is Annotated
-    assert get_args(annotated_int_type)[0] is int
-
-
-def test_field_description():
-    schema = {
-        "type": "object",
-        "properties": {"name": {"type": "string", "description": "The user's name"}},
-    }
-
-    Model = json_schema_to_pydantic(schema)
-
-    assert issubclass(Model, BaseModel)
-    # name is Optional[Annotated[str, ...]] because it's not required
-    name_type_annotation = Model.__annotations__["name"]
-    assert get_origin(name_type_annotation) is Union
-    name_args = get_args(name_type_annotation)
-    assert type(None) in name_args
-    annotated_name_type = next(arg for arg in name_args if arg is not type(None))
-    assert get_origin(annotated_name_type) is Annotated
-    assert get_args(annotated_name_type)[0] is str
+    assert dumped["name"] == "Ada"
+    assert dumped["grades"] == [1.5, 2.0]
+    assert dumped["user"] == {"name": "nested", "age": None}
+    assert dumped["items_list"] == [{"item_id": 1, "item_name": "one"}]
+    assert dumped["address"] == {"street": None, "city": "London"}
     assert Model.model_fields["name"].description == "The user's name"
 
-
-def test_complex_schema():
-    schema = {
-        "type": "object",
-        "properties": {
-            "name": {"type": "string"},
-            "age": {"type": "integer"},
-            "is_student": {"type": "boolean"},
-            "grades": {"type": "array", "items": {"type": "number"}},
-            "address": {"$ref": "#/definitions/Address"},
-        },
-        "required": ["name", "age"],
-        "definitions": {
-            "Address": {
-                "type": "object",
-                "properties": {
-                    "street": {"type": "string"},
-                    "city": {"type": "string"},
-                },
-            }
-        },
+    minimal = Model.model_validate({"name": "Ada"}).model_dump()
+    assert {k: v for k, v in minimal.items() if k != "name"} == {
+        "age": None,
+        "is_student": None,
+        "grades": None,
+        "user": None,
+        "items_list": None,
+        "address": None,
     }
 
-    Model = json_schema_to_pydantic(schema)
 
-    assert issubclass(Model, BaseModel)
-    # name: Annotated[str, ...] (required)
-    name_type_annotation = Model.__annotations__["name"]
-    assert get_origin(name_type_annotation) is Annotated
-    assert get_args(name_type_annotation)[0] is str
+@pytest.mark.parametrize(
+    ("data", "error_loc"),
+    [
+        pytest.param({}, ("name",), id="missing-required"),
+        pytest.param({"name": "Ada", "age": "abc"}, ("age",), id="wrong-scalar-type"),
+        pytest.param({"name": "Ada", "grades": ["x"]}, ("grades", 0), id="array-item"),
+        pytest.param(
+            {"name": "Ada", "user": {"name": 5}}, ("user", "name"), id="nested-object"
+        ),
+        pytest.param(
+            {"name": "Ada", "items_list": [{"item_id": 1}]},
+            ("items_list", 0, "item_name"),
+            id="array-of-objects-required",
+        ),
+        pytest.param(
+            {"name": "Ada", "address": {"street": "Main"}},
+            ("address", "city"),
+            id="ref-required",
+        ),
+    ],
+)
+def test_complex_schema_rejects_nonconforming_data(
+    data: dict[str, Any], error_loc: tuple[str | int, ...]
+) -> None:
+    Model = json_schema_to_pydantic(_COMPLEX_SCHEMA)
 
-    # age: Annotated[int, ...] (required)
-    age_type_annotation = Model.__annotations__["age"]
-    assert get_origin(age_type_annotation) is Annotated
-    assert get_args(age_type_annotation)[0] is int
+    with pytest.raises(ValidationError) as exc_info:
+        Model.model_validate(data)
 
-    # is_student: Optional[Annotated[bool, ...]]
-    is_student_type_annotation = Model.__annotations__["is_student"]
-    assert get_origin(is_student_type_annotation) is Union
-    is_student_args = get_args(is_student_type_annotation)
-    assert type(None) in is_student_args
-    annotated_bool_type = next(arg for arg in is_student_args if arg is not type(None))
-    assert get_origin(annotated_bool_type) is Annotated
-    assert get_args(annotated_bool_type)[0] is bool
-
-    # grades: Optional[Annotated[list[float], ...]]
-    grades_type_annotation = Model.__annotations__["grades"]
-    assert get_origin(grades_type_annotation) is Union
-    grades_args = get_args(grades_type_annotation)
-    assert type(None) in grades_args
-    annotated_list_float_type = next(
-        arg for arg in grades_args if arg is not type(None)
-    )
-    assert get_origin(annotated_list_float_type) is Annotated
-    list_float_args = get_args(annotated_list_float_type)
-    assert list_float_args[0].__origin__ is list
-    assert list_float_args[0].__args__[0] is float
-
-    # address: Optional[Annotated[AddressModel, ...]]
-    address_type_annotation = Model.__annotations__["address"]
-    assert get_origin(address_type_annotation) is Union
-    address_args = get_args(address_type_annotation)
-    assert type(None) in address_args
-    annotated_address_type = next(arg for arg in address_args if arg is not type(None))
-    assert get_origin(annotated_address_type) is Annotated
-    AddressModel = get_args(annotated_address_type)[0]
-    assert issubclass(AddressModel, BaseModel)
+    assert [error["loc"] for error in exc_info.value.errors()] == [error_loc]
 
 
-def test_invalid_schema():
-    schema = {"type": "object", "properties": {"field_a": {"type": "invalid_type"}}}
-    Model = json_schema_to_pydantic(schema)
-    # field_a should be Optional[Annotated[Any, TemplateValidator()]]
-    field_a_type_annotation = Model.__annotations__["field_a"]
-    assert get_origin(field_a_type_annotation) is Union
-    field_a_args = get_args(field_a_type_annotation)
-    assert type(None) in field_a_args
-    annotated_any_type = next(arg for arg in field_a_args if arg is not type(None))
-    assert get_origin(annotated_any_type) is Annotated
-    assert get_args(annotated_any_type)[0] is Any
+def test_template_expressions_are_accepted_for_typed_fields() -> None:
+    Model = json_schema_to_pydantic(_COMPLEX_SCHEMA)
+
+    validated = Model.model_validate({"name": "Ada", "age": "${{ ACTIONS.a.result }}"})
+
+    assert validated.model_dump()["age"] == "${{ ACTIONS.a.result }}"
 
 
-def test_enum_fields():
+def test_enum_fields() -> None:
     schema = {
         "type": "object",
         "properties": {
@@ -283,41 +130,24 @@ def test_enum_fields():
                 "enum": ["open", "in_progress", "closed"],
                 "title": "ticket_status",
             },
-            "severity": {
-                "type": "integer",
-                "enum": [1, 2, 3, 4],
-            },
+            "severity": {"type": "integer", "enum": [1, 2, 3, 4]},
         },
         "required": ["status"],
     }
-
     Model = json_schema_to_pydantic(schema)
 
-    assert issubclass(Model, BaseModel)
-
-    # Check status enum (required)
-    status_type_annotation = Model.__annotations__["status"]
-    assert get_origin(status_type_annotation) is Annotated
-    StatusLiteralType = get_args(status_type_annotation)[0]
-    assert get_origin(StatusLiteralType) is Literal
-    assert set(get_args(StatusLiteralType)) == {"open", "in_progress", "closed"}
-
-    # Check severity enum (optional)
-    severity_type_annotation = Model.__annotations__["severity"]
-    assert get_origin(severity_type_annotation) is Union  # For Optional fields
-    severity_args = get_args(severity_type_annotation)
-    assert type(None) in severity_args
-    annotated_severity_type = next(
-        arg for arg in severity_args if arg is not type(None)
-    )
-    assert get_origin(annotated_severity_type) is Annotated
-    SeverityLiteralType = get_args(annotated_severity_type)[0]
-    assert get_origin(SeverityLiteralType) is Literal
-    assert set(get_args(SeverityLiteralType)) == {1, 2, 3, 4}
+    assert Model.model_validate({"status": "open", "severity": 2}).model_dump() == {
+        "status": "open",
+        "severity": 2,
+    }
+    with pytest.raises(ValidationError):
+        Model.model_validate({"status": "bogus"})
+    with pytest.raises(ValidationError):
+        Model.model_validate({"status": "open", "severity": 5})
 
 
-def test_ref_to_enum_in_defs():
-    """Ensure $ref to an enum schema in $defs creates a Literal of values.
+def test_ref_to_enum_in_defs() -> None:
+    """Ensure $ref to an enum schema in $defs restricts values to the enum.
 
     Reproduces schema shape saved for template actions where properties reference
     an enum via $ref to #/$defs/EnumModel.
@@ -344,75 +174,26 @@ def test_ref_to_enum_in_defs():
             }
         },
     }
-
     Model = json_schema_to_pydantic(schema)
 
-    # model is Annotated[Literal[...], ...] because it's required and refs an enum
-    model_type_annotation = Model.__annotations__["model"]
-    assert get_origin(model_type_annotation) is Annotated
-    LiteralType = get_args(model_type_annotation)[0]
-    assert get_origin(LiteralType) is Literal
-    assert set(get_args(LiteralType)) == {
-        "claude-3-5-sonnet-20240620",
-        "claude-3-5-haiku-20240307",
-        "claude-3-5-opus-20240229",
-    }
+    validated = Model.model_validate({"model": "claude-3-5-haiku-20240307"})
+    assert validated.model_dump() == {"model": "claude-3-5-haiku-20240307"}
+    with pytest.raises(ValidationError):
+        Model.model_validate({"model": "gpt-4o"})
 
 
-def test_array_of_objects():
-    schema = {
-        "type": "object",
-        "properties": {
-            "items_list": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "title": "ListItem",
-                    "properties": {
-                        "item_id": {"type": "integer"},
-                        "item_name": {"type": "string"},
-                    },
-                    "required": ["item_id", "item_name"],
-                },
-            }
-        },
-    }
-
+def test_invalid_schema_type_accepts_any_value() -> None:
+    schema = {"type": "object", "properties": {"field_a": {"type": "invalid_type"}}}
     Model = json_schema_to_pydantic(schema)
 
-    assert issubclass(Model, BaseModel)
-    # Check that items_list is Optional[Annotated[list[ListItemModel], ...]]
-    items_list_annotation = Model.__annotations__["items_list"]
-    assert get_origin(items_list_annotation) is Union
-    items_list_args = get_args(items_list_annotation)
-    assert type(None) in items_list_args
-    annotated_list_type = next(arg for arg in items_list_args if arg is not type(None))
-    assert get_origin(annotated_list_type) is Annotated
-
-    list_of_listitem_type = get_args(annotated_list_type)[
-        0
-    ]  # This should be list[ListItemModel]
-    assert get_origin(list_of_listitem_type) is list
-
-    # Get the nested ListItem model
-    ListItemModel = get_args(list_of_listitem_type)[0]
-    assert issubclass(ListItemModel, BaseModel)
-    assert ListItemModel.__name__ == "ListItem"
-
-    # Check properties of the nested ListItemModel
-    # item_id is Annotated[int, ...] because it's required in ListItem
-    item_id_annotation = ListItemModel.__annotations__["item_id"]
-    assert get_origin(item_id_annotation) is Annotated
-    assert get_args(item_id_annotation)[0] is int
-
-    # item_name is Annotated[str, ...] because it's required in ListItem
-    item_name_annotation = ListItemModel.__annotations__["item_name"]
-    assert get_origin(item_name_annotation) is Annotated
-    assert get_args(item_name_annotation)[0] is str
+    for value in ({"nested": 1}, [1, "a"], "text", None):
+        assert Model.model_validate({"field_a": value}).model_dump() == {
+            "field_a": value
+        }
 
 
-def test_datetime_format():
-    """Test that string fields with 'date-time' format are properly converted to datetime type."""
+def test_datetime_format() -> None:
+    """String fields with 'date-time' format validate to datetime."""
     schema = {
         "type": "object",
         "title": "DateTimeTest",
@@ -434,48 +215,18 @@ def test_datetime_format():
         },
         "required": ["start", "end"],
     }
-
     Model = json_schema_to_pydantic(schema)
 
-    assert issubclass(Model, BaseModel)
+    validated = Model.model_validate(
+        {
+            "start": datetime(2025, 6, 26, 15, 51, 8, 346252),
+            "end": "2025-06-26T16:51:08.346252",
+            "regular_string": "2025-06-26T16:51:08.346252",
+        },
+    ).model_dump()
 
-    # start is Annotated[datetime, ...] because it's required and has date-time format
-    start_type_annotation = Model.__annotations__["start"]
-    assert get_origin(start_type_annotation) is Annotated
-    assert get_args(start_type_annotation)[0] is datetime
-
-    # end is Annotated[datetime, ...] because it's required and has date-time format
-    end_type_annotation = Model.__annotations__["end"]
-    assert get_origin(end_type_annotation) is Annotated
-    assert get_args(end_type_annotation)[0] is datetime
-
-    # regular_string is Optional[Annotated[str, ...]] because it's not required and no format
-    regular_string_type_annotation = Model.__annotations__["regular_string"]
-    assert get_origin(regular_string_type_annotation) is Union
-    regular_string_args = get_args(regular_string_type_annotation)
-    assert type(None) in regular_string_args
-    annotated_str_type = next(
-        arg for arg in regular_string_args if arg is not type(None)
-    )
-    assert get_origin(annotated_str_type) is Annotated
-    assert get_args(annotated_str_type)[0] is str
-
-    # Test validation with datetime objects
-    test_data = {
-        "start": datetime(2025, 6, 26, 15, 51, 8, 346252),
-        "end": datetime(2025, 6, 26, 16, 51, 8, 346252),
-    }
-
-    validated = Model.model_validate(test_data)
-    assert isinstance(validated.start, datetime)  # type: ignore
-    assert isinstance(validated.end, datetime)  # type: ignore
-
-    # Test validation with string inputs
-    test_data_str = {
-        "start": "2025-06-26T15:51:08.346252",
-        "end": "2025-06-26T16:51:08.346252",
-    }
-
-    validated_str = Model.model_validate(test_data_str)
-    assert isinstance(validated_str.start, datetime)  # type: ignore
-    assert isinstance(validated_str.end, datetime)  # type: ignore
+    assert validated["start"] == datetime(2025, 6, 26, 15, 51, 8, 346252)
+    assert validated["end"] == datetime(2025, 6, 26, 16, 51, 8, 346252)
+    assert validated["regular_string"] == "2025-06-26T16:51:08.346252"
+    with pytest.raises(ValidationError):
+        Model.model_validate({"start": "not-a-date", "end": "2025-06-26T16:51:08"})

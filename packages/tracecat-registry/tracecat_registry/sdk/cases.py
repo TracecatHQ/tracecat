@@ -6,6 +6,9 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
+import orjson
+from pydantic_core import to_jsonable_python
+
 from tracecat_registry import types
 from tracecat_registry.sdk.types import (
     UNSET,
@@ -203,6 +206,8 @@ class CasesClient:
         sort: Literal["asc", "desc"] | Unset = UNSET,
         include_rows: bool | Unset = UNSET,
         include_payload: bool | Unset = UNSET,
+        payload_fields: list[str] | Unset = UNSET,
+        payload_paths: list[list[str]] | Unset = UNSET,
     ) -> types.CaseListResponse:
         """List cases using default server-side filtering.
 
@@ -210,8 +215,17 @@ class CasesClient:
             limit: Maximum items per page.
             cursor: Pagination cursor.
             reverse: Reverse pagination direction.
-            order_by: Column to order by.
+            order_by: created_at, updated_at, priority, severity, status, tasks,
+                assignee, or tags. Assignee uses lowercase email; tags uses the
+                first normalized tag alphabetically. Missing values sort last.
             sort: Sort direction.
+            include_payload: Return the full payload without a non-empty selector.
+            payload_fields: Literal top-level keys to return. Includes the subset
+                automatically, overriding include_payload. An empty list is omitted;
+                an empty string selects the literal empty key.
+            payload_paths: Up to 100 nested object paths (1 to 32 literal keys each),
+                combined with payload_fields. Preserves nesting; selected parents
+                include their whole value. Arrays are selected whole, without indexes.
 
         Returns:
             Paginated list of cases with cursor metadata.
@@ -229,6 +243,10 @@ class CasesClient:
             params["include_rows"] = include_rows
         if is_set(include_payload):
             params["include_payload"] = include_payload
+        if is_set(payload_fields) and payload_fields:
+            params["payload_fields"] = payload_fields
+        if is_set(payload_paths) and payload_paths:
+            params["payload_paths"] = orjson.dumps(payload_paths).decode()
 
         return await self._client.get("/cases", params=params)
 
@@ -239,6 +257,13 @@ class CasesClient:
         cursor: str | Unset = UNSET,
         reverse: bool | Unset = UNSET,
         search_term: str | Unset = UNSET,
+        search_mode: Literal["full_text", "literal"] | Unset = UNSET,
+        search_columns: list[Literal["summary", "description"]] | Unset = UNSET,
+        short_id: str | Unset = UNSET,
+        case_id: str | Unset = UNSET,
+        filters: dict[str, Any] | Unset = UNSET,
+        hierarchy: Literal["all", "top_level"] | Unset = UNSET,
+        parent_id: str | Unset = UNSET,
         status: list[CaseStatus] | Unset = UNSET,
         priority: list[CasePriority] | Unset = UNSET,
         severity: list[CaseSeverity] | Unset = UNSET,
@@ -253,8 +278,38 @@ class CasesClient:
         updated_before: datetime | str | Unset = UNSET,
         include_rows: bool | Unset = UNSET,
         include_payload: bool | Unset = UNSET,
+        payload_fields: list[str] | Unset = UNSET,
+        payload_paths: list[list[str]] | Unset = UNSET,
+        include_durations: bool | Unset = UNSET,
+        include_count: bool | Unset = UNSET,
+        field_ids: list[str] | Unset = UNSET,
     ) -> types.CaseListResponse:
-        """Search cases with filtering and pagination."""
+        """Search cases with filtering and pagination.
+
+        filters accepts the server's AND/OR/NOT JSON filter tree. Tags support
+        in (any), AND of contains (all), NOT in (none), and is_null (untagged).
+        Scalar exclusions omit unset values unless ORed with is_null.
+        Payload equality uses field="payload.metadata.product.vendor_name", op="eq",
+        value="Microsoft". Payload paths support only eq/ne/is_null. Use
+        dot-separated literal keys or numeric array indices; keys containing dots
+        are unsupported. Combine leaves with and/or/not. JSON scalar types are
+        preserved; is_null matches missing paths, not explicit JSON null.
+        Exact IDs and compatibility criteria are ANDed with the filter tree.
+        Returned details are independent of matching.
+        Explicit full_text uses required words/per-field phrases and defaults to
+        relevance. Literal is an escaped complete substring. Omitted mode retains
+        legacy behavior. search_columns selects summary/description.
+
+        Either non-empty selector returns the selected subset. payload_fields
+        and payload_paths combine and override include_payload. Up to 100 paths
+        preserve object nesting and contain 1 to 32 literal keys each. Arrays are
+        selected whole. Empty or unset selectors keep the flag's behavior.
+        An empty string in the selector selects the literal empty key.
+
+        order_by accepts relevance, created_at, updated_at, priority, severity,
+        status, tasks, assignee, and tags. Assignee uses lowercase email; tags uses the
+        first normalized tag alphabetically. Missing values sort last.
+        """
         params: dict[str, Any] = {"limit": limit}
         if is_set(cursor):
             params["cursor"] = cursor
@@ -306,8 +361,27 @@ class CasesClient:
             params["include_rows"] = include_rows
         if is_set(include_payload):
             params["include_payload"] = include_payload
+        if is_set(payload_fields) and payload_fields:
+            params["payload_fields"] = payload_fields
+        if is_set(payload_paths) and payload_paths:
+            params["payload_paths"] = payload_paths
 
-        return await self._client.get("/cases/search", params=params)
+        for name, value in (
+            ("search_mode", search_mode),
+            ("search_columns", search_columns),
+            ("short_id", short_id),
+            ("case_id", case_id),
+            ("filters", filters),
+            ("hierarchy", hierarchy),
+            ("parent_id", parent_id),
+            ("include_durations", include_durations),
+            ("include_count", include_count),
+            ("field_ids", field_ids),
+        ):
+            if is_set(value):
+                params[name] = value
+        # The standalone registry forwards JSON; the server validates the shared AST.
+        return await self._client.post("/cases/search", json=to_jsonable_python(params))
 
     # === Comments === #
 

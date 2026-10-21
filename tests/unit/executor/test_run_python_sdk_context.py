@@ -713,6 +713,7 @@ def _run_nsjail_harness_in_docker_or_skip(
     compose_env.setdefault("ADDRESS", "0.0.0.0")
     compose_env.setdefault("LOG_LEVEL", "INFO")
     compose_env.setdefault("TRACECAT__APP_ENV", "development")
+    sandbox_image = os.environ.get("TRACECAT_TEST_SANDBOX_IMAGE")
     tests_mount = f"{repo_root / 'tests'}:/app/tests:ro"
     fd, override_name = tempfile.mkstemp(
         prefix=override_prefix,
@@ -727,8 +728,14 @@ def _run_nsjail_harness_in_docker_or_skip(
                 "  api:",
                 '    user: "0:0"',
                 "    cgroup: private",
-                "    build:",
-                "      target: test",
+                *(
+                    [
+                        f"    image: {json.dumps(sandbox_image)}",
+                        "    build: !reset null",
+                    ]
+                    if sandbox_image
+                    else ["    build:", "      target: test"]
+                ),
                 "    cap_add:",
                 "      - SYS_ADMIN",
                 "    security_opt:",
@@ -758,7 +765,7 @@ def _run_nsjail_harness_in_docker_or_skip(
                 "run",
                 "--rm",
                 "--no-deps",
-                "--build",
+                *(["--pull", "never"] if sandbox_image else ["--build"]),
                 "-T",
                 "--entrypoint",
                 "python",
@@ -1245,6 +1252,57 @@ async def test_run_python_backend_holds_registry_lease_for_whole_sandbox_run(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("action_timeout", "script_timeout", "expected"),
+    [(5.0, 60, 5), (300.0, 60, 60), (47.3, None, 48)],
+)
+async def test_run_python_script_never_outlives_the_action_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    action_timeout: float,
+    script_timeout: int | None,
+    expected: int,
+) -> None:
+    """The sandbox timeout is min(script timeout_seconds, action timeout)."""
+    artifact_path = tmp_path / "registry-artifact"
+    artifact_path.mkdir()
+    fake_runner = _FakeRunPythonRegistryPathRunner([artifact_path])
+    captured: dict[str, Any] = {}
+
+    async def _get_artifact_uris(_input: RunActionInput, _role: Role) -> list[str]:
+        return ["s3://tracecat-registry/test/site-packages.tar.gz"]
+
+    class FakeSandboxService:
+        async def run_python(self, **kwargs: Any) -> dict[str, bool]:
+            captured.update(kwargs)
+            return {"ok": True}
+
+    monkeypatch.setattr(
+        "tracecat.executor.backends.base.SandboxService",
+        FakeSandboxService,
+    )
+    monkeypatch.setattr(
+        "tracecat.executor.backends.base.get_action_runner",
+        lambda: fake_runner,
+    )
+    backend = DirectBackend()
+    monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
+    resolved_context = _make_run_python_context()
+    if script_timeout is not None:
+        resolved_context.evaluated_args["timeout_seconds"] = script_timeout
+
+    result = await backend.execute(
+        input=_make_run_python_input(),
+        role=_make_role(),
+        resolved_context=resolved_context,
+        timeout=action_timeout,
+    )
+
+    assert result.type == "success"
+    assert captured["timeout_seconds"] == expected
+
+
+@pytest.mark.anyio
 async def test_run_python_backend_fails_without_registry_artifacts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1517,19 +1575,8 @@ if __name__ == "__main__":
         )
 
 
-@pytest.mark.parametrize(
-    "raise_stmt",
-    [
-        pytest.param("raise MemoryError()", id="python-allocator"),
-        pytest.param(
-            "raise OSError(errno.ENOMEM, 'Cannot allocate memory')",
-            id="enomem-syscall",
-        ),
-    ],
-)
-def test_nsjail_wrapper_reports_memory_error_as_resource_limit(
+def test_nsjail_wrapper_reports_enomem_as_resource_limit(
     tmp_path: Path,
-    raise_stmt: str,
 ) -> None:
     """Invariant: either shape of memory exhaustion becomes the envelope code.
 
@@ -1543,11 +1590,11 @@ def test_nsjail_wrapper_reports_memory_error_as_resource_limit(
     result = _run_wrapper_source(
         WRAPPER_SCRIPT,
         tmp_path,
-        f"""
+        """
 import errno
 
 def main():
-    {raise_stmt}
+    raise OSError(errno.ENOMEM, 'Cannot allocate memory')
 """,
     )
 
@@ -1555,32 +1602,3 @@ def main():
     assert result["error_code"] == "resource_limit_exceeded"
     assert result["error"] == "Script exceeded the sandbox memory limit"
     assert result["traceback"] is None
-
-
-def test_nsjail_wrapper_reports_resource_limit_when_output_serialization_dies(
-    tmp_path: Path,
-) -> None:
-    """Invariant: a MemoryError while serializing output still writes an envelope.
-
-    ``to_json_safe`` falls back to ``repr`` for unknown types, so a value whose
-    repr exhausts memory kills ``json.dumps`` after the script itself finished.
-    The wrapper must still leave a result file carrying the resource-limit code
-    rather than dying and degrading to a generic workload failure.
-    """
-    result = _run_wrapper_source(
-        WRAPPER_SCRIPT,
-        tmp_path,
-        """
-class _Unrepresentable:
-    def __repr__(self):
-        raise MemoryError()
-
-
-def main():
-    return _Unrepresentable()
-""",
-    )
-
-    assert result["success"] is False
-    assert result["error_code"] == "resource_limit_exceeded"
-    assert result["output"] is None

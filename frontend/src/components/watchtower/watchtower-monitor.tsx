@@ -1065,17 +1065,17 @@ function ToolCallRow({ toolCall }: { toolCall: WatchtowerAgentToolCallRead }) {
 
   return (
     <>
-      <Tool className="mb-0 rounded-none border-x-0 border-t-0 px-0 last:border-b-0">
+      <Tool className="gap-1 border-b px-3 py-2 last:border-b-0">
+        {/* Rows in a list toggle across their full width. */}
         <ToolHeader
+          className="w-full"
           title={toolName}
-          type={"tool-watchtower" as ToolUIPart["type"]}
           state={mapCallStatusToToolState(toolCall.call_status)}
           icon={getIcon(toolName, {
             className: "size-4 p-[3px]",
           })}
-          className="px-3 py-2"
         />
-        <div className="flex flex-wrap items-center gap-2 px-3 pb-2 text-[11px] text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-2 pl-6 text-[11px] text-muted-foreground">
           <span>{formatRelative(toolCall.called_at)}</span>
           {typeof toolCall.latency_ms === "number" ? (
             <span>· {toolCall.latency_ms}ms</span>
@@ -1083,7 +1083,7 @@ function ToolCallRow({ toolCall }: { toolCall: WatchtowerAgentToolCallRead }) {
           <StatusBadge status={toolCall.call_status} />
         </div>
         <ToolContent>
-          <div className="space-y-3 px-3 pb-3">
+          <div className="space-y-3">
             <div className="space-y-1">
               <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
                 Args

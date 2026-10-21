@@ -1,4 +1,3 @@
-import re
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
@@ -8,7 +7,7 @@ from typing import cast as typing_cast
 import sqlalchemy as sa
 from asyncpg import UndefinedColumnError
 from pydantic import ValidationError
-from sqlalchemy import cast, func, or_, select
+from sqlalchemy import cast, select
 from sqlalchemy.dialects.postgresql import UUID, insert
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,16 +35,15 @@ from tracecat.cases.agent_sessions.service import (
 from tracecat.cases.attachments import CaseAttachmentService
 from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueInput,
-    CaseDropdownValueRead,
 )
-from tracecat.cases.dropdowns.service import CaseDropdownValuesService
-from tracecat.cases.durations.schemas import CaseDurationRead
+from tracecat.cases.dropdowns.service import (
+    CaseDropdownValuesService,
+)
 from tracecat.cases.enums import (
     CaseAgentSessionInteractionOperation,
     CasePriority,
     CaseSeverity,
     CaseStatus,
-    CaseTaskStatus,
     CaseVersionField,
     MentionTargetType,
 )
@@ -76,9 +74,9 @@ from tracecat.cases.event_schemas import (
     UpdatedEvent,
 )
 from tracecat.cases.events import CaseEventsService
-from tracecat.cases.hierarchy import TOP_LEVEL, CaseHierarchyService
+from tracecat.cases.hierarchy import CaseHierarchyService
 from tracecat.cases.mentions import MentionToken, parse_mentions
-from tracecat.cases.query import CaseFieldResolver, referenced_dropdown_refs
+from tracecat.cases.query import referenced_dropdown_refs
 from tracecat.cases.schemas import (
     CaseAggregateRequest,
     CaseAggregateResponse,
@@ -99,13 +97,23 @@ from tracecat.cases.schemas import (
     CaseHierarchyFilter,
     CaseReadMinimal,
     CaseSearchAggregateRead,
-    CaseStatusGroupCounts,
     CaseTaskCreate,
     CaseTaskUpdate,
     CaseUpdate,
     _normalize_case_field_read_type,
 )
-from tracecat.cases.tags.schemas import CaseTagRead
+from tracecat.cases.search_adapters import legacy_case_filters
+from tracecat.cases.search_fields import case_filter_metadata
+from tracecat.cases.search_schemas import (
+    CaseFilterMetadata,
+    CaseQuery,
+    CaseSearchOrder,
+    CaseSearchRequest,
+)
+from tracecat.cases.search_service import (
+    CaseSearchService,
+    parse_case_short_id,
+)
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.cases.triggers.publisher import publish_case_event_payload
 from tracecat.cases.versions.schemas import CaseVersionRestoreRead
@@ -121,10 +129,7 @@ from tracecat.db.models import (
     CaseCommentMention,
     CaseDropdownDefinition,
     CaseDropdownOption,
-    CaseDropdownValue,
     CaseFields,
-    CaseTableRow,
-    CaseTagLink,
     CaseTask,
     User,
     Workflow,
@@ -149,11 +154,11 @@ from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID, generate_
 from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
-    PageParams,
-    paginate,
 )
 from tracecat.query.compiler import compile_aggregation, compile_filter
 from tracecat.query.execution import query_execution_context
+from tracecat.query.filters import Filter
+from tracecat.query.lexical_types import SearchMode
 from tracecat.query.resolver import ResolvedAggregationField
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tables.common import (
@@ -172,22 +177,6 @@ from tracecat.tables.service import (
 from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.enums import SyncResourceType
 
-
-def _normalize_filter_values(values: Any) -> list[Any]:
-    """Ensure filter inputs are lists of unique values."""
-    if values is None:
-        return []
-    if isinstance(values, str | bytes):
-        return [values]
-    if isinstance(values, Sequence):
-        unique: list[Any] = []
-        for value in values:
-            if value not in unique:
-                unique.append(value)
-        return unique
-    return [values]
-
-
 _COMMENT_TOMBSTONE_CONTENT = "Comment deleted"
 
 
@@ -204,32 +193,6 @@ def _is_field_value_empty(value: Any) -> bool:
     if isinstance(value, (list, dict)) and not value:
         return True
     return False
-
-
-# Semantic sort order for enum-backed case fields.
-CASE_PRIORITY_SORT_ORDER = tuple(priority.value for priority in CasePriority)
-CASE_SEVERITY_SORT_ORDER = tuple(severity.value for severity in CaseSeverity)
-CASE_STATUS_SORT_ORDER = tuple(status.value for status in CaseStatus)
-MAX_CASE_NUMBER = 2**31 - 1
-SHORT_ID_PATTERN = re.compile(r"^(?:CASE-)?(\d{1,10})$", re.IGNORECASE)
-
-
-def parse_case_short_id(value: str) -> int | None:
-    """Return the case number for a short ID like ``CASE-0042`` or ``42``."""
-    if match := SHORT_ID_PATTERN.match(value.strip()):
-        return int(match.group(1))
-    return None
-
-
-def _enum_sort_expr(column: Any, ordered_values: Sequence[str]) -> ColumnElement[int]:
-    """Build a SQL expression that sorts enum/text values by semantic order."""
-    return sa.case(
-        *[
-            (column == enum_value, index)
-            for index, enum_value in enumerate(ordered_values)
-        ],
-        else_=len(ordered_values),
-    )
 
 
 CASE_BATCH_LOCK_TIMEOUT = "5s"
@@ -285,23 +248,20 @@ class CasesService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Case {case_ref} not found")
         return case_id
 
+    @require_scope("case:read")
     async def aggregate_cases(
         self, request: CaseAggregateRequest
     ) -> CaseAggregateResponse:
         """Filter, group, and aggregate workspace cases in PostgreSQL."""
-        dropdown_refs: Sequence[str] = ()
-        requested_dropdowns = referenced_dropdown_refs(request)
-        if requested_dropdowns and await self.has_entitlement(Entitlement.CASE_ADDONS):
-            dropdown_refs = (
-                await self.session.scalars(
-                    select(CaseDropdownDefinition.ref).where(
-                        CaseDropdownDefinition.workspace_id == self.workspace_id,
-                        CaseDropdownDefinition.ref.in_(requested_dropdowns),
-                    )
-                )
-            ).all()
-        resolver = CaseFieldResolver(
-            self.workspace_id, await self.fields.get_field_schema(), dropdown_refs
+        resolver = await self._search_service().prepare_resolver(
+            (request.filters,),
+            case_addons_enabled=(
+                await self.has_entitlement(Entitlement.CASE_ADDONS)
+                if referenced_dropdown_refs(request)
+                else False
+            ),
+            extra_fields=[group.field for group in request.group_by]
+            + [agg.field for agg in request.aggs if agg.field is not None],
         )
         statement = (
             sa.select(sa.literal(1))
@@ -357,191 +317,51 @@ class CasesService(BaseWorkspaceService):
         self, case_ids: list[uuid.UUID]
     ) -> dict[uuid.UUID, dict[str, int]]:
         """Get task counts (completed/total) for cases."""
-        if not case_ids:
-            return {}
+        return await self._search_service().get_task_counts(case_ids)
 
-        stmt = (
-            select(
-                CaseTask.case_id,
-                func.count().label("total"),
-                func.sum(
-                    sa.case((CaseTask.status == CaseTaskStatus.COMPLETED, 1), else_=0)
-                ).label("completed"),
-            )
-            .where(CaseTask.case_id.in_(case_ids))
-            .group_by(CaseTask.case_id)
+    def _search_service(self) -> CaseSearchService:
+        return CaseSearchService(
+            self.session, self.role, fields=self.fields, hierarchy=self.hierarchy
         )
 
-        result = await self.session.execute(stmt)
-        rows = result.tuples().all()
-
-        # Build result dict with defaults for cases without tasks
-        counts = {case_id: {"completed": 0, "total": 0} for case_id in case_ids}
-        for case_id, total, completed in rows:
-            counts[case_id] = {
-                "completed": int(completed or 0),
-                "total": int(total or 0),
-            }
-
-        return counts
-
-    def _build_search_filters(
-        self,
-        *,
-        parent_id: uuid.UUID | None = None,
-        top_level_only: bool = False,
-        search_term: str | None = None,
-        short_id: str | None = None,
-        status: CaseStatus | Sequence[CaseStatus] | None = None,
-        priority: CasePriority | Sequence[CasePriority] | None = None,
-        severity: CaseSeverity | Sequence[CaseSeverity] | None = None,
-        assignee_ids: Sequence[uuid.UUID] | None = None,
-        include_unassigned: bool = False,
-        tag_ids: list[uuid.UUID] | None = None,
-        dropdown_filters: dict[str, list[str]] | None = None,
-        start_time: datetime | None = None,
-        end_time: datetime | None = None,
-        updated_before: datetime | None = None,
-        updated_after: datetime | None = None,
-        linked_row: tuple[uuid.UUID, uuid.UUID] | None = None,
-        exclude_case_id: uuid.UUID | None = None,
-    ) -> list[Any]:
-        filters: list[Any] = [Case.workspace_id == self.workspace_id]
-
-        if parent_id is not None:
-            filters.append(Case.parent_id == parent_id)
-        elif top_level_only:
-            filters.append(Case.parent_id.is_(None))
-
-        if search_term:
-            if len(search_term) > 1000:
-                raise ValueError("Search term cannot exceed 1000 characters")
-            if "\x00" in search_term:
-                raise ValueError("Search term cannot contain null bytes")
-
-            search_pattern = func.concat("%", search_term, "%")
-            case_number_text = cast(Case.case_number, sa.String)
-            short_id_expr = func.concat(
-                "CASE-",
-                func.lpad(
-                    case_number_text,
-                    func.greatest(4, func.length(case_number_text)),
-                    "0",
-                ),
-            )
-            search_conditions: list[Any] = [
-                Case.summary.ilike(search_pattern),
-                Case.description.ilike(search_pattern),
-                short_id_expr.ilike(search_pattern),
-            ]
-            case_number = parse_case_short_id(search_term)
-            if case_number is not None and case_number <= MAX_CASE_NUMBER:
-                search_conditions.append(Case.case_number == case_number)
-            try:
-                search_conditions.append(Case.id == uuid.UUID(search_term.strip()))
-            except ValueError:
-                pass
-            filters.append(or_(*search_conditions))
-
-        if short_id:
-            normalized_short_id = short_id.strip().upper()
-            if len(normalized_short_id) > 1000:
-                raise ValueError("Short ID cannot exceed 1000 characters")
-            if "\x00" in normalized_short_id:
-                raise ValueError("Short ID cannot contain null bytes")
-
-            match = SHORT_ID_PATTERN.match(normalized_short_id)
-            if not match:
-                raise ValueError("Short ID must match CASE-<number> or <number>")
-
-            short_id_number = int(match.group(1))
-            filters.append(Case.case_number == short_id_number)
-
-        normalized_statuses = _normalize_filter_values(status)
-        if normalized_statuses:
-            filters.append(Case.status.in_(normalized_statuses))
-
-        normalized_priorities = _normalize_filter_values(priority)
-        if normalized_priorities:
-            filters.append(Case.priority.in_(normalized_priorities))
-
-        normalized_severities = _normalize_filter_values(severity)
-        if normalized_severities:
-            filters.append(Case.severity.in_(normalized_severities))
-
-        unique_assignees = list(dict.fromkeys(assignee_ids or []))
-        assignee_conditions: list[Any] = []
-        if unique_assignees:
-            assignee_conditions.append(Case.assignee_id.in_(unique_assignees))
-        if include_unassigned:
-            assignee_conditions.append(Case.assignee_id.is_(None))
-        if assignee_conditions:
-            assignee_clause = (
-                assignee_conditions[0]
-                if len(assignee_conditions) == 1
-                else or_(*assignee_conditions)
-            )
-            filters.append(assignee_clause)
-
-        if tag_ids:
-            filters.append(
-                Case.id.in_(
-                    select(CaseTagLink.case_id).where(CaseTagLink.tag_id.in_(tag_ids))
-                )
-            )
-
-        if dropdown_filters:
-            for def_ref, option_refs in dropdown_filters.items():
-                if not option_refs:
-                    continue
-                filters.append(
-                    Case.id.in_(
-                        select(CaseDropdownValue.case_id)
-                        .join(
-                            CaseDropdownDefinition,
-                            CaseDropdownValue.definition_id
-                            == CaseDropdownDefinition.id,
-                        )
-                        .join(
-                            CaseDropdownOption,
-                            CaseDropdownValue.option_id == CaseDropdownOption.id,
-                        )
-                        .where(
-                            CaseDropdownDefinition.ref == def_ref,
-                            CaseDropdownOption.ref.in_(option_refs),
-                        )
-                    )
-                )
-
-        if start_time is not None:
-            filters.append(Case.created_at >= start_time)
-
-        if end_time is not None:
-            filters.append(Case.created_at <= end_time)
-
-        if updated_after is not None:
-            filters.append(Case.updated_at >= updated_after)
-
-        if updated_before is not None:
-            filters.append(Case.updated_at <= updated_before)
-
-        if linked_row is not None:
-            table_id, row_id = linked_row
-            filters.append(
-                Case.id.in_(
-                    select(CaseTableRow.case_id).where(
-                        CaseTableRow.workspace_id == self.workspace_id,
-                        CaseTableRow.table_id == table_id,
-                        CaseTableRow.row_id == row_id,
+    @require_scope("case:read")
+    async def list_filter_fields(self) -> CaseFilterMetadata:
+        """Describe searchable workspace fields using the executing resolver."""
+        dropdown_refs: list[str] = []
+        if await self.has_entitlement(Entitlement.CASE_ADDONS):
+            dropdown_refs = list(
+                await self.session.scalars(
+                    select(CaseDropdownDefinition.ref)
+                    .where(CaseDropdownDefinition.workspace_id == self.workspace_id)
+                    .order_by(
+                        CaseDropdownDefinition.position,
+                        CaseDropdownDefinition.surrogate_id,
                     )
                 )
             )
+        return case_filter_metadata(
+            self.workspace_id, await self.fields.get_field_schema(), dropdown_refs
+        )
 
-        if exclude_case_id is not None:
-            filters.append(Case.id != exclude_case_id)
+    @require_scope("case:read")
+    async def query_cases(
+        self, request: CaseSearchRequest
+    ) -> CursorPaginatedResponse[CaseReadMinimal]:
+        """Execute the canonical validated search contract."""
+        return await self._search_service().query_cases(
+            request,
+            case_addons_enabled=await self.has_entitlement(Entitlement.CASE_ADDONS),
+        )
 
-        return filters
+    @require_scope("case:read")
+    async def query_case_aggregates(self, query: CaseQuery) -> CaseSearchAggregateRead:
+        """Count the same authorized population as canonical search."""
+        return await self._search_service().query_aggregates(
+            query,
+            case_addons_enabled=await self.has_entitlement(Entitlement.CASE_ADDONS),
+        )
 
+    @require_scope("case:read")
     async def search_cases(
         self,
         params: CursorPaginationParams,
@@ -558,10 +378,7 @@ class CasesService(BaseWorkspaceService):
         end_time: datetime | None = None,
         updated_before: datetime | None = None,
         updated_after: datetime | None = None,
-        order_by: Literal[
-            "created_at", "updated_at", "priority", "severity", "status", "tasks"
-        ]
-        | None = None,
+        order_by: CaseSearchOrder | None = None,
         sort: Literal["asc", "desc"] | None = None,
         parent_id: uuid.UUID | None = None,
         hierarchy: CaseHierarchyFilter = "all",
@@ -569,206 +386,78 @@ class CasesService(BaseWorkspaceService):
         include_payload: bool = False,
         linked_row: tuple[uuid.UUID, uuid.UUID] | None = None,
         exclude_case_id: uuid.UUID | None = None,
+        case_id: uuid.UUID | None = None,
+        promote_exact_match: bool = False,
+        match_none: bool = False,
+        include_count: bool = True,
+        payload_fields: Sequence[str] | None = None,
+        payload_paths: Sequence[Sequence[str]] | None = None,
+        include_rows: bool = False,
+        field_ids: list[str] | None = None,
+        filters: Filter | None = None,
+        *,
+        search_mode: SearchMode | None = None,
+        search_columns: list[Literal["summary", "description"]] | None = None,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
-        """Search cases with cursor-based pagination and filtering.
-
-        ``linked_row`` is a ``(table_id, row_id)`` pair that keeps only cases
-        linked to that table row.
-        """
-        include_case_addons = await self.has_entitlement(Entitlement.CASE_ADDONS)
-        parent_id, top_level_only = await self.hierarchy.resolve_filters(
-            parent_id=parent_id, hierarchy=hierarchy
-        )
-        filters = self._build_search_filters(
-            linked_row=linked_row,
-            exclude_case_id=exclude_case_id,
-            search_term=search_term,
-            short_id=short_id,
+        """Adapt shipped search arguments to the canonical query executor."""
+        executor = self._search_service()
+        translated = legacy_case_filters(
             status=status,
             priority=priority,
             severity=severity,
             assignee_ids=assignee_ids,
             include_unassigned=include_unassigned,
-            tag_ids=tag_ids,
-            # Search uses parsed filter expressions keyed by dropdown definition ref
-            # (converted from `dropdown=definition_ref:option_ref` query params).
+            tag_refs=await executor.legacy_tag_refs(tag_ids),
             dropdown_filters=dropdown_filters,
             start_time=start_time,
             end_time=end_time,
             updated_before=updated_before,
             updated_after=updated_after,
+        )
+        request = CaseSearchRequest(
+            limit=params.limit,
+            cursor=params.cursor,
+            reverse=params.reverse,
+            search_term=search_term,
+            search_mode=search_mode,
+            search_columns=search_columns,
+            short_id=short_id,
+            case_id=case_id,
             parent_id=parent_id,
-            top_level_only=top_level_only,
+            hierarchy=hierarchy,
+            filters=filters,
+            order_by=order_by,
+            sort=sort,
+            include_rows=include_rows,
+            field_ids=field_ids,
+            include_durations=include_durations,
+            include_payload=include_payload,
+            payload_fields=list(payload_fields) if payload_fields is not None else None,
+            payload_paths=[list(path) for path in payload_paths]
+            if payload_paths is not None
+            else None,
+            include_count=include_count,
+            promote_exact_match=promote_exact_match,
+            match_none=match_none,
+        )
+        return await executor.query_cases(
+            request,
+            case_addons_enabled=await self.has_entitlement(Entitlement.CASE_ADDONS),
+            legacy_filters=translated,
+            linked_row=linked_row,
+            exclude_case_id=exclude_case_id,
         )
 
-        # Base query - eagerly load tags, assignee, and dropdown values.
-        stmt = (
-            select(Case)
-            .where(Case.workspace_id == self.workspace_id)
-            .options(selectinload(Case.tags))
-            .options(selectinload(Case.assignee))
-            .options(
-                selectinload(Case.dropdown_values).selectinload(
-                    CaseDropdownValue.definition
-                )
-            )
-            .options(
-                selectinload(Case.dropdown_values).selectinload(
-                    CaseDropdownValue.option
-                )
-            )
-        )
-        if include_case_addons and include_durations:
-            stmt = stmt.options(selectinload(Case.durations))
-
-        for clause in filters:
-            stmt = stmt.where(clause)
-
-        # Compute total count with applied filters (workspace scoped)
-        count_stmt = (
-            select(func.count())
-            .select_from(Case)
-            .where(Case.workspace_id == self.workspace_id)
-        )
-        for clause in filters:
-            count_stmt = count_stmt.where(clause)
-
-        total_count = await self.session.scalar(count_stmt)
-        total_estimate = int(total_count or 0)
-
-        # Determine sort column and direction
-        sort_column = order_by or "created_at"
-        sort_direction = sort or "desc"
-
-        # Map computed properties to their underlying columns
-        if sort_column == "short_id":
-            sort_column = "case_number"
-
-        # Validate and get sort attribute
-        # For "tasks", use a correlated subquery; for enum fields, sort by semantic rank.
-        task_count_expr: ColumnElement[int] | None = None
-        enum_sort_values: Sequence[str] | None = None
-        if sort_column == "tasks":
-            task_count_expr = func.coalesce(
-                select(func.count())
-                .where(CaseTask.case_id == Case.id)
-                .correlate(Case)
-                .scalar_subquery(),
-                0,
-            )
-            sort_attr = task_count_expr
-        elif sort_column == "priority":
-            enum_sort_values = CASE_PRIORITY_SORT_ORDER
-            sort_attr = _enum_sort_expr(Case.priority, enum_sort_values)
-        elif sort_column == "severity":
-            enum_sort_values = CASE_SEVERITY_SORT_ORDER
-            sort_attr = _enum_sort_expr(Case.severity, enum_sort_values)
-        elif sort_column == "status":
-            enum_sort_values = CASE_STATUS_SORT_ORDER
-            sort_attr = _enum_sort_expr(Case.status, enum_sort_values)
-        else:
-            sort_attr = getattr(Case, sort_column)
-
-        # The paginator owns cursor validation, seek predicates, scan direction,
-        # and reconstruction of backward pages. ``reverse`` remains accepted at
-        # the service boundary for compatibility; cursor direction is encoded in
-        # the opaque continuation token.
-        if sort_column == "id":
-            if sort_direction == "asc":
-                ordering = (sort_attr.asc(),)
-            else:
-                ordering = (sort_attr.desc(),)
-        else:
-            if sort_direction == "asc":
-                ordering = (sort_attr.asc(), Case.id.asc())
-            else:
-                ordering = (sort_attr.desc(), Case.id.desc())
-
-        case_page = await paginate(
-            self.session,
-            stmt,
-            page=PageParams(limit=params.limit, cursor=params.cursor),
-            order_by=ordering,
-        )
-        cases = case_page.items
-
-        # Fetch task counts and sub-case relationships for response hydration.
-        task_counts = await self.get_task_counts([case.id for case in cases])
-        hierarchies = await self.hierarchy.get_hierarchy(cases)
-
-        # Convert to CaseReadMinimal objects with tags and dropdown values
-        case_items = []
-        for case in cases:
-            # Tags are already loaded via selectinload
-            tag_reads = [
-                CaseTagRead.model_validate(tag, from_attributes=True)
-                for tag in case.tags
-            ]
-
-            dropdown_reads = []
-            duration_reads: list[CaseDurationRead] | None = None
-            if include_case_addons:
-                # Dropdown values are already loaded via selectinload
-                dropdown_reads = [
-                    CaseDropdownValueRead(
-                        id=dv.id,
-                        definition_id=dv.definition_id,
-                        definition_ref=dv.definition.ref,
-                        definition_name=dv.definition.name,
-                        option_id=dv.option.id if dv.option else None,
-                        option_label=dv.option.label if dv.option else None,
-                        option_ref=dv.option.ref if dv.option else None,
-                        option_icon_name=dv.option.icon_name if dv.option else None,
-                        option_color=dv.option.color if dv.option else None,
-                    )
-                    for dv in case.dropdown_values
-                ]
-            if include_case_addons and include_durations and case.durations:
-                # Durations are already loaded via selectinload
-                duration_reads = [
-                    CaseDurationRead.model_validate(d, from_attributes=True)
-                    for d in case.durations
-                ]
-
-            case_items.append(
-                CaseReadMinimal(
-                    id=case.id,
-                    created_at=case.created_at,
-                    updated_at=case.updated_at,
-                    short_id=case.short_id,
-                    summary=case.summary,
-                    status=case.status,
-                    priority=case.priority,
-                    severity=case.severity,
-                    assignee=UserRead.model_validate(
-                        case.assignee, from_attributes=True
-                    )
-                    if case.assignee
-                    else None,
-                    tags=tag_reads,
-                    dropdown_values=dropdown_reads,
-                    durations=duration_reads,
-                    payload=case.payload if include_payload else None,
-                    num_tasks_completed=task_counts[case.id]["completed"],
-                    num_tasks_total=task_counts[case.id]["total"],
-                    parent=hierarchies.get(case.id, TOP_LEVEL).parent,
-                    num_sub_cases=hierarchies.get(case.id, TOP_LEVEL).num_sub_cases,
-                )
-            )
-
-        return CursorPaginatedResponse(
-            items=case_items,
-            next_cursor=case_page.next_cursor,
-            prev_cursor=case_page.prev_cursor,
-            has_more=case_page.has_more,
-            has_previous=case_page.has_previous,
-            total_estimate=total_estimate,
-        )
-
+    @require_scope("case:read")
     async def get_search_case_aggregates(
         self,
         *,
         search_term: str | None = None,
+        search_mode: SearchMode | None = None,
+        search_columns: list[Literal["summary", "description"]] | None = None,
+        short_id: str | None = None,
+        case_id: uuid.UUID | None = None,
+        filters: Filter | None = None,
         status: CaseStatus | Sequence[CaseStatus] | None = None,
         priority: CasePriority | Sequence[CasePriority] | None = None,
         severity: CaseSeverity | Sequence[CaseSeverity] | None = None,
@@ -783,80 +472,34 @@ class CasesService(BaseWorkspaceService):
         parent_id: uuid.UUID | None = None,
         hierarchy: CaseHierarchyFilter = "all",
     ) -> CaseSearchAggregateRead:
-        """Return global totals for the current case search filter set."""
-        parent_id, top_level_only = await self.hierarchy.resolve_filters(
-            parent_id=parent_id, hierarchy=hierarchy
-        )
-        filters = self._build_search_filters(
-            search_term=search_term,
+        """Adapt legacy status counts to the canonical matching path."""
+        executor = self._search_service()
+        translated = legacy_case_filters(
             status=status,
             priority=priority,
             severity=severity,
             assignee_ids=assignee_ids,
             include_unassigned=include_unassigned,
-            tag_ids=tag_ids,
+            tag_refs=await executor.legacy_tag_refs(tag_ids),
             dropdown_filters=dropdown_filters,
             start_time=start_time,
             end_time=end_time,
             updated_before=updated_before,
             updated_after=updated_after,
-            parent_id=parent_id,
-            top_level_only=top_level_only,
         )
-
-        aggregate_stmt = select(
-            func.count(Case.id).label("total"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.NEW, 1), else_=0)),
-                0,
-            ).label("new"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.IN_PROGRESS, 1), else_=0)),
-                0,
-            ).label("in_progress"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.ON_HOLD, 1), else_=0)),
-                0,
-            ).label("on_hold"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.RESOLVED, 1), else_=0)),
-                0,
-            ).label("resolved"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.CLOSED, 1), else_=0)),
-                0,
-            ).label("closed"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.UNKNOWN, 1), else_=0)),
-                0,
-            ).label("unknown"),
-            func.coalesce(
-                func.sum(
-                    sa.case(
-                        (Case.status == CaseStatus.OTHER, 1),
-                        else_=0,
-                    )
-                ),
-                0,
-            ).label("other"),
-        )
-
-        for clause in filters:
-            aggregate_stmt = aggregate_stmt.where(clause)
-
-        row = (await self.session.execute(aggregate_stmt)).one()
-
-        return CaseSearchAggregateRead(
-            total=int(row.total or 0),
-            status_groups=CaseStatusGroupCounts(
-                new=int(row.new or 0),
-                in_progress=int(row.in_progress or 0),
-                on_hold=int(row.on_hold or 0),
-                resolved=int(row.resolved or 0),
-                closed=int(row.closed or 0),
-                unknown=int(row.unknown or 0),
-                other=int(row.other or 0),
+        return await executor.query_aggregates(
+            CaseQuery(
+                search_term=search_term,
+                search_mode=search_mode,
+                search_columns=search_columns,
+                parent_id=parent_id,
+                hierarchy=hierarchy,
+                short_id=short_id,
+                case_id=case_id,
+                filters=filters,
             ),
+            case_addons_enabled=await self.has_entitlement(Entitlement.CASE_ADDONS),
+            legacy_filters=translated,
         )
 
     async def list_cases(
@@ -865,15 +508,27 @@ class CasesService(BaseWorkspaceService):
         cursor: str | None = None,
         reverse: bool = False,
         order_by: Literal[
-            "created_at", "updated_at", "priority", "severity", "status", "tasks"
+            "created_at",
+            "updated_at",
+            "priority",
+            "severity",
+            "status",
+            "tasks",
+            "assignee",
+            "tags",
         ]
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
         include_durations: bool = False,
         include_payload: bool = False,
         hierarchy: CaseHierarchyFilter = "all",
+        include_count: bool = True,
+        payload_fields: Sequence[str] | None = None,
+        payload_paths: Sequence[Sequence[str]] | None = None,
+        include_rows: bool = False,
+        field_ids: list[str] | None = None,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
-        """List cases with a simplified default search query."""
+        """List cases, including the legacy exact count unless opted out."""
         return await self.search_cases(
             params=CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
             order_by=order_by,
@@ -881,6 +536,11 @@ class CasesService(BaseWorkspaceService):
             include_durations=include_durations,
             include_payload=include_payload,
             hierarchy=hierarchy,
+            include_count=include_count,
+            payload_fields=payload_fields,
+            payload_paths=payload_paths,
+            include_rows=include_rows,
+            field_ids=field_ids,
         )
 
     async def get_case(

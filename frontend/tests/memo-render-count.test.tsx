@@ -59,6 +59,7 @@ jest.mock("@/hooks/use-chat", () => ({
   useVercelChat: jest.fn(),
   useAdoptServerTranscript: jest.fn(),
   useGetChat: jest.fn(() => ({ chat: null })),
+  useGetChatVercel: jest.fn(() => ({ chat: undefined })),
   useUpdateChat: jest.fn(() => ({ updateChat: jest.fn(), isUpdating: false })),
   useCancelChatTurn: jest.fn(() => ({
     cancelChatTurn: jest.fn(),
@@ -211,7 +212,7 @@ describe("MessagePart memoization", () => {
 
   it("does not re-render completed tool calls when messages array ref changes", () => {
     // Stable objects representing the tool call's input and output.
-    const toolInput = { url: "https://example.com", method: "GET" }
+    const toolInput = { url: "https://example.com", headers: { method: "GET" } }
     const toolOutput = { status: 200, body: "OK" }
 
     const messages1 = makeCompletedToolMessages(toolInput, toolOutput)
@@ -276,7 +277,7 @@ describe("MessagePart memoization", () => {
   })
 
   it("re-renders when tool state transitions from input-available to output-available", () => {
-    const toolInput = { url: "https://example.com", method: "GET" }
+    const toolInput = { url: "https://example.com", headers: { method: "GET" } }
 
     // Start with only an input-available tool part
     const pendingMessages = [
@@ -360,7 +361,7 @@ describe("ToolInput memoization", () => {
   })
 
   it("does not re-render when parent re-renders with same input ref", () => {
-    const input = { url: "https://example.com", method: "GET" }
+    const input = { url: "https://example.com", headers: { method: "GET" } }
 
     const { rerender } = render(
       <Wrapper>
@@ -384,7 +385,7 @@ describe("ToolInput memoization", () => {
   it("re-renders when input reference changes", () => {
     const { rerender } = render(
       <Wrapper>
-        <ToolInput input={{ url: "https://example.com" }} />
+        <ToolInput input={{ url: "https://example.com", headers: {} }} />
       </Wrapper>
     )
 
@@ -395,7 +396,7 @@ describe("ToolInput memoization", () => {
     // because memo uses referential equality
     rerender(
       <Wrapper>
-        <ToolInput input={{ url: "https://example.com" }} />
+        <ToolInput input={{ url: "https://example.com", headers: {} }} />
       </Wrapper>
     )
 

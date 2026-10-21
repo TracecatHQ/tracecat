@@ -844,6 +844,23 @@ async def _rewrite_json_body(
     yield sanitize_messages_response_body(bytes(body))
 
 
+_STREAM_ERROR_STATUS_CODES = {
+    "budget_exceeded": 429,
+    "insufficient_quota": 429,
+    "rate_limit_error": 429,
+    "throttling_error": 429,
+}
+
+
+class _UpstreamStreamError(Exception):
+    """A typed upstream SSE ``error`` event that was already forwarded."""
+
+    def __init__(self, error: dict[str, Any], *, status_code: int) -> None:
+        super().__init__(str(error.get("message", "")))
+        self.status_code = status_code
+        self.body = orjson.dumps({"type": "error", "error": error})
+
+
 async def _rewrite_sse_stream(
     chunks: AsyncIterable[bytes],
 ) -> AsyncIterable[bytes]:
@@ -851,6 +868,12 @@ async def _rewrite_sse_stream(
     async for chunk in chunks:
         if out := rewriter.feed(chunk):
             yield out
+        if rewriter.error is not None and (
+            status_code := _STREAM_ERROR_STATUS_CODES.get(
+                str(rewriter.error.get("type"))
+            )
+        ):
+            raise _UpstreamStreamError(rewriter.error, status_code=status_code)
     if out := rewriter.flush():
         yield out
 
@@ -1658,6 +1681,9 @@ class LLMSocketProxy:
                         else _http_error_classification(
                             status_code,
                             route_is_direct=route_is_direct,
+                            body=exc.body
+                            if isinstance(exc, _UpstreamStreamError)
+                            else b"",
                         )
                     )
                     # The streaming site surfaces the SSE detail it already
@@ -1672,6 +1698,8 @@ class LLMSocketProxy:
                             status_code=status_code,
                         ),
                     )
+                if isinstance(exc, _UpstreamStreamError):
+                    return
                 error_payload = orjson.dumps(
                     {
                         "type": "error",

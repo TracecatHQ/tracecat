@@ -5,6 +5,7 @@ on:
     branches: ["main"]
     paths:
       - tracecat/**
+      - alembic/**
       - registry/**
       - tests/**
       - packages/tracecat-ee/**
@@ -17,28 +18,14 @@ on:
       - deployments/postgres/**
       - scripts/postgres/**
       - scripts/tests/test_pgvector*.sh
+      - scripts/tests/test_pg_trgm.sh
       - .env.example
       - env.sh
       - .github/workflows/test-python.yml
   pull_request:
+    # These jobs are required by the main branch ruleset. Path filters would
+    # leave frontend-only or docs-only PRs waiting for checks that never start.
     branches: ["main", "staging"]
-    paths:
-      - tracecat/**
-      - registry/**
-      - tests/**
-      - packages/tracecat-ee/**
-      - packages/tracecat-registry/**
-      - pyproject.toml
-      - uv.lock
-      - docker-compose.yml
-      - docker-compose.local.yml
-      - docker-compose.dev.yml
-      - deployments/postgres/**
-      - scripts/postgres/**
-      - scripts/tests/test_pgvector*.sh
-      - .env.example
-      - env.sh
-      - .github/workflows/test-python.yml
 
 permissions:
   contents: read
@@ -52,11 +39,13 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
         with:
-          version: "0.9.7"
+          version: "0.9.17"
           enable-cache: true
           cache-dependency-glob: |
             pyproject.toml
@@ -84,16 +73,19 @@ jobs:
       matrix:
         test_group:
           - unit
+          - unit-sandbox
           - registry
           - temporal
           # - ee # TODO: re-enable this when we have tests
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
         with:
-          version: "0.9.7"
+          version: "0.9.17"
           enable-cache: true
           cache-dependency-glob: |
             pyproject.toml
@@ -245,6 +237,15 @@ jobs:
           echo "Timed out waiting for Temporal search attributes: ${missing[*]}"
           exit 1
 
+      - name: Build sandbox test image
+        if: matrix.test_group == 'unit-sandbox'
+        timeout-minutes: 20
+        run: |
+          # Keep image builds out of individual smoke-test deadlines and avoid
+          # concurrent xdist workers rebuilding the same Compose service image.
+          docker build --target test --tag tracecat-sandbox-test:ci .
+          echo "TRACECAT_TEST_SANDBOX_IMAGE=tracecat-sandbox-test:ci" >> "$GITHUB_ENV"
+
       - name: Run tests
         env:
           TRACECAT__SYSTEM_PATH: "/usr/local/bin:/usr/bin:/bin"
@@ -256,7 +257,22 @@ jobs:
           TRACECAT__DB_POOL_SIZE: "1"
           TRACECAT__DB_MAX_OVERFLOW: "2"
         run: |
-          if [ "${{ matrix.test_group }}" = "ee" ]; then
+          # Container/nsjail sandbox tests dominate the unit job's tail, so they
+          # run as their own matrix group in parallel with the rest of tests/unit.
+          sandbox_tests=(
+            tests/unit/test_agent_sandbox_litellm.py
+            tests/unit/test_executor_sandbox_nsjail.py
+            tests/unit/executor/test_run_python_sdk_context.py
+          )
+          if [ "${{ matrix.test_group }}" = "unit" ]; then
+            ignore_args=()
+            for path in "${sandbox_tests[@]}"; do
+              ignore_args+=(--ignore="$path")
+            done
+            uv run pytest tests/unit "${ignore_args[@]}" -m "not live_secret" -n auto -ra -o faulthandler_timeout=300
+          elif [ "${{ matrix.test_group }}" = "unit-sandbox" ]; then
+            uv run pytest "${sandbox_tests[@]}" -m "not live_secret" -n auto -ra -o faulthandler_timeout=300
+          elif [ "${{ matrix.test_group }}" = "ee" ]; then
             uv run pytest packages/tracecat-ee/tests/ -m "not live_secret" -ra
           elif [ "${{ matrix.test_group }}" = "temporal" ]; then
             # Temporal tests run with compression enabled and parallelization

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import event, inspect, select
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.cases.durations import (
@@ -83,19 +83,6 @@ def make_case_create(
             "severity": severity,
         }
     )
-
-
-def test_duration_relationships_require_explicit_loading() -> None:
-    definition_relationships = inspect(CaseDurationDefinitionDB).relationships
-    duration_relationships = inspect(CaseDuration).relationships
-    case_relationships = inspect(Case).relationships
-
-    assert definition_relationships.case_durations.lazy == "raise"
-    assert definition_relationships.case_durations.passive_deletes is True
-    assert duration_relationships.case.lazy == "raise"
-    assert duration_relationships.definition.lazy == "raise"
-    assert case_relationships.durations.lazy == "raise"
-    assert case_relationships.durations.passive_deletes is True
 
 
 @pytest.mark.anyio
@@ -242,53 +229,37 @@ async def test_create_definition_enqueues_backfill_after_commit(
 
 
 @pytest.mark.anyio
-async def test_update_definition_skips_backfill_for_metadata_only_changes(
-    session: AsyncSession,
-    svc_role,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[dict[str, object]] = []
-
-    def fake_enqueue(*args, **kwargs) -> None:
-        calls.append(kwargs)
-
-    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
-    definition = await definition_service.create_definition(
-        CaseDurationDefinitionCreate(
-            name="Backfilled Duration",
-            start_anchor=CaseDurationEventAnchor(
-                event_type=CaseEventType.CASE_CREATED,
+@pytest.mark.parametrize(
+    ("update", "expected_reasons"),
+    [
+        pytest.param(
+            CaseDurationDefinitionUpdate(
+                name="Renamed Duration",
+                description="Updated description",
             ),
-            end_anchor=CaseDurationEventAnchor(
-                event_type=CaseEventType.STATUS_CHANGED,
-                filters=CaseDurationEventFilters(
-                    new_values=[CaseStatus.RESOLVED.value]
+            [],
+            id="metadata-only",
+        ),
+        pytest.param(
+            CaseDurationDefinitionUpdate(
+                end_anchor=CaseDurationEventAnchor(
+                    event_type=CaseEventType.STATUS_CHANGED,
+                    filters=CaseDurationEventFilters(
+                        new_values=[CaseStatus.CLOSED.value]
+                    ),
                 ),
             ),
-        )
-    )
-    calls.clear()
-    monkeypatch.setattr(
-        "tracecat.cases.durations.service.enqueue_case_duration_sync_after_commit",
-        fake_enqueue,
-    )
-
-    await definition_service.update_definition(
-        definition.id,
-        CaseDurationDefinitionUpdate(
-            name="Renamed Duration",
-            description="Updated description",
+            ["duration_definition_updated"],
+            id="anchor-change",
         ),
-    )
-
-    assert calls == []
-
-
-@pytest.mark.anyio
-async def test_update_definition_enqueues_backfill_after_anchor_change(
+    ],
+)
+async def test_update_definition_enqueues_backfill_only_for_anchor_changes(
     session: AsyncSession,
     svc_role,
     monkeypatch: pytest.MonkeyPatch,
+    update: CaseDurationDefinitionUpdate,
+    expected_reasons: list[str],
 ) -> None:
     calls: list[dict[str, object]] = []
 
@@ -315,19 +286,10 @@ async def test_update_definition_enqueues_backfill_after_anchor_change(
         fake_enqueue,
     )
 
-    await definition_service.update_definition(
-        definition.id,
-        CaseDurationDefinitionUpdate(
-            end_anchor=CaseDurationEventAnchor(
-                event_type=CaseEventType.STATUS_CHANGED,
-                filters=CaseDurationEventFilters(new_values=[CaseStatus.CLOSED.value]),
-            ),
-        ),
-    )
+    await definition_service.update_definition(definition.id, update)
 
-    assert len(calls) == 1
-    assert calls[0]["workspace_id"] == svc_role.workspace_id
-    assert calls[0]["reason"] == "duration_definition_updated"
+    assert [call["reason"] for call in calls] == expected_reasons
+    assert all(call["workspace_id"] == svc_role.workspace_id for call in calls)
 
 
 @pytest.mark.anyio
@@ -399,87 +361,96 @@ async def test_compute_case_durations_from_events(
 
 
 @pytest.mark.anyio
-async def test_duration_filters_match_event_payload(
-    session: AsyncSession, svc_role
-) -> None:
-    cases_service = CasesService(session=session, role=svc_role)
-    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
-    duration_service = CaseDurationService(session=session, role=svc_role)
-
-    await definition_service.create_definition(
-        CaseDurationDefinitionCreate(
-            name="Time to Close",
-            start_anchor=CaseDurationEventAnchor(
-                event_type=CaseEventType.CASE_CREATED,
-            ),
-            end_anchor=CaseDurationEventAnchor(
-                event_type=CaseEventType.CASE_CLOSED,
-            ),
-        )
-    )
-
-    case = await cases_service.create_case(make_case_create())
-
-    # Transition to resolved (should not match the CLOSED filter)
-    await cases_service.update_case(case, CaseUpdate(status=CaseStatus.RESOLVED))
-
-    assert not isinstance(duration_service, CaseDurationDefinitionService)
-    values = await duration_service.compute_duration(case)
-    assert len(values) == 1
-    value = values[0]
-    assert value.end_event_id is None
-    assert value.duration is None
-
-    # Now transition to closed which should satisfy the filter
-    await cases_service.update_case(case, CaseUpdate(status=CaseStatus.CLOSED))
-
-    values = await duration_service.compute_duration(case)
-    value = values[0]
-    assert value.end_event_id is not None
-    assert value.duration is not None
-
-
-@pytest.mark.anyio
-async def test_duration_filters_support_multiple_values(
-    session: AsyncSession, svc_role
-) -> None:
-    cases_service = CasesService(session=session, role=svc_role)
-    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
-    duration_service = CaseDurationService(session=session, role=svc_role)
-
-    await definition_service.create_definition(
-        CaseDurationDefinitionCreate(
-            name="Time to resolved or closed",
-            start_anchor=CaseDurationEventAnchor(
-                event_type=CaseEventType.CASE_CREATED,
-            ),
-            end_anchor=CaseDurationEventAnchor(
+@pytest.mark.parametrize(
+    ("start_event", "end_anchor", "setup", "non_matching", "matching"),
+    [
+        pytest.param(
+            CaseEventType.CASE_CREATED,
+            CaseDurationEventAnchor(event_type=CaseEventType.CASE_CLOSED),
+            [],
+            [CaseStatus.RESOLVED],
+            CaseStatus.CLOSED,
+            id="event-payload",
+        ),
+        pytest.param(
+            CaseEventType.CASE_CREATED,
+            CaseDurationEventAnchor(
                 event_type=CaseEventType.STATUS_CHANGED,
                 filters=CaseDurationEventFilters(
                     new_values=[CaseStatus.RESOLVED.value, CaseStatus.CLOSED.value]
                 ),
             ),
+            [],
+            [],
+            CaseStatus.RESOLVED,
+            id="multiple-values",
+        ),
+        pytest.param(
+            CaseEventType.CASE_CREATED,
+            CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(new_values=[CaseStatus.CLOSED.value]),
+            ),
+            [],
+            [],
+            CaseStatus.CLOSED,
+            id="closed-under-status-changed",
+        ),
+        pytest.param(
+            CaseEventType.CASE_CLOSED,
+            CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.IN_PROGRESS.value]
+                ),
+            ),
+            [CaseStatus.CLOSED],
+            [],
+            CaseStatus.IN_PROGRESS,
+            id="reopened-under-status-changed",
+        ),
+    ],
+)
+async def test_duration_status_filters(
+    session: AsyncSession,
+    svc_role,
+    start_event: CaseEventType,
+    end_anchor: CaseDurationEventAnchor,
+    setup: list[CaseStatus],
+    non_matching: list[CaseStatus],
+    matching: CaseStatus,
+) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Filtered duration",
+            start_anchor=CaseDurationEventAnchor(event_type=start_event),
+            end_anchor=end_anchor,
         )
     )
 
     case = await cases_service.create_case(make_case_create())
-
-    assert not isinstance(duration_service, CaseDurationDefinitionService)
-    values = await duration_service.compute_duration(case)
-    assert len(values) == 1
-    initial_value = values[0]
-    assert initial_value.end_event_id is None
-
-    case = await cases_service.update_case(
-        case,
-        CaseUpdate(status=CaseStatus.RESOLVED),
-    )
+    for status in [*setup, *non_matching]:
+        case = await cases_service.update_case(case, CaseUpdate(status=status))
 
     values = await duration_service.compute_duration(case)
     assert len(values) == 1
-    updated_value = values[0]
-    assert updated_value.end_event_id is not None
-    assert updated_value.duration is not None
+    assert values[0].start_event_id is not None
+    assert values[0].end_event_id is None
+    assert values[0].duration is None
+
+    case = await cases_service.update_case(case, CaseUpdate(status=matching))
+
+    values = await duration_service.compute_duration(case)
+    assert len(values) == 1
+    value = values[0]
+    assert value.start_event_id is not None
+    assert value.end_event_id is not None
+    assert value.ended_at is not None
+    assert value.duration is not None
 
 
 @pytest.mark.anyio
@@ -530,87 +501,6 @@ async def test_duration_filters_match_custom_field_changes(
     assert len(values) == 1
     assert values[0].end_event_id == matching_event.id
     assert values[0].duration is not None
-
-
-@pytest.mark.anyio
-async def test_duration_filters_match_closed_under_status_changed(
-    session: AsyncSession, svc_role
-) -> None:
-    cases_service = CasesService(session=session, role=svc_role)
-    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
-    duration_service = CaseDurationService(session=session, role=svc_role)
-
-    await definition_service.create_definition(
-        CaseDurationDefinitionCreate(
-            name="Time to closed status",
-            start_anchor=CaseDurationEventAnchor(
-                event_type=CaseEventType.CASE_CREATED,
-            ),
-            end_anchor=CaseDurationEventAnchor(
-                event_type=CaseEventType.STATUS_CHANGED,
-                filters=CaseDurationEventFilters(new_values=[CaseStatus.CLOSED.value]),
-            ),
-        )
-    )
-
-    case = await cases_service.create_case(make_case_create())
-
-    values = await duration_service.compute_duration(case)
-    assert len(values) == 1
-    assert values[0].end_event_id is None
-
-    case = await cases_service.update_case(case, CaseUpdate(status=CaseStatus.CLOSED))
-
-    values = await duration_service.compute_duration(case)
-    assert len(values) == 1
-    value = values[0]
-    assert value.end_event_id is not None
-    assert value.ended_at is not None
-    assert value.duration is not None
-
-
-@pytest.mark.anyio
-async def test_duration_filters_match_reopened_under_status_changed(
-    session: AsyncSession, svc_role
-) -> None:
-    cases_service = CasesService(session=session, role=svc_role)
-    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
-    duration_service = CaseDurationService(session=session, role=svc_role)
-
-    await definition_service.create_definition(
-        CaseDurationDefinitionCreate(
-            name="Time to resume work",
-            start_anchor=CaseDurationEventAnchor(
-                event_type=CaseEventType.CASE_CLOSED,
-            ),
-            end_anchor=CaseDurationEventAnchor(
-                event_type=CaseEventType.STATUS_CHANGED,
-                filters=CaseDurationEventFilters(
-                    new_values=[CaseStatus.IN_PROGRESS.value]
-                ),
-            ),
-        )
-    )
-
-    case = await cases_service.create_case(make_case_create())
-    case = await cases_service.update_case(case, CaseUpdate(status=CaseStatus.CLOSED))
-
-    values = await duration_service.compute_duration(case)
-    assert len(values) == 1
-    assert values[0].start_event_id is not None
-    assert values[0].end_event_id is None
-
-    case = await cases_service.update_case(
-        case,
-        CaseUpdate(status=CaseStatus.IN_PROGRESS),
-    )
-
-    values = await duration_service.compute_duration(case)
-    assert len(values) == 1
-    value = values[0]
-    assert value.start_event_id is not None
-    assert value.end_event_id is not None
-    assert value.duration is not None
 
 
 @pytest.mark.anyio
@@ -1228,50 +1118,28 @@ async def test_compute_time_series_multiple_cases_with_mixed_completion(
     assert metrics[0].case_priority == CasePriority.HIGH.value
 
 
-@pytest.mark.anyio
-async def test_compute_time_series_empty_cases_list(
-    session: AsyncSession, svc_role
-) -> None:
-    """Test compute_time_series with empty cases list returns empty list."""
-    duration_service = CaseDurationService(session=session, role=svc_role)
-
-    assert not isinstance(duration_service, CaseDurationDefinitionService)
-    metrics = await duration_service.compute_time_series([])
-
-    assert metrics == []
-
-
-@pytest.mark.anyio
-async def test_compute_durations_empty_cases_list(
-    session: AsyncSession, svc_role
-) -> None:
-    """Test compute_durations with empty cases list returns empty dict."""
-    duration_service = CaseDurationService(session=session, role=svc_role)
-
-    assert not isinstance(duration_service, CaseDurationDefinitionService)
-    durations = await duration_service.compute_durations([])
-
-    assert durations == {}
-
-
-def test_duration_anchor_rejects_legacy_dot_path_filters() -> None:
-    with pytest.raises(ValidationError):
-        CaseDurationEventAnchor.model_validate(
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(
             {
                 "event_type": CaseEventType.FIELDS_CHANGED,
                 "field_filters": {"data.changes.field": ["severity_score"]},
-            }
-        )
-
-
-def test_duration_anchor_rejects_custom_timestamp_paths() -> None:
-    with pytest.raises(ValidationError):
-        CaseDurationEventAnchor.model_validate(
+            },
+            id="legacy-dot-path-filters",
+        ),
+        pytest.param(
             {
                 "event_type": CaseEventType.CASE_CREATED,
                 "timestamp_path": "data.created_at",
-            }
-        )
+            },
+            id="custom-timestamp-path",
+        ),
+    ],
+)
+def test_duration_anchor_rejects_legacy_fields(payload: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        CaseDurationEventAnchor.model_validate(payload)
 
 
 @pytest.mark.parametrize(

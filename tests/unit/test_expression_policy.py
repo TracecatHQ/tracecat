@@ -123,6 +123,14 @@ def test_http_transport_credential_fields_resolve_secrets(
     assert prepared == {parameter: expected[parameter]}
 
 
+def test_form_config_written_by_a_workflow_never_stores_a_secret() -> None:
+    # A form's config is shown to everyone who can fill the form in.
+    assert (
+        expression_policy("core.forms.update_form", "config")
+        is ExpressionPolicy.REDACT_SECRETS
+    )
+
+
 def test_expression_policy_requires_exact_action_parameter_pair() -> None:
     assert (
         expression_policy("core.workflow.edit_workflow", "patch_ops")
@@ -247,37 +255,9 @@ def test_case_task_trigger_values_redact_nested_secrets(action: str) -> None:
     }
 
 
-def test_agent_skill_files_redact_nested_secrets() -> None:
-    prepared = _resolve_root(
-        "ai.skill.publish_skill_version",
-        {
-            "skill_id": "triage-assistant",
-            "files": [
-                {
-                    "path": "SKILL.md",
-                    "content_base64": "${{ SECRETS.api.FILE_BASE64 }}",
-                    "content_type": "text/markdown",
-                }
-            ],
-        },
-        {"SECRETS": {"api": {"FILE_BASE64": "cnVudGltZS1zZWNyZXQ="}}},
-    )
-
-    assert prepared == {
-        "skill_id": "triage-assistant",
-        "files": [
-            {
-                "path": "SKILL.md",
-                "content_base64": MASK_VALUE,
-                "content_type": "text/markdown",
-            }
-        ],
-    }
-
-
 def test_agent_skill_draft_operations_redact_nested_secrets() -> None:
     prepared = _resolve_root(
-        "ai.skill.update_skill_draft",
+        "ai.skill.update_skill",
         {
             "skill_id": "triage-assistant",
             "operations": [
@@ -1000,81 +980,93 @@ def test_step_results_are_runtime_data_without_taint() -> None:
 
     assert prepared == {"content": "runtime-secret / ok"}
 
-
-def test_step_results_do_not_taint_child_provenance() -> None:
-    state = _state(
-        source_args={"token": "${{ SECRETS.api.TOKEN }}"},
-        runtime_inputs={"token": "runtime-secret"},
-    )
-    state.record_step("normalize", {"result": "runtime-secret"})
-
-    child = state.child_provenance({"value": "${{ steps.normalize.result }}"})
-
-    assert not child["value"].dependencies.secret
+    step_ref = {"value": "${{ steps.normalize.result }}"}
+    assert not state.child_provenance(step_ref)["value"].dependencies.secret
+    assert not build_provenance(step_ref)["value"].dependencies.secret
 
 
-def test_workflow_metadata_redacts_secret_expressions() -> None:
-    prepared = _resolve_root(
-        "core.workflow.create_workflow",
-        {
-            "title": "Sync ${{ SECRETS.api.KEY }}",
-            "description": "Uses ${{ VARS.api.host }}",
-        },
-        {"VARS": {"api": {"host": "api.example.com"}}},
-    )
-
-    assert prepared == {
-        "title": f"Sync {MASK_VALUE}",
-        "description": "Uses api.example.com",
-    }
-
-
-def test_preset_metadata_redacts_secret_expressions() -> None:
-    prepared = _resolve_root(
-        "ai.agent.update_preset",
-        {
-            "slug": "analyst",
-            "description": "Uses ${{ SECRETS.api.KEY }}",
-            "name": "Analyst ${{ VARS.api.env }}",
-        },
-        {"VARS": {"api": {"env": "prod"}}},
-    )
-
-    assert prepared == {
-        "slug": "analyst",
-        "description": f"Uses {MASK_VALUE}",
-        "name": "Analyst prod",
-    }
-
-
-def test_column_definitions_redact_secret_expressions() -> None:
-    prepared = _resolve_root(
-        "core.table.create_table",
-        {
-            "name": "alerts",
-            "columns": [
-                {
-                    "name": "token",
-                    "type": "TEXT",
-                    "default": "${{ SECRETS.api.KEY }}",
-                },
-                {
-                    "name": "region",
-                    "type": "TEXT",
-                    "default": "${{ VARS.api.region }}",
-                },
-            ],
-        },
-        {"VARS": {"api": {"region": "us-east-1"}}},
-    )
-
-    assert prepared == {
-        "name": "alerts",
-        "columns": [
-            {"name": "token", "type": "TEXT", "default": MASK_VALUE},
-            {"name": "region", "type": "TEXT", "default": "us-east-1"},
-        ],
-    }
+@pytest.mark.parametrize(
+    ("action", "arguments", "context", "expected"),
+    [
+        pytest.param(
+            "core.workflow.create_workflow",
+            {
+                "title": "Sync ${{ SECRETS.api.KEY }}",
+                "description": "Uses ${{ VARS.api.host }}",
+            },
+            {"VARS": {"api": {"host": "api.example.com"}}},
+            {
+                "title": f"Sync {MASK_VALUE}",
+                "description": "Uses api.example.com",
+            },
+            id="workflow_metadata",
+        ),
+        pytest.param(
+            "ai.agent.update_preset",
+            {
+                "slug": "analyst",
+                "description": "Uses ${{ SECRETS.api.KEY }}",
+                "name": "Analyst ${{ VARS.api.env }}",
+            },
+            {"VARS": {"api": {"env": "prod"}}},
+            {
+                "slug": "analyst",
+                "description": f"Uses {MASK_VALUE}",
+                "name": "Analyst prod",
+            },
+            id="preset_metadata",
+        ),
+        pytest.param(
+            "core.table.create_table",
+            {
+                "name": "alerts",
+                "columns": [
+                    {
+                        "name": "token",
+                        "type": "TEXT",
+                        "default": "${{ SECRETS.api.KEY }}",
+                    },
+                    {
+                        "name": "region",
+                        "type": "TEXT",
+                        "default": "${{ VARS.api.region }}",
+                    },
+                ],
+            },
+            {"VARS": {"api": {"region": "us-east-1"}}},
+            {
+                "name": "alerts",
+                "columns": [
+                    {"name": "token", "type": "TEXT", "default": MASK_VALUE},
+                    {"name": "region", "type": "TEXT", "default": "us-east-1"},
+                ],
+            },
+            id="column_definitions",
+        ),
+        pytest.param(
+            "core.cases.create_case",
+            {
+                "summary": "Case",
+                "tags": ["${{ SECRETS.api.KEY }}", "phishing"],
+                "create_missing_tags": True,
+            },
+            {},
+            {
+                "summary": "Case",
+                "tags": [MASK_VALUE, "phishing"],
+                "create_missing_tags": True,
+            },
+            id="create_case_tags",
+        ),
+    ],
+)
+def test_root_arguments_redact_secret_expressions(
+    action: str,
+    arguments: dict[str, Any],
+    context: dict[str, Any],
+    expected: dict[str, Any],
+) -> None:
+    assert _resolve_root(action, arguments, context) == expected
 
 
 def test_preserve_substitutes_caller_source_for_direct_reference() -> None:
@@ -1277,12 +1269,6 @@ def test_partition_restores_preserved_subtree_without_reordering() -> None:
     }
 
 
-def test_provenance_does_not_taint_step_results() -> None:
-    provenance = build_provenance({"value": "${{ steps.normalize.result }}"})
-
-    assert not provenance["value"].dependencies.secret
-
-
 def test_preserve_splices_null_input_value_but_leaves_missing_reference() -> None:
     state = _state(
         source_args={"optional": None, "present": "abc"},
@@ -1303,20 +1289,6 @@ def test_preserve_splices_null_input_value_but_leaves_missing_reference() -> Non
         {"op": "replace", "path": "/config/name", "value": "abc"},
         {"op": "replace", "path": "/config/ghost", "value": "${{ inputs.missing }}"},
     ]
-
-
-def test_create_case_tags_redact_secret_expressions_at_root() -> None:
-    partitioned = ActionArgumentPlan.build(
-        "core.cases.create_case",
-        {
-            "summary": "Case",
-            "tags": ["${{ SECRETS.api.KEY }}", "phishing"],
-            "create_missing_tags": True,
-        },
-    )
-
-    assert partitioned.evaluable["tags"] == [MASK_VALUE, "phishing"]
-    assert partitioned.evaluable["create_missing_tags"] is True
 
 
 def test_preserve_splices_null_into_embedded_reference_as_native_rendering() -> None:

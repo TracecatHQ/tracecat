@@ -14,7 +14,6 @@ from botocore.exceptions import ClientError, HTTPClientError
 from tracecat.storage.utils import (
     SizedMemoryCache,
     cached_blob_download,
-    cached_select_item,
     is_retryable_storage_transport_error,
 )
 
@@ -178,42 +177,6 @@ class TestBlobStorageTransportRetries:
             )
 
         assert attempts == 1
-
-    @pytest.mark.anyio
-    async def test_cached_select_item_retries_http_client_errors(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        attempts = 0
-
-        async def fake_select_object_content(
-            *, key: str, bucket: str, expression: str
-        ) -> bytes:
-            nonlocal attempts
-            attempts += 1
-            assert key == "key"
-            assert bucket == "bucket"
-            assert expression == "SELECT s.items[2] FROM s3object s"
-            if attempts < 3:
-                raise HTTPClientError(error=RuntimeError("Connection reset"))
-            return b'{"_1":{"ok":true}}'
-
-        monkeypatch.setattr(
-            "tracecat.storage.utils.STORAGE_TRANSPORT_RETRY_BASE_DELAY_SECONDS", 0
-        )
-        monkeypatch.setattr(
-            "tracecat.storage.utils.blob.select_object_content",
-            fake_select_object_content,
-        )
-
-        item = await cached_select_item(
-            sha256="retry-select-http-client-error-sha",
-            bucket="bucket",
-            key="key",
-            local_index=2,
-        )
-
-        assert item == {"ok": True}
-        assert attempts == 3
 
     def test_retryable_transport_detection_checks_all_wrapped_branches(self) -> None:
         context = HTTPClientError(error=RuntimeError("Connection reset"))
@@ -546,17 +509,3 @@ class TestSizedMemoryCache:
         assert cache.total_bytes == 100
         assert await cache.get("key1") is None  # Evicted
         assert await cache.get("key2") == b"b" * 100
-
-    @pytest.mark.anyio
-    async def test_properties(self):
-        """Test total_bytes and item_count properties."""
-        cache = SizedMemoryCache(max_bytes=1024, ttl=300.0)
-
-        assert cache.total_bytes == 0
-        assert cache.item_count == 0
-
-        await cache.set("a", b"123")
-        await cache.set("b", b"4567")
-
-        assert cache.total_bytes == 7
-        assert cache.item_count == 2

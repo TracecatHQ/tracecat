@@ -36,11 +36,9 @@ const models = [
 beforeEach(() => {
   jest.mocked(useWorkspaceAgentModels).mockReturnValue({
     models,
-    providers: [],
-    catalogLoading: false,
-    catalogError: null,
-    providersLoading: false,
-    providersError: null,
+    defaultCatalogId: null,
+    hasOrgDefault: false,
+    workspaceSubsetDisabled: false,
     modelsLoading: false,
     modelsError: null,
   })
@@ -106,23 +104,13 @@ it("matches a saved model without a catalog id against a custom source", () => {
         model_provider: "openai",
         model_name: "model-custom",
         model_metadata: {},
+        custom_provider_name: "Synthetic source",
+        custom_provider_base_url: "https://example.com/v1",
       },
     ],
-    providers: [
-      {
-        id: "provider-one",
-        organization_id: "organization-test",
-        display_name: "Synthetic source",
-        base_url: "https://example.com/v1",
-        passthrough: false,
-        api_key_header: null,
-        last_refreshed_at: null,
-      },
-    ],
-    catalogLoading: false,
-    catalogError: null,
-    providersLoading: false,
-    providersError: null,
+    defaultCatalogId: null,
+    hasOrgDefault: false,
+    workspaceSubsetDisabled: false,
     modelsLoading: false,
     modelsError: null,
   })
@@ -139,11 +127,9 @@ it("matches a saved model without a catalog id against a custom source", () => {
 it("keeps the saved model visible, not unavailable, while models load", () => {
   jest.mocked(useWorkspaceAgentModels).mockReturnValue({
     models: undefined,
-    providers: undefined,
-    catalogLoading: true,
-    catalogError: null,
-    providersLoading: true,
-    providersError: null,
+    defaultCatalogId: null,
+    hasOrgDefault: false,
+    workspaceSubsetDisabled: false,
     modelsLoading: true,
     modelsError: null,
   })
@@ -174,11 +160,9 @@ it("keeps the saved model visible when the catalog fails to load", () => {
   )
   jest.mocked(useWorkspaceAgentModels).mockReturnValue({
     models: undefined,
-    providers: undefined,
-    catalogLoading: false,
-    catalogError: error,
-    providersLoading: false,
-    providersError: null,
+    defaultCatalogId: null,
+    hasOrgDefault: false,
+    workspaceSubsetDisabled: false,
     modelsLoading: false,
     modelsError: error,
   })
@@ -202,11 +186,9 @@ it("keeps the saved model visible when the catalog fails to load", () => {
 it("shows only the load failure when no model is saved", () => {
   jest.mocked(useWorkspaceAgentModels).mockReturnValue({
     models: undefined,
-    providers: undefined,
-    catalogLoading: false,
-    catalogError: null,
-    providersLoading: false,
-    providersError: null,
+    defaultCatalogId: null,
+    hasOrgDefault: false,
+    workspaceSubsetDisabled: false,
     modelsLoading: false,
     modelsError: new ApiError(
       { method: "GET", url: "/agent/models" },

@@ -1,8 +1,7 @@
-from pathlib import Path
+import pytest
 
 from tracecat.expressions.common import eval_jsonpath
 from tracecat.parse import (
-    get_pyproject_toml_required_deps,
     traverse_expressions,
     traverse_leaves,
     unescape_string,
@@ -93,129 +92,18 @@ def test_traverse_expressions():
     assert list(traverse_expressions(data)) == []
 
 
-def test_parse_pyproject_toml_deps_basic(tmp_path: Path) -> None:
-    """Test parsing a basic pyproject.toml with only direct dependencies."""
-    # Create a temporary pyproject.toml file
-    content = """
-[project]
-dependencies = [
-    "requests>=2.28.0",
-    "pydantic~=2.0",
-]
-"""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(content)
-
-    # Test parsing
-    deps = get_pyproject_toml_required_deps(pyproject)
-    assert len(deps) == 2
-    assert "requests>=2.28.0" in deps
-    assert "pydantic~=2.0" in deps
-
-
-def test_parse_pyproject_toml_deps_with_optional(tmp_path: Path) -> None:
-    """Test parsing a pyproject.toml with both direct and optional dependencies.
-    Note: Optional dependencies are not included in the result."""
-    content = """
-[project]
-dependencies = [
-    "requests>=2.28.0",
-]
-[project.optional-dependencies]
-test = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-]
-dev = [
-    "black>=23.0.0",
-]
-"""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(content)
-
-    # Test parsing - should only include direct dependencies
-    deps = get_pyproject_toml_required_deps(pyproject)
-    assert len(deps) == 1
-    assert "requests>=2.28.0" in deps
-
-
-def test_parse_pyproject_toml_deps_empty_project(tmp_path: Path) -> None:
-    """Test parsing a pyproject.toml with no dependencies."""
-    content = """
-[project]
-name = "test-project"
-version = "0.1.0"
-"""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(content)
-
-    # Test parsing
-    deps = get_pyproject_toml_required_deps(pyproject)
-    assert len(deps) == 0
-
-
-def test_parse_pyproject_toml_deps_missing_file(tmp_path: Path) -> None:
-    """Test handling of missing pyproject.toml file."""
-    nonexistent_file = tmp_path / "nonexistent.toml"
-    deps = get_pyproject_toml_required_deps(nonexistent_file)
-    assert deps == []
-
-
-def test_parse_pyproject_toml_deps_invalid_toml(tmp_path: Path) -> None:
-    """Test handling of invalid TOML content."""
-    content = """
-[project
-invalid toml content
-"""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(content)
-
-    # Test parsing
-    deps = get_pyproject_toml_required_deps(pyproject)
-    assert deps == []
-
-
-def test_unescape_string_newlines() -> None:
-    """Test that backslash-n sequences are converted to actual newlines."""
-    input_str = "Hello\\nWorld"
-    expected = "Hello\nWorld"
-    assert unescape_string(input_str) == expected
-
-
-def test_unescape_string_tabs() -> None:
-    """Test that backslash-t sequences are converted to actual tabs."""
-    input_str = "Hello\\tWorld"
-    expected = "Hello\tWorld"
-    assert unescape_string(input_str) == expected
-
-
-def test_unescape_string_carriage_returns() -> None:
-    """Test that backslash-r sequences are converted to actual carriage returns."""
-    input_str = "Hello\\rWorld"
-    expected = "Hello\rWorld"
-    assert unescape_string(input_str) == expected
-
-
-def test_unescape_string_backslashes() -> None:
-    """Test that double backslashes are converted to a single backslash."""
-    input_str = "Hello\\\\World"
-    expected = "Hello\\World"
-    assert unescape_string(input_str) == expected
-
-
-def test_unescape_string_multiple_escapes() -> None:
-    """Test that multiple escape sequences in a string are all converted."""
-    input_str = "Line1\\nLine2\\tTabbed\\r\\\\Backslash"
-    expected = "Line1\nLine2\tTabbed\r\\Backslash"
-    assert unescape_string(input_str) == expected
-
-
-def test_unescape_string_no_escapes() -> None:
-    """Test that strings without escape sequences remain unchanged."""
-    input_str = "Regular string with no escapes"
-    assert unescape_string(input_str) == input_str
-
-
-def test_unescape_string_empty() -> None:
-    """Test that empty strings are handled correctly."""
-    assert unescape_string("") == ""
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("Hello\\nWorld", "Hello\nWorld"),
+        ("Hello\\tWorld", "Hello\tWorld"),
+        ("Hello\\rWorld", "Hello\rWorld"),
+        ("Hello\\\\World", "Hello\\World"),
+        ("Line1\\nLine2\\tTabbed\\r\\\\Backslash", "Line1\nLine2\tTabbed\r\\Backslash"),
+        ("Regular string with no escapes", "Regular string with no escapes"),
+        ("", ""),
+    ],
+    ids=["newline", "tab", "carriage_return", "backslash", "multiple", "none", "empty"],
+)
+def test_unescape_string(raw: str, expected: str) -> None:
+    assert unescape_string(raw) == expected

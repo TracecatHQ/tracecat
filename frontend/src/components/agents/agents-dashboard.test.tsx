@@ -24,7 +24,14 @@ const mockSetDefaultAgent = jest.fn()
 const mockUpdateAgentPreset = jest.fn()
 const mockUseScopeCheck = jest.fn<boolean, [string]>(() => true)
 const mockPush = jest.fn()
+const mockReplace = jest.fn()
+const mockUseWorkflowReferences = jest.fn()
 const mockUseListMcpIntegrations = jest.fn()
+
+jest.mock("@/components/ai-elements/code-block", () => ({
+  CodeBlock: ({ code }: { code: string }) => <pre>{code}</pre>,
+  CodeBlockCopyButton: () => null,
+}))
 
 jest.mock("@/client", () => ({
   ...jest.requireActual("@/client"),
@@ -42,7 +49,7 @@ jest.mock("@/hooks/use-workspace", () => ({
 }))
 
 jest.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mockPush, replace: jest.fn() }),
+  useRouter: () => ({ push: mockPush, replace: mockReplace }),
   useSearchParams: () => mockSearchParams.current,
 }))
 
@@ -64,6 +71,8 @@ jest.mock("@/hooks/use-entitlements", () => ({
 
 jest.mock("@/hooks/use-agent-presets", () => ({
   useAgentPresets: (...args: unknown[]) => mockUseAgentPresets(...args),
+  useAgentPresetWorkflowReferences: (...args: unknown[]) =>
+    mockUseWorkflowReferences(...args),
   useAgentDirectoryItems: (...args: unknown[]) =>
     mockUseAgentDirectoryItems(...args),
   useAgentTagCatalog: (...args: unknown[]) => mockUseAgentTagCatalog(...args),
@@ -160,6 +169,9 @@ describe("AgentsDashboard entitlement split", () => {
     })
     mockUseListMcpIntegrations.mockReset()
     mockUseListMcpIntegrations.mockReturnValue({ mcpIntegrations: undefined })
+    mockReplace.mockClear()
+    mockUseWorkflowReferences.mockReset()
+    mockUseWorkflowReferences.mockReturnValue({ workflowReferences: [] })
   })
 
   describe.each(["list", "folders"] as const)("%s row details", (view) => {
@@ -282,15 +294,12 @@ describe("AgentsDashboard entitlement split", () => {
       )
     })
 
-    it("loads MCP integrations only when a preset uses one", () => {
-      const { unmount } = renderPreset({
+    it("loads MCP integrations for the filter even when no preset uses one", () => {
+      renderPreset({
         tool_count: 1,
         namespaces: ["tools.slack"],
         mcp_slugs: [],
       })
-      expect(lastOptions(mockUseListMcpIntegrations)?.enabled).toBe(false)
-      unmount()
-      renderPreset({ tool_count: 1, namespaces: [], mcp_slugs: ["remote"] })
       expect(lastOptions(mockUseListMcpIntegrations)?.enabled).toBe(true)
     })
 
@@ -427,19 +436,20 @@ describe("AgentsDashboard entitlement split", () => {
       }
     })
 
-    it("caps MCP integrations at eight without merging shared icons", async () => {
+    it("caps MCP integrations at eight and the overflow tooltip at ten", async () => {
       const slugs = Array.from(
-        { length: 9 },
-        (_, index) => `synthetic-mcp-${index}`
+        { length: 20 },
+        (_, index) => `synthetic-mcp-${String(index).padStart(2, "0")}`
       )
       renderPreset({ tool_count: 0, namespaces: [], mcp_slugs: slugs })
       const sources = within(screen.getByTestId("tool-sources"))
       expect(sources.getAllByRole("img")).toHaveLength(8)
       expect(sources.queryByLabelText(slugs[8])).not.toBeInTheDocument()
-      await userEvent.hover(sources.getByText("+1"))
-      expect(
-        await screen.findByRole("tooltip", {}, { timeout: 2000 })
-      ).toHaveTextContent(slugs[8])
+      await userEvent.hover(sources.getByText("+12"))
+      const tooltip = await screen.findByRole("tooltip", {}, { timeout: 2000 })
+      expect(within(tooltip).getAllByRole("listitem")).toHaveLength(10)
+      expect(tooltip).toHaveTextContent(slugs[8])
+      expect(tooltip).toHaveTextContent("and 2 more")
     })
 
     it("caps registry tiles at eight after deduplication", () => {
@@ -493,7 +503,6 @@ describe("AgentsDashboard entitlement split", () => {
 
     renderDashboard()
 
-    expect(lastOptions(mockUseAgentPresets)?.enabled).toBe(false)
     expect(lastOptions(mockUseAgentDirectoryItems)?.enabled).toBe(true)
     expect(lastOptions(mockUseAgentTagCatalog)?.enabled).toBe(true)
     expect(screen.getByText("View")).toBeInTheDocument()
@@ -644,5 +653,256 @@ describe("AgentsDashboard entitlement split", () => {
     expect(
       screen.queryByRole("link", { name: /Default agent:/ })
     ).not.toBeInTheDocument()
+  })
+
+  describe("workflow and MCP filters", () => {
+    const TRIAGE = {
+      ...PRESET,
+      id: "triage",
+      name: "Triage agent",
+      tool_summary: { tool_count: 0, namespaces: [], mcp_slugs: ["github"] },
+    }
+    const ENRICH = {
+      ...PRESET,
+      id: "enrich",
+      name: "Enrich agent",
+      tool_summary: { tool_count: 0, namespaces: [], mcp_slugs: ["jira"] },
+    }
+
+    function renderCatalog(
+      params = "",
+      references: object = {
+        workflowReferences: ["Alpha", "Beta", "Gamma"].map((title) => ({
+          preset_id: "triage",
+          workflow_id: `wf_${title.toLowerCase()}`,
+          workflow_title: title,
+        })),
+      }
+    ) {
+      mockSearchParams.current = new URLSearchParams(params)
+      mockUseAgentPresets.mockReturnValue({
+        presets: [TRIAGE, ENRICH],
+        presetsIsLoading: false,
+        presetsError: null,
+      })
+      mockUseWorkflowReferences.mockReturnValue(references)
+      return renderDashboard()
+    }
+
+    const REFERENCES_LOADING = {
+      workflowReferences: undefined,
+      workflowReferencesIsLoading: true,
+      workflowReferencesError: null,
+    }
+
+    it("shows workflow badges and folds overflow into +N", async () => {
+      renderCatalog()
+      const badges = within(screen.getByTestId("workflow-badges"))
+      expect(badges.getByText("Alpha")).toBeInTheDocument()
+      expect(badges.getByText("Beta")).toBeInTheDocument()
+      expect(badges.queryByText("Gamma")).not.toBeInTheDocument()
+      await userEvent.hover(badges.getByText("+1"))
+      expect(await screen.findByRole("tooltip")).toHaveTextContent("Gamma")
+      expect(screen.getAllByTestId("workflow-badges")).toHaveLength(1)
+    })
+
+    it("caps the workflow overflow tooltip at ten names", async () => {
+      renderCatalog("", {
+        workflowReferences: Array.from({ length: 15 }, (_, index) => ({
+          preset_id: "triage",
+          workflow_id: `wf_${index}`,
+          workflow_title: `Workflow ${String(index).padStart(2, "0")}`,
+        })),
+      })
+      await userEvent.hover(screen.getByText("+13"))
+      const tooltip = await screen.findByRole("tooltip")
+      expect(within(tooltip).getAllByRole("listitem")).toHaveLength(10)
+      expect(tooltip).toHaveTextContent("and 3 more")
+    })
+
+    it.each([
+      ["mcp=jira", ["Enrich agent"]],
+      ["mcp=jira&mcp=github", ["Triage agent", "Enrich agent"]],
+      ["workflow=wf_beta", ["Triage agent"]],
+      ["mcp=jira&workflow=wf_beta", []],
+    ])("narrows rows for ?%s", (params, expected) => {
+      renderCatalog(params)
+      for (const name of ["Triage agent", "Enrich agent"]) {
+        if (expected.includes(name)) {
+          expect(screen.getByText(name)).toBeInTheDocument()
+        } else {
+          expect(screen.queryByText(name)).not.toBeInTheDocument()
+        }
+      }
+    })
+
+    it("searches nested folders when a filter is active in the folder view", () => {
+      mockHasEntitlement.mockReturnValue(true)
+      mockUseAgentDirectoryItems.mockReturnValue({
+        directoryItems: [
+          {
+            type: "folder",
+            id: "folder-1",
+            name: "Nested",
+            path: "/nested/",
+            created_at: PRESET.created_at,
+            updated_at: PRESET.updated_at,
+          },
+        ],
+        directoryItemsIsLoading: false,
+        directoryItemsError: null,
+      })
+      renderCatalog("view=folders&mcp=jira")
+      expect(lastOptions(mockUseAgentPresets)?.enabled).toBe(true)
+      expect(lastOptions(mockUseAgentDirectoryItems)?.enabled).toBe(false)
+      expect(screen.getByText("Enrich agent")).toBeInTheDocument()
+      expect(screen.queryByText("Nested")).not.toBeInTheDocument()
+    })
+
+    it("keeps the folder listing without an active filter", () => {
+      mockHasEntitlement.mockReturnValue(true)
+      renderCatalog("view=folders")
+      expect(lastOptions(mockUseAgentDirectoryItems)?.enabled).toBe(true)
+    })
+
+    it("offers current-folder MCP servers while the workspace list loads", async () => {
+      mockHasEntitlement.mockReturnValue(true)
+      mockUseScopeCheck.mockImplementation(
+        (scope) => scope !== "integration:read"
+      )
+      mockUseAgentDirectoryItems.mockReturnValue({
+        directoryItems: [{ ...ENRICH, type: "preset" }],
+        directoryItemsIsLoading: false,
+        directoryItemsError: null,
+      })
+      mockSearchParams.current = new URLSearchParams("view=folders")
+      mockUseAgentPresets.mockReturnValue({
+        presets: undefined,
+        presetsIsLoading: true,
+        presetsError: null,
+      })
+      mockUseWorkflowReferences.mockReturnValue({ workflowReferences: [] })
+      renderDashboard()
+      await userEvent.click(screen.getByRole("button", { name: /MCP servers/ }))
+      expect(
+        await screen.findByRole("option", { name: /jira/ })
+      ).toBeInTheDocument()
+    })
+
+    it("offers MCP servers used only in nested folders without integration access", async () => {
+      mockHasEntitlement.mockReturnValue(true)
+      mockUseScopeCheck.mockImplementation(
+        (scope) => scope !== "integration:read"
+      )
+      mockUseAgentDirectoryItems.mockReturnValue({
+        directoryItems: [
+          {
+            type: "folder",
+            id: "folder-1",
+            name: "Nested",
+            path: "/nested/",
+            created_at: PRESET.created_at,
+            updated_at: PRESET.updated_at,
+          },
+        ],
+        directoryItemsIsLoading: false,
+        directoryItemsError: null,
+      })
+      renderCatalog("view=folders")
+      expect(lastOptions(mockUseAgentPresets)?.enabled).toBe(true)
+      await userEvent.click(screen.getByRole("button", { name: /MCP servers/ }))
+      expect(
+        await screen.findByRole("option", { name: /jira/ })
+      ).toBeInTheDocument()
+    })
+
+    it.each([
+      [REFERENCES_LOADING, "Loading workflows..."],
+      [
+        {
+          workflowReferences: undefined,
+          workflowReferencesIsLoading: false,
+          workflowReferencesError: new Error("boom"),
+        },
+        "Failed to load workflows.",
+      ],
+    ])(
+      "reflects the references request in the empty workflow filter",
+      async (references, message) => {
+        renderCatalog("", references)
+        await userEvent.click(screen.getByRole("button", { name: /Workflows/ }))
+        expect(await screen.findByText(message)).toBeInTheDocument()
+      }
+    )
+
+    it.each([
+      [{ mcpIntegrationsIsLoading: true }, "Loading MCP servers..."],
+      [
+        { mcpIntegrationsError: new Error("boom") },
+        "Failed to load MCP servers.",
+      ],
+    ])(
+      "reflects the MCP integrations request in the empty MCP filter",
+      async (state, message) => {
+        mockUseListMcpIntegrations.mockReturnValue({
+          mcpIntegrations: undefined,
+          ...state,
+        })
+        mockSearchParams.current = new URLSearchParams()
+        mockUseAgentPresets.mockReturnValue({
+          presets: [],
+          presetsIsLoading: false,
+          presetsError: null,
+        })
+        renderDashboard()
+        await userEvent.click(
+          screen.getByRole("button", { name: /MCP servers/ })
+        )
+        expect(await screen.findByText(message)).toBeInTheDocument()
+      }
+    )
+
+    it("writes selected MCP servers to the URL", async () => {
+      renderCatalog("view=list&mcp=github")
+      await userEvent.click(screen.getByRole("button", { name: /MCP servers/ }))
+      await userEvent.click(await screen.findByRole("option", { name: /jira/ }))
+      expect(mockReplace).toHaveBeenLastCalledWith(
+        "/workspaces/workspace-1/agents?view=list&mcp=github&mcp=jira"
+      )
+    })
+
+    it("waits for workflow references before applying a workflow filter", () => {
+      renderCatalog("workflow=wf_beta", REFERENCES_LOADING)
+      expect(screen.queryByText("No agents yet")).not.toBeInTheDocument()
+      expect(screen.queryByText("Triage agent")).not.toBeInTheDocument()
+    })
+
+    it("shows an error when workflow references fail under a workflow filter", () => {
+      renderCatalog("workflow=wf_beta", {
+        workflowReferences: undefined,
+        workflowReferencesIsLoading: false,
+        workflowReferencesError: new Error("boom"),
+      })
+      expect(screen.getByText("Failed to load agents.")).toBeInTheDocument()
+    })
+
+    it("does not wait on workflow references without a workflow filter", () => {
+      renderCatalog("mcp=jira", REFERENCES_LOADING)
+      expect(screen.getByText("Enrich agent")).toBeInTheDocument()
+    })
+
+    it.each(["workflow:read", "agent:read"])(
+      "hides workflow data without %s",
+      (missing) => {
+        mockUseScopeCheck.mockImplementation((scope) => scope !== missing)
+        renderCatalog("workflow=wf_beta")
+        expect(lastOptions(mockUseWorkflowReferences)?.enabled).toBe(false)
+        expect(
+          screen.queryByRole("button", { name: /Workflows/ })
+        ).not.toBeInTheDocument()
+        expect(screen.queryByTestId("workflow-badges")).not.toBeInTheDocument()
+        expect(screen.getByText("Enrich agent")).toBeInTheDocument()
+      }
+    )
   })
 })

@@ -23,6 +23,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import get_missing_scopes, has_any_scope
 from tracecat.db.models import (
     CaseTag,
+    Form,
     Workflow,
     Workspace,
     WorkspaceSyncResourceMapping,
@@ -53,7 +54,10 @@ from tracecat.sync import (
 )
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat.workflow.store.import_service import WorkflowImportService
+from tracecat.workflow.store.import_service import (
+    WorkflowImportError,
+    WorkflowImportService,
+)
 from tracecat.workflow.store.schemas import (
     RemoteWorkflowDefinition,
     validate_short_branch_name,
@@ -499,6 +503,17 @@ class WorkspaceSyncService(SyncMappingService):
         specs: dict[str, WorkflowResourceSpec] = {}
         source_workflow_ids: dict[WorkflowUUID, str] = {}
 
+        # ``Workflow`` has no form relationship: load the forms in one query.
+        forms_by_workflow_id = {
+            form.workflow_id: form
+            for form in await self.session.scalars(
+                select(Form).where(
+                    Form.workspace_id == self.workspace_id,
+                    Form.workflow_id.in_([workflow.id for workflow in workflows]),
+                )
+            )
+        }
+
         # Project each workflow to a spec keyed by its (stable) source id.
         for workflow in workflows:
             await self.session.refresh(
@@ -523,6 +538,7 @@ class WorkspaceSyncService(SyncMappingService):
                 dsl=dsl,
                 source_id=source_id,
                 include_schedules=include_schedules,
+                form=forms_by_workflow_id.get(workflow.id),
             )
             source_workflow_ids[WorkflowUUID.new(workflow.id)] = source_id
         specs = {
@@ -803,7 +819,7 @@ class WorkspaceSyncService(SyncMappingService):
         self._enforce_required_scopes(sorted(_export_read_scopes_for_spec(spec)))
 
     def _require_pull_scopes(self, spec: WorkspaceSpec, *, dry_run: bool) -> None:
-        """Enforce scopes required by non-workflow resources in a parsed pull spec."""
+        """Enforce scopes required by the resources in a parsed pull spec."""
         self._enforce_required_scopes(
             sorted(_pull_scopes_for_spec(spec, dry_run=dry_run))
         )
@@ -1124,22 +1140,42 @@ class WorkspaceSyncService(SyncMappingService):
                         )
                 await self.session.commit()
         except Exception as e:
+            if isinstance(e, WorkflowImportError):
+                source_ids = {
+                    local_id: source_id for source_id, local_id in local_ids.items()
+                }
+                title = e.workflow_title
+                diagnostic = PullDiagnostic(
+                    workflow_path=workflow_source_path(source_ids[e.workflow_id]),
+                    workflow_title=title,
+                    error_type="transaction",
+                    message=f"Failed to import workflow {title!r}: {str(e)}",
+                    details={"exception": str(e)},
+                )
+                message = f"Workspace import failed on workflow {title!r}"
+            else:
+                diagnostic = PullDiagnostic(
+                    workflow_path="",
+                    workflow_title=None,
+                    error_type="transaction",
+                    message=f"Workspace import transaction failed: {str(e)}",
+                    details={"exception": str(e)},
+                )
+                message = "Workspace import transaction failed"
+            self.logger.opt(exception=e).error(
+                "Workspace import transaction failed",
+                workspace_id=str(self.workspace_id),
+                commit_sha=snapshot.commit_sha,
+                workflow_path=diagnostic.workflow_path,
+            )
             await self.session.rollback()
             return PullResult(
                 success=False,
                 commit_sha=snapshot.commit_sha,
                 workflows_found=len(remote_workflows),
                 workflows_imported=0,
-                diagnostics=[
-                    PullDiagnostic(
-                        workflow_path="",
-                        workflow_title=None,
-                        error_type="transaction",
-                        message=f"Workspace import transaction failed: {str(e)}",
-                        details={"exception": str(e)},
-                    )
-                ],
-                message="Workspace import transaction failed",
+                diagnostics=[diagnostic],
+                message=message,
                 resource_counts=self._resource_counts_from_spec(snapshot.spec),
             )
 
@@ -2229,6 +2265,11 @@ def _pull_scopes_for_spec(spec: WorkspaceSpec, *, dry_run: bool) -> set[str]:
         for preset in spec.agent_presets.values()
     ):
         scopes.add("workspace:update")
+    # A workflow's ``form:`` block creates or replaces its form.
+    if not dry_run and any(
+        workflow.form is not None for workflow in spec.workflows.values()
+    ):
+        scopes.update(("form:create", "form:update"))
     for adapter in WORKSPACE_RESOURCE_ADAPTERS:
         if not adapter.specs(spec):
             continue

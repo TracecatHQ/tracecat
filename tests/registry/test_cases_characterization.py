@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, cast, get_args
 
 import httpx
+import orjson
 import pytest
 import sqlalchemy as sa
 from httpx import ASGITransport
@@ -86,6 +87,7 @@ from tracecat.cases.enums import (
     CasePriority,
     CaseSeverity,
 )
+from tracecat.cases.router import cases_router
 from tracecat.cases.schemas import CaseFieldCreate
 from tracecat.cases.service import CaseFieldsService
 from tracecat.contexts import ctx_role
@@ -102,6 +104,8 @@ from tracecat.validation.common import json_schema_to_pydantic
 _CASE_FIELDS_SCHEMA_LOCK_ID = 0x7472616365636174  # "tracecat" in hex
 _ACTION_GATEWAY_SOCKET = "/tmp/tracecat-test-action-gateway.sock"
 app = create_action_gateway_app()
+# Exercise public and internal case routes with the same real test database.
+app.include_router(cases_router)
 
 
 def _case_items(
@@ -947,6 +951,57 @@ class TestSearchCases:
         assert len(listed) >= len(searched)
         assert len(searched) == 1
         assert searched[0]["summary"] == "Investigate malware alert"
+
+    async def test_search_cases_short_id_and_structured_filters_reach_server(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ) -> None:
+        target = await create_case(
+            summary="Synthetic exact case",
+            description="Synthetic",
+            priority="critical",
+            payload={"value": "synthetic"},
+        )
+        other = await create_case(
+            summary="Synthetic unrelated case", description="Synthetic", priority="low"
+        )
+        case_id = str(target["id"])
+        target_read = await get_case(case_id=case_id)
+        by_short_id = _case_items(await search_cases(short_id=target_read["short_id"]))
+        assert [str(item["id"]) for item in by_short_id] == [case_id]
+        filters = {
+            "or": [
+                {"field": "priority", "op": "eq", "value": "critical"},
+                {"field": "summary", "op": "contains", "value": "no match"},
+            ]
+        }
+        by_filters = _case_items(await search_cases(filters=filters))
+        assert [str(item["id"]) for item in by_filters] == [case_id]
+        assert not _case_items(
+            await search_cases(
+                short_id=target_read["short_id"], case_id=str(other["id"])
+            )
+        )
+        assert not _case_items(
+            await search_cases(
+                short_id=target_read["short_id"],
+                filters={"field": "priority", "op": "eq", "value": "low"},
+            )
+        )
+        items = _case_items(
+            await search_cases(
+                short_id=target_read["short_id"],
+                case_id=case_id,
+                filters=filters,
+                include_payload=True,
+            )
+        )
+        assert [str(item["id"]) for item in items] == [case_id]
+        assert items[0].get("payload") == {"value": "synthetic"}
+        page = await search_cases(
+            case_id=case_id, filters=filters, paginate=True, include_count=False
+        )
+        assert isinstance(page, dict) and page["total_estimate"] is None
+        assert [str(item["id"]) for item in page["items"]] == [case_id]
 
 
 # =============================================================================
@@ -1988,3 +2043,281 @@ class TestEdgeCases:
                 content_base64=content,
                 content_type="text/plain",
             )
+
+
+@pytest.mark.anyio
+async def test_list_cases_payload_selection_end_to_end(
+    session: AsyncSession, cases_ctx: Role
+) -> None:
+    """List through the action, client, gateway, and database without changing storage."""
+    payload: dict[str, Any] = {
+        "": "literal-empty-key",
+        "alert_id": "demo-alert-001",
+        "score": 42,
+        "nullable": None,
+        "nested": {
+            "source": {
+                "ip": "192.0.2.1",
+                "port": 443,
+                "nullable": None,
+                "empty": {},
+                "values": [{"value": 1}, None],
+                "unused": "omit this sibling",
+            },
+            "name": "Synthetic source",
+        },
+        "odd.key": {"": {"quoted'key": False, "unused": True}},
+        "items": [1, "two", None],
+        "alert.source.ip": "literal-key",
+        "quoted'key": False,
+        "raw_event": "unused " * 4096,
+    }
+    deep_object: dict[str, Any] = {"leaf": "deep value"}
+    for index in reversed(range(30)):
+        deep_object = {f"key_{index}": deep_object}
+    payload["deep"] = deep_object
+    created = await create_case(
+        summary="Synthetic payload selection", description="Example", payload=payload
+    )
+    default = _case_items(await list_cases())
+    assert len(default) == 1 and default[0].get("payload") is None
+
+    selected = _case_items(
+        await list_cases(
+            payload_fields=[
+                "",
+                "alert_id",
+                "score",
+                "nullable",
+                "nested",
+                "odd.key",
+                "deep",
+                "items",
+                "alert.source.ip",
+                "quoted'key",
+                "missing",
+                "alert_id",
+            ],
+            include_payload=True,
+        )
+    )
+    TypeAdapter(list[types.CaseReadMinimal]).validate_python(selected)
+    assert selected[0].get("payload") == {
+        key: value for key, value in payload.items() if key != "raw_event"
+    }
+    empty_key = _case_items(await list_cases(payload_fields=[""], include_payload=True))
+    assert empty_key[0].get("payload") == {"": "literal-empty-key"}
+    paths = [
+        ["nested", "source", "ip"],
+        ["nested", "source", "port"],
+        ["nested", "source", "nullable"],
+        ["nested", "source", "empty"],
+        ["nested", "source", "values"],
+        ["nested", "source", "ip"],
+        ["nested", "source", "missing"],
+        ["nested", "missing", "ip"],
+        ["items", "0"],
+        ["score", "value"],
+        ["nullable", "value"],
+        ["odd.key", "", "quoted'key"],
+    ]
+    expected_nested = {
+        "nested": {
+            "source": {
+                "ip": "192.0.2.1",
+                "port": 443,
+                "nullable": None,
+                "empty": {},
+                "values": [{"value": 1}, None],
+            }
+        },
+        "odd.key": {"": {"quoted'key": False}},
+    }
+    nested = _case_items(await list_cases(payload_paths=paths, include_payload=True))
+    assert nested[0].get("payload") == expected_nested
+    deepest = _case_items(
+        await list_cases(
+            payload_paths=[["deep", *[f"key_{i}" for i in range(30)], "leaf"]]
+        )
+    )
+    assert deepest[0].get("payload") == {"deep": deep_object}
+    for invalid_paths in [[[]], [["alert_id"]] * 101]:
+        with pytest.raises(SDKValidationError):
+            await list_cases(payload_paths=invalid_paths)
+    maximum_paths = _case_items(await list_cases(payload_paths=[["alert_id"]] * 100))
+    assert maximum_paths[0].get("payload") == {"alert_id": "demo-alert-001"}
+    # Parent selections win in either order, including top-level field selectors.
+    for overlapping in [
+        [["nested", "source", "ip"], ["nested", "source"]],
+        [["nested", "source"], ["nested", "source", "ip"]],
+    ]:
+        parent = _case_items(await list_cases(payload_paths=overlapping))
+        assert parent[0].get("payload") == {
+            "nested": {"source": payload["nested"]["source"]}
+        }
+    parent = _case_items(
+        await list_cases(payload_fields=["nested", "items"], payload_paths=paths)
+    )
+    assert parent[0].get("payload") == {
+        "nested": payload["nested"],
+        "items": payload["items"],
+        "odd.key": {"": {"quoted'key": False}},
+    }
+    missing_path = _case_items(
+        await list_cases(payload_paths=[["nested", "missing", "ip"]])
+    )
+    assert missing_path[0].get("payload") == {}
+    missing = _case_items(await list_cases(payload_fields=["missing"]))
+    assert missing[0].get("payload") == {}
+    full = _case_items(
+        await list_cases(include_payload=True, payload_fields=[], payload_paths=[])
+    )
+    assert full[0].get("payload") == payload
+    assert (await get_case(case_id=str(created["id"])))["payload"] == payload
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as public:
+        response = await public.get(
+            "/cases",
+            params=[("payload_fields", "alert_id"), ("payload_fields", "score")],
+        )
+        assert response.status_code == 200
+        assert response.json()["items"][0]["payload"] == {
+            "alert_id": "demo-alert-001",
+            "score": 42,
+        }
+        response = await public.get("/cases?payload_fields=&include_payload=true")
+        assert response.status_code == 200
+        assert response.json()["items"][0]["payload"] == {"": "literal-empty-key"}
+        response = await public.get(
+            "/cases",
+            params={"payload_paths": orjson.dumps(paths).decode()},
+        )
+        assert response.status_code == 200
+        assert response.json()["items"][0]["payload"] == expected_nested
+        for include_payload, expected in [("true", payload), ("false", None)]:
+            response = await public.get(
+                "/cases",
+                params={"payload_paths": "[]", "include_payload": include_payload},
+            )
+            assert response.status_code == 200
+            assert response.json()["items"][0]["payload"] == expected
+        for invalid in [
+            "not-json",
+            "[[]]",
+            "[[0]]",
+            orjson.dumps([["a"] * 33]).decode(),
+            orjson.dumps([["alert_id"]] * 101).decode(),
+        ]:
+            response = await public.get("/cases", params={"payload_paths": invalid})
+            assert response.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_search_cases_payload_selection_pagination_end_to_end(
+    session: AsyncSession, cases_ctx: Role
+) -> None:
+    """Selected, null, and empty payloads retain case order and continuation metadata."""
+    payloads = [
+        {
+            "alert_id": "demo-alert-001",
+            "alert": {
+                "source": {"ip": "192.0.2.1", "port": 443, "unused": True},
+                "unused": True,
+            },
+            "nullable": None,
+            "raw_event": "unused",
+        },
+        None,
+        {},
+    ]
+    created_ids = []
+    for payload in payloads:
+        created = await create_case(
+            summary="Synthetic payload page", description="Example", payload=payload
+        )
+        created_ids.append(str(created["id"]))
+
+    empty_key = _case_items(
+        await search_cases(
+            limit=1, sort="asc", payload_fields=[""], include_payload=True
+        )
+    )
+    assert empty_key[0].get("payload") == {}
+
+    first = await search_cases(
+        search_term="Synthetic payload page",
+        limit=2,
+        paginate=True,
+        order_by="created_at",
+        sort="asc",
+        payload_fields=["alert_id", "nullable", "missing"],
+        payload_paths=[["alert", "source", "ip"], ["alert", "source", "port"]],
+    )
+    assert not isinstance(first, list)
+    assert first["has_more"] and first["next_cursor"]
+    assert first["total_estimate"] == 3
+    assert [case.get("payload") for case in first["items"]] == [
+        {
+            "alert_id": "demo-alert-001",
+            "nullable": None,
+            "alert": {"source": {"ip": "192.0.2.1", "port": 443}},
+        },
+        None,
+    ]
+    following = await search_cases(
+        search_term="Synthetic payload page",
+        limit=2,
+        paginate=True,
+        order_by="created_at",
+        sort="asc",
+        cursor=first["next_cursor"],
+        payload_fields=["alert_id", "nullable", "missing"],
+        payload_paths=[["alert", "source", "ip"], ["alert", "source", "port"]],
+        include_payload=False,
+    )
+    assert not isinstance(following, list)
+    assert not following["has_more"]
+    assert following["total_estimate"] == 3
+    assert [case.get("payload") for case in following["items"]] == [{}]
+    assert [
+        str(case["id"]) for case in first["items"] + following["items"]
+    ] == created_ids
+
+    paths_only = _case_items(
+        await search_cases(sort="asc", payload_paths=[["alert", "source", "ip"]])
+    )
+    assert [case.get("payload") for case in paths_only] == [
+        {"alert": {"source": {"ip": "192.0.2.1"}}},
+        None,
+        {},
+    ]
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as public:
+        response = await public.get(
+            "/cases/search",
+            params=[
+                ("payload_fields", "alert_id"),
+                ("payload_fields", "nullable"),
+                ("payload_paths", '[["alert","source","ip"]]'),
+                ("sort", "asc"),
+            ],
+        )
+        assert response.status_code == 200
+        assert [case["payload"] for case in response.json()["items"]] == [
+            {
+                "alert_id": "demo-alert-001",
+                "nullable": None,
+                "alert": {"source": {"ip": "192.0.2.1"}},
+            },
+            None,
+            {},
+        ]
+        response = await public.get(
+            "/cases/search?payload_fields=&include_payload=true&sort=asc"
+        )
+        assert response.status_code == 200
+        assert [case["payload"] for case in response.json()["items"]] == [{}, None, {}]

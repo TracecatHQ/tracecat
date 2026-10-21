@@ -11,7 +11,7 @@ Seeding is idempotent - existing scopes/roles are not duplicated.
 from typing import NamedTuple, TypedDict
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, select, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -302,6 +302,21 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
     ScopeDefinition("case:create", "case", "create", "Create new cases"),
     ScopeDefinition("case:update", "case", "update", "Modify existing cases"),
     ScopeDefinition("case:delete", "case", "delete", "Delete cases"),
+    # Form scopes
+    ScopeDefinition("form:read", "form", "read", "View forms"),
+    ScopeDefinition("form:create", "form", "create", "Create new forms"),
+    ScopeDefinition("form:update", "form", "update", "Modify existing forms"),
+    ScopeDefinition("form:delete", "form", "delete", "Delete forms"),
+    ScopeDefinition("form:submit", "form", "submit", "Submit forms"),
+    ScopeDefinition(
+        "form:submission:read", "form:submission", "read", "View form submissions"
+    ),
+    ScopeDefinition(
+        "form:submission:delete",
+        "form:submission",
+        "delete",
+        "Delete form submissions",
+    ),
     # Inbox scopes
     ScopeDefinition("inbox:read", "inbox", "read", "View inbox items"),
     # Table scopes
@@ -381,6 +396,11 @@ class RoleDefinition(NamedTuple):
 
 PRESET_ROLE_DEFINITIONS: dict[str, RoleDefinition] = {
     # slug → RoleDefinition(name, description, scopes)
+    "workspace-intake": RoleDefinition(
+        "Intake only",
+        "Fill in and submit forms, no other workspace access",
+        PRESET_ROLE_SCOPES["workspace-intake"],
+    ),
     "workspace-viewer": RoleDefinition(
         "Workspace Viewer",
         "Read-only access to workspace resources",
@@ -581,7 +601,8 @@ async def seed_system_roles_for_org(
 ) -> None:
     """Seed system roles for a single organization.
 
-    Upserts preset roles and their scope assignments. Idempotent.
+    Upserts preset roles and reconciles their scope links to the definitions
+    in code: missing links are added and extra links removed. Idempotent.
 
     Args:
         session: Database session
@@ -626,7 +647,8 @@ async def seed_system_roles_for_org(
     )
     role_result = await session.execute(role_stmt)
 
-    role_scope_values = []
+    role_scope_links: list[tuple[UUID, UUID]] = []
+    preset_role_ids: list[UUID] = []
     missing_scope_count = 0
     for role_id, role_slug in role_result.tuples().all():
         if role_slug is None:
@@ -634,6 +656,7 @@ async def seed_system_roles_for_org(
         role_def = PRESET_ROLE_DEFINITIONS.get(role_slug)
         if role_def is None:
             continue
+        preset_role_ids.append(role_id)
         for scope_name in role_def.scopes:
             scope_id = scope_id_by_name.get(scope_name)
             if scope_id is None:
@@ -644,19 +667,42 @@ async def seed_system_roles_for_org(
                 )
                 missing_scope_count += 1
                 continue
-            role_scope_values.append({"role_id": role_id, "scope_id": scope_id})
+            role_scope_links.append((role_id, scope_id))
 
-    if role_scope_values:
-        role_scope_stmt = pg_insert(RoleScope).values(role_scope_values)
+    if role_scope_links:
+        role_scope_stmt = pg_insert(RoleScope).values(
+            [
+                {"role_id": role_id, "scope_id": scope_id}
+                for role_id, scope_id in role_scope_links
+            ]
+        )
         role_scope_stmt = role_scope_stmt.on_conflict_do_nothing(
             index_elements=["role_id", "scope_id"]
         )
         await session.execute(role_scope_stmt)
 
+    # 4) Remove links the definitions no longer carry. Preset role scopes are
+    # not user-editable, so an extra link is always stale: a scope dropped from
+    # a definition, or one an older app version re-seeded.
+    removed_link_count = 0
+    if preset_role_ids:
+        stale_links_stmt = (
+            delete(RoleScope)
+            .where(RoleScope.role_id.in_(preset_role_ids))
+            .returning(RoleScope.role_id)
+        )
+        if role_scope_links:
+            stale_links_stmt = stale_links_stmt.where(
+                tuple_(RoleScope.role_id, RoleScope.scope_id).not_in(role_scope_links)
+            )
+        result = await session.execute(stale_links_stmt)
+        removed_link_count = len(result.all())
+
     logger.info(
         "System roles seeded for organization",
         organization_id=str(org_id),
-        role_scope_count=len(role_scope_values),
+        role_scope_count=len(role_scope_links),
+        removed_link_count=removed_link_count,
         missing_scope_count=missing_scope_count,
     )
 

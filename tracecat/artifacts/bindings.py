@@ -10,6 +10,7 @@ from typing import Any, Literal, NotRequired, Self, TypedDict, cast
 import orjson
 from pydantic import (
     AliasChoices,
+    AliasPath,
     BaseModel,
     ConfigDict,
     Field,
@@ -54,6 +55,15 @@ class AgentArtifactPayload(TypedDict):
     type: Literal["agent"]
     id: str
     title: str
+
+
+class FormArtifactPayload(TypedDict):
+    """Raw payload used to validate a form artifact."""
+
+    type: Literal["form"]
+    id: str
+    title: str
+    status: NotRequired[Literal["online", "offline"]]
 
 
 class WorkflowArtifactPayload(TypedDict):
@@ -130,6 +140,15 @@ class _AgentPresetToolResult(_ArtifactProjectionModel):
         default=None,
         validation_alias=AliasChoices("name", "title"),
     )
+
+
+class _FormToolResult(_ArtifactProjectionModel):
+    id: str
+    title: str | None = Field(
+        default=None, validation_alias=AliasPath("config", "title")
+    )
+    workflow_title: str | None = None
+    status: Literal["online", "offline"] | None = None
 
 
 class _WorkflowEditDocumentMetadata(_ArtifactProjectionModel):
@@ -292,6 +311,24 @@ def _build_agent_artifacts(ctx: ArtifactProjectionContext) -> Iterable[Artifact]
     return _agent_artifacts_from_output(ctx.tool_output, ctx.tool_call_id)
 
 
+def _build_form_artifact(ctx: ArtifactProjectionContext) -> Artifact | None:
+    data = _mapping_from_tool_output(ctx.tool_output)
+    if data is None or (result := _FormToolResult.try_validate(data)) is None:
+        return None
+
+    payload: FormArtifactPayload = {
+        "type": "form",
+        "id": result.id,
+        "title": result.title or result.workflow_title or result.id,
+    }
+    if result.status is not None:
+        payload["status"] = result.status
+
+    return ArtifactAdapter.validate_python(
+        _with_parent_scope(payload, ctx.tool_call_id)
+    )
+
+
 def _build_workflow_run_artifact(ctx: ArtifactProjectionContext) -> Artifact | None:
     return _run_artifact_from_output(ctx.tool_output, ctx.tool_input, ctx.tool_call_id)
 
@@ -371,6 +408,11 @@ ARTIFACT_BINDINGS: tuple[ArtifactBinding, ...] = (
         op="upsert",
         build=_build_agent_artifacts,
         max_artifacts=MAX_LIST_ARTIFACTS,
+    ),
+    ArtifactBinding(
+        tool_names=("core.forms.get_form", "core.forms.update_form"),
+        op="upsert",
+        build=_build_form_artifact,
     ),
     ArtifactBinding(
         tool_names=("core.workflow.execute", "core.workflow.get_status"),

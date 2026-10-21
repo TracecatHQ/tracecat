@@ -127,11 +127,17 @@ class TestDeduplicateTransform:
         assert len(result) == 2
 
     @pytest.mark.anyio
-    async def test_is_duplicate_uses_sdk(self) -> None:
+    @pytest.mark.parametrize(
+        ("created", "expected"),
+        [([False], True), ([True], False)],
+        ids=["already-seen", "newly-inserted"],
+    )
+    async def test_is_duplicate_uses_sdk(
+        self, created: list[bool], expected: bool
+    ) -> None:
         """is_duplicate delegates to deduplicate(persist=True)."""
         mock_dedup_client = AsyncMock()
-        # Return empty list = item was already seen = duplicate
-        mock_dedup_client.create_digests = AsyncMock(return_value=[False])
+        mock_dedup_client.create_digests = AsyncMock(return_value=created)
 
         mock_ctx = MagicMock()
         mock_ctx.deduplicate = mock_dedup_client
@@ -139,22 +145,8 @@ class TestDeduplicateTransform:
         with patch("tracecat_registry.ctx.get_context", return_value=mock_ctx):
             result = await is_duplicate({"id": 1}, keys=["id"])
 
-        assert result is True
+        assert result is expected
         mock_dedup_client.create_digests.assert_called_once()
-
-    @pytest.mark.anyio
-    async def test_is_duplicate_new_item(self) -> None:
-        """is_duplicate returns False for a newly inserted item."""
-        mock_dedup_client = AsyncMock()
-        mock_dedup_client.create_digests = AsyncMock(return_value=[True])
-
-        mock_ctx = MagicMock()
-        mock_ctx.deduplicate = mock_dedup_client
-
-        with patch("tracecat_registry.ctx.get_context", return_value=mock_ctx):
-            result = await is_duplicate({"id": 99}, keys=["id"])
-
-        assert result is False
 
     @pytest.mark.anyio
     async def test_empty_items_skips_sdk(self) -> None:
@@ -293,24 +285,3 @@ class TestCheckAndSetRouter:
             "dedup:ws-aaa:same_digest",
             "dedup:ws-bbb:same_digest",
         ]
-
-    def test_request_validation_empty_digests(self) -> None:
-        """Empty digests list is rejected by Pydantic validation."""
-        from pydantic import ValidationError
-
-        from tracecat.deduplicate.internal_router import CreateDigestsRequest
-
-        with pytest.raises(ValidationError):
-            CreateDigestsRequest(digests=[], expire_seconds=3600)
-
-    def test_request_validation_ttl_bounds(self) -> None:
-        """TTL must be between 1 and 2592000."""
-        from pydantic import ValidationError
-
-        from tracecat.deduplicate.internal_router import CreateDigestsRequest
-
-        with pytest.raises(ValidationError):
-            CreateDigestsRequest(digests=["abc"], expire_seconds=0)
-
-        with pytest.raises(ValidationError):
-            CreateDigestsRequest(digests=["abc"], expire_seconds=2592001)

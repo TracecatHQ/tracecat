@@ -110,6 +110,13 @@ _RETRYABLE_DB_EXCEPTIONS = (
 )
 _TABLE_ROW_READ_BATCH_SIZE = 5_000
 _TABLE_SYSTEM_COLUMNS = frozenset({"id", "created_at", "updated_at"})
+_UPDATED_AT_COLUMN = "updated_at"
+
+
+def _updated_at_now() -> sa.FunctionElement[Any]:
+    """Timestamp for row writes; later than ``created_at`` within a transaction."""
+    return sa.func.statement_timestamp()
+
 
 DYNAMIC_WORKSPACE_TENANT_COLUMN = "__tc_workspace_id"
 DYNAMIC_WORKSPACE_RLS_POLICY = "rls_policy_dynamic_workspace"
@@ -480,26 +487,69 @@ class BaseTablesService(BaseWorkspaceService):
         return table
 
     async def get_index(self, table: Table) -> list[str]:
-        """Get columns that have unique constraints."""
-        schema_name = self._get_schema_name()
+        """Get columns with supported, immediate unique lookup indexes."""
+        indexes = await self._get_unique_indexes(table)
+        return [column for _, column, immediate in indexes if immediate]
+
+    async def _get_unique_indexes(
+        self, table: Table
+    ) -> Sequence[tuple[str, str, bool]]:
+        """Find plain single-key unique indexes and their enforcement mode.
+
+        Deferrable constraints are retained only to detect conflicting upsert
+        arbiters. PostgreSQL column inference can select them alongside an
+        immediate index, even though ON CONFLICT cannot use them.
+        """
         conn = await self.session.connection()
+        result = await conn.execute(
+            sa.text(
+                """
+                SELECT index_relation.relname, attribute.attname, index.indimmediate
+                FROM pg_catalog.pg_index AS index
+                JOIN pg_catalog.pg_class AS table_relation
+                    ON table_relation.oid = index.indrelid
+                JOIN pg_catalog.pg_namespace AS namespace
+                    ON namespace.oid = table_relation.relnamespace
+                JOIN pg_catalog.pg_class AS index_relation
+                    ON index_relation.oid = index.indexrelid
+                JOIN pg_catalog.pg_attribute AS attribute
+                    ON attribute.attrelid = index.indrelid
+                    AND attribute.attnum = index.indkey[0]
+                WHERE namespace.nspname = :schema_name
+                    AND table_relation.relname = :table_name
+                    AND index.indisunique
+                    AND (NOT index.indisprimary OR NOT index.indimmediate)
+                    AND NOT index.indisexclusion
+                    AND index.indisvalid
+                    AND index.indisready
+                    AND index.indislive
+                    AND index.indnkeyatts = 1
+                    AND (index.indnatts = 1 OR NOT index.indimmediate)
+                    AND index.indexprs IS NULL
+                    AND index.indpred IS NULL
+                ORDER BY index_relation.relname
+                """
+            ),
+            {"schema_name": self._get_schema_name(), "table_name": table.name},
+        )
+        return result.tuples().all()
 
-        def inspect_indexes(
-            sync_conn: sa.Connection,
-        ) -> Sequence[sa.engine.interfaces.ReflectedIndex]:
-            inspector = sa.inspect(sync_conn)
-            indexes = inspector.get_indexes(table.name, schema=schema_name)
-            return indexes
-
-        indexes = await conn.run_sync(inspect_indexes)
-        # Assume only single column indexes
-        index_names = [
-            index["column_names"][0]
-            for index in indexes
-            if len(index["column_names"]) == 1
-            and isinstance(index["column_names"][0], str)
-        ]
-        self.logger.info("Found unique index column", columns=index_names)
+    async def _get_upsert_index(self, table: Table) -> list[str]:
+        """Resolve the supported unique column used by both upsert paths."""
+        indexes = await self._get_unique_indexes(table)
+        index_names = [column for _, column, immediate in indexes if immediate]
+        if not index_names:
+            raise ValueError("Table must have at least one unique index for upsert")
+        if len(index_names) > 1:
+            raise ValueError(
+                "Table cannot have multiple unique indexes. This is an unexpected error. Please contact support."
+            )
+        if any(
+            not immediate and column in index_names for _, column, immediate in indexes
+        ):
+            raise ValueError(
+                "Cannot upsert on a column with a deferrable unique constraint"
+            )
         return index_names
 
     async def get_table_by_name(self, table_name: str) -> Table:
@@ -605,12 +655,44 @@ class BaseTablesService(BaseWorkspaceService):
         self.session.add(table)
         await self.session.flush()
 
-        # Create columns if specified
-        # Call base class method directly to avoid per-column commits
-        for col_params in params.columns:
-            await BaseTablesService.create_column(self, table, col_params)
+        if params.columns:
+            await self._add_initial_columns(conn, table, params.columns)
 
         return table
+
+    async def _add_initial_columns(
+        self,
+        conn: AsyncConnection,
+        table: Table,
+        columns: Sequence[TableColumnCreate],
+    ) -> None:
+        """Add a new table's columns with one ALTER TABLE and one flush.
+
+        The table's own create audit event covers these columns, so they are
+        not audited one by one.
+        """
+        await self.search.for_table(table.id)
+        prepared = [self._prepare_column(table, params) for params in columns]
+        self.session.add_all(column for column, _ in prepared)
+        add_clauses = ", ".join(
+            f"ADD COLUMN {column_def}" for _, column_def in prepared
+        )
+        await conn.execute(
+            sa.DDL(
+                "ALTER TABLE %s %s", (self._full_table_name(table.name), add_clauses)
+            )
+        )
+        await self.session.flush()
+
+        index_columns = [
+            column.name
+            for (column, _), params in zip(prepared, columns, strict=True)
+            if params.is_index
+        ]
+        if index_columns:
+            await self.session.refresh(table, ["columns"])
+        for column_name in index_columns:
+            await self.create_unique_index(table, column_name)
 
     @audit_log(resource_type="table", action="update")
     async def update_table(self, table: Table, params: TableUpdate) -> Table:
@@ -702,12 +784,39 @@ class BaseTablesService(BaseWorkspaceService):
         Raises:
             ValueError: If the column type is invalid
         """
+        column, column_def_str = self._prepare_column(table, params)
+        await self.search.for_table(table.id)
+        self.session.add(column)
+
+        # Add the column to the physical table
+        conn = await self.session.connection()
+        await conn.execute(
+            sa.DDL(
+                "ALTER TABLE %s ADD COLUMN %s",
+                (self._full_table_name(table.name), column_def_str),
+            )
+        )
+
+        await self.session.flush()
+        if params.is_index:
+            await self.session.refresh(table, ["columns"])
+            await self.create_unique_index(table, column.name)
+        return column
+
+    def _prepare_column(
+        self, table: Table, params: TableColumnCreate
+    ) -> tuple[TableColumn, str]:
+        """Validate a new column and build its metadata row and DDL definition.
+
+        Returns:
+            The unsaved column metadata row and its ``ADD COLUMN`` definition.
+
+        Raises:
+            ValueError: If the column name or type is invalid
+        """
         self._assert_user_column_name_allowed(params.name)
         column_name = validate_identifier(params.name)
-        await self.search.for_table(table.id)
-        full_table_name = self._full_table_name(table.name)
 
-        # Validate SQL type first
         if not is_valid_sql_type(params.type):
             raise ValueError(f"Invalid type: {params.type}")
         sql_type = SqlType(params.type)
@@ -720,7 +829,6 @@ class BaseTablesService(BaseWorkspaceService):
             default_value, rendered_default = prepare_default_value(
                 sql_type, default_value
             )
-        # Create the column metadata first
         column = TableColumn(
             table_id=table.id,
             name=column_name,
@@ -729,9 +837,7 @@ class BaseTablesService(BaseWorkspaceService):
             default=default_value,
             options=normalized_options,
         )
-        self.session.add(column)
 
-        # Build the column definition string
         # Map SELECT -> TEXT, MULTI_SELECT -> JSONB for physical storage
         if sql_type is SqlType.SELECT:
             column_type_sql = SqlType.TEXT.value
@@ -747,23 +853,7 @@ class BaseTablesService(BaseWorkspaceService):
             column_def.append("NOT NULL")
         if rendered_default is not None:
             column_def.append(f"DEFAULT {rendered_default}")
-
-        column_def_str = " ".join(column_def)
-
-        # Add the column to the physical table
-        conn = await self.session.connection()
-        await conn.execute(
-            sa.DDL(
-                "ALTER TABLE %s ADD COLUMN %s",
-                (full_table_name, column_def_str),
-            )
-        )
-
-        await self.session.flush()
-        if params.is_index:
-            await self.session.refresh(table, ["columns"])
-            await self.create_unique_index(table, column_name)
-        return column
+        return column, " ".join(column_def)
 
     @audit_log(resource_type="table_column", action="update")
     async def update_column(
@@ -964,27 +1054,23 @@ class BaseTablesService(BaseWorkspaceService):
         resolved_column_name = self._resolve_external_column_name(table, column_name)
         sanitized_column = self._sanitize_identifier(resolved_column_name)
 
-        conn = await self.session.connection()
-
-        def find_index_name(sync_conn: sa.Connection) -> str | None:
-            inspector = sa.inspect(sync_conn)
-            for idx in inspector.get_indexes(table.name, schema=schema_name):
-                cols = idx["column_names"]
-                if (
-                    idx.get("unique") is True
-                    and len(cols) == 1
-                    and isinstance(cols[0], str)
-                    and cols[0] == sanitized_column
-                ):
-                    return idx.get("name")
-            return None
-
-        index_name = await conn.run_sync(find_index_name)
+        indexes = await self._get_unique_indexes(table)
+        index_name = next(
+            (
+                name
+                for name, column, immediate in indexes
+                if immediate and column == sanitized_column
+            ),
+            None,
+        )
         if index_name is None:
             raise ValueError(f"No unique index exists on column '{column_name}'")
 
-        qualified_index = f'"{schema_name}"."{index_name}"'
+        qualified_index = (
+            f"{quote_identifier(schema_name)}.{quote_identifier(index_name)}"
+        )
 
+        conn = await self.session.connection()
         await conn.execute(sa.DDL("DROP INDEX %s", (qualified_index,)))
 
         await self.session.flush()
@@ -1109,28 +1195,24 @@ class BaseTablesService(BaseWorkspaceService):
             )
         else:
             # For upsert operations
-            table_obj = sa.table(sanitized_table_name, *cols, schema=schema_name)
+            table_obj = sa.table(
+                sanitized_table_name,
+                *cols,
+                sa.column(_UPDATED_AT_COLUMN),
+                schema=schema_name,
+            )
             pg_stmt = insert(table_obj)
             pg_stmt = pg_stmt.values(**value_clauses)
 
             # Get columns with unique constraints for conflict resolution
-            index = await self.get_index(table)
-
-            # Check if we have any unique columns to use for conflict resolution
-            if not index:
-                raise ValueError("Table must have at least one unique index for upsert")
-
-            if len(index) > 1:
-                raise ValueError(
-                    "Table cannot have multiple unique indexes. This is an unexpected error. Please contact support."
-                )
+            index = await self._get_upsert_index(table)
 
             # Ensure all conflict keys are actually in the data
             if not all(key in value_clauses for key in index):
                 raise ValueError("Data to upsert must contain the unique index column")
 
             # Define what gets updated on conflict
-            update_dict = {
+            update_dict: dict[str, sa.ColumnElement[Any]] = {
                 col: pg_stmt.excluded[col]
                 for col in value_clauses.keys()
                 if col not in index  # Don't update the unique columns
@@ -1144,6 +1226,8 @@ class BaseTablesService(BaseWorkspaceService):
             needs_indexing = existed is None or bool(
                 self.search.selected_names(collection, table).intersection(update_dict)
             )
+            if update_dict:
+                update_dict[_UPDATED_AT_COLUMN] = _updated_at_now()
             stmt = pg_stmt.on_conflict_do_update(
                 index_elements=index, set_=update_dict
             ).returning(*self._visible_columns(table))
@@ -1197,9 +1281,16 @@ class BaseTablesService(BaseWorkspaceService):
             )
 
         stmt = (
-            sa.update(sa.table(sanitized_table_name, *cols, schema=schema_name))
+            sa.update(
+                sa.table(
+                    sanitized_table_name,
+                    *cols,
+                    sa.column(_UPDATED_AT_COLUMN),
+                    schema=schema_name,
+                )
+            )
             .where(sa.column("id") == row_id)
-            .values(**value_clauses)
+            .values(**value_clauses, **{_UPDATED_AT_COLUMN: _updated_at_now()})
             .returning(*self._visible_columns(table))
         )
 
@@ -1286,9 +1377,16 @@ class BaseTablesService(BaseWorkspaceService):
             )
 
         stmt = (
-            sa.update(sa.table(sanitized_table_name, *cols, schema=schema_name))
+            sa.update(
+                sa.table(
+                    sanitized_table_name,
+                    *cols,
+                    sa.column(_UPDATED_AT_COLUMN),
+                    schema=schema_name,
+                )
+            )
             .where(sa.column("id").in_(row_ids))
-            .values(**value_clauses)
+            .values(**value_clauses, **{_UPDATED_AT_COLUMN: _updated_at_now()})
         )
 
         changed_ids = (
@@ -1826,14 +1924,7 @@ class BaseTablesService(BaseWorkspaceService):
         # If we need upsert behaviour, fetch the unique index once.
         index: list[str] | None = None
         if upsert:
-            index = await self.get_index(table)
-
-            if not index:
-                raise ValueError("Table must have at least one unique index for upsert")
-            if len(index) > 1:
-                raise ValueError(
-                    "Table cannot have multiple unique indexes. This is an unexpected error. Please contact support."
-                )
+            index = await self._get_upsert_index(table)
 
         # Iterate over groups and execute separate INSERT/UPSERT statements.
         for col_set, group_rows in rows_by_columns.items():
@@ -1845,6 +1936,8 @@ class BaseTablesService(BaseWorkspaceService):
                 )
                 for col in col_set
             ]
+            if upsert:
+                cols.append(sa.column(_UPDATED_AT_COLUMN))
             table_obj = sa.table(sanitized_table_name, *cols, schema=schema_name)
 
             if not upsert:
@@ -1884,6 +1977,7 @@ class BaseTablesService(BaseWorkspaceService):
                     )
 
                 if update_dict:
+                    update_dict[table_obj.c[_UPDATED_AT_COLUMN]] = _updated_at_now()
                     stmt = pg_stmt.on_conflict_do_update(
                         index_elements=index,
                         set_=update_dict,
@@ -2395,8 +2489,21 @@ class TableEditorService(BaseWorkspaceService):
                     )
                 )
             else:
+                if "type" in set_fields:
+                    default_type = SqlType(set_fields["type"])
+                else:
+                    physical_column = next(
+                        (c for c in await self.get_columns() if c["name"] == new_name),
+                        None,
+                    )
+                    default_type = (
+                        SqlType.JSONB
+                        if physical_column is not None
+                        and isinstance(physical_column["type"], sa.JSON)
+                        else SqlType.TEXT
+                    )
                 normalized_default, formatted_default = prepare_default_value(
-                    SqlType(set_fields.get("type", "TEXT")), updated_default
+                    default_type, updated_default
                 )
                 set_fields["default"] = normalized_default
                 await conn.execute(
@@ -2612,10 +2719,14 @@ class TableEditorService(BaseWorkspaceService):
                 column_name, coerced_value, type_=column_type
             )
 
+        update_values: dict[str, Any] = dict(value_clauses)
+        if _UPDATED_AT_COLUMN in col_map and _UPDATED_AT_COLUMN not in update_values:
+            cols.append(sa.column(_UPDATED_AT_COLUMN))
+            update_values[_UPDATED_AT_COLUMN] = _updated_at_now()
         stmt = (
             sa.update(sa.table(self.table_name, *cols, schema=self.schema_name))
             .where(sa.column("id") == row_id)
-            .values(**value_clauses)
+            .values(**update_values)
             .returning(*visible_columns)
         )
 

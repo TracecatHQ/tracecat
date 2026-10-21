@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
-from inspect import signature
 from typing import Literal
 from unittest.mock import Mock, patch
 
@@ -31,7 +30,6 @@ from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
     RuntimeErrorKind,
-    RuntimeErrorOwner,
     TracecatRuntimeError,
 )
 from tracecat.storage.object import InlineObject
@@ -393,14 +391,6 @@ def test_temporal_retryability_is_derived_from_classification(
     error = _capture_application_error(classification)
 
     assert error.non_retryable is expected_non_retryable
-    assert (
-        "non_retryable"
-        not in signature(raise_application_error_from_classification).parameters
-    )
-    assert (
-        "error_type"
-        not in signature(raise_application_error_from_classification).parameters
-    )
     assert error.type == classification.kind.value
 
 
@@ -987,10 +977,3 @@ def test_exception_chain_preserves_runtime_classification() -> None:
         raise RuntimeError("Outer wrapper") from classified
     except RuntimeError as error:
         assert extract_error_classification(error) == classification
-
-
-def test_error_owners_remain_attribution_only() -> None:
-    assert set(RuntimeErrorOwner) == {
-        RuntimeErrorOwner.USER,
-        RuntimeErrorOwner.PLATFORM,
-    }

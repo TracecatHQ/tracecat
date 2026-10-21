@@ -103,6 +103,12 @@
   },
   "overrides": [
     {
+      "includes": ["src/client/**"],
+      "files": {
+        "maxSize": 4194304
+      }
+    },
+    {
       "includes": ["*.ts", "*.tsx"]
     },
     {

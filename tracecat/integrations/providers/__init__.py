@@ -62,6 +62,9 @@ from tracecat.integrations.providers.microsoft import (
 from tracecat.integrations.providers.notion.mcp import NotionMCPProvider
 from tracecat.integrations.providers.paloalto.oauth import PaloAltoSCMOAuthProvider
 from tracecat.integrations.providers.perplexity.mcp import PerplexityMCPProvider
+from tracecat.integrations.providers.proofpoint.oauth import (
+    ProofpointThreatProtectionOAuthProvider,
+)
 from tracecat.integrations.providers.runreveal.mcp import RunRevealMCPProvider
 from tracecat.integrations.providers.secureannex.mcp import SecureAnnexMCPProvider
 from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
@@ -102,6 +105,7 @@ _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     GoogleSlidesCCProvider,
     JamfOAuthProvider,
     PaloAltoSCMOAuthProvider,
+    ProofpointThreatProtectionOAuthProvider,
     JiraMCPProvider,
     LinearMCPProvider,
     NotionMCPProvider,

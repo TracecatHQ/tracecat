@@ -18,9 +18,11 @@ from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.backends.registry import find_agent_backend
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.chat.enums import MessageKind
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import (
     AgentSession,
+    AgentSessionHistory,
     Approval,
     CaseAgentSessionInteraction,
     User,
@@ -130,9 +132,8 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 statuses[session.id] = RunStatus.ERROR
             elif session.curr_run_id is not None:
                 to_describe.append(session)
-            # No error and no current run: legacy/clean session. Leave unset so
-            # callers fall back to approval signals (rejected -> error, else
-            # completed).
+            # No error and no current run: legacy/clean session. Leave unset;
+            # callers treat it as completed.
 
         if not to_describe:
             return statuses
@@ -493,6 +494,55 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             if session_id is not None
         }
 
+    async def _fetch_cancelled_session_ids(
+        self,
+        session_ids: Sequence[uuid.UUID],
+    ) -> set[uuid.UUID]:
+        """Return the sessions whose latest turn the user stopped.
+
+        Turns are not serialized, so a stopped run can save its cancelled marker
+        after the next run's rows, and a run stopped before it wrote anything
+        saves only its marker. The latest turn is the run whose first row is the
+        latest, and it was stopped if that run has a marker.
+        """
+        if not session_ids:
+            return set()
+
+        history_filter = and_(
+            AgentSessionHistory.workspace_id == self.workspace_id,
+            AgentSessionHistory.session_id.in_(list(session_ids)),
+        )
+        run_starts = (
+            select(
+                AgentSessionHistory.session_id,
+                AgentSessionHistory.curr_run_id,
+                func.min(AgentSessionHistory.surrogate_id).label("first_row_id"),
+            )
+            .where(history_filter, AgentSessionHistory.curr_run_id.is_not(None))
+            .group_by(AgentSessionHistory.session_id, AgentSessionHistory.curr_run_id)
+            .subquery()
+        )
+        latest_start_ids = select(func.max(run_starts.c.first_row_id)).group_by(
+            run_starts.c.session_id
+        )
+        latest_runs = (
+            select(run_starts.c.session_id, run_starts.c.curr_run_id)
+            .where(run_starts.c.first_row_id.in_(latest_start_ids))
+            .subquery()
+        )
+        result = await self.session.execute(
+            select(AgentSessionHistory.session_id).join(
+                latest_runs,
+                and_(
+                    AgentSessionHistory.session_id == latest_runs.c.session_id,
+                    AgentSessionHistory.curr_run_id == latest_runs.c.curr_run_id,
+                    history_filter,
+                    AgentSessionHistory.kind == MessageKind.CANCELLED.value,
+                ),
+            )
+        )
+        return set(result.scalars().all())
+
     async def _classify_sessions_for_group(
         self,
         sessions: Sequence[AgentSession],
@@ -512,9 +562,6 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         session_ids = [s.id for s in sessions]
         pending_counts = await self._fetch_approval_counts(
             session_ids, ApprovalStatus.PENDING
-        )
-        rejected_counts = await self._fetch_approval_counts(
-            session_ids, ApprovalStatus.REJECTED
         )
 
         if group is InboxGroup.REVIEW_REQUIRED:
@@ -539,9 +586,9 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 classifications[s.id] = InboxGroup.RUNNING
             elif run_status is RunStatus.ERROR:
                 classifications[s.id] = InboxGroup.ERROR
-            elif rejected_counts.get(s.id, 0) > 0:
-                classifications[s.id] = InboxGroup.ERROR
             else:
+                # A denied or cancelled approval is the user's decision, not a
+                # failure, so it never makes the run an error.
                 classifications[s.id] = InboxGroup.COMPLETED
         return classifications
 
@@ -612,22 +659,13 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             )
         elif group is InboxGroup.ERROR:
             # Necessary (not sufficient) condition: a session lands in ERROR from
-            # a persisted error, a current run that reconciles to dead, or a
-            # rejected approval. Pre-filter to those so the scan skips the
-            # (common) clean-completed rows.
-            rejected_exists = (
-                select(Approval.id)
-                .where(
-                    Approval.session_id == AgentSession.id,
-                    Approval.status == ApprovalStatus.REJECTED,
-                )
-                .exists()
-            )
+            # a persisted error or a current run that reconciles to dead.
+            # Pre-filter to those so the scan skips the (common) clean-completed
+            # rows.
             base_stmt = base_stmt.where(
                 or_(
                     AgentSession.last_error.is_not(None),
                     AgentSession.curr_run_id.is_not(None),
-                    rejected_exists,
                 )
             )
 
@@ -794,6 +832,9 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         workflow_ids = {s.entity_id for s in sessions if s.entity_id}
         workflows_by_id: dict[uuid.UUID, Workflow] = {}
         run_statuses = await self._resolve_live_statuses(sessions)
+        cancelled_session_ids = await self._fetch_cancelled_session_ids(
+            approval_session_ids
+        )
 
         if workflow_ids:
             workflow_stmt = select(Workflow).where(
@@ -823,21 +864,25 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             pending_count = sum(
                 1 for a in session_approvals if a.status == ApprovalStatus.PENDING
             )
-            failed_count = sum(
-                1 for a in session_approvals if a.status == ApprovalStatus.REJECTED
-            )
             run_status = run_statuses.get(session.id)
             # Surface a Temporal-style status name the frontend's existing
             # mapping understands. This is derived from the persisted run
             # outcome, not a live describe of a stale execution.
             temporal_status_name = _RUN_STATUS_TO_TEMPORAL_NAME.get(run_status)
             last_error = session.last_error
+            # Only a finished latest turn can read as cancelled.
+            cancelled = (
+                run_status not in (RunStatus.RUNNING, RunStatus.ERROR)
+                and session.id in cancelled_session_ids
+            )
+            if cancelled:
+                temporal_status_name = WorkflowExecutionStatus.CANCELED.name
 
+            # Denied approvals are the user's decision, not a failure, so only a
+            # pending approval or the latest run's own outcome sets the status.
             if pending_count > 0:
                 status = InboxItemStatus.PENDING
             elif run_status is RunStatus.ERROR:
-                status = InboxItemStatus.FAILED
-            elif failed_count > 0:
                 status = InboxItemStatus.FAILED
             else:
                 status = InboxItemStatus.COMPLETED
@@ -851,8 +896,8 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 # Prefer the persisted error summary so the list row hints at why
                 # without opening the run; fall back to a generic label.
                 preview = last_error or "Execution failed"
-            elif failed_count > 0:
-                preview = f"{failed_count} rejected"
+            elif cancelled:
+                preview = "Execution cancelled"
             elif run_status is None and not session_approvals:
                 preview = "Agent session"
             else:

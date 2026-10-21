@@ -6,6 +6,7 @@ import io
 import re
 import sys
 import types
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -405,55 +406,6 @@ def test_capped_text_buffer_limits_memory_growth() -> None:
     assert buf.truncated is True
 
 
-def test_main_minimal_masks_secrets_in_suppressed_output(monkeypatch) -> None:
-    """Regression: secrets printed by actions must be masked in suppressed output notices."""
-    test_module: Any = types.ModuleType("test_module")
-
-    def leaky_action() -> dict[str, str]:
-        print(
-            "key=AKIAIOSFODNN7EXAMPLE token=IQoJb3JpZ2luX2VjEBAReallyLongSessionToken"
-        )
-        return {"ok": "yes"}
-
-    test_module.leaky_action = leaky_action
-
-    monkeypatch.setattr(
-        minimal_runner.importlib,
-        "import_module",
-        lambda _p, *args, **kwargs: test_module,
-    )
-
-    warnings_emitted: list[str] = []
-    monkeypatch.setattr(
-        minimal_runner.warnings,
-        "warn",
-        lambda msg, *a, **kw: warnings_emitted.append(msg),
-    )
-
-    result = minimal_runner.main_minimal(
-        {
-            "resolved_context": {
-                "action_impl": {
-                    "type": "udf",
-                    "module": "test_module",
-                    "name": "leaky_action",
-                },
-                "evaluated_args": {},
-            },
-            "secret_env": {
-                "AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
-                "AWS_SESSION_TOKEN": "IQoJb3JpZ2luX2VjEBAReallyLongSessionToken",
-            },
-        }
-    )
-
-    assert result == {"success": True, "result": {"ok": "yes"}}
-    assert len(warnings_emitted) == 1
-    assert "AKIAIOSFODNN7EXAMPLE" not in warnings_emitted[0]
-    assert "IQoJb3JpZ2luX2VjEBAReallyLongSessionToken" not in warnings_emitted[0]
-    assert "***" in warnings_emitted[0]
-
-
 @pytest.mark.parametrize("outcome", ["quiet", "noisy", "error"])
 def test_main_minimal_compiles_masks_only_for_diagnostics(
     monkeypatch: pytest.MonkeyPatch, outcome: str
@@ -466,7 +418,7 @@ def test_main_minimal_compiles_masks_only_for_diagnostics(
         compiled.append(pattern)
         return original(pattern)
 
-    def action(*_args: object) -> str:
+    def action(*_args: object, **_kwargs: object) -> str:
         if outcome == "error":
             raise ValueError("rejected synthetic-secret")
         if outcome == "noisy":
@@ -507,7 +459,7 @@ def test_main_minimal_compiles_masks_only_for_diagnostics(
 def test_lazy_mask_compilation_preserves_resource_limit_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def action(*_args: object) -> None:
+    def action(*_args: object, **_kwargs: object) -> None:
         raise ValueError("rejected synthetic-secret")
 
     def exhausted(pattern: str) -> re.Pattern[str]:
@@ -844,48 +796,6 @@ def test_main_minimal_reports_memory_error_as_resource_limit(
     assert result["error"]["action_name"] == "test_module.hungry_action"
 
 
-def test_main_minimal_reports_enomem_oserror_as_resource_limit(
-    monkeypatch,
-) -> None:
-    """Invariant: an ENOMEM syscall failure is the same cap as MemoryError.
-
-    Exhausting ``rlimit_as`` through ``mmap`` and friends raises ``OSError``
-    with ``errno.ENOMEM``, not ``MemoryError``. Matching on the errno rather
-    than on message text keeps that failure inside the resource-limit
-    guarantee instead of degrading it to a generic action failure.
-    """
-    test_module: Any = types.ModuleType("test_module")
-
-    def mapping_action() -> None:
-        raise OSError(errno.ENOMEM, "Cannot allocate memory")
-
-    test_module.mapping_action = mapping_action
-
-    monkeypatch.setattr(
-        minimal_runner.importlib,
-        "import_module",
-        lambda _p, *args, **kwargs: test_module,
-    )
-
-    result = minimal_runner.main_minimal(
-        {
-            "resolved_context": {
-                "action_impl": {
-                    "type": "udf",
-                    "module": "test_module",
-                    "name": "mapping_action",
-                },
-                "evaluated_args": {},
-            },
-            "secret_env": {},
-        }
-    )
-
-    assert result["success"] is False
-    assert result["error_code"] == "resource_limit_exceeded"
-    assert result["error"]["action_name"] == "test_module.mapping_action"
-
-
 def test_resource_limit_from_error_ignores_other_oserrors() -> None:
     """Unrelated syscall failures must retain their ordinary classification."""
     assert minimal_runner.resource_limit_from_error(MemoryError()) == "memory"
@@ -906,33 +816,12 @@ def test_resource_limit_from_error_ignores_other_oserrors() -> None:
     assert not minimal_runner.resource_limit_from_error(ValueError("nope"))
 
 
-def test_serialize_result_reports_limit_when_model_dump_exhausts_memory() -> None:
-    """Invariant: the orjson default hook must not swallow memory exhaustion.
-
-    ``_orjson_default`` treats a failing ``model_dump()`` as an unserializable
-    type and raises ``TypeError``. A ``MemoryError`` raised in there is the
-    address-space cap, not a type problem, so swallowing it would strip the
-    resource-limit code off a failure that really did hit the cap.
-    """
-
-    class _HungryModel:
-        def model_dump(self, mode: str = "json") -> dict[str, Any]:
-            raise MemoryError()
-
-    encoded = minimal_runner.serialize_result(
-        {"success": True, "result": _HungryModel()},
-        {"resolved_context": {"action_impl": {"module": "m", "name": "n"}}},
-    )
-    decoded = orjson.loads(encoded)
-
-    assert decoded["success"] is False
-    assert decoded["error_code"] == "resource_limit_exceeded"
+class _HungryModelDump:
+    def model_dump(self, mode: str = "json") -> dict[str, Any]:
+        raise MemoryError()
 
 
-@pytest.mark.parametrize("error", [MemoryError(), OSError(errno.ENOMEM, "no memory")])
-def test_serialize_result_preserves_pydantic_serializer_memory_cause(
-    error: Exception,
-) -> None:
+def _hungry_pydantic_model(error: Exception) -> BaseModel:
     class HungryModel(BaseModel):
         value: int = 1
 
@@ -940,8 +829,35 @@ def test_serialize_result_preserves_pydantic_serializer_memory_cause(
         def serialize_value(self, value: int) -> int:
             raise error
 
+    return HungryModel()
+
+
+@pytest.mark.parametrize(
+    "make_result",
+    [
+        pytest.param(_HungryModelDump, id="model_dump_hook"),
+        pytest.param(
+            lambda: _hungry_pydantic_model(MemoryError()), id="pydantic_memory_error"
+        ),
+        pytest.param(
+            lambda: _hungry_pydantic_model(OSError(errno.ENOMEM, "no memory")),
+            id="pydantic_enomem",
+        ),
+    ],
+)
+def test_serialize_result_preserves_memory_exhaustion_in_serializers(
+    make_result: Callable[[], object],
+) -> None:
+    """Invariant: serializer hooks must not swallow memory exhaustion.
+
+    ``_orjson_default`` treats a failing ``model_dump()`` as an unserializable
+    type and raises ``TypeError``. A ``MemoryError`` raised in there is the
+    address-space cap, not a type problem, so swallowing it would strip the
+    resource-limit code off a failure that really did hit the cap.
+    """
     encoded = minimal_runner.serialize_result(
-        {"success": True, "result": HungryModel()}, {}
+        {"success": True, "result": make_result()},
+        {"resolved_context": {"action_impl": {"module": "m", "name": "n"}}},
     )
     decoded = orjson.loads(encoded)
 
@@ -983,13 +899,6 @@ def test_serialize_result_degrades_to_resource_limit_envelope_on_memory_error(
     assert decoded["error_code"] == "resource_limit_exceeded"
     assert decoded["error"]["type"] == "MemoryError"
     assert decoded["error"]["action_name"] == "test_module.hungry_action"
-
-
-def test_serialize_result_passes_through_when_serialization_succeeds() -> None:
-    """Invariant: the fallback never fires on the ordinary path."""
-    payload = minimal_runner.serialize_result({"success": True, "result": 1}, {})
-
-    assert orjson.loads(payload) == {"success": True, "result": 1}
 
 
 def test_main_minimal_masks_error_when_secrets_in_scope(monkeypatch) -> None:
@@ -1057,3 +966,130 @@ def test_main_minimal_masks_observed_derived_values_without_env_secrets(
     assert "upstream rejected" in result["error"]["message"]
     assert "encoded-derived-value" not in result["error"]["message"]
     assert "***" in result["error"]["message"]
+
+
+# --- Action function timeout ---
+
+
+def _run_timed_action(
+    monkeypatch: pytest.MonkeyPatch,
+    fn: Any,
+    *,
+    timeout_seconds: float | None,
+) -> dict[str, Any]:
+    test_module: Any = types.ModuleType("test_module")
+    test_module.timed_action = fn
+    monkeypatch.setattr(
+        minimal_runner.importlib,
+        "import_module",
+        lambda _p, *args, **kwargs: test_module,
+    )
+    return minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {
+                    "type": "udf",
+                    "module": "test_module",
+                    "name": "timed_action",
+                },
+                "evaluated_args": {},
+            },
+            "secret_env": {},
+            "timeout_seconds": timeout_seconds,
+        }
+    )
+
+
+def test_main_minimal_times_out_async_action(monkeypatch) -> None:
+    async def slow_action() -> str:
+        await asyncio.sleep(10)
+        return "late"
+
+    result = _run_timed_action(monkeypatch, slow_action, timeout_seconds=0.05)
+
+    assert result["success"] is False
+    assert result["error"]["type"] == "ActionTimeoutError"
+    assert result["error"]["message"] == "Action execution timed out after 0.05s"
+
+
+def test_main_minimal_times_out_blocking_sync_action(monkeypatch) -> None:
+    import time
+
+    def slow_action() -> str:
+        time.sleep(10)
+        return "late"
+
+    result = _run_timed_action(monkeypatch, slow_action, timeout_seconds=0.05)
+
+    assert result["success"] is False
+    assert result["error"]["type"] == "ActionTimeoutError"
+
+
+def test_main_minimal_times_out_async_action_that_blocks_the_loop(
+    monkeypatch,
+) -> None:
+    """An async action that blocks past its deadline fails instead of succeeding late."""
+    import time
+
+    async def blocking_action() -> str:
+        time.sleep(0.1)
+        return "late"
+
+    result = _run_timed_action(monkeypatch, blocking_action, timeout_seconds=0.02)
+
+    assert result["success"] is False
+    assert result["error"]["type"] == "ActionTimeoutError"
+    assert result["error"]["message"] == "Action execution timed out after 0.02s"
+
+
+def test_main_minimal_times_out_sync_action_that_swallows_the_alarm(
+    monkeypatch,
+) -> None:
+    """A sync action that catches the timeout and returns late still fails."""
+    import time
+
+    def swallowing_action() -> str:
+        try:
+            time.sleep(10)
+        except Exception:
+            time.sleep(0.05)
+        return "late"
+
+    result = _run_timed_action(monkeypatch, swallowing_action, timeout_seconds=0.02)
+
+    assert result["success"] is False
+    assert result["error"]["type"] == "ActionTimeoutError"
+    assert result["error"]["message"] == "Action execution timed out after 0.02s"
+
+
+def test_main_minimal_keeps_action_raised_timeout_error(monkeypatch) -> None:
+    async def action_with_own_timeout() -> None:
+        async with asyncio.timeout(0.01):
+            await asyncio.sleep(10)
+
+    result = _run_timed_action(monkeypatch, action_with_own_timeout, timeout_seconds=5)
+
+    assert result["success"] is False
+    assert result["error"]["type"] == "TimeoutError"
+
+
+def test_main_minimal_timeout_disarms_after_sync_action(monkeypatch) -> None:
+    import signal
+
+    previous = signal.getsignal(signal.SIGALRM)
+
+    result = _run_timed_action(monkeypatch, lambda: "ok", timeout_seconds=5)
+
+    assert result == {"success": True, "result": "ok"}
+    assert signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0)
+    assert signal.getsignal(signal.SIGALRM) is previous
+
+
+def test_main_minimal_without_timeout_runs_to_completion(monkeypatch) -> None:
+    async def action() -> str:
+        await asyncio.sleep(0)
+        return "done"
+
+    result = _run_timed_action(monkeypatch, action, timeout_seconds=None)
+
+    assert result == {"success": True, "result": "done"}

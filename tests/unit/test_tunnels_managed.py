@@ -81,9 +81,6 @@ class FakePangolinAPI:
         self.calls.append(("create_resource", (destination, tcp_ports, client_id)))
         return resource_id
 
-    async def resource_client_ids(self, resource_id: int) -> set[int]:
-        return self.grants.get(resource_id, set())
-
     async def delete_resource(self, resource_id: int) -> None:
         self.calls.append(("delete_resource", resource_id))
 
@@ -150,11 +147,10 @@ class TestPangolinAPI:
                 client_id=client.client_id,
                 alias="splunk-corp-example.0123456789abcdef.tunnel.internal",
             )
-            granted = await api.resource_client_ids(resource_id)
 
         assert site == PangolinSite(2, PangolinCredentials("n1", "s1"))
         assert client == PangolinClient(3, PangolinCredentials("o1", "s2"))
-        assert granted == {3}
+        assert resource_id == 4
         resource_body = json.loads(requests[4].content)
         assert resource_body == {
             "name": "r",
@@ -213,9 +209,9 @@ class TestManagedTunnels:
         )
         monkeypatch.setattr(service_module, "PangolinAPI", FakePangolinAPI)
         monkeypatch.setattr(
-            PangolinSettings,
-            "from_config",
-            classmethod(lambda cls: SETTINGS),
+            service_module,
+            "resolve_pangolin_settings",
+            AsyncMock(return_value=SETTINGS),
         )
         FakePangolinAPI.instances = []
         FakePangolinAPI.fail_on_resource = None
@@ -294,9 +290,7 @@ class TestManagedTunnels:
         self, service: TunnelsService, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            PangolinSettings,
-            "from_config",
-            classmethod(lambda cls: None),
+            service_module, "resolve_pangolin_settings", AsyncMock(return_value=None)
         )
         with pytest.raises(TracecatValidationError, match="not configured"):
             await service.create_managed_tunnel(_params())
@@ -332,18 +326,23 @@ class TestManagedTunnels:
         )
         assert renamed.description == "Splunk"
 
-    async def test_status_and_isolation(self, service: TunnelsService) -> None:
+    async def test_status(self, service: TunnelsService) -> None:
         created = await service.create_managed_tunnel(_params())
         tunnel = await service.get_tunnel(created.tunnel.id)
 
         status = await service.get_tunnel_status(tunnel)
         assert status.site_online is True
-        assert await service.find_isolation_violations(tunnel) == []
+        # Gateways are not run by Tracecat with the default backend.
+        assert status.gateway_ready is None
 
-        FakePangolinAPI.grants[100] = {11, 99}
-        assert await service.find_isolation_violations(tunnel) == [
-            "splunk.corp.example"
-        ]
+    async def test_managed_tunnel_gets_gateway_key(
+        self, service: TunnelsService
+    ) -> None:
+        created = await service.create_managed_tunnel(_params())
+        tunnel = await service.get_tunnel(created.tunnel.id)
+
+        assert tunnel.encrypted_gateway_key is not None
+        assert await service.get_gateway_key(tunnel)
 
     async def test_cross_workspace_status_is_not_found(
         self, service: TunnelsService, other_service: TunnelsService

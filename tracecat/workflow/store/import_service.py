@@ -11,9 +11,17 @@ from sqlalchemy import select
 from tracecat.db.models import Webhook, Workflow, WorkflowTag, WorkflowTagLink
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
-from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    RegistryError,
+    RegistryLockActionNotFoundError,
+    TracecatAuthorizationError,
+)
+from tracecat.forms.enums import FormStatus
+from tracecat.forms.service import FormsService
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
+from tracecat.registry.lock.service import RegistryLockService
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic, PullResult
 from tracecat.workflow.case_triggers.schemas import (
@@ -28,11 +36,31 @@ from tracecat.workflow.schedules.schemas import ScheduleCreate
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workflow.store.schemas import (
     RemoteCaseTrigger,
+    RemoteForm,
     RemoteWebhook,
     RemoteWorkflowDefinition,
     RemoteWorkflowSchedule,
     RemoteWorkflowTag,
 )
+
+
+class WorkflowImportError(Exception):
+    """A single workflow failed to import.
+
+    Carries which workflow failed so a caller that rolls back the whole batch
+    can name it. The message is the underlying error's.
+    """
+
+    def __init__(
+        self,
+        cause: Exception,
+        *,
+        workflow_id: WorkflowUUID,
+        workflow_title: str,
+    ) -> None:
+        super().__init__(str(cause))
+        self.workflow_id = workflow_id
+        self.workflow_title = workflow_title
 
 
 class WorkflowImportService(BaseWorkspaceService):
@@ -143,6 +171,8 @@ class WorkflowImportService(BaseWorkspaceService):
             )
             diagnostics.extend(workflow_diagnostics)
 
+        diagnostics.extend(await self._validate_registry_actions(remote_workflows))
+
         # Cross-workflow integrity: validate alias references in child workflow actions
         cross_diagnostics = await self._validate_cross_workflow_integrity(
             remote_workflows
@@ -160,10 +190,17 @@ class WorkflowImportService(BaseWorkspaceService):
         """Import workflows without committing the active transaction."""
         await self._release_changing_workflow_aliases(remote_workflows)
         for remote_workflow in remote_workflows:
-            await self._import_single_workflow(
-                remote_workflow,
-                sync_schedules=sync_schedules,
-            )
+            try:
+                await self._import_single_workflow(
+                    remote_workflow,
+                    sync_schedules=sync_schedules,
+                )
+            except Exception as e:
+                raise WorkflowImportError(
+                    e,
+                    workflow_id=WorkflowUUID.new(remote_workflow.id),
+                    workflow_title=remote_workflow.definition.title,
+                ) from e
 
     async def _validate_single_workflow(
         self,
@@ -216,6 +253,61 @@ class WorkflowImportService(BaseWorkspaceService):
             )
 
         return diagnostics
+
+    async def _validate_registry_actions(
+        self, remote_workflows: list[RemoteWorkflowDefinition]
+    ) -> list[PullDiagnostic]:
+        """Check that every action in the batch resolves against the current registries.
+
+        Imported definitions carry no registry lock, so creating a workflow and
+        running one both resolve a lock with ``resolve_lock_with_bindings``.
+        Resolving it here, once over the whole batch, fails the pull before any
+        write. A missing action is reported on each workflow that uses it.
+        """
+        action_names = {
+            action.action
+            for remote_workflow in remote_workflows
+            for action in remote_workflow.definition.actions
+        }
+        if not action_names:
+            return []
+        try:
+            await RegistryLockService(
+                self.session, self.role
+            ).resolve_lock_with_bindings(action_names)
+        except RegistryLockActionNotFoundError as e:
+            diagnostics = [
+                PullDiagnostic(
+                    workflow_path=f"workflows/{remote_workflow.id}/definition.yml",
+                    workflow_title=remote_workflow.definition.title,
+                    error_type="dependency",
+                    message=(
+                        f"Workflow {remote_workflow.definition.title!r} uses action "
+                        f"{e.action_name!r}, which is in no registry"
+                    ),
+                    details={"action_name": e.action_name, "registries": e.origins},
+                )
+                for remote_workflow in remote_workflows
+                if any(
+                    action.action == e.action_name
+                    for action in remote_workflow.definition.actions
+                )
+            ]
+            # A template step is in no workflow's own actions; report it once.
+            return diagnostics or [_registry_diagnostic(str(e))]
+        except (RegistryError, EntitlementRequired) as e:
+            return [_registry_diagnostic(str(e))]
+        except Exception as e:
+            return [
+                PullDiagnostic(
+                    workflow_path="",
+                    workflow_title=None,
+                    error_type="validation",
+                    message=f"Unexpected validation error: {str(e)}",
+                    details={"exception": str(e)},
+                )
+            ]
+        return []
 
     async def _validate_cross_workflow_integrity(
         self, remote_workflows: list[RemoteWorkflowDefinition]
@@ -461,6 +553,7 @@ class WorkflowImportService(BaseWorkspaceService):
             await self._update_schedules(existing_workflow, remote_workflow.schedules)
         await self._update_webhook(existing_workflow.webhook, remote_workflow.webhook)
         await self._update_case_trigger(existing_workflow, remote_workflow.case_trigger)
+        await self._update_form(existing_workflow, remote_workflow.form)
         await self._update_tags(existing_workflow, remote_workflow.tags)
 
     async def _create_new_workflow(
@@ -504,6 +597,7 @@ class WorkflowImportService(BaseWorkspaceService):
             await self._create_schedules(workflow, remote_defn.schedules)
         await self._update_webhook(workflow.webhook, remote_defn.webhook)
         await self._update_case_trigger(workflow, remote_defn.case_trigger)
+        await self._update_form(workflow, remote_defn.form)
         await self._create_tags(workflow, remote_defn.tags)
 
     async def _update_schedules(
@@ -605,6 +699,21 @@ class WorkflowImportService(BaseWorkspaceService):
         self.session.add(case_trigger)
         await self.session.flush()
 
+    async def _update_form(
+        self, workflow: Workflow, remote_form: RemoteForm | None
+    ) -> None:
+        """Apply the ``form:`` block of a workflow file.
+
+        A file with no block takes the form offline and clears its config, as
+        for a case trigger; the row and its submissions are kept. The block is
+        stored as written, even if it no longer matches the inputs (a push
+        never checks it) or the organization lacks the forms entitlement.
+        """
+        status = remote_form.status if remote_form else FormStatus.OFFLINE
+        await FormsService(session=self.session, role=self.role).sync_form(
+            workflow.id, remote_form, status
+        )
+
     async def _update_tags(
         self, workflow: Workflow, remote_tags: list[RemoteWorkflowTag] | None = None
     ) -> None:
@@ -701,6 +810,17 @@ class WorkflowImportService(BaseWorkspaceService):
             raise ValueError(f"Failed to create or find folder at path: {folder_path}")
 
         return final_folder.id
+
+
+def _registry_diagnostic(message: str) -> PullDiagnostic:
+    """A registry problem that affects the whole batch rather than one workflow."""
+    return PullDiagnostic(
+        workflow_path="",
+        workflow_title=None,
+        error_type="dependency",
+        message=message,
+        details={"exception": message},
+    )
 
 
 def _duplicates(values: Iterable[str]) -> set[str]:

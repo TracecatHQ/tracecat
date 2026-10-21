@@ -66,6 +66,8 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.storage import blob
     from tracecat.temporal.errors import raise_application_error_from_classification
 
+REGISTRY_SYNC_WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=20)
+
 
 @workflow.defn
 class RegistrySyncWorkflow:
@@ -93,7 +95,6 @@ class RegistrySyncWorkflow:
             origin_type=request.origin_type,
         )
 
-        # Execute the sync activity with start_to_close timeout only.
         # We don't use heartbeat_timeout because the subprocess operations
         # (package install, action discovery) can take several minutes without
         # natural checkpoints for heartbeating.
@@ -101,6 +102,14 @@ class RegistrySyncWorkflow:
             sync_registry_activity,
             request,
             start_to_close_timeout=timedelta(minutes=15),
+            # Bounded retries fail the workflow before its own timeout expires.
+            schedule_to_close_timeout=(
+                REGISTRY_SYNC_WORKFLOW_EXECUTION_TIMEOUT - timedelta(minutes=2)
+            ),
+            retry_policy=RetryPolicy(
+                maximum_attempts=2,
+                initial_interval=timedelta(seconds=5),
+            ),
         )
 
         workflow.logger.info(

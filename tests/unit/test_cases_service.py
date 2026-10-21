@@ -1,14 +1,15 @@
 import uuid  # noqa: I001
 import asyncio
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from decimal import Decimal
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
+from sqlalchemy.dialects import postgresql
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import delete, select, text
-from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -38,6 +39,7 @@ from tracecat.cases.enums import (
     CaseSeverity,
     CaseStatus,
 )
+from tracecat.cases.filters import resolve_tag_ids
 from tracecat.cases.schemas import (
     CaseCommentCreate,
     CaseCreate,
@@ -53,7 +55,14 @@ from tracecat.cases.service import (
     CasesService,
 )
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.db.models import Case, CaseComment, Organization, Workspace
+from tracecat.db.models import (
+    Case,
+    CaseComment,
+    CaseEvent,
+    Organization,
+    User,
+    Workspace,
+)
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatConflictError,
@@ -261,32 +270,6 @@ class TestCasesService:
 
         assert await cases_service.case_exists(created_case.id) is True
         assert await cases_service.case_exists(uuid.uuid4()) is False
-
-    async def test_create_and_get_case_with_assignee(
-        self,
-        cases_service: CasesService,
-        case_create_params: CaseCreate,
-        session: AsyncSession,
-    ) -> None:
-        """Test creating and retrieving a case with an assignee."""
-        # For this test, we'll mock the assignee validation by patching the method
-        with patch(
-            "tracecat.cases.service.CasesService.create_case"
-        ) as mock_create_case:
-            # Create a mock case with assignee_id
-            mock_case = MagicMock()
-            mock_case.assignee_id = uuid.uuid4()
-            mock_create_case.return_value = mock_case
-
-            # Add user ID as assignee to params
-            case_create_params.assignee_id = mock_case.assignee_id
-
-            # Call the mocked method
-            result = await cases_service.create_case(case_create_params)
-
-            # Verify assignee ID is set correctly
-            assert result.assignee_id == case_create_params.assignee_id
-            mock_create_case.assert_called_once()
 
     async def test_list_cases(
         self, cases_service: CasesService, case_create_params: CaseCreate
@@ -751,222 +734,70 @@ class TestCasesService:
             await session.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
         await session.rollback()
 
-    async def test_list_cases_with_limit(
-        self, cases_service: CasesService, case_create_params: CaseCreate
+    @pytest.mark.parametrize(
+        ("order_by", "sort", "first", "second", "expected_first"),
+        [
+            pytest.param(
+                "priority",
+                "asc",
+                {"priority": CasePriority.LOW},
+                {"priority": CasePriority.HIGH},
+                0,
+                id="priority-asc",
+            ),
+            pytest.param(
+                "severity",
+                "asc",
+                {"severity": CaseSeverity.LOW},
+                {"severity": CaseSeverity.HIGH},
+                0,
+                id="severity-asc",
+            ),
+            pytest.param(
+                "status",
+                "desc",
+                {"status": CaseStatus.NEW},
+                {"status": CaseStatus.RESOLVED},
+                1,
+                id="status-desc",
+            ),
+            pytest.param("created_at", "asc", {}, {}, 0, id="created-at-asc"),
+            pytest.param("created_at", "desc", {}, {}, 1, id="created-at-desc"),
+        ],
+    )
+    async def test_list_cases_ordering(
+        self,
+        cases_service: CasesService,
+        order_by: Literal["priority", "severity", "status", "created_at"],
+        sort: Literal["asc", "desc"],
+        first: dict[str, Any],
+        second: dict[str, Any],
+        expected_first: int,
     ) -> None:
-        """Test listing cases with a limit."""
-        # Create multiple cases
-        for i in range(3):
+        """Listing honours order_by and sort direction."""
+        defaults: dict[str, Any] = {
+            "status": CaseStatus.NEW,
+            "priority": CasePriority.MEDIUM,
+            "severity": CaseSeverity.MEDIUM,
+        }
+        created = [
             await cases_service.create_case(
                 CaseCreate(
-                    summary=f"Test Case {i}",
-                    description=f"Description for test case {i}",
-                    status=CaseStatus.NEW,
-                    priority=CasePriority.MEDIUM,
-                    severity=CaseSeverity.LOW,
+                    summary=f"Ordering case {index}",
+                    description="Ordering test case",
+                    **(defaults | overrides),
                 )
             )
+            for index, overrides in enumerate((first, second))
+        ]
 
-        # List cases with limit
-        cases = await _list_cases(cases_service, limit=2)
-        assert len(cases) == 2
-
-    async def test_list_cases_with_order_by(self, cases_service: CasesService) -> None:
-        """Test listing cases with order_by parameter."""
-        # Create cases with different priorities to test ordering
-        low_priority_case = await cases_service.create_case(
-            CaseCreate(
-                summary="Low Priority Case",
-                description="This is a low priority case",
-                status=CaseStatus.NEW,
-                priority=CasePriority.LOW,
-                severity=CaseSeverity.LOW,
-            )
-        )
-
-        high_priority_case = await cases_service.create_case(
-            CaseCreate(
-                summary="High Priority Case",
-                description="This is a high priority case",
-                status=CaseStatus.NEW,
-                priority=CasePriority.HIGH,
-                severity=CaseSeverity.LOW,
-            )
-        )
-
-        # Test ordering by priority ascending
-        cases = await _list_cases(cases_service, order_by="priority", sort="asc")
-
-        # Verify cases are ordered correctly (low priority should come first)
-        # Find the indices of our test cases
-        low_idx = next(
-            (i for i, case in enumerate(cases) if case.id == low_priority_case.id), None
-        )
-        high_idx = next(
-            (i for i, case in enumerate(cases) if case.id == high_priority_case.id),
-            None,
-        )
-
-        # Both cases should be found
-        assert low_idx is not None
-        assert high_idx is not None
-
-        # Low priority should come before high priority in ascending order
-        assert low_idx < high_idx
-
-    async def test_list_cases_with_ascending_sort(
-        self, cases_service: CasesService
-    ) -> None:
-        """Test listing cases with ascending sort order."""
-        # Create cases with different severities to test ordering
-        low_severity_case = await cases_service.create_case(
-            CaseCreate(
-                summary="Low Severity Case",
-                description="This is a low severity case",
-                status=CaseStatus.NEW,
-                priority=CasePriority.MEDIUM,
-                severity=CaseSeverity.LOW,
-            )
-        )
-
-        high_severity_case = await cases_service.create_case(
-            CaseCreate(
-                summary="High Severity Case",
-                description="This is a high severity case",
-                status=CaseStatus.NEW,
-                priority=CasePriority.MEDIUM,
-                severity=CaseSeverity.HIGH,
-            )
-        )
-
-        # Test explicit ascending ordering by severity
-        cases = await _list_cases(cases_service, order_by="severity", sort="asc")
-
-        # Find the indices of our test cases
-        low_idx = next(
-            (i for i, case in enumerate(cases) if case.id == low_severity_case.id), None
-        )
-        high_idx = next(
-            (i for i, case in enumerate(cases) if case.id == high_severity_case.id),
-            None,
-        )
-
-        # Both cases should be found
-        assert low_idx is not None
-        assert high_idx is not None
-
-        # Low severity should come before high severity in ascending order
-        assert low_idx < high_idx
-
-    async def test_list_cases_with_descending_sort(
-        self, cases_service: CasesService
-    ) -> None:
-        """Test listing cases with descending sort order."""
-        # Create cases with different statuses to test ordering
-        new_case = await cases_service.create_case(
-            CaseCreate(
-                summary="New Case",
-                description="This is a new case",
-                status=CaseStatus.NEW,
-                priority=CasePriority.MEDIUM,
-                severity=CaseSeverity.MEDIUM,
-            )
-        )
-
-        resolved_case = await cases_service.create_case(
-            CaseCreate(
-                summary="Resolved Case",
-                description="This is a resolved case",
-                status=CaseStatus.RESOLVED,
-                priority=CasePriority.MEDIUM,
-                severity=CaseSeverity.MEDIUM,
-            )
-        )
-
-        # Test descending ordering by status
-        cases = await _list_cases(cases_service, order_by="status", sort="desc")
-
-        # Find the indices of our test cases
-        new_idx = next(
-            (i for i, case in enumerate(cases) if case.id == new_case.id), None
-        )
-        resolved_idx = next(
-            (i for i, case in enumerate(cases) if case.id == resolved_case.id), None
-        )
-
-        # Both cases should be found
-        assert new_idx is not None
-        assert resolved_idx is not None
-
-        # Resolved status should come before new status in descending order
-        # because RESOLVED enum value is higher than NEW
-        assert resolved_idx < new_idx
-
-    async def test_list_cases_with_created_at_ordering(
-        self, cases_service: CasesService
-    ) -> None:
-        """Test listing cases ordered by creation time."""
-        # Create cases in sequence to ensure different created_at timestamps
-        first_case = await cases_service.create_case(
-            CaseCreate(
-                summary="First Case",
-                description="This is the first created case",
-                status=CaseStatus.NEW,
-                priority=CasePriority.MEDIUM,
-                severity=CaseSeverity.MEDIUM,
-            )
-        )
-
-        # Small delay to ensure different timestamps
-        await asyncio.sleep(0.01)
-
-        second_case = await cases_service.create_case(
-            CaseCreate(
-                summary="Second Case",
-                description="This is the second created case",
-                status=CaseStatus.NEW,
-                priority=CasePriority.MEDIUM,
-                severity=CaseSeverity.MEDIUM,
-            )
-        )
-
-        # Test ascending order (oldest first)
-        asc_cases = await _list_cases(cases_service, order_by="created_at", sort="asc")
-
-        # Find the indices of our test cases
-        first_idx_asc = next(
-            (i for i, case in enumerate(asc_cases) if case.id == first_case.id), None
-        )
-        second_idx_asc = next(
-            (i for i, case in enumerate(asc_cases) if case.id == second_case.id), None
-        )
-
-        # Both cases should be found
-        assert first_idx_asc is not None
-        assert second_idx_asc is not None
-
-        # First created case should come before second created case in ascending order
-        assert first_idx_asc < second_idx_asc
-
-        # Test descending order (newest first)
-        desc_cases = await _list_cases(
-            cases_service, order_by="created_at", sort="desc"
-        )
-
-        # Find the indices of our test cases
-        first_idx_desc = next(
-            (i for i, case in enumerate(desc_cases) if case.id == first_case.id), None
-        )
-        second_idx_desc = next(
-            (i for i, case in enumerate(desc_cases) if case.id == second_case.id), None
-        )
-
-        # Both cases should be found
-        assert first_idx_desc is not None
-        assert second_idx_desc is not None
-
-        # Second created case should come before first created case in descending order
-        assert second_idx_desc < first_idx_desc
+        ids = [
+            case.id
+            for case in await _list_cases(cases_service, order_by=order_by, sort=sort)
+        ]
+        earlier = created[expected_first].id
+        later = created[1 - expected_first].id
+        assert ids.index(earlier) < ids.index(later)
 
     async def test_update_case(
         self, cases_service: CasesService, case_create_params: CaseCreate
@@ -1186,10 +1017,12 @@ class TestCasesService:
             terminal_status=AuditEventStatus.FAILURE,
         )
 
-    async def test_batch_update_cases_deduplicates_case_ids(
+    @pytest.mark.parametrize("action", ["update", "delete"])
+    async def test_batch_cases_deduplicates_case_ids(
         self,
         cases_service: CasesService,
         case_create_params: CaseCreate,
+        action: Literal["update", "delete"],
     ) -> None:
         """Duplicate IDs produce one ordered result and audit entry per case."""
         first_case = await cases_service.create_case(case_create_params)
@@ -1197,21 +1030,24 @@ class TestCasesService:
             case_create_params.model_copy(update={"summary": "Second case"})
         )
         case_ids = [first_case.id, second_case.id]
+        requested_ids = [first_case.id, second_case.id, first_case.id]
 
         with patch.object(
             AuditService, "create_event", new_callable=AsyncMock
         ) as mock_audit:
-            response = await cases_service.batch_update_cases(
-                [first_case.id, second_case.id, first_case.id],
-                CaseUpdate(summary="Batch updated"),
-            )
+            if action == "update":
+                response = await cases_service.batch_update_cases(
+                    requested_ids, CaseUpdate(summary="Batch updated")
+                )
+            else:
+                response = await cases_service.batch_delete_cases(requested_ids)
 
         assert response.succeeded == 2
         assert response.failed == 0
         assert [result.case_id for result in response.results] == case_ids
         _assert_batch_audit_calls(
             mock_audit,
-            action="update",
+            action=action,
             case_ids=case_ids,
             succeeded=2,
             failed=0,
@@ -1427,32 +1263,6 @@ class TestCasesService:
         )
         assert remaining.scalars().all() == []
 
-    async def test_batch_delete_cases_deduplicates_case_ids(
-        self,
-        cases_service: CasesService,
-        case_create_params: CaseCreate,
-    ) -> None:
-        """Duplicate delete IDs produce one result and count once."""
-        created_case = await cases_service.create_case(case_create_params)
-
-        with patch.object(
-            AuditService, "create_event", new_callable=AsyncMock
-        ) as mock_audit:
-            response = await cases_service.batch_delete_cases(
-                [created_case.id, created_case.id]
-            )
-
-        assert response.succeeded == 1
-        assert response.failed == 0
-        assert [result.case_id for result in response.results] == [created_case.id]
-        _assert_batch_audit_calls(
-            mock_audit,
-            action="delete",
-            case_ids=[created_case.id],
-            succeeded=1,
-            failed=0,
-        )
-
     async def test_batch_update_cases_discards_callbacks_on_outer_rollback(
         self,
         cases_service: CasesService,
@@ -1587,75 +1397,6 @@ class TestCasesService:
         assert events[0].data["old"] == CaseStatus.NEW.value
         assert events[0].data["new"] == CaseStatus.CLOSED.value
 
-    async def test_update_case_with_assignee(
-        self,
-        cases_service: CasesService,
-        case_create_params: CaseCreate,
-        mocker,
-    ) -> None:
-        """Test updating a case to add an assignee."""
-        # Create a case without assignee first
-        with patch("tracecat.cases.service.CasesService.create_case") as mock_create:
-            # Create a mock case without assignee
-            mock_case = MagicMock()
-            mock_case.assignee_id = None
-            mock_create.return_value = mock_case
-
-            # Create case
-            case = await cases_service.create_case(case_create_params)
-            assert case.assignee_id is None
-
-        # Now patch the update_case method to simulate adding an assignee
-        with patch("tracecat.cases.service.CasesService.update_case") as mock_update:
-            # Create a mock case with assignee
-            mock_updated_case = MagicMock()
-            mock_updated_case.assignee_id = uuid.uuid4()
-            mock_update.return_value = mock_updated_case
-
-            # Update case with assignee
-            update_params = CaseUpdate(assignee_id=mock_updated_case.assignee_id)
-            result = await cases_service.update_case(case, update_params)
-
-            # Verify assignee was set
-            assert result.assignee_id == mock_updated_case.assignee_id
-            mock_update.assert_called_once()
-
-    async def test_remove_case_assignee(
-        self,
-        cases_service: CasesService,
-        case_create_params: CaseCreate,
-        mocker,
-    ) -> None:
-        """Test removing an assignee from a case."""
-        # First create a case with assignee
-        with patch("tracecat.cases.service.CasesService.create_case") as mock_create:
-            # Create a mock case with assignee
-            mock_case = MagicMock()
-            mock_case.assignee_id = uuid.uuid4()
-            mock_create.return_value = mock_case
-
-            # Set the assignee ID in params
-            case_create_params.assignee_id = mock_case.assignee_id
-
-            # Create case
-            case = await cases_service.create_case(case_create_params)
-            assert case.assignee_id is not None
-
-        # Now patch update_case to simulate removing the assignee
-        with patch("tracecat.cases.service.CasesService.update_case") as mock_update:
-            # Create a mock case without assignee
-            mock_updated_case = MagicMock()
-            mock_updated_case.assignee_id = None
-            mock_update.return_value = mock_updated_case
-
-            # Update case to remove assignee
-            update_params = CaseUpdate(assignee_id=None)
-            result = await cases_service.update_case(case, update_params)
-
-            # Verify assignee was removed
-            assert result.assignee_id is None
-            mock_update.assert_called_once()
-
     async def test_update_case_with_fields(
         self,
         cases_service: CasesService,
@@ -1693,6 +1434,11 @@ class TestCasesService:
         assert fields is not None
         assert fields["field1"] == "updated_value"
         assert fields["field2"] == 2
+
+        with pytest.raises(ValueError):
+            await cases_service.update_case(
+                updated_case, CaseUpdate(fields={"field3": "undefined field"})
+            )
 
     async def test_create_case_with_dropdown_values(
         self, cases_service: CasesService, case_create_params: CaseCreate
@@ -1840,9 +1586,26 @@ class TestCasesService:
         assert deleted_case is None
 
     async def test_create_case_with_fields(
-        self, cases_service: CasesService, case_create_params: CaseCreate
+        self,
+        cases_service: CasesService,
+        case_fields_service: CaseFieldsService,
+        case_create_params: CaseCreate,
+        session: AsyncSession,
     ) -> None:
-        """Test creating a case with custom fields."""
+        """Test creating a case with fields and verify the fields are properly saved."""
+        # Create the fields
+        await case_fields_service.create_field(
+            CaseFieldCreate(
+                name="custom_field1",
+                type=SqlType.TEXT,
+            )
+        )
+        await case_fields_service.create_field(
+            CaseFieldCreate(
+                name="custom_field2",
+                type=SqlType.INTEGER,
+            )
+        )
         # Create case parameters with fields
         params_with_fields = CaseCreate(
             summary=case_create_params.summary,
@@ -1853,125 +1616,105 @@ class TestCasesService:
             fields={"custom_field1": "test value", "custom_field2": 123},
         )
 
-        # Mock the upsert_field_values method
-        with patch.object(
-            cases_service.fields, "upsert_field_values"
-        ) as mock_upsert_fields:
-            mock_upsert_fields.return_value = {
-                "custom_field1": "test value",
-                "custom_field2": 123,
-            }
+        created_case = await cases_service.create_case(params_with_fields)
 
-            # Create case with fields
-            created_case = await cases_service.create_case(params_with_fields)
+        # Verify case was created successfully
+        assert created_case.summary == params_with_fields.summary
+        assert created_case.description == params_with_fields.description
 
-            # Verify case was created successfully
-            assert created_case.summary == params_with_fields.summary
-            assert created_case.description == params_with_fields.description
-
-            # Verify that upsert_field_values was called with the case and fields
-            mock_upsert_fields.assert_called_once_with(
-                created_case, {"custom_field1": "test value", "custom_field2": 123}
-            )
-
-    async def test_update_case_fields(
-        self, cases_service: CasesService, case_create_params: CaseCreate
-    ) -> None:
-        """Test updating just the fields of a case."""
-        # Create a case first
-        created_case = await cases_service.create_case(case_create_params)
-        # Mock the field methods
-        with (
-            patch.object(cases_service.fields, "get_fields") as mock_get_fields,
-            patch.object(
-                cases_service.fields, "normalize_field_values"
-            ) as mock_normalize_fields,
-            patch.object(
-                cases_service.fields, "upsert_field_values"
-            ) as mock_upsert_fields,
-        ):
-            # Setup mock to return existing field values
-            mock_get_fields.return_value = {
-                "existing_field1": "original value",
-                "existing_field2": 456,
-            }
-            mock_normalize_fields.return_value = {
-                "existing_field1": "updated value",
-                "new_field": "new value",
-            }
-
-            # Update just the fields
-            update_params = CaseUpdate(
-                fields={"existing_field1": "updated value", "new_field": "new value"}
-            )
-
-            # Update the case
-            await cases_service.update_case(created_case, update_params)
-
-            # Verify get_fields was called
-            mock_get_fields.assert_called_once_with(created_case)
-            mock_normalize_fields.assert_called_once_with(
-                {"existing_field1": "updated value", "new_field": "new value"}
-            )
-
-            # Verify upsert_field_values was called with the fields (not merged)
-            mock_upsert_fields.assert_called_once_with(
-                created_case,
-                {"existing_field1": "updated value", "new_field": "new value"},
-            )
+        # Verify field values were saved
+        fields_data = await cases_service.fields.get_fields(created_case)
+        assert fields_data is not None
+        assert fields_data["custom_field1"] == "test value"
+        assert fields_data["custom_field2"] == 123
 
     async def test_update_case_skips_no_op_field_event(
-        self, cases_service: CasesService, case_create_params: CaseCreate
-    ) -> None:
-        """No-op field updates should not emit empty field-change events."""
-        created_case = await cases_service.create_case(case_create_params)
-
-        with (
-            patch.object(
-                cases_service.fields,
-                "get_fields",
-                return_value={"numeric_field": Decimal("1.30")},
-            ) as mock_get_fields,
-            patch.object(
-                cases_service.fields,
-                "normalize_field_values",
-                return_value={"numeric_field": Decimal("1.30")},
-            ) as mock_normalize_fields,
-            patch.object(
-                cases_service.fields, "upsert_field_values"
-            ) as mock_upsert_fields,
-            patch.object(cases_service.events, "create_event") as mock_create_event,
-        ):
-            await cases_service.update_case(
-                created_case, CaseUpdate(fields={"numeric_field": "1.30"})
-            )
-
-            mock_get_fields.assert_called_once_with(created_case)
-            mock_normalize_fields.assert_called_once_with({"numeric_field": "1.30"})
-            mock_upsert_fields.assert_called_once_with(
-                created_case, {"numeric_field": Decimal("1.30")}
-            )
-            mock_create_event.assert_not_awaited()
-
-    async def test_cascade_delete(
         self,
         cases_service: CasesService,
+        case_fields_service: CaseFieldsService,
+        case_create_params: CaseCreate,
+    ) -> None:
+        """No-op field updates should not emit empty field-change events."""
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="numeric_field", type=SqlType.NUMERIC)
+        )
+        created_case = await cases_service.create_case(
+            case_create_params.model_copy(update={"fields": {"numeric_field": "1.30"}})
+        )
+        fields = await cases_service.fields.get_fields(created_case)
+        assert fields is not None
+        assert fields["numeric_field"] == Decimal("1.30")
+
+        def field_change_events(events: Sequence[CaseEvent]) -> list[CaseEvent]:
+            return [e for e in events if e.type == CaseEventType.FIELDS_CHANGED]
+
+        before = field_change_events(
+            await cases_service.events.list_events(created_case)
+        )
+
+        await cases_service.update_case(
+            created_case, CaseUpdate(fields={"numeric_field": "1.30"})
+        )
+
+        after = field_change_events(
+            await cases_service.events.list_events(created_case)
+        )
+        assert len(after) == len(before)
+
+    async def test_cascade_delete_removes_field_values(
+        self,
+        cases_service: CasesService,
+        case_fields_service: CaseFieldsService,
         case_create_params: CaseCreate,
         session: AsyncSession,
     ) -> None:
-        """Test that cascading delete works correctly for cases."""
-        # Create a case
-        created_case = await cases_service.create_case(case_create_params)
+        """Test that deleting a case also removes its field values from the workspace table."""
+        # Create the fields
+        await case_fields_service.create_field(
+            CaseFieldCreate(
+                name="test_field",
+                type=SqlType.TEXT,
+            )
+        )
+        # Create a case with fields
+        params_with_fields = CaseCreate(
+            summary=case_create_params.summary,
+            description=case_create_params.description,
+            status=case_create_params.status,
+            priority=case_create_params.priority,
+            severity=case_create_params.severity,
+            fields={"test_field": "test value"},
+        )
 
-        # Verify case exists
+        # Create case with fields
+        created_case = await cases_service.create_case(params_with_fields)
         case_id = created_case.id
-        assert await cases_service.get_case(case_id) is not None
+
+        # Verify field values exist
+        fields_data = await cases_service.fields.get_fields(created_case)
+        assert fields_data is not None
 
         # Delete the case
         await cases_service.delete_case(created_case)
 
         # Verify case is deleted
-        assert await cases_service.get_case(case_id) is None
+        case_statement = select(Case).where(Case.id == case_id)
+        case_result = await session.execute(case_statement)
+        assert case_result.first() is None
+
+        # Verify field values are also deleted (due to FK cascade)
+        # Create a new case object to test get_fields
+        deleted_case = Case(
+            id=case_id,
+            workspace_id=case_fields_service.workspace_id,
+            summary="",
+            description="",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.LOW,
+        )
+        fields_after_delete = await cases_service.fields.get_fields(deleted_case)
+        assert fields_after_delete is None
 
         # This test verifies that cascade delete works through the SQLAlchemy
         # relationship configuration, which should automatically handle
@@ -2076,7 +1819,8 @@ class TestCasesService:
             return sa_selectinload(attr)
 
         with patch(
-            "tracecat.cases.service.selectinload", side_effect=tracked_selectinload
+            "tracecat.cases.search_service.selectinload",
+            side_effect=tracked_selectinload,
         ):
             await cases_service.search_cases(params=params)
 
@@ -2084,7 +1828,8 @@ class TestCasesService:
 
         loader_calls.clear()
         with patch(
-            "tracecat.cases.service.selectinload", side_effect=tracked_selectinload
+            "tracecat.cases.search_service.selectinload",
+            side_effect=tracked_selectinload,
         ):
             await cases_service.search_cases(params=params, include_durations=True)
 
@@ -2174,6 +1919,115 @@ class TestCasesService:
         assert case_with_second_tag.id in result_ids
         assert unrelated_case.id not in result_ids
 
+        aggregates = await cases_service.get_search_case_aggregates(
+            tag_ids=[tag_one.id, tag_two.id]
+        )
+        assert aggregates.total == len(response.items) == 2
+
+    @pytest.mark.parametrize("search_term", ["%", "_", "\\", r"\%_"])
+    async def test_search_literal_metacharacters_match_rows_and_counts(
+        self,
+        cases_service: CasesService,
+        session: AsyncSession,
+        svc_organization: Organization,
+        search_term: str,
+    ) -> None:
+        """Literal text matches both text columns without crossing workspaces."""
+        summary_match = await cases_service.create_case(
+            CaseCreate(
+                summary=f"Literal {search_term} marker",
+                description="Plain description",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+        description_match = await cases_service.create_case(
+            CaseCreate(
+                summary="Plain summary",
+                description=f"Literal {search_term} marker",
+                status=CaseStatus.RESOLVED,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+        await cases_service.create_case(
+            CaseCreate(
+                summary="Literal wildcard replacement marker",
+                description="Plain description",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+
+        other_workspace = Workspace(
+            name="literal-search-other-workspace", organization_id=svc_organization.id
+        )
+        session.add(other_workspace)
+        await session.commit()
+        other_role = cases_service.role.model_copy(
+            update={"workspace_id": other_workspace.id}
+        )
+        other_service = CasesService(session, other_role)
+        await other_service.create_case(
+            CaseCreate(
+                summary=f"Literal {search_term} marker",
+                description="Plain description",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+
+        response = await cases_service.search_cases(
+            CursorPaginationParams(limit=20), search_term=search_term
+        )
+        aggregates = await cases_service.get_search_case_aggregates(
+            search_term=search_term
+        )
+
+        assert {item.id for item in response.items} == {
+            summary_match.id,
+            description_match.id,
+        }
+        assert aggregates.total == len(response.items) == 2
+        assert aggregates.status_groups.new == 1
+        assert aggregates.status_groups.resolved == 1
+
+    async def test_search_tag_resolution_is_workspace_scoped(
+        self,
+        cases_service: CasesService,
+        session: AsyncSession,
+        svc_organization: Organization,
+    ) -> None:
+        """Foreign tag UUIDs and refs cannot silently remove a requested filter."""
+        tag = await cases_service.tags.create_tag(TagCreate(name="Local search tag"))
+        resolved_ids = await resolve_tag_ids(
+            tags=[tag.ref, str(tag.id)], role=cases_service.role, session=session
+        )
+        assert resolved_ids == [tag.id, tag.id]
+
+        other_workspace = Workspace(
+            name="tag-search-other-workspace", organization_id=svc_organization.id
+        )
+        session.add(other_workspace)
+        await session.commit()
+        other_role = cases_service.role.model_copy(
+            update={"workspace_id": other_workspace.id}
+        )
+        other_tag = await CaseTagsService(session, other_role).create_tag(
+            TagCreate(name="Foreign search tag")
+        )
+
+        for identifier in (other_tag.ref, str(other_tag.id)):
+            with pytest.raises(HTTPException) as error:
+                await resolve_tag_ids(
+                    tags=[tag.ref, identifier], role=cases_service.role, session=session
+                )
+            assert error.value.status_code == 400
+            assert error.value.detail == f"Unknown case tag filter: {identifier!r}"
+
     async def test_search_cases_short_id_exact_match(
         self, cases_service: CasesService
     ) -> None:
@@ -2225,6 +2079,133 @@ class TestCasesService:
         non_exact_ids = {item.id for item in non_exact_response.items}
         assert target_case.id not in non_exact_ids
 
+    @pytest.mark.parametrize("reference_type", ["uuid", "short_id"])
+    async def test_exact_case_search_finds_older_sub_case_before_pagination(
+        self,
+        cases_service: CasesService,
+        session: AsyncSession,
+        reference_type: Literal["uuid", "short_id"],
+    ) -> None:
+        """Exact references find older sub-cases without fuzzy matches or views."""
+        now = datetime.now(UTC)
+        parent = Case(
+            id=uuid.uuid4(),
+            workspace_id=cases_service.workspace_id,
+            case_number=1,
+            summary="Synthetic parent",
+            description="Synthetic parent",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.LOW,
+        )
+        target = Case(
+            id=uuid.uuid4(),
+            workspace_id=cases_service.workspace_id,
+            case_number=42,
+            parent_id=parent.id,
+            summary="Synthetic older sub-case",
+            description="Synthetic older sub-case",
+            status=CaseStatus.CLOSED,
+            priority=CasePriority.LOW,
+            severity=CaseSeverity.LOW,
+            created_at=now - timedelta(days=60),
+            updated_at=now - timedelta(days=60),
+        )
+        newer_match = Case(
+            workspace_id=cases_service.workspace_id,
+            case_number=43,
+            summary=f"Synthetic text mentions {target.id} and CASE-0042",
+            description="Synthetic text match",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.LOW,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add_all([parent, target, newer_match])
+        await session.commit()
+        params = CursorPaginationParams(limit=1)
+        case_id = target.id if reference_type == "uuid" else None
+        short_id = target.short_id if reference_type == "short_id" else None
+        events_before = list((await session.scalars(select(CaseEvent.id))).all())
+
+        response = await cases_service.search_cases(
+            params,
+            case_id=case_id,
+            short_id=short_id,
+            hierarchy="all",
+            order_by="created_at",
+            sort="desc",
+        )
+        assert [item.id for item in response.items] == [target.id]
+        assert response.items[0].parent is not None
+        assert response.items[0].parent.id == parent.id
+        assert response.has_more is False
+
+        date_filtered = await cases_service.search_cases(
+            params,
+            case_id=case_id,
+            short_id=short_id,
+            start_time=now - timedelta(days=30),
+        )
+        status_filtered = await cases_service.search_cases(
+            params, case_id=case_id, short_id=short_id, status=[CaseStatus.NEW]
+        )
+        hierarchy_filtered = await cases_service.search_cases(
+            params, case_id=case_id, short_id=short_id, hierarchy="top_level"
+        )
+        assert date_filtered.items == []
+        assert status_filtered.items == []
+        assert hierarchy_filtered.items == []
+        promoted_top_level = await cases_service.search_cases(
+            params,
+            search_term=str(target.id) if case_id else target.short_id,
+            promote_exact_match=True,
+            hierarchy="top_level",
+        )
+        assert [item.id for item in promoted_top_level.items] == [newer_match.id]
+        assert promoted_top_level.total_estimate == 1
+        assert not promoted_top_level.items[0].is_exact_match
+        events_after = list((await session.scalars(select(CaseEvent.id))).all())
+        assert events_after == events_before
+
+    async def test_exact_uuid_search_cannot_find_another_workspace_case(
+        self,
+        cases_service: CasesService,
+        session: AsyncSession,
+        svc_organization: Organization,
+    ) -> None:
+        """An exact UUID cannot bypass the service's workspace authorization."""
+        other_workspace = Workspace(
+            name="synthetic-search-workspace",
+            organization_id=svc_organization.id,
+        )
+        session.add(other_workspace)
+        await session.commit()
+        other_case = Case(
+            workspace_id=other_workspace.id,
+            case_number=42,
+            summary="Synthetic case in another workspace",
+            description="Synthetic case in another workspace",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.LOW,
+        )
+        session.add(other_case)
+        await session.commit()
+
+        response = await cases_service.search_cases(
+            CursorPaginationParams(limit=1), case_id=other_case.id, hierarchy="all"
+        )
+        assert response.items == []
+        assert response.has_more is False
+        promoted = await cases_service.search_cases(
+            CursorPaginationParams(limit=1),
+            search_term=str(other_case.id),
+            promote_exact_match=True,
+        )
+        assert promoted.items == []
+
     async def test_search_cases_short_id_rejects_invalid_value(
         self, cases_service: CasesService
     ) -> None:
@@ -2237,6 +2218,40 @@ class TestCasesService:
                 params=params,
                 short_id="CASE-ABCD",
             )
+
+    @pytest.mark.parametrize(
+        "short_id", ["CASE-2147483648", "CASE-9999999999", "9999999999"]
+    )
+    async def test_search_cases_short_id_rejects_overflow(
+        self, cases_service: CasesService, short_id: str
+    ) -> None:
+        """Oversized exact IDs fail validation before binding a PostgreSQL integer."""
+        with pytest.raises(
+            ValueError, match="Short ID number cannot exceed 2147483647"
+        ):
+            await cases_service.search_cases(
+                CursorPaginationParams(limit=1), short_id=short_id
+            )
+
+    async def test_search_cases_short_id_accepts_maximum_case_number(
+        self, cases_service: CasesService, session: AsyncSession
+    ) -> None:
+        """The largest PostgreSQL integer remains a valid exact case reference."""
+        target = Case(
+            workspace_id=cases_service.workspace_id,
+            case_number=2147483647,
+            summary="Synthetic maximum case number",
+            description="Synthetic maximum case number",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.LOW,
+        )
+        session.add(target)
+        await session.commit()
+        response = await cases_service.search_cases(
+            CursorPaginationParams(limit=1), short_id="CASE-2147483647"
+        )
+        assert [item.id for item in response.items] == [target.id]
 
     async def test_search_cases_search_term_matches_case_ids(
         self, cases_service: CasesService, session: AsyncSession
@@ -2419,24 +2434,6 @@ class TestCasesService:
         assert aggregates.status_groups.unknown == 1
         assert aggregates.status_groups.other == 1
 
-    async def test_create_case_with_nonexistent_field(
-        self, cases_service: CasesService
-    ) -> None:
-        """Test creating a case with a field that doesn't exist in the schema."""
-
-        params = CaseCreate(
-            summary="Test Case",
-            description="Test case with invalid field",
-            status=CaseStatus.NEW,
-            priority=CasePriority.MEDIUM,
-            severity=CaseSeverity.LOW,
-            fields={"nonexistent_field": "some value"},
-        )
-
-        # Should raise ValueError with clear message about undefined column
-        with pytest.raises(ValueError):
-            await cases_service.create_case(params)
-
     async def test_create_case_fields_update_fails(
         self, cases_service: CasesService, case_create_params: CaseCreate, mocker
     ) -> None:
@@ -2498,3 +2495,323 @@ class TestCasesService:
         # Verify the case was NOT created (entire transaction rolled back)
         cases = await _list_cases(cases_service)
         assert len(cases) == 0, "Case should not exist if fields creation failed"
+
+
+@pytest.mark.anyio
+class TestCaseAssigneeIntegration:
+    @pytest.fixture
+    async def test_user(self, session: AsyncSession) -> User:
+        """Create a test user for assignment."""
+        # Create an actual user in the database for testing assignee relationship
+        user = User(
+            email="test-assignee@example.com",
+            hashed_password="hashed_password_for_testing",
+            is_active=True,
+            is_verified=True,
+            is_superuser=False,
+            last_login_at=None,
+        )
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        return user
+
+    async def test_create_case_with_assignee(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+        test_user: User,
+        session: AsyncSession,
+    ) -> None:
+        """Test creating a case with an assignee and verify the relationship is stored correctly."""
+        # Assign the case to our test user
+        case_create_params.assignee_id = test_user.id
+
+        # Create case
+        created_case = await cases_service.create_case(case_create_params)
+
+        # Verify assignee was set
+        assert created_case.assignee_id == test_user.id
+
+        # Verify the case can be retrieved with assignee
+        retrieved_case = await cases_service.get_case(created_case.id)
+        assert retrieved_case is not None
+        assert retrieved_case.assignee_id == test_user.id
+
+        # Verify database state directly
+        statement = select(Case).where(Case.id == created_case.id)
+        result = await session.execute(statement)
+        case_from_db = result.scalar_one()
+        assert case_from_db.assignee_id == test_user.id
+
+    async def test_update_case_assignee(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+        test_user: User,
+        session: AsyncSession,
+    ) -> None:
+        """Test updating a case to add an assignee."""
+        # Create case without assignee
+        created_case = await cases_service.create_case(case_create_params)
+        assert created_case.assignee_id is None
+
+        # Update case with assignee
+        update_params = CaseUpdate(assignee_id=test_user.id)
+        updated_case = await cases_service.update_case(created_case, update_params)
+
+        # Verify assignee was set
+        assert updated_case.assignee_id == test_user.id
+
+        # Verify database state directly
+        statement = select(Case).where(Case.id == created_case.id)
+        result = await session.execute(statement)
+        case_from_db = result.scalar_one()
+        assert case_from_db.assignee_id == test_user.id
+
+    async def test_remove_case_assignee(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+        test_user: User,
+        session: AsyncSession,
+    ) -> None:
+        """Test removing an assignee from a case."""
+        # Create case with assignee
+        case_create_params.assignee_id = test_user.id
+        created_case = await cases_service.create_case(case_create_params)
+        assert created_case.assignee_id == test_user.id
+
+        # Update to remove assignee
+        update_params = CaseUpdate(assignee_id=None)
+        updated_case = await cases_service.update_case(created_case, update_params)
+
+        # Verify assignee was removed
+        assert updated_case.assignee_id is None
+
+        # Verify database state directly
+        statement = select(Case).where(Case.id == created_case.id)
+        result = await session.execute(statement)
+        case_from_db = result.scalar_one()
+        assert case_from_db.assignee_id is None
+
+    async def test_list_cases_with_assignee_filtering(
+        self,
+        cases_service: CasesService,
+        case_create_params: CaseCreate,
+        test_user: User,
+        session: AsyncSession,
+    ) -> None:
+        """Test that cases can be filtered by assignee."""
+        # Create cases with and without assignees
+        case1 = await cases_service.create_case(case_create_params)
+
+        assigned_params = CaseCreate(
+            summary="Assigned Case",
+            description="This case has an assignee",
+            status=CaseStatus.NEW,
+            priority=CasePriority.MEDIUM,
+            severity=CaseSeverity.LOW,
+            assignee_id=test_user.id,
+        )
+        case2 = await cases_service.create_case(assigned_params)
+
+        # Get all cases
+        all_cases = (
+            await cases_service.search_cases(
+                CursorPaginationParams(limit=100, cursor=None, reverse=False)
+            )
+        ).items
+        assert len(all_cases) >= 2
+
+        # Verify at least one case with our test user
+        cases_with_assignee = [
+            case
+            for case in all_cases
+            if case.assignee and case.assignee.id == test_user.id
+        ]
+        assert len(cases_with_assignee) >= 1
+        assert case2.id in [case.id for case in cases_with_assignee]
+
+        # Verify at least one case without assignee
+        cases_without_assignee = [case for case in all_cases if case.assignee is None]
+        assert len(cases_without_assignee) >= 1
+        assert case1.id in [case.id for case in cases_without_assignee]
+
+
+@pytest.fixture
+async def exact_search_cases(
+    session: AsyncSession, cases_service: CasesService
+) -> tuple[Case, Case, Case]:
+    """An older exact case and two newer cases mentioning both references."""
+    now = datetime.now(UTC)
+    exact_id = uuid.uuid4()
+    cases = tuple(
+        Case(
+            id=exact_id if number == 42 else uuid.uuid4(),
+            workspace_id=cases_service.workspace_id,
+            case_number=number,
+            summary=(
+                "Synthetic older exact case"
+                if number == 42
+                else f"Synthetic mention CASE-0042 {exact_id}"
+            ),
+            description="Synthetic search fixture",
+            status=CaseStatus.CLOSED if number == 42 else CaseStatus.NEW,
+            priority=CasePriority.LOW,
+            severity=CaseSeverity.LOW,
+            created_at=now - timedelta(days=60 if number == 42 else number - 42),
+            updated_at=now,
+        )
+        for number in (42, 43, 44)
+    )
+    session.add_all(cases)
+    await session.commit()
+    return cases[0], cases[1], cases[2]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("reference_type", ["short_id", "uuid"])
+async def test_promoted_exact_case_paginates_before_filtered_mentions(
+    cases_service: CasesService,
+    session: AsyncSession,
+    exact_search_cases: tuple[Case, Case, Case],
+    reference_type: Literal["short_id", "uuid"],
+) -> None:
+    """One-item pages retain all text hits, exact-first ordering and view counts."""
+    exact, first_mention, second_mention = exact_search_cases
+    query = exact.short_id if reference_type == "short_id" else str(exact.id)
+    start_time = datetime.now(UTC) - timedelta(days=30)
+    events_before = list((await session.scalars(select(CaseEvent.id))).all())
+    cursor = None
+    ids = []
+    pages = []
+    for _ in range(3):
+        page = await cases_service.search_cases(
+            CursorPaginationParams(limit=1, cursor=cursor),
+            search_term=query,
+            promote_exact_match=True,
+            start_time=start_time,
+            status=[CaseStatus.NEW],
+            order_by="created_at",
+            sort="desc",
+        )
+        assert len(page.items) == 1
+        assert page.total_estimate == 2
+        ids.append(page.items[0].id)
+        pages.append(page)
+        cursor = page.next_cursor
+    assert ids == [exact.id, first_mention.id, second_mention.id]
+    assert pages[0].items[0].is_exact_match
+    assert pages[0].items[0].is_outside_filters
+    assert all(not page.items[0].is_exact_match for page in pages[1:])
+    assert pages[-1].has_more is False
+    assert cursor is None
+    assert list((await session.scalars(select(CaseEvent.id))).all()) == events_before
+    # Backward navigation reaches the same exact first page.
+    assert pages[1].prev_cursor is not None
+    previous = await cases_service.search_cases(
+        CursorPaginationParams(limit=1, cursor=pages[1].prev_cursor),
+        search_term=query,
+        promote_exact_match=True,
+        start_time=start_time,
+        status=[CaseStatus.NEW],
+        order_by="created_at",
+        sort="desc",
+    )
+    assert [item.id for item in previous.items] == [exact.id]
+
+
+@pytest.mark.anyio
+async def test_promoted_exact_case_is_not_duplicated_or_counted_twice(
+    cases_service: CasesService, exact_search_cases: tuple[Case, Case, Case]
+) -> None:
+    """A case within the filters appears once and keeps the ordinary total."""
+    exact, first, second = exact_search_cases
+    result = await cases_service.search_cases(
+        CursorPaginationParams(limit=10),
+        search_term=exact.short_id,
+        promote_exact_match=True,
+    )
+    assert [item.id for item in result.items] == [exact.id, first.id, second.id]
+    assert result.items[0].is_exact_match
+    assert result.items[0].is_outside_filters is False
+    assert result.total_estimate == 3
+
+
+@pytest.mark.anyio
+async def test_promoted_exact_case_survives_an_empty_ordinary_population(
+    cases_service: CasesService, exact_search_cases: tuple[Case, Case, Case]
+) -> None:
+    """An impossible client filter still allows only the exact case to appear."""
+    exact, _, _ = exact_search_cases
+    result = await cases_service.search_cases(
+        CursorPaginationParams(limit=1),
+        search_term=exact.short_id,
+        promote_exact_match=True,
+        match_none=True,
+    )
+    assert [item.id for item in result.items] == [exact.id]
+    assert result.items[0].is_outside_filters
+    assert result.total_estimate == 0
+    assert result.has_more is False
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("promote", [False, True])
+async def test_explicit_identity_filters_remain_strict_during_promotion(
+    cases_service: CasesService,
+    exact_search_cases: tuple[Case, Case, Case],
+    promote: bool,
+) -> None:
+    """An explicit identity/relationship query cannot escape supplied filters."""
+    exact, _, _ = exact_search_cases
+    result = await cases_service.search_cases(
+        CursorPaginationParams(limit=10),
+        search_term=exact.short_id,
+        case_id=exact.id,
+        promote_exact_match=promote,
+        status=[CaseStatus.NEW],
+    )
+    assert result.items == []
+
+
+@pytest.mark.anyio
+async def test_numeric_text_does_not_promote_an_old_case(
+    cases_service: CasesService, exact_search_cases: tuple[Case, Case, Case]
+) -> None:
+    """Ambiguous numeric input retains ordinary text and date filtering."""
+    exact, _, _ = exact_search_cases
+    result = await cases_service.search_cases(
+        CursorPaginationParams(limit=10),
+        search_term="42",
+        promote_exact_match=True,
+        start_time=datetime.now(UTC) - timedelta(days=30),
+    )
+    assert exact.id not in {item.id for item in result.items}
+    assert all(not item.is_exact_match for item in result.items)
+
+
+@pytest.mark.anyio
+async def test_promoted_cursor_survives_exact_case_deletion(
+    cases_service: CasesService,
+    session: AsyncSession,
+    exact_search_cases: tuple[Case, Case, Case],
+) -> None:
+    """Deleting the promoted anchor leaves continuation query identity stable."""
+    exact, first, second = exact_search_cases
+    page = await cases_service.search_cases(
+        CursorPaginationParams(limit=1),
+        search_term="CASE-0042",
+        promote_exact_match=True,
+    )
+    assert [item.id for item in page.items] == [exact.id]
+    await session.delete(exact)
+    await session.commit()
+    following = await cases_service.search_cases(
+        CursorPaginationParams(limit=2, cursor=page.next_cursor),
+        search_term="CASE-0042",
+        promote_exact_match=True,
+    )
+    assert [item.id for item in following.items] == [first.id, second.id]
+    assert following.has_more is False

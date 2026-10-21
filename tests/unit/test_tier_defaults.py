@@ -1,43 +1,52 @@
 """Tests for OSS tier default entitlement resolution."""
 
+import pytest
+
 from tracecat.tiers.defaults import (
     get_legacy_feature_flags_env,
     resolve_oss_default_entitlements,
 )
 
-
-def test_resolve_oss_default_entitlements_fresh_install() -> None:
-    entitlements = resolve_oss_default_entitlements(None)
-
-    assert entitlements.custom_registry is True
-    assert entitlements.git_sync is False
-    assert entitlements.agent_addons is False
-    assert entitlements.case_addons is False
-    assert entitlements.service_accounts is False
-    assert entitlements.workspace_chat is True
-    assert entitlements.multi_workspace is False
-    assert entitlements.watchtower is False
-    assert entitlements.agent_channels is False
-    assert entitlements.semantic_search is False
-    assert entitlements.tunnels is False
+_FALSE_BY_DEFAULT = {
+    "git_sync": False,
+    "agent_addons": False,
+    "case_addons": False,
+    "service_accounts": False,
+    "multi_workspace": False,
+    "watchtower": False,
+    "agent_channels": False,
+    "semantic_search": False,
+    "forms": False,
+    "tunnels": False,
+}
 
 
-def test_resolve_oss_default_entitlements_maps_legacy_feature_flags() -> None:
-    entitlements = resolve_oss_default_entitlements(
-        "git-sync,agent-approvals,case-durations"
-    )
+@pytest.mark.parametrize(
+    ("flags", "enabled"),
+    [
+        pytest.param(None, set(), id="fresh_install"),
+        pytest.param(
+            "git-sync,agent-approvals,case-durations",
+            {"git_sync", "agent_addons", "case_addons"},
+            id="legacy_feature_flags",
+        ),
+        pytest.param(
+            " GIT_SYNC , unknown-flag , CASE_TRIGGERS ",
+            {"git_sync", "case_addons"},
+            id="normalizes_and_ignores_unknown",
+        ),
+    ],
+)
+def test_resolve_oss_default_entitlements(flags: str | None, enabled: set[str]) -> None:
+    entitlements = resolve_oss_default_entitlements(flags)
 
-    assert entitlements.custom_registry is True
-    assert entitlements.git_sync is True
-    assert entitlements.agent_addons is True
-    assert entitlements.case_addons is True
-    assert entitlements.service_accounts is False
-    assert entitlements.workspace_chat is True
-    assert entitlements.multi_workspace is False
-    assert entitlements.watchtower is False
-    assert entitlements.agent_channels is False
-    assert entitlements.semantic_search is False
-    assert entitlements.tunnels is False
+    expected = {
+        **_FALSE_BY_DEFAULT,
+        **dict.fromkeys(enabled, True),
+        "custom_registry": True,
+        "workspace_chat": True,
+    }
+    assert {name: getattr(entitlements, name) for name in expected} == expected
 
 
 def test_resolve_oss_default_entitlements_maps_legacy_agent_channels_flag() -> None:
@@ -45,6 +54,13 @@ def test_resolve_oss_default_entitlements_maps_legacy_agent_channels_flag() -> N
 
     assert entitlements.agent_channels is True
     assert entitlements.agent_addons is False
+
+
+def test_resolve_oss_default_entitlements_maps_forms_flag() -> None:
+    entitlements = resolve_oss_default_entitlements("git-sync, forms")
+
+    assert entitlements.forms is True
+    assert entitlements.semantic_search is False
 
 
 def test_resolve_oss_default_entitlements_normalizes_and_ignores_unknown() -> None:
@@ -62,6 +78,7 @@ def test_resolve_oss_default_entitlements_normalizes_and_ignores_unknown() -> No
     assert entitlements.watchtower is False
     assert entitlements.agent_channels is False
     assert entitlements.semantic_search is False
+    assert entitlements.forms is False
     assert entitlements.tunnels is False
 
 
