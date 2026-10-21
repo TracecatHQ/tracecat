@@ -20,6 +20,7 @@ from tests._registry_utils import core_udfs, input_schema_for
 
 SKILL_UUID = uuid.uuid4()
 FILES = [{"path": "SKILL.md", "content_base64": "IyBUcmlhZ2U="}]
+FILES_WITH_TYPE = [{**FILES[0], "content_type": "text/markdown"}]
 
 
 @pytest.fixture
@@ -173,11 +174,18 @@ async def test_restore_skill_version_delegates_to_agents_sdk(
 
 
 @pytest.mark.anyio
-async def test_update_skill_requires_operations(
+async def test_update_skill_without_inputs_republishes_current_version(
     skill_registry_context: MagicMock,
 ) -> None:
-    with pytest.raises(ValueError, match="operations is required"):
-        await update_skill("triage")
+    agents = skill_registry_context.agents
+    agents.get_skill = AsyncMock(return_value={"current_version_id": "v1"})
+    agents.get_skill_version = AsyncMock(return_value={"files": FILES_WITH_TYPE})
+    agents.publish_skill_version = AsyncMock(return_value={"id": "v2"})
+
+    assert await update_skill("triage") == {"id": "v2"}
+    agents.publish_skill_version.assert_awaited_once_with(
+        skill_id="triage", skill_uuid=None, base_version_id="v1", files=FILES_WITH_TYPE
+    )
 
 
 @pytest.mark.anyio
@@ -236,8 +244,6 @@ STABLE_1_2_1_INPUTS: dict[str, set[str]] = {
     "update_skill": {"skill_id", "files", "delete_paths", "skill_uuid"},
 }
 DEPRECATED_ACTIONS = (
-    "get_skill_version",
-    "publish_skill_version",
     "archive_skill",
     "get_skill_draft",
     "get_skill_draft_file",

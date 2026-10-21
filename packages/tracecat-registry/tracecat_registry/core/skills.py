@@ -102,7 +102,7 @@ async def update_skill(
             "File operations applied in order. Each has an 'op' of "
             "'upsert_text_file' (path, content, optional content_type), "
             "'delete_file' (path), or 'move_file' (from_path, to_path). "
-            "Required unless using the deprecated files/delete_paths."
+            "If omitted, the deprecated files/delete_paths are published directly."
         ),
     ] = None,
     base_revision: Annotated[
@@ -128,17 +128,16 @@ async def update_skill(
     ] = None,
     skill_uuid: LegacySkillUuid = None,
 ) -> dict[str, Any]:
-    if files is not None or delete_paths is not None:
-        if operations is not None:
-            raise ValueError("Pass either operations or files/delete_paths, not both")
+    if operations is None:
+        # 1.2.1 contract: omitted operations publish directly, even with no file changes.
         return await _publish_merged_files(
             skill_id=skill_id,
             files=files,
             delete_paths=delete_paths,
             skill_uuid=skill_uuid,
         )
-    if operations is None:
-        raise ValueError("operations is required")
+    if files is not None or delete_paths is not None:
+        raise ValueError("Pass either operations or files/delete_paths, not both")
     revision = base_revision
     if revision is None:
         draft = await ctx.agents.aio.get_skill_draft(skill_id, skill_uuid=skill_uuid)
@@ -249,7 +248,7 @@ async def _publish_merged_files(
     )
 
 
-# Deprecated 1.2.1 actions kept so saved workflows keep running.
+# 1.2.1 actions restored so saved workflows keep running.
 
 
 @registry.register(
@@ -257,7 +256,6 @@ async def _publish_merged_files(
     display_group="Agent Skills",
     description="Get one immutable published skill version by ID, including publish-compatible file contents.",
     namespace="ai.skill",
-    deprecated="Deprecated with no replacement.",
 )
 async def get_skill_version(
     skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],
@@ -278,7 +276,6 @@ async def get_skill_version(
     display_group="Agent Skills",
     description="Publish a complete file set as a new immutable skill version.",
     namespace="ai.skill",
-    deprecated="Use ai.skill.update_skill, then ai.skill.publish_skill instead.",
 )
 async def publish_skill_version(
     skill_id: Annotated[str, Doc("Skill slug in kebab-case.")],

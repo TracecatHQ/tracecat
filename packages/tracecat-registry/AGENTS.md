@@ -10,7 +10,8 @@ contract: saved workflows and agent presets reference them directly.
 - Never remove or rename a stable-released action, or remove, rename, or retype its
   inputs, in one step. Follow the three-step deprecation in `CONTRIBUTING.md`:
   announce with `deprecation(<scope>):`, mark it `deprecated="Use <replacement> instead."`
-  (inputs: `Field(deprecated=True)`), and remove it with `!` in a later train.
+  or `"Deprecated with no replacement."` (inputs: `Field(deprecated=True)`), and remove
+  it with `!` in a later train.
 - Never change what an existing action name does. A new contract gets a new name,
   or an additive mode that keeps the old inputs working (e.g. `ai.skill.update_skill`).
 - Check with `git tag --contains <commit>` or `git show <last-stable>:<path>`. Actions
