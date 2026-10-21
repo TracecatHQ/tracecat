@@ -58,6 +58,14 @@ def test_validate_mcp_env_rejects_agent_runtime_overrides(env_key: str) -> None:
             ],
             id="link-mode-after-short-option-value",
         ),
+        pytest.param(
+            ["--require-build-hashes", "--cache-dir", "/work/uv-cache", "example-mcp"],
+            id="cache-dir-after-require-build-hashes",
+        ),
+        pytest.param(
+            ["--no-require-build-hashes", "--link-mode", "symlink", "example-mcp"],
+            id="link-mode-after-no-require-build-hashes",
+        ),
     ],
 )
 def test_validate_mcp_command_rejects_protected_uvx_options(
