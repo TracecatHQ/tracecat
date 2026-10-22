@@ -70,8 +70,8 @@ resource "aws_ecs_service" "tracecat_litellm" {
       port_name      = "litellm"
       discovery_name = "litellm-service"
       timeout {
-        # No absolute LLM request bound: the agent activity timeout bounds turns.
-        per_request_timeout_seconds = 3600
+        # No absolute LLM request bound: match the API service so a stream can last a full agent turn.
+        per_request_timeout_seconds = max(3600, tonumber(var.agent_sandbox_timeout) + 60)
       }
       client_alias {
         port     = 4000
