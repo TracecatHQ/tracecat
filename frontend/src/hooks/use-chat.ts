@@ -741,13 +741,13 @@ export function useVercelChat({
     }),
     onError: (error) => {
       const friendlyMessage = parseChatError(error)
-      // A failed reconnect gets no onFinish, so its drop is marked here. Any
-      // TypeError or failure before the stream opened leaves the turn unknown.
+      // A reconnect that fails before its stream opens gets no onFinish and
+      // leaves status untouched; the turn is unknown, so mark it dropped.
+      const streamOpened =
+        statusRef.current === "submitted" || statusRef.current === "streaming"
       const reconnectDropped =
         requestKindRef.current === "resume" &&
-        (generation > 0 ||
-          error instanceof TypeError ||
-          statusRef.current === "submitted")
+        (generation > 0 || error instanceof TypeError || !streamOpened)
       setLastError({
         chatKey,
         message: friendlyMessage,

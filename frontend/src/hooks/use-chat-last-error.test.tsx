@@ -342,12 +342,9 @@ describe("useVercelChat dropped prompt across reloads", () => {
   it("rechecks the server when a reload's reconnect gets an HTTP error", async () => {
     global.fetch = jest.fn() as unknown as typeof fetch
     mockRegenerate.mockClear()
+    // The SDK keeps status untouched until GET /stream returns.
     const { hook, onError } = renderChat()
-    // The mount reconnect is in flight when GET /stream fails.
-    mockStatus = "submitted"
-    hook.rerender()
     act(() => onError?.(new Error("Bad gateway")))
-    mockStatus = "ready"
 
     expect(hook.result.current.lastErrorDisconnected).toBe(true)
     await act(async () => {
@@ -358,6 +355,20 @@ describe("useVercelChat dropped prompt across reloads", () => {
     expect(jest.mocked(useChat).mock.calls.at(-1)?.[0]).toMatchObject({
       id: "chat-1#1",
     })
+  })
+
+  it("keeps a replayed run failure red", () => {
+    const { hook, onError, onFinish } = renderChat()
+    mockStatus = "streaming"
+    hook.rerender()
+    act(() => {
+      onError?.(new Error("Provider unavailable"))
+      finish(onFinish, { isError: true })
+    })
+    mockStatus = "ready"
+
+    expect(hook.result.current.lastError).toBe("Provider unavailable")
+    expect(hook.result.current.lastErrorDisconnected).toBe(false)
   })
 
   it("never resends when a reconnect without a restored prompt fails", async () => {
@@ -556,6 +567,7 @@ describe("useVercelChat retryTurn", () => {
 
   it("resends after a failure that kept the connection", async () => {
     const { hook, onError, onFinish } = renderChat()
+    await act(() => hook.result.current.sendMessage({ text: "Summarize it" }))
     act(() => {
       onError?.(new Error("Provider unavailable"))
       finish(onFinish, { isError: true })
