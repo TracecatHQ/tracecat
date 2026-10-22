@@ -5,6 +5,7 @@ from collections.abc import Sequence
 
 from slugify import slugify
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
@@ -463,34 +464,28 @@ class CaseDropdownValuesService(BaseWorkspaceService):
                 )
             new_option_label = new_option.label
 
-        # Lock the case so concurrent first writes cannot both insert.
+        # Concurrent first writes converge on one row; the row lock orders them.
         await self.session.execute(
-            select(Case.id).where(Case.id == case_id).with_for_update()
+            pg_insert(CaseDropdownValue)
+            .values(case_id=case_id, definition_id=definition_id, option_id=None)
+            .on_conflict_do_nothing(constraint="uq_case_dropdown_value_case_definition")
         )
-        stmt = select(CaseDropdownValue).where(
-            CaseDropdownValue.case_id == case_id,
-            CaseDropdownValue.definition_id == definition_id,
-        )
-        result = await self.session.execute(stmt)
-        existing = result.scalar_one_or_none()
-
-        old_option_id: uuid.UUID | None = None
-        old_option_label: str | None = None
-
-        if existing is not None:
-            # Eagerly loaded
-            if existing.option:
-                old_option_id = existing.option.id
-                old_option_label = existing.option.label
-            existing.option_id = params.option_id
-            row = existing
-        else:
-            row = CaseDropdownValue(
-                case_id=case_id,
-                definition_id=definition_id,
-                option_id=params.option_id,
+        row = (
+            await self.session.scalars(
+                select(CaseDropdownValue)
+                .where(
+                    CaseDropdownValue.case_id == case_id,
+                    CaseDropdownValue.definition_id == definition_id,
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
             )
-            self.session.add(row)
+        ).one()
+
+        # Eagerly loaded
+        old_option_id = row.option.id if row.option else None
+        old_option_label = row.option.label if row.option else None
+        row.option_id = params.option_id
         await self.session.flush()
 
         # Create event

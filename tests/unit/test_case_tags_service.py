@@ -220,16 +220,11 @@ class TestCaseTagsService:  # noqa: D101
         assert case_tags[0].id == tag.id
 
     @pytest.mark.anyio
-    async def test_create_if_missing_reuses_concurrently_created_tag(
+    async def test_create_if_missing_is_idempotent(
         self,
         case_tags_service: CaseTagsService,
         case_id: uuid.UUID,
     ) -> None:
-        # Simulates losing the race: the lookup missed, then another request won.
-        winner = await case_tags_service.create_tag(TagCreate(name="Phishing"))
-        tag = await case_tags_service._create_tag_if_missing("Phishing")
-        assert tag.id == winner.id
-
         await case_tags_service.add_case_tag(
             case_id, "Phishing Lure", create_if_missing=True
         )
@@ -238,6 +233,31 @@ class TestCaseTagsService:  # noqa: D101
         )
         case_tags = await case_tags_service.list_tags_for_case(case_id)
         assert [tag.ref for tag in case_tags] == [slugify("Phishing Lure")]
+
+    @pytest.mark.anyio
+    async def test_create_if_missing_reuses_tag_with_same_name(
+        self,
+        case_tags_service: CaseTagsService,
+        case_id: uuid.UUID,
+        session: AsyncSession,
+    ) -> None:
+        synced = await case_tags_service.create_tag(TagCreate(name="Synced"))
+        synced.ref = "source-id"
+        await session.commit()
+
+        tag = await case_tags_service.add_case_tag(
+            case_id, "Synced", create_if_missing=True
+        )
+        assert tag.id == synced.id
+
+    @pytest.mark.anyio
+    async def test_create_if_missing_validates_name(
+        self, case_tags_service: CaseTagsService, case_id: uuid.UUID
+    ) -> None:
+        with pytest.raises(ValueError):
+            await case_tags_service.add_case_tag(
+                case_id, "x" * 51, create_if_missing=True
+            )
 
     @pytest.mark.anyio
     @pytest.mark.parametrize("identifier_type", ["id", "ref", "mixed"])

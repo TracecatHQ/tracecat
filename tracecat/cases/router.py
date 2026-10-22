@@ -1067,8 +1067,6 @@ async def delete_field(
     service = CaseFieldsService(session, role)
     try:
         await service.delete_field(field_id)
-    except TableColumnConflictError as exc:
-        raise HTTPException(status_code=HTTP_409_CONFLICT, detail=str(exc)) from exc
     except TracecatNotFoundError as exc:
         raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (ValueError, TracecatValidationError) as exc:
