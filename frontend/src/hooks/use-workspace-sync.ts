@@ -13,7 +13,6 @@ import {
   type WorkflowSyncPullRequest,
   type WorkspaceSyncExportPreview,
   type WorkspaceSyncExportRequest_Input as WorkspaceSyncExportRequest,
-  workflowsApplySyncOperation,
   workflowsCreateSyncOperation,
   workflowsListWorkflowBranches,
   workflowsListWorkflowCommits,
@@ -23,6 +22,7 @@ import {
   useSyncOperationWaiter,
 } from "@/hooks/use-sync-operation"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
+import { sendSyncOperationCommand } from "@/lib/workspace-sync-command"
 
 import {
   expireSyncOperation,
@@ -120,10 +120,11 @@ export function useWorkflowSync(workspaceId: string) {
             "Preview expired or is no longer ready. Preview these changes again before applying."
           )
         }
-        const started = await workflowsApplySyncOperation({
+        const started = await sendSyncOperationCommand(
           workspaceId,
-          operationId: prepared.current.id,
-        })
+          cached.data,
+          "apply"
+        )
         queryClient.invalidateQueries({
           queryKey: ["sync-operations", workspaceId],
         })
@@ -174,10 +175,18 @@ export function useWorkspaceSyncExport(workspaceId: string) {
     }: {
       operationId: string
     }): Promise<SyncPushResult> => {
-      const started = await workflowsApplySyncOperation({
+      const prepared = queryClient.getQueryData<SyncOperationRead>([
+        "sync-operation",
         workspaceId,
         operationId,
-      })
+      ])
+      if (!prepared)
+        throw new Error("Reload the prepared preview before confirming")
+      const started = await sendSyncOperationCommand(
+        workspaceId,
+        prepared,
+        "apply"
+      )
       queryClient.invalidateQueries({
         queryKey: ["sync-operations", workspaceId],
       })

@@ -28,6 +28,8 @@ jest.mock("@/client", () => ({
 
 const operation: SyncOperationRead = {
   id: "operation-test",
+  preview_revision: 1,
+  state_revision: 3,
   direction: "pull",
   status: "ready",
   stage: "awaiting_confirmation",
@@ -101,6 +103,11 @@ it("previews without the legacy dry-run flag and applies only after confirmation
   expect(workflowsApplySyncOperation).toHaveBeenCalledWith({
     workspaceId: "workspace-test",
     operationId: operation.id,
+    requestBody: {
+      command_id: expect.any(String),
+      preview_revision: 1,
+      state_revision: 3,
+    },
   })
   expect(workflowsCreateSyncOperation).toHaveBeenCalledTimes(1)
 })
@@ -429,6 +436,11 @@ it.each([403, 404, 503, "network"] as const)(
       expect(workflowsApplySyncOperation).toHaveBeenCalledWith({
         workspaceId: "workspace-test",
         operationId: operation.id,
+        requestBody: {
+          command_id: expect.any(String),
+          preview_revision: 1,
+          state_revision: 3,
+        },
       })
     }
     unmount()

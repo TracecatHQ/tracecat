@@ -12,6 +12,12 @@ jest.mock("@/components/workspace-sync/unified-diff", () => ({
   UnifiedDiff: ({ diff }: { diff: string }) => <pre>{diff}</pre>,
 }))
 
+jest.mock("@/components/workspace-sync/sync-operation-diffs", () => ({
+  OperationDiffs: ({ count }: { count: number }) => (
+    <div data-testid="paged-diffs">{count}</div>
+  ),
+}))
+
 const skill = {
   resource_type: "skill",
   source_id: "triage",
@@ -110,4 +116,22 @@ describe("CatalogMappingRequirements", () => {
 
     expect(screen.getByText("Matched")).toBeInTheDocument()
   })
+})
+
+it("uses the server's changed-file count for a paginated operation preview", () => {
+  render(
+    <GitSyncChangeList
+      workspaceId="workspace-1"
+      operationId="synthetic-operation"
+      direction="push"
+      summary="Prepared changes"
+      resources={[]}
+      diffs={[]}
+      fileCount={0}
+      diffCount={3}
+    />
+  )
+  expect(screen.getByText("3 files")).toBeInTheDocument()
+  expect(screen.queryByText("0 files")).not.toBeInTheDocument()
+  expect(screen.getByTestId("paged-diffs")).toHaveTextContent("3")
 })

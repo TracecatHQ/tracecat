@@ -32,6 +32,8 @@ const operation: SyncOperationRead = {
   expires_at: "2099-01-02T00:00:00Z",
   diff_count: 51,
   can_retry: false,
+  preview_revision: 1,
+  state_revision: 3,
   inputs: {
     id: "operation-test",
     direction: "push",
@@ -94,6 +96,11 @@ it("recovers a ready preview after remount and confirms the persisted operation"
     expect(workflowsApplySyncOperation).toHaveBeenCalledWith({
       workspaceId: "workspace-test",
       operationId: operation.id,
+      requestBody: {
+        command_id: expect.any(String),
+        preview_revision: 1,
+        state_revision: 3,
+      },
     })
   )
 })

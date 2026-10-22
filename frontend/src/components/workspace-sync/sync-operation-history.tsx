@@ -1,16 +1,12 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import {
-  type SyncOperationRead,
-  workflowsApplySyncOperation,
-  workflowsListSyncOperations,
-  workflowsRetrySyncOperation,
-} from "@/client"
+import { type SyncOperationRead, workflowsListSyncOperations } from "@/client"
 import { Button } from "@/components/ui/button"
 import { OperationDiffs } from "@/components/workspace-sync/sync-operation-diffs"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 import { cn } from "@/lib/utils"
+import { sendSyncOperationCommand } from "@/lib/workspace-sync-command"
 import {
   expireSyncOperation,
   observeSyncOperation,
@@ -21,6 +17,7 @@ const STAGES = {
   preparing: "Preparing changes",
   awaiting_confirmation: "Ready to review",
   applying: "Applying changes",
+  finishing: "Finishing schedules and background work",
   finished: "Completed",
 } as const
 
@@ -125,15 +122,7 @@ function OperationDetails({
   const [reviewed, setReviewed] = useState(false)
   const action = useMutation({
     mutationFn: (kind: "apply" | "retry") =>
-      kind === "apply"
-        ? workflowsApplySyncOperation({
-            workspaceId,
-            operationId: operation.id,
-          })
-        : workflowsRetrySyncOperation({
-            workspaceId,
-            operationId: operation.id,
-          }),
+      sendSyncOperationCommand(workspaceId, operation, kind),
     onSuccess: (updated) => {
       observeSyncOperation(client, workspaceId, updated)
       void client.invalidateQueries({
@@ -141,6 +130,9 @@ function OperationDetails({
       })
     },
     onError: () => {
+      void client.invalidateQueries({
+        queryKey: ["sync-operation", workspaceId, operation.id],
+      })
       void client.invalidateQueries({
         queryKey: ["sync-operations", workspaceId],
       })
@@ -184,9 +176,8 @@ function OperationDetails({
       {operation.error && <p className="text-destructive">{operation.error}</p>}
       {operation.data_applied && operation.status !== "completed" && (
         <p>
-          Workspace changes were imported. Schedule synchronization is still
-          pending. Retrying resumes schedule synchronization without importing
-          again.
+          Workspace changes were imported. Schedules and background work are
+          finishing automatically. The changes will not be imported again.
         </p>
       )}
       {preview &&
