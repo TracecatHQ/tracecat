@@ -1022,11 +1022,12 @@ TRACECAT__LLM_PROXY_READ_TIMEOUT = float(
 TRACECAT__LLM_REQUEST_MAX_DURATION_SECONDS = float(
     os.environ.get("TRACECAT__LLM_REQUEST_MAX_DURATION_SECONDS") or 900.0
 )
-"""Absolute bound on one LLM request through the socket proxy, in seconds.
+"""Absolute bound on one LLM request through the socket proxy, in seconds
+(default: 15 minutes).
 
 Covers the whole upstream exchange (retries, response headers, and body),
 unlike ``TRACECAT__LLM_PROXY_READ_TIMEOUT``, which only bounds the gap between
-chunks (default: 15 minutes).
+chunks.
 """
 
 

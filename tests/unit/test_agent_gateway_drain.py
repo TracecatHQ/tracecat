@@ -39,10 +39,14 @@ async def test_drain_log_reports_in_flight_requests_against_budget(
     monkeypatch: pytest.MonkeyPatch,
     timed_out: bool,
 ) -> None:
-    """Drain logs start, a single timeout past ``D``, and finish per worker."""
-    counts = iter([2, 2, 1, 0, 0])
-    monkeypatch.setattr(gateway_drain, "get_in_flight_requests", lambda: next(counts))
-    monkeypatch.setattr(gateway_drain, "_DRAIN_POLL_INTERVAL_SECONDS", 0.0)
+    """Drain logs start, a single timeout past ``D``, and finishes at teardown.
+
+    Zero in flight does not finish the log: uvicorn can still accept a request
+    until its listener closes, so only teardown ends the drain.
+    """
+    in_flight = 2
+    monkeypatch.setattr(gateway_drain, "get_in_flight_requests", lambda: in_flight)
+    monkeypatch.setattr(gateway_drain, "_DRAIN_POLL_INTERVAL_SECONDS", 0.001)
     log = Mock()
     monkeypatch.setattr(gateway_drain, "logger", log)
 
@@ -51,10 +55,15 @@ async def test_drain_log_reports_in_flight_requests_against_budget(
         gateway="litellm-0/1",
         started_at=time.monotonic(),
     )
-    await gateway_drain._watch_drain(drain)
+    poller = asyncio.create_task(gateway_drain._watch_drain(drain))
+    await asyncio.sleep(0.02)
+    in_flight = 0
+    await asyncio.sleep(0.02)
 
-    started = log.info.call_args_list[0]
-    assert started.args == ("LLM gateway drain started",)
+    assert [call.args[0] for call in log.info.call_args_list] == [
+        "LLM gateway drain started"
+    ]
+    started = log.info.call_args
     assert started.kwargs["in_flight_requests"] == 2
     assert started.kwargs["gateway"] == "litellm-0/1"
     if timed_out:
@@ -64,8 +73,13 @@ async def test_drain_log_reports_in_flight_requests_against_budget(
         assert timeout_log.kwargs["in_flight_requests"] == 2
     else:
         log.warning.assert_not_called()
-    finished = log.info.call_args_list[-1]
+
+    drain.finish()
+    await asyncio.wait_for(poller, timeout=1)
+
+    finished = log.info.call_args
     assert finished.args == ("LLM gateway drain finished",)
+    assert finished.kwargs["in_flight_requests"] == 0
     assert finished.kwargs["drain_timeout_exceeded"] is timed_out
     assert log.info.call_count == 2
 

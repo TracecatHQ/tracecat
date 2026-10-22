@@ -57,7 +57,7 @@ class _DrainLog:
     finished: bool = False
 
     def finish(self) -> None:
-        """Log the drain end once, from the poller or from app teardown."""
+        """Log the drain end once, at app teardown."""
         if self.finished:
             return
         self.finished = True
@@ -74,16 +74,22 @@ _drain_log: _DrainLog | None = None
 
 
 async def _watch_drain(drain: _DrainLog) -> None:
-    """Poll this worker's in-flight requests until they finish."""
+    """Warn once if requests are still in flight after the drain budget.
+
+    Zero in flight is not the end of the drain: uvicorn keeps its listener open
+    until its next loop tick and can still accept a request. Only app teardown,
+    which runs after every connection closed, finishes the log.
+    """
     logger.info(
         "LLM gateway drain started",
         gateway=drain.gateway,
         in_flight_requests=get_in_flight_requests(),
         drain_timeout_seconds=drain.drain_timeout,
     )
-    while not drain.finished and (in_flight := get_in_flight_requests()) > 0:
+    while not drain.finished:
         elapsed = time.monotonic() - drain.started_at
-        if not drain.timed_out and elapsed >= drain.drain_timeout:
+        in_flight = get_in_flight_requests()
+        if not drain.timed_out and in_flight > 0 and elapsed >= drain.drain_timeout:
             drain.timed_out = True
             logger.warning(
                 "LLM gateway drain timed out",
@@ -93,7 +99,6 @@ async def _watch_drain(drain: _DrainLog) -> None:
                 drain_timeout_seconds=drain.drain_timeout,
             )
         await asyncio.sleep(_DRAIN_POLL_INTERVAL_SECONDS)
-    drain.finish()
 
 
 def _finish_drain_log() -> None:
@@ -109,10 +114,10 @@ def install_drain_logging() -> None:
     than replacing it. Outside a running worker (imports in tests or tooling)
     there is no callable handler or event loop, and this is a no-op.
 
-    The poller can miss the last request: uvicorn exits right after app
-    teardown by re-raising SIGTERM. LiteLLM's lifespan teardown calls
-    ``GracefulShutdownManager.start_shutdown()`` once every connection has
-    closed, so that call also finishes the drain log.
+    LiteLLM's lifespan teardown calls ``GracefulShutdownManager.start_shutdown()``
+    once uvicorn has stopped accepting and every connection has closed, so that
+    call finishes the drain log. Uvicorn exits right after by re-raising
+    SIGTERM, so the log is written synchronously there.
     """
     global _drain_logging_installed
     if _drain_logging_installed:
