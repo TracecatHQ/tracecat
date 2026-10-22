@@ -92,15 +92,19 @@ if TYPE_CHECKING:
 
 # Parsed manifests by registry version, shared across requests in this process.
 # Versions are immutable, so an entry never goes stale; the bounds cap memory
-# (the builtin registry's manifest parses to about 27 MB). Callers must not
-# mutate a cached manifest.
+# (the builtin registry's manifest parses to about 28 MB, roughly 16 KB per
+# action). Org manifests vary in size, so their bound counts actions, not
+# manifests. Callers must not mutate a cached manifest.
 PLATFORM_MANIFEST_CACHE_SIZE = 2
-ORG_MANIFEST_CACHE_SIZE = 16
+ORG_MANIFEST_CACHE_MAX_ACTIONS = 4096
 _platform_manifests: LRUCache[uuid.UUID, RegistryVersionManifest] = LRUCache(
     maxsize=PLATFORM_MANIFEST_CACHE_SIZE
 )
 _org_manifests: LRUCache[tuple[uuid.UUID, uuid.UUID], RegistryVersionManifest] = (
-    LRUCache(maxsize=ORG_MANIFEST_CACHE_SIZE)
+    LRUCache(
+        maxsize=ORG_MANIFEST_CACHE_MAX_ACTIONS,
+        getsizeof=lambda manifest: len(manifest.actions),
+    )
 )
 
 
@@ -121,26 +125,6 @@ class _IndexSelectRow(NamedTuple):
     options: dict
     origin: str
     source: str
-
-
-class _ActionIndexRow(NamedTuple):
-    """Action index row with manifest: get_action_from_index."""
-
-    id: uuid.UUID
-    namespace: str
-    name: str
-    action_type: str
-    description: str
-    default_title: str | None
-    display_group: str | None
-    options: dict
-    doc_url: str | None
-    author: str | None
-    deprecated: str | None
-    manifest: dict
-    origin: str
-    repo_id: uuid.UUID
-    source: RegistrySource
 
 
 class _ActionMetadataRow(NamedTuple):
@@ -628,6 +612,40 @@ class RegistryActionsService(BaseOrgService):
         except ValueError:
             return None
 
+        # Retry once if the selected version is replaced before its manifest loads.
+        for _ in range(2):
+            row = await self._select_action_row(namespace, name)
+            if row is None:
+                return None
+            manifests = await self._load_action_manifests([row])
+            manifest = manifests.get((row.source, row.registry_version_id))
+            if manifest is None:
+                continue
+            return IndexedActionResult(
+                index_entry=IndexEntry(
+                    id=row.id,
+                    namespace=row.namespace,
+                    name=row.name,
+                    action_type=row.action_type,
+                    description=row.description,
+                    default_title=row.default_title,
+                    display_group=row.display_group,
+                    options=row.options or {},
+                    doc_url=row.doc_url,
+                    author=row.author,
+                    deprecated=row.deprecated,
+                ),
+                manifest=manifest,
+                origin=row.origin,
+                repository_id=row.repo_id,
+                source=row.source,
+            )
+        raise RegistryError("Manifest missing for a selected registry action version")
+
+    async def _select_action_row(
+        self, namespace: str, name: str
+    ) -> _ActionMetadataRow | None:
+        """Select the index row that serves an action, org rows first."""
         # Org-scoped query - select explicit columns for UNION ALL compatibility
         org_statement = (
             select(
@@ -642,7 +660,7 @@ class RegistryActionsService(BaseOrgService):
                 RegistryIndex.doc_url,
                 RegistryIndex.author,
                 RegistryIndex.deprecated,
-                RegistryVersion.manifest,
+                RegistryIndex.registry_version_id,
                 RegistryRepository.origin,
                 RegistryRepository.id.label("repo_id"),
                 literal("org", type_=String).label("source"),
@@ -677,7 +695,7 @@ class RegistryActionsService(BaseOrgService):
                 PlatformRegistryIndex.doc_url,
                 PlatformRegistryIndex.author,
                 PlatformRegistryIndex.deprecated,
-                PlatformRegistryVersion.manifest,
+                PlatformRegistryIndex.registry_version_id,
                 PlatformRegistryRepository.origin,
                 PlatformRegistryRepository.id.label("repo_id"),
                 literal("platform", type_=String).label("source"),
@@ -703,7 +721,7 @@ class RegistryActionsService(BaseOrgService):
             text("source")  # "org" < "platform" alphabetically
         )
         result = await self.session.execute(combined)
-        rows = typing_cast(list[_ActionIndexRow], result.all())
+        rows = typing_cast(list[_ActionMetadataRow], result.all())
         if not rows:
             return None
 
@@ -720,26 +738,7 @@ class RegistryActionsService(BaseOrgService):
                     enabled_entitlements = await self._get_enabled_entitlements()
                 if not required.issubset(enabled_entitlements):
                     continue
-            manifest = RegistryVersionManifest.model_validate(row.manifest)
-            return IndexedActionResult(
-                index_entry=IndexEntry(
-                    id=row.id,
-                    namespace=row.namespace,
-                    name=row.name,
-                    action_type=row.action_type,
-                    description=row.description,
-                    default_title=row.default_title,
-                    display_group=row.display_group,
-                    options=row.options or {},
-                    doc_url=row.doc_url,
-                    author=row.author,
-                    deprecated=row.deprecated,
-                ),
-                manifest=manifest,
-                origin=row.origin,
-                repository_id=row.repo_id,
-                source=row.source,
-            )
+            return row
         return None
 
     async def get_actions_from_index(
@@ -1104,9 +1103,10 @@ class RegistryActionsService(BaseOrgService):
         for row in manifest_rows:
             manifest = RegistryVersionManifest.model_validate(row.manifest)
             if row.source == "org":
-                _org_manifests[(self.organization_id, row.registry_version_id)] = (
-                    manifest
-                )
+                # LRUCache rejects an entry larger than its whole bound.
+                if len(manifest.actions) <= ORG_MANIFEST_CACHE_MAX_ACTIONS:
+                    key = (self.organization_id, row.registry_version_id)
+                    _org_manifests[key] = manifest
             else:
                 _platform_manifests[row.registry_version_id] = manifest
             manifests[(row.source, row.registry_version_id)] = manifest

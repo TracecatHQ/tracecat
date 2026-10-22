@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from cachetools import LRUCache
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -293,6 +294,62 @@ async def test_get_actions_from_index_reuses_manifest_across_services(
         second = await service.get_actions_from_index([action_name])
 
     assert second[action_name].manifest is first[action_name].manifest
+
+
+@pytest.mark.anyio
+async def test_get_action_from_index_reuses_cached_manifest(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_name = "acme.cached.single"
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-cached-single",
+        action_names=[action_name],
+    )
+
+    batch = await RegistryActionsService(session, role=svc_role).get_actions_from_index(
+        [action_name]
+    )
+    service = RegistryActionsService(session, role=svc_role)
+    with patch.object(
+        RegistryVersionManifest,
+        "model_validate",
+        side_effect=AssertionError("manifest parsed again"),
+    ):
+        single = await service.get_action_from_index(action_name)
+
+    assert single is not None
+    assert single.manifest is batch[action_name].manifest
+
+
+@pytest.mark.anyio
+async def test_org_manifest_larger_than_cache_bound_is_served_uncached(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_names = ["acme.large.first", "acme.large.second"]
+    await _seed_org_registry(
+        session,
+        role=svc_role,
+        origin="git+ssh://git@github.com/acme/large-registry.git",
+        version="large-1.0",
+        action_names=action_names,
+    )
+    org_manifests: LRUCache[tuple[uuid.UUID, uuid.UUID], RegistryVersionManifest] = (
+        LRUCache(maxsize=1, getsizeof=lambda manifest: len(manifest.actions))
+    )
+    service = RegistryActionsService(session, role=svc_role)
+    with (
+        patch("tracecat.registry.actions.service.ORG_MANIFEST_CACHE_MAX_ACTIONS", 1),
+        patch("tracecat.registry.actions.service._org_manifests", org_manifests),
+        patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)),
+    ):
+        found = await service.get_actions_from_index(action_names)
+
+    assert set(found) == set(action_names)
+    assert len(org_manifests) == 0
 
 
 @pytest.mark.anyio
