@@ -16,10 +16,11 @@ from tracecat.db.models import (
     Action,
     MCPIntegration,
     Workflow,
+    Workspace,
     WorkspaceSyncResourceMapping,
 )
 from tracecat.dsl.enums import PlatformAction
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.secrets.enums import SecretSource
 from tracecat.sync import PullResult, PushStatus
 from tracecat.tiers.enums import Entitlement
@@ -59,8 +60,20 @@ def fingerprint(value: object) -> str:
 class DurableSyncService(WorkspaceSyncService):
     """Adapt the sync domain service to a durable prepare/apply lifecycle."""
 
-    async def repository_fingerprint(self) -> str:
-        workspace = await self._workspace()
+    async def repository_fingerprint(self, *, lock: bool = False) -> str:
+        if lock:
+            # Keep repository disconnect/replacement ordered after confirmation.
+            # Refresh any previously loaded ORM instance under the same lock.
+            workspace = await self.session.scalar(
+                select(Workspace)
+                .where(Workspace.id == self.workspace_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if workspace is None:
+                raise TracecatNotFoundError("Workspace not found")
+        else:
+            workspace = await self._workspace()
         settings = workspace.settings or {}
         return fingerprint(
             {
@@ -381,7 +394,10 @@ class DurableSyncService(WorkspaceSyncService):
     ) -> SyncPushResult | PullResult:
         """Apply exactly the reviewed state within the caller's transaction."""
         await self.require_entitlement(Entitlement.GIT_SYNC)
-        if await self.repository_fingerprint() != prepared.repository_fingerprint:
+        if (
+            await self.repository_fingerprint(lock=True)
+            != prepared.repository_fingerprint
+        ):
             raise StaleSyncPreviewError("Repository settings changed; preview again")
         url = await self._workspace_git_url()
         transport = self._transport_for_provider()
