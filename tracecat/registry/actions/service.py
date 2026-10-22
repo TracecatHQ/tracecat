@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple, TypedDict
 from typing import cast as typing_cast
 
-import orjson
 from cachetools import LRUCache
 from pydantic import ValidationError
 from pydantic_core import ErrorDetails, to_jsonable_python
@@ -107,18 +106,6 @@ class _CachedOrgManifest:
     json_size: int
 
 
-def _manifest_json_size(manifest: dict[str, object]) -> int | None:
-    """Return a manifest's JSON size, or None if orjson cannot encode it.
-
-    JSONB accepts integers beyond 64 bits, which orjson rejects; such manifests
-    are served uncached.
-    """
-    try:
-        return len(orjson.dumps(manifest))
-    except orjson.JSONEncodeError:
-        return None
-
-
 _platform_manifests: LRUCache[uuid.UUID, RegistryVersionManifest] = LRUCache(
     maxsize=PLATFORM_MANIFEST_CACHE_SIZE
 )
@@ -171,7 +158,7 @@ class _VersionManifestRow(NamedTuple):
     """One manifest payload for a selected registry version."""
 
     registry_version_id: uuid.UUID
-    manifest: dict[str, object]
+    manifest_json: str
     source: str
 
 
@@ -1105,7 +1092,7 @@ class RegistryActionsService(BaseOrgService):
 
         org_statement = select(
             RegistryVersion.id.label("registry_version_id"),
-            RegistryVersion.manifest,
+            cast(RegistryVersion.manifest, String).label("manifest_json"),
             literal("org", type_=String).label("source"),
         ).where(
             RegistryVersion.organization_id == self.organization_id,
@@ -1113,7 +1100,7 @@ class RegistryActionsService(BaseOrgService):
         )
         platform_statement = select(
             PlatformRegistryVersion.id.label("registry_version_id"),
-            PlatformRegistryVersion.manifest,
+            cast(PlatformRegistryVersion.manifest, String).label("manifest_json"),
             literal("platform", type_=String).label("source"),
         ).where(PlatformRegistryVersion.id.in_(platform_version_ids))
 
@@ -1122,14 +1109,11 @@ class RegistryActionsService(BaseOrgService):
         )
         manifest_rows = typing_cast(list[_VersionManifestRow], result.all())
         for row in manifest_rows:
-            manifest = RegistryVersionManifest.model_validate(row.manifest)
+            manifest = RegistryVersionManifest.model_validate_json(row.manifest_json)
             if row.source == "org":
+                json_size = len(row.manifest_json.encode())
                 # LRUCache rejects an entry larger than its whole bound.
-                json_size = _manifest_json_size(row.manifest)
-                if (
-                    json_size is not None
-                    and json_size <= ORG_MANIFEST_CACHE_MAX_JSON_BYTES
-                ):
+                if json_size <= ORG_MANIFEST_CACHE_MAX_JSON_BYTES:
                     key = (self.organization_id, row.registry_version_id)
                     _org_manifests[key] = _CachedOrgManifest(manifest, json_size)
             else:

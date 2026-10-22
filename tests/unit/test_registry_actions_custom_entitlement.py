@@ -356,7 +356,7 @@ async def test_org_manifest_larger_than_cache_bound_is_served_uncached(
 
 
 @pytest.mark.anyio
-async def test_org_manifest_orjson_cannot_size_is_served_uncached(
+async def test_org_manifest_with_big_integer_is_served_and_cached(
     svc_role: Role,
     session: AsyncSession,
 ) -> None:
@@ -369,7 +369,7 @@ async def test_org_manifest_orjson_cannot_size_is_served_uncached(
         version="bigint-1.0",
         action_names=[action_name],
     )
-    # JSONB keeps integers beyond 64 bits, which orjson cannot encode.
+    # JSONB keeps integers beyond 64 bits.
     manifest = _make_manifest([action_name], origin=origin)
     manifest["actions"][action_name]["interface"]["expects"] = {
         "type": "object",
@@ -382,7 +382,7 @@ async def test_org_manifest_orjson_cannot_size_is_served_uncached(
     )
     await session.commit()
     org_manifests: LRUCache[tuple[uuid.UUID, uuid.UUID], _CachedOrgManifest] = LRUCache(
-        maxsize=1024, getsizeof=lambda entry: entry.json_size
+        maxsize=4096, getsizeof=lambda entry: entry.json_size
     )
     service = RegistryActionsService(session, role=svc_role)
     with (
@@ -391,8 +391,9 @@ async def test_org_manifest_orjson_cannot_size_is_served_uncached(
     ):
         found = await service.get_actions_from_index([action_name])
 
-    assert action_name in found
-    assert len(org_manifests) == 0
+    interface = found[action_name].manifest.actions[action_name].interface
+    assert interface["expects"]["properties"]["limit"]["default"] == 2**128 - 1
+    assert len(org_manifests) == 1
 
 
 @pytest.mark.anyio
