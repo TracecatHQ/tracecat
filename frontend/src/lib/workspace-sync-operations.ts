@@ -27,7 +27,10 @@ export function syncOperationPollInterval(
   ) {
     return 1500
   }
-  if (operation.status === "ready") {
+  if (
+    operation.status === "ready" ||
+    (operation.status === "failed" && operation.can_retry)
+  ) {
     return Math.max(
       1,
       Math.min(60_000, Date.parse(operation.expires_at) - Date.now())
@@ -146,10 +149,16 @@ export function observeSyncOperation(
   workspaceId: string,
   incoming: SyncOperationRead
 ) {
-  const operation = expireSyncOperation(incoming)
+  const queryKey = ["sync-operation", workspaceId, incoming.id]
+  const cached = client.getQueryData<SyncOperationRead>(queryKey)
+  // SQL history can arrive after a newer authoritative workflow Query.
+  const newest =
+    cached && (cached.state_revision ?? 0) > (incoming.state_revision ?? 0)
+      ? cached
+      : incoming
+  const operation = expireSyncOperation(newest)
   const state = getObservations(client)
   const key = JSON.stringify([workspaceId, operation.id])
-  const queryKey = ["sync-operation", workspaceId, operation.id]
   if (client.getQueryData(queryKey) !== operation) {
     client.setQueryData(queryKey, operation)
   }

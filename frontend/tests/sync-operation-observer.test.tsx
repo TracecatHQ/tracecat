@@ -6,7 +6,10 @@ import {
   workflowsGetSyncOperation,
 } from "@/client"
 import { QueryClient } from "@/lib/query"
-import { observeSyncOperation } from "@/lib/workspace-sync-operations"
+import {
+  observeSyncOperation,
+  syncOperationPollInterval,
+} from "@/lib/workspace-sync-operations"
 
 jest.mock("@/client", () => ({
   ...jest.requireActual("@/client"),
@@ -159,4 +162,42 @@ it("stops requests when the query cache is cleared", async () => {
     await jest.advanceTimersByTimeAsync(6000)
   })
   expect(workflowsGetSyncOperation).not.toHaveBeenCalled()
+})
+
+it("never replaces newer workflow state with a delayed history row", () => {
+  const completed = {
+    ...operation,
+    status: "completed" as const,
+    stage: "finished" as const,
+    state_revision: 8,
+  }
+  client.setQueryData(
+    ["sync-operation", "workspace-example", operation.id],
+    completed
+  )
+  observeSyncOperation(client, "workspace-example", {
+    ...operation,
+    state_revision: 3,
+  })
+  expect(
+    client.getQueryData(["sync-operation", "workspace-example", operation.id])
+  ).toEqual(completed)
+  expect(workflowsGetSyncOperation).not.toHaveBeenCalled()
+})
+
+it("keeps observing a retryable failure until its recorded deadline", () => {
+  expect(
+    syncOperationPollInterval({
+      ...operation,
+      status: "failed",
+      can_retry: true,
+    })
+  ).toBe(60_000)
+  expect(
+    syncOperationPollInterval({
+      ...operation,
+      status: "failed",
+      can_retry: false,
+    })
+  ).toBe(false)
 })

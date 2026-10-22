@@ -229,6 +229,7 @@ export function GitSyncChangeList({
 }) {
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set())
   const [openItem, setOpenItem] = useState<string | null>(null)
+  const displayedCount = operationId ? (diffCount ?? 0) : fileCount
   const groups = buildChangeGroups(resources, diffs)
   const hasSensitive = groups.some(
     (group) => group.type === "secret_metadata" || group.type === "variable"
@@ -255,7 +256,7 @@ export function GitSyncChangeList({
         <span aria-hidden>·</span>
         <span className="min-w-0 truncate">{summary}</span>
         <span className="ml-auto shrink-0 font-mono text-[11px]">
-          {fileCount} {fileCount === 1 ? "file" : "files"}
+          {displayedCount} {displayedCount === 1 ? "file" : "files"}
         </span>
       </div>
       {operationId && diffs.length === 0 ? (
