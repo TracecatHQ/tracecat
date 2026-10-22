@@ -14,7 +14,8 @@ import os
 import re
 import time
 import uuid
-from collections.abc import AsyncIterable, Callable, Sequence
+from collections.abc import AsyncIterable, Callable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
@@ -24,6 +25,7 @@ from uuid import uuid4
 import httpx
 import orjson
 from fastapi import HTTPException
+from opentelemetry.trace import INVALID_SPAN, Span, SpanKind, StatusCode
 from tenacity import (
     AsyncRetrying,
     RetryCallState,
@@ -77,6 +79,7 @@ from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
 from tracecat.network import DisallowedUrlError
+from tracecat.observability.otel import get_platform_tracing
 from tracecat.observability.sentry import capture_activity_failure
 from tracecat.observability.types import PlatformErrorCapture, ProxyFailureContext
 from tracecat.outbound import create_outbound_http_client
@@ -171,6 +174,9 @@ _TRACE_REQUEST_ID_HEADER = "x-request-id"
 # an interrupted stream can be attributed to the gateway process that served it.
 _GATEWAY_IDENTITY_HEADER = "x-tracecat-gateway"
 _MAX_GATEWAY_IDENTITY_CHARS = 128
+_TRACER_NAME = "tracecat.agent.llm_proxy"
+_UPSTREAM_SPAN_NAME = "tracecat.agent.llm_proxy.upstream"
+_FIRST_BYTE_EVENT = "tracecat.agent.llm_proxy.first_byte"
 _ANTHROPIC_ONLY_FIELDS = (
     "anthropic_beta",
     "context_management",
@@ -1077,6 +1083,94 @@ def _with_trace_request_id(
     return forwarded
 
 
+@dataclass(slots=True)
+class _UpstreamTrace:
+    """What one upstream response relayed, recorded on its client span.
+
+    Spans carry status codes, exception type names, the route mode, the trace
+    request ID, and byte and chunk counts: never credentials, URLs, headers,
+    bodies, or exception messages.
+    """
+
+    span: Span
+    chunks: int = 0
+    size: int = 0
+
+    def response(self, status_code: int) -> None:
+        """Record the upstream status; 4xx and 5xx fail the span."""
+        self.span.set_attribute("http.response.status_code", status_code)
+        if status_code >= 400:
+            self.span.set_status(StatusCode.ERROR)
+            self.span.set_attribute("error.type", str(status_code))
+
+    def observe(self, chunk: bytes) -> None:
+        """Count a chunk relayed to the runtime and mark the first one."""
+        if not chunk:
+            return
+        if not self.chunks:
+            self.span.add_event(_FIRST_BYTE_EVENT)
+        self.chunks += 1
+        self.size += len(chunk)
+
+    def fail(self, exc: Exception) -> None:
+        """Fail the span with the exception's type name, never its message."""
+        if isinstance(exc, _UpstreamRateLimited):
+            # The 429 status is already recorded.
+            return
+        if isinstance(exc, _UpstreamConnectionDropped):
+            exc = exc.error
+        self.span.set_status(StatusCode.ERROR)
+        self.span.set_attribute("error.type", type(exc).__name__)
+
+
+@contextmanager
+def _upstream_span(
+    *,
+    method: str,
+    path: str,
+    route_is_direct: bool,
+    trace_request_id: str,
+    attempt: int,
+) -> Iterator[_UpstreamTrace]:
+    """Hold a client span over one upstream attempt until its response is relayed.
+
+    The span is a child of the context the proxy was started in, so it joins
+    the agent run's trace. A cancellation is not recorded as its error.
+    """
+    tracing = get_platform_tracing()
+    if tracing is None:
+        yield _UpstreamTrace(INVALID_SPAN)
+        return
+    with tracing.tracer(_TRACER_NAME).start_as_current_span(
+        _UPSTREAM_SPAN_NAME,
+        kind=SpanKind.CLIENT,
+        attributes={
+            "http.request.method": method,
+            "http.route": path.split("?", 1)[0],
+            "tracecat.agent.llm_proxy.route": "direct"
+            if route_is_direct
+            else "managed",
+            "tracecat.agent.llm_proxy.trace_request_id": trace_request_id,
+            "tracecat.agent.llm_proxy.attempt": attempt,
+        },
+        record_exception=False,
+        set_status_on_exception=False,
+    ) as span:
+        upstream = _UpstreamTrace(span)
+        try:
+            yield upstream
+        except Exception as exc:
+            upstream.fail(exc)
+            raise
+        finally:
+            span.set_attributes(
+                {
+                    "http.response.body.size": upstream.size,
+                    "tracecat.agent.llm_proxy.response.chunks": upstream.chunks,
+                }
+            )
+
+
 def _is_non_critical_request(method: str | None, path: str) -> bool:
     path_without_query = path.split("?", 1)[0]
     return path_without_query in _NON_CRITICAL_PATHS or (
@@ -1567,7 +1661,16 @@ class LLMSocketProxy:
                 attempt_number = attempt.retry_state.attempt_number
                 rate_limit_attempt = attempt_number - int(connection_drop_retried)
                 response_phase = "response_headers"
-                with attempt:
+                with (
+                    attempt,
+                    _upstream_span(
+                        method=method,
+                        path=path,
+                        route_is_direct=route.is_direct,
+                        trace_request_id=trace_request_id,
+                        attempt=attempt_number,
+                    ) as upstream,
+                ):
                     headers_received = False
                     try:
                         async with client.stream(
@@ -1579,6 +1682,7 @@ class LLMSocketProxy:
                             else None,
                         ) as response:
                             headers_received = True
+                            upstream.response(response.status_code)
                             body_chunks: AsyncIterable[bytes] | list[bytes]
                             stream_rewriter: ToolUseStreamRewriter | None = None
                             if (
@@ -1657,6 +1761,7 @@ class LLMSocketProxy:
                                 route_is_direct=route.is_direct,
                                 diagnostic_factory=diagnostic,
                                 stream_rewriter=stream_rewriter,
+                                upstream=upstream,
                             )
                     except (
                         httpx.RemoteProtocolError,
@@ -1786,6 +1891,7 @@ class LLMSocketProxy:
         route_is_direct: bool = False,
         diagnostic_factory: Callable[[], LLMErrorDiagnostics] | None = None,
         stream_rewriter: ToolUseStreamRewriter | None = None,
+        upstream: _UpstreamTrace | None = None,
     ) -> None:
         """Write an HTTP response head and stream the response body."""
         content_type = next(
@@ -1873,6 +1979,8 @@ class LLMSocketProxy:
                     writer.write(chunk)
                     await writer.drain()
                     bytes_forwarded += len(chunk)
+                    if upstream is not None:
+                        upstream.observe(chunk)
                 except Exception as exc:
                     if (
                         not self._is_client_disconnect_error(exc)
@@ -1895,6 +2003,8 @@ class LLMSocketProxy:
             if writer.is_closing():
                 logger.debug("Client disconnected while reading response body")
                 return
+            if upstream is not None:
+                upstream.fail(exc)
             if isinstance(exc, httpx.ReadTimeout):
                 _log_read_timeout(
                     route_is_direct=route_is_direct,
