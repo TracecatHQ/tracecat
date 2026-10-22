@@ -121,8 +121,14 @@ function OperationDetails({
   const client = useQueryClient()
   const [reviewed, setReviewed] = useState(false)
   const action = useMutation({
-    mutationFn: (kind: "apply" | "retry") =>
-      sendSyncOperationCommand(workspaceId, operation, kind),
+    mutationFn: (kind: "apply" | "retry") => {
+      const current = expireSyncOperation(operation)
+      if (current.status === "expired") {
+        observeSyncOperation(client, workspaceId, current)
+        throw new Error("Preview expired. Preview these changes again.")
+      }
+      return sendSyncOperationCommand(workspaceId, current, kind)
+    },
     onSuccess: (updated) => {
       observeSyncOperation(client, workspaceId, updated)
       void client.invalidateQueries({
