@@ -397,6 +397,43 @@ async def test_org_manifest_with_big_integer_is_served_and_cached(
 
 
 @pytest.mark.anyio
+async def test_org_manifest_nested_beyond_pydantic_json_depth_is_served(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_name = "acme.deep.action"
+    origin = "git+ssh://git@github.com/acme/deep-registry.git"
+    repo = await _seed_org_registry(
+        session,
+        role=svc_role,
+        origin=origin,
+        version="deep-1.0",
+        action_names=[action_name],
+    )
+    # Pydantic's JSON parser rejects this depth; JSONB and json.loads accept it.
+    default: object = 2**128 - 1
+    for _ in range(250):
+        default = {"a": default}
+    manifest = _make_manifest([action_name], origin=origin)
+    manifest["actions"][action_name]["interface"]["expects"] = {
+        "type": "object",
+        "properties": {"nested": {"type": "object", "default": default}},
+    }
+    await session.execute(
+        update(RegistryVersion)
+        .where(RegistryVersion.id == repo.current_version_id)
+        .values(manifest=manifest)
+    )
+    await session.commit()
+    service = RegistryActionsService(session, role=svc_role)
+    with patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)):
+        found = await service.get_actions_from_index([action_name])
+
+    interface = found[action_name].manifest.actions[action_name].interface
+    assert interface["expects"]["properties"]["nested"]["default"] == default
+
+
+@pytest.mark.anyio
 async def test_cached_org_manifest_is_never_served_to_another_org(
     svc_role: Role,
     session: AsyncSession,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -104,6 +105,20 @@ ORG_MANIFEST_CACHE_MAX_JSON_BYTES = 16 * 1024 * 1024
 class _CachedOrgManifest:
     manifest: RegistryVersionManifest
     json_size: int
+
+
+def _parse_manifest(manifest_json: str) -> RegistryVersionManifest:
+    """Validate a registry version manifest from its JSONB text.
+
+    Pydantic's JSON parser caps nesting depth, which JSONB does not, so text it
+    rejects is validated again from ``json.loads`` (the driver's former path).
+    Real validation errors raise from there. orjson is not used because it
+    turns integers beyond 64 bits into floats.
+    """
+    try:
+        return RegistryVersionManifest.model_validate_json(manifest_json)
+    except ValidationError:
+        return RegistryVersionManifest.model_validate(json.loads(manifest_json))
 
 
 _platform_manifests: LRUCache[uuid.UUID, RegistryVersionManifest] = LRUCache(
@@ -1109,7 +1124,7 @@ class RegistryActionsService(BaseOrgService):
         )
         manifest_rows = typing_cast(list[_VersionManifestRow], result.all())
         for row in manifest_rows:
-            manifest = RegistryVersionManifest.model_validate_json(row.manifest_json)
+            manifest = _parse_manifest(row.manifest_json)
             if row.source == "org":
                 json_size = len(row.manifest_json)
                 # LRUCache rejects an entry larger than its whole bound.
