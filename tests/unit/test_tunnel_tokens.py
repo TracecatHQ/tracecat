@@ -154,3 +154,18 @@ def test_accepts_token_without_log_only_claims() -> None:
     claims = _verify(_raw({"subject": None}))
     assert claims.subject is None
     assert claims.action_ref is None
+
+
+def test_token_satisfies_legacy_gateway_verifier() -> None:
+    """Gateways on an older image still require ``wf_exec_id``."""
+    payload = jwt.decode(
+        _mint(),
+        KEY,
+        algorithms=["HS256"],
+        audience=TUNNEL_TOKEN_AUDIENCE,
+        issuer=TUNNEL_TOKEN_ISSUER,
+        options={
+            "require": ["iss", "aud", "sub", "iat", "exp", "workspace_id", "wf_exec_id"]
+        },
+    )
+    assert payload["wf_exec_id"] == "wf-exec-1"

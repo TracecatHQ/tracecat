@@ -5363,6 +5363,60 @@ class TestMCPProviderOAuth:
         assert connect.await_args is not None
         assert connect.await_args.kwargs["params"].tunnel_id == tunnel.id
 
+    async def test_shared_oauth_connection_requires_one_tunnel(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+    ) -> None:
+        """OAuth calls on a connection shared across routes fail instead of going direct."""
+        from tracecat.db.models import WorkspaceTunnel
+
+        integration = await self._store_expired_mcp_integration(
+            integration_service, session
+        )
+        tunnel = WorkspaceTunnel(
+            workspace_id=integration_service.workspace_id,
+            name="onprem",
+            endpoint="https://pangolin.example.com",
+            client_id="client",
+            encrypted_client_secret=b"x",
+            allowed_targets=[{"host": "mcp.example.test", "ports": [443]}],
+        )
+        session.add(tunnel)
+        await session.flush()
+        rows = [
+            MCPIntegration(
+                workspace_id=integration_service.workspace_id,
+                name=f"Shared MCP {i}",
+                slug=f"shared-mcp-{i}",
+                server_type="http",
+                server_uri="https://mcp.example.test/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=integration.id,
+                tunnel_id=tunnel.id,
+                tools=[],
+            )
+            for i in range(2)
+        ]
+        session.add_all(rows)
+        await session.commit()
+
+        found = await integration_service._mcp_integration_for_oauth_integration(
+            oauth_integration_id=integration.id
+        )
+        assert found is not None and found.tunnel_id == tunnel.id
+
+        rows[1].tunnel_id = None
+        await session.commit()
+        with pytest.raises(ValueError, match="same tunnel"):
+            await integration_service._mcp_integration_for_oauth_integration(
+                oauth_integration_id=integration.id
+            )
+        with pytest.raises(ValueError, match="same tunnel"):
+            await integration_service._refresh_custom_mcp_integration(
+                integration=integration, refresh_token="refresh"
+            )
+
     async def test_generic_mcp_refresh_rejects_private_token_endpoint_resolution(
         self,
         integration_service: IntegrationService,

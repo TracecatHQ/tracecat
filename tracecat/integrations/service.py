@@ -1734,12 +1734,22 @@ class IntegrationService(BaseWorkspaceService):
         self, *, oauth_integration_id: uuid.UUID
     ) -> MCPIntegration | None:
         result = await self.session.execute(
-            select(MCPIntegration).where(
+            select(MCPIntegration)
+            .where(
                 MCPIntegration.workspace_id == self.workspace_id,
                 MCPIntegration.oauth_integration_id == oauth_integration_id,
             )
+            .order_by(MCPIntegration.created_at, MCPIntegration.id)
         )
-        return result.scalars().first()
+        rows = result.scalars().all()
+        # OAuth calls for a shared connection can't tell which row they serve,
+        # so they'd pick one row's route for all of them.
+        if len({row.tunnel_id for row in rows}) > 1:
+            raise ValueError(
+                "MCP integrations that share an OAuth connection must use the "
+                "same tunnel"
+            )
+        return rows[0] if rows else None
 
     @require_scope("integration:create", "integration:update", require_all=False)
     async def complete_mcp_oauth_discovery_callback(

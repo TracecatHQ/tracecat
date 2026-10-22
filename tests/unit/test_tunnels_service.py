@@ -427,3 +427,64 @@ async def test_published_workflow_definition_references_tunnel(
     assert reference.kind is TunnelReferenceKind.WORKFLOW
     assert reference.id == workflow.id
     assert reference.detail == "Published version"
+
+
+async def test_agent_tool_tunnels_reference_tunnel(
+    service: TunnelsService, session: AsyncSession, svc_role: Role
+) -> None:
+    """``ai.agent`` per-tool tunnels in drafts and published definitions count."""
+    from tracecat_ee.tunnels.schemas import TunnelReferenceKind
+
+    from tracecat.db.models import Action, Workflow, WorkflowDefinition
+
+    tunnel = await service.create_tunnel(_params())
+    assert svc_role.workspace_id is not None
+    draft, published, unrelated = (
+        Workflow(workspace_id=svc_role.workspace_id, title=title, description="")
+        for title in ("Draft agent", "Published agent", "Other agent")
+    )
+    published.version = 1
+    session.add_all([draft, published, unrelated])
+    await session.flush()
+    session.add_all(
+        [
+            Action(
+                workspace_id=svc_role.workspace_id,
+                workflow_id=draft.id,
+                type="ai.agent",
+                title="Triage",
+                description="",
+                inputs=f"tool_tunnels:\n  tools.sublime.x: {tunnel.name}\n",
+            ),
+            # The name appears in the inputs but not as a tool tunnel.
+            Action(
+                workspace_id=svc_role.workspace_id,
+                workflow_id=unrelated.id,
+                type="ai.agent",
+                title="Mention",
+                description="",
+                inputs=f"user_prompt: {tunnel.name}\n",
+            ),
+            WorkflowDefinition(
+                workspace_id=svc_role.workspace_id,
+                workflow_id=published.id,
+                version=1,
+                content={
+                    "actions": [
+                        {
+                            "ref": "agent",
+                            "action": "ai.agent",
+                            "args": {"tool_tunnels": {"tools.sublime.x": tunnel.name}},
+                        }
+                    ]
+                },
+            ),
+        ]
+    )
+    await session.commit()
+
+    references = await service.list_tunnel_references(tunnel)
+    assert {(r.kind, r.name, r.detail) for r in references} == {
+        (TunnelReferenceKind.WORKFLOW, "Draft agent", "Triage"),
+        (TunnelReferenceKind.WORKFLOW, "Published agent", "Published version"),
+    }

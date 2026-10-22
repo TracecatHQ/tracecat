@@ -5,7 +5,10 @@ from __future__ import annotations
 import uuid
 from collections.abc import Awaitable, Callable
 
+import sqlalchemy as sa
+import yaml
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import JSONPATH
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.audit.logger import audit_log
@@ -106,6 +109,12 @@ async def get_gateway_policy(
         allowed_targets=TunnelRead.from_database(tunnel).allowed_targets,
         managed=tunnel.managed,
     )
+
+
+# Published ``ai.agent`` actions that route a tool through the ``$name`` tunnel.
+_AGENT_TOOL_TUNNELS_PATH = (
+    '$.actions[*] ? (@.action == "ai.agent").args.tool_tunnels.* ? (@ == $name)'
+)
 
 
 class TunnelsService(BaseWorkspaceService):
@@ -304,10 +313,16 @@ class TunnelsService(BaseWorkspaceService):
                 WorkflowDefinition.content.contains({"config": {"tunnel": tunnel.name}})
                 | WorkflowDefinition.content.contains(
                     {"actions": [{"tunnel": tunnel.name}]}
+                )
+                | func.jsonb_path_exists(
+                    WorkflowDefinition.content,
+                    sa.cast(_AGENT_TOOL_TUNNELS_PATH, JSONPATH),
+                    func.jsonb_build_object("name", tunnel.name),
                 ),
             )
             .exists()
         )
+        agent_actions = await self._agent_actions_with_tool_tunnel(tunnel.name)
         workflow_rows = await self.session.execute(
             select(
                 Workflow.id,
@@ -320,6 +335,7 @@ class TunnelsService(BaseWorkspaceService):
                 Workflow.workspace_id == self.workspace_id,
                 (Workflow.config["tunnel"].astext == tunnel.name)
                 | action_titles.is_not(None)
+                | Workflow.id.in_(agent_actions)
                 | published,
             )
             .order_by(Workflow.title)
@@ -331,6 +347,8 @@ class TunnelsService(BaseWorkspaceService):
                 parts.append("Workflow default")
             if row.actions:
                 parts.append(row.actions)
+            if titles := agent_actions.get(row.id):
+                parts.append(", ".join(titles))
             if row.published:
                 parts.append("Published version")
             references.append(
@@ -342,6 +360,34 @@ class TunnelsService(BaseWorkspaceService):
                 )
             )
         return references
+
+    async def _agent_actions_with_tool_tunnel(
+        self, name: str
+    ) -> dict[uuid.UUID, list[str]]:
+        """Draft ``ai.agent`` actions that route a tool through the named tunnel.
+
+        Action inputs are YAML text, so rows are prefiltered by substring and
+        then parsed.
+        """
+        rows = await self.session.execute(
+            select(Action.workflow_id, Action.title, Action.inputs)
+            .where(
+                Action.workspace_id == self.workspace_id,
+                Action.type == "ai.agent",
+                Action.inputs.contains(name, autoescape=True),
+            )
+            .order_by(Action.title)
+        )
+        titles: dict[uuid.UUID, list[str]] = {}
+        for workflow_id, title, inputs in rows.tuples():
+            try:
+                args = yaml.safe_load(inputs)
+            except yaml.YAMLError:
+                continue
+            tool_tunnels = args.get("tool_tunnels") if isinstance(args, dict) else None
+            if isinstance(tool_tunnels, dict) and name in tool_tunnels.values():
+                titles.setdefault(workflow_id, []).append(title)
+        return titles
 
     @require_scope("tunnel:delete")
     @audit_log(resource_type="workspace_tunnel", action="delete")

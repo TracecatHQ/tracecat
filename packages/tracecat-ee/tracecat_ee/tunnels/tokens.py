@@ -70,6 +70,9 @@ def mint_tunnel_token(
         "exp": int((now + timedelta(seconds=ttl_seconds)).timestamp()),
         "workspace_id": str(workspace_id),
         "subject": subject,
+        # Older gateway images require this claim; a gateway image can be
+        # pinned separately from the app, so keep sending it.
+        "wf_exec_id": subject,
     }
     if action_ref is not None:
         payload["action_ref"] = action_ref
