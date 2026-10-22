@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from unittest.mock import Mock
 
+import orjson
 import pytest
+from asyncpg.exceptions import (
+    CharacterNotInRepertoireError,
+    DataError,
+    StringDataRightTruncationError,
+)
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from tracecat.api import app as api_app
 from tracecat.api.app import (
@@ -22,6 +28,7 @@ from tracecat.api.app import (
 from tracecat.api.common import (
     query_overflow_exception_handler,
     query_timeout_exception_handler,
+    serialize_validation_errors,
     tracecat_exception_handler,
 )
 from tracecat.exceptions import (
@@ -347,3 +354,44 @@ def test_validation_errors_leave_the_rejected_input_out_of_logs(
     assert "A" * 100 not in str(logged.error.call_args)
     # The executor keeps a gateway error with the run, so it is left out there too.
     assert ("input" in error) is not gateway
+
+
+@pytest.mark.parametrize(
+    "orig",
+    [
+        CharacterNotInRepertoireError("null byte"),
+        StringDataRightTruncationError("too long"),
+        DataError("surrogate"),
+    ],
+)
+def test_database_data_errors_return_a_generic_422(orig: Exception) -> None:
+    app = _build_app(DBAPIError("private SQL", {}, orig))
+    _install_scim_exception_handlers(app)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/boom")
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": "Request contains a value that cannot be stored"
+    }
+
+
+def test_validation_errors_replace_surrogates() -> None:
+    errors = [
+        {
+            "type": "value_error",
+            "loc": ("body", "a\ud800"),
+            "msg": "bad",
+            "input": "a\udfff",
+            "ctx": {"error": ValueError("b\ud800")},
+        }
+    ]
+    serialized = serialize_validation_errors(errors)
+    assert orjson.loads(orjson.dumps(serialized)) == [
+        {
+            "type": "value_error",
+            "loc": ["body", "a\ufffd"],
+            "msg": "bad",
+            "input": "a\ufffd",
+            "ctx": {"error": "b\ufffd"},
+        }
+    ]

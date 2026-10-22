@@ -21,6 +21,7 @@ from tracecat.agent.folders.schemas import (
 from tracecat.agent.preset.schemas import build_agent_preset_tool_summary
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.authz.controls import require_scope
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import AgentFolder, AgentPreset
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import (
@@ -102,6 +103,8 @@ class AgentFolderService(BaseWorkspaceService):
                 await self.session.flush()
         except IntegrityError as exc:
             await self.session.rollback()
+            if not is_unique_violation(exc, "uq_agent_folder_path_workspace"):
+                raise
             raise self._folder_validation_error(
                 f"Folder {conflict_path} already exists",
                 code=AgentFolderErrorCode.CONFLICT,

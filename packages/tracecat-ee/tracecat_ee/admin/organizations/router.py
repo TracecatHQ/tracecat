@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from tracecat import config
 from tracecat.auth.credentials import SuperuserRole, SuperuserStepUpRole
 from tracecat.db.dependencies import AsyncDBSessionBypass
+from tracecat.db.errors import is_unique_violation
 from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
@@ -157,6 +158,8 @@ async def create_organization_invitation(
         ) from e
     except IntegrityError as e:
         # Race: a concurrent request already inserted a pending row for this email.
+        if not is_unique_violation(e, "ix_invitation_org_email_pending_unique"):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An invitation already exists for this email",

@@ -853,7 +853,14 @@ class OrganizationSecretStore(OrganizationModel):
     """Organization-owned external secret store (AWS Secrets Manager)."""
 
     __tablename__ = "organization_secret_store"
-    __table_args__ = (UniqueConstraint("organization_id", "name"),)
+    __table_args__ = (
+        # Matches the name the creating migration used.
+        UniqueConstraint(
+            "organization_id",
+            "name",
+            name="uq_organization_secret_store_organization_id",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,

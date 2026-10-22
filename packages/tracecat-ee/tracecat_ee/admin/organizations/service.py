@@ -19,6 +19,7 @@ from tracecat.audit.types import AuditAction
 from tracecat.auth.types import Role
 from tracecat.authz.membership import lock_role_changes
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     Invitation,
     Organization,
@@ -130,6 +131,8 @@ class AdminOrgService(BasePlatformService):
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
+            if not is_unique_violation(e, "ix_organization_slug"):
+                raise
             raise ValueError(f"Organization slug '{org.slug}' already exists") from e
         await self.session.refresh(org)
         return OrgRead.model_validate(org)
@@ -521,9 +524,11 @@ class AdminOrgService(BasePlatformService):
                 action="create",
                 status=AuditEventStatus.FAILURE,
             )
-            raise self._domain_integrity_error(
+            if conflict := self._domain_integrity_error(
                 exc, normalized.normalized_domain
-            ) from exc
+            ):
+                raise conflict from exc
+            raise
 
         await self._audit_domain_event(
             action="create",
@@ -585,7 +590,9 @@ class AdminOrgService(BasePlatformService):
                 resource_id=domain.id,
                 status=AuditEventStatus.FAILURE,
             )
-            raise self._domain_integrity_error(exc, domain.normalized_domain) from exc
+            if conflict := self._domain_integrity_error(exc, domain.normalized_domain):
+                raise conflict from exc
+            raise
 
         await self.session.refresh(domain)
 
@@ -717,18 +724,15 @@ class AdminOrgService(BasePlatformService):
 
     def _domain_integrity_error(
         self, error: IntegrityError, normalized_domain: str
-    ) -> ValueError:
+    ) -> ValueError | None:
         """Translate domain-related integrity errors into user-facing messages."""
-        message = (
-            str(error.orig).lower() if error.orig is not None else str(error).lower()
-        )
-        if "ix_org_domain_normalized_domain_active_unique" in message:
+        if is_unique_violation(error, "ix_org_domain_normalized_domain_active_unique"):
             return ValueError(
                 f"Domain {normalized_domain!r} is already assigned to another organization"
             )
-        if "ix_org_domain_org_primary_active_unique" in message:
+        if is_unique_violation(error, "ix_org_domain_org_primary_active_unique"):
             return ValueError("Organization already has an active primary domain")
-        return ValueError("Organization domain operation failed")
+        return None
 
     # Org Registry Methods
 

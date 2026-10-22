@@ -1532,7 +1532,7 @@ class BaseTablesService(BaseWorkspaceService):
                     raise TracecatNotFoundError(
                         f"Table '{table_name}' does not exist"
                     ) from e
-                raise ValueError(str(e)) from e
+                raise
             except Exception as e:
                 self.logger.error(
                     "Unexpected DB exception occurred",
@@ -1606,7 +1606,7 @@ class BaseTablesService(BaseWorkspaceService):
                     raise TracecatNotFoundError(
                         f"Table '{table_name}' does not exist"
                     ) from e
-                raise ValueError(str(e)) from e
+                raise
             except Exception as e:
                 self.logger.error(
                     "Unexpected DB exception occurred during exists_rows",
@@ -1849,7 +1849,7 @@ class BaseTablesService(BaseWorkspaceService):
                 raise TracecatNotFoundError(
                     f"Table '{table.name}' does not exist"
                 ) from e
-            raise ValueError(str(e)) from e
+            raise
         except Exception as e:
             self.logger.error(
                 "Unexpected DB exception occurred during paginated search",
