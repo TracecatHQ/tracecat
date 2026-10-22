@@ -261,6 +261,10 @@ class AgentPresetReadMinimal(Schema):
     current_version_id: uuid.UUID | None = None
     capabilities: list[AgentPresetCapability] = Field(default_factory=list)
     tool_summary: AgentPresetToolSummary = Field(default_factory=AgentPresetToolSummary)
+    skill_ids: list[uuid.UUID] = Field(
+        default_factory=list,
+        description="Workspace skills bound to the preset head.",
+    )
     current_version_subagent_eligibility: AgentPresetSubagentEligibility = Field(
         default_factory=AgentPresetSubagentEligibility
     )

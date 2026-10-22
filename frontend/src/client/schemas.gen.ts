@@ -3026,6 +3026,15 @@ export const $AgentPresetReadMinimal = {
     tool_summary: {
       $ref: "#/components/schemas/AgentPresetToolSummary",
     },
+    skill_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Skill Ids",
+      description: "Workspace skills bound to the preset head.",
+    },
     current_version_subagent_eligibility: {
       $ref: "#/components/schemas/AgentPresetSubagentEligibility",
     },

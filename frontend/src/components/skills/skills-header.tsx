@@ -10,10 +10,13 @@ import {
   Clock3,
   FolderIcon,
   ListIcon,
+  MousePointerClickIcon,
   SearchIcon,
   TypeIcon,
 } from "lucide-react"
 import type { ComponentType } from "react"
+import { FilterMultiSelect } from "@/components/filters/filter-multi-select"
+import type { SkillAgentFilter } from "@/components/skills/use-skill-agent-filter"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -125,6 +128,7 @@ interface SkillsHeaderProps {
   onSearchChange: (query: string) => void
   sortBy: SkillsSortValue
   onSortByChange: (value: SkillsSortValue) => void
+  agentFilter: SkillAgentFilter
   view: SkillsViewMode
   onViewChange: (view: SkillsViewMode) => void
   viewSwitchEnabled?: boolean
@@ -141,14 +145,14 @@ interface SkillsHeaderProps {
 
 /**
  * List header for the skills dashboard. Mirrors the workflows header layout
- * with a slimmed control set (no tags, webhooks, schedules, or case-trigger
- * filters).
+ * with a slimmed control set: search, sort, and an agent filter.
  */
 export function SkillsHeader({
   searchQuery,
   onSearchChange,
   sortBy,
   onSortByChange,
+  agentFilter,
   view,
   onViewChange,
   viewSwitchEnabled = true,
@@ -162,11 +166,15 @@ export function SkillsHeader({
   onNextPage,
   isPaginationLoading = false,
 }: SkillsHeaderProps) {
-  const hasFilters = searchQuery.trim().length > 0 || !isDefaultSort(sortBy)
+  const hasFilters =
+    searchQuery.trim().length > 0 ||
+    !isDefaultSort(sortBy) ||
+    agentFilter.active
 
   const handleReset = () => {
     onSearchChange("")
     onSortByChange(DEFAULT_SKILL_SORT)
+    if (agentFilter.active) agentFilter.setAgentIds([])
   }
 
   return (
@@ -251,6 +259,17 @@ export function SkillsHeader({
           </Select>
         ) : null}
         <SortBySelect value={sortBy} onChange={onSortByChange} />
+        <FilterMultiSelect
+          placeholder="Agents"
+          icon={MousePointerClickIcon}
+          value={agentFilter.agentIds}
+          options={agentFilter.options}
+          onChange={agentFilter.setAgentIds}
+          mode="include"
+          onModeChange={() => {}}
+          allowExclude={false}
+          emptyMessage={agentFilter.emptyMessage}
+        />
 
         {hasFilters && (
           <button

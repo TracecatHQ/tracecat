@@ -4185,6 +4185,47 @@ async def test_skill_dependency_policy_is_shared_by_reads_and_runtime(
 
 
 @pytest.mark.anyio
+async def test_preset_list_reads_include_head_skill_ids(
+    configure_minio_for_skills: None,
+    session: AsyncSession,
+    svc_role: Role,
+    agent_preset_service: AgentPresetService,
+    agent_preset_create_params: AgentPresetCreate,
+) -> None:
+    skills = SkillService(session, role=svc_role)
+    skill_ids = []
+    for name in ("first-skill", "second-skill"):
+        skill = await skills.create_skill(SkillCreate(name=name))
+        await skills.publish_skill(skill.id)
+        skill_ids.append(skill.id)
+    bound = await agent_preset_service.create_preset(
+        agent_preset_create_params.model_copy(
+            update={
+                "skills": [
+                    AgentPresetSkillBindingBase(skill_id=skill_id)
+                    for skill_id in skill_ids
+                ]
+            }
+        )
+    )
+    unbound = await agent_preset_service.create_preset(
+        agent_preset_create_params.model_copy(
+            update={"name": "Unbound", "slug": "unbound", "skills": None}
+        )
+    )
+
+    reads = {
+        read.id: read
+        for read in await agent_preset_service.build_preset_list_reads(
+            await agent_preset_service.list_presets()
+        )
+    }
+
+    assert set(reads[bound.id].skill_ids) == set(skill_ids)
+    assert reads[unbound.id].skill_ids == []
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("operation", ["create", "preview", "runtime", "update"])
 async def test_effective_skill_tool_limit_is_checked_before_execution(
     operation: str,

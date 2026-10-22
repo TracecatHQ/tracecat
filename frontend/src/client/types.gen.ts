@@ -825,6 +825,10 @@ export type AgentPresetReadMinimal = {
   current_version_id?: string | null
   capabilities?: Array<AgentPresetCapability>
   tool_summary?: AgentPresetToolSummary
+  /**
+   * Workspace skills bound to the preset head.
+   */
+  skill_ids?: Array<string>
   current_version_subagent_eligibility?: AgentPresetSubagentEligibility
   created_at: string
   updated_at: string
