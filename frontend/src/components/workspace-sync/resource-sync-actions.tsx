@@ -55,6 +55,7 @@ import {
 } from "@/hooks/use-workspace-sync"
 import { getApiErrorDetail } from "@/lib/errors"
 import { getRepoDisplayName } from "@/lib/git"
+import { useQuery } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface WorkspaceResourceSyncActionsProps {
@@ -69,6 +70,12 @@ export function WorkspaceResourceSyncActions({
   resources,
 }: WorkspaceResourceSyncActionsProps) {
   const workspaceId = useWorkspaceId()
+  const { data: previewRevision } = useQuery({
+    queryKey: ["workspace-sync-preview-revision", workspaceId],
+    queryFn: () => 0,
+    initialData: 0,
+    enabled: false,
+  })
   const canSyncWorkspace = useScopeCheck("workspace_sync:sync")
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const canPushWorkspaceSync =
@@ -181,7 +188,7 @@ export function WorkspaceResourceSyncActions({
 
   useEffect(() => {
     setPreviewRequested(false)
-  }, [compareRef, provider, targetBranch, exportMessage])
+  }, [compareRef, provider, targetBranch, exportMessage, previewRevision])
 
   if (!canPushWorkspaceSync) {
     return null
