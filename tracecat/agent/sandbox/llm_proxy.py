@@ -14,7 +14,7 @@ import os
 import re
 import time
 import uuid
-from collections.abc import AsyncIterable, Callable
+from collections.abc import AsyncIterable, Callable, Sequence
 from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
@@ -32,7 +32,11 @@ from tenacity import (
 )
 
 from tracecat import config as app_config
-from tracecat.agent.common.exceptions import AgentSandboxValidationError
+from tracecat.agent.common.exceptions import (
+    AgentPreparationError,
+    AgentSandboxValidationError,
+)
+from tracecat.agent.common.types import SandboxAgentConfig, SandboxSubagentConfig
 from tracecat.agent.diagnostics import (
     LLMErrorDiagnostics,
     parse_bounded_error_body,
@@ -58,6 +62,7 @@ from tracecat.agent.gateway_providers import (
     CUSTOM_MODEL_PROVIDER_SLUG,
     resolve_gateway_provider_config,
 )
+from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.observability import get_load_tracker
 from tracecat.agent.sandbox.shim_entrypoint import HTTPRequestError, read_http_request
 from tracecat.agent.sandbox.tool_use_rewrite import (
@@ -67,6 +72,7 @@ from tracecat.agent.sandbox.tool_use_rewrite import (
 )
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
+from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
@@ -704,8 +710,8 @@ class LLMRoutingPlan:
     """Choose managed-gateway or direct-passthrough transport for each request.
 
     The proxy does not know whether a model belongs to a root agent or a
-    subagent. The executor converts agent configs into this table before the
-    sandbox starts.
+    subagent. ``build_llm_routing_plan`` converts agent configs into this
+    table before the sandbox starts.
 
     Managed requests go through LiteLLM, where the signed token supplies the
     provider, model, and credential configuration. Passthrough requests go
@@ -863,6 +869,126 @@ def _normalize_direct_route(route: LLMRoute) -> LLMRoute:
     )
 
 
+def build_llm_routing_plan(
+    config: AgentConfig | SandboxAgentConfig,
+    subagents: Sequence[SandboxSubagentConfig] = (),
+) -> LLMRoutingPlan:
+    """Build the socket proxy routing table from each agent's model config.
+
+    Each agent's passthrough setting determines its transport. Managed
+    requests use the shared LiteLLM gateway, which selects the model and
+    provider from the signed token. Passthrough requests use an exact-model
+    route with their own endpoint, credentials, and upstream model name.
+    Root and subagent requests follow the same rules.
+
+    Args:
+        config: Root agent model config.
+        subagents: Subagents that share the root agent's proxy.
+
+    Returns:
+        Routing plan for the host-side LLM socket proxy.
+
+    Raises:
+        AgentPreparationError: If a passthrough agent has no resolved base URL.
+    """
+    # Keep all root/subagent semantics on the caller side. The proxy only
+    # receives model-key routes and does not know which agent emitted them.
+    return LLMRoutingPlan(
+        managed_route=LLMRoute(
+            base_url=app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/"),
+            model_provider=config.model_provider,
+            mode="managed",
+            # Managed subagent requests use synthetic LiteLLM route keys, so
+            # the proxy should let LiteLLM do provider-specific body cleanup.
+            local_provider_cleanup=not subagents,
+        ),
+        direct_routes=_direct_passthrough_routes(config, subagents),
+    )
+
+
+def _direct_passthrough_routes(
+    config: AgentConfig | SandboxAgentConfig,
+    subagents: Sequence[SandboxSubagentConfig],
+) -> dict[str, LLMRoute]:
+    """Build direct passthrough routes from each agent's own model config.
+
+    Each entry is keyed by the exact model string the runtime will send in
+    the request body. The proxy can then make a local routing decision
+    without needing to know which agent produced the request.
+
+    A single execution can include a passthrough root agent and multiple
+    passthrough subagents. Passthrough requests go straight to their
+    provider endpoint instead of through managed LiteLLM, so the shared
+    proxy needs one direct route per exact runtime model key rather than
+    one global passthrough destination. Agents without passthrough need no
+    entry here; their requests use the managed route.
+
+    Returns:
+        Direct passthrough routes keyed by request model.
+    """
+    routes: dict[str, LLMRoute] = {}
+    if config.passthrough:
+        # Root routing is keyed by the model string the root agent sends.
+        routes[config.model_name] = _direct_passthrough_route(
+            config.base_url,
+            model_provider=config.model_provider,
+            catalog_id=config.catalog_id,
+        )
+
+    for subagent in subagents:
+        subagent_config = subagent.config
+        if not subagent_config.passthrough:
+            continue
+        # Subagents usually send a synthetic scoped model key. If that subagent
+        # is passthrough, the scoped key should direct-route to its own gateway.
+        request_model = subagent.model_route or get_litellm_route_model(
+            model_provider=subagent_config.model_provider,
+            model_name=subagent_config.model_name,
+            passthrough=True,
+        )
+        routes[request_model] = _direct_passthrough_route(
+            subagent_config.base_url,
+            model_provider=subagent_config.model_provider,
+            catalog_id=subagent_config.catalog_id,
+            upstream_model_name=subagent_config.model_name,
+        )
+    return routes
+
+
+def _direct_passthrough_route(
+    base_url: str | None,
+    *,
+    model_provider: str,
+    catalog_id: uuid.UUID | None,
+    upstream_model_name: str | None = None,
+) -> LLMRoute:
+    """Create one direct passthrough route.
+
+    Args:
+        base_url: Resolved provider base URL.
+        model_provider: Provider behind the direct route.
+        catalog_id: Optional provider catalog row for credentials.
+        upstream_model_name: Optional model name to send to the upstream.
+
+    Returns:
+        Direct route for the model config.
+
+    Raises:
+        AgentPreparationError: If passthrough is enabled without a
+            resolved base URL.
+    """
+    if base_url is None:
+        raise AgentPreparationError(
+            "Model provider passthrough requires a resolved base_url."
+        )
+    return LLMRoute(
+        base_url=base_url,
+        model_provider=model_provider,
+        catalog_id=catalog_id,
+        upstream_model_name=upstream_model_name,
+    )
+
+
 async def _rewrite_json_body(
     chunks: AsyncIterable[bytes],
 ) -> AsyncIterable[bytes]:
@@ -971,6 +1097,8 @@ class LLMSocketProxy:
         socket_path: Path,
         routing_plan: LLMRoutingPlan,
         on_error: Callable[[LLMProxyError], None] | None = None,
+        *,
+        rewrite_tool_use: bool = True,
     ):
         """Initialize the LLM socket proxy.
 
@@ -979,9 +1107,14 @@ class LLMSocketProxy:
             routing_plan: Request routing plan. Direct passthrough routes should
                 already have their route credentials materialized.
             on_error: Callback invoked when an error (e.g., auth failure) is detected.
+            rewrite_tool_use: Whether to normalize Claude Code tool inputs in
+                ``/v1/messages`` responses. Runtimes other than Claude Code
+                should turn this off to receive upstream response bodies
+                unchanged. Stream error detection runs either way.
         """
         self.socket_path = socket_path
         self.routing_plan = routing_plan
+        self.rewrite_tool_use = rewrite_tool_use
         self._server: asyncio.Server | None = None
         self._client: httpx.AsyncClient | None = None
         self._direct_client: httpx.AsyncClient | None = None
@@ -1606,6 +1739,10 @@ class LLMSocketProxy:
         before the rewrite, so their ``Content-Length`` is dropped; each socket
         connection carries one response and is closed afterwards, which
         delimits the body.
+
+        With ``rewrite_tool_use`` off, bodies pass through unchanged, but
+        streams are still observed for typed errors and JSON headers still
+        match the decoded body.
         """
         headers = dict(response.headers)
         if (
@@ -1616,7 +1753,7 @@ class LLMSocketProxy:
             return response.aiter_bytes(), headers, None
         content_type = response.headers.get("content-type", "").lower()
         if "text/event-stream" in content_type:
-            rewriter = ToolUseStreamRewriter()
+            rewriter = ToolUseStreamRewriter(rewrite_read=self.rewrite_tool_use)
             return (
                 _rewrite_sse_stream(response.aiter_bytes(), rewriter),
                 headers,
@@ -1629,6 +1766,8 @@ class LLMSocketProxy:
             for key, value in headers.items()
             if key.lower() not in ("content-length", "content-encoding")
         }
+        if not self.rewrite_tool_use:
+            return response.aiter_bytes(), headers, None
         return _rewrite_json_body(response.aiter_bytes()), headers, None
 
     async def _write_response(
