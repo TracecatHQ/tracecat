@@ -19,7 +19,10 @@ TUNNEL_TOKEN_ISSUER = "tracecat-executor"
 TUNNEL_TOKEN_AUDIENCE = "tracecat-tunnel-gateway"
 TUNNEL_TOKEN_DEFAULT_TTL_SECONDS = 300
 TUNNEL_TOKEN_MAX_TTL_SECONDS = 900
-_REQUIRED_CLAIMS = ("iss", "aud", "sub", "iat", "exp", "workspace_id", "subject")
+# Only claims the gateway authorizes on are required. Log-only claims such as
+# ``subject`` and ``action_ref`` stay optional so they can change without
+# breaking gateways and executors on adjacent versions.
+_REQUIRED_CLAIMS = ("iss", "aud", "sub", "iat", "exp", "workspace_id")
 
 GATEWAY_POLICY_TOKEN_ISSUER = "tracecat-tunnel-gateway"
 GATEWAY_POLICY_TOKEN_AUDIENCE = "tracecat-tunnel-policy"
@@ -34,7 +37,7 @@ class TunnelTokenError(Exception):
 class TunnelTokenClaims(BaseModel):
     tunnel_id: uuid.UUID
     workspace_id: uuid.UUID
-    subject: str
+    subject: str | None = None
     """Who is using the tunnel, e.g. a workflow execution or an agent session."""
     action_ref: str | None = None
 

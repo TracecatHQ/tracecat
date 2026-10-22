@@ -236,9 +236,11 @@ def _patch_preset_service(
     *,
     policies: dict[uuid.UUID, dict[str, MCPToolSummary]],
     secrets: dict[str, str] | None = None,
+    refs: list[dict[str, Any]] | None = None,
 ) -> MagicMock:
     service = MagicMock(spec=AgentPresetService)
     service.resolve_mcp_integration_tool_policies = AsyncMock(return_value=policies)
+    service.resolve_mcp_integration_refs = AsyncMock(return_value=refs)
     service.resolve_mcp_integration_secrets = AsyncMock(return_value=secrets or {})
     monkeypatch.setattr(AgentPresetService, "with_session", _async_ctx(service))
     return service
@@ -651,6 +653,75 @@ class TestBuildToolDefinitionsActivity:
             integration_id
         )
         lock_service.resolve_lock_with_bindings.assert_awaited_once_with(set())
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("payload_tunnel_id", [None, str(uuid.uuid4())])
+    async def test_mcp_discovery_routes_by_integration_row_tunnel(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+        payload_tunnel_id: str | None,
+    ) -> None:
+        from tracecat.integrations import mcp_tunnel
+
+        integration_id = uuid.uuid4()
+        tunnel_id = str(uuid.uuid4())
+        server: dict[str, Any] = {
+            "type": "http",
+            "name": "Private",
+            "url": "https://mcp.internal.example/mcp",
+            "id": str(integration_id),
+        }
+        _patch_preset_service(
+            monkeypatch,
+            policies={integration_id: {"search": MCPToolSummary(name="search")}},
+            refs=[{**server, "tunnel_id": tunnel_id}],
+        )
+        _patch_registry(monkeypatch)
+        resolve_proxy = AsyncMock(return_value="http://token@gateway:8080")
+        monkeypatch.setattr(mcp_tunnel, "resolve_mcp_tunnel_proxy", resolve_proxy)
+        discovered: list[dict[str, Any]] = []
+
+        async def mock_discover_user_mcp_tools(
+            configs: list[dict[str, Any]], *, fail_on_error: bool = False
+        ) -> dict[str, MCPToolDefinition]:
+            discovered.extend(configs)
+            return _mcp_tools("Private", "search")
+
+        monkeypatch.setattr(
+            user_client, "discover_user_mcp_tools", mock_discover_user_mcp_tools
+        )
+        if payload_tunnel_id is not None:
+            server["tunnel_id"] = payload_tunnel_id
+
+        await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=mock_role,
+                tool_filters=ToolFilters(actions=[]),
+                mcp_servers=[cast(Any, server)],
+            )
+        )
+
+        assert resolve_proxy.await_args is not None
+        assert resolve_proxy.await_args.kwargs["tunnel_id"] == uuid.UUID(tunnel_id)
+        assert discovered[0]["tunnel_proxy"] == "http://token@gateway:8080"
+
+    @pytest.mark.anyio
+    async def test_rejects_tool_tunnels_for_tools_the_agent_lacks(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        _patch_registry(monkeypatch)
+
+        with pytest.raises(ApplicationError, match="tools.sublime.serch"):
+            await AgentActivities().build_tool_definitions(
+                BuildToolDefsArgs(
+                    role=mock_role,
+                    tool_filters=ToolFilters(actions=[]),
+                    tool_tunnels={"tools.sublime.serch": "onprem"},
+                )
+            )
 
     @pytest.mark.anyio
     @pytest.mark.parametrize(

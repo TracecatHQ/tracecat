@@ -92,7 +92,6 @@ def _raw(payload_overrides: dict[str, object], algorithm: str = "HS256") -> str:
         {"exp": int((datetime.now(UTC) - timedelta(seconds=5)).timestamp())},
         {"aud": "tracecat-api"},
         {"iss": "someone-else"},
-        {"subject": None},
         {"workspace_id": None},
         {"sub": "not-a-uuid"},
         {"exp": int((datetime.now(UTC) + timedelta(days=1)).timestamp())},
@@ -149,3 +148,9 @@ def test_proxy_token_is_not_a_policy_token() -> None:
     )
     with pytest.raises(TunnelTokenError):
         verify_gateway_policy_token(proxy_token, gateway_key=key, tunnel_id=tunnel_id)
+
+
+def test_accepts_token_without_log_only_claims() -> None:
+    claims = _verify(_raw({"subject": None}))
+    assert claims.subject is None
+    assert claims.action_ref is None

@@ -50,6 +50,8 @@ class MCPHttpServerConfigPayload(BaseModel):
     history."""
     tools: list[MCPServerToolSummaryPayload] | None = Field(default=None)
     """Explicit non-secret tool subset granted by attached skills."""
+    tunnel_id: str | None = Field(default=None)
+    """UUID of the workspace tunnel every request to this server goes through."""
 
 
 class MCPServerToolSummaryPayload(BaseModel):

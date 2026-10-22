@@ -4399,3 +4399,21 @@ async def test_registry_default_approval_is_shared_by_eligibility_and_attachment
         assert listed.current_version_subagent_eligibility.reasons == ["tool_approvals"]
         with pytest.raises(TracecatValidationError, match="uses manual approvals"):
             await agent_preset_service.create_preset(parent)
+
+
+@pytest.mark.parametrize(
+    ("name", "granted"),
+    [
+        ("tools.sublime.search", True),
+        ("tools.okta.list_users", True),
+        ("tools.sublime.serch", False),
+        ("core.http_request", False),
+    ],
+)
+def test_grants_tool_matches_actions_and_namespaces(name: str, granted: bool) -> None:
+    from tracecat.agent.preset.service import _grants_tool
+
+    assert (
+        _grants_tool(name, actions=["tools.sublime.search"], namespaces=["tools.okta"])
+        is granted
+    )

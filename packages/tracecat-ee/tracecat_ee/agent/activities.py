@@ -49,6 +49,7 @@ from tracecat.exceptions import (
     EntitlementRequired,
     RegistryLockAmbiguousActionError,
     RegistryLockInvalidDataError,
+    TracecatValidationError,
 )
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
@@ -387,7 +388,27 @@ class AgentActivities:
                             ]
                         )
                     )
+                    # Route by the integration row, not the payload, so a
+                    # payload that dropped ``tunnel_id`` can't go direct.
+                    try:
+                        refs = await svc.resolve_mcp_integration_refs(
+                            [str(i) for _, i in configs_with_integration_id]
+                        )
+                    except TracecatValidationError:
+                        refs = None
+                    tunnel_id_by_integration_id = {
+                        ref_id: ref.get("tunnel_id")
+                        for ref in refs or []
+                        if is_http_mcp_server(ref) and (ref_id := ref.get("id"))
+                    }
                     for hydrated, integration_id in configs_with_integration_id:
+                        if str(integration_id) in tunnel_id_by_integration_id:
+                            if tunnel_id := tunnel_id_by_integration_id[
+                                str(integration_id)
+                            ]:
+                                hydrated["tunnel_id"] = tunnel_id
+                            else:
+                                hydrated.pop("tunnel_id", None)
                         try:
                             secrets = await svc.resolve_mcp_integration_secrets(
                                 integration_id
@@ -568,18 +589,28 @@ class AgentActivities:
                 e.detail,
             )
 
+        if unknown_tunnel_tools := sorted(
+            set(args.tool_tunnels or {}) - registry_tool_names
+        ):
+            raise_application_error_from_classification(
+                RuntimeErrorClassification.user(
+                    kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
+                    message=(
+                        "Tool tunnels are set for tools this agent doesn't have: "
+                        f"{unknown_tunnel_tools}. Add the tools or remove their tunnels."
+                    ),
+                    retry_disposition=RetryDisposition.NON_RETRYABLE,
+                ),
+                {"code": "unknown_tool_tunnels", "tools": unknown_tunnel_tools},
+            )
+
         return BuildToolDefsResult(
             tool_definitions=defs,
             registry_lock=registry_lock,
             user_mcp_claims=user_mcp_claims,
             allowed_internal_tools=allowed_internal_tools,
             tool_approvals=effective_tool_approvals or None,
-            tool_tunnels={
-                name: tunnel
-                for name, tunnel in (args.tool_tunnels or {}).items()
-                if name in registry_tool_names
-            }
-            or None,
+            tool_tunnels=args.tool_tunnels or None,
         )
 
     @activity.defn

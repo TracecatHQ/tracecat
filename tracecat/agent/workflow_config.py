@@ -55,6 +55,7 @@ def _mcp_server_to_payload(
                 transport=server.get("transport"),
                 timeout=server.get("timeout"),
                 id=server.get("id"),
+                tunnel_id=server.get("tunnel_id"),
                 tools=(
                     [MCPServerToolSummaryPayload.model_validate(tool) for tool in tools]
                     if (tools := server.get("tools")) is not None
@@ -109,6 +110,8 @@ def _mcp_server_from_payload(server: MCPServerConfigPayload) -> MCPServerConfig:
                 http_server["timeout"] = server.timeout
             if server.id is not None:
                 http_server["id"] = server.id
+            if server.tunnel_id is not None:
+                http_server["tunnel_id"] = server.tunnel_id
             if server.tools is not None:
                 http_tools: list[MCPServerToolSummary] = []
                 for tool in server.tools:
