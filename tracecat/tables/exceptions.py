@@ -4,6 +4,11 @@ from typing import Literal, TypedDict
 
 from tracecat.exceptions import TracecatException
 
+
+class TableColumnConflictError(Exception):
+    """Existing data prevents applying a column definition."""
+
+
 type TableRowErrorCode = Literal[
     "missing_required_column",
     "null_not_allowed",

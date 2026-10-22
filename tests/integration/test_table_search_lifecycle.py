@@ -494,7 +494,7 @@ async def test_csv_paths_and_selection_deletion(tables: TablesService, table: Ta
     await importer.process_chunk(
         [{"body": "csv one"}, {"body": "csv two"}], tables, table
     )
-    await tables._insert_import_chunk(table, [{"body": "csv three"}], chunk_size=2)
+    await tables.insert_import_chunk(table, [{"body": "csv three"}], chunk_size=2)
     assert len(await documents(tables.session, collection)) == 3
     key = next(c for c in table.columns if c.name == "key")
     await tables.search.select_column(

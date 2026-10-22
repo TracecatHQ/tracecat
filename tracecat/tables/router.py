@@ -15,12 +15,13 @@ from fastapi import (
     UploadFile,
     status,
 )
-from sqlalchemy.exc import DBAPIError, ProgrammingError
+from sqlalchemy.exc import ProgrammingError
 
 from tracecat import config
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.errors import get_postgres_error
 from tracecat.db.models import TableColumn
 from tracecat.exceptions import TracecatImportError, TracecatNotFoundError
 from tracecat.identifiers import TableColumnID, TableID
@@ -28,6 +29,7 @@ from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.tables.common import ColumnHasDuplicateValuesError
 from tracecat.tables.enums import SqlType
+from tracecat.tables.exceptions import TableColumnConflictError
 from tracecat.tables.importer import CSVImporter, normalize_csv_header
 from tracecat.tables.schemas import (
     InferredColumn,
@@ -151,16 +153,13 @@ async def create_table(
             detail=str(e),
         ) from e
     except ProgrammingError as e:
-        # Drill down to the root cause
-        while (cause := e.__cause__) is not None:
-            e = cause
-        if isinstance(e, DuplicateTableError):
+        if get_postgres_error(e, DuplicateTableError) is not None:
             logger.warning(f"Duplicate table error: {e}")
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Table already exists",
             ) from e
-        if isinstance(e, DuplicateColumnError):
+        if get_postgres_error(e, DuplicateColumnError) is not None:
             logger.warning(f"Duplicate column error: {e}")
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -222,17 +221,15 @@ async def update_table(
     try:
         await service.update_table(table, params)
     except ProgrammingError as e:
-        # Drill down to the root cause
-        while (cause := e.__cause__) is not None:
-            e = cause
-        if isinstance(e, DuplicateTableError):
+        if get_postgres_error(e, DuplicateTableError) is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=str(e).replace("relation", "table").capitalize(),
+                detail="Table already exists",
             ) from e
+        logger.exception("Unexpected error updating table")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected DB error occurred: {e}",
+            detail="An error occurred while updating the table",
         ) from e
     return await _build_table_read(service, table.id)
 
@@ -275,24 +272,24 @@ async def create_column(
         ) from e
     try:
         column = await service.create_column(table, params)
+    except (ColumnHasDuplicateValuesError, TableColumnConflictError) as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
     except ProgrammingError as e:
-        # Drill down to the root cause
-        while (cause := e.__cause__) is not None:
-            e = cause
-        if isinstance(e, DuplicateColumnError):
+        if get_postgres_error(e, DuplicateColumnError) is not None:
             # Format: 'column "field>" of relation "<table>" already exists'
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=str(e).replace("relation", "table").capitalize(),
+                detail="Column already exists",
             ) from e
+        logger.exception("Unexpected error creating column")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error occurred: {e}",
+            detail="An error occurred while creating the column",
         ) from e
     index_columns = await service.get_index(table)
     return _build_column_read(column, index_columns=index_columns)
@@ -321,7 +318,7 @@ async def update_column(
         ) from e
     try:
         updated_column = await service.update_column(column, params)
-    except ColumnHasDuplicateValuesError as e:
+    except (ColumnHasDuplicateValuesError, TableColumnConflictError) as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
@@ -332,17 +329,15 @@ async def update_column(
             detail=str(e),
         ) from e
     except ProgrammingError as e:
-        # Drill down to the root cause
-        while (cause := e.__cause__) is not None:
-            e = cause
-        if isinstance(e, DuplicateColumnError):
+        if get_postgres_error(e, DuplicateColumnError) is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=str(e).replace("relation", "table").capitalize(),
+                detail="Column already exists",
             ) from e
+        logger.exception("Unexpected error updating column")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error occurred: {e}",
+            detail="An error occurred while updating the column",
         ) from e
     table = await service.get_table(table_id)
     index_columns = await service.get_index(table)
@@ -488,16 +483,10 @@ async def insert_row(
             detail=str(e),
         ) from e
     except ValueError as e:
-        if "duplicate values" in str(e):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Duplicate value detected in a unique column. Please use a different value.",
-            ) from e
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e),
-            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     return TableRowRead.model_validate(row)
 
 
@@ -550,12 +539,6 @@ async def update_row(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        ) from e
-    except DBAPIError as e:
-        logger.exception("Database error occurred during row update")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A database error occurred. Please check your input and try again.",
         ) from e
     return TableRowRead.model_validate(row)
 
@@ -617,12 +600,6 @@ async def batch_delete_rows(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except DBAPIError as e:
-        logger.error("Database error occurred during batch row delete")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A database error occurred. Please check your input and try again.",
-        ) from e
 
 
 @router.post("/{table_id}/rows/batch-update")
@@ -650,22 +627,24 @@ async def batch_update_rows(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except DBAPIError as e:
-        logger.error("Database error occurred during batch row update")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A database error occurred. Please check your input and try again.",
-        ) from e
 
 
 async def get_column_mapping(column_mapping: str = Form(...)) -> dict[str, str]:
     try:
-        return orjson.loads(column_mapping)
+        mapping = orjson.loads(column_mapping)
     except orjson.JSONDecodeError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid JSON format for column_mapping",
         ) from e
+    if not isinstance(mapping, dict) or not all(
+        isinstance(value, str) for value in mapping.values()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="column_mapping must be an object mapping CSV headers to column names",
+        )
+    return mapping
 
 
 @router.post("/import", status_code=status.HTTP_201_CREATED)
@@ -724,11 +703,10 @@ async def import_table_from_csv(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
         ) from e
-    except Exception as e:
-        logger.warning(f"Unexpected error during table import: {e}")
+    except csv.Error as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error processing CSV: {str(e)}",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid CSV format",
         ) from e
 
 
@@ -826,20 +804,26 @@ async def import_csv(
 
         # Process remaining rows
         await importer.process_chunk(current_chunk, service, table)
+        await session.commit()
     except HTTPException:
+        await session.rollback()
         raise
     except TracecatImportError as e:
+        await session.rollback()
         logger.warning(f"Error during import: {e}")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         ) from e
-    except Exception as e:
-        logger.warning(f"Unexpected error during import: {e}")
+    except (UnicodeDecodeError, csv.Error) as e:
+        await session.rollback()
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error processing CSV: {str(e)}",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="CSV import requires a valid UTF-8 encoded CSV file",
         ) from e
+    except Exception:
+        await session.rollback()
+        raise
     finally:
         if csv_file is not None:
             csv_file.close()

@@ -1,12 +1,22 @@
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
+from io import BytesIO
 from typing import Any, Literal
+from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
 import pytest
 import sqlalchemy as sa
+from asyncpg.exceptions import (
+    CheckViolationError,
+    DatatypeMismatchError,
+    NotNullViolationError,
+    UndefinedTableError,
+)
+from fastapi import UploadFile
 from sqlalchemy import event, select
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -35,7 +45,9 @@ from tracecat.tables.common import (
     to_sql_clause,
 )
 from tracecat.tables.enums import SqlType
-from tracecat.tables.exceptions import TableRowError
+from tracecat.tables.exceptions import TableColumnConflictError, TableRowError
+from tracecat.tables.importer import CSVImporter
+from tracecat.tables.router import import_csv
 from tracecat.tables.schemas import (
     TableAggregateRequest,
     TableColumnCreate,
@@ -49,6 +61,7 @@ from tracecat.tables.service import (
     BaseTablesService,
     TableEditorService,
     TablesService,
+    _execute_column_ddl,
     is_internal_column_name,
     sanitize_identifier,
     validate_identifier,
@@ -3268,3 +3281,294 @@ async def test_list_rows_order_by_rejects_invalid_columns(
         await tables_service.list_rows(
             search_table, CursorPaginationParams(limit=10), order_by=order_by
         )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("batch", [False, True])
+async def test_row_update_duplicate_rolls_back(
+    tables_service: TablesService, required_row_table: Table, batch: bool
+) -> None:
+    table_id = required_row_table.id
+    await tables_service.insert_row(
+        required_row_table, TableRowInsert(data={"record_key": "first"})
+    )
+    second = await tables_service.insert_row(
+        required_row_table, TableRowInsert(data={"record_key": "second"})
+    )
+    with pytest.raises(TableRowError) as exc:
+        if batch:
+            await tables_service.batch_update_rows(
+                required_row_table, [second["id"]], {"record_key": "first"}
+            )
+        else:
+            await tables_service.update_row(
+                required_row_table, second["id"], {"record_key": "first"}
+            )
+    assert exc.value.code == "duplicate_value"
+    assert exc.value.__context__ is None
+    table = await tables_service.get_table(table_id)
+    rows = await _list_rows(tables_service, table)
+    assert {row["record_key"] for row in rows} == {"first", "second"}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("operation", ["create", "nullable", "type", "unique"])
+async def test_column_database_state_conflicts_rollback(
+    tables_service: TablesService, table: Table, operation: str
+) -> None:
+    table_id = table.id
+    await tables_service.batch_insert_rows(table, [{"name": "same"}, {"name": "same"}])
+    column = next(
+        c
+        for c in table.columns
+        if c.name == ("age" if operation == "nullable" else "name")
+    )
+    error_type = (
+        ColumnHasDuplicateValuesError
+        if operation == "unique"
+        else TableColumnConflictError
+    )
+    with pytest.raises(error_type) as exc:
+        if operation == "create":
+            await tables_service.create_column(
+                table,
+                TableColumnCreate(
+                    name="required_value", type=SqlType.TEXT, nullable=False
+                ),
+            )
+        elif operation == "nullable":
+            await tables_service.update_column(
+                column, TableColumnUpdate(nullable=False)
+            )
+        elif operation == "type":
+            await tables_service.update_column(
+                column, TableColumnUpdate(type=SqlType.INTEGER)
+            )
+        else:
+            await tables_service.create_column(
+                table,
+                TableColumnCreate(
+                    name="constant_value",
+                    type=SqlType.TEXT,
+                    default="same",
+                    is_index=True,
+                ),
+            )
+    assert exc.value.__context__ is None
+    reloaded = await tables_service.get_table(table_id)
+    assert {c.name for c in reloaded.columns} == {"name", "age"}
+    assert next(c for c in reloaded.columns if c.name == "age").nullable
+    assert next(c for c in reloaded.columns if c.name == "name").type == "TEXT"
+    assert len(await _list_rows(tables_service, reloaded)) == 2
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "cause",
+    [
+        NotNullViolationError(),
+        DatatypeMismatchError(),
+        CheckViolationError(),
+        RuntimeError("synthetic-db-sentinel"),
+    ],
+)
+async def test_column_ddl_translates_only_known_state_errors(cause: Exception) -> None:
+    session = AsyncMock(spec=AsyncSession)
+    error = IntegrityError("", {}, cause)
+    operation = AsyncMock(side_effect=error)
+    expected = (
+        TableColumnConflictError
+        if isinstance(cause, (NotNullViolationError, DatatypeMismatchError))
+        else IntegrityError
+    )
+    with pytest.raises(expected) as exc:
+        await _execute_column_ddl(operation(), session)
+    session.rollback.assert_awaited_once()
+    if expected is TableColumnConflictError:
+        assert exc.value.__context__ is None
+    else:
+        assert exc.value is error
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("operation", ["create", "nullable", "type"])
+async def test_unmanaged_editor_column_state_conflicts(
+    session: AsyncSession, svc_admin_role: Role, operation: str
+) -> None:
+    await session.execute(
+        sa.text(
+            "CREATE TABLE public.synthetic_editor_conflicts (id UUID PRIMARY KEY, value TEXT)"
+        )
+    )
+    await session.execute(
+        sa.text("INSERT INTO public.synthetic_editor_conflicts (id) VALUES (:id)"),
+        {"id": uuid4()},
+    )
+    await session.commit()
+    editor = TableEditorService(
+        session,
+        svc_admin_role,
+        table_name="synthetic_editor_conflicts",
+        schema_name="public",
+    )
+    with pytest.raises(TableColumnConflictError):
+        if operation == "create":
+            await editor.create_column(
+                TableColumnCreate(
+                    name="required_value", type=SqlType.TEXT, nullable=False
+                )
+            )
+        else:
+            await editor.update_column(
+                "value",
+                TableColumnUpdate(nullable=False)
+                if operation == "nullable"
+                else TableColumnUpdate(type=SqlType.INTEGER),
+            )
+    assert {column["name"] for column in await editor.get_columns()} == {"id", "value"}
+    await session.execute(sa.text("DROP TABLE public.synthetic_editor_conflicts"))
+    await session.commit()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("existing", [False, True])
+async def test_csv_second_chunk_failure_is_atomic(
+    tables_service: TablesService,
+    table: Table,
+    existing: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    table_id = table.id
+    original_insert = tables_service.insert_import_chunk
+    original_init = CSVImporter.__init__
+    calls = 0
+
+    async def insert_chunk(
+        target: Table, chunk: list[dict[str, Any]], *, chunk_size: int
+    ) -> int:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OperationalError("", {}, RuntimeError("synthetic-db-sentinel"))
+        return await original_insert(target, chunk, chunk_size=chunk_size)
+
+    contents = b"name\nfirst\nsecond\n"
+    with patch.object(TablesService, "insert_import_chunk", side_effect=insert_chunk):
+        with pytest.raises(OperationalError):
+            if existing:
+                monkeypatch.setattr(
+                    CSVImporter,
+                    "__init__",
+                    lambda self, columns: original_init(self, columns, chunk_size=1),
+                )
+                await import_csv(
+                    role=tables_service.role,
+                    session=tables_service.session,
+                    table_id=table_id,
+                    file=UploadFile(filename="synthetic.csv", file=BytesIO(contents)),
+                    column_mapping={"name": "name"},
+                )
+            else:
+                await tables_service.import_table_from_csv(
+                    contents=contents, table_name="atomic_import", chunk_size=1
+                )
+    assert calls == 2
+    reloaded = await tables_service.get_table(table_id)
+    assert await _list_rows(tables_service, reloaded) == []
+    if not existing:
+        assert (
+            await tables_service.session.scalar(
+                select(Table.id).where(Table.name == "atomic_import")
+            )
+            is None
+        )
+        assert (
+            await tables_service.session.scalar(
+                sa.text("SELECT to_regclass(:name)"),
+                {"name": f'"{tables_service._get_schema_name()}".atomic_import'},
+            )
+            is None
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("method", ["lookup", "exists", "list"])
+@pytest.mark.parametrize("missing", [False, True])
+async def test_query_programming_errors_keep_typed_boundary(
+    tables_service: TablesService, table: Table, method: str, missing: bool
+) -> None:
+    table_name = table.name
+    schema_name = tables_service._get_schema_name()
+    conn = await tables_service.session.connection()
+    cause = UndefinedTableError() if missing else RuntimeError("synthetic-db-sentinel")
+    error = ProgrammingError("", {}, cause)
+
+    def fail_query(_conn, _cursor, statement, _parameters, _context, _executemany):
+        if schema_name in statement and table_name in statement:
+            raise error
+
+    event.listen(conn.sync_connection, "before_cursor_execute", fail_query)
+    try:
+        with pytest.raises(
+            TracecatNotFoundError if missing else ProgrammingError
+        ) as exc:
+            if method == "lookup":
+                await tables_service.lookup_rows(
+                    table_name, columns=["name"], values=["value"]
+                )
+            elif method == "exists":
+                await tables_service.exists_rows(
+                    table_name, columns=["name"], values=["value"]
+                )
+            else:
+                await tables_service.list_rows(table, CursorPaginationParams(limit=10))
+        if not missing:
+            assert exc.value is error
+    finally:
+        event.remove(conn.sync_connection, "before_cursor_execute", fail_query)
+        await tables_service.session.rollback()
+
+
+@pytest.mark.anyio
+async def test_unique_index_unrelated_integrity_error_is_not_conflict(
+    tables_service: TablesService, table: Table
+) -> None:
+    conn = await tables_service.session.connection()
+    error = IntegrityError("", {}, CheckViolationError())
+
+    def fail_index(_conn, _cursor, statement, _parameters, _context, _executemany):
+        if statement.startswith("CREATE UNIQUE INDEX"):
+            raise error
+
+    event.listen(conn.sync_connection, "before_cursor_execute", fail_index)
+    try:
+        with pytest.raises(IntegrityError) as exc:
+            await tables_service.create_unique_index(table, "name")
+        assert exc.value is error
+    finally:
+        event.remove(conn.sync_connection, "before_cursor_execute", fail_index)
+
+
+@pytest.mark.anyio
+async def test_existing_csv_import_commits_once(
+    tables_service: TablesService,
+    table: Table,
+) -> None:
+    with patch.object(
+        tables_service.session, "commit", wraps=tables_service.session.commit
+    ) as commit:
+        response = await import_csv(
+            role=tables_service.role,
+            session=tables_service.session,
+            table_id=table.id,
+            file=UploadFile(
+                filename="synthetic.csv", file=BytesIO(b"name\nfirst\nsecond\n")
+            ),
+            column_mapping={"name": "name"},
+        )
+    commit.assert_awaited_once()
+    assert response.rows_inserted == 2
+    assert {row["name"] for row in await _list_rows(tables_service, table)} == {
+        "first",
+        "second",
+    }

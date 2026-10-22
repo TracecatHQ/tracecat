@@ -12,6 +12,7 @@ import sqlalchemy as sa
 from asyncpg.exceptions import (
     CardinalityViolationError,
     DataError,
+    DatatypeMismatchError,
     InFailedSQLTransactionError,
     InvalidCachedStatementError,
     NotNullViolationError,
@@ -34,6 +35,7 @@ from tracecat import config
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
+from tracecat.db.errors import get_postgres_error, is_unique_violation
 from tracecat.db.models import Table, TableColumn
 from tracecat.exceptions import (
     TracecatImportError,
@@ -41,7 +43,6 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.identifiers.workflow import WorkspaceUUID
-from tracecat.logger import logger
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -86,7 +87,7 @@ from tracecat.tables.common import (
     validate_identifier as validate_identifier,
 )
 from tracecat.tables.enums import SqlType
-from tracecat.tables.exceptions import TableRowError
+from tracecat.tables.exceptions import TableColumnConflictError, TableRowError
 from tracecat.tables.importer import (
     CSVSchemaInferer,
     InferredCSVColumn,
@@ -150,7 +151,9 @@ def visible_column_clauses(column_names: Sequence[str]) -> list[sa.ColumnClause]
 
 
 async def _execute_row_write[T](
-    operation: Awaitable[T], columns: Sequence[TableColumn]
+    operation: Awaitable[T],
+    columns: Sequence[TableColumn],
+    session: AsyncSession | None = None,
 ) -> T:
     """Translate known row input errors without exposing SQL or submitted values.
 
@@ -160,40 +163,59 @@ async def _execute_row_write[T](
     try:
         return await operation
     except DBAPIError as exc:
-        cause: BaseException | None = exc.orig
-        while cause is not None:
-            if isinstance(cause, NotNullViolationError):
-                column_name = cause.as_dict().get("column_name")
-                column = next((c for c in columns if c.name == column_name), None)
-                if column is not None:
-                    error = TableRowError(
-                        "null_not_allowed",
-                        f"Column '{column.name}' cannot be null.",
-                        column=column.name,
-                    )
-                break
-            if isinstance(cause, UniqueViolationError):
+        if cause := get_postgres_error(exc, NotNullViolationError):
+            column_name = cause.as_dict().get("column_name")
+            column = next((c for c in columns if c.name == column_name), None)
+            if column is not None:
                 error = TableRowError(
-                    "duplicate_value", "A value already exists in a unique column."
+                    "null_not_allowed",
+                    f"Column '{column.name}' cannot be null.",
+                    column=column.name,
                 )
-                break
-            if isinstance(cause, CardinalityViolationError):
-                error = TableRowError(
-                    "duplicate_value",
-                    "Rows in an upsert batch must have distinct unique column values.",
-                )
-                break
-            if isinstance(cause, DataError):
-                error = TableRowError(
-                    "invalid_value",
-                    "A row contains a value that is invalid for its column type.",
-                )
-                break
-            cause = cause.__cause__
+        elif get_postgres_error(exc, UniqueViolationError) is not None:
+            error = TableRowError(
+                "duplicate_value", "A value already exists in a unique column."
+            )
+        elif get_postgres_error(exc, CardinalityViolationError) is not None:
+            error = TableRowError(
+                "duplicate_value",
+                "Rows in an upsert batch must have distinct unique column values.",
+            )
+        elif get_postgres_error(exc, DataError) is not None:
+            error = TableRowError(
+                "invalid_value",
+                "A row contains a value that is invalid for its column type.",
+            )
+        if session is not None:
+            await session.rollback()
         if error is None:
             raise
     # Raise outside the handler so raw database values are not retained in the
     # exception context consumed by workflow and observability code.
+    assert error is not None
+    raise error
+
+
+async def _execute_column_ddl[T](operation: Awaitable[T], session: AsyncSession) -> T:
+    """Translate data-dependent column DDL failures, not arbitrary DB errors."""
+    error: TableColumnConflictError | None = None
+    try:
+        return await operation
+    except DBAPIError as exc:
+        await session.rollback()
+        if get_postgres_error(exc, NotNullViolationError) is not None:
+            error = TableColumnConflictError(
+                "Column cannot be required while existing rows contain null values."
+            )
+        elif (
+            get_postgres_error(exc, DataError) is not None
+            or get_postgres_error(exc, DatatypeMismatchError) is not None
+        ):
+            error = TableColumnConflictError(
+                "Existing values or default are incompatible with the column type."
+            )
+        else:
+            raise
     assert error is not None
     raise error
 
@@ -790,11 +812,14 @@ class BaseTablesService(BaseWorkspaceService):
 
         # Add the column to the physical table
         conn = await self.session.connection()
-        await conn.execute(
-            sa.DDL(
-                "ALTER TABLE %s ADD COLUMN %s",
-                (self._full_table_name(table.name), column_def_str),
-            )
+        await _execute_column_ddl(
+            conn.execute(
+                sa.DDL(
+                    "ALTER TABLE %s ADD COLUMN %s",
+                    (self._full_table_name(table.name), column_def_str),
+                )
+            ),
+            self.session,
         )
 
         await self.session.flush()
@@ -950,21 +975,29 @@ class BaseTablesService(BaseWorkspaceService):
                     physical_type = (
                         "BIGINT" if SqlType(new_type) == SqlType.INTEGER else new_type
                     )
-                await conn.execute(
-                    sa.DDL(
-                        "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
-                        (full_table_name, quote_identifier(new_name), physical_type),
-                    )
+                await _execute_column_ddl(
+                    conn.execute(
+                        sa.DDL(
+                            "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
+                            (
+                                full_table_name,
+                                quote_identifier(new_name),
+                                physical_type,
+                            ),
+                        )
+                    ),
+                    self.session,
                 )
         if "nullable" in set_fields:
             constraint = "DROP NOT NULL" if set_fields["nullable"] else "SET NOT NULL"
-            await conn.execute(
-                sa.DDL(
-                    # SAFE f-string: constraint is a controlled literal string ("DROP NOT NULL" or "SET NOT NULL")
-                    # No user input is interpolated here - only predefined SQL keywords
-                    f"ALTER TABLE %s ALTER COLUMN %s {constraint}",
-                    (full_table_name, quote_identifier(new_name)),
-                )
+            await _execute_column_ddl(
+                conn.execute(
+                    sa.DDL(
+                        f"ALTER TABLE %s ALTER COLUMN %s {constraint}",
+                        (full_table_name, quote_identifier(new_name)),
+                    )
+                ),
+                self.session,
             )
         if "default" in set_fields:
             updated_default = set_fields["default"]
@@ -1023,10 +1056,7 @@ class BaseTablesService(BaseWorkspaceService):
         # Get database connection
         conn = await self.session.connection()
 
-        # Execute the CREATE UNIQUE INDEX SQL command. A unique index can only be
-        # built when the column has no duplicate values, so an IntegrityError here
-        # means the existing data conflicts. Surface it as a typed error (mapped
-        # to a 409) instead of leaking a raw database error as a 500.
+        error: ColumnHasDuplicateValuesError | None = None
         try:
             await conn.execute(
                 sa.DDL(
@@ -1040,10 +1070,15 @@ class BaseTablesService(BaseWorkspaceService):
             )
             await self.session.flush()
         except IntegrityError as e:
-            raise ColumnHasDuplicateValuesError(
+            await self.session.rollback()
+            if not is_unique_violation(e, index_name[:63]):
+                raise
+            error = ColumnHasDuplicateValuesError(
                 f"Column '{resolved_column_name}' contains duplicate values. "
                 "Remove duplicates before creating a unique index."
-            ) from e
+            )
+        if error is not None:
+            raise error
 
     async def drop_unique_index(self, table: Table, column_name: str) -> None:
         """Drop the unique index on the specified column."""
@@ -1232,7 +1267,9 @@ class BaseTablesService(BaseWorkspaceService):
                 index_elements=index, set_=update_dict
             ).returning(*self._visible_columns(table))
 
-        result = await _execute_row_write(conn.execute(stmt), table.columns)
+        result = await _execute_row_write(
+            conn.execute(stmt), table.columns, self.session
+        )
         await self.session.flush()
         row = result.mappings().one()
         if needs_indexing:
@@ -1294,7 +1331,9 @@ class BaseTablesService(BaseWorkspaceService):
             .returning(*self._visible_columns(table))
         )
 
-        result = await conn.execute(stmt)
+        result = await _execute_row_write(
+            conn.execute(stmt), table.columns, self.session
+        )
         await self.session.flush()
 
         try:
@@ -1360,6 +1399,10 @@ class BaseTablesService(BaseWorkspaceService):
         Returns:
             Number of rows updated
         """
+        if not data:
+            raise TableRowError(
+                "empty_update", "Row update must include at least one column."
+            )
         collection = await self.search.for_table(table.id)
         table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
@@ -1390,7 +1433,15 @@ class BaseTablesService(BaseWorkspaceService):
         )
 
         changed_ids = (
-            (await conn.execute(stmt.returning(sa.column("id")))).scalars().all()
+            (
+                await _execute_row_write(
+                    conn.execute(stmt.returning(sa.column("id"))),
+                    table.columns,
+                    self.session,
+                )
+            )
+            .scalars()
+            .all()
         )
         if self.search.selected_names(collection, table).intersection(normalised_data):
             await self.search.record_rows(collection, changed_ids)
@@ -1526,13 +1577,11 @@ class BaseTablesService(BaseWorkspaceService):
                 )
                 raise
             except ProgrammingError as e:
-                while (cause := e.__cause__) is not None:
-                    e = cause
-                if isinstance(e, UndefinedTableError):
+                if get_postgres_error(e, UndefinedTableError) is not None:
                     raise TracecatNotFoundError(
                         f"Table '{table_name}' does not exist"
                     ) from e
-                raise ValueError(str(e)) from e
+                raise
             except Exception as e:
                 self.logger.error(
                     "Unexpected DB exception occurred",
@@ -1600,13 +1649,11 @@ class BaseTablesService(BaseWorkspaceService):
                 )
                 raise
             except ProgrammingError as e:
-                while (cause := e.__cause__) is not None:
-                    e = cause
-                if isinstance(e, UndefinedTableError):
+                if get_postgres_error(e, UndefinedTableError) is not None:
                     raise TracecatNotFoundError(
                         f"Table '{table_name}' does not exist"
                     ) from e
-                raise ValueError(str(e)) from e
+                raise
             except Exception as e:
                 self.logger.error(
                     "Unexpected DB exception occurred during exists_rows",
@@ -1843,13 +1890,11 @@ class BaseTablesService(BaseWorkspaceService):
         except PaginationError:
             raise
         except ProgrammingError as e:
-            while (cause := e.__cause__) is not None:
-                e = cause
-            if isinstance(e, UndefinedTableError):
+            if get_postgres_error(e, UndefinedTableError) is not None:
                 raise TracecatNotFoundError(
                     f"Table '{table.name}' does not exist"
                 ) from e
-            raise ValueError(str(e)) from e
+            raise
         except Exception as e:
             self.logger.error(
                 "Unexpected DB exception occurred during paginated search",
@@ -2010,7 +2055,9 @@ class BaseTablesService(BaseWorkspaceService):
                 existing_ids = set()
                 changed_ids = set()
             result = await _execute_row_write(
-                conn.execute(stmt.returning(sa.column("id"))), table.columns
+                conn.execute(stmt.returning(sa.column("id"))),
+                table.columns,
+                self.session,
             )
             written = result.scalars().all()
             total_affected += len(written)
@@ -2045,7 +2092,7 @@ class TablesService(BaseTablesService):
         table_name: str | None = None,
         chunk_size: int = 1000,
     ) -> tuple[Table, int, list[InferredCSVColumn]]:
-        """Create a new table by inferring schema and rows from a CSV file."""
+        """Create a table and all inferred CSV rows in one transaction."""
         try:
             csv_text = contents.decode("utf-8-sig")
         except UnicodeDecodeError as exc:
@@ -2071,15 +2118,20 @@ class TablesService(BaseTablesService):
         if not raw_table_name and filename:
             raw_table_name = Path(filename).stem
         base_table_name = generate_table_name(raw_table_name)
+        await self.search.lock_scope()
         unique_table_name = await self._find_unique_table_name(base_table_name)
 
         column_defs = [
             TableColumnCreate(name=column.name, type=column.type)
             for column in inferred_columns
         ]
-        table = await self.create_table(
-            TableCreate(name=unique_table_name, columns=column_defs)
-        )
+        try:
+            table = await super().create_table(
+                TableCreate(name=unique_table_name, columns=column_defs)
+            )
+        except Exception:
+            await self.session.rollback()
+            raise
 
         second_pass = StringIO(csv_text)
         reader = csv.DictReader(second_pass)
@@ -2115,55 +2167,33 @@ class TablesService(BaseTablesService):
                 if mapped_row:
                     chunk.append(mapped_row)
                 if len(chunk) >= chunk_size:
-                    rows_inserted += await self._insert_import_chunk(
+                    rows_inserted += await self.insert_import_chunk(
                         table, chunk, chunk_size=chunk_size
                     )
                     chunk = []
 
             if chunk:
-                rows_inserted += await self._insert_import_chunk(
+                rows_inserted += await self.insert_import_chunk(
                     table, chunk, chunk_size=chunk_size
                 )
+            await self.session.refresh(table)
+            await self.session.commit()
         except Exception:
-            await self._cleanup_failed_import(table)
+            await self.session.rollback()
             raise
         finally:
             second_pass.close()
 
-        await self.session.refresh(table)
         return table, rows_inserted, inferred_columns
 
-    async def _insert_import_chunk(
+    @require_scope("table:create")
+    async def insert_import_chunk(
         self, table: Table, chunk: list[dict[str, Any]], *, chunk_size: int
     ) -> int:
+        """Insert CSV rows without committing; the importer owns the transaction."""
         if not chunk:
             return 0
-        try:
-            return await self.batch_insert_rows(table, chunk, chunk_size=chunk_size)
-        except DBAPIError as exc:
-            # Get error message, removing SQL queries that may contain sensitive data
-            cause = exc.__cause__ or exc
-            message = str(cause).strip()
-            if "[SQL:" in message:
-                message = message.split("[SQL:", 1)[0].strip()
-            if not message:
-                message = cause.__class__.__name__
-            raise TracecatImportError(
-                f"Failed to insert rows into table '{table.name}': {message}"
-            ) from exc
-
-    async def _cleanup_failed_import(self, table: Table) -> None:
-        try:
-            # Use base implementation for internal rollback cleanup so import
-            # failure handling does not depend on external delete scope grants.
-            await super().delete_table(table)
-            await self.session.commit()
-        except Exception as cleanup_error:
-            logger.error(
-                "Failed to clean up table after import failure",
-                table_id=str(table.id),
-                error=cleanup_error,
-            )
+        return await super().batch_insert_rows(table, chunk, chunk_size=chunk_size)
 
     @require_scope("table:update")
     async def update_table(self, table: Table, params: TableUpdate) -> Table:
@@ -2394,11 +2424,14 @@ class TableEditorService(BaseWorkspaceService):
 
         # Add the column to the physical table
         conn = await self.session.connection()
-        await conn.execute(
-            sa.DDL(
-                "ALTER TABLE %s ADD COLUMN %s",
-                (self._full_table_name(), column_def_str),
-            )
+        await _execute_column_ddl(
+            conn.execute(
+                sa.DDL(
+                    "ALTER TABLE %s ADD COLUMN %s",
+                    (self._full_table_name(), column_def_str),
+                )
+            ),
+            self.session,
         )
 
         await self.session.flush()
@@ -2463,21 +2496,26 @@ class TableEditorService(BaseWorkspaceService):
                 column_type_sql = (
                     "BIGINT" if SqlType(new_type) == SqlType.INTEGER else new_type
                 )
-            await conn.execute(
-                sa.DDL(
-                    "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
-                    (full_table_name, quote_identifier(new_name), column_type_sql),
-                )
+            await _execute_column_ddl(
+                conn.execute(
+                    sa.DDL(
+                        "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
+                        (full_table_name, quote_identifier(new_name), column_type_sql),
+                    )
+                ),
+                self.session,
             )
         if "nullable" in set_fields:
             constraint = "DROP NOT NULL" if set_fields["nullable"] else "SET NOT NULL"
-            await conn.execute(
-                sa.DDL(
-                    # SAFE f-string: constraint is a controlled literal string ("DROP NOT NULL" or "SET NOT NULL")
-                    # No user input is interpolated here - only predefined SQL keywords
-                    f"ALTER TABLE %s ALTER COLUMN %s {constraint}",
-                    (full_table_name, quote_identifier(new_name)),
-                )
+            await _execute_column_ddl(
+                conn.execute(
+                    sa.DDL(
+                        # SAFE f-string: constraint is a controlled SQL literal.
+                        f"ALTER TABLE %s ALTER COLUMN %s {constraint}",
+                        (full_table_name, quote_identifier(new_name)),
+                    )
+                ),
+                self.session,
             )
         if "default" in set_fields:
             updated_default = set_fields["default"]

@@ -272,7 +272,7 @@ class TestCSVImporter:
         """Test processing a chunk of rows."""
         # Create mock service and table
         mock_service = AsyncMock(spec=TablesService)
-        mock_service.batch_insert_rows = AsyncMock(return_value=2)
+        mock_service.insert_import_chunk = AsyncMock(return_value=2)
         mock_table = Mock(spec=Table)
 
         # Test data
@@ -284,7 +284,7 @@ class TestCSVImporter:
         await csv_importer.process_chunk(chunk, mock_service, mock_table)
 
         # Verify service was called correctly
-        mock_service.batch_insert_rows.assert_called_once_with(
+        mock_service.insert_import_chunk.assert_called_once_with(
             mock_table, chunk, chunk_size=csv_importer.chunk_size
         )
         assert csv_importer.total_rows_inserted == 2
@@ -297,7 +297,7 @@ class TestCSVImporter:
 
         await csv_importer.process_chunk([], mock_service, mock_table)
 
-        mock_service.batch_insert_rows.assert_not_called()
+        mock_service.insert_import_chunk.assert_not_called()
         assert csv_importer.total_rows_inserted == 0
 
 

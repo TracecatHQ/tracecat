@@ -9,7 +9,7 @@ import pytest
 from asyncpg import DuplicateTableError
 from fastapi import status
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import IntegrityError, ProgrammingError
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 
 from tracecat.auth.types import Role
 from tracecat.db.models import Table, TableColumn, Workspace
@@ -17,8 +17,9 @@ from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import CursorPaginatedResponse
 from tracecat.tables import internal_router as internal_tables_router
 from tracecat.tables import router as tables_router
+from tracecat.tables.common import ColumnHasDuplicateValuesError
 from tracecat.tables.enums import SqlType
-from tracecat.tables.exceptions import TableRowError
+from tracecat.tables.exceptions import TableColumnConflictError, TableRowError
 
 
 @pytest.fixture
@@ -406,3 +407,213 @@ async def test_list_table_rows_overlong_search_term_returns_422(
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
     mock_svc.list_rows.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("client_fixture", "router", "base_path", "get_table_method"),
+    _TABLE_SURFACE_PARAMS,
+)
+@pytest.mark.parametrize("update", [False, True])
+@pytest.mark.parametrize(
+    "error,expected_status",
+    [
+        (ColumnHasDuplicateValuesError("Column contains duplicate values."), 409),
+        (TableColumnConflictError("Existing rows contain null values."), 409),
+        (ValueError("Invalid column default"), 400),
+        (OperationalError("", {}, RuntimeError("synthetic-db-sentinel")), 500),
+        (IntegrityError("", {}, RuntimeError("synthetic-db-sentinel")), 500),
+        (ProgrammingError("", {}, RuntimeError("synthetic-db-sentinel")), 500),
+    ],
+)
+async def test_column_error_boundaries(
+    request: pytest.FixtureRequest,
+    test_admin_role: Role,
+    mock_table: Table,
+    client_fixture: str,
+    router: ModuleType,
+    base_path: str,
+    get_table_method: str,
+    update: bool,
+    error: Exception,
+    expected_status: int,
+) -> None:
+    column = TableColumn(id=uuid.uuid4(), name="score", type="NUMERIC", nullable=True)
+    mock_table.columns = [column]
+    column.table = mock_table
+    http: TestClient = request.getfixturevalue(client_fixture)
+    suffix = f"/{column.id}" if client_fixture == "client" else "/score"
+    with patch.object(router, "TablesService") as service_type:
+        service = AsyncMock()
+        with patch.object(service, get_table_method, return_value=mock_table):
+            service.get_column.return_value = column
+            service.create_column.side_effect = error
+            service.update_column.side_effect = error
+            service_type.return_value = service
+            response = TestClient(http.app, raise_server_exceptions=False).request(
+                "PATCH" if update else "POST",
+                f"{base_path}/columns" + (suffix if update else ""),
+                params={"workspace_id": str(test_admin_role.workspace_id)},
+                json={"nullable": False}
+                if update
+                else {"name": "score", "type": "NUMERIC"},
+            )
+    assert response.status_code == expected_status
+    assert "synthetic-db-sentinel" not in response.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "method,suffix,service_method,payload",
+    [
+        (
+            "PATCH",
+            "/rows/eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee",
+            "update_row",
+            {"data": {"score": 1}},
+        ),
+        (
+            "POST",
+            "/rows/batch-update",
+            "batch_update_rows",
+            {"row_ids": ["eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee"], "data": {"score": 1}},
+        ),
+        (
+            "POST",
+            "/rows/batch-delete",
+            "batch_delete_rows",
+            {"row_ids": ["eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee"]},
+        ),
+    ],
+)
+@pytest.mark.parametrize("error_type", [OperationalError, IntegrityError])
+async def test_public_row_mutation_unknown_database_errors(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+    method: str,
+    suffix: str,
+    service_method: str,
+    payload: dict[str, object],
+    error_type: type[OperationalError | IntegrityError],
+) -> None:
+    with patch.object(tables_router, "TablesService") as service_type:
+        service = AsyncMock()
+        service.get_table.return_value = mock_table
+        service_type.return_value = service
+        with patch.object(
+            service,
+            service_method,
+            side_effect=error_type("", {}, RuntimeError("synthetic-db-sentinel")),
+        ):
+            response = TestClient(client.app, raise_server_exceptions=False).request(
+                method,
+                f"/tables/{mock_table.id}{suffix}",
+                params={"workspace_id": str(test_admin_role.workspace_id)},
+                json=payload,
+            )
+    assert response.status_code == 500
+    assert "synthetic-db-sentinel" not in response.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("batch", [False, True])
+async def test_row_update_preserves_structured_conflict(
+    client: TestClient, test_admin_role: Role, mock_table: Table, batch: bool
+) -> None:
+    error = TableRowError(
+        "duplicate_value", "A value already exists in a unique column."
+    )
+    with patch.object(tables_router, "TablesService") as service_type:
+        service = AsyncMock()
+        service.get_table.return_value = mock_table
+        service.update_row.side_effect = error
+        service.batch_update_rows.side_effect = error
+        service_type.return_value = service
+        response = client.request(
+            "POST" if batch else "PATCH",
+            f"/tables/{mock_table.id}/rows/"
+            + ("batch-update" if batch else str(uuid.uuid4())),
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "row_ids": ["eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee"],
+                "data": {"score": 1},
+            }
+            if batch
+            else {"data": {"score": 1}},
+        )
+    assert response.status_code == 409
+    assert response.json() == {"detail": error.detail}
+
+
+@pytest.mark.anyio
+async def test_update_table_programming_error_is_sanitized(
+    client: TestClient, test_admin_role: Role, mock_table: Table
+) -> None:
+    with patch.object(tables_router, "TablesService") as service_type:
+        service = AsyncMock()
+        service.get_table.return_value = mock_table
+        service.update_table.side_effect = ProgrammingError(
+            "", {}, RuntimeError("synthetic-db-sentinel")
+        )
+        service_type.return_value = service
+        response = client.patch(
+            f"/tables/{mock_table.id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"name": "renamed_table"},
+        )
+    assert response.status_code == 500
+    assert "synthetic-db-sentinel" not in response.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("existing", [False, True])
+@pytest.mark.parametrize(
+    "error,expected_status",
+    [
+        (OperationalError("", {}, RuntimeError("synthetic-db-sentinel")), 500),
+        (IntegrityError("", {}, RuntimeError("synthetic-db-sentinel")), 500),
+        (TableRowError("duplicate_value", "Duplicate row value."), 409),
+    ],
+)
+async def test_csv_import_error_boundaries(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+    existing: bool,
+    error: Exception,
+    expected_status: int,
+) -> None:
+    mock_table.columns = [TableColumn(name="score", type="NUMERIC", nullable=True)]
+    with patch.object(tables_router, "TablesService") as service_type:
+        service = AsyncMock()
+        service.get_table.return_value = mock_table
+        service.import_table_from_csv.side_effect = error
+        service.insert_import_chunk.side_effect = error
+        service_type.return_value = service
+        response = TestClient(client.app, raise_server_exceptions=False).post(
+            f"/tables/{mock_table.id}/import" if existing else "/tables/import",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            files={"file": ("synthetic.csv", b"score\n1\n", "text/csv")},
+            data={"column_mapping": '{"score":"score"}'} if existing else {},
+        )
+    assert response.status_code == expected_status
+    assert "synthetic-db-sentinel" not in response.text
+    if isinstance(error, TableRowError):
+        assert response.json() == {"detail": error.detail}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "mapping", ["[]", "null", "42", '{"score":[]}', '{"score":null}', "{"]
+)
+async def test_csv_column_mapping_requires_string_object(
+    client: TestClient, test_admin_role: Role, mock_table: Table, mapping: str
+) -> None:
+    response = client.post(
+        f"/tables/{mock_table.id}/import",
+        params={"workspace_id": str(test_admin_role.workspace_id)},
+        files={"file": ("synthetic.csv", b"score\n1\n", "text/csv")},
+        data={"column_mapping": mapping},
+    )
+    assert response.status_code == 400

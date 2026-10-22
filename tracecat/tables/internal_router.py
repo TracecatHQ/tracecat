@@ -17,6 +17,7 @@ from tracecat import config
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.errors import get_postgres_error
 from tracecat.db.models import Table, TableColumn
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.expressions.functions import tabulate
@@ -24,8 +25,12 @@ from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.query.errors import TracecatQueryOverflowError
 from tracecat.search.router import router as semantic_search_router
-from tracecat.tables.common import coerce_optional_to_utc_datetime
+from tracecat.tables.common import (
+    ColumnHasDuplicateValuesError,
+    coerce_optional_to_utc_datetime,
+)
 from tracecat.tables.enums import SqlType
+from tracecat.tables.exceptions import TableColumnConflictError
 from tracecat.tables.schemas import (
     AggregateResponse,
     TableAggregateRequest,
@@ -90,30 +95,22 @@ class TableRowUpdate(BaseModel):
 TableDownloadFormat = Literal["json", "ndjson", "csv", "markdown"]
 
 
-def _programming_error_root(exc: ProgrammingError) -> BaseException:
-    root: BaseException = exc
-    while root.__cause__ is not None:
-        root = root.__cause__
-    return root
-
-
 def _raise_table_programming_error(
     exc: ProgrammingError,
     *,
     action: str,
 ) -> NoReturn:
-    root = _programming_error_root(exc)
-    if isinstance(root, DuplicateTableError):
+    if get_postgres_error(exc, DuplicateTableError) is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Table already exists",
         ) from exc
-    if isinstance(root, DuplicateColumnError):
+    if get_postgres_error(exc, DuplicateColumnError) is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Column already exists",
         ) from exc
-    logger.error("Unexpected table DDL error", action=action, error=str(root))
+    logger.error("Unexpected table DDL error", action=action, error=exc)
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail=f"An error occurred while {action}",
@@ -188,8 +185,7 @@ async def create_table(
             TableCreate(name=params.name, columns=params.columns)
         )
     except ProgrammingError as exc:
-        root = _programming_error_root(exc)
-        if isinstance(root, DuplicateTableError):
+        if get_postgres_error(exc, DuplicateTableError) is not None:
             if params.raise_on_duplicate:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -277,6 +273,10 @@ async def create_column(
         table = await service.get_table_by_name(table_name)
         await service.create_column(table, params)
         refreshed = await service.get_table(table.id, populate_existing=True)
+    except (ColumnHasDuplicateValuesError, TableColumnConflictError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -309,6 +309,10 @@ async def update_column(
         column = _find_column_by_name(table, column_name)
         await service.update_column(column, params)
         refreshed = await service.get_table(table.id, populate_existing=True)
+    except (ColumnHasDuplicateValuesError, TableColumnConflictError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
