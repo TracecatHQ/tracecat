@@ -24,6 +24,7 @@ from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.secrets.enums import SecretSource
 from tracecat.sync import PullResult, PushStatus
 from tracecat.tiers.enums import Entitlement
+from tracecat.workspace_sync.operations.catalog import catalog_target_state
 from tracecat.workspace_sync.operations.mappings import surviving_mapping_targets
 from tracecat.workspace_sync.operations.schemas import (
     PreparedSync,
@@ -113,6 +114,13 @@ class DurableSyncService(WorkspaceSyncService):
                 if store.name in names
             }
         )
+
+    async def catalog_target_fingerprint(
+        self, snapshot: WorkspaceRemoteSnapshot, *, lock: bool = False
+    ) -> str | None:
+        """Bind selected models to their effective workspace access and identity."""
+        state = await catalog_target_state(self, snapshot, lock=lock)
+        return fingerprint(state) if state is not None else None
 
     async def mcp_target_fingerprint(
         self, snapshot: WorkspaceRemoteSnapshot, *, lock: bool = False
@@ -395,6 +403,9 @@ class DurableSyncService(WorkspaceSyncService):
         )
         return PreparedSync(
             snapshot=prepared.snapshot,
+            catalog_target_fingerprint=await self.catalog_target_fingerprint(
+                prepared.snapshot
+            ),
             mcp_target_fingerprint=await self.mcp_target_fingerprint(prepared.snapshot),
             secret_store_fingerprint=await self.secret_store_fingerprint(
                 prepared.snapshot
@@ -564,6 +575,13 @@ class DurableSyncService(WorkspaceSyncService):
                 != prepared.secret_store_fingerprint
             ):
                 raise StaleSyncPreviewError("Secret stores changed; preview again")
+            if (
+                await self.catalog_target_fingerprint(snapshot, lock=True)
+                != prepared.catalog_target_fingerprint
+            ):
+                raise StaleSyncPreviewError(
+                    "Selected catalog models changed; preview again"
+                )
             if (
                 await self.mcp_target_fingerprint(snapshot, lock=True)
                 != prepared.mcp_target_fingerprint
