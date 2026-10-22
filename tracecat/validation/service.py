@@ -297,6 +297,9 @@ async def validate_registry_action_args(
             if action_name == PlatformAction.CHILD_WORKFLOW_EXECUTE:
                 validated = ExecuteSubflowArgs.model_validate(args)
             else:
+                if action_name == PlatformAction.TRANSFORM_SCATTER:
+                    # The scheduler parses scatter args before evaluating expressions
+                    ScatterArgs.model_validate(args)
                 service = RegistryActionsService(session, role=role)
                 action_data = await service.get_action_from_index(action_name)
                 if action_data is None:
@@ -431,24 +434,11 @@ async def validate_dsl_actions(
                         loc=(act_stmt.ref, "for_each"),
                     )
                 )
-        # The scheduler parses scatter args before evaluating expressions
-        if (
-            act_stmt.action == PlatformAction.TRANSFORM_SCATTER
-            and result.status == "success"
-        ):
-            try:
-                ScatterArgs.model_validate(act_stmt.args)
-            except ValidationError as e:
-                details.extend(ValidationDetail.list_from_pydantic(e))
         if details:
             val_res.append(
                 ActionValidationResult(
                     status="error",
-                    msg=(
-                        result.msg
-                        if result.status == "error"
-                        else f"Error validating action {act_stmt.action}"
-                    ),
+                    msg=result.msg,
                     ref=act_stmt.ref,
                     detail=details,
                     action_type=act_stmt.action,

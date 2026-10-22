@@ -657,15 +657,13 @@ class DSLWorkflow:
                 },
             )
         except TracecatDSLError as e:
-            raise_wrapped_application_error(
-                e,
-                fallback_classification=RuntimeErrorClassification.user(
+            raise_application_error_from_classification(
+                RuntimeErrorClassification.user(
                     kind=RuntimeErrorKind.WORKFLOW_DEFINITION_INVALID,
                     message=f"The workflow definition is invalid: {e}",
                     retry_disposition=RetryDisposition.NON_RETRYABLE,
                     cause=e,
-                ),
-                include_implicit_context=False,
+                )
             )
         try:
             task_exceptions = await self.scheduler.start()

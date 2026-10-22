@@ -92,7 +92,6 @@ with workflow.unsafe.imports_passed_through():
         extract_error_classification,
     )
     from tracecat.temporal.patches import WorkflowPatch
-    from tracecat.validation.schemas import ValidationDetail
 
 
 def _get_collection_size(stored: StoredObject) -> int:
@@ -126,8 +125,8 @@ def _loop_limit_error(message: str) -> ApplicationError:
 def _scatter_args_error(ref: str, error: ValidationError) -> ApplicationError:
     """Build a user-attributed failure for authored scatter arguments."""
     problems = "; ".join(
-        f"{'.'.join(str(part) for part in detail.loc or ())}: {detail.msg}"
-        for detail in ValidationDetail.list_from_pydantic(error)
+        f"{'.'.join(str(part) for part in detail['loc'])}: {detail['msg']}"
+        for detail in error.errors(include_input=False, include_url=False)
     )
     return application_error_from_classification(
         RuntimeErrorClassification.user(

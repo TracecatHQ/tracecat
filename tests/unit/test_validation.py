@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
 
 import pytest
@@ -50,10 +50,9 @@ from tracecat.registry.versions.schemas import RegistryVersionManifestAction
 from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.tiers import defaults as tier_defaults
 from tracecat.validation.schemas import (
-    ActionValidationResult,
     ValidationResultType,
 )
-from tracecat.validation.service import validate_dsl, validate_dsl_actions
+from tracecat.validation.service import validate_dsl, validate_registry_action_args
 
 TEST_VERSION = "test-version"
 
@@ -824,55 +823,35 @@ async def test_agent_tool_approvals_do_not_require_agent_addons(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("interval", "expected"),
+    ("interval", "expected_loc"),
     [
-        ("${{ TRIGGER.delay }}", [("pydantic.float_parsing", ("interval",))]),
-        (
-            "every ${{ TRIGGER.delay }} seconds",
-            [("pydantic.float_parsing", ("interval",))],
-        ),
-        (0.5, []),
-        (None, []),
+        ("${{ TRIGGER.delay }}", ("interval",)),
+        ("every ${{ TRIGGER.delay }} seconds", ("interval",)),
+        (0.5, None),
+        (None, None),
     ],
 )
 async def test_scatter_args_validated_at_commit(
-    interval: object, expected: list[tuple[str, tuple[str, ...]]]
+    interval: object, expected_loc: tuple[str, ...] | None
 ) -> None:
     """Scatter args are parsed before evaluation, so expressions fail commit."""
-    dsl = DSLInput(
-        title="Scatter interval",
-        description="Scatter with an interval",
-        entrypoint=DSLEntrypoint(),
-        actions=[
-            ActionStatement(
-                ref="scatter",
-                action="core.transform.scatter",
-                args={"collection": "${{ [1, 2] }}", "interval": interval},
-            ),
-            ActionStatement(
-                ref="gather",
-                action="core.transform.gather",
-                args={"items": "${{ ACTIONS.scatter.result }}"},
-                depends_on=["scatter"],
-            ),
-        ],
-    )
-    valid_args = AsyncMock(
-        return_value=ActionValidationResult(
-            status="success", msg="ok", ref="any", action_type="any"
-        )
-    )
+    registry = MagicMock()
+    registry.return_value.get_action_from_index = AsyncMock(return_value=None)
 
-    with patch(
-        "tracecat.validation.service.validate_registry_action_args", new=valid_args
-    ):
-        results = await validate_dsl_actions(
+    with patch("tracecat.validation.service.RegistryActionsService", new=registry):
+        result = await validate_registry_action_args(
             session=AsyncMock(),
             role=Role(type="service", service_id="tracecat-runner"),
-            dsl=dsl,
+            action_name="core.transform.scatter",
+            action_ref="scatter",
+            args={"collection": "${{ [1, 2] }}", "interval": interval},
         )
 
-    assert [(d.type, d.loc) for r in results for d in r.detail or []] == expected
-    assert all(
-        r.msg == "Error validating action core.transform.scatter" for r in results
+    # Valid scatter args fall through to the (empty) registry lookup
+    expected = (
+        [("general", None)]
+        if expected_loc is None
+        else [("pydantic.float_parsing", expected_loc)]
     )
+    assert result.msg == "Error validating action core.transform.scatter"
+    assert [(d.type, d.loc) for d in result.detail or []] == expected
