@@ -1,19 +1,20 @@
 """Exercise native Updates, recorded timers, and replay across worker replacement."""
 
 import asyncio
+import os
 import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from temporalio import activity
-from temporalio.client import WorkflowUpdateFailedError
-from temporalio.contrib.pydantic import pydantic_data_converter
+from temporalio.client import Client, WorkflowUpdateFailedError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from tracecat.auth.types import Role
 from tracecat.background.sandbox import new_sandbox_runner
+from tracecat.dsl._converter import get_data_converter
 from tracecat.workspace_sync.operations.lifecycle import WorkspaceSyncLifecycleWorkflow
 from tracecat.workspace_sync.operations.lifecycle_types import (
     SyncApplyInput,
@@ -110,9 +111,9 @@ class LifecycleActivities:
             raise ApplicationError("Synthetic terminal history outage")
         self.copies.append(snapshot)
 
-    def worker(self, env: WorkflowEnvironment, queue: str) -> Worker:
+    def worker(self, client: Client, queue: str) -> Worker:
         return Worker(
-            env.client,
+            client,
             task_queue=queue,
             workflows=[WorkspaceSyncLifecycleWorkflow],
             workflow_runner=new_sandbox_runner(),
@@ -140,11 +141,11 @@ async def ready(handle):
 
 async def test_confirmation_survives_worker_replacement_and_is_idempotent():
     async with await WorkflowEnvironment.start_time_skipping(
-        data_converter=pydantic_data_converter
+        data_converter=get_data_converter()
     ) as env:
         tasks = LifecycleActivities()
         queue = f"sync-test-{uuid.uuid4()}"
-        async with tasks.worker(env, queue):
+        async with tasks.worker(env.client, queue):
             handle = await env.client.start_workflow(
                 WorkspaceSyncLifecycleWorkflow.run,
                 start_input(),
@@ -153,12 +154,21 @@ async def test_confirmation_survives_worker_replacement_and_is_idempotent():
             )
             preview = await ready(handle)
         # The workflow remains open without its original worker or browser.
-        async with tasks.worker(env, queue):
+        async with tasks.worker(env.client, queue):
             current = await handle.query(WorkspaceSyncLifecycleWorkflow.snapshot)
             assert current.state == preview.state
             wrong = SyncCommand(uuid.uuid4(), 999, current.state.revision)
             with pytest.raises(WorkflowUpdateFailedError):
                 await handle.execute_update(WorkspaceSyncLifecycleWorkflow.apply, wrong)
+            with pytest.raises(WorkflowUpdateFailedError):
+                await handle.execute_update(
+                    WorkspaceSyncLifecycleWorkflow.apply,
+                    SyncCommand(
+                        uuid.uuid4(),
+                        current.state.preview_revision,
+                        current.state.revision - 1,
+                    ),
+                )
             command = SyncCommand(
                 uuid.uuid4(), current.state.preview_revision, current.state.revision
             )
@@ -184,11 +194,11 @@ async def test_confirmation_survives_worker_replacement_and_is_idempotent():
 
 async def test_confirmation_deadline_uses_temporal_timer():
     async with await WorkflowEnvironment.start_time_skipping(
-        data_converter=pydantic_data_converter
+        data_converter=get_data_converter()
     ) as env:
         tasks = LifecycleActivities()
         queue = f"sync-test-{uuid.uuid4()}"
-        async with tasks.worker(env, queue):
+        async with tasks.worker(env.client, queue):
             handle = await env.client.start_workflow(
                 WorkspaceSyncLifecycleWorkflow.run,
                 start_input(),
@@ -206,11 +216,11 @@ async def test_confirmation_deadline_uses_temporal_timer():
 
 async def test_lost_commit_response_finishes_receipt_without_user_retry():
     async with await WorkflowEnvironment.start_time_skipping(
-        data_converter=pydantic_data_converter
+        data_converter=get_data_converter()
     ) as env:
         tasks = LifecycleActivities(lose_commit_response=True)
         queue = f"sync-test-{uuid.uuid4()}"
-        async with tasks.worker(env, queue):
+        async with tasks.worker(env.client, queue):
             handle = await env.client.start_workflow(
                 WorkspaceSyncLifecycleWorkflow.run,
                 start_input(),
@@ -233,11 +243,11 @@ async def test_lost_commit_response_finishes_receipt_without_user_retry():
 
 async def test_delayed_history_never_blocks_confirmation():
     async with await WorkflowEnvironment.start_time_skipping(
-        data_converter=pydantic_data_converter
+        data_converter=get_data_converter()
     ) as env:
         tasks = LifecycleActivities(fail_history=True, terminal_copy_failures=3)
         queue = f"sync-test-{uuid.uuid4()}"
-        async with tasks.worker(env, queue):
+        async with tasks.worker(env.client, queue):
             handle = await env.client.start_workflow(
                 WorkspaceSyncLifecycleWorkflow.run,
                 start_input(),
@@ -259,11 +269,11 @@ async def test_delayed_history_never_blocks_confirmation():
 
 async def test_retry_requires_current_failure_revision_and_stays_in_same_execution():
     async with await WorkflowEnvironment.start_time_skipping(
-        data_converter=pydantic_data_converter
+        data_converter=get_data_converter()
     ) as env:
         tasks = LifecycleActivities(prepare_failures=5)
         queue = f"sync-test-{uuid.uuid4()}"
-        async with tasks.worker(env, queue):
+        async with tasks.worker(env.client, queue):
             handle = await env.client.start_workflow(
                 WorkspaceSyncLifecycleWorkflow.run,
                 start_input(),
@@ -298,3 +308,33 @@ async def test_retry_requires_current_failure_revision_and_stays_in_same_executi
             )
             await handle.result()
             assert tasks.applies == 1
+
+
+async def test_lifecycle_updates_on_configured_local_temporal_server():
+    # Exercise the actual supported server, not just the SDK test server.
+    client = await Client.connect(
+        f"localhost:{os.environ.get('TEMPORAL_PORT', '7233')}",
+        data_converter=get_data_converter(),
+    )
+    tasks = LifecycleActivities()
+    queue = f"sync-compatibility-{uuid.uuid4()}"
+    async with tasks.worker(client, queue):
+        handle = await client.start_workflow(
+            WorkspaceSyncLifecycleWorkflow.run,
+            start_input(),
+            id=str(uuid.uuid4()),
+            task_queue=queue,
+        )
+        try:
+            state = (await ready(handle)).state
+            await handle.execute_update(
+                WorkspaceSyncLifecycleWorkflow.apply,
+                SyncCommand(uuid.uuid4(), state.preview_revision, state.revision),
+            )
+            await asyncio.wait_for(handle.result(), timeout=30)
+            final = await handle.query(WorkspaceSyncLifecycleWorkflow.snapshot)
+            assert final.state.status == "completed"
+            assert tasks.applies == tasks.finishes == 1
+        finally:
+            if not tasks.finishes:
+                await handle.terminate("Synthetic local compatibility test cleanup")
