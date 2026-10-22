@@ -352,6 +352,20 @@ describe("useVercelChat dropped prompt across reloads", () => {
     })
   })
 
+  it("keeps the restored prompt when a reload's reconnect finishes cleanly", async () => {
+    await dropTurn()
+    // A run that failed before saving the prompt replays as a clean finish.
+    const { onFinish } = renderChat()
+    act(() => finish(onFinish, { isError: false }))
+
+    const { seeded } = reload(prior)
+
+    expect(seeded && "messages" in seeded && seeded.messages).toEqual([
+      ...prior,
+      unsent,
+    ])
+  })
+
   it("forgets the prompt after a later turn fails", async () => {
     await dropTurn()
     const { hook: later, onFinish } = renderChat()
@@ -365,7 +379,8 @@ describe("useVercelChat dropped prompt across reloads", () => {
 
   it("forgets the prompt after a later turn finishes cleanly", async () => {
     await dropTurn()
-    const { onFinish } = renderChat()
+    const { hook: later, onFinish } = renderChat()
+    await act(() => later.result.current.sendMessage({ text: "Next" }))
     act(() => finish(onFinish, { isError: false }))
 
     const { hook } = reload(prior)
@@ -485,6 +500,33 @@ describe("useVercelChat retryTurn", () => {
     })
 
     expect(mockResumeStream).toHaveBeenCalledTimes(1)
+  })
+
+  it("never resends a dropped approval continuation", async () => {
+    global.fetch = jest.fn() as unknown as typeof fetch
+    mockMessages = [
+      {
+        id: "continue-1",
+        role: "user",
+        parts: [{ type: "data-continue", data: { decisions: [] } }],
+      },
+    ]
+    const { hook, onError, onFinish } = renderChat()
+    await act(() => hook.result.current.sendMessage({ text: "" }))
+    act(() => {
+      onError?.(new TypeError("Failed to fetch"))
+      finish(onFinish, { isError: true, isDisconnect: true })
+    })
+
+    await act(async () => {
+      await hook.result.current.retryTurn("continue-1")
+    })
+
+    expect(mockRegenerate).not.toHaveBeenCalled()
+    expect(global.fetch).not.toHaveBeenCalled()
+    expect(jest.mocked(useChat).mock.calls.at(-1)?.[0]).toMatchObject({
+      id: "chat-1#1",
+    })
   })
 
   it("resends after a failure that kept the connection", async () => {

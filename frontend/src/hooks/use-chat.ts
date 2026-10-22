@@ -32,6 +32,7 @@ import { getBaseUrl } from "@/lib/api"
 import {
   CHAT_MESSAGES_THROTTLE_MS,
   CoalescingChatTransport,
+  isUserPrompt,
   type ModelInfo,
   toServerUIMessage,
 } from "@/lib/chat"
@@ -773,9 +774,10 @@ export function useVercelChat({
             (prev) => prev && { ...prev, disconnected: true, replay }
           )
         }
-        // A dropped reconnect must not save the previous turn's prompt instead.
-        if (chatId && !(isDisconnect && requestKindRef.current === "resume")) {
-          saveDroppedPrompt(chatId, isDisconnect ? turnMessages : null)
+        // Sends already cleared the saved prompt, and a reconnect's history may
+        // still lack it, so only a dropped send saves one.
+        if (chatId && isDisconnect && requestKindRef.current === "send") {
+          saveDroppedPrompt(chatId, turnMessages)
         }
       }
       invalidateChatTurnQueries(queryClient, { chatId, workspaceId })
@@ -867,13 +869,16 @@ export function useVercelChat({
    */
   const retryTurn = useCallback(
     async (messageId: string | undefined): Promise<void> => {
-      // A replay's prompt is not on screen, so its turn is never resent.
-      if (currentError?.replay && chatId) {
+      const prompt = liveMessages.find((m) => m.id === messageId)
+      // A replay's prompt is off screen, and the transcript never stores an
+      // approval continuation, so neither is resent: adopt the server's state.
+      const unconfirmable =
+        currentError?.replay || (prompt !== undefined && !isUserPrompt(prompt))
+      if (currentError?.disconnected && chatId && unconfirmable) {
         await refetchChatTranscript(queryClient, chatId, workspaceId)
         setReconnect({ chatId, generation: generation + 1 })
         return
       }
-      const prompt = liveMessages.find((m) => m.id === messageId)
       if (currentError?.disconnected && chatId && prompt) {
         const took = await serverTookPrompt({
           chatId,
