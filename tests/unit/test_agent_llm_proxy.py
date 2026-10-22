@@ -2151,8 +2151,12 @@ async def test_managed_stream_cut_after_headers_is_stream_interrupted(
     assert response_text.count("HTTP/1.1") == 1
     assert "event: message_start" in response_text
     assert "event: error" in response_text
+    # Raw transport text is not source-owned, so neither the runtime nor the
+    # terminal error sees it.
+    assert "peer closed connection" not in response_text
     assert len(errors) == 1
     classification = errors[0].classification
+    assert errors[0].message == classification.message
     assert classification.kind is RuntimeErrorKind.AGENT_LLM_STREAM_INTERRUPTED
     assert classification.owner is RuntimeErrorOwner.PLATFORM
     assert classification.retry_disposition is RetryDisposition.RETRYABLE

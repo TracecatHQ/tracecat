@@ -413,15 +413,20 @@ def _transport_error_classification(
     return agent_executor_unclassified(error)
 
 
+def _is_managed_stream_interruption(error: Exception, *, route_is_direct: bool) -> bool:
+    """Whether a managed gateway connection dropped mid-body."""
+    return not route_is_direct and isinstance(
+        error, httpx.RemoteProtocolError | httpx.ReadError
+    )
+
+
 def _stream_transport_error_classification(
     error: httpx.TransportError,
     *,
     route_is_direct: bool,
 ) -> RuntimeErrorClassification:
     """Classify a transport failure after response headers reached the runtime."""
-    if not route_is_direct and isinstance(
-        error, httpx.RemoteProtocolError | httpx.ReadError
-    ):
+    if _is_managed_stream_interruption(error, route_is_direct=route_is_direct):
         return agent_llm_stream_interrupted(error)
     return _transport_error_classification(error, route_is_direct=route_is_direct)
 
@@ -1756,6 +1761,13 @@ class LLMSocketProxy:
                         f"Model response timed out after {timeout_duration} "
                         "without receiving data. Please retry the agent execution."
                     )
+                    surfaced_error = detail
+                elif _is_managed_stream_interruption(
+                    exc, route_is_direct=route_is_direct
+                ):
+                    # Transport text is not source-owned; surface the policy message.
+                    status_code = 502
+                    detail = agent_llm_stream_interrupted().message
                     surfaced_error = detail
                 else:
                     status_code = getattr(exc, "status_code", 502)
