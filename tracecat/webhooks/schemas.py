@@ -112,11 +112,9 @@ class WebhookUpdate(BaseModel):
     allowlisted_cidrs: list[str] | None = None
     include_headers: bool | None = None
 
-    @field_validator("status", "include_headers")
+    @field_validator("status", "methods", "allowlisted_cidrs", "include_headers")
     @classmethod
-    def reject_explicit_null(
-        cls, value: WebhookStatus | bool | None
-    ) -> WebhookStatus | bool | None:
+    def reject_explicit_null[T](cls, value: T | None) -> T:
         # Omit the field to leave it unchanged; the columns are NOT NULL.
         if value is None:
             raise ValueError("must not be null")
