@@ -119,6 +119,9 @@ CLAUDE_PROJECT_DIR_MAX_LENGTH = 200
 # Headroom reserved for session-envelope metadata when checking whether a
 # serialized session line still fits inside a MAX_PAYLOAD_SIZE socket frame.
 _SESSION_FRAME_MARGIN = 4096
+MODEL_REQUEST_FAILED_MESSAGE = (
+    "The model request failed after retries. Please retry the agent execution."
+)
 CLAUDE_PROJECT_DIR_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
 LOG_PREVIEW_CHARS = 8000
 ROOT_MESSAGE_DONE_TIMEOUT_SECONDS = 120.0
@@ -1750,6 +1753,40 @@ class ClaudeAgentRuntime:
                 error=message.data.get("error"),
             )
 
+    async def _handle_result_message(self, message: ResultMessage) -> None:
+        """Send the turn's final result, or fail the turn on a model API error."""
+        await self._event_writer.send_log(
+            "info",
+            "Agent turn completed",
+            num_turns=message.num_turns,
+            duration_ms=message.duration_ms,
+            usage=message.usage,
+        )
+        # The SDK sets is_error on a "success" result only when the CLI's last
+        # model request failed after its own retries, for example a gateway
+        # that keeps cutting streams. The result text is that API error, not
+        # an answer. Keep the usage, drop the text, and fail the turn.
+        model_request_failed = message.is_error and message.subtype == "success"
+        if model_request_failed:
+            result_output = None
+        elif message.structured_output is not None:
+            result_output = message.structured_output
+        else:
+            result_output = message.result
+        await self._event_writer.send_result(
+            usage=message.usage,
+            num_turns=message.num_turns,
+            duration_ms=message.duration_ms,
+            output=result_output,
+        )
+        if model_request_failed:
+            await self._event_writer.send_log(
+                "error",
+                "Claude SDK model request failed after retries",
+                api_error_status=message.api_error_status,
+            )
+            await self._event_writer.send_error(MODEL_REQUEST_FAILED_MESSAGE)
+
     async def _emit_user_tool_results(self, message: UserMessage) -> None:
         """Stream non-approval tool results from SDK user messages."""
         if not isinstance(message.content, list):
@@ -1970,29 +2007,12 @@ class ClaudeAgentRuntime:
                             self._session_flush_event.set()
 
                         elif isinstance(message, ResultMessage):
-                            await self._event_writer.send_log(
-                                "info",
-                                "Agent turn completed",
-                                num_turns=message.num_turns,
-                                duration_ms=message.duration_ms,
-                                usage=message.usage,
-                            )
                             log_benchmark_phase(
                                 "runtime_result_received",
                                 duration_ms=message.duration_ms,
                                 num_turns=message.num_turns,
                             )
-                            result_output = (
-                                message.structured_output
-                                if message.structured_output is not None
-                                else message.result
-                            )
-                            await self._event_writer.send_result(
-                                usage=message.usage,
-                                num_turns=message.num_turns,
-                                duration_ms=message.duration_ms,
-                                output=result_output,
-                            )
+                            await self._handle_result_message(message)
 
                         elif isinstance(message, SystemMessage):
                             await self._handle_system_message(message)
