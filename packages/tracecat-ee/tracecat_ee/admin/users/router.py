@@ -9,7 +9,11 @@ from fastapi_users import InvalidPasswordException
 
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSessionBypass
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 
 from .schemas import AdminUserCreate, AdminUserRead
 from .service import AdminUserService
@@ -31,15 +35,8 @@ async def create_user(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
-    except ValueError as e:
-        detail = str(e)
-        if "already exists" in detail.lower():
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail=detail
-            ) from e
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=detail
-        ) from e
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
 @router.get("", response_model=list[AdminUserRead])
@@ -62,7 +59,7 @@ async def get_user(
     service = AdminUserService(session, role)
     try:
         return await service.get_user(user_id)
-    except ValueError as e:
+    except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
@@ -76,11 +73,9 @@ async def promote_to_superuser(
     service = AdminUserService(session, role)
     try:
         return await service.promote_superuser(user_id)
-    except ValueError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-            ) from e
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
@@ -101,11 +96,9 @@ async def demote_from_superuser(
     service = AdminUserService(session, role)
     try:
         return await service.demote_superuser(user_id, current_user_id=role.user_id)
-    except ValueError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-            ) from e
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
@@ -128,7 +121,7 @@ async def delete_user(
         await service.delete_user(user_id, current_user_id=role.user_id)
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-    except ValueError as e:
+    except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e

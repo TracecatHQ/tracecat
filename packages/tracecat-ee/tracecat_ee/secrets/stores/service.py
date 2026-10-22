@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from typing import cast
 
+from asyncpg import ForeignKeyViolationError
 from sqlalchemy import exists, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
@@ -12,6 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
+from tracecat.db.errors import get_postgres_error
 from tracecat.db.models import (
     OrganizationSecretStore,
     Secret,
@@ -19,6 +22,7 @@ from tracecat.db.models import (
     WorkspaceSecretStoreAuthorization,
 )
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
+from tracecat.db.types import PostgresConstraintError
 from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 from tracecat.identifiers import WorkspaceID
 from tracecat.pagination import Page, PageParams, paginate
@@ -306,6 +310,14 @@ class SecretStoresService(BaseOrgService):
             await self.session.commit()
         except IntegrityError as exc:
             await self.session.rollback()
+            error = get_postgres_error(exc, ForeignKeyViolationError)
+            if error is None or cast(
+                PostgresConstraintError, error
+            ).constraint_name not in {
+                "fk_secret_store_id_organization_secret_store",
+                "fk_secret_store_authorization",
+            }:
+                raise
             raise TracecatConflictError(
                 "Secret store or authorization is still referenced by workspace"
                 " secrets. Remove those references first."

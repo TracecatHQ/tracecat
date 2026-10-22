@@ -19,6 +19,7 @@ from tracecat.audit.types import AuditAction
 from tracecat.auth.types import Role
 from tracecat.authz.membership import lock_role_changes
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     Invitation,
     Organization,
@@ -27,7 +28,11 @@ from tracecat.db.models import (
     RegistryVersion,
 )
 from tracecat.db.models import Role as DBRole
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.invitations.schemas import InvitationCreate, InvitationGrant
 from tracecat.invitations.service import (
@@ -103,14 +108,18 @@ class AdminOrgService(BasePlatformService):
         result = await self.session.execute(stmt)
         org = result.scalar_one_or_none()
         if not org:
-            raise ValueError(f"Organization {org_id} not found")
+            raise TracecatNotFoundError(f"Organization {org_id} not found")
         return OrgRead.model_validate(org)
 
-    async def _require_organization(self, org_id: uuid.UUID) -> None:
+    async def _require_organization(
+        self, org_id: uuid.UUID, *, for_update: bool = False
+    ) -> None:
         """Ensure an organization exists."""
         stmt = select(Organization.id).where(Organization.id == org_id)
+        if for_update:
+            stmt = stmt.with_for_update()
         if await self.session.scalar(stmt) is None:
-            raise ValueError(f"Organization {org_id} not found")
+            raise TracecatNotFoundError(f"Organization {org_id} not found")
 
     @audit_log(resource_type="organization", action="update")
     async def update_organization(
@@ -121,7 +130,7 @@ class AdminOrgService(BasePlatformService):
         result = await self.session.execute(stmt)
         org = result.scalar_one_or_none()
         if not org:
-            raise ValueError(f"Organization {org_id} not found")
+            raise TracecatNotFoundError(f"Organization {org_id} not found")
 
         for field, value in params.model_dump(exclude_unset=True).items():
             setattr(org, field, value)
@@ -130,7 +139,9 @@ class AdminOrgService(BasePlatformService):
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
-            raise ValueError(f"Organization slug '{org.slug}' already exists") from e
+            if not is_unique_violation(e, "ix_organization_slug"):
+                raise
+            raise TracecatConflictError("Organization slug already exists") from e
         await self.session.refresh(org)
         return OrgRead.model_validate(org)
 
@@ -146,7 +157,7 @@ class AdminOrgService(BasePlatformService):
         result = await self.session.execute(stmt)
         org = result.scalar_one_or_none()
         if not org:
-            raise ValueError(f"Organization {org_id} not found")
+            raise TracecatNotFoundError(f"Organization {org_id} not found")
 
         validate_organization_delete_confirmation(org, confirmation=confirmation)
         await delete_organization_with_cleanup(
@@ -487,7 +498,7 @@ class AdminOrgService(BasePlatformService):
         self, org_id: uuid.UUID, params: OrgDomainCreate
     ) -> OrgDomainRead:
         """Create and assign a domain to an organization."""
-        await self._require_organization(org_id)
+        await self._require_organization(org_id, for_update=True)
         normalized = normalize_domain(params.domain)
         await self._audit_domain_event(action="create", status=AuditEventStatus.ATTEMPT)
 
@@ -521,9 +532,9 @@ class AdminOrgService(BasePlatformService):
                 action="create",
                 status=AuditEventStatus.FAILURE,
             )
-            raise self._domain_integrity_error(
-                exc, normalized.normalized_domain
-            ) from exc
+            if conflict := self._domain_integrity_error(exc):
+                raise conflict from exc
+            raise
 
         await self._audit_domain_event(
             action="create",
@@ -537,6 +548,7 @@ class AdminOrgService(BasePlatformService):
         self, org_id: uuid.UUID, domain_id: uuid.UUID, params: OrgDomainUpdate
     ) -> OrgDomainRead:
         """Update primary/active state for an organization domain."""
+        await self._require_organization(org_id, for_update=True)
         domain = await self._get_org_domain(org_id=org_id, domain_id=domain_id)
         previous_primary = domain.is_primary
         previous_active = domain.is_active
@@ -552,7 +564,7 @@ class AdminOrgService(BasePlatformService):
                 resource_id=domain.id,
                 status=AuditEventStatus.FAILURE,
             )
-            raise ValueError("Primary domain must be active")
+            raise TracecatValidationError("Primary domain must be active")
 
         next_active = (
             params.is_active if params.is_active is not None else domain.is_active
@@ -563,29 +575,27 @@ class AdminOrgService(BasePlatformService):
         if not next_active:
             next_primary = False
 
-        domain.is_active = next_active
-        domain.is_primary = next_primary
-
-        if next_primary:
-            domain.is_active = True
-            await self._demote_active_primaries(org_id=org_id, keep_domain_id=domain.id)
-
-        if not domain.is_active:
-            domain.is_primary = False
-
-        self.session.add(domain)
-        await self._ensure_primary_invariant(org_id=org_id)
-
         try:
+            if next_primary:
+                await self._demote_active_primaries(
+                    org_id=org_id, keep_domain_id=domain_id
+                )
+
+            domain.is_active = next_active
+            domain.is_primary = next_primary
+            self.session.add(domain)
+            await self._ensure_primary_invariant(org_id=org_id)
             await self.session.commit()
         except IntegrityError as exc:
             await self.session.rollback()
             await self._audit_domain_event(
                 action="update",
-                resource_id=domain.id,
+                resource_id=domain_id,
                 status=AuditEventStatus.FAILURE,
             )
-            raise self._domain_integrity_error(exc, domain.normalized_domain) from exc
+            if conflict := self._domain_integrity_error(exc):
+                raise conflict from exc
+            raise
 
         await self.session.refresh(domain)
 
@@ -608,6 +618,7 @@ class AdminOrgService(BasePlatformService):
 
     async def delete_org_domain(self, org_id: uuid.UUID, domain_id: uuid.UUID) -> None:
         """Delete an assigned organization domain."""
+        await self._require_organization(org_id, for_update=True)
         domain = await self._get_org_domain(org_id=org_id, domain_id=domain_id)
         await self._audit_domain_event(
             action="delete",
@@ -615,19 +626,19 @@ class AdminOrgService(BasePlatformService):
             status=AuditEventStatus.ATTEMPT,
         )
 
-        await self.session.delete(domain)
-        await self.session.flush()
-        await self._ensure_primary_invariant(org_id=org_id)
         try:
+            await self.session.delete(domain)
+            await self.session.flush()
+            await self._ensure_primary_invariant(org_id=org_id)
             await self.session.commit()
-        except IntegrityError as exc:
+        except IntegrityError:
             await self.session.rollback()
             await self._audit_domain_event(
                 action="delete",
-                resource_id=domain.id,
+                resource_id=domain_id,
                 status=AuditEventStatus.FAILURE,
             )
-            raise ValueError("Failed to delete organization domain") from exc
+            raise
 
         await self._audit_domain_event(
             action="delete",
@@ -667,6 +678,7 @@ class AdminOrgService(BasePlatformService):
         for existing_primary in result.scalars().all():
             existing_primary.is_primary = False
             self.session.add(existing_primary)
+        await self.session.flush()
 
     async def _ensure_primary_invariant(self, *, org_id: uuid.UUID) -> None:
         """Ensure at most one active primary and deterministic fallback promotion."""
@@ -712,23 +724,24 @@ class AdminOrgService(BasePlatformService):
         result = await self.session.execute(stmt)
         domain = result.scalar_one_or_none()
         if domain is None:
-            raise ValueError(f"Domain {domain_id} not found in organization {org_id}")
+            raise TracecatNotFoundError(
+                f"Domain {domain_id} not found in organization {org_id}"
+            )
         return domain
 
     def _domain_integrity_error(
-        self, error: IntegrityError, normalized_domain: str
-    ) -> ValueError:
+        self, error: IntegrityError
+    ) -> TracecatConflictError | None:
         """Translate domain-related integrity errors into user-facing messages."""
-        message = (
-            str(error.orig).lower() if error.orig is not None else str(error).lower()
-        )
-        if "ix_org_domain_normalized_domain_active_unique" in message:
-            return ValueError(
-                f"Domain {normalized_domain!r} is already assigned to another organization"
+        if is_unique_violation(error, "ix_org_domain_normalized_domain_active_unique"):
+            return TracecatConflictError(
+                "Domain is already assigned to another organization"
             )
-        if "ix_org_domain_org_primary_active_unique" in message:
-            return ValueError("Organization already has an active primary domain")
-        return ValueError("Organization domain operation failed")
+        if is_unique_violation(error, "ix_org_domain_org_primary_active_unique"):
+            return TracecatConflictError(
+                "Organization already has an active primary domain"
+            )
+        return None
 
     # Org Registry Methods
 
@@ -762,7 +775,7 @@ class AdminOrgService(BasePlatformService):
         repo_result = await self.session.execute(repo_stmt)
         repo = repo_result.scalar_one_or_none()
         if not repo:
-            raise ValueError(
+            raise TracecatNotFoundError(
                 f"Repository {repository_id} not found in organization {org_id}"
             )
 
@@ -816,7 +829,7 @@ class AdminOrgService(BasePlatformService):
         result = await self.session.execute(stmt)
         repo = result.scalar_one_or_none()
         if not repo:
-            raise ValueError(
+            raise TracecatNotFoundError(
                 f"Repository {repository_id} not found in organization {org_id}"
             )
 
@@ -948,7 +961,7 @@ class AdminOrgService(BasePlatformService):
         repo_result = await self.session.execute(repo_stmt)
         repo = repo_result.scalar_one_or_none()
         if not repo:
-            raise ValueError(
+            raise TracecatNotFoundError(
                 f"Repository {repository_id} not found in organization {org_id}"
             )
 
@@ -961,13 +974,15 @@ class AdminOrgService(BasePlatformService):
         version_result = await self.session.execute(version_stmt)
         version = version_result.scalar_one_or_none()
         if not version:
-            raise ValueError(
+            raise TracecatNotFoundError(
                 f"Version {version_id} not found for repository {repository_id}"
             )
 
         # Validate version has tarball_uri
         if not version.tarball_uri:
-            raise ValueError(f"Version {version_id} does not have a tarball")
+            raise TracecatValidationError(
+                f"Version {version_id} does not have a tarball"
+            )
 
         # Store previous version info
         previous_version_id = repo.current_version_id

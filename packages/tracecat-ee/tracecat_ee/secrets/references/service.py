@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import cast
 
 from asyncpg import ForeignKeyViolationError
 from sqlalchemy import Select, or_, select
@@ -11,12 +12,14 @@ from sqlalchemy.exc import IntegrityError
 
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
+from tracecat.db.errors import get_postgres_error
 from tracecat.db.models import (
     OrganizationSecretStore,
     Secret,
     Workspace,
     WorkspaceSecretStoreAuthorization,
 )
+from tracecat.db.types import PostgresConstraintError
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.pagination import Page, PageParams, paginate
 from tracecat.secrets.enums import (
@@ -167,11 +170,15 @@ class SecretReferencesService(SecretsService):
         try:
             await self.session.commit()
         except IntegrityError as e:
-            # Any FK failure on this commit means the grant or store vanished.
-            cause = e.orig.__cause__ if e.orig else None
-            if not isinstance(cause, ForeignKeyViolationError):
-                raise
             await self.session.rollback()
+            error = get_postgres_error(e, ForeignKeyViolationError)
+            if error is None or cast(
+                PostgresConstraintError, error
+            ).constraint_name not in {
+                "fk_secret_store_id_organization_secret_store",
+                "fk_secret_store_authorization",
+            }:
+                raise
             raise TracecatAuthorizationError(
                 "This workspace is not authorized to use the selected secret store."
             ) from e

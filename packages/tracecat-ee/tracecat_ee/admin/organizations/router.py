@@ -10,7 +10,12 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from tracecat import config
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSessionBypass
-from tracecat.exceptions import TracecatConflictError, TracecatValidationError
+from tracecat.db.errors import is_unique_violation
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat_ee.admin.organizations.schemas import (
@@ -69,7 +74,7 @@ async def create_organization(
     service = AdminOrgService(session, role)
     try:
         return await service.create_organization(params)
-    except ValueError as e:
+    except TracecatConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
@@ -83,7 +88,7 @@ async def get_organization(
     service = AdminOrgService(session, role)
     try:
         return await service.get_organization(org_id)
-    except ValueError as e:
+    except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
@@ -98,11 +103,9 @@ async def update_organization(
     service = AdminOrgService(session, role)
     try:
         return await service.update_organization(org_id, params)
-    except ValueError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-            ) from e
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
@@ -128,7 +131,7 @@ async def delete_organization(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
-    except ValueError as e:
+    except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
@@ -156,12 +159,14 @@ async def create_organization_invitation(
             detail=str(e),
         ) from e
     except IntegrityError as e:
-        # Race: a concurrent request already inserted a pending row for this email.
+        await session.rollback()
+        if not is_unique_violation(e, "ix_invitation_org_email_pending_unique"):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An invitation already exists for this email",
         ) from e
-    except ValueError as e:
+    except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
@@ -198,7 +203,7 @@ async def list_organization_invitations(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
-    except ValueError as e:
+    except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
@@ -216,7 +221,7 @@ async def get_organization_invitation_token(
     service = AdminOrgService(session, role)
     try:
         return await service.get_organization_invitation_token(org_id, invitation_id)
-    except (NoResultFound, ValueError) as e:
+    except (NoResultFound, TracecatNotFoundError) as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Invitation not found",
@@ -247,7 +252,7 @@ async def revoke_organization_invitation(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except ValueError as e:
+    except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
@@ -280,7 +285,7 @@ async def resend_organization_invitation(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except ValueError as e:
+    except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
@@ -297,7 +302,7 @@ async def list_organization_domains(
     service = AdminOrgService(session, role)
     try:
         return list(await service.list_org_domains(org_id))
-    except ValueError as e:
+    except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
@@ -316,19 +321,13 @@ async def create_organization_domain(
     service = AdminOrgService(session, role)
     try:
         return await service.create_org_domain(org_id, params)
-    except ValueError as e:
-        detail = str(e)
-        detail_lower = detail.lower()
-        if "not found" in detail_lower:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=detail
-            ) from e
-        if "already assigned" in detail_lower:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail=detail
-            ) from e
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except (TracecatValidationError, ValueError) as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=detail
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
 
 
@@ -344,18 +343,13 @@ async def update_organization_domain(
     service = AdminOrgService(session, role)
     try:
         return await service.update_org_domain(org_id, domain_id, params)
-    except ValueError as e:
-        detail = str(e)
-        if "not found" in detail.lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=detail
-            ) from e
-        if "already assigned" in detail.lower():
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail=detail
-            ) from e
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except TracecatValidationError as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=detail
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
 
 
@@ -370,15 +364,8 @@ async def delete_organization_domain(
     service = AdminOrgService(session, role)
     try:
         await service.delete_org_domain(org_id, domain_id)
-    except ValueError as e:
-        detail = str(e)
-        if "not found" in detail.lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=detail
-            ) from e
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=detail
-        ) from e
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 # Org Registry Endpoints
@@ -396,7 +383,7 @@ async def list_org_repositories(
     service = AdminOrgService(session, role)
     try:
         return list(await service.list_org_repositories(org_id))
-    except ValueError as e:
+    except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
@@ -414,7 +401,7 @@ async def list_org_repository_versions(
     service = AdminOrgService(session, role)
     try:
         return list(await service.list_org_repository_versions(org_id, repository_id))
-    except ValueError as e:
+    except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
@@ -434,7 +421,7 @@ async def sync_org_repository(
     force = params.force if params else False
     try:
         return await service.sync_org_repository(org_id, repository_id, force=force)
-    except ValueError as e:
+    except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
@@ -455,5 +442,9 @@ async def promote_org_repository_version(
         return await service.promote_org_repository_version(
             org_id, repository_id, version_id
         )
-    except ValueError as e:
+    except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e

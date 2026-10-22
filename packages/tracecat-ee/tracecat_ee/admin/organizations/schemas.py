@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import EmailStr, Field
+from pydantic import EmailStr, Field, field_validator
 
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import UserID
@@ -32,6 +32,13 @@ class OrgUpdate(Schema):
     name: str | None = Field(None, min_length=1, max_length=255)
     slug: str | None = Field(None, min_length=1, max_length=63, pattern=r"^[a-z0-9-]+$")
     is_active: bool | None = None
+
+    @field_validator("name", "slug", "is_active")
+    @classmethod
+    def reject_explicit_null(cls, value: str | bool | None) -> str | bool:
+        if value is None:
+            raise ValueError("Field cannot be null")
+        return value
 
 
 class OrgRead(Schema):

@@ -61,10 +61,7 @@ async def create_tier(
     """Create a new tier."""
     _require_multi_tenant()
     service = AdminTierService(session, role)
-    try:
-        return await service.create_tier(params)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    return await service.create_tier(params)
 
 
 @router.get("/organizations", response_model=list[OrganizationTierRead])

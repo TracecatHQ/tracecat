@@ -13,6 +13,7 @@ from tracecat import config
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.errors import is_unique_violation
 from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.pagination import Page, PageParams, PaginationError
@@ -96,6 +97,9 @@ async def create_aws_secret_reference(
     except TracecatAuthorizationError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
     except IntegrityError as e:
+        await session.rollback()
+        if not is_unique_violation(e, "uq_secret_name_environment_workspace_id"):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Secret already exists"
         ) from e
@@ -126,6 +130,9 @@ async def update_aws_secret_reference(
             status_code=status.HTTP_404_NOT_FOUND, detail="Secret does not exist"
         ) from e
     except IntegrityError as e:
+        await session.rollback()
+        if not is_unique_violation(e, "uq_secret_name_environment_workspace_id"):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Secret already exists"
         ) from e

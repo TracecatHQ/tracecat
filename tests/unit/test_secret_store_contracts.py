@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from asyncpg import ForeignKeyViolationError
 from cryptography.fernet import Fernet, InvalidToken
 from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
@@ -426,7 +427,13 @@ async def test_delete_conflict_rolls_back_without_detaching_references(
 ) -> None:
     assert OrganizationSecretStore.secrets.property.passive_deletes == "all"
     session = AsyncMock(spec=AsyncSession)
-    session.commit.side_effect = IntegrityError("DELETE", {}, Exception("foreign key"))
+    session.commit.side_effect = IntegrityError(
+        "DELETE",
+        {},
+        ForeignKeyViolationError.new(
+            {"C": "23503", "n": "fk_secret_store_id_organization_secret_store"}
+        ),
+    )
     service = SecretStoresService(session, role)
     service.count_references = AsyncMock(return_value={})
     store = OrganizationSecretStore(id=uuid.uuid4())

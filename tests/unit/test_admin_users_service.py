@@ -30,6 +30,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
+from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -254,7 +255,7 @@ async def test_create_user_rejects_duplicate_email(
 
     await service.create_user(params)
 
-    with pytest.raises(ValueError, match="already exists"):
+    with pytest.raises(TracecatConflictError, match="already exists"):
         await service.create_user(params)
 
 
@@ -343,7 +344,7 @@ async def test_delete_user_rejects_self(
 ) -> None:
     service = AdminUserService(session, role=platform_role)
 
-    with pytest.raises(ValueError, match="Cannot delete yourself"):
+    with pytest.raises(TracecatValidationError, match="Cannot delete yourself"):
         await service.delete_user(
             platform_role.user_id, current_user_id=platform_role.user_id
         )
@@ -368,5 +369,7 @@ async def test_delete_user_rejects_last_superuser(
     session.add(user)
     await session.commit()
 
-    with pytest.raises(ValueError, match="Cannot delete the last superuser"):
+    with pytest.raises(
+        TracecatValidationError, match="Cannot delete the last superuser"
+    ):
         await service.delete_user(user.id, current_user_id=platform_role.user_id)

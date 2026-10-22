@@ -9,6 +9,7 @@ from tracecat.auth.dependencies import OrgActorRole
 from tracecat.authz.controls import require_scope
 from tracecat.authz.enums import ScopeSource
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.errors import is_unique_violation
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatConflictError,
@@ -132,6 +133,9 @@ async def create_scope(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
     except IntegrityError as e:
+        await session.rollback()
+        if not is_unique_violation(e, "uq_scope_organization_id_name"):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A scope with this name already exists",
@@ -247,11 +251,6 @@ async def create_role(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except TracecatAuthorizationError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
-    except IntegrityError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A role with this name already exists",
-        ) from e
 
 
 @roles_router.patch(
@@ -302,11 +301,6 @@ async def update_role(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
     except TracecatConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
-    except IntegrityError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A role with this name already exists",
-        ) from e
 
 
 @roles_router.delete("/{role_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -455,6 +449,9 @@ async def create_group(
             member_count=0,
         )
     except IntegrityError as e:
+        await session.rollback()
+        if not is_unique_violation(e, "uq_group_organization_id_name"):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A group with this name already exists",
@@ -506,6 +503,9 @@ async def update_group(
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except IntegrityError as e:
+        await session.rollback()
+        if not is_unique_violation(e, "uq_group_organization_id_name"):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A group with this name already exists",
@@ -567,6 +567,9 @@ async def add_group_member(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
     except IntegrityError as e:
+        await session.rollback()
+        if not is_unique_violation(e, "pk_group_member"):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="User is already a member of this group",
@@ -739,6 +742,13 @@ async def create_assignment(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
     except IntegrityError as e:
+        await session.rollback()
+        if not is_unique_violation(
+            e,
+            "uq_group_role_assignment_group_id_workspace_id",
+            "ix_group_role_assignment_group_org_unique",
+        ):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Group already has an assignment for this workspace",

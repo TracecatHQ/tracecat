@@ -12,6 +12,7 @@ from tracecat import config
 from tracecat.auth.dependencies import OrgActorRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import OrganizationSecretStore
 from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 from tracecat.identifiers import WorkspaceID
@@ -111,6 +112,11 @@ async def create_secret_store(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
         ) from e
     except IntegrityError as e:
+        await session.rollback()
+        if not is_unique_violation(
+            e, "uq_organization_secret_store_organization_id_name"
+        ):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A secret store with this name already exists",
@@ -166,6 +172,11 @@ async def update_secret_store(
             status_code=status.HTTP_404_NOT_FOUND, detail="Secret store not found"
         ) from e
     except IntegrityError as e:
+        await session.rollback()
+        if not is_unique_violation(
+            e, "uq_organization_secret_store_organization_id_name"
+        ):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A secret store with this name already exists",

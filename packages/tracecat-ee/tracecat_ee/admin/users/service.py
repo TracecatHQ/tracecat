@@ -11,6 +11,7 @@ from sqlalchemy.orm import Mapped
 from tracecat.audit.logger import audit_log
 from tracecat.auth.schemas import UserCreate, UserRole
 from tracecat.auth.users import get_user_db_context, get_user_manager_context
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     AccessToken,
     Approval,
@@ -18,7 +19,11 @@ from tracecat.db.models import (
     User,
     UserRoleAssignment,
 )
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.organization.management import (
     ensure_single_tenant_user_defaults_for_session,
 )
@@ -63,7 +68,11 @@ class AdminUserService(BasePlatformService):
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
-            raise ValueError(f"User with email {params.email} already exists") from e
+            if not is_unique_violation(e, "ix_user_email"):
+                raise
+            raise TracecatConflictError(
+                f"User with email {params.email} already exists"
+            ) from e
 
         await self.session.refresh(user)
 
@@ -81,7 +90,7 @@ class AdminUserService(BasePlatformService):
         result = await self.session.execute(stmt)
         user = result.scalar_one_or_none()
         if not user:
-            raise ValueError(f"User {user_id} not found")
+            raise TracecatNotFoundError(f"User {user_id} not found")
         return AdminUserRead.model_validate(user)
 
     @audit_log(resource_type="user", action="promote", resource_id_attr="user_id")
@@ -91,10 +100,10 @@ class AdminUserService(BasePlatformService):
         result = await self.session.execute(stmt)
         user = result.scalar_one_or_none()
         if not user:
-            raise ValueError(f"User {user_id} not found")
+            raise TracecatNotFoundError(f"User {user_id} not found")
 
         if user.is_superuser:
-            raise ValueError(f"User {user_id} is already a superuser")
+            raise TracecatValidationError(f"User {user_id} is already a superuser")
 
         user.is_superuser = True
         await ensure_single_tenant_user_defaults_for_session(
@@ -114,16 +123,16 @@ class AdminUserService(BasePlatformService):
         """Remove superuser status from a user."""
         # Safety: cannot demote yourself
         if user_id == current_user_id:
-            raise ValueError("Cannot demote yourself")
+            raise TracecatValidationError("Cannot demote yourself")
 
         stmt = select(User).where(cast(Mapped[uuid.UUID], User.id) == user_id)
         result = await self.session.execute(stmt)
         user = result.scalar_one_or_none()
         if not user:
-            raise ValueError(f"User {user_id} not found")
+            raise TracecatNotFoundError(f"User {user_id} not found")
 
         if not user.is_superuser:
-            raise ValueError(f"User {user_id} is not a superuser")
+            raise TracecatValidationError(f"User {user_id} is not a superuser")
 
         # Safety: cannot demote last superuser
         count_stmt = (
@@ -135,7 +144,7 @@ class AdminUserService(BasePlatformService):
         superuser_count = count_result.scalar_one()
 
         if superuser_count <= 1:
-            raise ValueError("Cannot demote the last superuser")
+            raise TracecatValidationError("Cannot demote the last superuser")
 
         user.is_superuser = False
         await self.session.commit()
@@ -152,7 +161,7 @@ class AdminUserService(BasePlatformService):
         NULL, and then deletes the User row so DB cascades handle the rest.
         """
         if user_id == current_user_id:
-            raise ValueError("Cannot delete yourself")
+            raise TracecatValidationError("Cannot delete yourself")
 
         stmt = select(User).where(cast(Mapped[uuid.UUID], User.id) == user_id)
         result = await self.session.execute(stmt)
@@ -169,7 +178,7 @@ class AdminUserService(BasePlatformService):
             count_result = await self.session.execute(count_stmt)
             superuser_count = count_result.scalar_one()
             if superuser_count <= 1:
-                raise ValueError("Cannot delete the last superuser")
+                raise TracecatValidationError("Cannot delete the last superuser")
 
         await self.session.execute(
             delete(AccessToken).where(
@@ -193,8 +202,6 @@ class AdminUserService(BasePlatformService):
         await self.session.delete(user)
         try:
             await self.session.commit()
-        except IntegrityError as e:
+        except IntegrityError:
             await self.session.rollback()
-            raise ValueError(
-                "Cannot delete user because related records still reference them"
-            ) from e
+            raise

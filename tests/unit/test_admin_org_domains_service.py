@@ -17,7 +17,7 @@ from tracecat.db.models import (
     OrganizationSecretStore,
     Workspace,
 )
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -86,7 +86,7 @@ async def test_duplicate_active_domain_across_orgs_is_rejected(
 
     await service.create_org_domain(org_a.id, OrgDomainCreate(domain="example.com"))
 
-    with pytest.raises(ValueError, match="already assigned"):
+    with pytest.raises(TracecatConflictError, match="already assigned"):
         await service.create_org_domain(org_b.id, OrgDomainCreate(domain="EXAMPLE.COM"))
 
 
@@ -148,7 +148,7 @@ async def test_primary_domain_cannot_be_set_inactive_in_same_update(
         org_a.id, OrgDomainCreate(domain="a.example")
     )
 
-    with pytest.raises(ValueError, match="Primary domain must be active"):
+    with pytest.raises(TracecatValidationError, match="Primary domain must be active"):
         await service.update_org_domain(
             org_a.id,
             domain.id,

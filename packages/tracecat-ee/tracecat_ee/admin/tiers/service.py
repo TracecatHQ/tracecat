@@ -105,11 +105,9 @@ class AdminTierService(BasePlatformService):
         self.session.add(tier)
         try:
             await self.session.commit()
-        except IntegrityError as e:
+        except IntegrityError:
             await self.session.rollback()
-            raise TierNotFoundError(
-                f"Tier with display_name '{params.display_name}' already exists"
-            ) from e
+            raise
         await self.session.refresh(tier)
         now_entitled_org_ids = await self._case_addons_entitled_org_ids(
             candidate_org_ids
@@ -389,7 +387,7 @@ class AdminTierService(BasePlatformService):
     ) -> OrganizationTierRead:
         """Update organization's tier assignment and overrides."""
         # Verify org exists
-        await self._verify_org_exists(org_id)
+        await self._verify_org_exists(org_id, for_update=True)
         was_entitled = await self._is_org_case_addons_entitled(org_id)
 
         stmt = (
@@ -476,9 +474,13 @@ class AdminTierService(BasePlatformService):
             raise DefaultTierNotConfiguredError
         return tier
 
-    async def _verify_org_exists(self, org_id: uuid.UUID) -> None:
+    async def _verify_org_exists(
+        self, org_id: uuid.UUID, *, for_update: bool = False
+    ) -> None:
         """Verify organization exists."""
         stmt = select(Organization).where(Organization.id == org_id)
+        if for_update:
+            stmt = stmt.with_for_update()
         result = await self.session.execute(stmt)
         if not result.scalar_one_or_none():
             raise OrganizationNotFoundError(org_id)
