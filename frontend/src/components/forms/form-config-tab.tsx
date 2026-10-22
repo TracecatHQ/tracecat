@@ -15,37 +15,47 @@ import {
   keymap,
   WidgetType,
 } from "@codemirror/view"
-import { ImageIcon, WorkflowIcon } from "lucide-react"
+import { WorkflowIcon } from "lucide-react"
 import Link from "next/link"
-import { type ChangeEvent, useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { FormRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { tracecatSyntaxHighlighting } from "@/components/editor/codemirror/syntax-highlight"
+import { FormVisualEditor } from "@/components/forms/form-visual-editor"
 import { Button } from "@/components/ui/button"
+import { ToggleTabs } from "@/components/ui/toggle-tabs"
 import { toast } from "@/components/ui/use-toast"
 import type { FormConfigCheck, FormConfigDraft } from "@/hooks/use-form-config"
 import { useUpdateForm } from "@/hooks/use-forms"
 import { getFormConfigIssues, getFormErrorDetail } from "@/lib/forms/errors"
 import { formBlockCompletions } from "@/lib/forms/form-block-commands"
-import {
-  FORM_IMAGE_TYPES,
-  FormImageError,
-  findImageDataUris,
-  prepareFormImage,
-} from "@/lib/forms/image-data-uri"
+import { findImageDataUris } from "@/lib/forms/image-data-uri"
 import {
   type FormConfigProblem,
   locateFormIssues,
   parseFormConfigYaml,
 } from "@/lib/forms/yaml-diagnostics"
-import { formatFileSize } from "@/lib/utils"
+import { cn, formatFileSize } from "@/lib/utils"
 
 const PLACEHOLDER = `title: Laptop request
 description: Request a new laptop from IT.
 layout:
   - field: model
     widget: cards`
+
+type FormConfigMode = "visual" | "yaml"
+
+const MODE_STORAGE_KEY = "tracecat:form-config-mode"
+
+// Storage can be unavailable; the editor then opens in Visual every time.
+function readStoredMode(): FormConfigMode {
+  try {
+    return localStorage.getItem(MODE_STORAGE_KEY) === "yaml" ? "yaml" : "visual"
+  } catch {
+    return "visual"
+  }
+}
 
 class ImageChipWidget extends WidgetType {
   constructor(private readonly bytes: number) {
@@ -101,71 +111,6 @@ const chipTheme = EditorView.baseTheme({
     lineHeight: "16px",
   },
 })
-
-/**
- * Pick a PNG, JPEG or WebP image, shrink it and insert it at the cursor as a
- * quoted `data:` URI, for the `image` of a card option. A comma ends a plain
- * YAML scalar inside `{...}`, hence the quotes, unless the author typed them.
- */
-function InsertImageButton({ view }: { view: EditorView | null }) {
-  const inputRef = useRef<HTMLInputElement>(null)
-  const [isWorking, setIsWorking] = useState(false)
-
-  async function handleFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    // Clear the input so picking the same file again fires a change.
-    event.target.value = ""
-    if (!file || !view) {
-      return
-    }
-    setIsWorking(true)
-    try {
-      const dataUri = await prepareFormImage(file)
-      const { from } = view.state.selection.main
-      const before = view.state.sliceDoc(Math.max(0, from - 1), from)
-      const quoted = before === '"' || before === "'"
-      view.dispatch(
-        view.state.replaceSelection(quoted ? dataUri : `"${dataUri}"`)
-      )
-      view.focus()
-    } catch (error) {
-      toast({
-        title: "Couldn't insert image",
-        description:
-          error instanceof FormImageError
-            ? error.message
-            : "Something went wrong. Try another image.",
-        variant: "destructive",
-      })
-    } finally {
-      setIsWorking(false)
-    }
-  }
-
-  return (
-    <>
-      <input
-        ref={inputRef}
-        type="file"
-        accept={FORM_IMAGE_TYPES.join(",")}
-        className="hidden"
-        aria-label="Image file"
-        onChange={handleFile}
-      />
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="h-7 gap-1.5 px-2 text-xs"
-        disabled={isWorking || !view}
-        onClick={() => inputRef.current?.click()}
-      >
-        <ImageIcon className="size-3.5" />
-        Insert image
-      </Button>
-    </>
-  )
-}
 
 /**
  * Editor chrome on the app's own tokens, so it matches the page in both
@@ -287,6 +232,16 @@ export function FormConfigTab({
       ? `${form.workflow_title} v${form.workflow_version}`
       : form.workflow_title
   const [view, setView] = useState<EditorView | null>(null)
+  const [mode, setMode] = useState<FormConfigMode>(readStoredMode)
+
+  function changeMode(next: FormConfigMode) {
+    setMode(next)
+    try {
+      localStorage.setItem(MODE_STORAGE_KEY, next)
+    } catch {
+      // Not remembered across visits; nothing else depends on it.
+    }
+  }
   const [isSaving, setIsSaving] = useState(false)
   // Problems a save was rejected with, for the text that was sent.
   const [rejected, setRejected] = useState<{
@@ -409,19 +364,27 @@ export function FormConfigTab({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-9 flex-none items-center gap-2 border-b px-3">
-        {canEdit ? (
-          <>
-            <InsertImageButton view={view} />
-            <span className="hidden truncate text-xs text-muted-foreground sm:inline">
-              Type{" "}
-              <kbd className="rounded border bg-muted px-1 font-mono text-[11px]">
-                /
-              </kbd>{" "}
-              to add a block
-            </span>
-          </>
-        ) : (
+        <ToggleTabs<FormConfigMode>
+          size="sm"
+          showTooltips={false}
+          value={mode}
+          onValueChange={changeMode}
+          options={[
+            { value: "visual", content: "Visual" },
+            { value: "yaml", content: "YAML" },
+          ]}
+        />
+        {!canEdit && (
           <span className="text-xs text-muted-foreground">Read only</span>
+        )}
+        {canEdit && mode === "yaml" && (
+          <span className="hidden truncate text-xs text-muted-foreground sm:inline">
+            Type{" "}
+            <kbd className="rounded border bg-muted px-1 font-mono text-[11px]">
+              /
+            </kbd>{" "}
+            to add a block
+          </span>
         )}
         <span className="flex-1" />
         {errorCount > 0 && (
@@ -429,10 +392,14 @@ export function FormConfigTab({
             type="button"
             className="truncate text-xs text-muted-foreground hover:text-foreground hover:underline"
             onClick={() => {
-              if (view) {
-                nextDiagnostic(view)
-                openLintPanel(view)
-              }
+              changeMode("yaml")
+              // Wait for the editor to show before moving to the problem.
+              requestAnimationFrame(() => {
+                if (view) {
+                  nextDiagnostic(view)
+                  openLintPanel(view)
+                }
+              })
             }}
           >
             {errorCount === 1
@@ -472,7 +439,21 @@ export function FormConfigTab({
         </div>
       )}
 
-      <div className="min-h-0 flex-1">
+      {mode === "visual" && (
+        <div className="min-h-0 flex-1">
+          <FormVisualEditor
+            text={draft.text}
+            onChange={draft.setText}
+            fields={fields}
+            defaultTitle={form.workflow_title}
+            readOnly={!canEdit}
+            onEditYaml={() => changeMode("yaml")}
+            problems={problems}
+          />
+        </div>
+      )}
+      {/* Kept mounted in Visual, so the problems and history stay put. */}
+      <div className={cn("min-h-0 flex-1", mode !== "yaml" && "hidden")}>
         <CodeEditor
           value={draft.text}
           onChange={draft.setText}
