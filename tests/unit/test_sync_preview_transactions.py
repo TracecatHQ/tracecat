@@ -1,10 +1,13 @@
 """Keep remote preview work outside the fenced database snapshot."""
 
 from contextlib import asynccontextmanager
+from inspect import unwrap
 from unittest.mock import AsyncMock
 
 import pytest
+from asyncpg.exceptions import SerializationError
 from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
@@ -20,9 +23,12 @@ from tracecat.workspace_sync.operations.types import SyncOperationRef
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("edit_during_upload", [False, True])
+@pytest.mark.parametrize(
+    ("edit_during_upload", "serialization_once"),
+    [(False, False), (False, True), (True, False)],
+)
 async def test_prepare_fences_local_state_without_holding_snapshot_over_network(
-    svc_role, monkeypatch, edit_during_upload
+    svc_role, monkeypatch, edit_during_upload, serialization_once
 ):
     server = FakeVcsServer()
     url = GitUrl(host="github.com", org="example", repo="sync-test")
@@ -51,6 +57,7 @@ async def test_prepare_fences_local_state_without_holding_snapshot_over_network(
     remote_reads = 0
     local_preparations = 0
     uploads = 0
+    attempt = 0
     original_context = activities.operation_context
     original_read = FakeVcsTransport.read_files
     original_prepare = DurableSyncService.prepare
@@ -75,7 +82,12 @@ async def test_prepare_fences_local_state_without_holding_snapshot_over_network(
         nonlocal local_preparations
         assert depth == 1, "Local projection must retain one fenced snapshot"
         local_preparations += 1
-        return await original_prepare(self, inputs, **kwargs)
+        prepared = await original_prepare(self, inputs, **kwargs)
+        if serialization_once and attempt == 0:
+            raise DBAPIError(
+                None, None, SerializationError("Synthetic transaction conflict")
+            )
+        return prepared
 
     async def upload(_content, _key):
         nonlocal uploads
@@ -108,7 +120,19 @@ async def test_prepare_fences_local_state_without_holding_snapshot_over_network(
             await environment.run(activities.workspace_sync_prepare, ref)
         assert failure.value.type == "StaleSyncPreviewError"
     else:
-        await environment.run(activities.workspace_sync_prepare, ref)
+        # ActivityEnvironment makes one attempt, unlike the workflow's five.
+        # Unwrap only the sanitizer so SQLSTATE40001 can be recognized without
+        # retrying assertions, programming errors, or other database failures.
+        for attempt in range(5):
+            remote_reads = local_preparations = uploads = 0
+            try:
+                await environment.run(unwrap(activities.workspace_sync_prepare), ref)
+            except DBAPIError as error:
+                assert depth == 0
+                if getattr(error.orig, "sqlstate", None) != "40001" or attempt == 4:
+                    raise
+            else:
+                break
 
     assert remote_reads == 1
     assert local_preparations == 1
