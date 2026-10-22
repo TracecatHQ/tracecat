@@ -8,6 +8,10 @@ import type { GitCommitInfo, PullDiagnostic, PullResult } from "@/client"
 import { GitSyncPullTab } from "@/components/workspace-sync/git-sync-pull"
 import { useWorkflowSync } from "@/hooks/use-workspace-sync"
 
+jest.mock("@/components/workspace-sync/sync-operation-diffs", () => ({
+  OperationDiffs: () => null,
+}))
+
 jest.mock("@/hooks/use-workspace-sync", () => ({
   useWorkflowSync: jest.fn(),
 }))
@@ -50,6 +54,7 @@ function renderPullTab(pullWorkflows: jest.Mock) {
     pullWorkflows,
     pullWorkflowsIsPending: false,
     pullWorkflowsError: null,
+    previewOperation: { id: "pull-operation", status: "ready", diff_count: 0 },
   } as unknown as ReturnType<typeof useWorkflowSync>)
   render(
     <GitSyncPullTab

@@ -23,6 +23,10 @@ import {
 } from "@/hooks/use-workspace-sync"
 import { useGitHubAppRepositories, useWorkspaceSettings } from "@/lib/hooks"
 
+jest.mock("@/components/workspace-sync/sync-operation-history", () => ({
+  SyncOperationHistory: () => <div data-testid="sync-operation-history" />,
+}))
+
 const mockUpdateWorkspace = jest.fn()
 
 jest.mock("@/lib/hooks", () => ({
