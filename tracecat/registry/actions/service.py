@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple, TypedDict
 from typing import cast as typing_cast
 
+import orjson
 from cachetools import LRUCache
 from pydantic import ValidationError
 from pydantic_core import ErrorDetails, to_jsonable_python
@@ -91,20 +93,26 @@ if TYPE_CHECKING:
     from tracecat.ssh import SshEnv
 
 # Parsed manifests by registry version, shared across requests in this process.
-# Versions are immutable, so an entry never goes stale; the bounds cap memory
-# (the builtin registry's manifest parses to about 28 MB, roughly 16 KB per
-# action). Org manifests vary in size, so their bound counts actions, not
-# manifests. Callers must not mutate a cached manifest.
+# Versions are immutable, so an entry never goes stale; the bounds cap memory.
+# A parsed manifest takes about 4x its JSON size (the builtin registry's 7.5 MB
+# manifest parses to about 28 MB). Org manifests vary in size, so their bound
+# counts JSON bytes, not manifests. Callers must not mutate a cached manifest.
 PLATFORM_MANIFEST_CACHE_SIZE = 2
-ORG_MANIFEST_CACHE_MAX_ACTIONS = 4096
+ORG_MANIFEST_CACHE_MAX_JSON_BYTES = 16 * 1024 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class _CachedOrgManifest:
+    manifest: RegistryVersionManifest
+    json_size: int
+
+
 _platform_manifests: LRUCache[uuid.UUID, RegistryVersionManifest] = LRUCache(
     maxsize=PLATFORM_MANIFEST_CACHE_SIZE
 )
-_org_manifests: LRUCache[tuple[uuid.UUID, uuid.UUID], RegistryVersionManifest] = (
-    LRUCache(
-        maxsize=ORG_MANIFEST_CACHE_MAX_ACTIONS,
-        getsizeof=lambda manifest: len(manifest.actions),
-    )
+_org_manifests: LRUCache[tuple[uuid.UUID, uuid.UUID], _CachedOrgManifest] = LRUCache(
+    maxsize=ORG_MANIFEST_CACHE_MAX_JSON_BYTES,
+    getsizeof=lambda entry: entry.json_size,
 )
 
 
@@ -1070,7 +1078,8 @@ class RegistryActionsService(BaseOrgService):
         for row in rows:
             version_id = row.registry_version_id
             if row.source == "org":
-                cached = _org_manifests.get((self.organization_id, version_id))
+                entry = _org_manifests.get((self.organization_id, version_id))
+                cached = entry.manifest if entry is not None else None
                 missing = org_version_ids
             else:
                 cached = _platform_manifests.get(version_id)
@@ -1104,9 +1113,10 @@ class RegistryActionsService(BaseOrgService):
             manifest = RegistryVersionManifest.model_validate(row.manifest)
             if row.source == "org":
                 # LRUCache rejects an entry larger than its whole bound.
-                if len(manifest.actions) <= ORG_MANIFEST_CACHE_MAX_ACTIONS:
+                json_size = len(orjson.dumps(row.manifest))
+                if json_size <= ORG_MANIFEST_CACHE_MAX_JSON_BYTES:
                     key = (self.organization_id, row.registry_version_id)
-                    _org_manifests[key] = manifest
+                    _org_manifests[key] = _CachedOrgManifest(manifest, json_size)
             else:
                 _platform_manifests[row.registry_version_id] = manifest
             manifests[(row.source, row.registry_version_id)] = manifest

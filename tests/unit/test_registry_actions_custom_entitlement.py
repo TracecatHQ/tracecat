@@ -28,6 +28,7 @@ from tracecat.db.models import (
 from tracecat.registry.actions.service import (
     RegistryActionsService,
     _ActionMetadataRow,
+    _CachedOrgManifest,
 )
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.versions.schemas import RegistryVersionManifest
@@ -337,12 +338,14 @@ async def test_org_manifest_larger_than_cache_bound_is_served_uncached(
         version="large-1.0",
         action_names=action_names,
     )
-    org_manifests: LRUCache[tuple[uuid.UUID, uuid.UUID], RegistryVersionManifest] = (
-        LRUCache(maxsize=1, getsizeof=lambda manifest: len(manifest.actions))
+    org_manifests: LRUCache[tuple[uuid.UUID, uuid.UUID], _CachedOrgManifest] = LRUCache(
+        maxsize=64, getsizeof=lambda entry: entry.json_size
     )
     service = RegistryActionsService(session, role=svc_role)
     with (
-        patch("tracecat.registry.actions.service.ORG_MANIFEST_CACHE_MAX_ACTIONS", 1),
+        patch(
+            "tracecat.registry.actions.service.ORG_MANIFEST_CACHE_MAX_JSON_BYTES", 64
+        ),
         patch("tracecat.registry.actions.service._org_manifests", org_manifests),
         patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)),
     ):
