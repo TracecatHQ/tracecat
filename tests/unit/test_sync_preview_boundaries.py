@@ -4,8 +4,10 @@ import uuid
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 
-from tracecat.db.models import Action, MCPIntegration, Workflow
+from tracecat.db.models import Action, MCPIntegration, Workflow, Workspace
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ActionStatement
@@ -13,6 +15,7 @@ from tracecat.git.types import GitUrl
 from tracecat.integrations.enums import MCPAuthType
 from tracecat.sync import PullResult
 from tracecat.workflow.store.schemas import WorkflowSyncPullRequest
+from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspace_sync.operations.domain import DurableSyncService
 from tracecat.workspace_sync.operations.schemas import PreparedSync, SyncOperationCreate
 from tracecat.workspace_sync.operations.types import FetchedSync, StaleSyncPreviewError
@@ -126,7 +129,10 @@ async def test_push_preview_lists_every_deleted_blob_path(svc_role):
         "workflows/orphan.bin",
     }
     assert all(diff.change_type == "deleted" for diff in changes)
-    assert all("text" in diff.diff.lower() for diff in changes)
+    assert all(
+        diff.diff == "Non-text file will be deleted; textual diff unavailable."
+        for diff in changes
+    )
 
 
 @pytest.mark.anyio
@@ -242,3 +248,73 @@ async def test_selected_mcp_target_is_revalidated_before_import(
         with pytest.raises(StaleSyncPreviewError):
             await sync.apply(inputs, prepared, inputs.id)
         importer.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_confirmation_holds_repository_settings_lock_through_import(
+    svc_role, monkeypatch
+):
+    async with DurableSyncService.with_session(svc_role) as sync:
+        workspace = await sync._workspace()
+        workspace.settings = {
+            "git_repo_url": "git+ssh://git@github.com/example/demo.git",
+            "git_provider": VcsProvider.GITHUB,
+        }
+        await sync.session.commit()
+        inputs = SyncOperationCreate(
+            id=uuid.uuid4(),
+            direction="pull",
+            pull=WorkflowSyncPullRequest(commit_sha="a" * 40),
+        )
+        preview = PullResult(
+            success=True,
+            commit_sha="a" * 40,
+            workflows_found=0,
+            workflows_imported=0,
+            diagnostics=[],
+            message="Synthetic preview",
+        )
+        prepared = PreparedSync(
+            snapshot=WorkspaceRemoteSnapshot(
+                commit_sha="a" * 40, files={}, spec=WorkspaceSpec()
+            ),
+            preview=preview,
+            workspace_fingerprint="local",
+            repository_fingerprint=await sync.repository_fingerprint(),
+            compare_ref="a" * 40,
+            compare_sha="a" * 40,
+        )
+        await sync.session.rollback()
+        monkeypatch.setattr(sync, "require_entitlement", AsyncMock())
+        monkeypatch.setattr(sync, "_require_spec_entitlements", AsyncMock())
+        monkeypatch.setattr(sync, "local_fingerprint", AsyncMock(return_value="local"))
+        monkeypatch.setattr(
+            sync,
+            "project_workspace",
+            AsyncMock(
+                return_value=WorkspaceProjection(
+                    manifest=WorkspaceManifest(), spec=WorkspaceSpec(), files={}
+                )
+            ),
+        )
+        lock_row = (
+            select(Workspace)
+            .where(Workspace.id == svc_role.workspace_id)
+            .with_for_update(nowait=True)
+        )
+
+        async def import_snapshot(*args, **kwargs):
+            # A concurrent settings writer must wait until confirmation commits.
+            async with DurableSyncService.with_session(svc_role) as writer:
+                with pytest.raises(DBAPIError) as error:
+                    await writer.session.execute(lock_row)
+                assert getattr(error.value.orig, "sqlstate", None) == "55P03"
+            return preview
+
+        monkeypatch.setattr(sync, "import_prepared_snapshot", import_snapshot)
+        result = await sync.apply(inputs, prepared, inputs.id)
+        assert isinstance(result, PullResult) and result.success
+        await sync.session.commit()
+        # The fence is transaction-scoped; settings become editable afterward.
+        async with DurableSyncService.with_session(svc_role) as writer:
+            assert await writer.session.scalar(lock_row) is not None
