@@ -6,7 +6,7 @@ from types import ModuleType
 from unittest.mock import ANY, AsyncMock, patch
 
 import pytest
-from asyncpg import DuplicateColumnError
+from asyncpg import DatatypeMismatchError, DuplicateColumnError, UndefinedColumnError
 from fastapi import status
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import ProgrammingError
@@ -309,11 +309,14 @@ async def test_case_field_kind_validation_rejects_before_service(
     mock_service_cls.assert_not_called()
 
 
-def _duplicate_column_error() -> ProgrammingError:
-    duplicate_error = DuplicateColumnError("Column already exists")
-    programming_error = ProgrammingError("", {}, duplicate_error)
-    programming_error.__cause__ = duplicate_error
+def _programming_error(cause: Exception) -> ProgrammingError:
+    programming_error = ProgrammingError("", {}, cause)
+    programming_error.__cause__ = cause
     return programming_error
+
+
+def _duplicate_column_error() -> ProgrammingError:
+    return _programming_error(DuplicateColumnError("Column already exists"))
 
 
 @pytest.mark.anyio
@@ -383,6 +386,46 @@ def _duplicate_column_error() -> ProgrammingError:
             status.HTTP_409_CONFLICT,
             "A field with the name 'duplicate_name' already exists",
             id="update-duplicate-name",
+        ),
+        pytest.param(
+            "POST",
+            "/case-fields",
+            {"name": "existing_field", "type": "TEXT"},
+            "create_field",
+            _duplicate_column_error(),
+            status.HTTP_409_CONFLICT,
+            "A field with the name 'existing_field' already exists",
+            id="create-duplicate-name",
+        ),
+        pytest.param(
+            "PATCH",
+            "/case-fields/missing_field",
+            {"nullable": True},
+            "update_field",
+            _programming_error(UndefinedColumnError("Column does not exist")),
+            status.HTTP_404_NOT_FOUND,
+            "Field 'missing_field' not found",
+            id="update-missing-column",
+        ),
+        pytest.param(
+            "DELETE",
+            "/case-fields/missing_field",
+            None,
+            "delete_field",
+            _programming_error(UndefinedColumnError("Column does not exist")),
+            status.HTTP_404_NOT_FOUND,
+            "Field 'missing_field' not found",
+            id="delete-missing-column",
+        ),
+        pytest.param(
+            "PATCH",
+            "/case-fields/text_field",
+            {"type": "INTEGER"},
+            "update_field",
+            _programming_error(DatatypeMismatchError("Cannot cast")),
+            status.HTTP_400_BAD_REQUEST,
+            "Field 'text_field' values cannot be converted to the requested type",
+            id="update-type-mismatch",
         ),
     ],
 )
