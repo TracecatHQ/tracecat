@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.db.models import Workflow, Workspace
+from tracecat.exceptions import TracecatConflictError
 from tracecat.identifiers.workflow import WorkflowID
 from tracecat.tags.schemas import TagCreate, TagUpdate
 from tracecat.tags.service import TagsService
@@ -256,7 +257,9 @@ class TestTagsService:
         await tags_service.create_tag(tag_create_params)
 
         # Try to create duplicate - should raise error
-        with pytest.raises(ValueError, match="Tag with slug .* already exists"):
+        with pytest.raises(
+            TracecatConflictError, match="Tag with this name already exists"
+        ):
             await tags_service.create_tag(tag_create_params)
 
 
