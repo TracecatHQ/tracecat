@@ -15,6 +15,8 @@ from tracecat.webhooks.schemas import WebhookUpdate
         (CaseUpdate, "description"),
         (WebhookUpdate, "status"),
         (WebhookUpdate, "include_headers"),
+        (WebhookUpdate, "methods"),
+        (WebhookUpdate, "allowlisted_cidrs"),
         (OrgUpdate, "name"),
         (OrgUpdate, "slug"),
         (OrgUpdate, "is_active"),
