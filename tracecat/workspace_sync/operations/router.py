@@ -2,20 +2,24 @@
 
 import asyncio
 import uuid
+from collections.abc import Awaitable
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Path, Query
 
+from tracecat import config
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.schemas import ScopeDeniedResponse
 from tracecat.authz.controls import check_scopes, require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import WorkspaceSyncOperation
 from tracecat.exceptions import TracecatNotFoundError
+from tracecat.logger import logger
 from tracecat.pagination import Page, PageParams, PaginationError
 from tracecat.sync import PullResourceDiff
+from tracecat.workspace_sync.operations.lifecycle_client import SyncLifecycleService
 from tracecat.workspace_sync.operations.schemas import (
     SyncDiffPage,
+    SyncOperationCommand,
     SyncOperationCreate,
     SyncOperationError,
     SyncOperationRead,
@@ -37,20 +41,22 @@ router = APIRouter(
 )
 
 
-async def _start_operation(
-    service: SyncOperationService, operation: WorkspaceSyncOperation
-) -> SyncOperationRead:
-    """Return acceptance only after Temporal confirms this phase started."""
+async def _respond(request: Awaitable[SyncOperationRead]) -> SyncOperationRead:
+    """Bound native Temporal requests and expose only safe errors to callers."""
+    code = 503
+    detail = "Git sync service unavailable. Retry the same request."
     try:
         async with asyncio.timeout(5):
-            await service.start_workflow(operation)
-    except (SyncOperationStartError, TimeoutError):
-        pass
-    else:
-        return service.read(operation)
-    raise HTTPException(
-        503, "Unable to confirm Git sync startup. Retry the same operation."
-    )
+            return await request
+    except TracecatNotFoundError:
+        code, detail = 404, "Sync operation not found"
+    except SyncOperationConflictError as exc:
+        code, detail = 409, str(exc)
+    except SyncOperationStartError as exc:
+        detail = str(exc)
+    except TimeoutError:
+        logger.warning("Temporal Git sync request timed out", error_type="TimeoutError")
+    raise HTTPException(code, detail)
 
 
 @router.post(
@@ -70,12 +76,7 @@ async def create_sync_operation(
             400,
             "Durable sync always starts with a preview; omit dry_run and confirm with apply.",
         )
-    service = SyncOperationService(session, role)
-    try:
-        operation = await service.create(params)
-    except SyncOperationConflictError as exc:
-        raise HTTPException(409, str(exc)) from exc
-    return await _start_operation(service, operation)
+    return await _respond(SyncLifecycleService(session, role).create(params))
 
 
 @router.get("", responses={400: {"model": SyncOperationError}})
@@ -83,7 +84,9 @@ async def create_sync_operation(
 async def list_sync_operations(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    limit: Annotated[
+        int, Query(ge=config.TRACECAT__LIMIT_MIN, le=config.TRACECAT__LIMIT_CURSOR_MAX)
+    ] = config.TRACECAT__LIMIT_DEFAULT,
     cursor: Annotated[str | None, Query(max_length=8192)] = None,
 ) -> Page[SyncOperationRead]:
     """Recover the initiating actor's operations after a reload or reconnect."""
@@ -95,18 +98,13 @@ async def list_sync_operations(
         raise HTTPException(400, "Invalid operation cursor") from exc
 
 
-@router.get("/{operation_id}")
+@router.get("/{operation_id}", responses={503: {"model": SyncOperationError}})
 @require_scope("workspace_sync:sync", "workflow:sync", require_all=False)
 async def get_sync_operation(
     role: WorkspaceActorRouteRole, session: AsyncDBSession, operation_id: uuid.UUID
 ) -> SyncOperationRead:
     """Poll durable progress without starting or mutating the operation."""
-    service = SyncOperationService(session, role)
-    try:
-        operation = await service.get(operation_id)
-    except TracecatNotFoundError as exc:
-        raise HTTPException(404, "Sync operation not found") from exc
-    return service.read(operation)
+    return await _respond(SyncLifecycleService(session, role).get(operation_id))
 
 
 @router.post(
@@ -116,17 +114,15 @@ async def get_sync_operation(
 )
 @require_scope("workspace_sync:sync", "workflow:sync", require_all=False)
 async def apply_sync_operation(
-    role: WorkspaceActorRouteRole, session: AsyncDBSession, operation_id: uuid.UUID
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    operation_id: uuid.UUID,
+    params: SyncOperationCommand,
 ) -> SyncOperationRead:
-    """Confirm exactly the prepared snapshot; duplicate confirmations are harmless."""
-    service = SyncOperationService(session, role)
-    try:
-        operation = await service.apply(operation_id)
-    except TracecatNotFoundError as exc:
-        raise HTTPException(404, "Sync operation not found") from exc
-    except SyncOperationConflictError as exc:
-        raise HTTPException(409, str(exc)) from exc
-    return await _start_operation(service, operation)
+    """Send a stable apply command to the existing lifecycle workflow."""
+    return await _respond(
+        SyncLifecycleService(session, role).command(operation_id, "apply", params)
+    )
 
 
 @router.post(
@@ -136,17 +132,15 @@ async def apply_sync_operation(
 )
 @require_scope("workspace_sync:sync", "workflow:sync", require_all=False)
 async def retry_sync_operation(
-    role: WorkspaceActorRouteRole, session: AsyncDBSession, operation_id: uuid.UUID
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    operation_id: uuid.UUID,
+    params: SyncOperationCommand,
 ) -> SyncOperationRead:
-    """Retry the failed phase with the same immutable inputs and completion receipt."""
-    service = SyncOperationService(session, role)
-    try:
-        operation = await service.retry(operation_id)
-    except TracecatNotFoundError as exc:
-        raise HTTPException(404, "Sync operation not found") from exc
-    except SyncOperationConflictError as exc:
-        raise HTTPException(409, str(exc)) from exc
-    return await _start_operation(service, operation)
+    """Send a stable retry command to the existing lifecycle workflow."""
+    return await _respond(
+        SyncLifecycleService(session, role).command(operation_id, "retry", params)
+    )
 
 
 @router.get(
