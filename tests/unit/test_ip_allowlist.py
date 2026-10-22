@@ -128,6 +128,13 @@ def test_parse_client_ip() -> None:
     assert parse_client_ip("203.0.113.9") == ipaddress.ip_address("203.0.113.9")
 
 
+@pytest.fixture(autouse=True)
+def reset_request_audit_context():
+    token = ctx_request_audit.set(None)
+    yield
+    ctx_request_audit.reset(token)
+
+
 def _set_client_ip(ip: str | None) -> None:
     ctx_request_audit.set(
         RequestAuditContext(client_ip=ip, user_agent=None, raw_user_agent=None)
