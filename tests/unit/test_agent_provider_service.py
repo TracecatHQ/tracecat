@@ -543,13 +543,25 @@ async def test_openai_restricted_key_without_model_read_is_not_rejected(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("status_code", [429, 503])
+@pytest.mark.parametrize(
+    ("provider", "credentials", "status_code"),
+    [
+        pytest.param("openai", {"OPENAI_API_KEY": "sk-valid"}, 429, id="429"),
+        pytest.param("openai", {"OPENAI_API_KEY": "sk-valid"}, 503, id="503"),
+        pytest.param(
+            "anthropic", {"ANTHROPIC_API_KEY": "sk-ant"}, 400, id="non-gemini-400"
+        ),
+    ],
+)
 async def test_inconclusive_status_does_not_reject(
-    fake_fetch: _FakeFetch, status_code: int
+    fake_fetch: _FakeFetch,
+    provider: str,
+    credentials: dict[str, str],
+    status_code: int,
 ) -> None:
     fake_fetch.response = httpx.Response(status_code)
 
-    await check_provider_key("openai", {"OPENAI_API_KEY": "sk-valid"})
+    await check_provider_key(provider, credentials)
 
 
 @pytest.mark.anyio

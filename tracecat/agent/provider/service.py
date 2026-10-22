@@ -40,12 +40,6 @@ from tracecat.secrets.encryption import decrypt_keyvalues, decrypt_value, encryp
 from tracecat.service import BaseOrgService
 
 CUSTOM_MODEL_PROVIDER_SLUG = "custom-model-provider"
-# Gemini answers an invalid key with 400 rather than 401.
-_REJECTED_KEY_STATUS_CODES = {
-    400: ProviderKeyCheckErrorCode.INVALID_KEY,
-    401: ProviderKeyCheckErrorCode.INVALID_KEY,
-    403: ProviderKeyCheckErrorCode.ACCESS_DENIED,
-}
 _MAX_PROVIDER_MESSAGE_LENGTH = 300
 _LEGACY_CUSTOM_PROVIDER_CONFIG_KEYS = {
     "CUSTOM_MODEL_PROVIDER_API_KEY": "api_key",
@@ -568,7 +562,12 @@ async def check_provider_key(provider: str, credentials: Mapping[str, str]) -> N
     if response.is_success:
         return
     error = _ProviderError.from_response(response)
-    code = _REJECTED_KEY_STATUS_CODES.get(response.status_code)
+    if response.status_code in check.invalid_key_status_codes:
+        code = ProviderKeyCheckErrorCode.INVALID_KEY
+    elif response.status_code == 403:
+        code = ProviderKeyCheckErrorCode.ACCESS_DENIED
+    else:
+        code = None
     if code is not None and (
         check.rejected_error_codes is None or error.code in check.rejected_error_codes
     ):
