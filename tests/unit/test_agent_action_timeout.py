@@ -215,6 +215,42 @@ def test_action_read_uses_lowered_deployment_ceiling(
     assert action.control_flow.retry_policy.timeout == 900
 
 
+@pytest.mark.parametrize(
+    ("control_flow", "expected"),
+    [
+        ({}, AGENT_TIMEOUT_SECONDS_DEFAULT),
+        ({"retry_policy": {}}, AGENT_TIMEOUT_SECONDS_DEFAULT),
+        ({"retry_policy": {"timeout": 300}}, AGENT_TIMEOUT_SECONDS_FLOOR),
+        ({"retry_policy": {"timeout": 2000}}, 2000),
+    ],
+)
+def test_action_read_matches_executed_timeout(
+    control_flow: dict[str, object], expected: int
+) -> None:
+    """Sparse rows read back the default, matching ActionStatement."""
+    raw = ActionControlFlow.model_validate(control_flow)
+    action = ActionRead(
+        id=uuid.uuid4(),
+        type="ai.agent",
+        title="Agent",
+        description="",
+        status="offline",
+        inputs="",
+        control_flow=raw,
+    )
+    stmt = ActionStatement.model_validate(
+        {
+            "ref": "agent",
+            "action": "ai.agent",
+            "args": {},
+            **raw.model_dump(exclude_unset=True),
+        }
+    )
+
+    assert action.control_flow.retry_policy.timeout == expected
+    assert stmt.retry_policy.timeout == expected
+
+
 def test_action_read_does_not_clamp_non_agent_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

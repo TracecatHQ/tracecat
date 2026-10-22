@@ -124,7 +124,10 @@ class ActionRead(Schema):
         """Expose the same deployment-bounded timeout that executes."""
         if PlatformAction.is_agent(self.type):
             retry_policy = self.control_flow.retry_policy
-            retry_policy.timeout = clamp_agent_timeout_seconds(retry_policy.timeout)
+            explicit = "timeout" in retry_policy.model_fields_set
+            retry_policy.timeout = clamp_agent_timeout_seconds(
+                retry_policy.timeout if explicit else None
+            )
         return self
 
     @computed_field
