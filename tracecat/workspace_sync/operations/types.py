@@ -19,7 +19,12 @@ type SyncStatus = Literal[
     "queued", "running", "ready", "applying", "completed", "failed", "expired"
 ]
 type SyncStage = Literal[
-    "fetching", "preparing", "awaiting_confirmation", "applying", "finished"
+    "fetching",
+    "preparing",
+    "awaiting_confirmation",
+    "applying",
+    "finishing",
+    "finished",
 ]
 
 
