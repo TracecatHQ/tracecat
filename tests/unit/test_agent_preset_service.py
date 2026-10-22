@@ -4444,26 +4444,48 @@ async def test_tool_tunnels_follow_effective_tool_policy(
     )
     await skill_service.publish_skill(skill.id)
 
-    # An authored action the namespace filter removes is not a tool of the agent.
+    # An authored action the namespace filter removes is not a tool of the
+    # agent, so its tunnel is dropped rather than saved.
     agent_preset_create_params.actions = ["core.http_request"]
     agent_preset_create_params.namespaces = ["tools.test"]
     agent_preset_create_params.tool_tunnels = {"core.http_request": "onprem"}
-    with pytest.raises(TracecatValidationError, match="doesn't have"):
-        await agent_preset_service.create_preset(agent_preset_create_params)
-    await session.rollback()
+    filtered = await agent_preset_service.create_preset(agent_preset_create_params)
+    assert filtered.tool_tunnels is None
 
     # A skill-granted action can be tunneled.
+    agent_preset_create_params.name = "Skill tunnel preset"
+    agent_preset_create_params.actions = ["tools.test.test_action"]
     agent_preset_create_params.namespaces = None
     agent_preset_create_params.skills = [AgentPresetSkillBindingBase(skill_id=skill.id)]
     agent_preset_create_params.tool_tunnels = {"tools.test.test_action": "onprem"}
     preset = await agent_preset_service.create_preset(agent_preset_create_params)
     assert preset.tool_tunnels == {"tools.test.test_action": "onprem"}
 
-    # Filtering the skill tool out drops its tunnel instead of failing the save.
+    # The builder resends the whole map on every save. Removing the explicit
+    # grant keeps the tunnel while the skill still grants the tool.
     preset = await agent_preset_service.update_preset(
-        preset, AgentPresetUpdate(namespaces=["core"])
+        preset,
+        AgentPresetUpdate(
+            actions=[], tool_tunnels={"tools.test.test_action": "onprem"}
+        ),
+    )
+    assert preset.tool_tunnels == {"tools.test.test_action": "onprem"}
+
+    # Filtering the skill tool out drops its resent tunnel instead of failing
+    # the save.
+    preset = await agent_preset_service.update_preset(
+        preset,
+        AgentPresetUpdate(
+            namespaces=["core"], tool_tunnels={"tools.test.test_action": "onprem"}
+        ),
     )
     assert preset.tool_tunnels is None
+
+    # Unknown actions are still rejected.
+    with pytest.raises(TracecatValidationError):
+        await agent_preset_service.update_preset(
+            preset, AgentPresetUpdate(tool_tunnels={"tools.test.serch": "onprem"})
+        )
 
 
 @pytest.mark.anyio

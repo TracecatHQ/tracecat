@@ -81,6 +81,8 @@ from tracecat.integrations.enums import (
 from tracecat.integrations.mcp_tunnel import (
     create_mcp_oauth_http_client,
     mcp_oauth_client_transport,
+    mcp_oauth_route,
+    mcp_oauth_route_pinned,
     mcp_oauth_tunnel,
     mcp_oauth_tunnel_proxy,
     resolve_mcp_tunnel_proxy,
@@ -847,10 +849,13 @@ class IntegrationService(BaseWorkspaceService):
             raise InsecureOAuthEndpointError(
                 f"oauth_endpoint must include a hostname: {endpoint}"
             )
+        allow_private_hosts = mcp_oauth_tunnel_proxy() is not None
         if hostname in allowed_hosts:
-            validate_oauth_endpoint(endpoint)
+            validate_oauth_endpoint(endpoint, allow_private_hosts=allow_private_hosts)
             return endpoint
-        validate_oauth_endpoint(endpoint, base_domain=base_domain)
+        validate_oauth_endpoint(
+            endpoint, base_domain=base_domain, allow_private_hosts=allow_private_hosts
+        )
         return endpoint
 
     @staticmethod
@@ -988,13 +993,8 @@ class IntegrationService(BaseWorkspaceService):
     @staticmethod
     async def _validate_mcp_oauth_endpoint_reachable(url: str) -> None:
         if mcp_oauth_tunnel_proxy() is not None:
-            # Private hosts and IP literals are expected; the tunnel's allowed
-            # targets decide reach, so only the scheme and host are checked.
-            parsed = urlparse(url)
-            if parsed.scheme.lower() != "https":
-                raise ValueError(f"OAuth endpoint must use HTTPS: {url}")
-            if not parsed.hostname:
-                raise ValueError(f"OAuth endpoint must include a hostname: {url}")
+            # Private hosts are expected; the tunnel's allowed targets decide reach.
+            validate_oauth_endpoint(url, allow_private_hosts=True)
             return
         await validate_oauth_endpoint_resolves_public_async(url)
 
@@ -1007,21 +1007,45 @@ class IntegrationService(BaseWorkspaceService):
             server_uri=server_uri,
         )
 
-    async def _validate_mcp_tunnel_oauth_connection(
-        self, oauth_integration_id: uuid.UUID | None
+    async def _validate_mcp_oauth_connection_route(
+        self,
+        oauth_integration_id: uuid.UUID | None,
+        tunnel_id: uuid.UUID | None,
+        *,
+        exclude_mcp_integration_id: uuid.UUID | None = None,
     ) -> None:
-        """Refuse a tunneled MCP server an OAuth connection made outside the
-        MCP OAuth flow: only that flow routes its token calls through the tunnel.
+        """Check an MCP server's OAuth connection can be refreshed on its route.
+
+        Raises:
+            ValueError: If a tunneled server reuses an OAuth connection made
+                outside the MCP OAuth flow (only that flow routes its token calls
+                through the tunnel), or if MCP servers sharing the connection
+                would use different tunnels (a refresh can serve only one route).
         """
         if oauth_integration_id is None:
             return
-        oauth_integration = await self.session.get(
-            OAuthIntegration, oauth_integration_id
+        if tunnel_id is not None:
+            oauth_integration = await self.session.get(
+                OAuthIntegration, oauth_integration_id
+            )
+            if oauth_integration is not None and not self._is_custom_mcp_oauth_provider(
+                oauth_integration.provider_id
+            ):
+                raise ValueError(_TUNNELED_MCP_OAUTH_PROVIDER_ERROR)
+        other_routes = select(MCPIntegration.id).where(
+            MCPIntegration.workspace_id == self.workspace_id,
+            MCPIntegration.oauth_integration_id == oauth_integration_id,
+            MCPIntegration.tunnel_id.is_distinct_from(tunnel_id),
         )
-        if oauth_integration is not None and not self._is_custom_mcp_oauth_provider(
-            oauth_integration.provider_id
-        ):
-            raise ValueError(_TUNNELED_MCP_OAUTH_PROVIDER_ERROR)
+        if exclude_mcp_integration_id is not None:
+            other_routes = other_routes.where(
+                MCPIntegration.id != exclude_mcp_integration_id
+            )
+        if await self.session.scalar(other_routes.limit(1)) is not None:
+            raise ValueError(
+                "MCP integrations that share an OAuth connection must use the "
+                "same tunnel"
+            )
 
     def _mcp_oauth_tunnel(
         self, mcp_integration: MCPIntegration | None
@@ -1142,7 +1166,10 @@ class IntegrationService(BaseWorkspaceService):
                 provider_config.authorization_endpoint,
                 provider_config.token_endpoint,
             ):
-                validate_oauth_endpoint(endpoint)
+                validate_oauth_endpoint(
+                    endpoint,
+                    allow_private_hosts=mcp_oauth_tunnel_proxy() is not None,
+                )
             return MCPOAuthDiscoveryEndpoints(
                 authorization_endpoint=provider_config.authorization_endpoint,
                 token_endpoint=provider_config.token_endpoint,
@@ -1896,6 +1923,11 @@ class IntegrationService(BaseWorkspaceService):
         integration: OAuthIntegration,
         refresh_token: str,
     ) -> OAuthIntegration:
+        if mcp_oauth_route_pinned():
+            # The caller chose the route, e.g. verifying an unsaved tunnel.
+            return await self._refresh_custom_mcp_integration_via_tunnel(
+                integration=integration, refresh_token=refresh_token
+            )
         mcp_integration = await self._mcp_integration_for_oauth_integration(
             oauth_integration_id=integration.id
         )
@@ -2845,6 +2877,20 @@ class IntegrationService(BaseWorkspaceService):
             )
         else:
             updated = False
+            if (
+                mcp_integration.tunnel_id is not None
+                and mcp_integration.oauth_integration_id != integration.id
+                and not self._is_custom_mcp_oauth_provider(integration.provider_id)
+            ):
+                # This provider's token calls don't go through the tunnel, so
+                # the tunneled row keeps its own MCP OAuth connection.
+                self.logger.warning(
+                    "Not linking a tunneled MCP integration to a provider OAuth "
+                    "connection",
+                    mcp_integration_id=mcp_integration.id,
+                    oauth_integration_id=integration.id,
+                )
+                return
             # Update existing MCP integration to ensure it references the OAuth integration
             if mcp_integration.oauth_integration_id != integration.id:
                 mcp_integration.oauth_integration_id = integration.id
@@ -3225,11 +3271,11 @@ class IntegrationService(BaseWorkspaceService):
             oauth_integration_id = params.oauth_integration_id
             if params.tunnel_id is not None:
                 await self._validate_mcp_tunnel(params.tunnel_id, server_uri)
-                if auth_type == MCPAuthType.OAUTH2:
-                    await self._validate_mcp_tunnel_oauth_connection(
-                        oauth_integration_id
-                    )
                 tunnel_id = params.tunnel_id
+            if auth_type == MCPAuthType.OAUTH2:
+                await self._validate_mcp_oauth_connection_route(
+                    oauth_integration_id, tunnel_id
+                )
             if (
                 params.auth_type in {MCPAuthType.CUSTOM, MCPAuthType.OAUTH2}
                 and params.custom_credentials
@@ -4169,6 +4215,14 @@ class IntegrationService(BaseWorkspaceService):
         )
         if params.tunnel_id is not None:
             await self._validate_mcp_tunnel(params.tunnel_id, params.server_uri)
+        if params.auth_type == MCPAuthType.OAUTH2:
+            # The probe may refresh the shared token, so it must not pick a
+            # route the connection's other servers don't use.
+            await self._validate_mcp_oauth_connection_route(
+                oauth_integration_id,
+                params.tunnel_id,
+                exclude_mcp_integration_id=params.mcp_integration_id,
+            )
         # Transient row used purely for config resolution — never added to the
         # session, so it is never persisted.
         transient = MCPIntegration(
@@ -4486,9 +4540,12 @@ class IntegrationService(BaseWorkspaceService):
                 # tunnel; other providers would refresh directly.
                 raise MCPConfigurationError(_TUNNELED_MCP_OAUTH_PROVIDER_ERROR)
             try:
-                oauth_integration = await self.refresh_token_if_needed(
-                    oauth_integration
-                )
+                # Refresh through this config's route, which may not be saved
+                # yet (connection tests and update verification).
+                with mcp_oauth_route(tunnel_proxy):
+                    oauth_integration = await self.refresh_token_if_needed(
+                        oauth_integration
+                    )
             except OAuthRefreshBusyError as e:
                 raise MCPConfigurationError(
                     "OAuth integration is busy refreshing"
@@ -4693,9 +4750,11 @@ class IntegrationService(BaseWorkspaceService):
                 or target_server_uri != mcp_integration.server_uri
             ):
                 await self._validate_mcp_tunnel(target_tunnel_id, target_server_uri)
-            if target_tunnel_id is not None and target_auth_type == MCPAuthType.OAUTH2:
-                await self._validate_mcp_tunnel_oauth_connection(
-                    target_oauth_integration_id
+            if target_auth_type == MCPAuthType.OAUTH2:
+                await self._validate_mcp_oauth_connection_route(
+                    target_oauth_integration_id,
+                    target_tunnel_id,
+                    exclude_mcp_integration_id=mcp_integration.id,
                 )
             connection_changed = (
                 target_server_uri != mcp_integration.server_uri

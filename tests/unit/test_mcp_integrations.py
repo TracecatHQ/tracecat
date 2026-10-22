@@ -5547,6 +5547,210 @@ class TestMCPProviderOAuth:
                     "http://10.20.30.40/oauth/token"
                 )
 
+    async def test_tunneled_oauth_discovery_accepts_private_ip_endpoints(
+        self,
+        integration_service: IntegrationService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Full discovery and stored endpoints accept private IP literals
+        through a tunnel, and still reject them without one."""
+        server_uri = "https://10.20.30.40/mcp"
+        metadata = OAuthServerMetadata(
+            authorization_endpoint="https://10.20.30.40/oauth/authorize",
+            token_endpoint="https://10.20.30.40/oauth/token",
+        )
+        monkeypatch.setattr(
+            integration_service, "_fetch_oauth_json", AsyncMock(return_value=metadata)
+        )
+        stored = ProviderConfig(
+            client_id="client",
+            authorization_endpoint="https://10.20.30.40/oauth/authorize",
+            token_endpoint="https://10.20.30.40/oauth/token",
+            scopes=[],
+        )
+
+        with pytest.raises(ValueError, match="not allowed"):
+            await integration_service._discover_mcp_oauth_endpoints(
+                server_uri=server_uri
+            )
+        with pytest.raises(ValueError, match="not allowed"):
+            await integration_service._resolve_mcp_oauth_endpoints(
+                server_uri=server_uri, provider_config=stored
+            )
+
+        monkeypatch.setattr(
+            mcp_tunnel_module,
+            "resolve_mcp_tunnel_proxy",
+            AsyncMock(return_value="http://token@gateway:8080"),
+        )
+        async with mcp_tunnel_module.mcp_oauth_tunnel(
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            tunnel_id=uuid.uuid4(),
+            subject="mcp_integration:test",
+        ):
+            discovered = await integration_service._discover_mcp_oauth_endpoints(
+                server_uri=server_uri
+            )
+            resolved = await integration_service._resolve_mcp_oauth_endpoints(
+                server_uri=server_uri, provider_config=stored
+            )
+        assert discovered.token_endpoint == "https://10.20.30.40/oauth/token"
+        assert resolved.token_endpoint == "https://10.20.30.40/oauth/token"
+
+    async def test_verification_refreshes_through_unsaved_tunnel(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Verifying a direct server moved to a tunnel refreshes its expired
+        token through the new tunnel, not the stored direct route."""
+        integration = await self._store_expired_mcp_integration(
+            integration_service, session
+        )
+        tunnel_id = await self._add_tunnel(integration_service, session)
+        stored = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Direct MCP",
+            slug="direct-mcp-moving",
+            server_type="http",
+            server_uri="https://mcp.example.test/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=integration.id,
+        )
+        session.add(stored)
+        await session.commit()
+        monkeypatch.setattr(
+            integration_service_module,
+            "resolve_mcp_tunnel_proxy",
+            AsyncMock(return_value="http://token@gateway:8080"),
+        )
+        refresh_proxies: list[str | None] = []
+
+        async def fake_refresh(*, integration, refresh_token):
+            refresh_proxies.append(mcp_tunnel_module.mcp_oauth_tunnel_proxy())
+            return integration
+
+        monkeypatch.setattr(
+            IntegrationService,
+            "_refresh_custom_mcp_integration_via_tunnel",
+            lambda self, **kwargs: fake_refresh(**kwargs),
+        )
+        target = MCPIntegration(
+            id=stored.id,
+            workspace_id=integration_service.workspace_id,
+            name=stored.name,
+            slug=stored.slug,
+            server_type="http",
+            server_uri=stored.server_uri,
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=integration.id,
+            tunnel_id=tunnel_id,
+        )
+
+        await integration_service.resolve_mcp_http_server_config(target)
+
+        assert refresh_proxies == ["http://token@gateway:8080"]
+
+    async def test_shared_oauth_connection_tunnel_checked_on_save(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Servers sharing an OAuth connection can't be saved on different
+        routes, since a token refresh can only take one of them."""
+        integration = await self._store_expired_mcp_integration(
+            integration_service, session
+        )
+        tunnel_id = await self._add_tunnel(integration_service, session)
+        monkeypatch.setattr(integration_service, "_validate_mcp_tunnel", AsyncMock())
+        direct = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Shared direct",
+                server_uri="https://mcp.example.test/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=integration.id,
+            )
+        )
+
+        with pytest.raises(ValueError, match="same tunnel"):
+            await integration_service.create_mcp_integration(
+                params=MCPHttpIntegrationCreate(
+                    name="Shared tunneled",
+                    server_uri="https://mcp.example.test/mcp",
+                    auth_type=MCPAuthType.OAUTH2,
+                    oauth_integration_id=integration.id,
+                    tunnel_id=tunnel_id,
+                )
+            )
+
+        second = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Shared direct two",
+                server_uri="https://mcp.example.test/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=integration.id,
+            )
+        )
+        with pytest.raises(ValueError, match="same tunnel"):
+            await integration_service.update_mcp_integration(
+                mcp_integration_id=second.id,
+                params=MCPIntegrationUpdate(tunnel_id=tunnel_id),
+            )
+
+        # Moving the only server on the connection is allowed.
+        await integration_service.delete_mcp_integration(mcp_integration_id=second.id)
+        moved = await integration_service.update_mcp_integration(
+            mcp_integration_id=direct.id,
+            params=MCPIntegrationUpdate(tunnel_id=tunnel_id),
+        )
+        assert moved is not None and moved.tunnel_id == tunnel_id
+
+    async def test_provider_oauth_does_not_relink_tunneled_catalog_row(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+    ) -> None:
+        """Connecting a built-in MCP provider leaves a tunneled catalog row on
+        its own MCP OAuth connection, whose refresh goes through the tunnel."""
+        catalog_entry = (
+            integration_service_module.get_platform_mcp_catalog_entry_by_provider_id(
+                "github_mcp", include_private=True
+            )
+        )
+        assert catalog_entry is not None
+        own_connection = await self._store_expired_mcp_integration(
+            integration_service, session
+        )
+        tunnel_id = await self._add_tunnel(integration_service, session)
+        tunneled = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Tunneled GitHub MCP",
+            slug="tunneled-github-mcp",
+            catalog_slug=catalog_entry.slug,
+            server_type="http",
+            server_uri="https://mcp.example.test/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=own_connection.id,
+            tunnel_id=tunnel_id,
+        )
+        session.add(tunneled)
+        await session.commit()
+
+        await integration_service.store_integration(
+            provider_key=ProviderKey(
+                id="github_mcp", grant_type=OAuthGrantType.AUTHORIZATION_CODE
+            ),
+            access_token=SecretStr("provider-access-token"),
+            refresh_token=SecretStr("provider-refresh-token"),
+            expires_in=3600,
+        )
+
+        await session.refresh(tunneled)
+        assert tunneled.oauth_integration_id == own_connection.id
+
     async def test_generic_mcp_refresh_rejects_private_token_endpoint_resolution(
         self,
         integration_service: IntegrationService,

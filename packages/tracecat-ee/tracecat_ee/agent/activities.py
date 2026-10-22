@@ -439,6 +439,8 @@ class AgentActivities:
                             hydrated["tunnel_id"] = tunnel_id
                         else:
                             hydrated.pop("tunnel_id", None)
+                        # Only credentials resolved below may reach the URL.
+                        hydrated.pop("headers", None)
                         try:
                             secrets = await svc.resolve_mcp_integration_secrets(
                                 integration_id

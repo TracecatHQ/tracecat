@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from urllib.parse import urlparse
 
@@ -21,6 +21,9 @@ from tracecat.tiers.enums import Entitlement
 
 _oauth_tunnel_proxy: ContextVar[str | None] = ContextVar(
     "mcp_oauth_tunnel_proxy", default=None
+)
+_oauth_route_pinned: ContextVar[bool] = ContextVar(
+    "mcp_oauth_route_pinned", default=False
 )
 
 
@@ -108,21 +111,44 @@ async def mcp_oauth_tunnel(
     tunnel_id: uuid.UUID | None,
     subject: str,
 ) -> AsyncIterator[None]:
-    """Send MCP OAuth discovery, registration and token calls through a tunnel."""
-    if tunnel_id is None:
-        yield
-        return
-    proxy = await resolve_mcp_tunnel_proxy(
-        workspace_id=workspace_id,
-        organization_id=organization_id,
-        tunnel_id=tunnel_id,
-        subject=subject,
+    """Send MCP OAuth discovery, registration and token calls through a tunnel.
+
+    With no tunnel, the calls are pinned to go direct.
+    """
+    proxy = (
+        await resolve_mcp_tunnel_proxy(
+            workspace_id=workspace_id,
+            organization_id=organization_id,
+            tunnel_id=tunnel_id,
+            subject=subject,
+        )
+        if tunnel_id is not None
+        else None
     )
-    token = _oauth_tunnel_proxy.set(proxy)
+    with mcp_oauth_route(proxy):
+        yield
+
+
+@contextmanager
+def mcp_oauth_route(proxy: str | None) -> Iterator[None]:
+    """Pin the route of MCP OAuth calls in this context: a tunnel proxy, or direct.
+
+    Token refreshes inside it use this route instead of looking up the stored
+    MCP integration, so verifying an unsaved tunnel change refreshes through
+    the new route.
+    """
+    proxy_token = _oauth_tunnel_proxy.set(proxy)
+    pinned_token = _oauth_route_pinned.set(True)
     try:
         yield
     finally:
-        _oauth_tunnel_proxy.reset(token)
+        _oauth_route_pinned.reset(pinned_token)
+        _oauth_tunnel_proxy.reset(proxy_token)
+
+
+def mcp_oauth_route_pinned() -> bool:
+    """Whether an MCP OAuth route is pinned for this context."""
+    return _oauth_route_pinned.get()
 
 
 def mcp_oauth_tunnel_proxy() -> str | None:

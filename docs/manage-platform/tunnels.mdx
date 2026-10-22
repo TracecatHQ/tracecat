@@ -255,7 +255,7 @@ Nothing else changes. Agents, tools, and MCP servers without a tunnel keep conne
   </Step>
   <Step title="Use the server in an agent">
     Add the server to an agent as usual. Every agent and chat that uses the server goes through the tunnel. That includes connection tests, tool discovery, OAuth sign-in and token refresh, and tool calls.
-    An OAuth server behind a tunnel must sign in through its own OAuth flow. Tracecat rejects reusing an OAuth connection from another integration, because that connection's token refresh doesn't go through the tunnel.
+    An OAuth server behind a tunnel must sign in through its own OAuth flow. Tracecat rejects reusing an OAuth connection from another integration, because that connection's token refresh doesn't go through the tunnel. MCP servers that share an OAuth connection must use the same tunnel.
   </Step>
 </Steps>
 

@@ -903,6 +903,56 @@ class TestBuildToolDefinitionsActivity:
         assert config["tunnel_proxy"] == "http://token@gateway:8080"
 
     @pytest.mark.anyio
+    async def test_mcp_discovery_drops_payload_headers_for_integrations(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        """Stale headers in an integration-backed payload never reach the
+        integration's current URL, even when it now resolves no credentials."""
+        integration_id = uuid.uuid4()
+        _patch_preset_service(
+            monkeypatch,
+            policies={},
+            secrets={},
+            refs=[
+                {
+                    "type": "http",
+                    "name": "Private",
+                    "url": "https://mcp.current.example/mcp",
+                    "id": str(integration_id),
+                }
+            ],
+        )
+        _patch_registry(monkeypatch)
+        discover = AsyncMock(return_value={})
+        monkeypatch.setattr(user_client, "discover_user_mcp_tools", discover)
+
+        await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=mock_role,
+                tool_filters=ToolFilters(actions=[]),
+                mcp_servers=[
+                    cast(
+                        Any,
+                        {
+                            "type": "http",
+                            "name": "Private",
+                            "url": "https://mcp.former.example/mcp",
+                            "headers": {"authorization": "Bearer stale"},
+                            "id": str(integration_id),
+                        },
+                    )
+                ],
+            )
+        )
+
+        assert discover.await_args is not None
+        [config] = discover.await_args.args[0]
+        assert config["url"] == "https://mcp.current.example/mcp"
+        assert "headers" not in config
+
+    @pytest.mark.anyio
     async def test_rejects_tool_tunnels_for_tools_the_agent_lacks(
         self,
         monkeypatch: pytest.MonkeyPatch,

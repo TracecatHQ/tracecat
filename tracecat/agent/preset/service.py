@@ -609,7 +609,8 @@ class AgentPresetService(BaseWorkspaceService):
                 binding_specs=binding_specs,
             )
         if params.tool_tunnels:
-            await self._validate_tool_tunnels(
+            await self._validate_tool_tunnels(params.tool_tunnels)
+            preset.tool_tunnels = self._granted_tool_tunnels(
                 params.tool_tunnels,
                 granted=await self._granted_actions(
                     self._tool_inputs(
@@ -622,23 +623,29 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.refresh(preset)
         return preset
 
-    async def _validate_tool_tunnels(
-        self,
-        tool_tunnels: Mapping[str, str],
-        *,
-        granted: Collection[str],
-    ) -> None:
-        """Validate that tool tunnels name granted actions and workspace tunnels."""
+    @staticmethod
+    def _granted_tool_tunnels(
+        tool_tunnels: Mapping[str, str], *, granted: Collection[str]
+    ) -> dict[str, str] | None:
+        """Drop tunnels for tools the agent doesn't have.
+
+        Tool grants change through actions, skills and namespace filters, so a
+        saved map can name a tool that is no longer granted. Its tunnel has no
+        effect, and keeping it would fail every later save.
+        """
+        kept = {
+            name: tunnel for name, tunnel in tool_tunnels.items() if name in granted
+        }
+        return kept or None
+
+    async def _validate_tool_tunnels(self, tool_tunnels: Mapping[str, str]) -> None:
+        """Validate that tool tunnels name registry actions and workspace tunnels."""
         if mcp_tools := sorted(
             name for name in tool_tunnels if name.startswith(("mcp.", "mcp__"))
         ):
             raise TracecatValidationError(
                 "Tunnels for MCP tools are set on the MCP integration, not per tool: "
                 f"{mcp_tools}"
-            )
-        if ungranted := sorted(name for name in tool_tunnels if name not in granted):
-            raise TracecatValidationError(
-                f"Tunnels are set for tools this agent doesn't have: {ungranted}"
             )
         await self._validate_actions(list(tool_tunnels))
         if not await is_org_entitled(
@@ -800,16 +807,14 @@ class AgentPresetService(BaseWorkspaceService):
                 )
             )
             if tool_tunnels := set_fields.get("tool_tunnels"):
-                await self._validate_tool_tunnels(tool_tunnels, granted=granted)
+                await self._validate_tool_tunnels(tool_tunnels)
+                set_fields["tool_tunnels"] = self._granted_tool_tunnels(
+                    tool_tunnels, granted=granted
+                )
             elif preset.tool_tunnels:
-                # Drop tunnels for tools the preset no longer has.
-                kept = {
-                    name: tunnel
-                    for name, tunnel in preset.tool_tunnels.items()
-                    if name in granted
-                }
+                kept = self._granted_tool_tunnels(preset.tool_tunnels, granted=granted)
                 if kept != preset.tool_tunnels:
-                    set_fields["tool_tunnels"] = kept or None
+                    set_fields["tool_tunnels"] = kept
 
         policy = (
             await self.tool_policy.resolve_many(
