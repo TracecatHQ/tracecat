@@ -6,7 +6,6 @@ import uuid
 from collections.abc import Iterable
 
 from pydantic import ValidationError
-from pydantic_core import to_jsonable_python
 from sqlalchemy import select
 
 from tracecat.db.models import Webhook, Workflow, WorkflowTag, WorkflowTagLink
@@ -26,6 +25,7 @@ from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic, PullResult
+from tracecat.validation.schemas import ValidationDetailListTA
 from tracecat.workflow.actions.schemas import validate_control_flows
 from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerConfig,
@@ -236,24 +236,19 @@ class WorkflowImportService(BaseWorkspaceService):
             wf_id = WorkflowUUID.new(remote_workflow.id)
             await self.wf_mgmt.get_workflow(wf_id, normalize=normalize_existing)
 
-        except ValidationError as e:
+        except (ValidationError, TracecatValidationError) as e:
+            validation_errors = (
+                e.errors()
+                if isinstance(e, ValidationError)
+                else ValidationDetailListTA.dump_python(e.detail or [], mode="json")
+            )
             diagnostics.append(
                 PullDiagnostic(
                     workflow_path=workflow_path,
                     workflow_title=getattr(remote_workflow.definition, "title", None),
                     error_type="validation",
                     message=f"Validation error: {str(e)}",
-                    details={"validation_errors": e.errors()},
-                )
-            )
-        except TracecatValidationError as e:
-            diagnostics.append(
-                PullDiagnostic(
-                    workflow_path=workflow_path,
-                    workflow_title=remote_workflow.definition.title,
-                    error_type="validation",
-                    message=f"Validation error: {e}",
-                    details={"validation_errors": to_jsonable_python(e.detail)},
+                    details={"validation_errors": validation_errors},
                 )
             )
         except Exception as e:

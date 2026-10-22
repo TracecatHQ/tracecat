@@ -659,23 +659,11 @@ class TestWorkflowImportService:
 
     @pytest.mark.anyio
     async def test_validate_rejects_unpersistable_control_flow(
-        self, import_service: WorkflowImportService
+        self, import_service: WorkflowImportService, sample_dsl: DSLInput
     ):
+        sample_dsl.actions[0].run_if = "${{ " + " && ".join(["True"] * 250) + " }}"
         remote = RemoteWorkflowDefinition(
-            id="wf_testworkflow001",
-            definition=DSLInput(
-                title="Overlong run_if",
-                description="",
-                entrypoint=DSLEntrypoint(ref="test_action"),
-                actions=[
-                    ActionStatement(
-                        ref="test_action",
-                        action="core.transform.transform",
-                        args={"value": "test"},
-                        run_if="${{ " + " && ".join(["True"] * 250) + " }}",
-                    )
-                ],
-            ),
+            id="wf_testworkflow001", definition=sample_dsl
         )
 
         [diagnostic] = await import_service._validate_single_workflow(remote)

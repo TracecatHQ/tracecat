@@ -233,6 +233,17 @@ def wfs_and_defns_to_response(
     return res
 
 
+def _dsl_import_failure(error: ValidationResult) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail={
+            "status": "failure",
+            "message": "1 validation error(s)",
+            "errors": [error.root.model_dump(mode="json", exclude_none=True)],
+        },
+    )
+
+
 @router.post("", status_code=status.HTTP_201_CREATED, tags=["workflows"])
 @require_scope("workflow:create")
 async def create_workflow(
@@ -307,29 +318,9 @@ async def create_workflow(
                     )
                 ],
             )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "status": "failure",
-                    "message": "1 validation error(s)",
-                    "errors": [error.root.model_dump(mode="json", exclude_none=True)],
-                },
-            ) from e
+            raise _dsl_import_failure(error) from e
         except TracecatValidationError as e:
-            error = ValidationResult.new(
-                type=ValidationResultType.DSL,
-                status="error",
-                msg=str(e),
-                detail=e.detail,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "status": "failure",
-                    "message": "1 validation error(s)",
-                    "errors": [error.root.model_dump(mode="json", exclude_none=True)],
-                },
-            ) from e
+            raise _dsl_import_failure(ValidationResult.from_dsl_error(e)) from e
         except ValidationError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

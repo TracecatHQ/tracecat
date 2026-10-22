@@ -55,7 +55,6 @@ from tracecat.validation.schemas import (
     ValidationDetail,
     ValidationDetailListTA,
     ValidationResult,
-    ValidationResultType,
 )
 from tracecat.validation.service import validate_dsl
 from tracecat.workflow.actions.schemas import validate_control_flows
@@ -726,14 +725,7 @@ async def validate_workflow_edit_document(
         try:
             validate_control_flows(dsl.actions)
         except TracecatValidationError as exc:
-            validation_results.append(
-                ValidationResult.new(
-                    type=ValidationResultType.DSL,
-                    status="error",
-                    msg=str(exc),
-                    detail=exc.detail,
-                )
-            )
+            validation_results.append(ValidationResult.from_dsl_error(exc))
         if validate_definition:
             if session is None or role is None:
                 raise RuntimeError("session and role are required for DSL validation")

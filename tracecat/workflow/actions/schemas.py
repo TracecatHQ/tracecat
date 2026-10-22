@@ -105,18 +105,7 @@ class ActionControlFlow(Schema):
     def from_statement(cls, stmt: ActionStatement) -> Self:
         """Build from a DSL statement, which has looser limits than persisted control flow."""
         try:
-            return cls(
-                run_if=stmt.run_if,
-                for_each=stmt.for_each,
-                retry_policy=stmt.retry_policy,
-                start_delay=stmt.start_delay,
-                wait_until=stmt.wait_until,
-                join_strategy=stmt.join_strategy,
-                environment=stmt.environment,
-                tunnel=stmt.tunnel,
-                mask_output=stmt.mask_output,
-                unsafe_disable_secret_error_withholding=stmt.unsafe_disable_secret_error_withholding,
-            )
+            return cls.model_validate(stmt)
         except ValidationError as e:
             details = ValidationDetail.list_from_pydantic(e)
             reasons = "; ".join(
