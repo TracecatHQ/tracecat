@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import functools
+
 import tracecat_registry
 
 from tracecat import config
@@ -67,19 +69,16 @@ def _bundled_builtin_matches_lock(registry_lock: object, version: str) -> bool:
     if expected is None:
         return True
 
-    manifest = load_prebuilt_builtin_registry_manifest(
-        origin=DEFAULT_REGISTRY_ORIGIN,
-        target_version=version,
-        storage_namespace=PLATFORM_REGISTRY_NAMESPACE,
+    actual = _bundled_builtin_fingerprint(
+        config.TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR, version
     )
-    if manifest is None:
+    if actual is None:
         logger.info(
             "Bundled builtin registry fingerprint unavailable; using artifact lookup",
             registry_version=version,
         )
         return False
 
-    actual = registry_manifest_fingerprint(manifest)
     if actual != expected:
         logger.info(
             "Bundled builtin registry fingerprint mismatch; using artifact lookup",
@@ -90,6 +89,24 @@ def _bundled_builtin_matches_lock(registry_lock: object, version: str) -> bool:
         return False
 
     return True
+
+
+@functools.cache
+def _bundled_builtin_fingerprint(prebuilt_dir: str, version: str) -> str | None:
+    """Fingerprint the image's prebuilt builtin manifest once per process.
+
+    The manifest is baked into the image and never changes under a running
+    process, so parsing the multi-megabyte file on every action is wasted work.
+    ``prebuilt_dir`` is part of the key because the loader resolves it from config.
+    """
+    manifest = load_prebuilt_builtin_registry_manifest(
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        target_version=version,
+        storage_namespace=PLATFORM_REGISTRY_NAMESPACE,
+    )
+    if manifest is None:
+        return None
+    return registry_manifest_fingerprint(manifest)
 
 
 def sort_registry_artifact_uris(
