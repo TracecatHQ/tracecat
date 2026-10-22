@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Literal, NoReturn
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import Field
 from sqlalchemy.exc import DBAPIError, NoResultFound
 from starlette.status import (
     HTTP_200_OK,
@@ -13,6 +14,7 @@ from starlette.status import (
     HTTP_400_BAD_REQUEST,
     HTTP_403_FORBIDDEN,
     HTTP_404_NOT_FOUND,
+    HTTP_409_CONFLICT,
     HTTP_422_UNPROCESSABLE_CONTENT,
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
@@ -45,6 +47,7 @@ from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
     CaseAggregateRequest,
     CaseAggregateResponse,
+    CaseBatchResponse,
     CaseCommentCreate,
     CaseCommentRead,
     CaseCommentThreadRead,
@@ -76,6 +79,7 @@ from tracecat.db.models import Case
 from tracecat.exceptions import (
     EntitlementRequired,
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -1261,6 +1265,8 @@ async def delete_task_by_id(
 class CaseCreateWithTags(CaseCreate):
     """Extended case create request with tags support for UDFs."""
 
+    parent_id: str | None = None  # pyright: ignore[reportIncompatibleVariableOverride]
+    """Parent case UUID or short ID (``CASE-0042``)."""
     tags: list[str] | None = None
     create_missing_tags: bool = False
 
@@ -1271,6 +1277,22 @@ class CaseUpdateWithTags(CaseUpdate):
     tags: list[str] | None = None
     create_missing_tags: bool = False
     append_description: bool = False
+
+
+class CaseSetParentRequest(Schema):
+    """Request body for grouping cases under a parent case."""
+
+    case_ids: list[str] = Field(..., min_length=1, max_length=1000)
+    """Case UUIDs or short IDs (``CASE-0042``) to group."""
+    parent_id: str
+    """Parent case UUID or short ID."""
+
+
+class CaseClearParentRequest(Schema):
+    """Request body for removing cases from their parent case."""
+
+    case_ids: list[str] = Field(..., min_length=1, max_length=1000)
+    """Case UUIDs or short IDs (``CASE-0042``) to ungroup."""
 
 
 class AssignUserByEmailRequest(Schema):
@@ -1300,6 +1322,11 @@ async def create_case_simple(
     """
     service = CasesService(session, role)
     try:
+        parent_id = (
+            await service.resolve_case_id(params.parent_id)
+            if params.parent_id is not None
+            else None
+        )
         case = await service.create_case(
             CaseCreate(
                 summary=params.summary,
@@ -1311,6 +1338,7 @@ async def create_case_simple(
                 dropdown_values=params.dropdown_values,
                 assignee_id=params.assignee_id,
                 payload=params.payload,
+                parent_id=parent_id,
             )
         )
 
@@ -1322,7 +1350,7 @@ async def create_case_simple(
                 )
             await session.refresh(case)
 
-    except NoResultFound as e:
+    except (NoResultFound, TracecatNotFoundError, TracecatValidationError) as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -1334,6 +1362,58 @@ async def create_case_simple(
         ) from e
 
     return InternalCaseData.model_validate(case, from_attributes=True)
+
+
+async def _resolve_case_ids(
+    service: CasesService, case_refs: list[str]
+) -> list[uuid.UUID]:
+    try:
+        return [await service.resolve_case_id(ref) for ref in case_refs]
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)
+        ) from e
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@router.post("/batch-set-parent", status_code=HTTP_200_OK)
+@require_scope("case:update")
+async def batch_set_parent(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    params: CaseSetParentRequest,
+) -> CaseBatchResponse:
+    """Group cases as sub-cases of a top-level parent case."""
+    service = CasesService(session, role)
+    case_ids = await _resolve_case_ids(service, params.case_ids)
+    [parent_id] = await _resolve_case_ids(service, [params.parent_id])
+    try:
+        return await service.batch_set_parent(case_ids, parent_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatValidationError as e:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.post("/batch-clear-parent", status_code=HTTP_200_OK)
+@require_scope("case:update")
+async def batch_clear_parent(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    params: CaseClearParentRequest,
+) -> CaseBatchResponse:
+    """Remove cases from their parent case, returning them to the top level."""
+    service = CasesService(session, role)
+    case_ids = await _resolve_case_ids(service, params.case_ids)
+    try:
+        return await service.batch_clear_parent(case_ids)
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=HTTP_409_CONFLICT, detail=str(e)) from e
 
 
 @router.patch("/{case_id}/simple", status_code=HTTP_200_OK)
