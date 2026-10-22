@@ -107,8 +107,9 @@ export function saveDroppedPrompt(
 
 /**
  * Whether the server took a prompt whose stream dropped: its turn is still
- * attachable (200), or the refetched transcript holds it. Throws when the
- * server cannot be reached, so a caller never resends on a guess.
+ * attachable (200), or the refetched transcript holds it, which also forgets
+ * the saved copy. Throws when the server cannot be reached, so a caller never
+ * resends on a guess.
  */
 export async function serverTookPrompt({
   chatId,

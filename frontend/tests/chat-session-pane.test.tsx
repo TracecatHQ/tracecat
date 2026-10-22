@@ -1306,6 +1306,16 @@ describe("ChatSessionPane", () => {
       await waitFor(() => expect(retryTurn).toHaveBeenCalledWith("msg-user"))
     })
 
+    it("offers Retry on a drop before any message is on screen", async () => {
+      // A first turn's prompt stays hidden while its run is live.
+      const { retryTurn } = mockFailedTurn([], "Bad gateway", true)
+
+      renderPane()
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+
+      await waitFor(() => expect(retryTurn).toHaveBeenCalledTimes(1))
+    })
+
     it("keeps the drop up and retries once when the check fails", async () => {
       const { retryTurn } = mockFailedTurn(
         [

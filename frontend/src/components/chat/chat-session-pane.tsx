@@ -1553,8 +1553,11 @@ export function ChatSessionPane({
                 <TurnErrorLine
                   error={displayedError}
                   dropped={lastErrorDisconnected}
+                  // A drop reconnects, so it needs no message to resend.
                   onRetry={
-                    canRetry && messages.length > 0 ? handleRetry : undefined
+                    canRetry && (lastErrorDisconnected || messages.length > 0)
+                      ? handleRetry
+                      : undefined
                   }
                 />
               )}
