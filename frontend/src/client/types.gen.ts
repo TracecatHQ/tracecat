@@ -10604,6 +10604,15 @@ export type SyncDiffPage = {
 export type SyncDirection = "push" | "pull"
 
 /**
+ * Repeat the same command ID and reviewed revisions after a lost response.
+ */
+export type SyncOperationCommand = {
+  command_id: string
+  preview_revision: number
+  state_revision: number
+}
+
+/**
  * Start a preview; reuse the client-generated ID after a lost response.
  */
 export type SyncOperationCreate_Input = {
@@ -10650,6 +10659,8 @@ export type SyncOperationRead = {
   can_retry?: boolean
   data_applied?: boolean
   inputs: SyncOperationCreate_Output
+  preview_revision?: number
+  state_revision?: number
 }
 
 export type SyncPreviewResource = {
@@ -10689,6 +10700,7 @@ export type SyncStage =
   | "preparing"
   | "awaiting_confirmation"
   | "applying"
+  | "finishing"
   | "finished"
 
 export type SyncStatus =
@@ -14635,6 +14647,7 @@ export type WorkflowsGetSyncOperationResponse = SyncOperationRead
 
 export type WorkflowsApplySyncOperationData = {
   operationId: string
+  requestBody: SyncOperationCommand
   workspaceId: string
 }
 
@@ -14642,6 +14655,7 @@ export type WorkflowsApplySyncOperationResponse = SyncOperationRead
 
 export type WorkflowsRetrySyncOperationData = {
   operationId: string
+  requestBody: SyncOperationCommand
   workspaceId: string
 }
 
@@ -20285,6 +20299,10 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+        /**
+         * Service Unavailable
+         */
+        503: SyncOperationError
       }
     }
   }

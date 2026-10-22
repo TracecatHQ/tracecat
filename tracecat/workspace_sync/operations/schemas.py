@@ -39,6 +39,15 @@ class SyncOperationCreate(BaseModel):
         return self
 
 
+class SyncOperationCommand(BaseModel):
+    """Repeat the same command ID and reviewed revisions after a lost response."""
+
+    model_config = ConfigDict(extra="forbid")
+    command_id: uuid.UUID
+    preview_revision: int = Field(ge=0)
+    state_revision: int = Field(ge=0)
+
+
 class SyncOperationError(BaseModel):
     """Expected operation conflict and diff lookup failures."""
 

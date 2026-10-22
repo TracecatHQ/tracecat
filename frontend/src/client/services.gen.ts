@@ -3818,16 +3818,18 @@ export const workflowsGetSyncOperation = (
       403: "Forbidden",
       404: "Not Found",
       422: "Validation Error",
+      503: "Service Unavailable",
     },
   })
 }
 
 /**
  * Apply Sync Operation
- * Confirm exactly the prepared snapshot; duplicate confirmations are harmless.
+ * Send a stable apply command to the existing lifecycle workflow.
  * @param data The data for the request.
  * @param data.operationId
  * @param data.workspaceId
+ * @param data.requestBody
  * @returns SyncOperationRead Successful Response
  * @throws ApiError
  */
@@ -3841,6 +3843,8 @@ export const workflowsApplySyncOperation = (
       operation_id: data.operationId,
       workspace_id: data.workspaceId,
     },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       403: "Forbidden",
       404: "Not Found",
@@ -3853,10 +3857,11 @@ export const workflowsApplySyncOperation = (
 
 /**
  * Retry Sync Operation
- * Retry the failed phase with the same immutable inputs and completion receipt.
+ * Send a stable retry command to the existing lifecycle workflow.
  * @param data The data for the request.
  * @param data.operationId
  * @param data.workspaceId
+ * @param data.requestBody
  * @returns SyncOperationRead Successful Response
  * @throws ApiError
  */
@@ -3870,6 +3875,8 @@ export const workflowsRetrySyncOperation = (
       operation_id: data.operationId,
       workspace_id: data.workspaceId,
     },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       403: "Forbidden",
       404: "Not Found",

@@ -34962,6 +34962,32 @@ export const $SyncDirection = {
   enum: ["push", "pull"],
 } as const
 
+export const $SyncOperationCommand = {
+  properties: {
+    command_id: {
+      type: "string",
+      format: "uuid",
+      title: "Command Id",
+    },
+    preview_revision: {
+      type: "integer",
+      minimum: 0,
+      title: "Preview Revision",
+    },
+    state_revision: {
+      type: "integer",
+      minimum: 0,
+      title: "State Revision",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["command_id", "preview_revision", "state_revision"],
+  title: "SyncOperationCommand",
+  description:
+    "Repeat the same command ID and reviewed revisions after a lost response.",
+} as const
+
 export const $SyncOperationCreate_Input = {
   properties: {
     id: {
@@ -35169,6 +35195,16 @@ export const $SyncOperationRead = {
     inputs: {
       $ref: "#/components/schemas/SyncOperationCreate-Output",
     },
+    preview_revision: {
+      type: "integer",
+      title: "Preview Revision",
+      default: 0,
+    },
+    state_revision: {
+      type: "integer",
+      title: "State Revision",
+      default: 0,
+    },
   },
   type: "object",
   required: [
@@ -35250,6 +35286,7 @@ export const $SyncStage = {
     "preparing",
     "awaiting_confirmation",
     "applying",
+    "finishing",
     "finished",
   ],
 } as const
