@@ -3,9 +3,12 @@ from collections.abc import Sequence
 
 from slugify import slugify
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError, NoResultFound
+from sqlalchemy.orm.exc import StaleDataError
 
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import WorkflowTag
 from tracecat.exceptions import TracecatConflictError
 from tracecat.identifiers import TagID
@@ -69,7 +72,17 @@ class TagsService(BaseWorkspaceService):
             name=tag.name, ref=ref, workspace_id=self.workspace_id, color=tag.color
         )
         self.session.add(db_tag)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if is_unique_violation(
+                exc, "uq_workflow_tag_name_workspace", "uq_workflow_tag_ref_workspace"
+            ):
+                raise TracecatConflictError(
+                    "Tag with this name already exists"
+                ) from exc
+            raise
         return db_tag
 
     @require_scope("tag:update")
@@ -81,7 +94,20 @@ class TagsService(BaseWorkspaceService):
 
         for key, value in tag_update.model_dump(exclude_unset=True).items():
             setattr(tag, key, value)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if is_unique_violation(
+                exc, "uq_workflow_tag_name_workspace", "uq_workflow_tag_ref_workspace"
+            ):
+                raise TracecatConflictError(
+                    "Tag with this name already exists"
+                ) from exc
+            raise
+        except StaleDataError as exc:
+            await self.session.rollback()
+            raise NoResultFound("Tag not found") from exc
         await self.session.refresh(tag)
         return tag
 
@@ -89,4 +115,8 @@ class TagsService(BaseWorkspaceService):
     @audit_log(resource_type="tag", action="delete")
     async def delete_tag(self, tag: WorkflowTag) -> None:
         await self.session.delete(tag)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            await self.session.rollback()
+            raise

@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy.exc import IntegrityError, NoResultFound
+from sqlalchemy.exc import NoResultFound
 
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
@@ -62,12 +62,7 @@ async def create_tag(
     except TracecatConflictError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=str(e),
-        ) from e
-    except IntegrityError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Tag already exists",
+            detail="Tag with this name already exists",
         ) from e
 
 
@@ -84,17 +79,16 @@ async def update_tag(
     service = TagsService(session, role)
     try:
         tag = await service.get_tag(tag_id)
+        return await service.update_tag(tag, tag_update)
     except NoResultFound as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Tag not found",
         ) from e
-    try:
-        return await service.update_tag(tag, tag_update)
-    except IntegrityError as e:
+    except TracecatConflictError as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Tag already exists",
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Tag with this name already exists",
         ) from e
 
 

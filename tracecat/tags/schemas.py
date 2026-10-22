@@ -1,4 +1,4 @@
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import TagID
@@ -27,3 +27,11 @@ class TagUpdate(Schema):
 
     name: str | None = Field(default=None, min_length=1, max_length=50)
     color: str | None = Field(default=None, description="Hex color code")
+
+    @model_validator(mode="after")
+    def reject_null_name(self) -> "TagUpdate":
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError(
+                "name cannot be null; omit the field to leave it unchanged"
+            )
+        return self

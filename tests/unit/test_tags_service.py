@@ -1,12 +1,15 @@
+import asyncio
 from collections.abc import AsyncGenerator
+from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import delete
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
-from tracecat.db.models import Workflow, Workspace
+from tracecat.db.models import Workflow, WorkflowTag, Workspace
 from tracecat.exceptions import TracecatConflictError
 from tracecat.identifiers.workflow import WorkflowID
 from tracecat.tags.schemas import TagCreate, TagUpdate
@@ -14,6 +17,84 @@ from tracecat.tags.service import TagsService
 from tracecat.workflow.tags.service import WorkflowTagsService
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.mark.anyio
+async def test_concurrent_tag_creates_have_one_conflict(svc_role: Role) -> None:
+    barrier = asyncio.Barrier(2)
+    role = svc_role.model_copy(update={"user_id": None})
+    name = f"Synthetic {uuid4().hex}"
+
+    async def create() -> WorkflowTag:
+        async with TagsService.with_session(role=role) as service:
+            commit = service.session.commit
+
+            async def synchronized_commit() -> None:
+                await barrier.wait()
+                await commit()
+
+            with patch.object(
+                service.session, "commit", AsyncMock(side_effect=synchronized_commit)
+            ):
+                return await service.create_tag(TagCreate(name=name))
+
+    results = await asyncio.wait_for(
+        asyncio.gather(create(), create(), return_exceptions=True), timeout=15
+    )
+    assert sum(isinstance(result, TracecatConflictError) for result in results) == 1
+    tags = [result for result in results if isinstance(result, WorkflowTag)]
+    assert len(tags) == 1
+    async with TagsService.with_session(role=role) as service:
+        await service.delete_tag(await service.get_tag(tags[0].id))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("name", ["Synthetic tag", "Synthetic-tag"])
+async def test_create_unique_race_rolls_back(
+    tags_service: TagsService, name: str
+) -> None:
+    original = await tags_service.create_tag(TagCreate(name="Synthetic tag"))
+    tag_id = original.id
+    missed_precheck = Mock()
+    missed_precheck.one_or_none.return_value = None
+    with patch.object(tags_service.session, "execute", return_value=missed_precheck):
+        with pytest.raises(TracecatConflictError):
+            await tags_service.create_tag(TagCreate(name=name))
+    assert (await tags_service.get_tag(tag_id)).name == "Synthetic tag"
+
+
+@pytest.mark.anyio
+async def test_update_unique_conflict_rolls_back(tags_service: TagsService) -> None:
+    await tags_service.create_tag(TagCreate(name="Synthetic tag"))
+    other = await tags_service.create_tag(TagCreate(name="Synthetic other"))
+    other_id = other.id
+    with pytest.raises(TracecatConflictError):
+        await tags_service.update_tag(other, TagUpdate(name="Synthetic-tag"))
+    assert (await tags_service.get_tag(other_id)).name == "Synthetic other"
+
+
+@pytest.mark.anyio
+async def test_update_deleted_tag_is_not_found(tags_service: TagsService) -> None:
+    tag = await tags_service.create_tag(TagCreate(name="Synthetic tag"))
+    await tags_service.session.execute(
+        delete(WorkflowTag)
+        .where(WorkflowTag.id == tag.id)
+        .execution_options(synchronize_session=False)
+    )
+    await tags_service.session.commit()
+    with pytest.raises(NoResultFound):
+        await tags_service.update_tag(tag, TagUpdate(name="Synthetic renamed"))
+    assert await tags_service.list_tags() == []
+
+
+@pytest.mark.anyio
+async def test_tag_update_preserves_optional_color_clearing(
+    tags_service: TagsService,
+) -> None:
+    tag = await tags_service.create_tag(TagCreate(name="Synthetic", color="#112233"))
+    updated = await tags_service.update_tag(tag, TagUpdate(color=None))
+    assert updated.name == "Synthetic"
+    assert updated.color is None
 
 
 @pytest.fixture

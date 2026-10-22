@@ -34,7 +34,9 @@ class VariableCreate(BaseModel):
     description: str | None = Field(default=None, min_length=0, max_length=255)
     values: dict[VariableKey, Any] = Field(..., min_length=1, max_length=1000)
     tags: dict[str, str] | None = None
-    environment: str = DEFAULT_SECRETS_ENVIRONMENT
+    environment: str = Field(
+        default=DEFAULT_SECRETS_ENVIRONMENT, min_length=1, max_length=255
+    )
 
     @field_validator("values")
     @classmethod
@@ -54,11 +56,13 @@ class VariableUpdate(BaseModel):
     environment: str | None = Field(default=None, min_length=1, max_length=100)
 
     @model_validator(mode="after")
-    def reject_null_values(self) -> VariableUpdate:
-        if "values" in self.model_fields_set and self.values is None:
-            raise ValueError(
-                "values cannot be null; omit the field to leave it unchanged"
-            )
+    def reject_null_fields(self) -> VariableUpdate:
+        fields = self.model_dump()
+        for field in ("name", "environment", "values"):
+            if field in self.model_fields_set and fields[field] is None:
+                raise ValueError(
+                    f"{field} cannot be null; omit the field to leave it unchanged"
+                )
         return self
 
 

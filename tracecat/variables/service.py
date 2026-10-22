@@ -4,13 +4,19 @@ from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.exc import MultipleResultsFound, NoResultFound
+from sqlalchemy.exc import IntegrityError, MultipleResultsFound, NoResultFound
+from sqlalchemy.orm.exc import StaleDataError
 
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_role, ctx_run
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import WorkspaceVariable
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatConflictError,
+    TracecatNotFoundError,
+)
 from tracecat.identifiers import VariableID
 from tracecat.service import BaseWorkspaceService
 from tracecat.variables.schemas import (
@@ -160,7 +166,15 @@ class VariablesService(BaseWorkspaceService):
             tags=params.tags,
         )
         self.session.add(variable)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if is_unique_violation(
+                exc, "uq_workspace_variable_name_environment_workspace_id"
+            ):
+                raise TracecatConflictError("Variable already exists") from exc
+            raise
         await self.session.refresh(variable)
         return variable
 
@@ -175,7 +189,18 @@ class VariablesService(BaseWorkspaceService):
         for field, value in update_fields.items():
             setattr(variable, field, value)
         self.session.add(variable)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if is_unique_violation(
+                exc, "uq_workspace_variable_name_environment_workspace_id"
+            ):
+                raise TracecatConflictError("Variable already exists") from exc
+            raise
+        except StaleDataError as exc:
+            await self.session.rollback()
+            raise TracecatNotFoundError("Variable does not exist") from exc
         await self.session.refresh(variable)
         return variable
 
@@ -183,4 +208,8 @@ class VariablesService(BaseWorkspaceService):
     @audit_log(resource_type="workspace_variable", action="delete")
     async def delete_variable(self, variable: WorkspaceVariable) -> None:
         await self.session.delete(variable)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            await self.session.rollback()
+            raise

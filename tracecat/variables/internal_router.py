@@ -10,7 +10,7 @@ from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
-from tracecat.variables.schemas import VariableReadMinimal
+from tracecat.variables.schemas import VariableName, VariableReadMinimal
 from tracecat.variables.service import VariablesService
 
 router = APIRouter(
@@ -61,7 +61,7 @@ async def get_variable_value(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    variable_name: str,
+    variable_name: VariableName,
     key: str = Query(...),
     environment: str | None = Query(default=None),
 ) -> Any:

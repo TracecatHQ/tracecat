@@ -38557,6 +38557,8 @@ export const $VariableCreate = {
     },
     environment: {
       type: "string",
+      maxLength: 255,
+      minLength: 1,
       title: "Environment",
       default: "default",
     },
