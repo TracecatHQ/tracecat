@@ -9,7 +9,11 @@ import pytest
 from tracecat.auth.types import Role
 from tracecat.db.models import Invitation, Scope
 from tracecat.db.models import Role as DBRole
-from tracecat.exceptions import TracecatAuthorizationError, TracecatValidationError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatConflictError,
+    TracecatValidationError,
+)
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.invitations.schemas import InvitationCreate, InvitationGrant
 from tracecat.invitations.service import (
@@ -156,7 +160,7 @@ async def test_revoke_uses_database_status(current_status: InvitationStatus) -> 
         await revoke_invitation_row(session, invitation)
         assert invitation.status == InvitationStatus.REVOKED
     else:
-        with pytest.raises(TracecatAuthorizationError, match=current_status.value):
+        with pytest.raises(TracecatConflictError, match=current_status.value):
             await revoke_invitation_row(session, invitation)
         assert invitation.status == current_status
 

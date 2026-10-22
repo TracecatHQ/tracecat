@@ -7,9 +7,9 @@ from async_lru import alru_cache
 from cryptography.fernet import InvalidToken
 from pydantic import BaseModel, SecretStr
 from pydantic_core import to_jsonable_python
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.common import get_default_organization_id
@@ -24,8 +24,10 @@ from tracecat.db.engine import (
     SupportsExecute,
     get_async_session_bypass_rls_context_manager,
 )
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import OrganizationSetting
 from tracecat.db.rls import set_rls_context_from_role
+from tracecat.exceptions import TracecatConflictError
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.network import DisallowedUrlError, validate_url_resolves_public_async
@@ -232,7 +234,15 @@ class SettingsService(BaseOrgService):
     async def create_org_setting(self, params: SettingCreate) -> OrganizationSetting:
         """Create a new organization setting."""
         setting = await self._create_org_setting(params)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if not is_unique_violation(
+                exc, "uq_organization_settings_organization_id_key"
+            ):
+                raise
+            raise TracecatConflictError("Setting already exists") from exc
         if params.key in AUDIT_SETTINGS_KEYS:
             clear_audit_setting_cache()
         return setting
@@ -305,21 +315,47 @@ class SettingsService(BaseOrgService):
     ) -> None:
         updated_fields = params.model_dump(exclude_unset=True)
         settings_by_key = {setting.key: setting for setting in settings}
-        for key, value in updated_fields.items():
-            setting = settings_by_key.get(key)
-            if setting is None:
-                setting = await self._create_org_setting(
-                    SettingCreate(
+        try:
+            for key, value in updated_fields.items():
+                setting = settings_by_key.get(key)
+                if setting is None:
+                    create = SettingCreate(
                         key=key,
                         value=value,
                         is_sensitive=key in SENSITIVE_SETTINGS_KEYS,
                     )
-                )
-                settings_by_key[key] = setting
-            else:
-                params = SettingUpdate(value=value)
-                await self._update_setting(setting, params)
-        await self.session.commit()
+                    value_bytes = self._serialize_value_bytes(value)
+                    encrypted_value = encrypt_value(
+                        value_bytes, key=self._encryption_key.get_secret_value()
+                    )
+                    statement = pg_insert(OrganizationSetting).values(
+                        organization_id=self.organization_id,
+                        key=key,
+                        value_type=create.value_type,
+                        value=encrypted_value if create.is_sensitive else value_bytes,
+                        is_encrypted=create.is_sensitive,
+                    )
+                    await self.session.execute(
+                        statement.on_conflict_do_update(
+                            index_elements=[
+                                OrganizationSetting.organization_id,
+                                OrganizationSetting.key,
+                            ],
+                            set_={
+                                "updated_at": func.now(),
+                                "value": case(
+                                    (OrganizationSetting.is_encrypted, encrypted_value),
+                                    else_=value_bytes,
+                                ),
+                            },
+                        )
+                    )
+                else:
+                    await self._update_setting(setting, SettingUpdate(value=value))
+            await self.session.commit()
+        except IntegrityError:
+            await self.session.rollback()
+            raise
 
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")

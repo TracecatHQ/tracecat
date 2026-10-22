@@ -265,17 +265,17 @@ class WorkspaceService(BaseOrgService):
     async def delete_workspace(self, workspace_id: WorkspaceID) -> None:
         """Delete a workspace."""
         await lock_role_changes(self.session, self.organization_id)
-        all_workspaces = await self.admin_list_workspaces()
-        if len(all_workspaces) == 1:
-            raise TracecatManagementError(
-                "There must be at least one workspace in the organization."
-            )
         statement = select(Workspace).where(
             Workspace.organization_id == self.organization_id,
             Workspace.id == workspace_id,
         )
         result = await self.session.execute(statement)
         workspace = result.scalar_one()
+        all_workspaces = await self.admin_list_workspaces()
+        if len(all_workspaces) == 1:
+            raise TracecatManagementError(
+                "There must be at least one workspace in the organization."
+            )
         bootstrap_role = Role(
             type="service",
             service_id="tracecat-service",

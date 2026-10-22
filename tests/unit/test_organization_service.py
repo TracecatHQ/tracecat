@@ -1785,9 +1785,7 @@ class TestOrganizationServiceInvitations:
         )
         await service.revoke_invitation(invitation.id)
 
-        with pytest.raises(
-            TracecatAuthorizationError, match="Cannot revoke invitation"
-        ):
+        with pytest.raises(TracecatConflictError, match="Cannot revoke invitation"):
             await service.revoke_invitation(invitation.id)
 
     @pytest.mark.anyio

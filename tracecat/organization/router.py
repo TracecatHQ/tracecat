@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Query, status
+from fastapi_users.exceptions import UserAlreadyExists
 from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
@@ -388,11 +389,9 @@ async def delete_org_member(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         ) from e
-    except IntegrityError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Action cannot be performed because related records still reference this member.",
-        ) from e
+    except IntegrityError:
+        await session.rollback()
+        raise
     except TracecatAuthorizationError as e:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
@@ -435,6 +434,13 @@ async def update_org_member(
             is_verified=user.is_verified,
             last_login_at=user.last_login_at,
         )
+    except UserAlreadyExists as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A user with this email already exists",
+        ) from e
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except NoResultFound as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"

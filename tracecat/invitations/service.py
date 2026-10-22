@@ -565,7 +565,7 @@ async def revoke_invitation_row(session: AsyncSession, invitation: Invitation) -
     """Mark a pending invitation revoked. Does not commit.
 
     Raises:
-        TracecatAuthorizationError: If the invitation is not pending.
+        TracecatConflictError: If the invitation is not pending.
     """
     result = await session.execute(
         update(Invitation)
@@ -580,7 +580,7 @@ async def revoke_invitation_row(session: AsyncSession, invitation: Invitation) -
     # The row may have changed while this update waited for acceptance's lock.
     await session.refresh(invitation)
     if result.scalar_one_or_none() is None:
-        raise TracecatAuthorizationError(
+        raise TracecatConflictError(
             f"Cannot revoke invitation with status '{invitation.status}'"
         )
 
@@ -805,7 +805,7 @@ class InvitationService(BaseOrgService):
 
         Raises:
             NoResultFound: If the invitation doesn't exist or belongs to another org.
-            TracecatAuthorizationError: If the invitation is not pending.
+            TracecatConflictError: If the invitation is not pending.
         """
         invitation = await self.get_invitation(invitation_id)
         await revoke_invitation_row(self.session, invitation)

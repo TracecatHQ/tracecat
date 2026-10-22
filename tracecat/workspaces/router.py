@@ -14,6 +14,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.authz.service import MembershipService
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.errors import is_unique_violation
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatConflictError,
@@ -108,6 +109,9 @@ async def create_workspace(
             status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
         ) from e
     except IntegrityError as e:
+        await session.rollback()
+        if not is_unique_violation(e, "uq_workspace_id"):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Resource already exists"
         ) from e
@@ -296,7 +300,11 @@ async def create_workspace_membership(
     except TracecatConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except IntegrityError as e:
-        logger.error("INTEGRITY ERROR", error=str(e))
+        await session.rollback()
+        if not is_unique_violation(
+            e, "uq_user_role_assignment_user_id_workspace_id", "pk_membership"
+        ):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="User is already a member of workspace.",

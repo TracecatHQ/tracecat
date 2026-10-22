@@ -19,6 +19,7 @@ from tracecat.authz.membership import ensure_member
 from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     AccessToken,
     MCPRefreshToken,
@@ -38,7 +39,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.settings.service import SettingsService
@@ -120,7 +121,7 @@ async def create_organization(
         The created Organization.
 
     Raises:
-        ValueError: If an organization with the given slug already exists.
+        TracecatConflictError: If an organization with the given slug already exists.
     """
     org = Organization(
         id=org_id or uuid.uuid4(),
@@ -134,7 +135,11 @@ async def create_organization(
         await session.flush()
     except IntegrityError as e:
         await session.rollback()
-        raise ValueError(f"Organization with slug '{slug}' already exists") from e
+        if not is_unique_violation(e, "ix_organization_slug"):
+            raise
+        raise TracecatConflictError(
+            f"Organization with slug '{slug}' already exists"
+        ) from e
 
     return org
 
@@ -160,7 +165,7 @@ async def create_organization_with_defaults(
         The created Organization.
 
     Raises:
-        ValueError: If an organization with the given slug already exists.
+        TracecatConflictError: If an organization with the given slug already exists.
     """
     org = await create_organization(session, name=name, slug=slug, org_id=org_id)
     await ensure_organization_defaults(session, org.id)

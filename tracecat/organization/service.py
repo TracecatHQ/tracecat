@@ -19,6 +19,7 @@ from sqlalchemy import (
     union_all,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID, aggregate_order_by
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import contains_eager
 
 from tracecat.audit.logger import audit_log
@@ -35,6 +36,7 @@ from tracecat.authz.membership import (
     lock_role_changes,
 )
 from tracecat.authz.scopes import ORG_MEMBER_ROLE_SLUG
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     AccessToken,
     ExternalGroup,
@@ -865,10 +867,18 @@ class OrgService(BaseOrgService):
         user = await self.get_member(user_id)
         if user.is_superuser:
             raise TracecatAuthorizationError("Cannot update superuser")
-        async with self._manager() as user_manager:
-            updated_user = await user_manager.update(
-                user_update=params, user=user, safe=True
-            )
+        try:
+            async with self._manager() as user_manager:
+                updated_user = await user_manager.update(
+                    user_update=params, user=user, safe=True
+                )
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if not is_unique_violation(exc, "ix_user_email"):
+                raise
+            raise TracecatConflictError(
+                "A user with this email already exists"
+            ) from exc
         return updated_user
 
     @audit_log(resource_type="organization", action="delete")
