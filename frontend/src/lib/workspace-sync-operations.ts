@@ -31,20 +31,19 @@ export function syncOperationPollInterval(
     operation.status === "ready" ||
     (operation.status === "failed" && operation.can_retry)
   ) {
-    return Math.max(
-      1,
-      Math.min(60_000, Date.parse(operation.expires_at) - Date.now())
-    )
+    const remaining = Date.parse(operation.expires_at) - Date.now()
+    return remaining > 0 ? Math.min(60_000, remaining) : false
   }
   return false
 }
 
-/** Never offer a cached preview after its confirmation window has elapsed. */
+/** Never offer a cached preview or retry after its recorded deadline. */
 export function expireSyncOperation(
   operation: SyncOperationRead
 ): SyncOperationRead {
   if (
-    operation.status === "ready" &&
+    (operation.status === "ready" ||
+      (operation.status === "failed" && operation.can_retry)) &&
     Date.parse(operation.expires_at) <= Date.now()
   ) {
     return { ...operation, status: "expired", can_retry: false }
@@ -117,6 +116,21 @@ function publishOperation(
   ) {
     state.applied.add(key)
     invalidateWorkspaceSyncResources(client, workspaceId)
+    // Composers observe this counter even when history is on another page.
+    client.setQueryData<number>(
+      ["workspace-sync-import-revision", workspaceId],
+      (revision = 0) => revision + 1
+    )
+  }
+  if (
+    operation.direction === "push" &&
+    operation.status === "completed" &&
+    !state.applied.has(key)
+  ) {
+    state.applied.add(key)
+    for (const query of ["workflow-sync-branches", "repository_commits"]) {
+      void client.invalidateQueries({ queryKey: [query, workspaceId] })
+    }
   }
   client.setQueriesData<OperationPage>(
     { queryKey: ["sync-operations", workspaceId] },
@@ -177,13 +191,18 @@ export function observeSyncOperation(
       ),
     // A successful POST/list/GET already supplied the initial state.
     refetchOnMount: false,
-    retry: (count, error) => isTransientSyncError(error) && count < 3,
+    retry: (count, error) =>
+      isTransientSyncError(error) &&
+      count < 3 &&
+      syncOperationPollInterval(client.getQueryData(queryKey), error) !== false,
     refetchInterval: (query) =>
       syncOperationPollInterval(query.state.data, query.state.error),
   })
   const stop = () => {
     observer.destroy()
     state.stop.delete(key)
+    // End an in-flight retry batch as well as future polling intervals.
+    void client.cancelQueries({ queryKey, exact: true }, { revert: false })
   }
   state.stop.set(key, stop)
   observer.subscribe((result) => {

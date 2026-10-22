@@ -53,11 +53,18 @@ function mountHistory() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   })
-  return render(
-    <QueryClientProvider client={client}>
-      <SyncOperationHistory workspaceId="workspace-test" />
-    </QueryClientProvider>
-  )
+  // Model the connected view's subscription to this local import counter.
+  client.setQueryDefaults(["workspace-sync-import-revision"], {
+    gcTime: Infinity,
+  })
+  return {
+    ...render(
+      <QueryClientProvider client={client}>
+        <SyncOperationHistory workspaceId="workspace-test" />
+      </QueryClientProvider>
+    ),
+    client,
+  }
 }
 
 beforeEach(() => {
@@ -292,6 +299,7 @@ it("keeps observing an active operation while viewing an older terminal page", a
   try {
     const active = {
       ...operation,
+      direction: "pull" as const,
       diff_count: 0,
       status: "running" as const,
       stage: "preparing" as const,
@@ -309,8 +317,9 @@ it("keeps observing an active operation while viewing an older terminal page", a
       .mockResolvedValue({ items: [completed], prev_cursor: "newer" })
     jest.mocked(workflowsGetSyncOperation).mockResolvedValue({
       ...active,
-      status: "ready",
-      stage: "awaiting_confirmation",
+      status: "applying",
+      stage: "finishing",
+      data_applied: true,
     })
     const view = mountHistory()
     fireEvent.click(await screen.findByRole("button", { name: "Older" }))
@@ -322,6 +331,12 @@ it("keeps observing an active operation while viewing an older terminal page", a
       workspaceId: "workspace-test",
       operationId: operation.id,
     })
+    expect(
+      view.client.getQueryData([
+        "workspace-sync-import-revision",
+        "workspace-test",
+      ])
+    ).toBe(1)
     view.unmount()
   } finally {
     jest.useRealTimers()
@@ -360,4 +375,46 @@ it("removes confirmation when a mounted ready preview expires", async () => {
   } finally {
     jest.useRealTimers()
   }
+})
+
+it("notifies open composers once when a history pull has imported its data", async () => {
+  const pull = {
+    ...operation,
+    direction: "pull" as const,
+    inputs: {
+      id: operation.id,
+      direction: "pull" as const,
+      pull: { commit_sha: "abc" },
+    },
+  }
+  const applied = {
+    ...pull,
+    status: "applying" as const,
+    stage: "finishing" as const,
+    data_applied: true,
+    state_revision: 4,
+  }
+  jest.mocked(workflowsListSyncOperations).mockResolvedValue({ items: [pull] })
+  jest.mocked(workflowsApplySyncOperation).mockResolvedValue(applied)
+  const { client } = mountHistory()
+  const confirm = await screen.findByRole("button", { name: "Apply pull" })
+  expect(
+    client.getQueryData(["workspace-sync-import-revision", "workspace-test"])
+  ).toBeUndefined()
+  fireEvent.click(
+    screen.getByRole("checkbox", { name: "Apply these prepared changes" })
+  )
+  fireEvent.click(confirm)
+  await waitFor(() =>
+    expect(
+      client.getQueryData(["workspace-sync-import-revision", "workspace-test"])
+    ).toBe(1)
+  )
+  expect(screen.getByText(/finishing automatically/)).toBeInTheDocument()
+  await act(async () => {
+    await Promise.resolve()
+  })
+  expect(
+    client.getQueryData(["workspace-sync-import-revision", "workspace-test"])
+  ).toBe(1)
 })

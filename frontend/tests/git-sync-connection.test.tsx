@@ -48,6 +48,7 @@ jest.mock("@/hooks/use-workspace-sync", () => ({
 }))
 
 jest.mock("@/lib/query", () => ({
+  useQuery: () => ({ data: 0 }),
   useQueryClient: () => ({ invalidateQueries: jest.fn() }),
 }))
 

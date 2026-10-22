@@ -201,3 +201,63 @@ it("keeps observing a retryable failure until its recorded deadline", () => {
     })
   ).toBe(false)
 })
+
+it("refreshes Git caches once when a history-observed push completes", async () => {
+  const push = { ...operation, direction: "push" as const }
+  for (const key of ["workflow-sync-branches", "repository_commits"]) {
+    client.setQueryData([key, "workspace-example", "main"], ["old"])
+    client.setQueryData([key, "another-workspace", "main"], ["unaffected"])
+  }
+  const completed = {
+    ...push,
+    status: "completed" as const,
+    stage: "finished" as const,
+  }
+  jest.mocked(workflowsGetSyncOperation).mockResolvedValue(completed)
+  const invalidate = jest.spyOn(client, "invalidateQueries")
+  observeSyncOperation(client, "workspace-example", push)
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(1500)
+  })
+  for (const key of ["workflow-sync-branches", "repository_commits"]) {
+    expect(
+      client.getQueryState([key, "workspace-example", "main"])?.isInvalidated
+    ).toBe(true)
+    expect(
+      client.getQueryState([key, "another-workspace", "main"])?.isInvalidated
+    ).toBe(false)
+  }
+  expect(invalidate).toHaveBeenCalledTimes(2)
+  observeSyncOperation(client, "workspace-example", completed)
+  expect(invalidate).toHaveBeenCalledTimes(2)
+})
+
+it("expires retryable failures and stops reads at the deadline while offline", async () => {
+  const failed = {
+    ...operation,
+    status: "failed" as const,
+    can_retry: true,
+    expires_at: new Date(Date.now() + 2000).toISOString(),
+  }
+  client.setQueryData(["sync-operations", "workspace-example"], {
+    items: [failed],
+  })
+  jest.mocked(workflowsGetSyncOperation).mockRejectedValue(new Error("Offline"))
+  observeSyncOperation(client, "workspace-example", failed)
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(2000)
+  })
+  const expired = client.getQueryData<SyncOperationRead>([
+    "sync-operation",
+    "workspace-example",
+    failed.id,
+  ])
+  expect(expired?.status).toBe("expired")
+  expect(expired?.can_retry).toBe(false)
+  expect(syncOperationPollInterval(failed)).toBe(false)
+  const reads = jest.mocked(workflowsGetSyncOperation).mock.calls.length
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(60_000)
+  })
+  expect(workflowsGetSyncOperation).toHaveBeenCalledTimes(reads)
+})
