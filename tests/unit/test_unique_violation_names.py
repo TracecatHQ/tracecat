@@ -22,11 +22,25 @@ def _schema_unique_names() -> set[str]:
     return names
 
 
+def _module_constants(tree: ast.Module) -> dict[str, str]:
+    return {
+        target.id: node.value.value
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+
+
 def _constraint_arguments() -> dict[str, str]:
     found: dict[str, str] = {}
     for root in SOURCE_ROOTS:
         for path in root.rglob("*.py"):
-            for node in ast.walk(ast.parse(path.read_text())):
+            tree = ast.parse(path.read_text())
+            constants = _module_constants(tree)
+            for node in ast.walk(tree):
                 if not (
                     isinstance(node, ast.Call)
                     and isinstance(node.func, ast.Name)
@@ -34,13 +48,18 @@ def _constraint_arguments() -> dict[str, str]:
                 ):
                     continue
                 for arg in node.args[1:]:
+                    site = f"{path.relative_to(REPO_ROOT)}:{arg.lineno}"
                     match arg:
                         case ast.Constant(value=str(name)):
-                            found[name] = f"{path.relative_to(REPO_ROOT)}:{arg.lineno}"
+                            found[name] = site
                         case ast.Attribute(
                             value=ast.Name(id="DBConstraints"), attr=attr
                         ):
-                            found[DBConstraints[attr].value] = str(path)
+                            found[DBConstraints[attr].value] = site
+                        case ast.Name(id=name) if name in constants:
+                            found[constants[name]] = site
+                        case _:
+                            raise AssertionError(f"Unchecked constraint at {site}")
     return found
 
 

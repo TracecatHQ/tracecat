@@ -442,6 +442,8 @@ class CaseAttachmentService(BaseWorkspaceService):
             return content, attachment.file.name, attachment.file.content_type
         except FileNotFoundError as e:
             raise TracecatNotFoundError("Attachment file not found in storage") from e
+        except TracecatException:
+            raise
         except Exception as e:
             raise TracecatException("Failed to download attachment") from e
 

@@ -131,14 +131,16 @@ from tracecat.workspace_sync.workflow import (
 from tracecat.workspaces.service import WorkspaceService
 
 MAX_PULL_RESOURCE_DIFF_LINES = 240
+"""Maximum number of unified-diff lines kept per resource in a pull preview."""
+
 # Import errors whose messages describe the user's input, not internal state.
 _USER_FACING_IMPORT_ERRORS = (
     EntitlementRequired,
     RegistryLockInvalidDataError,
     ScopeDeniedError,
     TracecatValidationError,
+    ValueError,
 )
-"""Maximum number of unified-diff lines kept per resource in a pull preview."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -1165,14 +1167,16 @@ class WorkspaceSyncService(SyncMappingService):
                 )
                 message = f"Workspace import failed on workflow {title!r}"
             else:
+                message = "Workspace import transaction failed"
                 diagnostic = PullDiagnostic(
                     workflow_path="",
                     workflow_title=None,
                     error_type="transaction",
-                    message="Workspace import transaction failed",
+                    message=f"{message}: {e}"
+                    if isinstance(e, _USER_FACING_IMPORT_ERRORS)
+                    else message,
                     details={},
                 )
-                message = "Workspace import transaction failed"
             self.logger.opt(exception=e).error(
                 "Workspace import transaction failed",
                 workspace_id=str(self.workspace_id),
