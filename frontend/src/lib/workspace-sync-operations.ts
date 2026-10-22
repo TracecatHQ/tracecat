@@ -167,7 +167,8 @@ function publishOperation(
 export function observeSyncOperation(
   client: QueryClient,
   workspaceId: string,
-  incoming: SyncOperationRead
+  incoming: SyncOperationRead,
+  source: "live" | "history" = "live"
 ) {
   const queryKey = ["sync-operation", workspaceId, incoming.id]
   const cached = client.getQueryData<SyncOperationRead>(queryKey)
@@ -179,6 +180,16 @@ export function observeSyncOperation(
   const operation = expireSyncOperation(newest)
   const state = getObservations(client)
   const key = JSON.stringify([workspaceId, operation.id])
+  if (
+    source === "history" &&
+    !state.stop.has(key) &&
+    ((operation.direction === "pull" && operation.data_applied) ||
+      (operation.direction === "push" && operation.status === "completed"))
+  ) {
+    // An unseen old receipt is a baseline, not a new workspace change.
+    // Known active observers and direct command responses still publish changes.
+    state.applied.add(key)
+  }
   if (client.getQueryData(queryKey) !== operation) {
     client.setQueryData(queryKey, operation)
   }
