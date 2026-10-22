@@ -21,7 +21,6 @@ from collections.abc import Collection, Iterator, Mapping, Sequence
 from typing import Any, Literal, Protocol, cast
 
 import orjson
-from asyncpg import UniqueViolationError
 from fastmcp.exceptions import ToolError
 from pydantic import ValidationError
 from sqlalchemy import delete, select
@@ -31,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.auth.types import Role
 from tracecat.db.common import DBConstraints
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import Action, Workflow
 from tracecat.dsl.common import (
     DSLEntrypoint,
@@ -718,6 +718,7 @@ async def validate_workflow_edit_document(
     if document.definition.actions:
         try:
             dsl = workflow_edit_document_to_dsl(document)
+            WorkflowsManagementService.validate_action_refs_from_dsl(dsl)
         except (TracecatValidationError, ValidationError, ValueError) as exc:
             raise WorkflowEditError(f"Invalid workflow definition: {exc}") from exc
         if validate_definition:
@@ -801,7 +802,9 @@ async def _raise_if_alias_taken(
         )
     )
     if existing_id is not None:
-        raise WorkflowEditError(DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg())
+        raise WorkflowEditError(
+            DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg(), conflict=True
+        )
 
 
 def _normalize_patch_pointer(path: str | None) -> str | None:
@@ -1012,21 +1015,12 @@ async def persist_workflow_edit_document(
     try:
         await service.session.commit()
     except IntegrityError as exc:
-        # Pre-validation catches alias conflicts under normal conditions, but a
-        # concurrent edit can still claim the alias between the check and this
-        # commit. Map the unique violation to a recoverable WorkflowEditError so
-        # the conflict surfaces as a 400/409 instead of a raw 500.
         await service.session.rollback()
-        cause: BaseException = exc
-        while cause.__cause__ is not None:
-            cause = cause.__cause__
-        if isinstance(
-            cause, UniqueViolationError
-        ) and DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE in str(cause):
+        if is_unique_violation(exc, DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE):
             raise WorkflowEditError(
-                DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg()
+                DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg(), conflict=True
             ) from exc
-        raise WorkflowEditError("Workflow already exists") from exc
+        raise
     await service.session.refresh(workflow)
     if any(section in changed_sections for section in {"definition", "layout"}):
         await service.session.refresh(workflow, ["actions"])

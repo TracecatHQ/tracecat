@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from uuid import UUID
 
 from sqlalchemy import column, delete, func, literal, select, update
 from sqlalchemy.dialects.postgresql import JSONB
@@ -8,9 +9,14 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.models import Action, Workflow
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.view import Position
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers import ActionID, WorkflowID, WorkflowUUID
-from tracecat.identifiers.workflow import exec_id_to_parts
+from tracecat.identifiers.action import ref
+from tracecat.identifiers.workflow import AnyWorkflowID, exec_id_to_parts
 from tracecat.service import BaseWorkspaceService
 from tracecat.workflow.actions.schemas import (
     ActionControlFlow,
@@ -25,6 +31,38 @@ class WorkflowActionService(BaseWorkspaceService):
     """Service for managing actions."""
 
     service_name = "workflow_actions"
+
+    async def lock_workflow(self, workflow_id: AnyWorkflowID | UUID) -> None:
+        """Serialize action reference changes against the parent workflow."""
+        workflow = await self.session.scalar(
+            select(Workflow.id)
+            .where(
+                Workflow.workspace_id == self.workspace_id,
+                Workflow.id == WorkflowUUID.new(workflow_id),
+            )
+            .with_for_update()
+        )
+        if workflow is None:
+            raise TracecatNotFoundError("Workflow not found")
+
+    async def ensure_unique_ref(
+        self,
+        workflow_id: AnyWorkflowID | UUID,
+        title: str,
+        *,
+        exclude_action_id: ActionID | None = None,
+    ) -> None:
+        """Reject a duplicate reference while the caller holds the workflow lock."""
+        statement = select(Action.title).where(
+            Action.workspace_id == self.workspace_id,
+            Action.workflow_id == WorkflowUUID.new(workflow_id),
+        )
+        if exclude_action_id is not None:
+            statement = statement.where(Action.id != exclude_action_id)
+        titles = (await self.session.scalars(statement)).all()
+        candidate = ref(title)
+        if any(ref(existing) == candidate for existing in titles):
+            raise TracecatConflictError("Action ref already exists in the workflow")
 
     async def list_actions(self, workflow_id: WorkflowID) -> Sequence[Action]:
         statement = select(Action).where(
@@ -92,6 +130,8 @@ class WorkflowActionService(BaseWorkspaceService):
 
     @require_scope("workflow:create")
     async def create_action(self, params: ActionCreate) -> Action:
+        await self.lock_workflow(params.workflow_id)
+        await self.ensure_unique_ref(params.workflow_id, params.title)
         control_flow = params.control_flow or ActionControlFlow()
         if PlatformAction.is_agent(params.type) and (
             "timeout" not in control_flow.retry_policy.model_fields_set
@@ -118,7 +158,12 @@ class WorkflowActionService(BaseWorkspaceService):
 
     @require_scope("workflow:update")
     async def update_action(self, action: Action, params: ActionUpdate) -> Action:
+        await self.lock_workflow(action.workflow_id)
         set_fields = params.model_dump(exclude_unset=True)
+        if params.title is not None:
+            await self.ensure_unique_ref(
+                action.workflow_id, params.title, exclude_action_id=action.id
+            )
         if locked := set_fields.get("locked_execution_id"):
             try:
                 locked_wf_id = exec_id_to_parts(locked)[0]

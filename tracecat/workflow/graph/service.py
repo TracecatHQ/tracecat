@@ -20,9 +20,11 @@ from tracecat.db.models import Action, Workflow
 from tracecat.dsl.common import UpstreamEdgeDataValidator
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.view import RFGraph
+from tracecat.exceptions import TracecatConflictError
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.service import BaseWorkspaceService
+from tracecat.workflow.actions.service import WorkflowActionService
 from tracecat.workflow.management.layout import (
     WorkflowActionLayoutInput,
     auto_generate_layout,
@@ -235,7 +237,13 @@ class WorkflowGraphService(BaseWorkspaceService):
         should_bump_version = False
         for op in operations:
             should_bump_version = should_bump_version or self._is_structural(op)
-            await self._apply_operation(workflow, op)
+            try:
+                await self._apply_operation(workflow, op)
+            except TracecatConflictError as exc:
+                await self.session.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+                ) from exc
 
         # Increment graph version only for structural mutations
         # Don't call session.add() - workflow is already tracked and dirty attributes
@@ -301,6 +309,9 @@ class WorkflowGraphService(BaseWorkspaceService):
 
     async def _add_node(self, workflow: Workflow, payload: AddNodePayload) -> None:
         """Add a new action node."""
+        await WorkflowActionService(self.session, role=self.role).ensure_unique_ref(
+            workflow.id, payload.title
+        )
         control_flow = _normalize_agent_control_flow(
             payload.type, dict(payload.control_flow or {})
         )
@@ -323,6 +334,10 @@ class WorkflowGraphService(BaseWorkspaceService):
         self, workflow: Workflow, payload: UpdateNodePayload
     ) -> None:
         """Update an existing action node."""
+        if payload.title is not None:
+            await WorkflowActionService(self.session, role=self.role).ensure_unique_ref(
+                workflow.id, payload.title, exclude_action_id=payload.action_id
+            )
         update_values = {
             k: v
             for k, v in {

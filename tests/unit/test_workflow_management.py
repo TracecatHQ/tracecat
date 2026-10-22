@@ -871,6 +871,9 @@ async def test_persist_edit_document_maps_alias_integrity_error(
         f"duplicate key value violates unique constraint "
         f'"{DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE}"'
     )
+    cast(
+        Any, unique_violation
+    ).constraint_name = DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE
     integrity_error = IntegrityError("stmt", {}, unique_violation)
     # SQLAlchemy raises the IntegrityError ``from`` the DBAPI error, so the
     # asyncpg cause is reachable via ``__cause__``; the constructor alone does
@@ -896,6 +899,7 @@ async def test_persist_edit_document_maps_alias_integrity_error(
             updated_document=updated_document,
         )
     assert "alias" in str(exc.value).lower()
+    assert exc.value.conflict is True
     session.rollback.assert_awaited_once()
 
 

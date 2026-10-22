@@ -246,6 +246,8 @@ async def test_action_create_persists_agent_default_timeout() -> None:
     session = MagicMock()
     session.commit = AsyncMock()
     session.refresh = AsyncMock()
+    session.scalar = AsyncMock(return_value=uuid.uuid4())
+    session.scalars = AsyncMock(return_value=MagicMock(all=lambda: []))
     service = WorkflowActionService(
         session,
         role=Role(
@@ -298,6 +300,7 @@ async def test_graph_add_node_persists_agent_default_timeout() -> None:
 
     session = MagicMock()
     session.flush = AsyncMock()
+    session.scalars = AsyncMock(return_value=MagicMock(all=lambda: []))
     added: list = []
     session.add = added.append
     service = WorkflowGraphService(

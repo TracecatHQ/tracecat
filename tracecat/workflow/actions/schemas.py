@@ -183,6 +183,22 @@ class ActionUpdate(Schema):
         ),
     )
 
+    @field_validator(
+        "title",
+        "description",
+        "status",
+        "position_x",
+        "position_y",
+        "upstream_edges",
+        "control_flow",
+        mode="before",
+    )
+    @classmethod
+    def reject_null_fields(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("Field cannot be null")
+        return value
+
     @field_validator("inputs", mode="after")
     def validate_inputs(cls, v: str) -> str:
         try:

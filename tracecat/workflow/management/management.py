@@ -55,6 +55,7 @@ from tracecat.exceptions import (
 from tracecat.expressions.eval import eval_templated_object
 from tracecat.forms.storage import delete_file_blobs, lock_forms_for_deletion
 from tracecat.identifiers import WorkflowID
+from tracecat.identifiers.action import ref as action_ref
 from tracecat.identifiers.workflow import (
     LEGACY_WF_ID_PATTERN,
     WF_ID_SHORT_PATTERN,
@@ -655,11 +656,26 @@ class WorkflowsManagementService(BaseWorkspaceService):
         changed = False
 
         if workflow.webhook is None:
-            webhook = Webhook(workspace_id=self.workspace_id)
-            webhook.workflow = workflow
+            await self.session.execute(
+                select(Workflow.id)
+                .where(
+                    Workflow.workspace_id == self.workspace_id,
+                    Workflow.id == workflow.id,
+                )
+                .with_for_update()
+            )
+            webhook = await self.session.scalar(
+                select(Webhook).where(
+                    Webhook.workspace_id == self.workspace_id,
+                    Webhook.workflow_id == workflow.id,
+                )
+            )
+            if webhook is None:
+                webhook = Webhook(workspace_id=self.workspace_id)
+                webhook.workflow = workflow
+                self.session.add(webhook)
+                changed = True
             workflow.webhook = webhook
-            self.session.add(webhook)
-            changed = True
 
         if workflow.case_trigger is None:
             await CaseTriggersService(
@@ -1773,6 +1789,15 @@ class WorkflowsManagementService(BaseWorkspaceService):
             await self.session.refresh(workflow)
         return workflow
 
+    @staticmethod
+    def validate_action_refs_from_dsl(dsl: DSLInput) -> None:
+        """Reject references that collide after conversion to action titles."""
+        refs = [action_ref(action.title) for action in dsl.actions]
+        if len(set(refs)) != len(refs):
+            raise TracecatValidationError(
+                "Action references must be unique after title normalization"
+            )
+
     async def create_actions_from_dsl(
         self,
         dsl: DSLInput,
@@ -1784,6 +1809,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
         Builds upstream_edges from depends_on relationships.
         For root actions (no depends_on), creates trigger->action edge.
         """
+        self.validate_action_refs_from_dsl(dsl)
         # Create all actions and build ref->action mapping
         actions: list[Action] = []
         ref_to_action: dict[str, Action] = {}

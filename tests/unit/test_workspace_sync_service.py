@@ -8,6 +8,7 @@ import json
 import tarfile
 import uuid
 from collections import Counter
+from dataclasses import asdict
 from math import ceil
 from types import SimpleNamespace
 from typing import Any, cast
@@ -17,6 +18,7 @@ import httpx
 import pytest
 import respx
 from github.GithubException import GithubException
+from sqlalchemy.exc import IntegrityError
 
 from tests.support.fake_vcs import FakeVcsServer
 from tracecat.auth.types import Role
@@ -26,6 +28,7 @@ from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.exceptions import (
     EntitlementRequired,
+    RegistryLockActionNotFoundError,
     ScopeDeniedError,
     TracecatSettingsError,
     TracecatValidationError,
@@ -36,6 +39,7 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.sync import CommitInfo, PullOptions, PushStatus
 from tracecat.vcs.github.app import GitHubAppError
+from tracecat.workflow.store.import_service import WorkflowImportError
 from tracecat.workflow.store.schemas import (
     RemoteCaseTrigger,
     RemoteForm,
@@ -116,6 +120,98 @@ def workspace_sync_service() -> WorkspaceSyncService:
         scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-api"],
     )
     return WorkspaceSyncService(session=session, role=role)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "import",
+        "wrapped",
+        "commit",
+        "unknown_wrapped",
+        "validation",
+        "scope",
+        "registry",
+    ],
+)
+async def test_pull_sanitizes_transaction_diagnostics(
+    workspace_sync_service: WorkspaceSyncService,
+    sample_dsl: DSLInput,
+    failure: str,
+) -> None:
+    spec = WorkflowResourceSpec(id="synthetic-workflow", definition=sample_dsl)
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="a" * 40,
+        tree_sha=None,
+        files={
+            "tracecat.json": canonical_json_text(WorkspaceManifest()),
+            workflow_source_path(spec.id): serialize_workflow_spec(spec),
+        },
+    )
+    local_id = WorkflowUUID.new_uuid4()
+    error: Exception = IntegrityError(
+        "synthetic statement", {}, Exception("synthetic database failure")
+    )
+    safe_error = False
+    if failure == "validation":
+        error = TracecatValidationError("Synthetic invalid workflow")
+        safe_error = True
+    elif failure == "scope":
+        error = ScopeDeniedError(
+            required_scopes=["workflow:update"],
+            missing_scopes=["workflow:update"],
+            message="Synthetic operation needs workflow:update",
+        )
+        safe_error = True
+    elif failure == "registry":
+        error = RegistryLockActionNotFoundError(
+            "tools.synthetic.removed", ["synthetic_registry"]
+        )
+        safe_error = True
+    elif failure == "unknown_wrapped":
+        error = RuntimeError("synthetic database failure")
+    importer = AsyncMock()
+    importer.validate_workflows.return_value = []
+    if failure == "commit":
+        cast(AsyncMock, workspace_sync_service.session.commit).side_effect = error
+    else:
+        importer.import_workflows.side_effect = (
+            WorkflowImportError(
+                error, workflow_id=local_id, workflow_title=sample_dsl.title
+            )
+            if failure not in {"import", "commit"}
+            else error
+        )
+    workspace_sync_service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="example", repo="synthetic")
+    )
+    workspace_sync_service._resolve_local_workflow_id = AsyncMock(return_value=local_id)
+    workspace_sync_service._upsert_mappings = AsyncMock()
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        patch(
+            "tracecat.workspace_sync.service.WorkflowImportService",
+            return_value=importer,
+        ),
+    ):
+        result = await workspace_sync_service.pull(
+            options=PullOptions(commit_sha="a" * 40)
+        )
+    assert result.success is False
+    assert result.workflows_found == 1
+    assert result.workflows_imported == 0
+    assert result.diagnostics[0].error_type == "transaction"
+    assert result.diagnostics[0].details == {}
+    assert "synthetic database failure" not in json.dumps(asdict(result))
+    assert "synthetic statement" not in json.dumps(asdict(result))
+    if safe_error:
+        assert str(error) in result.diagnostics[0].message
+    cast(AsyncMock, workspace_sync_service.session.rollback).assert_awaited_once()
 
 
 @pytest.mark.anyio

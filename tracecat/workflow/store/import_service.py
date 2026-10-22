@@ -16,11 +16,11 @@ from tracecat.exceptions import (
     RegistryError,
     RegistryLockActionNotFoundError,
     TracecatAuthorizationError,
+    TracecatValidationError,
 )
 from tracecat.forms.enums import FormStatus
 from tracecat.forms.service import FormsService
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic, PullResult
@@ -59,6 +59,7 @@ class WorkflowImportError(Exception):
         workflow_title: str,
     ) -> None:
         super().__init__(str(cause))
+        self.cause = cause
         self.workflow_id = workflow_id
         self.workflow_title = workflow_title
 
@@ -137,7 +138,8 @@ class WorkflowImportService(BaseWorkspaceService):
             )
 
         except Exception as e:
-            logger.error(f"Failed to import workflows: {e}")
+            self.logger.opt(exception=e).error("Failed to import workflows")
+            await self.session.rollback()
             return PullResult(
                 success=False,
                 commit_sha=commit_sha,
@@ -148,8 +150,8 @@ class WorkflowImportService(BaseWorkspaceService):
                         workflow_path="",
                         workflow_title=None,
                         error_type="transaction",
-                        message=f"Transaction failed: {str(e)}",
-                        details={"exception": str(e)},
+                        message="Import transaction failed",
+                        details={},
                     )
                 ],
                 message="Import transaction failed",
@@ -228,9 +230,20 @@ class WorkflowImportService(BaseWorkspaceService):
                 return diagnostics
 
             # Check for conflicts
+            self.wf_mgmt.validate_action_refs_from_dsl(dsl_input)
             wf_id = WorkflowUUID.new(remote_workflow.id)
             await self.wf_mgmt.get_workflow(wf_id, normalize=normalize_existing)
 
+        except TracecatValidationError as e:
+            diagnostics.append(
+                PullDiagnostic(
+                    workflow_path=workflow_path,
+                    workflow_title=remote_workflow.definition.title,
+                    error_type="validation",
+                    message=str(e),
+                    details={},
+                )
+            )
         except ValidationError as e:
             diagnostics.append(
                 PullDiagnostic(
@@ -242,13 +255,14 @@ class WorkflowImportService(BaseWorkspaceService):
                 )
             )
         except Exception as e:
+            self.logger.opt(exception=e).error("Workflow import validation failed")
             diagnostics.append(
                 PullDiagnostic(
                     workflow_path=workflow_path,
                     workflow_title=getattr(remote_workflow.definition, "title", None),
                     error_type="validation",
-                    message=f"Unexpected validation error: {str(e)}",
-                    details={"exception": str(e)},
+                    message="Unexpected workflow validation error",
+                    details={},
                 )
             )
 
@@ -298,13 +312,14 @@ class WorkflowImportService(BaseWorkspaceService):
         except (RegistryError, EntitlementRequired) as e:
             return [_registry_diagnostic(str(e))]
         except Exception as e:
+            self.logger.opt(exception=e).error("Workflow registry validation failed")
             return [
                 PullDiagnostic(
                     workflow_path="",
                     workflow_title=None,
                     error_type="validation",
-                    message=f"Unexpected validation error: {str(e)}",
-                    details={"exception": str(e)},
+                    message="Unexpected registry validation error",
+                    details={},
                 )
             ]
         return []
@@ -380,13 +395,16 @@ class WorkflowImportService(BaseWorkspaceService):
                         )
                     )
                 except Exception as e:
+                    self.logger.opt(exception=e).error(
+                        "Child workflow alias validation failed"
+                    )
                     diagnostics.append(
                         PullDiagnostic(
                             workflow_path=workflow_path,
                             workflow_title=remote_workflow.definition.title,
                             error_type="validation",
                             message="Error validating child workflow alias reference",
-                            details={"exception": str(e)},
+                            details={},
                         )
                     )
 
@@ -413,7 +431,7 @@ class WorkflowImportService(BaseWorkspaceService):
         )
 
         wf_id = WorkflowUUID.new(remote_workflow.id)
-        if existing_workflow := await self.wf_mgmt.get_workflow(wf_id):
+        if existing_workflow := await self.wf_mgmt.get_workflow(wf_id, for_update=True):
             await self._update_existing_workflow(
                 existing_workflow,
                 remote_workflow,

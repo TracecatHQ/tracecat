@@ -13,6 +13,7 @@ from tracecat.exceptions import (
     EntitlementRequired,
     RegistryLockAmbiguousActionError,
     RegistryLockInvalidDataError,
+    TracecatNotFoundError,
     TracecatValidationError,
 )
 from tracecat.identifiers.workflow import WorkflowID
@@ -97,6 +98,16 @@ class WorkflowDefinitionsService(BaseWorkspaceService):
         commit: bool = True,
         require_initial: bool = False,
     ) -> WorkflowDefinition:
+        workflow = await self.session.scalar(
+            select(Workflow.id)
+            .where(
+                Workflow.workspace_id == self.workspace_id,
+                Workflow.id == workflow_id,
+            )
+            .with_for_update()
+        )
+        if workflow is None:
+            raise TracecatNotFoundError("Workflow not found")
         statement = (
             select(WorkflowDefinition)
             .where(

@@ -8,7 +8,11 @@ from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.enums import PlatformAction
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionInterfaceValidator
@@ -129,7 +133,9 @@ async def create_action(
     svc = WorkflowActionService(session, role=role)
     try:
         action = await svc.create_action(params)
-    except TracecatValidationError as e:
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatConflictError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Action ref already exists in the workflow",
@@ -230,6 +236,10 @@ async def update_action(
     _clamp_agent_timeout(action.type, params.control_flow)
     try:
         action = await svc.update_action(action, params)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)

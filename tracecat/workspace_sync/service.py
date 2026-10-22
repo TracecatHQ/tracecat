@@ -32,6 +32,7 @@ from tracecat.db.session_events import AfterCommitQueue
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
     EntitlementRequired,
+    RegistryLockInvalidDataError,
     ScopeDeniedError,
     TracecatNotFoundError,
     TracecatSettingsError,
@@ -1145,12 +1146,23 @@ class WorkspaceSyncService(SyncMappingService):
                     local_id: source_id for source_id, local_id in local_ids.items()
                 }
                 title = e.workflow_title
+                diagnostic_message = f"Failed to import workflow {title!r}"
+                if isinstance(
+                    e.cause,
+                    (
+                        ScopeDeniedError,
+                        TracecatValidationError,
+                        RegistryLockInvalidDataError,
+                        EntitlementRequired,
+                    ),
+                ):
+                    diagnostic_message = f"{diagnostic_message}: {e.cause}"
                 diagnostic = PullDiagnostic(
                     workflow_path=workflow_source_path(source_ids[e.workflow_id]),
                     workflow_title=title,
                     error_type="transaction",
-                    message=f"Failed to import workflow {title!r}: {str(e)}",
-                    details={"exception": str(e)},
+                    message=diagnostic_message,
+                    details={},
                 )
                 message = f"Workspace import failed on workflow {title!r}"
             else:
@@ -1158,8 +1170,8 @@ class WorkspaceSyncService(SyncMappingService):
                     workflow_path="",
                     workflow_title=None,
                     error_type="transaction",
-                    message=f"Workspace import transaction failed: {str(e)}",
-                    details={"exception": str(e)},
+                    message="Workspace import transaction failed",
+                    details={},
                 )
                 message = "Workspace import transaction failed"
             self.logger.opt(exception=e).error(

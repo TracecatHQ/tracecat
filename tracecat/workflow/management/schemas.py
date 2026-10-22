@@ -220,6 +220,13 @@ class WorkflowUpdate(BaseModel):
     alias: str | None = None
     error_handler: str | None = None
 
+    @field_validator("title", "description", "status", mode="before")
+    @classmethod
+    def reject_null_fields(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("Field cannot be null")
+        return value
+
     @field_validator("alias", "error_handler", mode="before")
     @classmethod
     def empty_string_to_none(cls, v: Any) -> Any:
