@@ -146,6 +146,33 @@ async def test_resolve_agent_preset_config_classifies_user_input_errors(
 
 
 @pytest.mark.anyio
+async def test_resolve_agent_preset_config_keeps_whole_tool_tunnel_map(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The workflow may override actions before pruning tool tunnels, so the
+    root preset config arrives with the version's whole map."""
+    calls: list[dict[str, Any]] = []
+    config = AgentConfig(model_name="claude", model_provider="anthropic")
+
+    def with_preset_config(**kwargs: Any) -> _AsyncContext:
+        calls.append(kwargs)
+        return _AsyncContext(config)
+
+    monkeypatch.setattr(
+        "tracecat.agent.preset.activities.AgentManagementService.with_session",
+        lambda **_: _AsyncContext(
+            SimpleNamespace(with_preset_config=with_preset_config)
+        ),
+    )
+
+    await resolve_agent_preset_config_activity(
+        ResolveAgentPresetConfigActivityInput(role=_role(), preset_slug="triage")
+    )
+
+    assert [call["prune_tool_tunnels"] for call in calls] == [False]
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "scopes",
     [

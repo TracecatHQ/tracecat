@@ -112,6 +112,7 @@ with workflow.unsafe.imports_passed_through():
         ToolApproved,
         ToolDenied,
         clamp_agent_timeout_seconds,
+        granted_tool_tunnels,
     )
     from tracecat.agent.workflow_config import agent_config_from_payload
     from tracecat.auth.types import Role
@@ -680,6 +681,11 @@ class DurableAgentWorkflow:
                 if override_cfg.output_type is not None:
                     preset_config.output_type = override_cfg.output_type
 
+            # Prune against the final actions: an override can re-add a tool
+            # the preset's skills no longer grant, and it keeps its tunnel.
+            preset_config.tool_tunnels = granted_tool_tunnels(
+                preset_config.tool_tunnels, preset_config.actions
+            )
             cfg = preset_config
         else:
             if args.agent_args.config is None:

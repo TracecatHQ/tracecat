@@ -777,6 +777,58 @@ async def test_build_config_applies_preset_output_type_override(
     assert cfg.actions == ["core.http_request"]
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("override_actions", "expected"),
+    [
+        (None, {"core.http_request": "dmz"}),
+        (["tools.test.dropped"], {"tools.test.dropped": "onprem"}),
+    ],
+    ids=["preset-actions", "override-re-adds-tool"],
+)
+async def test_build_config_prunes_tool_tunnels_after_action_override(
+    override_actions: list[str] | None,
+    expected: dict[str, str],
+) -> None:
+    """Tool tunnels are pruned against the final actions: a tool an override
+    re-adds keeps its tunnel instead of running direct, and a stale one is
+    dropped instead of failing the tool build."""
+    role = _user_role()
+    workflow_args = AgentWorkflowArgs(
+        role=role,
+        agent_args=RunAgentArgs(
+            session_id=uuid.uuid4(),
+            user_prompt="hello",
+            preset_slug="triage-agent",
+            config=cast(
+                Any,
+                AgentConfig(
+                    model_name="preset-override",
+                    model_provider="preset-override",
+                    actions=override_actions,
+                ),
+            ),
+        ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
+    )
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+    preset_config = AgentConfig(
+        model_name="claude-3-5-sonnet-20241022",
+        model_provider="anthropic",
+        actions=["core.http_request"],
+        tool_tunnels={"core.http_request": "dmz", "tools.test.dropped": "onprem"},
+    )
+
+    with patch(
+        "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
+        AsyncMock(return_value=agent_config_to_payload(preset_config)),
+    ):
+        cfg = await workflow_instance._build_config(workflow_args)
+
+    assert cfg.tool_tunnels == expected
+
+
 def test_approved_user_mcp_tool_name_from_normalized_approval() -> None:
     assert _approved_user_mcp_tool_name("mcp.Jira.getIssue") == ("mcp__Jira__getIssue")
     assert (

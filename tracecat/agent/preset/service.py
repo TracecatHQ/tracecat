@@ -75,6 +75,7 @@ from tracecat.agent.subagents import (
 from tracecat.agent.types import (
     AgentConfig,
     OutputType,
+    granted_tool_tunnels,
 )
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
@@ -622,21 +623,6 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.refresh(preset)
         return preset
 
-    @staticmethod
-    def _granted_tool_tunnels(
-        tool_tunnels: Mapping[str, str], *, granted: Collection[str]
-    ) -> dict[str, str] | None:
-        """Drop tunnels for tools the agent doesn't have.
-
-        Tool grants change through actions, skills and namespace filters, so a
-        saved map can name a tool that is no longer granted. Its tunnel has no
-        effect, and keeping it would fail every later save.
-        """
-        kept = {
-            name: tunnel for name, tunnel in tool_tunnels.items() if name in granted
-        }
-        return kept or None
-
     async def _validated_tool_tunnels(
         self, tool_tunnels: Mapping[str, str], *, granted: Collection[str]
     ) -> dict[str, str] | None:
@@ -653,7 +639,7 @@ class AgentPresetService(BaseWorkspaceService):
                 "Tunnels for MCP tools are set on the MCP integration, not per tool: "
                 f"{mcp_tools}"
             )
-        if (kept := self._granted_tool_tunnels(tool_tunnels, granted=granted)) is None:
+        if (kept := granted_tool_tunnels(tool_tunnels, granted=granted)) is None:
             return None
         await self._validate_actions(list(kept))
         if not await is_org_entitled(
@@ -820,7 +806,7 @@ class AgentPresetService(BaseWorkspaceService):
                     tool_tunnels, granted=granted
                 )
             elif preset.tool_tunnels:
-                kept = self._granted_tool_tunnels(preset.tool_tunnels, granted=granted)
+                kept = granted_tool_tunnels(preset.tool_tunnels, granted=granted)
                 if kept != preset.tool_tunnels:
                     set_fields["tool_tunnels"] = kept
 
@@ -1000,8 +986,13 @@ class AgentPresetService(BaseWorkspaceService):
         preset_version: int | None = None,
         resolve_dependencies_from_heads: bool = True,
         include_deleted: bool = False,
+        prune_tool_tunnels: bool = True,
     ) -> AgentConfig:
-        """Get an agent configuration from a preset by ID or slug with MCP integrations resolved."""
+        """Get an agent configuration from a preset by ID or slug with MCP integrations resolved.
+
+        ``prune_tool_tunnels=False`` keeps the version's whole tool tunnel map
+        for callers that change the actions afterwards and prune themselves.
+        """
         version = await self.resolve_agent_preset_version(
             preset_id=preset_id,
             slug=slug,
@@ -1011,6 +1002,7 @@ class AgentPresetService(BaseWorkspaceService):
         )
         return await self._version_to_agent_config(
             version,
+            prune_tool_tunnels=prune_tool_tunnels,
             resolve_dependencies_from_heads=resolve_dependencies_from_heads,
         )
 
@@ -2523,6 +2515,7 @@ class AgentPresetService(BaseWorkspaceService):
         version: AgentPresetVersion,
         *,
         resolve_dependencies_from_heads: bool = True,
+        prune_tool_tunnels: bool = True,
     ) -> AgentConfig:
         # Resolve refs only — no headers / stdio env. The resulting
         # AgentConfig is safe to cross Temporal boundaries. Trusted callers
@@ -2599,9 +2592,9 @@ class AgentPresetService(BaseWorkspaceService):
             # A skill published after this version can drop a tunneled tool;
             # its stale tunnel must not fail the run.
             tool_tunnels=(
-                self._granted_tool_tunnels(version.tool_tunnels, granted=policy.actions)
-                if version.tool_tunnels
-                else None
+                granted_tool_tunnels(version.tool_tunnels, granted=policy.actions)
+                if prune_tool_tunnels
+                else version.tool_tunnels or None
             ),
             mcp_servers=mcp_servers,
             agents=agents,

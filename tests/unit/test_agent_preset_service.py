@@ -4538,8 +4538,17 @@ async def test_stale_tool_tunnel_is_left_out_of_run_config(
     await session.commit()
 
     config = await agent_preset_service.resolve_agent_preset_config(preset_id=preset.id)
-
     assert config.tool_tunnels == {"tools.test.test_action": "onprem"}
+
+    # The workflow's root config keeps the whole map and prunes after action
+    # overrides, which can re-add the tool.
+    unpruned = await agent_preset_service.resolve_agent_preset_config(
+        preset_id=preset.id, prune_tool_tunnels=False
+    )
+    assert unpruned.tool_tunnels == {
+        "tools.test.test_action": "onprem",
+        "core.http_request": "onprem",
+    }
 
 
 @pytest.mark.anyio
