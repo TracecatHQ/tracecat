@@ -535,15 +535,7 @@ export function AgentPresetRailToolGroup({
     setValue("toolTunnels", next, { shouldDirty: true })
   }
 
-  function dropTunnels(keys: string[]) {
-    if (!keys.some((key) => key in toolTunnels)) return
-    const next = { ...toolTunnels }
-    for (const key of keys) delete next[key]
-    setValue("toolTunnels", next, { shouldDirty: true })
-  }
-
   function remove(key: string) {
-    dropTunnels([key])
     const next = removeTools(
       { actions: value.actions, toolApprovals: value.toolApprovals },
       new Set([key]),
@@ -563,7 +555,6 @@ export function AgentPresetRailToolGroup({
   }
 
   function removeAll() {
-    dropTunnels(rows.map((row) => row.key))
     const next = removeTools(
       { actions: value.actions, toolApprovals: value.toolApprovals },
       new Set(rows.map((row) => row.key)),

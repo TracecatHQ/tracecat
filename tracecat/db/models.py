@@ -4345,7 +4345,9 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         doc="Tool approval requirements by tool name",
     )
     tool_tunnels: Mapped[dict[str, str] | None] = mapped_column(
-        JSONB,
+        # Store ``None`` as SQL NULL, not JSON ``null``: tunnel reference
+        # checks expand this column with ``jsonb_each_text``.
+        JSONB(none_as_null=True),
         nullable=True,
         doc="Workspace tunnel name by registry action name for agent tool calls",
     )
@@ -4496,7 +4498,9 @@ class AgentPresetVersion(WorkspaceModel):
         doc="Tool approval requirements by tool name",
     )
     tool_tunnels: Mapped[dict[str, str] | None] = mapped_column(
-        JSONB,
+        # Store ``None`` as SQL NULL, not JSON ``null``: tunnel reference
+        # checks expand this column with ``jsonb_each_text``.
+        JSONB(none_as_null=True),
         nullable=True,
         doc="Workspace tunnel name by registry action name for agent tool calls",
     )

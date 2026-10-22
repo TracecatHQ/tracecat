@@ -355,14 +355,29 @@ class AgentActivities:
             # Fetch secrets per server, attach for ``tools/list``, and drop
             # them before returning so they never enter ``BuildToolDefsResult``
             # or leak across the Temporal boundary.
-            hydrated_servers: list[MCPHttpServerConfig] = [
-                {**cfg} for cfg in http_servers
-            ]
+            hydrated_servers: list[MCPHttpServerConfig] = []
+            for cfg in http_servers:
+                hydrated: MCPHttpServerConfig = {**cfg}
+                # The gateway proxy is only ever minted below from a checked
+                # tunnel. A caller-supplied one would skip the tunnel's
+                # ownership and allowed-target checks.
+                hydrated.pop("tunnel_proxy", None)
+                hydrated_servers.append(hydrated)
             configs_with_integration_id: list[
                 tuple[MCPHttpServerConfig, uuid.UUID]
             ] = []
             integration_id_by_server_name: dict[str, uuid.UUID] = {}
+            # Servers that must not be contacted, with the reason why.
+            unusable_servers: dict[str, str] = {}
             for hydrated in hydrated_servers:
+                if not hydrated.get("id") and hydrated.get("tunnel_id"):
+                    # Inline servers execute from their JWT claim, which has
+                    # no tunnel, so their calls would go direct.
+                    unusable_servers[hydrated["name"]] = (
+                        f"MCP server {hydrated['name']!r} sets a tunnel without "
+                        "an MCP integration. Tunnels are only supported on MCP "
+                        "integrations."
+                    )
                 if integration_id_str := hydrated.get("id"):
                     try:
                         integration_id = uuid.UUID(integration_id_str)
@@ -378,7 +393,6 @@ class AgentActivities:
             tool_policies_by_integration_id: dict[
                 uuid.UUID, dict[str, MCPToolSummary]
             ] = {}
-            unresolved_server_names: set[str] = set()
             if configs_with_integration_id:
                 async with AgentPresetService.with_session(role=role) as svc:
                     tool_policies_by_integration_id = (
@@ -389,28 +403,39 @@ class AgentActivities:
                             ]
                         )
                     )
-                    # Route by the integration row, not the payload, so a
-                    # payload that dropped ``tunnel_id`` can't go direct.
+                    # Address, route and credentials all come from the
+                    # integration row, as they do at execution. A stale or
+                    # edited payload can't send fresh credentials to an old
+                    # URL, or go direct by dropping ``tunnel_id``.
                     try:
                         refs = await svc.resolve_mcp_integration_refs(
                             [str(i) for _, i in configs_with_integration_id]
                         )
                     except TracecatValidationError:
                         refs = None
-                    tunnel_id_by_integration_id = {
-                        ref_id: ref.get("tunnel_id")
-                        if is_http_mcp_server(ref)
-                        else None
+                    http_ref_by_integration_id = {
+                        ref_id: ref
                         for ref in refs or []
-                        if (ref_id := ref.get("id"))
+                        if is_http_mcp_server(ref) and (ref_id := ref.get("id"))
                     }
                     for hydrated, integration_id in configs_with_integration_id:
-                        if str(integration_id) not in tunnel_id_by_integration_id:
-                            # Without the row we can't know its tunnel.
-                            unresolved_server_names.add(hydrated["name"])
-                        elif tunnel_id := tunnel_id_by_integration_id[
-                            str(integration_id)
-                        ]:
+                        ref = http_ref_by_integration_id.get(str(integration_id))
+                        if ref is None:
+                            unusable_servers[hydrated["name"]] = (
+                                f"MCP integration for server {hydrated['name']!r} "
+                                "was not found in this workspace"
+                            )
+                            continue
+                        hydrated["url"] = ref["url"]
+                        if (transport := ref.get("transport")) is not None:
+                            hydrated["transport"] = transport
+                        else:
+                            hydrated.pop("transport", None)
+                        if (timeout := ref.get("timeout")) is not None:
+                            hydrated["timeout"] = timeout
+                        else:
+                            hydrated.pop("timeout", None)
+                        if tunnel_id := ref.get("tunnel_id"):
                             hydrated["tunnel_id"] = tunnel_id
                         else:
                             hydrated.pop("tunnel_id", None)
@@ -428,15 +453,13 @@ class AgentActivities:
             # Temporal boundary. A tunnel that cannot be used fails closed.
             reachable_servers: list[MCPHttpServerConfig] = []
             for hydrated in hydrated_servers:
-                if hydrated["name"] in unresolved_server_names:
+                if reason := unusable_servers.get(hydrated["name"]):
                     if args.fail_on_mcp_discovery_error:
-                        raise MCPConfigurationError(
-                            f"MCP integration for server {hydrated['name']!r} "
-                            "was not found in this workspace"
-                        )
+                        raise MCPConfigurationError(reason)
                     logger.warning(
-                        "Skipping MCP server whose integration cannot be resolved",
+                        "Skipping MCP server that cannot be used",
                         server_name=hydrated["name"],
+                        reason=reason,
                     )
                     continue
                 if tunnel_id_str := hydrated.get("tunnel_id"):

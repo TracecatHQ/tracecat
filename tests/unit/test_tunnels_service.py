@@ -339,6 +339,47 @@ async def test_delete_in_use_lists_every_reference(
     assert renamed.name == "renamed"
 
 
+async def test_presets_without_tool_tunnels_do_not_break_reference_checks(
+    service: TunnelsService, session: AsyncSession, svc_role: Role
+) -> None:
+    """Presets with no tool tunnels, stored as SQL NULL or a legacy JSON
+    ``null``, are skipped by reference checks instead of failing them."""
+    import sqlalchemy as sa
+
+    from tracecat.db.models import AgentPreset
+
+    tunnel = await service.create_tunnel(_params())
+    assert svc_role.workspace_id is not None
+    unset = AgentPreset(
+        workspace_id=svc_role.workspace_id,
+        name="Plain",
+        slug="plain",
+        model_name="claude",
+        model_provider="anthropic",
+        tool_tunnels=None,
+    )
+    legacy_json_null = AgentPreset(
+        workspace_id=svc_role.workspace_id,
+        name="Legacy",
+        slug="legacy",
+        model_name="claude",
+        model_provider="anthropic",
+        tool_tunnels=sa.JSON.NULL,
+    )
+    session.add_all([unset, legacy_json_null])
+    await session.commit()
+
+    stored = await session.scalar(
+        sa.select(AgentPreset.tool_tunnels.is_(None)).where(AgentPreset.id == unset.id)
+    )
+    assert stored is True
+
+    assert await service.list_tunnel_references(tunnel) == []
+    renamed = await service.update_tunnel(tunnel, TunnelUpdate(name="renamed"))
+    assert renamed.name == "renamed"
+    await service.delete_tunnel(renamed)
+
+
 async def test_tunnels_require_kubernetes_gateway_backend(
     service: TunnelsService, monkeypatch: pytest.MonkeyPatch
 ) -> None:

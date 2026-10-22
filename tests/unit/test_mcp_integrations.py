@@ -5417,6 +5417,136 @@ class TestMCPProviderOAuth:
                 integration=integration, refresh_token="refresh"
             )
 
+    async def _add_tunnel(
+        self, integration_service: IntegrationService, session: AsyncSession
+    ) -> uuid.UUID:
+        from tracecat.db.models import WorkspaceTunnel
+
+        tunnel = WorkspaceTunnel(
+            workspace_id=integration_service.workspace_id,
+            name=f"onprem-{uuid.uuid4().hex[:8]}",
+            endpoint="https://pangolin.example.com",
+            client_id="client",
+            encrypted_client_secret=b"x",
+            allowed_targets=[{"host": "mcp.example.test", "ports": [443]}],
+        )
+        session.add(tunnel)
+        await session.commit()
+        return tunnel.id
+
+    async def test_tunneled_mcp_refuses_reused_oauth_connection(
+        self,
+        integration_service: IntegrationService,
+        oauth_integration: OAuthIntegration,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Only the MCP OAuth flow routes token calls through the tunnel, so a
+        tunneled server can't use another provider's connection, which would
+        refresh its tokens directly."""
+        tunnel_id = await self._add_tunnel(integration_service, session)
+        monkeypatch.setattr(integration_service, "_validate_mcp_tunnel", AsyncMock())
+
+        with pytest.raises(ValueError, match="own OAuth flow"):
+            await integration_service.create_mcp_integration(
+                params=MCPHttpIntegrationCreate(
+                    name="Tunneled reuse",
+                    server_uri="https://mcp.example.test/mcp",
+                    auth_type=MCPAuthType.OAUTH2,
+                    oauth_integration_id=oauth_integration.id,
+                    tunnel_id=tunnel_id,
+                )
+            )
+
+        direct = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Direct reuse",
+                server_uri="https://mcp.example.test/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=oauth_integration.id,
+            )
+        )
+        with pytest.raises(ValueError, match="own OAuth flow"):
+            await integration_service.update_mcp_integration(
+                mcp_integration_id=direct.id,
+                params=MCPIntegrationUpdate(tunnel_id=tunnel_id),
+            )
+
+        # A row that predates the check fails closed before any token call.
+        direct.tunnel_id = tunnel_id
+        await session.commit()
+        monkeypatch.setattr(
+            integration_service_module,
+            "resolve_mcp_tunnel_proxy",
+            AsyncMock(return_value="http://token@gateway:8080"),
+        )
+        refresh = AsyncMock()
+        monkeypatch.setattr(integration_service, "refresh_token_if_needed", refresh)
+        with pytest.raises(MCPConfigurationError, match="own OAuth flow"):
+            await integration_service.resolve_mcp_http_server_config(direct)
+        refresh.assert_not_awaited()
+
+    async def test_tunneled_mcp_checks_tunnel_before_token_refresh(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An unusable tunnel fails before an expired token is refreshed."""
+        integration = await self._store_expired_mcp_integration(
+            integration_service, session
+        )
+        tunnel_id = await self._add_tunnel(integration_service, session)
+        mcp_integration = MCPIntegration(
+            workspace_id=integration_service.workspace_id,
+            name="Tunneled MCP",
+            slug="tunneled-mcp-refresh",
+            server_type="http",
+            server_uri="https://mcp.example.test/mcp",
+            auth_type=MCPAuthType.OAUTH2,
+            oauth_integration_id=integration.id,
+            tunnel_id=tunnel_id,
+        )
+        session.add(mcp_integration)
+        await session.commit()
+        monkeypatch.setattr(
+            integration_service_module,
+            "resolve_mcp_tunnel_proxy",
+            AsyncMock(side_effect=MCPConfigurationError("Tunnel is disabled")),
+        )
+        refresh = AsyncMock()
+        monkeypatch.setattr(integration_service, "refresh_token_if_needed", refresh)
+
+        with pytest.raises(MCPConfigurationError, match="disabled"):
+            await integration_service.resolve_mcp_http_server_config(mcp_integration)
+        refresh.assert_not_awaited()
+
+    async def test_tunneled_oauth_endpoint_may_be_private_ip(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Through a tunnel, private IP literals are reachable targets; the
+        tunnel's allowed targets decide, not the public-endpoint check."""
+        monkeypatch.setattr(
+            mcp_tunnel_module,
+            "resolve_mcp_tunnel_proxy",
+            AsyncMock(return_value="http://token@gateway:8080"),
+        )
+        endpoint = "https://10.20.30.40/oauth/token"
+        with pytest.raises(ValueError, match="not allowed"):
+            await IntegrationService._validate_mcp_oauth_endpoint_reachable(endpoint)
+
+        async with mcp_tunnel_module.mcp_oauth_tunnel(
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            tunnel_id=uuid.uuid4(),
+            subject="mcp_integration:test",
+        ):
+            await IntegrationService._validate_mcp_oauth_endpoint_reachable(endpoint)
+            with pytest.raises(ValueError, match="HTTPS"):
+                await IntegrationService._validate_mcp_oauth_endpoint_reachable(
+                    "http://10.20.30.40/oauth/token"
+                )
+
     async def test_generic_mcp_refresh_rejects_private_token_endpoint_resolution(
         self,
         integration_service: IntegrationService,

@@ -42,13 +42,14 @@ from tracecat_ee.tunnels.service import (
 from tracecat_ee.tunnels.tokens import TunnelTokenError
 
 
-def _tunnel_in_use(exc: TunnelInUseError) -> HTTPException:
+def _tunnel_in_use(exc: TunnelInUseError, service: TunnelsService) -> HTTPException:
+    referenced_by = service.readable_references(exc.referenced_by)
     return HTTPException(
         status_code=status.HTTP_409_CONFLICT,
         detail={
             "code": "tunnel_in_use",
             "message": str(exc),
-            "referenced_by": [ref.model_dump(mode="json") for ref in exc.referenced_by],
+            "referenced_by": [ref.model_dump(mode="json") for ref in referenced_by],
         },
     )
 
@@ -193,7 +194,9 @@ async def get_tunnel(
     service = TunnelsService(session, role=role)
     try:
         tunnel = await service.get_tunnel(tunnel_id)
-        referenced_by = await service.list_tunnel_references(tunnel)
+        referenced_by = service.readable_references(
+            await service.list_tunnel_references(tunnel)
+        )
     except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
@@ -222,7 +225,7 @@ async def update_tunnel(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
     except TunnelInUseError as exc:
-        raise _tunnel_in_use(exc) from exc
+        raise _tunnel_in_use(exc, service) from exc
     except IntegrityError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=_TUNNEL_EXISTS
@@ -248,11 +251,11 @@ async def delete_tunnel(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
     except TunnelInUseError as exc:
-        raise _tunnel_in_use(exc) from exc
+        raise _tunnel_in_use(exc, service) from exc
     except IntegrityError as exc:
         # An MCP integration started using the tunnel after the reference check.
         raise _tunnel_in_use(
-            TunnelInUseError("Tunnel is in use. Reload and try again.", [])
+            TunnelInUseError("Tunnel is in use. Reload and try again.", []), service
         ) from exc
     except PangolinError as exc:
         raise HTTPException(

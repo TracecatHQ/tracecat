@@ -396,3 +396,68 @@ async def test_tunnels_without_gateway_backend_are_unavailable(
     assert "Kubernetes" in created.json()["detail"]
     issued = await client.post(f"/tunnels/{tunnel_id}/gateway-key")
     assert issued.status_code == 422
+
+
+async def test_tunnel_references_need_read_access_to_each_resource(
+    client: httpx.AsyncClient,
+    holder: _RoleHolder,
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    """``tunnel:read`` alone shows the tunnel but not the names or IDs of the
+    workflows, agents and integrations that use it."""
+    from tracecat.db.models import AgentPreset, MCPIntegration, Workflow
+    from tracecat.integrations.enums import MCPAuthType
+
+    created = await client.post("/tunnels", json=CREATE_BODY)
+    tunnel = created.json()
+    assert svc_role.workspace_id is not None
+    session.add_all(
+        [
+            MCPIntegration(
+                workspace_id=svc_role.workspace_id,
+                name="Private Splunk",
+                slug="private-splunk",
+                server_type="http",
+                server_uri="https://splunk.corp.example:8089/mcp",
+                auth_type=MCPAuthType.NONE,
+                tunnel_id=uuid.UUID(tunnel["id"]),
+            ),
+            AgentPreset(
+                workspace_id=svc_role.workspace_id,
+                name="Triage",
+                slug="triage",
+                model_name="claude",
+                model_provider="anthropic",
+                tool_tunnels={"tools.sublime.list_messages": tunnel["name"]},
+            ),
+            Workflow(
+                workspace_id=svc_role.workspace_id,
+                title="Enrich",
+                description="",
+                config={"tunnel": tunnel["name"]},
+            ),
+        ]
+    )
+    await session.commit()
+
+    full = await client.get(f"/tunnels/{tunnel['id']}")
+    assert {ref["kind"] for ref in full.json()["referenced_by"]} == {
+        "mcp_integration",
+        "agent_preset",
+        "workflow",
+    }
+
+    holder.role = svc_role.model_copy(
+        update={"scopes": frozenset({"tunnel:read", "agent:read"})}
+    )
+    narrow = await client.get(f"/tunnels/{tunnel['id']}")
+    assert narrow.status_code == 200
+    assert [ref["name"] for ref in narrow.json()["referenced_by"]] == ["Triage"]
+
+    holder.role = svc_role.model_copy(
+        update={"scopes": frozenset({"tunnel:read", "tunnel:delete"})}
+    )
+    blocked = await client.delete(f"/tunnels/{tunnel['id']}")
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"]["referenced_by"] == []

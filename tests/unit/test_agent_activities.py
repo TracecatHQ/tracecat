@@ -752,6 +752,157 @@ class TestBuildToolDefinitionsActivity:
             assert discover.await_args.args[0] == []
 
     @pytest.mark.anyio
+    async def test_mcp_discovery_drops_caller_supplied_tunnel_proxy(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        """A proxy URL in the incoming config is never used: it would bypass
+        the tunnel's ownership and allowed-target checks."""
+        integration_id = uuid.uuid4()
+        backed: dict[str, Any] = {
+            "type": "http",
+            "name": "Backed",
+            "url": "https://mcp.example.com/mcp",
+            "id": str(integration_id),
+        }
+        _patch_preset_service(monkeypatch, policies={}, refs=[dict(backed)])
+        _patch_registry(monkeypatch)
+        discover = AsyncMock(return_value={})
+        monkeypatch.setattr(user_client, "discover_user_mcp_tools", discover)
+        inline = {
+            "type": "http",
+            "name": "Inline",
+            "url": "https://mcp.other.example/mcp",
+        }
+        attacker_proxy = "http://attacker.example:8080"
+
+        await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=mock_role,
+                tool_filters=ToolFilters(actions=[]),
+                mcp_servers=[
+                    cast(Any, {**backed, "tunnel_proxy": attacker_proxy}),
+                    cast(Any, {**inline, "tunnel_proxy": attacker_proxy}),
+                ],
+            )
+        )
+
+        assert discover.await_args is not None
+        configs = discover.await_args.args[0]
+        assert [cfg["name"] for cfg in configs] == ["Backed", "Inline"]
+        assert all("tunnel_proxy" not in cfg for cfg in configs)
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("strict", [False, True])
+    async def test_mcp_discovery_refuses_inline_server_with_tunnel(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+        strict: bool,
+    ) -> None:
+        """An inline server can't carry its tunnel into tool calls, so it is
+        never discovered rather than having its calls go direct."""
+        from tracecat.integrations import mcp_tunnel
+
+        _patch_registry(monkeypatch)
+        resolve_proxy = AsyncMock(return_value="http://token@gateway:8080")
+        monkeypatch.setattr(mcp_tunnel, "resolve_mcp_tunnel_proxy", resolve_proxy)
+        discover = AsyncMock(return_value={})
+        monkeypatch.setattr(user_client, "discover_user_mcp_tools", discover)
+        args = BuildToolDefsArgs(
+            role=mock_role,
+            tool_filters=ToolFilters(actions=[]),
+            mcp_servers=[
+                cast(
+                    Any,
+                    {
+                        "type": "http",
+                        "name": "Inline",
+                        "url": "https://mcp.internal.example/mcp",
+                        "tunnel_id": str(uuid.uuid4()),
+                    },
+                )
+            ],
+            fail_on_mcp_discovery_error=strict,
+        )
+
+        if strict:
+            with pytest.raises(Exception, match="only supported on MCP integrations"):
+                await AgentActivities().build_tool_definitions(args)
+            discover.assert_not_awaited()
+        else:
+            await AgentActivities().build_tool_definitions(args)
+            assert discover.await_args is not None
+            assert discover.await_args.args[0] == []
+        resolve_proxy.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_mcp_discovery_uses_integration_row_address(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+    ) -> None:
+        """URL, timeout and tunnel all come from the integration row, so
+        fresh credentials never reach an address from a stale payload."""
+        from tracecat.integrations import mcp_tunnel
+
+        integration_id = uuid.uuid4()
+        tunnel_id = str(uuid.uuid4())
+        _patch_preset_service(
+            monkeypatch,
+            policies={},
+            secrets={"authorization": "Bearer fresh"},
+            refs=[
+                {
+                    "type": "http",
+                    "name": "Private",
+                    "url": "https://mcp.current.example/mcp",
+                    "id": str(integration_id),
+                    "timeout": 30,
+                    "tunnel_id": tunnel_id,
+                }
+            ],
+        )
+        _patch_registry(monkeypatch)
+        monkeypatch.setattr(
+            mcp_tunnel,
+            "resolve_mcp_tunnel_proxy",
+            AsyncMock(return_value="http://token@gateway:8080"),
+        )
+        discover = AsyncMock(return_value={})
+        monkeypatch.setattr(user_client, "discover_user_mcp_tools", discover)
+
+        await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=mock_role,
+                tool_filters=ToolFilters(actions=[]),
+                mcp_servers=[
+                    cast(
+                        Any,
+                        {
+                            "type": "http",
+                            "name": "Private",
+                            "url": "https://mcp.former.example/mcp",
+                            "transport": "sse",
+                            "timeout": 5,
+                            "id": str(integration_id),
+                        },
+                    )
+                ],
+            )
+        )
+
+        assert discover.await_args is not None
+        [config] = discover.await_args.args[0]
+        assert config["url"] == "https://mcp.current.example/mcp"
+        assert config["timeout"] == 30
+        assert "transport" not in config
+        assert config["tunnel_id"] == tunnel_id
+        assert config["headers"] == {"authorization": "Bearer fresh"}
+        assert config["tunnel_proxy"] == "http://token@gateway:8080"
+
+    @pytest.mark.anyio
     async def test_rejects_tool_tunnels_for_tools_the_agent_lacks(
         self,
         monkeypatch: pytest.MonkeyPatch,

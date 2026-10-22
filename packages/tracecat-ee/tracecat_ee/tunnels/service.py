@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.audit.logger import audit_log
 from tracecat.auth.secrets import get_db_encryption_key
-from tracecat.authz.controls import require_scope
+from tracecat.authz.controls import has_scope, require_scope
 from tracecat.db.models import (
     Action,
     AgentPreset,
@@ -236,6 +236,17 @@ class TunnelsService(BaseWorkspaceService):
         await sync_gateway(tunnel)
         return tunnel
 
+    def readable_references(
+        self, references: list[TunnelReference]
+    ) -> list[TunnelReference]:
+        """Keep only references to resources the caller may read.
+
+        ``tunnel:read`` alone must not reveal workflow, agent or integration
+        names and IDs.
+        """
+        scopes = self.role.scopes or frozenset()
+        return [ref for ref in references if has_scope(scopes, ref.kind.read_scope)]
+
     @require_scope("tunnel:read")
     async def list_tunnel_references(
         self, tunnel: WorkspaceTunnel, *, limit: int = 200
@@ -265,9 +276,14 @@ class TunnelsService(BaseWorkspaceService):
             for row in mcp_rows
         )
 
-        tool_tunnels = func.jsonb_each_text(AgentPreset.tool_tunnels).table_valued(
-            "key", "value"
+        # ``jsonb_each_text`` raises on a JSON ``null``; expand objects only.
+        tunnel_map = sa.case(
+            (
+                func.jsonb_typeof(AgentPreset.tool_tunnels) == "object",
+                AgentPreset.tool_tunnels,
+            )
         )
+        tool_tunnels = func.jsonb_each_text(tunnel_map).table_valued("key", "value")
         preset_tools = (
             select(func.string_agg(tool_tunnels.c.key, ", "))
             .where(tool_tunnels.c.value == tunnel.name)

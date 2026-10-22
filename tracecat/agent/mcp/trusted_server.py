@@ -88,6 +88,9 @@ _USER_MCP_DISCOVERY_CACHE_MAX_SIZE = 512
 
 
 class _UserMCPDiscoveryCacheKey(NamedTuple):
+    workspace_id: uuid.UUID | None
+    integration_id: str | None
+    tunnel_id: str | None
     server_name: str
     url: str
     transport: str
@@ -222,11 +225,17 @@ def _safe_user_mcp_error_summary(exc: Exception) -> str:
 
 def _user_mcp_discovery_cache_key(
     config: MCPHttpServerConfig,
+    workspace_id: uuid.UUID | None,
 ) -> _UserMCPDiscoveryCacheKey:
-    # Key on the resolved config rather than the integration id: an edit to an
+    # Key on the resolved config as well as the integration id: an edit to an
     # integration's URL or credentials (same id/name) must miss the cache
     # immediately instead of serving the previous endpoint's tools for a TTL.
+    # The same URL can reach different servers through different tunnels, so
+    # workspace and tunnel identity are part of the key too.
     return _UserMCPDiscoveryCacheKey(
+        workspace_id=workspace_id,
+        integration_id=config.get("id"),
+        tunnel_id=config.get("tunnel_id"),
         server_name=config["name"],
         url=config["url"],
         transport=config.get("transport", "http"),
@@ -265,9 +274,10 @@ def _evict_user_mcp_discovery_cache(now: float) -> None:
 
 async def _get_cached_user_mcp_discovery(
     config: MCPHttpServerConfig,
+    workspace_id: uuid.UUID | None,
 ) -> dict[str, MCPToolDefinition] | None:
     now = time.monotonic()
-    cache_key = _user_mcp_discovery_cache_key(config)
+    cache_key = _user_mcp_discovery_cache_key(config, workspace_id)
     async with _USER_MCP_DISCOVERY_CACHE_LOCK:
         _evict_user_mcp_discovery_cache(now)
         if entry := _USER_MCP_DISCOVERY_CACHE.get(cache_key):
@@ -277,10 +287,11 @@ async def _get_cached_user_mcp_discovery(
 
 async def _set_cached_user_mcp_discovery(
     config: MCPHttpServerConfig,
+    workspace_id: uuid.UUID | None,
     definitions: dict[str, MCPToolDefinition],
 ) -> None:
     now = time.monotonic()
-    cache_key = _user_mcp_discovery_cache_key(config)
+    cache_key = _user_mcp_discovery_cache_key(config, workspace_id)
     entry = _UserMCPDiscoveryCacheEntry(
         expires_at=now + _USER_MCP_DISCOVERY_CACHE_TTL_SECONDS,
         definitions=dict(definitions),
@@ -549,7 +560,7 @@ async def _discover_allowed_user_mcp_tools(
     discovered: dict[str, MCPToolDefinition] = {}
     uncached_configs: list[MCPHttpServerConfig] = []
     for config in configs:
-        cached = await _get_cached_user_mcp_discovery(config)
+        cached = await _get_cached_user_mcp_discovery(config, role.workspace_id)
         if cached is None:
             uncached_configs.append(config)
         else:
@@ -567,6 +578,7 @@ async def _discover_allowed_user_mcp_tools(
                 continue
             await _set_cached_user_mcp_discovery(
                 config,
+                role.workspace_id,
                 _user_mcp_definitions_for_server(discovery.definitions, server_name),
             )
 

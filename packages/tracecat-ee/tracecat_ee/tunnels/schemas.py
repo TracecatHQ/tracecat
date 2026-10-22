@@ -323,6 +323,17 @@ class TunnelReferenceKind(StrEnum):
         """Whether the resource stores the tunnel name rather than its ID."""
         return self is not TunnelReferenceKind.MCP_INTEGRATION
 
+    @property
+    def read_scope(self) -> str:
+        """The scope a caller needs to see this kind of resource."""
+        match self:
+            case TunnelReferenceKind.MCP_INTEGRATION:
+                return "integration:read"
+            case TunnelReferenceKind.AGENT_PRESET:
+                return "agent:read"
+            case TunnelReferenceKind.WORKFLOW:
+                return "workflow:read"
+
 
 class TunnelReference(BaseModel):
     """A workspace resource that routes traffic through a tunnel."""

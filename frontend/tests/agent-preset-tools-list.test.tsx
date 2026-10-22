@@ -2,7 +2,10 @@ import { fireEvent, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ComponentProps } from "react"
 import { useForm } from "react-hook-form"
-import { AgentPresetToolsList } from "@/components/agents/agent-preset-tools-list"
+import {
+  AgentPresetToolsList,
+  usePresetToolFields,
+} from "@/components/agents/agent-preset-tools-list"
 import { ToolSelectionList } from "@/components/tools/tool-selection-list"
 import { Form } from "@/components/ui/form"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -690,4 +693,54 @@ it("writes only the changed field on a toggle", async () => {
     ],
     { shouldDirty: true }
   )
+})
+
+describe("usePresetToolFields tool tunnels", () => {
+  type FormFields = PresetToolFields & { toolTunnels: Record<string, string> }
+
+  function RemoveFirst() {
+    const { value, onChange } = usePresetToolFields()
+    return (
+      <button
+        type="button"
+        onClick={() => onChange({ ...value, actions: value.actions.slice(1) })}
+      >
+        remove first
+      </button>
+    )
+  }
+
+  function TunnelForm() {
+    const form = useForm<FormFields>({
+      defaultValues: {
+        ...defaults,
+        toolTunnels: {
+          [actions[0].action]: "onprem",
+          [actions[1].action]: "onprem",
+          "tools.skill.granted": "onprem",
+        },
+      },
+    })
+    return (
+      <Form {...form}>
+        <RemoveFirst />
+        <output data-testid="tunnels">
+          {JSON.stringify(form.watch("toolTunnels"))}
+        </output>
+      </Form>
+    )
+  }
+
+  it("drops the tunnel of a removed tool and keeps the rest", async () => {
+    render(<TunnelForm />)
+
+    await userEvent.click(screen.getByRole("button", { name: "remove first" }))
+
+    expect(JSON.parse(screen.getByTestId("tunnels").textContent ?? "")).toEqual(
+      {
+        [actions[1].action]: "onprem",
+        "tools.skill.granted": "onprem",
+      }
+    )
+  })
 })
