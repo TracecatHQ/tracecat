@@ -13,7 +13,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from tests.unit.test_durable_workspace_sync import push_inputs
 from tracecat.db.models import WorkspaceSyncOperation
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
 from tracecat.workspace_sync.operations.domain import fingerprint
 from tracecat.workspace_sync.operations.lifecycle_client import SyncLifecycleService
 from tracecat.workspace_sync.operations.lifecycle_types import (
@@ -22,7 +22,10 @@ from tracecat.workspace_sync.operations.lifecycle_types import (
     SyncLifecycleState,
     SyncPreparedRef,
 )
-from tracecat.workspace_sync.operations.schemas import SyncOperationCommand
+from tracecat.workspace_sync.operations.schemas import (
+    SyncOperationCommand,
+    SyncOperationCreate,
+)
 from tracecat.workspace_sync.operations.service import SyncOperationService
 from tracecat.workspace_sync.operations.types import (
     SyncOperationConflictError,
@@ -278,3 +281,39 @@ async def test_terminal_history_survives_temporal_retention(
     )
     with pytest.raises(SyncOperationConflictError):
         await SyncLifecycleService(session, svc_role).create(changed)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("kind", ["apply", "retry"])
+@pytest.mark.parametrize("direction", ["push", "pull"])
+async def test_push_command_checks_scope_before_consuming_preview(
+    session, svc_role, monkeypatch, kind, direction
+):
+    inputs = (
+        push_inputs()
+        if direction == "push"
+        else SyncOperationCreate.model_validate(
+            {
+                "id": str(uuid.uuid4()),
+                "direction": "pull",
+                "pull": {"commit_sha": "a" * 40},
+            }
+        )
+    )
+    role = svc_role.model_copy(update={"scopes": frozenset({"workflow:sync"})})
+    value = snapshot(
+        inputs, role, status="ready" if kind == "apply" else "failed", revision=3
+    )
+    _, handle = temporal_client(monkeypatch, [value])
+    command = SyncOperationCommand(
+        command_id=uuid.uuid4(), preview_revision=1, state_revision=3
+    )
+    if direction == "push":
+        with pytest.raises(ScopeDeniedError):
+            await SyncLifecycleService(session, role).command(inputs.id, kind, command)
+        handle.execute_update.assert_not_awaited()
+        # Restoring access can use the same preview and command: none was consumed.
+        await SyncLifecycleService(session, svc_role).command(inputs.id, kind, command)
+    else:
+        await SyncLifecycleService(session, role).command(inputs.id, kind, command)
+    handle.execute_update.assert_awaited_once()
