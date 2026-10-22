@@ -26,7 +26,6 @@ from tracecat.query.errors import TracecatQueryOverflowError
 from tracecat.search.router import router as semantic_search_router
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat.tables.enums import SqlType
-from tracecat.tables.exceptions import TableColumnConflictError
 from tracecat.tables.schemas import (
     AggregateResponse,
     TableAggregateRequest,
@@ -278,10 +277,6 @@ async def create_column(
         table = await service.get_table_by_name(table_name)
         await service.create_column(table, params)
         refreshed = await service.get_table(table.id, populate_existing=True)
-    except TableColumnConflictError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -314,10 +309,6 @@ async def update_column(
         column = _find_column_by_name(table, column_name)
         await service.update_column(column, params)
         refreshed = await service.get_table(table.id, populate_existing=True)
-    except TableColumnConflictError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -26,7 +26,6 @@ from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import Case, CaseFields, WorkspaceSyncResourceMapping
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.tables.enums import SqlType
-from tracecat.tables.exceptions import TableColumnConflictError
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -472,12 +471,12 @@ class TestCaseFieldsService:
 
         cases: list[tuple[str, CaseFieldUpdate, type[Exception], str]] = [
             ("missing", CaseFieldUpdate(name="renamed"), TracecatNotFoundError, ""),
-            ("notes", CaseFieldUpdate(nullable=False), TableColumnConflictError, ""),
+            ("notes", CaseFieldUpdate(nullable=False), ValueError, "existing rows"),
             (
                 "label",
                 CaseFieldUpdate(type=SqlType.INTEGER),
                 ValueError,
-                "Column type cannot be changed",
+                "Column type is incompatible",
             ),
         ]
         for field_id, params, error, match in cases:
