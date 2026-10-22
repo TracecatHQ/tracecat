@@ -91,6 +91,9 @@ class ToolUseStreamRewriter:
         self._buffer = b""
         self._pending: dict[int, _PendingToolUse] = {}
         self.error: dict[str, Any] | None = None
+        # Stream progress for observability; never carries event content.
+        self.event_count = 0
+        self.saw_message_stop = False
 
     def feed(self, chunk: bytes) -> bytes:
         """Consume upstream bytes and return the bytes ready to forward."""
@@ -114,6 +117,7 @@ class ToolUseStreamRewriter:
         return b"".join(out)
 
     def _handle_event(self, event: bytes) -> bytes:
+        self.event_count += 1
         payload = _sse_data(event)
         if payload is None:
             # Comments and pings carry no block index; forward them as-is.
@@ -145,6 +149,9 @@ class ToolUseStreamRewriter:
                 return b""
             case {"type": "error", "error": dict() as error}:
                 self.error = error
+                return event
+            case {"type": "message_stop"}:
+                self.saw_message_stop = True
                 return event
             case {"type": "content_block_stop", "index": int(index)}:
                 pending = self._pending.pop(index, None)

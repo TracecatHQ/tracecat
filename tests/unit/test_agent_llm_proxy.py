@@ -30,6 +30,7 @@ from tracecat.agent.sandbox.llm_proxy import (
     _rewrite_json_body,
     _UpstreamRateLimited,
 )
+from tracecat.agent.sandbox.tool_use_rewrite import ToolUseStreamRewriter
 from tracecat.agent.tokens import LLMRouteClaim, mint_llm_token
 from tracecat.runtime.errors import (
     RetryDisposition,
@@ -337,11 +338,17 @@ async def test_forward_request_emits_error_for_critical_upstream_http_error(
 async def test_forward_request_classifies_connect_failure_as_platform(
     tmp_path: Path,
 ) -> None:
+    attempts = 0
+
     async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
         raise httpx.ConnectError("gateway unavailable", request=request)
 
     _, errors = await _forward(tmp_path, handler, _request())
 
+    # Nothing was sent, so the managed route retries the connect once.
+    assert attempts == 2
     assert len(errors) == 1
     assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
     assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
@@ -531,7 +538,7 @@ async def test_write_stream_response_classifies_typed_upstream_error_event(
         status_code=200,
         reason_phrase="OK",
         headers={"Content-Type": "text/event-stream"},
-        body_chunks=llm_proxy._rewrite_sse_stream(upstream()),
+        body_chunks=llm_proxy._rewrite_sse_stream(upstream(), ToolUseStreamRewriter()),
         trace_request_id="trace-test-upstream-error",
         path="/v1/messages",
     )
@@ -569,7 +576,7 @@ async def test_write_stream_response_forwards_untyped_upstream_error_event(
         status_code=200,
         reason_phrase="OK",
         headers={"Content-Type": "text/event-stream"},
-        body_chunks=llm_proxy._rewrite_sse_stream(upstream()),
+        body_chunks=llm_proxy._rewrite_sse_stream(upstream(), ToolUseStreamRewriter()),
         trace_request_id="trace-test-overloaded",
         path="/v1/messages",
     )
@@ -2093,3 +2100,212 @@ def test_rate_limit_wait_falls_back_to_jittered_backoff(
     assert 1.0 <= _rate_limit_wait(_rate_limited_retry_state(1, retry_after)) <= 1.5
     assert 4.0 <= _rate_limit_wait(_rate_limited_retry_state(3, retry_after)) <= 4.5
     assert _rate_limit_wait(_rate_limited_retry_state(10, retry_after)) == 20.0
+
+
+_SSE_MESSAGE_START = b'event: message_start\ndata: {"type":"message_start"}\n\n'
+_SSE_MESSAGE_STOP = b'event: message_stop\ndata: {"type":"message_stop"}\n\n'
+
+
+class _CutSSEStream(httpx.AsyncByteStream):
+    """SSE body that dies after its first event, like a gateway pod going away."""
+
+    def __init__(self, error: type[httpx.TransportError]) -> None:
+        self._error = error
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield _SSE_MESSAGE_START
+        raise self._error("peer closed connection without sending complete message")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("error", [httpx.RemoteProtocolError, httpx.ReadError])
+async def test_managed_stream_cut_after_headers_is_stream_interrupted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error: type[httpx.TransportError],
+) -> None:
+    log = Mock()
+    monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy.logger", log)
+    upstream_request_ids: list[str | None] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        upstream_request_ids.append(request.headers.get("x-request-id"))
+        return httpx.Response(
+            200,
+            headers={
+                "Content-Type": "text/event-stream",
+                "X-Tracecat-Gateway": "litellm-0/42",
+            },
+            stream=_CutSSEStream(error),
+        )
+
+    response_text, errors = await _forward(
+        tmp_path,
+        handler,
+        _request({"stream": True, "messages": _HELLO}, headers=_LLM_HEADERS),
+    )
+
+    # The partial response already reached the runtime: no transparent retry.
+    assert len(upstream_request_ids) == 1
+    assert response_text.startswith("HTTP/1.1 200 OK")
+    assert response_text.count("HTTP/1.1") == 1
+    assert "event: message_start" in response_text
+    assert "event: error" in response_text
+    assert len(errors) == 1
+    classification = errors[0].classification
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_STREAM_INTERRUPTED
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert classification.cause_type == error.__name__
+
+    stream_log = next(
+        call
+        for call in log.warning.call_args_list
+        if call.args == ("Stream error after headers sent, emitting SSE error event",)
+    )
+    trace_request_id = upstream_request_ids[0]
+    assert trace_request_id is not None
+    assert f"X-Request-ID: {trace_request_id}" in response_text
+    assert stream_log.kwargs["error_type"] == error.__name__
+    assert stream_log.kwargs["route"] == "managed"
+    assert stream_log.kwargs["trace_request_id"] == trace_request_id
+    assert stream_log.kwargs["response_bytes"] == len(_SSE_MESSAGE_START)
+    assert stream_log.kwargs["sse_events"] == 1
+    assert stream_log.kwargs["saw_message_stop"] is False
+    assert stream_log.kwargs["gateway_identity"] == "litellm-0/42"
+    assert stream_log.kwargs["stream_duration_ms"] >= 0
+    # Progress fields stay content-free.
+    assert "hello" not in str(log.mock_calls)
+
+
+@pytest.mark.anyio
+async def test_direct_stream_cut_after_headers_keeps_user_attribution(
+    tmp_path: Path,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/event-stream"},
+            stream=_CutSSEStream(httpx.RemoteProtocolError),
+        )
+
+    request, plan = _direct_or_managed(True)
+    _, errors = await _forward(tmp_path, handler, request, routing_plan=plan)
+
+    assert len(errors) == 1
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    assert errors[0].classification.owner is RuntimeErrorOwner.USER
+
+
+@pytest.mark.anyio
+async def test_completed_stream_logs_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log = Mock()
+    monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy.logger", log)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/event-stream"},
+            content=_SSE_MESSAGE_START + _SSE_MESSAGE_STOP,
+        )
+
+    _, errors = await _forward(
+        tmp_path,
+        handler,
+        _request(
+            {"stream": True, "messages": _HELLO},
+            headers={**_LLM_HEADERS, "X-Request-ID": "trace-complete"},
+        ),
+    )
+
+    assert errors == []
+    finished = next(
+        call
+        for call in log.info.call_args_list
+        if call.args == ("LLM proxy stream finished",)
+    )
+    assert finished.kwargs["trace_request_id"] == "trace-complete"
+    assert finished.kwargs["response_bytes"] == len(
+        _SSE_MESSAGE_START + _SSE_MESSAGE_STOP
+    )
+    assert finished.kwargs["sse_events"] == 2
+    assert finished.kwargs["saw_message_stop"] is True
+    assert finished.kwargs["gateway_identity"] is None
+
+
+@pytest.mark.anyio
+async def test_forward_request_retries_managed_connect_error_once(
+    tmp_path: Path,
+) -> None:
+    attempts = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            # A gateway pod that stopped listening before endpoints updated.
+            raise httpx.ConnectError("connection refused", request=request)
+        return httpx.Response(200, json={"ok": True})
+
+    response_text, errors = await _forward(tmp_path, handler)
+
+    assert attempts == 2
+    assert response_text.startswith("HTTP/1.1 200 OK")
+    assert errors == []
+
+
+@pytest.mark.anyio
+async def test_forward_request_does_not_retry_direct_connect_error(
+    tmp_path: Path,
+) -> None:
+    attempts = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        raise httpx.ConnectError("connection refused", request=request)
+
+    request, plan = _direct_or_managed(True)
+    _, errors = await _forward(tmp_path, handler, request, routing_plan=plan)
+
+    assert attempts == 1
+    assert len(errors) == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("direct", "inbound_headers", "expected"),
+    [
+        (False, {}, "generated"),
+        (False, {"x-request-id": "trace-inbound"}, "trace-inbound"),
+        (True, {}, None),
+    ],
+)
+async def test_forward_request_sends_trace_request_id_to_gateway(
+    tmp_path: Path,
+    direct: bool,
+    inbound_headers: dict[str, str],
+    expected: str | None,
+) -> None:
+    sent: list[list[str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(request.headers.get_list("x-request-id"))
+        return _ok(request)
+
+    request, plan = _direct_or_managed(direct)
+    request = cast(
+        ParsedRequest, {**request, "headers": {**_LLM_HEADERS, **inbound_headers}}
+    )
+    response_text, _ = await _forward(tmp_path, handler, request, routing_plan=plan)
+
+    if expected is None:
+        assert sent == [[]]
+    elif expected == "generated":
+        assert len(sent[0]) == 1
+        assert f"X-Request-ID: {sent[0][0]}" in response_text
+    else:
+        assert sent == [[expected]]
