@@ -62,6 +62,9 @@ def without_inputs(errors: Sequence[Any]) -> list[Any]:
     ]
 
 
+_SURROGATES = re.compile(r"[\ud800-\udfff]")
+
+
 def serialize_validation_errors(errors: Sequence[Any]) -> list[Any]:
     """Make validation errors safe for UTF-8 JSON."""
     errors = _replace_surrogates(errors)
@@ -71,7 +74,7 @@ def serialize_validation_errors(errors: Sequence[Any]) -> list[Any]:
 def _replace_surrogates(value: Any) -> Any:
     # pydantic_core rejects surrogate keys; fallback=str can reintroduce them.
     if isinstance(value, str):
-        return re.sub(r"[\ud800-\udfff]", "\ufffd", value)
+        return value if value.isascii() else _SURROGATES.sub("\ufffd", value)
     if isinstance(value, (list, tuple)):
         return [_replace_surrogates(item) for item in value]
     if isinstance(value, dict):
