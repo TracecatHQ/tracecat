@@ -86,7 +86,11 @@ class WorkspaceSyncLifecycleWorkflow:
             )
         if self.state.status in {"applying", "completed"}:
             return self._accept("apply", command)
-        if self.state.status != "ready" or workflow.now() >= self.state.expires_at:
+        if (
+            self.state.status != "ready"
+            or command.state_revision != self.state.revision
+            or workflow.now() >= self.state.expires_at
+        ):
             raise ApplicationError(
                 "A fresh successful preview is required", type="SyncCommandConflict"
             )
