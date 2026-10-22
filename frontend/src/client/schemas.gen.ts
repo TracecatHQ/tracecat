@@ -42892,6 +42892,73 @@ export const $WorkflowExecutionTerminate = {
   title: "WorkflowExecutionTerminate",
 } as const
 
+export const $WorkflowExportCode = {
+  type: "string",
+  enum: ["no_actions", "invalid_definition", "missing_child_workflow"],
+} as const
+
+export const $WorkflowExportDiagnostic = {
+  properties: {
+    workflow_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workflow Id",
+      description: "Authorized local workflow ID.",
+    },
+    workflow_title: {
+      type: "string",
+      title: "Workflow Title",
+      description: "Workflow display title.",
+    },
+    source_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Id",
+      description: "Existing stable Git ID.",
+    },
+    source_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Path",
+      description: "Existing repository path.",
+    },
+    stage: {
+      $ref: "#/components/schemas/WorkflowExportStage",
+      description: "Export stage that failed.",
+    },
+    code: {
+      $ref: "#/components/schemas/WorkflowExportCode",
+      description: "Machine-readable corrective error code.",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+      description: "Safe corrective message without workflow inputs.",
+    },
+  },
+  type: "object",
+  required: ["workflow_id", "workflow_title", "stage", "code", "message"],
+  title: "WorkflowExportDiagnostic",
+  description: "Safe workflow context for an export that cannot proceed.",
+} as const
+
+export const $WorkflowExportStage = {
+  type: "string",
+  enum: ["definition", "dependency"],
+} as const
+
 export const $WorkflowFolderCreate = {
   properties: {
     name: {
@@ -44796,6 +44863,33 @@ export const $WorkspaceSettingsUpdate = {
   },
   type: "object",
   title: "WorkspaceSettingsUpdate",
+} as const
+
+export const $WorkspaceSyncExportError = {
+  properties: {
+    detail: {
+      type: "string",
+      title: "Detail",
+      description: "Human-readable failure summary.",
+    },
+    diagnostics: {
+      items: {
+        $ref: "#/components/schemas/WorkflowExportDiagnostic",
+      },
+      type: "array",
+      title: "Diagnostics",
+    },
+    omitted_count: {
+      type: "integer",
+      title: "Omitted Count",
+      default: 0,
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "WorkspaceSyncExportError",
+  description:
+    "Additive diagnostics while retaining the legacy string detail field.",
 } as const
 
 export const $WorkspaceSyncExportPreview = {

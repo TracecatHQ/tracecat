@@ -52,8 +52,7 @@ from tracecat.sync import (
     SecretStoreMappingRequirement,
     SyncPreviewResource,
 )
-from tracecat.workflow.management.definitions import WorkflowDefinitionsService
-from tracecat.workflow.management.management import WorkflowsManagementService
+from tracecat.workflow.store.export_definitions import WorkflowExportDefinitionService
 from tracecat.workflow.store.import_service import (
     WorkflowImportError,
     WorkflowImportService,
@@ -79,6 +78,7 @@ from tracecat.workspace_sync.adapters.base import (
     SyncMappingService,
 )
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
+from tracecat.workspace_sync.exceptions import WorkflowExportValidationError
 from tracecat.workspace_sync.importer import (
     ImportedResource,
     WorkspaceResourceImportService,
@@ -100,6 +100,7 @@ from tracecat.workspace_sync.schemas import (
     AgentPresetSkillBinding,
     AgentPresetSubagentRef,
     ResourceRef,
+    WorkflowExportDiagnostic,
     WorkflowResourceSpec,
     WorkspaceManifest,
     WorkspaceManifestResources,
@@ -498,8 +499,6 @@ class WorkspaceSyncService(SyncMappingService):
         )
         workflows = workflow_closure.workflows
         dsl_by_id = workflow_closure.dsl_by_id
-        defn_service = WorkflowDefinitionsService(session=self.session, role=self.role)
-        mgmt_service = WorkflowsManagementService(session=self.session, role=self.role)
         specs: dict[str, WorkflowResourceSpec] = {}
         source_workflow_ids: dict[WorkflowUUID, str] = {}
 
@@ -522,11 +521,7 @@ class WorkspaceSyncService(SyncMappingService):
             )
             dsl = dsl_by_id.get(workflow.id)
             if dsl is None:
-                dsl = await self._get_workflow_dsl(
-                    workflow,
-                    defn_service=defn_service,
-                    mgmt_service=mgmt_service,
-                )
+                dsl = await self._get_workflow_dsl(workflow)
                 dsl_by_id[workflow.id] = dsl
             source_id = await self._source_id_for_workflow(
                 workflow=workflow,
@@ -1406,24 +1401,12 @@ class WorkspaceSyncService(SyncMappingService):
         The result preserves the global creation order and includes any DSLs
         read while resolving selected workflow dependencies.
         """
-        if selection is None:
-            return ProjectableWorkflowClosure(
-                workflows=await self._list_projectable_workflows(workflow_ids=None),
-                dsl_by_id={},
-            )
-
-        # A selection without a workflow entry exports no workflows at all.
-        if SyncResourceType.WORKFLOW not in selection:
+        # Resolve every definition before projection can create any mappings.
+        if selection is not None and SyncResourceType.WORKFLOW not in selection:
             return ProjectableWorkflowClosure(workflows=[], dsl_by_id={})
-
-        # An empty id set means "all workflows" (select-all of the type).
-        selected_workflow_ids = selection.get(SyncResourceType.WORKFLOW, set())
-        if not selected_workflow_ids:
-            return ProjectableWorkflowClosure(
-                workflows=await self._list_projectable_workflows(workflow_ids=None),
-                dsl_by_id={},
-            )
-
+        selected_workflow_ids = (
+            selection.get(SyncResourceType.WORKFLOW, set()) if selection else set()
+        )
         # Build lookup tables once so closure expansion is pure in-memory work.
         all_workflows = await self._list_projectable_workflows(workflow_ids=None)
         workflows_by_id = {workflow.id: workflow for workflow in all_workflows}
@@ -1432,39 +1415,44 @@ class WorkspaceSyncService(SyncMappingService):
             for workflow in all_workflows
             if workflow.alias is not None
         }
-        defn_service = WorkflowDefinitionsService(session=self.session, role=self.role)
-        mgmt_service = WorkflowsManagementService(session=self.session, role=self.role)
         workflow_dsls: dict[uuid.UUID, DSLInput] = dict(dsl_by_id or {})
 
-        async def dsl_for(workflow: Workflow) -> DSLInput:
-            """Return the workflow's DSL, caching it across closure expansion."""
-            if workflow.id not in workflow_dsls:
-                workflow_dsls[workflow.id] = await self._get_workflow_dsl(
-                    workflow,
-                    defn_service=defn_service,
-                    mgmt_service=mgmt_service,
-                )
-            return workflow_dsls[workflow.id]
+        diagnostics: list[WorkflowExportDiagnostic] = []
+        missing_ids = selected_workflow_ids - workflows_by_id.keys()
+        if missing_ids:
+            raise TracecatNotFoundError("Workflow not found")
 
         # Breadth-first walk over child-workflow references, adding each newly
         # discovered child once so cycles terminate.
-        included = set(selected_workflow_ids)
-        queue = deque(selected_workflow_ids)
+        included = set(selected_workflow_ids or workflows_by_id)
+        queue = deque(sorted(included, key=str))
         while queue:
             workflow_id = queue.popleft()
             workflow = workflows_by_id.get(workflow_id)
             if workflow is None:
                 continue
-            dsl = await dsl_for(workflow)
+            try:
+                if workflow.id not in workflow_dsls:
+                    workflow_dsls[workflow.id] = await self._get_workflow_dsl(workflow)
+                dsl = workflow_dsls[workflow.id]
+            except WorkflowExportValidationError as exc:
+                diagnostics.extend(exc.diagnostics)
+                continue
             references = workflow_references(dsl)
             # Children referenced by alias must resolve to a known workflow.
             for alias in sorted(references.execute_aliases):
                 child_id = aliases.get(alias)
                 if child_id is None:
-                    self.logger.warning(
-                        "Skipping unresolvable child workflow alias in export closure",
-                        alias=alias,
-                        parent_workflow_id=str(workflow_id),
+                    diagnostics.append(
+                        await WorkflowExportDefinitionService(
+                            session=self.session, role=self.role
+                        ).diagnostic(
+                            workflow,
+                            code="missing_child_workflow",
+                            stage="dependency",
+                            provider=VcsProvider(self._mapping_provider_value),
+                            message="A referenced child workflow alias could not be found. Check the child workflow reference.",
+                        )
                     )
                     continue
                 if child_id in included:
@@ -1485,6 +1473,9 @@ class WorkspaceSyncService(SyncMappingService):
                 included.add(child_id)
                 queue.append(child_id)
 
+        if diagnostics:
+            raise WorkflowExportValidationError(diagnostics)
+
         # Return the closure in the original global creation order.
         return ProjectableWorkflowClosure(
             workflows=[
@@ -1493,24 +1484,11 @@ class WorkspaceSyncService(SyncMappingService):
             dsl_by_id=workflow_dsls,
         )
 
-    async def _get_workflow_dsl(
-        self,
-        workflow: Workflow,
-        *,
-        defn_service: WorkflowDefinitionsService,
-        mgmt_service: WorkflowsManagementService,
-    ) -> DSLInput:
-        """Return a workflow's DSL, preferring its committed definition.
-
-        Falls back to building the DSL from the workflow graph when no stored
-        definition content exists.
-        """
-        definition = await defn_service.get_definition_by_workflow_id(
-            WorkflowUUID.new(workflow.id)
-        )
-        if definition and definition.content:
-            return DSLInput.model_validate(definition.content)
-        return await mgmt_service.build_dsl_from_workflow(workflow)
+    async def _get_workflow_dsl(self, workflow: Workflow) -> DSLInput:
+        """Resolve export-only content using the shared saved-or-build policy."""
+        return await WorkflowExportDefinitionService(
+            session=self.session, role=self.role
+        ).resolve(workflow, provider=VcsProvider(self._mapping_provider_value))
 
     async def _local_ids_from_resource_refs(
         self,

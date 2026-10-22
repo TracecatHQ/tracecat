@@ -8,9 +8,12 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from tracecat.auth.types import Role
+from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatSettingsError, TracecatValidationError
 from tracecat.vcs.github.app import GitHubAppError
 from tracecat.vcs.gitlab.app import GitLabError
+from tracecat.workspace_sync.exceptions import WorkflowExportValidationError
+from tracecat.workspace_sync.schemas import WorkflowExportDiagnostic
 
 
 def _sample_dsl_content() -> dict[str, object]:
@@ -68,12 +71,18 @@ async def test_publish_workflow_errors_return_400(
 
     with (
         patch(
-            "tracecat.workflow.store.router.WorkflowDefinitionsService"
+            "tracecat.workflow.store.router.WorkflowExportDefinitionService"
         ) as mock_defn_cls,
         patch("tracecat.workflow.store.router.WorkflowStoreService") as mock_store_cls,
+        patch(
+            "tracecat.workflow.store.router.WorkflowsManagementService"
+        ) as mock_mgmt_cls,
     ):
         mock_defn_svc = AsyncMock()
-        mock_defn_svc.get_definition_by_workflow_id.return_value = definition
+        mock_defn_svc.resolve.return_value = DSLInput.model_validate(
+            _sample_dsl_content()
+        )
+        mock_mgmt_cls.return_value.get_workflow = AsyncMock(return_value=workflow)
         mock_defn_cls.return_value = mock_defn_svc
 
         mock_store_svc = AsyncMock()
@@ -91,28 +100,25 @@ async def test_publish_workflow_errors_return_400(
 
 
 @pytest.mark.anyio
-async def test_publish_workflow_definition_not_found_returns_404(
+async def test_publish_workflow_not_found_returns_404(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    """Test publish returns 404 when workflow definition does not exist."""
+    """A missing workflow remains a 404, independently of saved definitions."""
     workflow_id = str(uuid.uuid4())
-
-    with patch(
-        "tracecat.workflow.store.router.WorkflowDefinitionsService"
-    ) as mock_defn_cls:
-        mock_defn_svc = AsyncMock()
-        mock_defn_svc.get_definition_by_workflow_id.return_value = None
-        mock_defn_cls.return_value = mock_defn_svc
-
+    with patch("tracecat.workflow.store.router.WorkflowsManagementService") as mgmt:
+        mgmt.return_value.get_workflow = AsyncMock(return_value=None)
         response = client.post(
             f"/workflows/{workflow_id}/publish",
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"branch": "feature/shared-workflow", "create_pr": False},
         )
-
+        mgmt.return_value.get_workflow.assert_awaited_once_with(
+            uuid.UUID(workflow_id),
+            normalize=False,
+        )
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json()["detail"] == "Workflow definition not found"
+    assert response.json()["detail"] == "Workflow not found"
 
 
 @pytest.mark.anyio
@@ -205,3 +211,36 @@ async def test_workspace_sync_export_routes_map_service_construction_errors_to_4
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "Unsupported Git provider configured" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "path", ["/workflows/sync/export", "/workflows/sync/export/preview"]
+)
+async def test_export_validation_response_preserves_legacy_detail_and_typed_context(
+    client: TestClient,
+    test_admin_role: Role,
+    path: str,
+) -> None:
+    diagnostic = WorkflowExportDiagnostic(
+        workflow_id=uuid.uuid4(),
+        workflow_title="Example review",
+        stage="definition",
+        code="no_actions",
+        message="Add an action before pushing this workflow.",
+    )
+    error = WorkflowExportValidationError([diagnostic])
+    with patch("tracecat.workflow.store.router.WorkspaceSyncService") as sync:
+        service = AsyncMock()
+        service.export_workspace.side_effect = error
+        service.preview_export_workspace.side_effect = error
+        sync.for_workspace = AsyncMock(return_value=service)
+        response = client.post(
+            path,
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"message": "Synthetic export", "branch": "sync/example"},
+        )
+    assert response.status_code == 400
+    assert response.json()["detail"] == str(error)
+    assert response.json()["diagnostics"] == [diagnostic.model_dump(mode="json")]
+    assert response.json()["omitted_count"] == 0

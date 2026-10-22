@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 if TYPE_CHECKING:
     from tracecat.agent.catalog.types import ModelKey
@@ -118,3 +118,9 @@ class PreparedSnapshot:
     mcp_integration_mapping_requirements: list[McpIntegrationMappingRequirement]
     secret_store_mapping_requirements: list[SecretStoreMappingRequirement]
     library_skill_installs: list[str]
+
+
+type WorkflowExportStage = Literal["definition", "dependency"]
+type WorkflowExportCode = Literal[
+    "no_actions", "invalid_definition", "missing_child_workflow"
+]

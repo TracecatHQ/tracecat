@@ -47,6 +47,7 @@ from tracecat.workspace_sync.adapters import (
     VARIABLE_RESOURCE_ADAPTER,
 )
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
+from tracecat.workspace_sync.exceptions import WorkflowExportValidationError
 from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
     AgentPresetResourceSpec,
@@ -56,6 +57,7 @@ from tracecat.workspace_sync.schemas import (
     SecretMetadataResourceSpec,
     SkillResourceSpec,
     VariableResourceSpec,
+    WorkflowExportDiagnostic,
     WorkflowResourceSpec,
     WorkspaceManifest,
     WorkspaceManifestResources,
@@ -2826,3 +2828,98 @@ class _FakeGitHubReadRepo:
     def get_git_blob(self, sha: str):
         content = canonical_json_text(WorkspaceManifest())
         return SimpleNamespace(content=base64.b64encode(content.encode()).decode())
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("selection_kind", ["all", "selected", "type"])
+async def test_export_closure_collects_named_errors_before_mapping_writes(
+    workspace_sync_service: WorkspaceSyncService,
+    selection_kind: str,
+) -> None:
+    """Duplicate titles retain distinct identities; every invalid root is reported."""
+    workflows = [
+        cast(Any, SimpleNamespace(id=uuid.uuid4(), alias=None, title="Example review"))
+        for _ in range(2)
+    ]
+
+    async def invalid(workflow: Any) -> DSLInput:
+        raise WorkflowExportValidationError(
+            [
+                WorkflowExportDiagnostic(
+                    workflow_id=workflow.id,
+                    workflow_title=workflow.title,
+                    stage="definition",
+                    code="no_actions",
+                    message="Add an action before pushing.",
+                )
+            ]
+        )
+
+    workspace_sync_service._list_projectable_workflows = AsyncMock(
+        return_value=workflows
+    )
+    workspace_sync_service._get_workflow_dsl = AsyncMock(side_effect=invalid)
+    workspace_sync_service._source_id_for_workflow = AsyncMock()
+    selection = (
+        None
+        if selection_kind == "all"
+        else {
+            SyncResourceType.WORKFLOW: {workflow.id for workflow in workflows}
+            if selection_kind == "selected"
+            else set()
+        }
+    )
+    with pytest.raises(WorkflowExportValidationError) as raised:
+        await workspace_sync_service._projectable_workflow_closure(selection)
+    assert {item.workflow_id for item in raised.value.diagnostics} == {
+        workflow.id for workflow in workflows
+    }
+    assert workspace_sync_service._get_workflow_dsl.await_count == 2
+    workspace_sync_service._source_id_for_workflow.assert_not_awaited()
+    cast(AsyncMock, workspace_sync_service.session.commit).assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_export_closure_reports_invalid_child_workflow(
+    workspace_sync_service: WorkspaceSyncService,
+    sample_dsl: DSLInput,
+) -> None:
+    parent_id, child_id = uuid.uuid4(), uuid.uuid4()
+    parent = cast(Any, SimpleNamespace(id=parent_id, alias="parent", title="Parent"))
+    child = cast(Any, SimpleNamespace(id=child_id, alias="child", title="Child"))
+    parent_dsl = sample_dsl.model_copy(
+        update={
+            "actions": [
+                ActionStatement(
+                    ref="call",
+                    action="core.workflow.execute",
+                    args={"workflow_alias": "child"},
+                )
+            ]
+        }
+    )
+
+    async def resolve(workflow: Any) -> DSLInput:
+        if workflow.id == parent_id:
+            return parent_dsl
+        raise WorkflowExportValidationError(
+            [
+                WorkflowExportDiagnostic(
+                    workflow_id=child_id,
+                    workflow_title="Child",
+                    stage="definition",
+                    code="no_actions",
+                    message="Add an action before pushing.",
+                )
+            ]
+        )
+
+    workspace_sync_service._list_projectable_workflows = AsyncMock(
+        return_value=[parent, child]
+    )
+    workspace_sync_service._get_workflow_dsl = AsyncMock(side_effect=resolve)
+    with pytest.raises(WorkflowExportValidationError) as raised:
+        await workspace_sync_service._projectable_workflow_closure(
+            {SyncResourceType.WORKFLOW: {parent_id}}
+        )
+    assert raised.value.diagnostics[0].workflow_id == child_id
