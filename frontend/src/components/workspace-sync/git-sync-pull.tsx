@@ -721,8 +721,8 @@ function PullPreview({
           </span>
         </div>
       )}
-      {/* A failed preview compared nothing, so "Already matches" would mislead. */}
-      {(result.success || resourceDiffs.length > 0) && (
+      {/* Validation may fail after comparison; keep computed changes visible. */}
+      {(result.success || resourceDiffs.length > 0 || (diffCount ?? 0) > 0) && (
         <GitSyncChangeList
           workspaceId={workspaceId}
           operationId={operationId}
