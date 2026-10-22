@@ -136,7 +136,7 @@ dev = [
     "pytest-mock==3.14.0",
     "pytest-repeat==0.9.3",
     "pytest-xdist==3.8.0",
-    "pytest==8.3.2",  # pytest 9 breaks registry tests via autouse async fixture handling; dismiss alert for now
+    "pytest==9.0.3",
     "python-dotenv==1.2.2",
     "respx==0.22.0",
     "ruff==0.15.0",
@@ -202,7 +202,13 @@ xfail_strict = true
 log_level = "ERROR"
 log_cli = true
 log_cli_level = "ERROR"
-filterwarnings = ["ignore:Pydantic serializer warnings:UserWarning"]
+filterwarnings = [
+    "ignore:Pydantic serializer warnings:UserWarning",
+    # Sync tests inherit autouse async fixtures such as `test_db_engine` in
+    # tests/conftest.py. pytest 8 never ran them; pytest 9 errors instead.
+    # Keep the pytest 8 behavior until those fixtures skip sync tests.
+    "ignore:.*requested an async fixture:pytest.PytestRemovedIn9Warning",
+]
 markers = [
     "anyio: marks tests as requiring the anyio pytest plugin",
     "webtest: marks tests that require the web",
