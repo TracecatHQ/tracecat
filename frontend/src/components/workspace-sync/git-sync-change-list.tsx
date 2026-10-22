@@ -18,6 +18,7 @@ import {
   WORKSPACE_SYNC_RESOURCE_TYPE_META,
   WORKSPACE_SYNC_RESOURCE_TYPE_ORDER,
 } from "@/components/workspace-sync/resource-metadata"
+import { OperationDiffs } from "@/components/workspace-sync/sync-operation-diffs"
 import { UnifiedDiff } from "@/components/workspace-sync/unified-diff"
 import { cn } from "@/lib/utils"
 
@@ -208,6 +209,8 @@ export function GitSyncNotice({
  */
 export function GitSyncChangeList({
   workspaceId,
+  operationId,
+  diffCount,
   direction,
   summary,
   resources,
@@ -215,6 +218,8 @@ export function GitSyncChangeList({
   fileCount,
 }: {
   workspaceId: string
+  operationId?: string
+  diffCount?: number
   direction: "push" | "pull"
   /** Shown after the title, e.g. "1 new · 2 modified, compared with main". */
   summary: string
@@ -253,7 +258,13 @@ export function GitSyncChangeList({
           {fileCount} {fileCount === 1 ? "file" : "files"}
         </span>
       </div>
-      {groups.length === 0 ? (
+      {operationId && diffs.length === 0 ? (
+        <OperationDiffs
+          workspaceId={workspaceId}
+          operationId={operationId}
+          count={diffCount ?? 0}
+        />
+      ) : groups.length === 0 ? (
         <p className="px-5 py-6 text-xs text-muted-foreground">
           Nothing to {direction}.
         </p>

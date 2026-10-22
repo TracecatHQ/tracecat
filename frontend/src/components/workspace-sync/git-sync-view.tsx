@@ -17,6 +17,7 @@ import { GitSyncConnectionPanel } from "@/components/workspace-sync/git-sync-con
 import { GitSyncPullTab } from "@/components/workspace-sync/git-sync-pull"
 import { GitSyncPushTab } from "@/components/workspace-sync/git-sync-push"
 import { GitSyncRepoStatus } from "@/components/workspace-sync/git-sync-repo-status"
+import { SyncOperationHistory } from "@/components/workspace-sync/sync-operation-history"
 import {
   useRepositoryBranches,
   useRepositoryCommits,
@@ -215,6 +216,7 @@ function GitSyncConnectedView({
           />
         </TabsContent>
       </div>
+      <SyncOperationHistory workspaceId={workspaceId} />
     </Tabs>
   )
 }

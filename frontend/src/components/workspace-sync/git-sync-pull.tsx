@@ -99,7 +99,8 @@ export function GitSyncPullTab({
   isActive,
   onPulled,
 }: GitSyncPullTabProps) {
-  const { pullWorkflows, pullWorkflowsIsPending } = useWorkflowSync(workspaceId)
+  const { pullWorkflows, pullWorkflowsIsPending, previewOperation } =
+    useWorkflowSync(workspaceId)
 
   const [selectedCommitSha, setSelectedCommitSha] = useState<string | null>(
     null
@@ -169,12 +170,19 @@ export function GitSyncPullTab({
     pullPreviewOptions?.mcpMappingsKey === mcpMappingsKey &&
     pullPreviewOptions?.storeMappingsKey === storeMappingsKey
   const canApplyPull =
-    pullPreviewMatchesSelection && pullPreview?.success === true
+    pullPreviewMatchesSelection &&
+    pullPreview?.success === true &&
+    previewOperation?.status === "ready"
   const isPreviewing = pullWorkflowsIsPending && pullAction === "preview"
   const isApplying = pullWorkflowsIsPending && pullAction === "apply"
-  const showPreview = Boolean(pullPreview && pullPreviewMatchesSource)
+  const showPreview = Boolean(
+    pullPreview &&
+      pullPreviewMatchesSource &&
+      previewOperation?.status !== "expired"
+  )
   const changeCount = showPreview
-    ? countChangedResources(pullPreview?.resource_diffs ?? [])
+    ? (previewOperation?.diff_count ??
+      countChangedResources(pullPreview?.resource_diffs ?? []))
     : 0
   const shortSha = effectivePullSha?.substring(0, 7)
 
@@ -382,6 +390,8 @@ export function GitSyncPullTab({
         {pullPreview && showPreview && !isPreviewing ? (
           <PullPreview
             workspaceId={workspaceId}
+            operationId={previewOperation?.id}
+            diffCount={previewOperation?.diff_count}
             result={pullPreview}
             summary={getPullPreviewSummary(
               pullPreview.resource_diffs ?? [],
@@ -556,6 +566,8 @@ function getPullButtonLabel({
 function PullPreview({
   workspaceId,
   workspaceName,
+  operationId,
+  diffCount,
   result,
   catalogMappingRequirements,
   catalogMappings,
@@ -570,6 +582,8 @@ function PullPreview({
 }: {
   workspaceId: string
   workspaceName: string
+  operationId?: string
+  diffCount?: number
   result: PullResult
   catalogMappingRequirements: CatalogMappingRequirement[]
   catalogMappings: Record<string, string>
@@ -708,8 +722,14 @@ function PullPreview({
       {(result.success || resourceDiffs.length > 0) && (
         <GitSyncChangeList
           workspaceId={workspaceId}
+          operationId={operationId}
+          diffCount={diffCount}
           direction="pull"
-          summary={summary}
+          summary={
+            operationId && resourceDiffs.length === 0
+              ? `${diffCount ?? 0} change(s)`
+              : summary
+          }
           resources={resources}
           diffs={resourceDiffs}
           fileCount={result.files?.length ?? resourceDiffs.length}

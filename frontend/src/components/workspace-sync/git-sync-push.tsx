@@ -7,7 +7,7 @@ import {
   GitPullRequestIcon,
   Loader2Icon,
 } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import type { GitBranchInfo, PullResourceDiff, VcsProvider } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
@@ -28,7 +28,6 @@ import { ExportErrorMessage } from "@/components/workspace-sync/export-error"
 import { GitSyncActionBar } from "@/components/workspace-sync/git-sync-action-bar"
 import { GitSyncBranchPicker } from "@/components/workspace-sync/git-sync-branch-picker"
 import {
-  countChangedResources,
   formatChangeCounts,
   GitSyncChangeList,
   GitSyncNotice,
@@ -80,7 +79,7 @@ export function GitSyncPushTab({
 
   const [message, setMessage] = useState("Export workspace config")
   const [mode, setMode] = useState<WorkspaceSyncPushMode>("pull-request")
-  const [previewedAt, setPreviewedAt] = useState<Date | null>(null)
+  const [previewRequested, setPreviewRequested] = useState(false)
 
   // Scoped to the repository so a reconnect never restores another repo's branch.
   const rememberScope = `${workspaceId}:${persistedGitUrl}`
@@ -94,17 +93,29 @@ export function GitSyncPushTab({
   const targetBranch = branch.trim()
   // A new branch does not exist yet, so compare against the base branch.
   const compareRef = isCreatingBranch ? baseBranch : targetBranch || undefined
-  const { preview, previewIsLoading, previewError, refetchPreview } =
-    useWorkspaceSyncExportPreview(workspaceId, {
-      compareRef,
-      provider,
-      enabled: false,
-    })
   const outcome = getWorkspaceSyncPushOutcome({
     mode,
     targetBranch,
     defaultBranch: baseBranch,
     isCreatingBranch,
+  })
+  const {
+    preview,
+    previewOperationId,
+    previewDiffCount,
+    previewIsLoading,
+    previewError,
+    refetchPreview,
+  } = useWorkspaceSyncExportPreview(workspaceId, {
+    push: {
+      message,
+      branch: targetBranch,
+      create_pr: outcome.createPr,
+      pr_base_branch: baseBranch,
+      include_schedules: false,
+    },
+    compareRef,
+    provider,
   })
   // Direct pushes to the sync base or repository default are off.
   const blockedBranch = getBlockedPushBranch({
@@ -115,14 +126,15 @@ export function GitSyncPushTab({
   const isBlocked = blockedBranch !== undefined
   const reviewRequest = getReviewRequestLabel(provider)
   const reviewRequestShort = getReviewRequestAbbreviation(provider)
-  const visiblePreview = previewedAt ? preview : undefined
-  const changeCount = countChangedResources(
-    visiblePreview?.resource_diffs ?? []
-  )
+  const visiblePreview = previewRequested ? preview : undefined
+  const changeCount = visiblePreview ? previewDiffCount : 0
   // Pushes to the repository default are blocked by name, so stay off until
   // the branch list says which branch that is.
   const defaultKnown = repoBranches?.some((candidate) => candidate.is_default)
   const pushDisabled =
+    !previewOperationId ||
+    !previewRequested ||
+    previewIsLoading ||
     exportWorkspaceIsPending ||
     branchesIsLoading ||
     !baseBranch ||
@@ -131,37 +143,30 @@ export function GitSyncPushTab({
     targetBranch === "" ||
     message.trim() === ""
 
-  // Bumped on every reset, so a preview that started earlier is dropped.
-  const previewGenerationRef = useRef(0)
   function resetPreview() {
-    previewGenerationRef.current += 1
-    setPreviewedAt(null)
+    setPreviewRequested(false)
   }
-
   useEffect(() => {
     resetPreview()
-  }, [compareRef, persistedGitUrl, provider, pullCount])
-
-  async function handlePreview() {
-    if (!compareRef) {
-      return
-    }
-    const generation = previewGenerationRef.current
-    const result = await refetchPreview()
-    if (generation !== previewGenerationRef.current) {
-      return
-    }
-    setPreviewedAt(result.error ? null : new Date())
+  }, [
+    compareRef,
+    persistedGitUrl,
+    provider,
+    pullCount,
+    targetBranch,
+    mode,
+    message,
+  ])
+  function handlePreview() {
+    if (!compareRef || targetBranch === "" || message.trim() === "") return
+    setPreviewRequested(true)
+    refetchPreview()
   }
 
   async function handlePush() {
     try {
-      const result = await exportWorkspace({
-        message,
-        branch: targetBranch,
-        create_pr: outcome.createPr,
-        include_schedules: false,
-      })
+      if (pushDisabled || !previewOperationId) return
+      const result = await exportWorkspace({ operationId: previewOperationId })
       writeLastPushBranch(rememberScope, targetBranch)
       // The new branch now exists, so later previews compare against it.
       if (isCreatingBranch) {
@@ -232,11 +237,17 @@ export function GitSyncPushTab({
         {visiblePreview ? (
           <GitSyncChangeList
             workspaceId={workspaceId}
+            operationId={previewOperationId}
+            diffCount={previewDiffCount}
             direction="push"
-            summary={getPushPreviewSummary(
-              visiblePreview.resource_diffs ?? [],
-              compareRef
-            )}
+            summary={
+              visiblePreview.resource_diffs?.length
+                ? getPushPreviewSummary(
+                    visiblePreview.resource_diffs,
+                    compareRef
+                  )
+                : `${previewDiffCount} change(s), compared with ${compareRef ?? "the branch"}`
+            }
             resources={visiblePreview.resources ?? []}
             diffs={visiblePreview.resource_diffs ?? []}
             fileCount={visiblePreview.files.length}
