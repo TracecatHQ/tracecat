@@ -1109,7 +1109,8 @@ class LLMSocketProxy:
             on_error: Callback invoked when an error (e.g., auth failure) is detected.
             rewrite_tool_use: Whether to normalize Claude Code tool inputs in
                 ``/v1/messages`` responses. Runtimes other than Claude Code
-                should turn this off to receive upstream responses unchanged.
+                should turn this off to receive upstream response bodies
+                unchanged. Stream error detection runs either way.
         """
         self.socket_path = socket_path
         self.routing_plan = routing_plan
@@ -1738,18 +1739,21 @@ class LLMSocketProxy:
         before the rewrite, so their ``Content-Length`` is dropped; each socket
         connection carries one response and is closed afterwards, which
         delimits the body.
+
+        With ``rewrite_tool_use`` off, bodies pass through unchanged, but
+        streams are still observed for typed errors and JSON headers still
+        match the decoded body.
         """
         headers = dict(response.headers)
         if (
-            not self.rewrite_tool_use
-            or method != "POST"
+            method != "POST"
             or path.split("?", 1)[0] != MESSAGES_PATH
             or response.status_code >= 300
         ):
             return response.aiter_bytes(), headers, None
         content_type = response.headers.get("content-type", "").lower()
         if "text/event-stream" in content_type:
-            rewriter = ToolUseStreamRewriter()
+            rewriter = ToolUseStreamRewriter(rewrite_read=self.rewrite_tool_use)
             return (
                 _rewrite_sse_stream(response.aiter_bytes(), rewriter),
                 headers,
@@ -1762,6 +1766,8 @@ class LLMSocketProxy:
             for key, value in headers.items()
             if key.lower() not in ("content-length", "content-encoding")
         }
+        if not self.rewrite_tool_use:
+            return response.aiter_bytes(), headers, None
         return _rewrite_json_body(response.aiter_bytes()), headers, None
 
     async def _write_response(

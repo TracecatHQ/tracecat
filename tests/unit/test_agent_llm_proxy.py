@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
 import uuid
 from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
 from dataclasses import replace
@@ -2005,6 +2006,62 @@ async def test_forward_request_skips_tool_use_rewrite_when_disabled(
 
 
 @pytest.mark.anyio
+async def test_forward_request_drops_stale_encoding_when_rewrite_disabled(
+    tmp_path: Path,
+) -> None:
+    """Decoded JSON bodies must not keep the upstream compression headers."""
+    upstream_body, content_type = _read_tool_use_response(streaming=False)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": content_type, "Content-Encoding": "gzip"},
+            content=gzip.compress(upstream_body),
+        )
+
+    response_text, _ = await _forward(
+        tmp_path,
+        handler,
+        _request({"stream": False, "messages": []}),
+        rewrite_tool_use=False,
+    )
+
+    head, _, body = response_text.encode().partition(b"\r\n\r\n")
+    assert b"HTTP/1.1 200" in head
+    assert b"content-encoding" not in head.lower()
+    assert b"content-length" not in head.lower()
+    assert body == upstream_body
+
+
+@pytest.mark.anyio
+async def test_forward_request_classifies_stream_errors_when_rewrite_disabled(
+    tmp_path: Path,
+) -> None:
+    """Turning off tool rewrites must not hide typed stream failures."""
+    error_event = (
+        b'event: error\ndata: {"type":"error","error":'
+        b'{"type":"budget_exceeded","message":"synthetic"}}\n\n'
+    )
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, headers={"Content-Type": "text/event-stream"}, content=error_event
+        )
+
+    response_text, errors = await _forward(
+        tmp_path,
+        handler,
+        _request({"stream": True, "messages": []}),
+        rewrite_tool_use=False,
+    )
+
+    assert response_text.encode().endswith(error_event)
+    assert [error.classification.kind for error in errors] == [
+        RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED
+    ]
+
+
+@pytest.mark.anyio
 async def test_rewrite_json_body_passes_through_oversized_bodies() -> None:
     chunk = b"x" * (1024 * 1024)
     chunks = [chunk] * 12
@@ -2454,7 +2511,10 @@ async def test_routing_plan_derives_diagnostics_from_root_and_subagent_providers
     assert request.body == body
 
 
-def test_routing_plan_invalid_diagnostic_token_does_not_block_forwarding() -> None:
+@pytest.mark.anyio
+async def test_routing_plan_invalid_diagnostic_token_does_not_block_forwarding(
+    tmp_path: Path,
+) -> None:
     plan = build_llm_routing_plan(
         SandboxAgentConfig(model_name="synthetic-model", model_provider="openai")
     )
@@ -2462,3 +2522,15 @@ def test_routing_plan_invalid_diagnostic_token_does_not_block_forwarding() -> No
         "synthetic-model", {"Authorization": "Bearer synthetic-invalid-token"}
     ) == LLMErrorDiagnostics(route="managed")
     assert plan.resolve("synthetic-model") is plan.managed_route
+
+    response_text, errors = await _forward(
+        tmp_path,
+        lambda request: httpx.Response(500, json={"error": {"type": "synthetic"}}),
+        _request(
+            b'{"model":"synthetic-model"}',
+            headers={"Authorization": "Bearer synthetic-invalid-token"},
+        ),
+        routing_plan=plan,
+    )
+    assert response_text.startswith("HTTP/1.1 500")
+    assert len(errors) == 1

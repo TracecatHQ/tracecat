@@ -85,9 +85,13 @@ class ToolUseStreamRewriter:
     block is re-emitted with a single delta carrying the sanitized JSON;
     otherwise the original events are forwarded verbatim. Everything else
     streams through untouched, so text deltas keep their latency.
+
+    With ``rewrite_read=False`` no block is buffered or rewritten; the stream
+    is only observed for errors and progress.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, rewrite_read: bool = True) -> None:
+        self._rewrite_read = rewrite_read
         self._buffer = b""
         self._pending: dict[int, _PendingToolUse] = {}
         self.error: dict[str, Any] | None = None
@@ -129,7 +133,8 @@ class ToolUseStreamRewriter:
                 "content_block": dict() as block,
             }:
                 if (
-                    block.get("type") == "tool_use"
+                    self._rewrite_read
+                    and block.get("type") == "tool_use"
                     and block.get("name") == READ_TOOL_NAME
                 ):
                     self._pending[index] = _PendingToolUse(payload, [event])
