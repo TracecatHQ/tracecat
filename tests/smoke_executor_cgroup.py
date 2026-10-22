@@ -111,14 +111,14 @@ async def main() -> None:
         assert oom_kills() > before
         assert sibling.success, sibling
         assert (await run(kind, HEALTHY_SCRIPT)).success
+        reserved = await run(kind, RESERVE_SCRIPT, uncapped)
+        assert reserved.success, reserved
         assert Path("/proc/self/cgroup").read_text() == parent_group
         assert set(root.iterdir()) == initial_children, "nsjail leaked a child cgroup"
         print(
             f"PASS {kind}: aggregate OOM contained, sibling survived, recovery succeeded",
             flush=True,
         )
-        reserved = await run(kind, RESERVE_SCRIPT, uncapped)
-        assert reserved.success, reserved
         print(f"PASS {kind}: unset address-space cap reserved 16 GiB", flush=True)
 
 
