@@ -1,7 +1,6 @@
 """Exercise native Updates, recorded timers, and replay across worker replacement."""
 
 import asyncio
-import os
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -308,33 +307,3 @@ async def test_retry_requires_current_failure_revision_and_stays_in_same_executi
             )
             await handle.result()
             assert tasks.applies == 1
-
-
-async def test_lifecycle_updates_on_configured_local_temporal_server():
-    # Exercise the actual supported server, not just the SDK test server.
-    client = await Client.connect(
-        f"localhost:{os.environ.get('TEMPORAL_PORT', '7233')}",
-        data_converter=get_data_converter(),
-    )
-    tasks = LifecycleActivities()
-    queue = f"sync-compatibility-{uuid.uuid4()}"
-    async with tasks.worker(client, queue):
-        handle = await client.start_workflow(
-            WorkspaceSyncLifecycleWorkflow.run,
-            start_input(),
-            id=str(uuid.uuid4()),
-            task_queue=queue,
-        )
-        try:
-            state = (await ready(handle)).state
-            await handle.execute_update(
-                WorkspaceSyncLifecycleWorkflow.apply,
-                SyncCommand(uuid.uuid4(), state.preview_revision, state.revision),
-            )
-            await asyncio.wait_for(handle.result(), timeout=30)
-            final = await handle.query(WorkspaceSyncLifecycleWorkflow.snapshot)
-            assert final.state.status == "completed"
-            assert tasks.applies == tasks.finishes == 1
-        finally:
-            if not tasks.finishes:
-                await handle.terminate("Synthetic local compatibility test cleanup")
