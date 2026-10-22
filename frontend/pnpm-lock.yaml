@@ -25,7 +25,7 @@ overrides:
   form-data: 4.0.6
   js-yaml@<3.15.2: 3.15.2
   js-yaml@>=4.0.0 <4.3.2: 4.3.2
-  katex: 0.18.11
+  katex: 0.18.2
   linkify-it: 5.0.2
   markdown-it: 14.2.0
   mdast-util-to-hast: 13.2.1
@@ -3456,10 +3456,6 @@ packages:
     resolution: {integrity: sha512-Vw8qHK3bZM9y/P10u3Vib8o/DdkvA2OtPtZvD871QKjy74Wj1WSKFILMPRPSdUSx5RFK1arlJzEtA4PkFgnbuA==}
     engines: {node: '>=18'}
 
-  commander@15.0.0:
-    resolution: {integrity: sha512-z67u4ZhzCL/Tydu1lJARtEZYWbWaN7oYLHbsuzocr6y4N6WZAagG3RQ4FW61V1/0+jImpj293XfrcYnd1qxtPg==}
-    engines: {node: '>=22.12.0'}
-
   commander@4.1.1:
     resolution: {integrity: sha512-NOKm8xhkzAjzFx8B2v5OAHT+u5pRQc2UCa2Vq9jYL/31o2wi9mxBA7LIFs3sV5VSC49z6pEhfbMULvShKj26WA==}
     engines: {node: '>= 6'}
@@ -3467,6 +3463,10 @@ packages:
   commander@7.2.0:
     resolution: {integrity: sha512-QrWXB+ZQSVPmIWIhtEO9H+gwHaMGYiF5ChvoJ+K9ZGHG/sVsa6yiesAD1GC/x46sET00Xlwo1u49RVVVzvcSkw==}
     engines: {node: '>= 10'}
+
+  commander@8.3.0:
+    resolution: {integrity: sha512-OkTL9umf+He2DZkUq8f8J9of7yL6RJKI24dVITBmNfZBmri9zYZQrKkuXiKhyfPSu8tUhnVBB1iKXevvnlR4Ww==}
+    engines: {node: '>= 12'}
 
   confbox@0.1.8:
     resolution: {integrity: sha512-RMtmw0iFkeR4YV+fUOSucriAQNb9g8zFR52MWCtl+cCZOFRNL6zeB395vPzFhEjjn4fMxXudmELnl/KF/WrK6w==}
@@ -4507,9 +4507,8 @@ packages:
     engines: {node: '>=6'}
     hasBin: true
 
-  katex@0.18.11:
-    resolution: {integrity: sha512-yvyz/2VMKqoho/35Hat5w37wIEdWJ5ElVMidTAlWrxr5uW4aBGsEpveTmKh18/zw08v/7lGswCPon4OhqmqrTA==}
-    deprecated: Accidentally published with breaking changes. Use 0.19.0 instead.
+  katex@0.18.2:
+    resolution: {integrity: sha512-3snve4y0SXTMequLim1FMiPvLGElySam0blN5xQZBqEY3lOJz1TnuaaiugnBZBqHzlSAGmFTYL7MCQkORuLKCA==}
     hasBin: true
 
   khroma@2.1.0:
@@ -9148,11 +9147,11 @@ snapshots:
 
   commander@12.1.0: {}
 
-  commander@15.0.0: {}
-
   commander@4.1.1: {}
 
   commander@7.2.0: {}
+
+  commander@8.3.0: {}
 
   confbox@0.1.8: {}
 
@@ -10482,9 +10481,9 @@ snapshots:
 
   json5@2.2.3: {}
 
-  katex@0.18.11:
+  katex@0.18.2:
     dependencies:
-      commander: 15.0.0
+      commander: 8.3.0
 
   khroma@2.1.0: {}
 
@@ -10758,7 +10757,7 @@ snapshots:
       dayjs: 1.11.20
       dompurify: 3.4.16
       es-toolkit: 1.46.1
-      katex: 0.18.11
+      katex: 0.18.2
       khroma: 2.1.0
       marked: 16.4.0
       roughjs: 4.6.6
@@ -10849,7 +10848,7 @@ snapshots:
     dependencies:
       '@types/katex': 0.16.7
       devlop: 1.1.0
-      katex: 0.18.11
+      katex: 0.18.2
       micromark-factory-space: 2.0.1
       micromark-util-character: 2.1.1
       micromark-util-symbol: 2.0.1
@@ -11601,7 +11600,7 @@ snapshots:
       '@types/katex': 0.16.7
       hast-util-from-html-isomorphic: 2.0.0
       hast-util-to-text: 4.0.2
-      katex: 0.18.11
+      katex: 0.18.2
       unist-util-visit-parents: 6.0.1
       vfile: 6.0.3
 
@@ -11807,7 +11806,7 @@ snapshots:
     dependencies:
       clsx: 2.1.1
       harden-react-markdown: 1.0.5(react-markdown@10.1.0(@types/react@18.3.24)(react@18.3.1))(react@18.3.1)
-      katex: 0.18.11
+      katex: 0.18.2
       lucide-react: 0.542.0(react@18.3.1)
       marked: 16.4.0
       mermaid: 11.16.1
