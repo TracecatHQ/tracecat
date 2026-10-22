@@ -457,14 +457,19 @@ def agent_sandbox_resource_limit_exceeded(
     exceeded, and a retry hits the same cap deterministically.
     """
     limits = AgentResourceLimits()
+    address_space = (
+        "uncapped (TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB is unset)"
+        if limits.address_space_mb is None
+        else f"capped at {limits.address_space_mb} MiB "
+        "(TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB)"
+    )
     return RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.SANDBOX_RESOURCE_LIMIT_EXCEEDED,
         message=(
             "The sandbox exceeded a resource limit (memory, CPU time, or file size). "
             f"The cgroup memory budget is {limits.memory_mb} MiB "
             "(TRACECAT__AGENT_SANDBOX_MEMORY_MB). "
-            f"Per-process address space is capped at {limits.address_space_limit_mb} MiB "
-            "(TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB; defaults to twice the memory budget)."
+            f"Per-process address space is {address_space}."
         ),
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         cause=error,

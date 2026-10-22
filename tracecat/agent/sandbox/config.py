@@ -103,7 +103,8 @@ class AgentResourceLimits:
     Attributes:
         memory_mb: Aggregate cgroup memory budget in MiB.
         address_space_mb: Per-process virtual address-space cap in MiB.
-            Defaults to twice memory_mb when no deployment override is set.
+            Unset means uncapped under a cgroup memory limit, otherwise twice
+            memory_mb.
         cpu_seconds: Maximum CPU time in seconds.
         max_file_size_mb: Maximum file size in megabytes.
         max_open_files: Maximum number of open file descriptors.
@@ -130,14 +131,16 @@ class AgentResourceLimits:
         if self.address_space_mb is not None and self.address_space_mb <= 0:
             raise ValueError("address_space_mb must be positive")
 
-    @property
-    def address_space_limit_mb(self) -> int:
-        """Resolve the independent per-process virtual address-space guard."""
-        return (
-            self.address_space_mb
-            if self.address_space_mb is not None
-            else 2 * self.memory_mb
-        )
+    def address_space_limit_mb(self, *, cgroup_memory_limit: bool) -> int | None:
+        """Resolve the per-process address-space cap; None means uncapped.
+
+        rlimit_as bounds virtual reservations, not RAM. Under a cgroup memory
+        limit the cgroup bounds RAM, so an unset cap stays uncapped. Without the
+        cgroup, rlimit_as is the only memory guard, so keep a finite fallback.
+        """
+        if self.address_space_mb is not None:
+            return self.address_space_mb
+        return None if cgroup_memory_limit else 2 * self.memory_mb
 
 
 @dataclass
@@ -520,12 +523,18 @@ def build_agent_nsjail_config(
                 ]
             )
 
-    # Resource limits
+    # Resource limits. An omitted rlimit_as falls back to nsjail's 4096 MiB
+    # default, so uncapped must be written explicitly as RLIM_INFINITY.
+    address_space_limit_mb = config.resources.address_space_limit_mb(
+        cgroup_memory_limit=cgroup_mount is not None
+    )
     lines.extend(
         [
             "",
             "# Resource limits",
-            f"rlimit_as: {config.resources.address_space_limit_mb}",
+            "rlimit_as_type: INF"
+            if address_space_limit_mb is None
+            else f"rlimit_as: {address_space_limit_mb}",
             f"rlimit_cpu: {config.resources.cpu_seconds}",
             f"rlimit_fsize: {config.resources.max_file_size_mb}",
             f"rlimit_nofile: {config.resources.max_open_files}",

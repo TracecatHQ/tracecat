@@ -36,6 +36,7 @@ from tracecat.sandbox.types import (
     SandboxNetworkPurpose,
     SandboxNetworkRequest,
     SandboxResult,
+    nsjail_rlimit_as,
 )
 
 RUN_PYTHON_ACTION_GATEWAY_SOCKET = Path("/var/run/tracecat/action-gateway.sock")
@@ -534,7 +535,11 @@ class NsjailExecutor:
             [
                 "",
                 "# Resource limits",
-                f"rlimit_as: {config.resources.address_space_limit_mb}",
+                nsjail_rlimit_as(
+                    config.resources.address_space_limit_mb(
+                        cgroup_memory_limit=self.cgroup_mount is not None
+                    )
+                ),
                 f"rlimit_cpu: {config.resources.cpu_seconds}",
                 f"rlimit_fsize: {config.resources.max_file_size_mb}",
                 f"rlimit_nofile: {config.resources.max_open_files}",
@@ -972,7 +977,11 @@ class NsjailExecutor:
             [
                 "",
                 "# Resource limits",
-                f"rlimit_as: {config.resources.address_space_limit_mb}",
+                nsjail_rlimit_as(
+                    config.resources.address_space_limit_mb(
+                        cgroup_memory_limit=self.cgroup_mount is not None
+                    )
+                ),
                 f"rlimit_cpu: {config.resources.cpu_seconds}",
                 f"rlimit_fsize: {config.resources.max_file_size_mb}",
                 f"rlimit_nofile: {config.resources.max_open_files}",
