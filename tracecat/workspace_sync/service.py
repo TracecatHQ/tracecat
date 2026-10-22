@@ -1604,24 +1604,30 @@ class WorkspaceSyncService(SyncMappingService):
             )
 
         if deletion_roots:
-            for path, remote_content in sorted(remote_tree.files.items()):
+            remote_paths = remote_tree.blob_paths or frozenset(remote_tree.files)
+            for path in sorted(remote_paths):
                 if path in projection.files:
                     continue
                 if not _path_is_under_roots(path, deletion_roots):
                     continue
                 identity = _resource_identity_from_path(path, roots=roots)
-                if identity is None:
-                    continue
-
-                adapter, source_id = identity
-                diff, truncated = _unified_resource_diff(
-                    path=path,
-                    before=remote_content,
-                    after="",
-                )
+                resource_type = "file"
+                source_id = path
+                if identity is not None:
+                    adapter, source_id = identity
+                    resource_type = adapter.resource_type.value
+                if path in remote_tree.files:
+                    diff, truncated = _unified_resource_diff(
+                        path=path,
+                        before=remote_tree.files[path],
+                        after="",
+                    )
+                else:
+                    diff = "Non-text file will be deleted; textual diff unavailable."
+                    truncated = False
                 diffs.append(
                     PullResourceDiff(
-                        resource_type=adapter.resource_type.value,
+                        resource_type=resource_type,
                         source_id=source_id,
                         source_path=path,
                         change_type="deleted",
