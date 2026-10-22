@@ -291,3 +291,25 @@ def serialize_targets(targets: list[TunnelTarget]) -> list[dict[str, Any]]:
 
 def serialize_endpoint(endpoint: AnyHttpUrl) -> str:
     return _validate_endpoint(endpoint)
+
+
+class TunnelUsageKind(StrEnum):
+    MCP_INTEGRATION = "mcp_integration"
+    AGENT_PRESET = "agent_preset"
+    WORKFLOW = "workflow"
+
+
+class TunnelUsage(BaseModel):
+    """A workspace resource that routes traffic through a tunnel."""
+
+    kind: TunnelUsageKind
+    id: uuid.UUID
+    name: str
+    detail: str | None = Field(
+        default=None,
+        description="Where in the resource the tunnel is set, e.g. an action or tool",
+    )
+
+
+class TunnelUsageList(BaseModel):
+    items: list[TunnelUsage]

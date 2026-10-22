@@ -235,3 +235,76 @@ async def test_viewer_cannot_issue_gateway_key(
     )
     with pytest.raises(ScopeDeniedError):
         await viewer.issue_gateway_key(tunnel)
+
+
+async def test_delete_in_use_lists_every_usage(
+    service: TunnelsService, session: AsyncSession, svc_role: Role
+) -> None:
+    from tracecat_ee.tunnels.schemas import TunnelUsageKind
+    from tracecat_ee.tunnels.service import TunnelInUseError
+
+    from tracecat.db.models import Action, AgentPreset, MCPIntegration, Workflow
+
+    tunnel = await service.create_tunnel(_params())
+    other = await service.create_tunnel(_params("unused"))
+    assert svc_role.workspace_id is not None
+    workspace_id = svc_role.workspace_id
+    mcp = MCPIntegration(
+        workspace_id=workspace_id,
+        name="Private Splunk",
+        slug="private-splunk",
+        server_type="http",
+        server_uri="https://splunk.corp.example:8089/mcp",
+        tunnel_id=tunnel.id,
+    )
+    preset = AgentPreset(
+        workspace_id=workspace_id,
+        name="Triage",
+        slug="triage",
+        model_name="claude",
+        model_provider="anthropic",
+        tool_tunnels={"tools.sublime.list_messages": tunnel.name},
+    )
+    unrelated_preset = AgentPreset(
+        workspace_id=workspace_id,
+        name="Unrelated",
+        slug="unrelated",
+        model_name="claude",
+        model_provider="anthropic",
+        tool_tunnels={"tools.sublime.list_messages": other.name},
+    )
+    workflow = Workflow(
+        workspace_id=workspace_id, title="Enrich", config={"tunnel": tunnel.name}
+    )
+    session.add_all([mcp, preset, unrelated_preset, workflow])
+    await session.flush()
+    session.add(
+        Action(
+            workspace_id=workspace_id,
+            workflow_id=workflow.id,
+            type="core.http_request",
+            title="Query Splunk",
+            control_flow={"tunnel": tunnel.name},
+        )
+    )
+    await session.commit()
+
+    usages = await service.list_tunnel_usages(tunnel)
+    by_kind = {usage.kind: usage for usage in usages}
+    assert set(by_kind) == {
+        TunnelUsageKind.MCP_INTEGRATION,
+        TunnelUsageKind.AGENT_PRESET,
+        TunnelUsageKind.WORKFLOW,
+    }
+    assert by_kind[TunnelUsageKind.MCP_INTEGRATION].id == mcp.id
+    assert by_kind[TunnelUsageKind.AGENT_PRESET].id == preset.id
+    assert by_kind[TunnelUsageKind.AGENT_PRESET].detail == "tools.sublime.list_messages"
+    assert by_kind[TunnelUsageKind.WORKFLOW].detail == "Workflow default; Query Splunk"
+
+    with pytest.raises(TunnelInUseError) as exc_info:
+        await service.delete_tunnel(tunnel)
+    assert len(exc_info.value.usages) == 3
+    assert await service.get_tunnel(tunnel.id)
+
+    other_usages = await service.list_tunnel_usages(other)
+    assert [usage.id for usage in other_usages] == [unrelated_preset.id]

@@ -5,13 +5,20 @@ from __future__ import annotations
 import uuid
 from collections.abc import Awaitable, Callable
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.audit.logger import audit_log
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import require_scope
-from tracecat.db.models import Workspace, WorkspaceTunnel
+from tracecat.db.models import (
+    Action,
+    AgentPreset,
+    MCPIntegration,
+    Workflow,
+    Workspace,
+    WorkspaceTunnel,
+)
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import Page, PageParams, paginate
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
@@ -39,6 +46,8 @@ from tracecat_ee.tunnels.schemas import (
     TunnelRead,
     TunnelStatusRead,
     TunnelUpdate,
+    TunnelUsage,
+    TunnelUsageKind,
     serialize_endpoint,
     serialize_targets,
 )
@@ -52,6 +61,14 @@ from tracecat_ee.tunnels.tokens import (
 
 class TunnelDisabledError(Exception):
     """The tunnel is disabled or its organization lost the tunnels entitlement."""
+
+
+class TunnelInUseError(Exception):
+    """The tunnel cannot be deleted while resources still route through it."""
+
+    def __init__(self, usages: list[TunnelUsage]):
+        super().__init__("Tunnel is in use")
+        self.usages = usages
 
 
 async def get_gateway_policy(
@@ -197,11 +214,107 @@ class TunnelsService(BaseWorkspaceService):
         await sync_gateway(tunnel)
         return tunnel
 
+    @require_scope("tunnel:read")
+    async def list_tunnel_usages(
+        self, tunnel: WorkspaceTunnel, *, limit: int = 200
+    ) -> list[TunnelUsage]:
+        """List resources that route through the tunnel, by ID or by name.
+
+        Every query is filtered by workspace; MCP integrations use the indexed
+        foreign key. ``limit`` caps each kind so large workspaces stay cheap.
+        """
+        self._ensure_owned(tunnel)
+        usages: list[TunnelUsage] = []
+        mcp_rows = await self.session.execute(
+            select(MCPIntegration.id, MCPIntegration.name)
+            .where(
+                MCPIntegration.workspace_id == self.workspace_id,
+                MCPIntegration.tunnel_id == tunnel.id,
+            )
+            .order_by(MCPIntegration.name)
+            .limit(limit)
+        )
+        usages.extend(
+            TunnelUsage(kind=TunnelUsageKind.MCP_INTEGRATION, id=row.id, name=row.name)
+            for row in mcp_rows
+        )
+
+        tool_tunnels = func.jsonb_each_text(AgentPreset.tool_tunnels).table_valued(
+            "key", "value"
+        )
+        preset_tools = (
+            select(func.string_agg(tool_tunnels.c.key, ", "))
+            .where(tool_tunnels.c.value == tunnel.name)
+            .scalar_subquery()
+        )
+        preset_rows = await self.session.execute(
+            select(AgentPreset.id, AgentPreset.name, preset_tools.label("tools"))
+            .where(
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.deleted_at.is_(None),
+                AgentPreset.tool_tunnels.is_not(None),
+                preset_tools.is_not(None),
+            )
+            .order_by(AgentPreset.name)
+            .limit(limit)
+        )
+        usages.extend(
+            TunnelUsage(
+                kind=TunnelUsageKind.AGENT_PRESET,
+                id=row.id,
+                name=row.name,
+                detail=row.tools,
+            )
+            for row in preset_rows
+        )
+
+        action_titles = (
+            select(func.string_agg(Action.title, ", "))
+            .where(
+                Action.workspace_id == self.workspace_id,
+                Action.workflow_id == Workflow.id,
+                Action.control_flow["tunnel"].astext == tunnel.name,
+            )
+            .scalar_subquery()
+        )
+        workflow_rows = await self.session.execute(
+            select(
+                Workflow.id,
+                Workflow.title,
+                Workflow.config["tunnel"].astext.label("default_tunnel"),
+                action_titles.label("actions"),
+            )
+            .where(
+                Workflow.workspace_id == self.workspace_id,
+                (Workflow.config["tunnel"].astext == tunnel.name)
+                | action_titles.is_not(None),
+            )
+            .order_by(Workflow.title)
+            .limit(limit)
+        )
+        for row in workflow_rows:
+            parts = []
+            if row.default_tunnel == tunnel.name:
+                parts.append("Workflow default")
+            if row.actions:
+                parts.append(row.actions)
+            usages.append(
+                TunnelUsage(
+                    kind=TunnelUsageKind.WORKFLOW,
+                    id=row.id,
+                    name=row.title,
+                    detail="; ".join(parts) or None,
+                )
+            )
+        return usages
+
     @require_scope("tunnel:delete")
     @audit_log(resource_type="workspace_tunnel", action="delete")
     async def delete_tunnel(self, tunnel: WorkspaceTunnel) -> None:
         await self.require_entitlement(Entitlement.TUNNELS)
         self._ensure_owned(tunnel)
+        if usages := await self.list_tunnel_usages(tunnel):
+            raise TunnelInUseError(usages)
         if tunnel.managed:
             await self._delete_managed_resources(tunnel)
         tunnel_id = tunnel.id

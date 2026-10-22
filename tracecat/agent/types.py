@@ -90,6 +90,7 @@ class AgentConfig:
     actions: list[str] | None = None
     namespaces: list[str] | None = None
     tool_approvals: dict[str, bool] | None = None
+    tool_tunnels: dict[str, str] | None = None
     # MCP
     model_settings: dict[str, Any] | None = None
     mcp_servers: list[MCPServerConfig] | None = None

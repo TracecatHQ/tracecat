@@ -26,9 +26,11 @@ from tracecat_ee.tunnels.schemas import (
     TunnelRead,
     TunnelStatusRead,
     TunnelUpdate,
+    TunnelUsageList,
 )
 from tracecat_ee.tunnels.service import (
     TunnelDisabledError,
+    TunnelInUseError,
     TunnelsService,
     get_gateway_policy,
 )
@@ -189,6 +191,26 @@ async def update_tunnel(
     return TunnelRead.from_database(updated)
 
 
+@router.get("/{tunnel_id}/usages")
+@require_scope("tunnel:read")
+async def list_tunnel_usages(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    tunnel_id: uuid.UUID,
+) -> TunnelUsageList:
+    """List the MCP integrations, agent presets and workflows using the tunnel."""
+    service = TunnelsService(session, role=role)
+    try:
+        tunnel = await service.get_tunnel(tunnel_id)
+        usages = await service.list_tunnel_usages(tunnel)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    return TunnelUsageList(items=usages)
+
+
 @router.delete("/{tunnel_id}", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("tunnel:delete")
 async def delete_tunnel(
@@ -205,6 +227,20 @@ async def delete_tunnel(
     except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except TunnelInUseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "Tunnel is in use. Remove it from these resources first.",
+                "usages": [usage.model_dump(mode="json") for usage in exc.usages],
+            },
+        ) from exc
+    except IntegrityError as exc:
+        # A resource started using the tunnel after the usage check.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": "Tunnel is in use", "usages": []},
         ) from exc
     except PangolinError as exc:
         raise HTTPException(

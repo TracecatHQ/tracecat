@@ -79,30 +79,36 @@ async def _resolve_gateway_ip(host: str, port: int) -> str:
 
 async def resolve_tunnel_route(
     *,
-    name: str,
     workspace_id: WorkspaceID,
     organization_id: OrganizationID,
-    wf_exec_id: str,
-    action_ref: str | None,
+    subject: str,
+    name: str | None = None,
+    tunnel_id: uuid.UUID | None = None,
+    action_ref: str | None = None,
     ttl_seconds: int = TUNNEL_TOKEN_MAX_TTL_SECONDS,
 ) -> TunnelRoute:
     """Check the tunnel can be used now and mint a proxy token for it.
 
-    The lookup is filtered by workspace explicitly; the executor has no
+    Look the tunnel up by exactly one of ``name`` or ``tunnel_id``. The lookup
+    is filtered by workspace explicitly; callers such as the executor have no
     workspace role for RLS. Errors never fall back to direct egress.
     """
+    if (name is None) == (tunnel_id is None):
+        raise ValueError("Pass exactly one of name or tunnel_id")
     async with get_async_session_bypass_rls_context_manager() as session:
         if not await is_org_entitled(session, organization_id, Entitlement.TUNNELS):
             raise TunnelRouteError("Tunnels are not available on your current plan")
-        result = await session.execute(
-            select(WorkspaceTunnel).where(
-                WorkspaceTunnel.workspace_id == workspace_id,
-                WorkspaceTunnel.name == name,
-            )
+        stmt = select(WorkspaceTunnel).where(
+            WorkspaceTunnel.workspace_id == workspace_id
         )
-        tunnel = result.scalar_one_or_none()
+        if tunnel_id is not None:
+            stmt = stmt.where(WorkspaceTunnel.id == tunnel_id)
+        else:
+            stmt = stmt.where(WorkspaceTunnel.name == name)
+        tunnel = (await session.execute(stmt)).scalar_one_or_none()
         if tunnel is None:
-            raise TunnelRouteError(f"Tunnel {name!r} not found in this workspace")
+            raise TunnelRouteError("Tunnel not found in this workspace")
+        name = tunnel.name
         if not tunnel.enabled:
             raise TunnelRouteError(f"Tunnel {name!r} is disabled")
         if tunnel.encrypted_gateway_key is None:
@@ -116,7 +122,7 @@ async def resolve_tunnel_route(
         gateway_key=gateway_key,
         tunnel_id=tunnel_id,
         workspace_id=workspace_id,
-        wf_exec_id=wf_exec_id,
+        subject=subject,
         action_ref=action_ref,
         ttl_seconds=ttl_seconds,
     )

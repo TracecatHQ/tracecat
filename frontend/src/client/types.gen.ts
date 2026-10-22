@@ -734,6 +734,9 @@ export type AgentPresetCreate = {
   tool_approvals?: {
     [key: string]: boolean
   } | null
+  tool_tunnels?: {
+    [key: string]: string
+  } | null
   mcp_integrations?: Array<string> | null
   library_skills?: Array<string> | null
   agents?: AgentSubagentsConfig_Input
@@ -787,6 +790,9 @@ export type AgentPresetRead = {
   namespaces?: Array<string> | null
   tool_approvals?: {
     [key: string]: boolean
+  } | null
+  tool_tunnels?: {
+    [key: string]: string
   } | null
   mcp_integrations?: Array<string> | null
   library_skills?: Array<string> | null
@@ -939,6 +945,9 @@ export type AgentPresetUpdate = {
   tool_approvals?: {
     [key: string]: boolean
   } | null
+  tool_tunnels?: {
+    [key: string]: string
+  } | null
   mcp_integrations?: Array<string> | null
   library_skills?: Array<string> | null
   agents?: AgentSubagentsConfig_Input | null
@@ -1008,6 +1017,9 @@ export type AgentPresetVersionRead = {
   namespaces?: Array<string> | null
   tool_approvals?: {
     [key: string]: boolean
+  } | null
+  tool_tunnels?: {
+    [key: string]: string
   } | null
   mcp_integrations?: Array<string> | null
   library_skills?: Array<string> | null
@@ -6913,6 +6925,10 @@ export type MCPHttpIntegrationCreate = {
    */
   oauth_integration_id?: string | null
   /**
+   * Workspace tunnel that every request to this server goes through
+   */
+  tunnel_id?: string | null
+  /**
    * HTTP headers as a JSON object. Required for custom auth type; optional additional headers for OAuth2 auth type.
    */
   custom_credentials?: string | null
@@ -6932,6 +6948,7 @@ export type MCPHttpIntegrationTestConnectionRequest = {
   server_uri: string
   auth_type?: MCPAuthType
   oauth_integration_id?: string | null
+  tunnel_id?: string | null
   /**
    * JSON object of custom headers; falls back to stored headers when omitted
    */
@@ -6964,6 +6981,8 @@ export type MCPHttpServerConfig = {
   timeout?: number
   id?: string
   tools?: Array<MCPServerToolSummary>
+  tunnel_id?: string
+  tunnel_proxy?: string
 }
 
 export type transport = "http" | "sse"
@@ -6990,6 +7009,7 @@ export type MCPIntegrationRead = {
   server_uri: string | null
   auth_type: MCPAuthType
   oauth_integration_id: string | null
+  tunnel_id?: string | null
   state:
     | "not_configured"
     | "configured"
@@ -7040,6 +7060,10 @@ export type MCPIntegrationUpdate = {
   server_uri?: string | null
   auth_type?: MCPAuthType | null
   oauth_integration_id?: string | null
+  /**
+   * Workspace tunnel for this HTTP server. Send null to stop using one.
+   */
+  tunnel_id?: string | null
   /**
    * Custom credentials as JSON headers. Required for custom auth type; optional additional headers for OAuth2 auth type.
    */
@@ -11336,6 +11360,25 @@ export type TunnelUpdate = {
 }
 
 /**
+ * A workspace resource that routes traffic through a tunnel.
+ */
+export type TunnelUsage = {
+  kind: TunnelUsageKind
+  id: string
+  name: string
+  /**
+   * Where in the resource the tunnel is set, e.g. an action or tool
+   */
+  detail?: string | null
+}
+
+export type TunnelUsageKind = "mcp_integration" | "agent_preset" | "workflow"
+
+export type TunnelUsageList = {
+  items: Array<TunnelUsage>
+}
+
+/**
  * Pydantic model for AI SDK UI Messages, used for validation between
  * frontend and backend.
  */
@@ -14285,6 +14328,13 @@ export type TunnelsDeleteTunnelData = {
 }
 
 export type TunnelsDeleteTunnelResponse = void
+
+export type TunnelsListTunnelUsagesData = {
+  tunnelId: string
+  workspaceId: string
+}
+
+export type TunnelsListTunnelUsagesResponse = TunnelUsageList
 
 export type TunnelsIssueTunnelGatewayKeyData = {
   tunnelId: string
@@ -19866,6 +19916,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tunnels/{tunnel_id}/usages": {
+    get: {
+      req: TunnelsListTunnelUsagesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TunnelUsageList
         /**
          * Validation Error
          */

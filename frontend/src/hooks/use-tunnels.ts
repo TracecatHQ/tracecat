@@ -7,11 +7,13 @@ import {
   type TunnelRead,
   type TunnelStatusRead,
   type TunnelUpdate,
+  type TunnelUsageList,
   tunnelsCreateManagedTunnel,
   tunnelsDeleteTunnel,
   tunnelsGetTunnelStatus,
   tunnelsIssueTunnelGatewayKey,
   tunnelsListTunnels,
+  tunnelsListTunnelUsages,
   tunnelsUpdateTunnel,
 } from "@/client"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
@@ -87,6 +89,20 @@ export function useTunnels(
     issueGatewayKey: issueGatewayKey.mutateAsync,
     issueGatewayKeyPending: issueGatewayKey.isPending,
   }
+}
+
+/** Lists the MCP integrations, agent presets and workflows using a tunnel. */
+export function useTunnelUsages(
+  workspaceId: string,
+  tunnelId: string | null | undefined
+) {
+  return useQuery<TunnelUsageList, Error>({
+    queryKey: [...tunnelsQueryKey(workspaceId), tunnelId, "usages"],
+    queryFn: async () =>
+      await tunnelsListTunnelUsages({ workspaceId, tunnelId: tunnelId ?? "" }),
+    enabled: Boolean(workspaceId && tunnelId),
+    staleTime: 0,
+  })
 }
 
 /** Polls the live status of one tunnel's site and gateway. */

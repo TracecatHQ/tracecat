@@ -6,13 +6,13 @@ import re
 import secrets
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, TypedDict, cast
 from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
 
-import httpx
 import orjson
 import sqlalchemy as sa
 from authlib.integrations.base_client.errors import OAuthError
@@ -77,6 +77,14 @@ from tracecat.integrations.enums import (
     IntegrationStatus,
     MCPAuthType,
     OAuthGrantType,
+)
+from tracecat.integrations.mcp_tunnel import (
+    create_mcp_oauth_http_client,
+    mcp_oauth_client_transport,
+    mcp_oauth_tunnel,
+    mcp_oauth_tunnel_proxy,
+    resolve_mcp_tunnel_proxy,
+    validate_mcp_tunnel,
 )
 from tracecat.integrations.mcp_validation import (
     ALLOWED_MCP_COMMANDS,
@@ -970,11 +978,39 @@ class IntegrationService(BaseWorkspaceService):
             client_kwargs["response_type"] = "code"
         if token_auth_method:
             client_kwargs["token_endpoint_auth_method"] = token_auth_method
+        client_kwargs.update(mcp_oauth_client_transport())
         return AsyncOAuth2Client(**client_kwargs)
 
-    async def _fetch_oauth_json(self, url: str) -> OAuthServerMetadata | None:
+    @staticmethod
+    async def _validate_mcp_oauth_endpoint_reachable(url: str) -> None:
+        if mcp_oauth_tunnel_proxy() is not None:
+            # Private hosts are expected; the tunnel's allowlist decides reach.
+            validate_oauth_endpoint(url)
+            return
         await validate_oauth_endpoint_resolves_public_async(url)
-        async with httpx.AsyncClient() as client:
+
+    async def _validate_mcp_tunnel(self, tunnel_id: uuid.UUID, server_uri: str) -> None:
+        await validate_mcp_tunnel(
+            self.session,
+            workspace_id=self.workspace_id,
+            organization_id=self.organization_id,
+            tunnel_id=tunnel_id,
+            server_uri=server_uri,
+        )
+
+    def _mcp_oauth_tunnel(
+        self, mcp_integration: MCPIntegration | None
+    ) -> AbstractAsyncContextManager[None]:
+        return mcp_oauth_tunnel(
+            workspace_id=self.workspace_id,
+            organization_id=self.organization_id,
+            tunnel_id=mcp_integration.tunnel_id if mcp_integration else None,
+            subject=f"mcp_integration:{mcp_integration.id if mcp_integration else ''}",
+        )
+
+    async def _fetch_oauth_json(self, url: str) -> OAuthServerMetadata | None:
+        await self._validate_mcp_oauth_endpoint_reachable(url)
+        async with create_mcp_oauth_http_client() as client:
             response = await client.get(url, timeout=10.0)
         if response.status_code == 404:
             return None
@@ -1114,8 +1150,8 @@ class IntegrationService(BaseWorkspaceService):
             requested_scopes=requested_scopes,
         )
 
-        await validate_oauth_endpoint_resolves_public_async(registration_endpoint)
-        async with httpx.AsyncClient() as client:
+        await self._validate_mcp_oauth_endpoint_reachable(registration_endpoint)
+        async with create_mcp_oauth_http_client() as client:
             response = await client.post(
                 registration_endpoint,
                 json=payload,
@@ -1282,6 +1318,27 @@ class IntegrationService(BaseWorkspaceService):
         params: MCPHttpIntegrationCreate,
         resolved_catalog: ResolvedCatalogConnection | None = None,
         existing_mcp_integration: MCPIntegration | None = None,
+    ) -> PlatformMCPCatalogConnectResult:
+        if params.tunnel_id is not None:
+            await self._validate_mcp_tunnel(params.tunnel_id, params.server_uri)
+        async with mcp_oauth_tunnel(
+            workspace_id=self.workspace_id,
+            organization_id=self.organization_id,
+            tunnel_id=params.tunnel_id,
+            subject="mcp_integration:connect",
+        ):
+            return await self._connect_mcp_oauth_discovery(
+                params=params,
+                resolved_catalog=resolved_catalog,
+                existing_mcp_integration=existing_mcp_integration,
+            )
+
+    async def _connect_mcp_oauth_discovery(
+        self,
+        *,
+        params: MCPHttpIntegrationCreate,
+        resolved_catalog: ResolvedCatalogConnection | None,
+        existing_mcp_integration: MCPIntegration | None,
     ) -> PlatformMCPCatalogConnectResult:
         if params.server_type != "http" or params.auth_type != MCPAuthType.OAUTH2:
             raise ValueError("MCP OAuth discovery requires an HTTP OAuth MCP server")
@@ -1693,6 +1750,34 @@ class IntegrationService(BaseWorkspaceService):
         state: str,
         code_verifier: str | None,
     ) -> OAuthIntegration:
+        integration = await self.get_integration(
+            provider_key=ProviderKey(
+                id=provider_id, grant_type=OAuthGrantType.AUTHORIZATION_CODE
+            )
+        )
+        mcp_integration = (
+            await self._mcp_integration_for_oauth_integration(
+                oauth_integration_id=integration.id
+            )
+            if integration is not None
+            else None
+        )
+        async with self._mcp_oauth_tunnel(mcp_integration):
+            return await self._complete_mcp_oauth_discovery_callback(
+                provider_id=provider_id,
+                code=code,
+                state=state,
+                code_verifier=code_verifier,
+            )
+
+    async def _complete_mcp_oauth_discovery_callback(
+        self,
+        *,
+        provider_id: str,
+        code: str,
+        state: str,
+        code_verifier: str | None,
+    ) -> OAuthIntegration:
         provider_key = ProviderKey(
             id=provider_id, grant_type=OAuthGrantType.AUTHORIZATION_CODE
         )
@@ -1732,7 +1817,7 @@ class IntegrationService(BaseWorkspaceService):
             token_auth_method=token_auth_method,
         )
         token_endpoint = provider_config.token_endpoint or endpoints.token_endpoint
-        await validate_oauth_endpoint_resolves_public_async(token_endpoint)
+        await self._validate_mcp_oauth_endpoint_reachable(token_endpoint)
         try:
             token = TokenResponse.from_oauth_response(
                 await client.fetch_token(
@@ -1776,6 +1861,20 @@ class IntegrationService(BaseWorkspaceService):
         integration: OAuthIntegration,
         refresh_token: str,
     ) -> OAuthIntegration:
+        mcp_integration = await self._mcp_integration_for_oauth_integration(
+            oauth_integration_id=integration.id
+        )
+        async with self._mcp_oauth_tunnel(mcp_integration):
+            return await self._refresh_custom_mcp_integration_via_tunnel(
+                integration=integration, refresh_token=refresh_token
+            )
+
+    async def _refresh_custom_mcp_integration_via_tunnel(
+        self,
+        *,
+        integration: OAuthIntegration,
+        refresh_token: str,
+    ) -> OAuthIntegration:
         provider_config = self.get_provider_config(integration=integration)
         if provider_config is None or not provider_config.client_id:
             return integration
@@ -1809,7 +1908,7 @@ class IntegrationService(BaseWorkspaceService):
             with_redirect=False,
         )
         token_endpoint = provider_config.token_endpoint or endpoints.token_endpoint
-        await validate_oauth_endpoint_resolves_public_async(token_endpoint)
+        await self._validate_mcp_oauth_endpoint_reachable(token_endpoint)
         oauth_response = await client.refresh_token(
             token_endpoint,
             refresh_token=refresh_token,
@@ -3065,6 +3164,7 @@ class IntegrationService(BaseWorkspaceService):
         stdio_command: str | None = None
         stdio_args: list[str] | None = None
         encrypted_stdio_env: bytes | None = None
+        tunnel_id: uuid.UUID | None = None
 
         if params.server_type == "http":
             # Validate OAuth integration if auth_type is oauth2
@@ -3088,6 +3188,9 @@ class IntegrationService(BaseWorkspaceService):
             server_uri = params.server_uri.strip()
             auth_type = params.auth_type
             oauth_integration_id = params.oauth_integration_id
+            if params.tunnel_id is not None:
+                await self._validate_mcp_tunnel(params.tunnel_id, server_uri)
+                tunnel_id = params.tunnel_id
             if (
                 params.auth_type in {MCPAuthType.CUSTOM, MCPAuthType.OAUTH2}
                 and params.custom_credentials
@@ -3125,6 +3228,7 @@ class IntegrationService(BaseWorkspaceService):
             stdio_args=stdio_args,
             encrypted_stdio_env=encrypted_stdio_env,
             timeout=params.timeout,
+            tunnel_id=tunnel_id,
         )
 
         self.session.add(mcp_integration)
@@ -3159,6 +3263,14 @@ class IntegrationService(BaseWorkspaceService):
         )
 
     async def _start_existing_custom_mcp_oauth(
+        self, *, mcp_integration: MCPIntegration
+    ) -> PlatformMCPCatalogConnectResult | None:
+        async with self._mcp_oauth_tunnel(mcp_integration):
+            return await self._start_existing_custom_mcp_oauth_via_tunnel(
+                mcp_integration=mcp_integration
+            )
+
+    async def _start_existing_custom_mcp_oauth_via_tunnel(
         self, *, mcp_integration: MCPIntegration
     ) -> PlatformMCPCatalogConnectResult | None:
         if (
@@ -4015,6 +4127,8 @@ class IntegrationService(BaseWorkspaceService):
         oauth_integration_id = params.oauth_integration_id or (
             reusable.oauth_integration_id if reusable else None
         )
+        if params.tunnel_id is not None:
+            await self._validate_mcp_tunnel(params.tunnel_id, params.server_uri)
         # Transient row used purely for config resolution — never added to the
         # session, so it is never persisted.
         transient = MCPIntegration(
@@ -4028,6 +4142,7 @@ class IntegrationService(BaseWorkspaceService):
             oauth_integration_id=oauth_integration_id,
             encrypted_headers=encrypted_headers,
             timeout=params.timeout,
+            tunnel_id=params.tunnel_id,
         )
 
         try:
@@ -4363,6 +4478,14 @@ class IntegrationService(BaseWorkspaceService):
         }
         if mcp_integration.timeout is not None:
             server_config["timeout"] = mcp_integration.timeout
+        if mcp_integration.tunnel_id is not None:
+            server_config["tunnel_id"] = str(mcp_integration.tunnel_id)
+            server_config["tunnel_proxy"] = await resolve_mcp_tunnel_proxy(
+                workspace_id=self.workspace_id,
+                organization_id=self.organization_id,
+                tunnel_id=mcp_integration.tunnel_id,
+                subject=f"mcp_integration:{mcp_integration.id}",
+            )
         return server_config
 
     def _build_mcp_update_target(
@@ -4374,6 +4497,7 @@ class IntegrationService(BaseWorkspaceService):
         target_server_uri: str,
         target_auth_type: MCPAuthType,
         target_oauth_integration_id: uuid.UUID | None,
+        target_tunnel_id: uuid.UUID | None,
     ) -> MCPIntegration:
         """Build a transient row representing the merged (post-update) HTTP config.
 
@@ -4405,6 +4529,7 @@ class IntegrationService(BaseWorkspaceService):
             auth_type=target_auth_type,
             oauth_integration_id=target_oauth_integration_id,
             encrypted_headers=target_encrypted_headers,
+            tunnel_id=target_tunnel_id,
             timeout=(
                 params.timeout
                 if params.timeout is not None
@@ -4464,6 +4589,11 @@ class IntegrationService(BaseWorkspaceService):
         # while an empty object explicitly clears the stored environment.
         stdio_env_was_provided = params.stdio_env is not None
         target_oauth_integration_id = mcp_integration.oauth_integration_id
+        target_tunnel_id = (
+            params.tunnel_id
+            if "tunnel_id" in params.model_fields_set
+            else mcp_integration.tunnel_id
+        )
 
         if target_server_type == "http":
             target_server_uri = params.server_uri or mcp_integration.server_uri
@@ -4506,10 +4636,16 @@ class IntegrationService(BaseWorkspaceService):
                     "reauthorizing. Reconnect the server to authorize the new URI."
                 )
 
+            if target_tunnel_id is not None and (
+                target_tunnel_id != mcp_integration.tunnel_id
+                or target_server_uri != mcp_integration.server_uri
+            ):
+                await self._validate_mcp_tunnel(target_tunnel_id, target_server_uri)
             connection_changed = (
                 target_server_uri != mcp_integration.server_uri
                 or target_auth_type != mcp_integration.auth_type
                 or target_oauth_integration_id != mcp_integration.oauth_integration_id
+                or target_tunnel_id != mcp_integration.tunnel_id
             )
             # Only revalidate against the catalog when the connection itself
             # moved; a drifted recipe must never block a rename or timeout edit.
@@ -4546,6 +4682,7 @@ class IntegrationService(BaseWorkspaceService):
                     target_server_uri=target_server_uri,
                     target_auth_type=target_auth_type,
                     target_oauth_integration_id=target_oauth_integration_id,
+                    target_tunnel_id=target_tunnel_id,
                 )
                 # Skip the probe while an OAuth2 target still lacks an access
                 # token: the user hasn't completed (or has lost) authorization,
@@ -4633,6 +4770,7 @@ class IntegrationService(BaseWorkspaceService):
                 mcp_integration.auth_type = MCPAuthType.NONE
                 mcp_integration.oauth_integration_id = None
                 mcp_integration.encrypted_headers = None
+                mcp_integration.tunnel_id = None
 
         if target_server_type == "http":
             if params.server_uri is not None:
@@ -4640,6 +4778,7 @@ class IntegrationService(BaseWorkspaceService):
             if params.auth_type is not None:
                 mcp_integration.auth_type = params.auth_type
             mcp_integration.oauth_integration_id = target_oauth_integration_id
+            mcp_integration.tunnel_id = target_tunnel_id
 
         # Update stdio-type server fields
         if target_server_type == "stdio" and params.stdio_command is not None:

@@ -122,6 +122,7 @@ class AgentPresetExecutionConfig(Schema):
     actions: list[str] | None = Field(default=None)
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
+    tool_tunnels: dict[str, str] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
     library_skills: list[str] | None = Field(default=None)
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
@@ -142,6 +143,7 @@ class AgentPresetExecutionConfigWrite(Schema):
     actions: list[str] | None = Field(default=None)
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
+    tool_tunnels: dict[str, str] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
     library_skills: list[SkillName] | None = Field(default=None)
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
@@ -187,6 +189,7 @@ class AgentPresetUpdate(BaseModel):
     actions: list[str] | None = Field(default=None)
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
+    tool_tunnels: dict[str, str] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
     library_skills: list[SkillName] | None = Field(default=None)
     agents: AgentSubagentsConfig | None = Field(default=None)
@@ -436,6 +439,7 @@ class AgentPresetRead(AgentPresetExecutionConfig):
             actions=self.actions,
             namespaces=self.namespaces,
             tool_approvals=self.tool_approvals,
+            tool_tunnels=self.tool_tunnels,
             agents=self.agents,
             retries=self.retries,
             enable_thinking=self.enable_thinking,

@@ -31,6 +31,7 @@ from temporalio.service import RPCError, RPCStatusCode
 
 import tracecat.integrations.catalog.resolver as catalog_resolver_module
 import tracecat.integrations.catalog.service as catalog_service_module
+import tracecat.integrations.mcp_tunnel as mcp_tunnel_module
 import tracecat.integrations.router as integration_router_module
 import tracecat.integrations.service as integration_service_module
 from tracecat.agent.mcp.stdio_probe import (
@@ -243,9 +244,7 @@ def _patch_mcp_dcr_http(
                 200, json=response_json, request=httpx.Request("POST", url)
             )
 
-    monkeypatch.setattr(
-        integration_service_module.httpx, "AsyncClient", FakeAsyncClient
-    )
+    monkeypatch.setattr(mcp_tunnel_module.httpx, "AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(
         integration_service_module,
         "validate_oauth_endpoint_resolves_public_async",

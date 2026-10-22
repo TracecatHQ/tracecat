@@ -371,6 +371,11 @@ _PRESET_USE_IN_CHAT_DESCRIPTION = (
     "Make this preset selectable in workspace chat. Only set this when the user "
     "explicitly asks to enable or disable the preset in chat; otherwise omit it."
 )
+_PRESET_TOOL_TUNNELS_DESCRIPTION = (
+    "Workspace tunnel name keyed by registry action name, for actions that "
+    "reach private hosts (e.g. an on-prem API). MCP servers set their tunnel "
+    "on the MCP integration instead."
+)
 
 
 def _coerce_uuid_arg(value: uuid.UUID | str, field_name: str) -> uuid.UUID:
@@ -669,6 +674,7 @@ async def _build_integrations_inventory(role: Role) -> IntegrationsInventoryResp
                     server_type=integration.server_type,
                     auth_type=integration.auth_type.value,
                     oauth_integration_id=integration.oauth_integration_id,
+                    tunnel_id=integration.tunnel_id,
                     timeout=integration.timeout,
                     attachable_to_agent_preset=True,
                 )
@@ -1401,6 +1407,7 @@ class IntegrationMCPItem(BaseModel):
     server_type: str
     auth_type: str
     oauth_integration_id: uuid.UUID | None = None
+    tunnel_id: uuid.UUID | None = None
     timeout: float | None = None
     attachable_to_agent_preset: bool = True
 
@@ -9604,6 +9611,9 @@ async def create_agent_preset(
     actions: list[str] | None = None,
     namespaces: list[str] | None = None,
     tool_approvals: dict[str, bool] | None = None,
+    tool_tunnels: Annotated[
+        dict[str, str] | None, Field(description=_PRESET_TOOL_TUNNELS_DESCRIPTION)
+    ] = None,
     mcp_integration_ids: list[str] | None = None,
     retries: int | None = None,
     enable_thinking: bool | None = None,
@@ -9659,6 +9669,7 @@ async def create_agent_preset(
             "actions": actions,
             "namespaces": namespaces,
             "tool_approvals": tool_approvals,
+            "tool_tunnels": tool_tunnels,
             "mcp_integrations": mcp_integration_ids,
             "retries": retries,
             "enable_thinking": enable_thinking,
@@ -9712,6 +9723,9 @@ async def update_agent_preset(
     actions: list[str] | None = None,
     namespaces: list[str] | None = None,
     tool_approvals: dict[str, bool] | None = None,
+    tool_tunnels: Annotated[
+        dict[str, str] | None, Field(description=_PRESET_TOOL_TUNNELS_DESCRIPTION)
+    ] = None,
     mcp_integration_ids: list[str] | None = None,
     retries: int | None = None,
     enable_thinking: bool | None = None,
@@ -9763,6 +9777,7 @@ async def update_agent_preset(
             "actions": actions,
             "namespaces": namespaces,
             "tool_approvals": tool_approvals,
+            "tool_tunnels": tool_tunnels,
             "mcp_integrations": mcp_integration_ids,
             "retries": retries,
             "enable_thinking": enable_thinking,

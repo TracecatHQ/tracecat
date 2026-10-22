@@ -19,7 +19,7 @@ TUNNEL_TOKEN_ISSUER = "tracecat-executor"
 TUNNEL_TOKEN_AUDIENCE = "tracecat-tunnel-gateway"
 TUNNEL_TOKEN_DEFAULT_TTL_SECONDS = 300
 TUNNEL_TOKEN_MAX_TTL_SECONDS = 900
-_REQUIRED_CLAIMS = ("iss", "aud", "sub", "iat", "exp", "workspace_id", "wf_exec_id")
+_REQUIRED_CLAIMS = ("iss", "aud", "sub", "iat", "exp", "workspace_id", "subject")
 
 GATEWAY_POLICY_TOKEN_ISSUER = "tracecat-tunnel-gateway"
 GATEWAY_POLICY_TOKEN_AUDIENCE = "tracecat-tunnel-policy"
@@ -34,7 +34,8 @@ class TunnelTokenError(Exception):
 class TunnelTokenClaims(BaseModel):
     tunnel_id: uuid.UUID
     workspace_id: uuid.UUID
-    wf_exec_id: str
+    subject: str
+    """Who is using the tunnel, e.g. a workflow execution or an agent session."""
     action_ref: str | None = None
 
 
@@ -48,11 +49,11 @@ def mint_tunnel_token(
     gateway_key: str,
     tunnel_id: uuid.UUID,
     workspace_id: uuid.UUID,
-    wf_exec_id: str,
+    subject: str,
     action_ref: str | None = None,
     ttl_seconds: int = TUNNEL_TOKEN_DEFAULT_TTL_SECONDS,
 ) -> str:
-    """Mint a proxy token scoped to one tunnel, workspace, and workflow execution."""
+    """Mint a proxy token scoped to one tunnel, workspace, and subject."""
     if not 0 < ttl_seconds <= TUNNEL_TOKEN_MAX_TTL_SECONDS:
         raise ValueError(
             f"ttl_seconds must be between 1 and {TUNNEL_TOKEN_MAX_TTL_SECONDS}"
@@ -65,7 +66,7 @@ def mint_tunnel_token(
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(seconds=ttl_seconds)).timestamp()),
         "workspace_id": str(workspace_id),
-        "wf_exec_id": wf_exec_id,
+        "subject": subject,
     }
     if action_ref is not None:
         payload["action_ref"] = action_ref

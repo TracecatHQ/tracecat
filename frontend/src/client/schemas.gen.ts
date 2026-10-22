@@ -2479,6 +2479,20 @@ export const $AgentPresetCreate = {
       ],
       title: "Tool Approvals",
     },
+    tool_tunnels: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Tunnels",
+    },
     mcp_integrations: {
       anyOf: [
         {
@@ -2798,6 +2812,20 @@ export const $AgentPresetRead = {
         },
       ],
       title: "Tool Approvals",
+    },
+    tool_tunnels: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Tunnels",
     },
     mcp_integrations: {
       anyOf: [
@@ -3511,6 +3539,20 @@ export const $AgentPresetUpdate = {
       ],
       title: "Tool Approvals",
     },
+    tool_tunnels: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Tunnels",
+    },
     mcp_integrations: {
       anyOf: [
         {
@@ -4001,6 +4043,20 @@ export const $AgentPresetVersionRead = {
         },
       ],
       title: "Tool Approvals",
+    },
+    tool_tunnels: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Tunnels",
     },
     mcp_integrations: {
       anyOf: [
@@ -22540,6 +22596,20 @@ export const $MCPHttpIntegrationCreate = {
       title: "Oauth Integration Id",
       description: "OAuth integration ID (required for oauth2 auth_type)",
     },
+    tunnel_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel Id",
+      description:
+        "Workspace tunnel that every request to this server goes through",
+    },
     custom_credentials: {
       anyOf: [
         {
@@ -22632,6 +22702,18 @@ export const $MCPHttpIntegrationTestConnectionRequest = {
       ],
       title: "Oauth Integration Id",
     },
+    tunnel_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel Id",
+    },
     custom_credentials: {
       anyOf: [
         {
@@ -22696,6 +22778,14 @@ export const $MCPHttpServerConfig = {
       },
       type: "array",
       title: "Tools",
+    },
+    tunnel_id: {
+      type: "string",
+      title: "Tunnel Id",
+    },
+    tunnel_proxy: {
+      type: "string",
+      title: "Tunnel Proxy",
     },
   },
   type: "object",
@@ -22804,6 +22894,18 @@ export const $MCPIntegrationRead = {
         },
       ],
       title: "Oauth Integration Id",
+    },
+    tunnel_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel Id",
     },
     state: {
       type: "string",
@@ -23040,6 +23142,20 @@ export const $MCPIntegrationUpdate = {
         },
       ],
       title: "Oauth Integration Id",
+    },
+    tunnel_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel Id",
+      description:
+        "Workspace tunnel for this HTTP server. Send null to stop using one.",
     },
     custom_credentials: {
       anyOf: [
@@ -37451,6 +37567,61 @@ export const $TunnelUpdate = {
   additionalProperties: false,
   type: "object",
   title: "TunnelUpdate",
+} as const
+
+export const $TunnelUsage = {
+  properties: {
+    kind: {
+      $ref: "#/components/schemas/TunnelUsageKind",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    detail: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Detail",
+      description:
+        "Where in the resource the tunnel is set, e.g. an action or tool",
+    },
+  },
+  type: "object",
+  required: ["kind", "id", "name"],
+  title: "TunnelUsage",
+  description: "A workspace resource that routes traffic through a tunnel.",
+} as const
+
+export const $TunnelUsageKind = {
+  type: "string",
+  enum: ["mcp_integration", "agent_preset", "workflow"],
+  title: "TunnelUsageKind",
+} as const
+
+export const $TunnelUsageList = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/TunnelUsage",
+      },
+      type: "array",
+      title: "Items",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "TunnelUsageList",
 } as const
 
 export const $UIMessage = {

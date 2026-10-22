@@ -265,6 +265,7 @@ export const agentPresetSchema = z
         })
       )
       .default([]),
+    toolTunnels: z.record(z.string(), z.string()).default({}),
     retries: z.coerce
       .number({ invalid_type_error: "Retries must be a number" })
       .int()
@@ -415,6 +416,7 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   skills: [],
   librarySkills: [],
   toolApprovals: [],
+  toolTunnels: {},
   retries: DEFAULT_RETRIES,
   enableThinking: true,
   enableInternetAccess: false,
@@ -1120,6 +1122,7 @@ const AGENT_PRESET_FORM_FIELD_TO_BACKEND_FIELD: Record<
   skills: "skills",
   librarySkills: "library_skills",
   toolApprovals: "tool_approvals",
+  toolTunnels: "tool_tunnels",
   retries: "retries",
   enableThinking: "enable_thinking",
   enableInternetAccess: "enable_internet_access",
@@ -3710,6 +3713,7 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
           })
         )
       : [],
+    toolTunnels: preset.tool_tunnels ?? {},
     mcpIntegrations: preset.mcp_integrations ?? [],
     subagents,
     skills:
@@ -3763,6 +3767,8 @@ export function formValuesToPayload(
     library_skills:
       values.librarySkills.length > 0 ? values.librarySkills : null,
     tool_approvals: toToolApprovalMap(values.toolApprovals),
+    tool_tunnels:
+      Object.keys(values.toolTunnels).length > 0 ? values.toolTunnels : null,
     retries: values.retries,
     enable_thinking: values.enableThinking,
     enable_internet_access:

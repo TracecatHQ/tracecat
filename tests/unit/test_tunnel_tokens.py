@@ -22,7 +22,7 @@ def _mint(**overrides: object) -> str:
         "gateway_key": KEY,
         "tunnel_id": TUNNEL_ID,
         "workspace_id": WORKSPACE_ID,
-        "wf_exec_id": "wf-exec-1",
+        "subject": "wf-exec-1",
         "action_ref": "search_events",
     }
     params.update(overrides)
@@ -48,7 +48,7 @@ def test_round_trip() -> None:
     claims = _verify(_mint())
     assert claims.tunnel_id == TUNNEL_ID
     assert claims.workspace_id == WORKSPACE_ID
-    assert claims.wf_exec_id == "wf-exec-1"
+    assert claims.subject == "wf-exec-1"
     assert claims.action_ref == "search_events"
 
 
@@ -79,7 +79,7 @@ def _raw(payload_overrides: dict[str, object], algorithm: str = "HS256") -> str:
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(seconds=60)).timestamp()),
         "workspace_id": str(WORKSPACE_ID),
-        "wf_exec_id": "wf-exec-1",
+        "subject": "wf-exec-1",
     }
     payload.update(payload_overrides)
     payload = {k: v for k, v in payload.items() if v is not None}
@@ -92,7 +92,7 @@ def _raw(payload_overrides: dict[str, object], algorithm: str = "HS256") -> str:
         {"exp": int((datetime.now(UTC) - timedelta(seconds=5)).timestamp())},
         {"aud": "tracecat-api"},
         {"iss": "someone-else"},
-        {"wf_exec_id": None},
+        {"subject": None},
         {"workspace_id": None},
         {"sub": "not-a-uuid"},
         {"exp": int((datetime.now(UTC) + timedelta(days=1)).timestamp())},
@@ -145,7 +145,7 @@ def test_proxy_token_is_not_a_policy_token() -> None:
         gateway_key=key,
         tunnel_id=tunnel_id,
         workspace_id=uuid.uuid4(),
-        wf_exec_id="wf-exec-1",
+        subject="wf-exec-1",
     )
     with pytest.raises(TunnelTokenError):
         verify_gateway_policy_token(proxy_token, gateway_key=key, tunnel_id=tunnel_id)

@@ -162,6 +162,7 @@ def agent_config_to_payload(config: AgentConfig) -> AgentConfigPayload:
         actions=config.actions,
         namespaces=config.namespaces,
         tool_approvals=config.tool_approvals,
+        tool_tunnels=config.tool_tunnels,
         model_settings=config.model_settings,
         mcp_servers=(
             [_mcp_server_to_payload(server) for server in config.mcp_servers]
@@ -195,6 +196,7 @@ def agent_config_from_payload(payload: AgentConfigPayload) -> AgentConfig:
         actions=payload.actions,
         namespaces=payload.namespaces,
         tool_approvals=payload.tool_approvals,
+        tool_tunnels=payload.tool_tunnels,
         model_settings=payload.model_settings,
         mcp_servers=(
             [_mcp_server_from_payload(server) for server in payload.mcp_servers]

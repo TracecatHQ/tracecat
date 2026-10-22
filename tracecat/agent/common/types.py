@@ -87,6 +87,14 @@ class MCPHttpServerConfig(TypedDict):
     """Optional explicit tool subset. Absence preserves the existing
     whole-integration behavior."""
 
+    tunnel_id: NotRequired[str]
+    """Optional: UUID of the workspace tunnel every request goes through."""
+
+    tunnel_proxy: NotRequired[str]
+    """Optional: Tunnel gateway proxy URL carrying a short-lived token.
+
+    Only populated at the trusted edge for immediate use, like ``headers``."""
+
 
 class MCPServerToolSummary(TypedDict):
     """Non-secret summary of a verified user MCP tool."""

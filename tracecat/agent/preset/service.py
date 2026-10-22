@@ -86,6 +86,7 @@ from tracecat.db.models import (
     Skill,
     SkillVersion,
     Workspace,
+    WorkspaceTunnel,
 )
 from tracecat.db.soft_delete import with_deleted
 from tracecat.dsl.common import create_default_execution_context
@@ -113,6 +114,8 @@ from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import call_with_masked_errors
 from tracecat.service import BaseWorkspaceService
+from tracecat.tiers.access import is_org_entitled
+from tracecat.tiers.enums import Entitlement
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -134,6 +137,7 @@ class AgentPresetService(BaseWorkspaceService):
         "actions",
         "namespaces",
         "tool_approvals",
+        "tool_tunnels",
         "mcp_integrations",
         "library_skills",
         "agents",
@@ -464,6 +468,7 @@ class AgentPresetService(BaseWorkspaceService):
             actions=preset.actions,
             namespaces=preset.namespaces,
             tool_approvals=preset.tool_approvals,
+            tool_tunnels=preset.tool_tunnels,
             mcp_integrations=preset.mcp_integrations,
             library_skills=preset.library_skills,
             agents=agents,
@@ -500,6 +505,7 @@ class AgentPresetService(BaseWorkspaceService):
             actions=version.actions,
             namespaces=version.namespaces,
             tool_approvals=version.tool_approvals,
+            tool_tunnels=version.tool_tunnels,
             mcp_integrations=version.mcp_integrations,
             library_skills=version.library_skills,
             agents=agents,
@@ -541,6 +547,8 @@ class AgentPresetService(BaseWorkspaceService):
         )
         if params.actions:
             await self._validate_actions(params.actions)
+        if params.tool_tunnels:
+            await self._validate_tool_tunnels(params.tool_tunnels)
         await self.load_selected_mcp_integrations(params.mcp_integrations)
         if params.skills:
             await self.skills.validate_binding_inputs(
@@ -574,6 +582,7 @@ class AgentPresetService(BaseWorkspaceService):
             actions=params.actions,
             namespaces=params.namespaces,
             tool_approvals=params.tool_approvals,
+            tool_tunnels=params.tool_tunnels,
             mcp_integrations=params.mcp_integrations,
             library_skills=library_skills,
             agents=AgentSubagentsConfig().model_dump(mode="json"),
@@ -602,6 +611,33 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.commit()
         await self.session.refresh(preset)
         return preset
+
+    async def _validate_tool_tunnels(self, tool_tunnels: Mapping[str, str]) -> None:
+        """Validate that tool tunnels name registry actions and workspace tunnels."""
+        if mcp_tools := sorted(
+            name for name in tool_tunnels if name.startswith(("mcp.", "mcp__"))
+        ):
+            raise TracecatValidationError(
+                "Tunnels for MCP tools are set on the MCP integration, not per tool: "
+                f"{mcp_tools}"
+            )
+        if not await is_org_entitled(
+            self.session, self.organization_id, Entitlement.TUNNELS
+        ):
+            raise TracecatValidationError(
+                "Tunnels are not available on your current plan"
+            )
+        names = set(tool_tunnels.values())
+        result = await self.session.execute(
+            select(WorkspaceTunnel.name).where(
+                WorkspaceTunnel.workspace_id == self.workspace_id,
+                WorkspaceTunnel.name.in_(names),
+            )
+        )
+        if missing := names - set(result.scalars().all()):
+            raise TracecatValidationError(
+                f"Tunnels not found in this workspace: {sorted(missing)}"
+            )
 
     async def _validate_actions(self, actions: list[str]) -> None:
         """Validate that all actions are in the registry index."""
@@ -681,6 +717,9 @@ class AgentPresetService(BaseWorkspaceService):
             if preset.actions != actions:
                 preset.actions = actions
                 execution_changed = True
+
+        if tool_tunnels := set_fields.get("tool_tunnels"):
+            await self._validate_tool_tunnels(tool_tunnels)
 
         if "mcp_integrations" in set_fields:
             mcp_integrations = set_fields.pop("mcp_integrations")
@@ -1430,6 +1469,8 @@ class AgentPresetService(BaseWorkspaceService):
             }
             if mcp_integration.timeout is not None:
                 http_ref["timeout"] = mcp_integration.timeout
+            if mcp_integration.tunnel_id is not None:
+                http_ref["tunnel_id"] = str(mcp_integration.tunnel_id)
             refs.append(http_ref)
 
         if not refs:
@@ -2479,6 +2520,7 @@ class AgentPresetService(BaseWorkspaceService):
             # to the combined preset and skill grants above.
             namespaces=version.namespaces,
             tool_approvals=policy.tool_approvals or None,
+            tool_tunnels=version.tool_tunnels or None,
             mcp_servers=mcp_servers,
             agents=agents,
             retries=version.retries,
@@ -2638,6 +2680,7 @@ class AgentPresetService(BaseWorkspaceService):
             actions=preset.actions,
             namespaces=preset.namespaces,
             tool_approvals=preset.tool_approvals,
+            tool_tunnels=preset.tool_tunnels,
             mcp_integrations=preset.mcp_integrations,
             library_skills=preset.library_skills,
             agents=preset.agents,
@@ -2671,6 +2714,7 @@ class AgentPresetService(BaseWorkspaceService):
         preset.actions = version.actions
         preset.namespaces = version.namespaces
         preset.tool_approvals = version.tool_approvals
+        preset.tool_tunnels = version.tool_tunnels
         preset.mcp_integrations = version.mcp_integrations
         preset.library_skills = version.library_skills
         preset.agents = agents

@@ -8,12 +8,14 @@ import {
   PlusIcon,
   Trash2Icon,
 } from "lucide-react"
+import Link from "next/link"
 import { useState } from "react"
 import type {
   ManagedTunnelCreated,
   TunnelGatewayKeyRead,
   TunnelRead,
   TunnelTarget,
+  TunnelUsage,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CopyButton } from "@/components/copy-button"
@@ -59,7 +61,11 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import { useTunnelStatus, useTunnels } from "@/hooks/use-tunnels"
+import {
+  useTunnelStatus,
+  useTunnels,
+  useTunnelUsages,
+} from "@/hooks/use-tunnels"
 import { getApiErrorDetail } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -201,6 +207,11 @@ export function WorkspaceTunnels() {
   const [rotateTarget, setRotateTarget] = useState<TunnelRead | null>(null)
   const [issuedKey, setIssuedKey] = useState<TunnelGatewayKeyRead | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<TunnelRead | null>(null)
+  const { data: usageList, isLoading: usagesLoading } = useTunnelUsages(
+    workspaceId,
+    deleteTarget?.id
+  )
+  const usages = usageList?.items ?? []
 
   if (entitlementsLoading) {
     return <CenteredSpinner />
@@ -435,15 +446,21 @@ export function WorkspaceTunnels() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {deleteTarget?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              Actions that use this tunnel will fail until they are pointed at
-              another tunnel.
+              {usagesLoading
+                ? "Checking where this tunnel is used..."
+                : usages.length > 0
+                  ? "This tunnel is still in use. Remove it from these resources, then delete it."
+                  : "Nothing uses this tunnel."}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {usages.length > 0 ? (
+            <TunnelUsagesList workspaceId={workspaceId} usages={usages} />
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              disabled={deletePending}
+              disabled={deletePending || usagesLoading || usages.length > 0}
               onClick={async () => {
                 if (!deleteTarget) return
                 try {
@@ -465,6 +482,60 @@ export function WorkspaceTunnels() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  )
+}
+
+const USAGE_KIND_LABELS: Record<TunnelUsage["kind"], string> = {
+  mcp_integration: "MCP server",
+  agent_preset: "Agent",
+  workflow: "Workflow",
+}
+
+function tunnelUsageHref(workspaceId: string, usage: TunnelUsage): string {
+  switch (usage.kind) {
+    case "mcp_integration":
+      return `/workspaces/${workspaceId}/mcp-servers`
+    case "agent_preset":
+      return `/workspaces/${workspaceId}/agents/${usage.id}`
+    case "workflow":
+      return `/workspaces/${workspaceId}/workflows/${usage.id}`
+  }
+}
+
+function TunnelUsagesList({
+  workspaceId,
+  usages,
+}: {
+  workspaceId: string
+  usages: TunnelUsage[]
+}) {
+  return (
+    <ul className="max-h-64 divide-y overflow-y-auto rounded-md border text-sm">
+      {usages.map((usage) => (
+        <li
+          key={`${usage.kind}:${usage.id}`}
+          className="flex items-center gap-3 px-3 py-2"
+        >
+          <span className="w-20 shrink-0 text-xs text-muted-foreground">
+            {USAGE_KIND_LABELS[usage.kind]}
+          </span>
+          <div className="min-w-0 flex-1">
+            <Link
+              href={tunnelUsageHref(workspaceId, usage)}
+              target="_blank"
+              className="block truncate font-medium hover:underline"
+            >
+              {usage.name}
+            </Link>
+            {usage.detail ? (
+              <p className="truncate text-xs text-muted-foreground">
+                {usage.detail}
+              </p>
+            ) : null}
+          </div>
+        </li>
+      ))}
+    </ul>
   )
 }
 

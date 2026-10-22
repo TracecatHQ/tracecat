@@ -101,6 +101,7 @@ def _mcp_integration_read(
         server_uri=mcp_integration.server_uri,
         auth_type=mcp_integration.auth_type,
         oauth_integration_id=mcp_integration.oauth_integration_id,
+        tunnel_id=mcp_integration.tunnel_id,
         state=state,
         created_at=mcp_integration.created_at,
         updated_at=mcp_integration.updated_at,

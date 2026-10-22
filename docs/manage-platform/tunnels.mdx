@@ -227,6 +227,28 @@ Tracecat checks that the tunnel exists in the workspace and that your organizati
 
 Subflows, scatter, gather, loops, AI agent actions, and `core.script.run_python` reject an explicit `tunnel` and ignore the workflow default.
 
+## Route agents through a tunnel
+
+Agents can reach private MCP servers and private APIs through the same tunnels.
+
+- **MCP servers**: In the MCP server's connection settings, pick a tunnel under **Use tunnel (optional)**. Every request to that server goes through the tunnel: connection tests, tool discovery, OAuth discovery, client registration, token exchange and refresh, and tool calls. Every agent, preset, and chat that uses the server picks it up. Add the server's host and port to the tunnel's allowed targets first; Tracecat rejects the save otherwise. Only HTTP MCP servers can use a tunnel.
+- **Agent tools**: Pick a tunnel for a registry action in the agent preset's tool list, next to its approval setting. In a workflow, set `tool_tunnels` on `ai.agent`, keyed by action name:
+
+```yaml
+actions:
+  - ref: triage
+    action: ai.agent
+    args:
+      user_prompt: Triage the reported phishing email
+      actions:
+        - tools.sublime_security.list_messages
+        - tools.virustotal.lookup_url
+      tool_tunnels:
+        tools.sublime_security.list_messages: onprem-sublime
+```
+
+Only the listed tools use the tunnel; the agent's other tools keep direct egress. The `tunnel` field and the workflow default tunnel do not apply to an agent's tool calls. As with workflow actions, a disabled or missing tunnel fails the call and never falls back to direct egress.
+
 ## Run the tunnel gateway
 
 Each tunnel has one gateway that forwards action traffic through Pangolin. Tracecat Cloud runs gateways for you. On Kubernetes, the Helm chart runs them; see [Tunnels](/self-hosting/kubernetes#tunnels).
@@ -284,7 +306,8 @@ Plain `http://` requests are encrypted inside the Pangolin tunnel, but not betwe
 
 - List tunnels with `GET /tunnels` and read one with `GET /tunnels/{tunnel_id}`.
 - Rename, describe, or disable a tunnel with `PATCH /tunnels/{tunnel_id}`. Managed tunnels reject changes to `endpoint`, `client_id`, `client_secret`, and `allowed_targets`; create a new managed tunnel to change targets.
-- Delete a tunnel with `DELETE /tunnels/{tunnel_id}`. For managed tunnels, Tracecat deletes the Pangolin resources, machine client, and site first. If Pangolin cleanup fails, the request returns `502` and keeps the tunnel so you can retry. Stop the site connector afterwards.
+- See what uses a tunnel with `GET /tunnels/{tunnel_id}/usages`. It lists MCP servers, agent presets, and workflows that reference the tunnel.
+- Delete a tunnel with `DELETE /tunnels/{tunnel_id}`. A tunnel that is still in use returns `409` with the same list; remove it from those resources first. For managed tunnels, Tracecat deletes the Pangolin resources, machine client, and site first. If Pangolin cleanup fails, the request returns `502` and keeps the tunnel so you can retry. Stop the site connector afterwards.
 
 ## Configure Pangolin for self-hosted Tracecat
 

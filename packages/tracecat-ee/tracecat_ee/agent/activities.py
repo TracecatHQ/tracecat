@@ -68,6 +68,7 @@ class BuildToolDefsArgs(BaseModel):
     role: Role
     tool_filters: ToolFilters
     tool_approvals: dict[str, bool] | None = None
+    tool_tunnels: dict[str, str] | None = None
     mcp_servers: list[MCPServerConfig] | None = None
     """User-defined MCP server configurations to discover tools from."""
     internal_tool_context: InternalToolContext | None = None
@@ -80,6 +81,7 @@ class BuildAgentScopeToolDefsArgs(BaseModel):
     scope: str
     tool_filters: ToolFilters
     tool_approvals: dict[str, bool] | None = None
+    tool_tunnels: dict[str, str] | None = None
     mcp_servers: list[MCPServerConfig] | None = None
     """User-defined MCP server configurations to discover tools from."""
     internal_tool_context: InternalToolContext | None = None
@@ -97,6 +99,8 @@ class BuildToolDefsResult(BaseModel):
     """List of allowed internal tool names for JWT claims."""
     tool_approvals: dict[str, bool] | None = None
     """Effective tool approval policy for the compiled scope."""
+    tool_tunnels: dict[str, str] | None = None
+    """Tunnel name by registry action for the compiled scope's tools."""
 
 
 class BuildAgentToolDefsArgs(BaseModel):
@@ -295,6 +299,7 @@ class AgentActivities:
         # Convert to dict[str, MCPToolDefinition] keyed by canonical action name
         # Tools already have canonical names (with dots, e.g., "core.cases.list_cases")
         defs: dict[str, MCPToolDefinition] = {}
+        registry_tool_names = {tool.name for tool in result.tools}
         for tool in result.tools:
             defs[tool.name] = MCPToolDefinition(
                 name=tool.name,
@@ -327,7 +332,11 @@ class AgentActivities:
                 discover_user_mcp_tools,
             )
             from tracecat.agent.preset.service import AgentPresetService
-            from tracecat.integrations.mcp_validation import MCPSecretResolutionError
+            from tracecat.integrations.mcp_tunnel import resolve_mcp_tunnel_proxy
+            from tracecat.integrations.mcp_validation import (
+                MCPConfigurationError,
+                MCPSecretResolutionError,
+            )
 
             http_servers = [cfg for cfg in args.mcp_servers if is_http_mcp_server(cfg)]
             if not http_servers:
@@ -388,9 +397,35 @@ class AgentActivities:
                         if secrets:
                             hydrated["headers"] = secrets
 
+            # Tunneled servers get a short-lived gateway proxy for discovery.
+            # It is dropped with the hydrated configs and never crosses the
+            # Temporal boundary. A tunnel that cannot be used fails closed.
+            reachable_servers: list[MCPHttpServerConfig] = []
+            for hydrated in hydrated_servers:
+                if tunnel_id_str := hydrated.get("tunnel_id"):
+                    try:
+                        if role.workspace_id is None or role.organization_id is None:
+                            raise ValueError("MCP tunnels require a workspace role")
+                        hydrated["tunnel_proxy"] = await resolve_mcp_tunnel_proxy(
+                            workspace_id=role.workspace_id,
+                            organization_id=role.organization_id,
+                            tunnel_id=uuid.UUID(tunnel_id_str),
+                            subject=f"mcp_integration:{hydrated.get('id', '')}",
+                        )
+                    except (ValueError, MCPConfigurationError) as e:
+                        if args.fail_on_mcp_discovery_error:
+                            raise
+                        logger.warning(
+                            "Skipping MCP server whose tunnel cannot be used",
+                            server_name=hydrated["name"],
+                            error=str(e),
+                        )
+                        continue
+                reachable_servers.append(hydrated)
+
             try:
                 user_mcp_tools = await discover_user_mcp_tools(
-                    hydrated_servers,
+                    reachable_servers,
                     fail_on_error=args.fail_on_mcp_discovery_error,
                 )
                 # Add user MCP tools to definitions, honoring stored policy:
@@ -539,6 +574,12 @@ class AgentActivities:
             user_mcp_claims=user_mcp_claims,
             allowed_internal_tools=allowed_internal_tools,
             tool_approvals=effective_tool_approvals or None,
+            tool_tunnels={
+                name: tunnel
+                for name, tunnel in (args.tool_tunnels or {}).items()
+                if name in registry_tool_names
+            }
+            or None,
         )
 
     @activity.defn
@@ -554,6 +595,7 @@ class AgentActivities:
                 scope="root",
                 tool_filters=args.tool_filters,
                 tool_approvals=args.tool_approvals,
+                tool_tunnels=args.tool_tunnels,
                 mcp_servers=args.mcp_servers,
                 internal_tool_context=args.internal_tool_context,
                 fail_on_mcp_discovery_error=args.fail_on_mcp_discovery_error,

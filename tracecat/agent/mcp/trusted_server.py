@@ -17,6 +17,7 @@ import asyncio
 import hashlib
 import json
 import time
+import uuid
 from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -73,7 +74,11 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
-from tracecat.integrations.mcp_validation import MCPSecretResolutionError
+from tracecat.integrations.mcp_tunnel import resolve_mcp_tunnel_proxy
+from tracecat.integrations.mcp_validation import (
+    MCPConfigurationError,
+    MCPSecretResolutionError,
+)
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 
@@ -429,6 +434,19 @@ async def _resolve_user_mcp_config(
     timeout = metadata.get("timeout")
     if timeout is not None:
         config["timeout"] = timeout
+    if tunnel_id := metadata.get("tunnel_id"):
+        if role.workspace_id is None or role.organization_id is None:
+            raise ToolError(f"MCP server '{ref.name}' tunnel cannot be used")
+        try:
+            config["tunnel_proxy"] = await resolve_mcp_tunnel_proxy(
+                workspace_id=role.workspace_id,
+                organization_id=role.organization_id,
+                tunnel_id=uuid.UUID(tunnel_id),
+                subject=f"mcp_integration:{ref.id}",
+            )
+        except MCPConfigurationError as e:
+            raise ToolError(str(e)) from None
+        config["tunnel_id"] = tunnel_id
     return config
 
 
