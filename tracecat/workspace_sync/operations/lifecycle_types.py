@@ -27,6 +27,7 @@ class SyncPreparedRef:
     read_scopes: list[str]
     expires_at: datetime
     valid: bool = True
+    write_scopes: list[str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
