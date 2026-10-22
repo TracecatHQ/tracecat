@@ -14,6 +14,7 @@ from unittest.mock import Mock
 import httpx
 import orjson
 import pytest
+from opentelemetry.propagate import get_global_textmap, set_global_textmap
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
@@ -2548,12 +2549,15 @@ async def test_routing_plan_invalid_diagnostic_token_does_not_block_forwarding(
 
 @pytest.fixture
 def span_exporter(monkeypatch: pytest.MonkeyPatch) -> Iterator[InMemorySpanExporter]:
+    # Initialization replaces the process-global propagator; restore it after.
+    propagator = get_global_textmap()
     shutdown_platform_tracing()
     monkeypatch.setattr(app_config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
     exporter = InMemorySpanExporter()
     initialize_platform_tracing("tracecat-test", exporter=exporter)
     yield exporter
     shutdown_platform_tracing()
+    set_global_textmap(propagator)
 
 
 def _upstream_spans(exporter: InMemorySpanExporter) -> list[ReadableSpan]:
