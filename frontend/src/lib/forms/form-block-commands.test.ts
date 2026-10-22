@@ -15,7 +15,7 @@ const template = (label: string) => {
 /** Run an insert on `doc`, where `|` marks the cursor after a `/query`. */
 function run(doc: string, query: string, block = template("heading")) {
   const cursor = doc.indexOf("|")
-  const text = doc.replace("|", "")
+  const text = doc.slice(0, cursor) + doc.slice(cursor + 1)
   const view = new EditorView({
     state: EditorState.create({ doc: text, selection: { anchor: cursor } }),
   })
