@@ -18,6 +18,8 @@ resource "aws_ecs_task_definition" "litellm_task_definition" {
       name      = "TracecatLitellmContainer"
       image     = "${var.tracecat_image}:${local.tracecat_image_tag}"
       essential = true
+      # k8s lets LiteLLM drain for 30 min; Fargate caps stopTimeout at 120 s.
+      stopTimeout = local.litellm_stop_timeout_seconds
       portMappings = [
         {
           containerPort = 4000
@@ -54,6 +56,10 @@ resource "aws_ecs_service" "tracecat_litellm" {
   task_definition      = aws_ecs_task_definition.litellm_task_definition.arn
   desired_count        = var.litellm_desired_count
   force_new_deployment = var.force_new_deployment
+
+  # Start replacements before stopping old tasks (k8s maxUnavailable 0).
+  deployment_minimum_healthy_percent = 100
+  deployment_maximum_percent         = 200
 
   network_configuration {
     subnets = var.private_subnet_ids
