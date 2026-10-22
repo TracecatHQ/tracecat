@@ -67,7 +67,8 @@ class DurableSyncService(WorkspaceSyncService):
             workspace = await self.session.scalar(
                 select(Workspace)
                 .where(Workspace.id == self.workspace_id)
-                .with_for_update()
+                # NO KEY UPDATE fences settings without blocking child inserts.
+                .with_for_update(key_share=True)
                 .execution_options(populate_existing=True)
             )
             if workspace is None:
