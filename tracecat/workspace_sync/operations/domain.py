@@ -6,13 +6,19 @@ from dataclasses import replace
 
 import orjson
 from pydantic import JsonValue, TypeAdapter
-from sqlalchemy import func, select
+from sqlalchemy import String, func, select
 from sqlalchemy.dialects.postgresql import insert
 from temporalio.exceptions import ApplicationError
 from tracecat_ee.secrets.references.service import SecretReferencesService
 
 from tracecat.db.locks import try_pg_advisory_xact_lock
-from tracecat.db.models import Action, Workflow, WorkspaceSyncResourceMapping
+from tracecat.db.models import (
+    Action,
+    MCPIntegration,
+    Workflow,
+    WorkspaceSyncResourceMapping,
+)
+from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import TracecatValidationError
 from tracecat.secrets.enums import SecretSource
 from tracecat.sync import PullResult, PushStatus
@@ -92,6 +98,61 @@ class DurableSyncService(WorkspaceSyncService):
                 if store.name in names
             }
         )
+
+    async def mcp_target_fingerprint(
+        self, snapshot: WorkspaceRemoteSnapshot, *, lock: bool = False
+    ) -> str | None:
+        """Bind resolved preset/action references to the reviewed local servers."""
+        references = [
+            ref
+            for preset in snapshot.spec.agent_presets.values()
+            for ref in preset.mcp_integrations
+        ]
+        for workflow in snapshot.spec.workflows.values():
+            for action in workflow.definition.actions:
+                if action.action not in {
+                    PlatformAction.AI_AGENT,
+                    PlatformAction.AI_ACTION,
+                }:
+                    continue
+                refs = action.args.get("mcp_integrations")
+                if isinstance(refs, list):
+                    references.extend(ref for ref in refs if isinstance(ref, str))
+        ids: set[uuid.UUID] = set()
+        for ref in references:
+            try:
+                ids.add(uuid.UUID(ref))
+            except ValueError:
+                # Correlation leaves expressions/dynamic references unchanged.
+                continue
+        if not ids:
+            return None
+        # Select no credential columns or OAuth relationship. The resulting hash
+        # is private artifact metadata, not part of the public preview.
+        stmt = (
+            select(
+                MCPIntegration.id.cast(String),
+                MCPIntegration.slug,
+                MCPIntegration.name,
+                MCPIntegration.server_type,
+                MCPIntegration.auth_type,
+                MCPIntegration.server_uri,
+                MCPIntegration.stdio_command,
+                MCPIntegration.stdio_args,
+                MCPIntegration.oauth_integration_id.cast(String),
+            )
+            .where(
+                MCPIntegration.workspace_id == self.workspace_id,
+                MCPIntegration.id.in_(ids),
+            )
+            .order_by(MCPIntegration.id)
+        )
+        if lock:
+            # Hold selected rows through import so a concurrent delete/update
+            # cannot invalidate them between this check and the resource commit.
+            stmt = stmt.with_for_update(of=MCPIntegration)
+        rows = (await self.session.execute(stmt)).tuples().all()
+        return fingerprint([list(row) for row in rows])
 
     async def local_fingerprint(
         self,
@@ -301,6 +362,7 @@ class DurableSyncService(WorkspaceSyncService):
         )
         return PreparedSync(
             snapshot=prepared.snapshot,
+            mcp_target_fingerprint=await self.mcp_target_fingerprint(prepared.snapshot),
             secret_store_fingerprint=await self.secret_store_fingerprint(
                 prepared.snapshot
             ),
@@ -461,6 +523,13 @@ class DurableSyncService(WorkspaceSyncService):
                 != prepared.secret_store_fingerprint
             ):
                 raise StaleSyncPreviewError("Secret stores changed; preview again")
+            if (
+                await self.mcp_target_fingerprint(snapshot, lock=True)
+                != prepared.mcp_target_fingerprint
+            ):
+                raise StaleSyncPreviewError(
+                    "Selected MCP integrations changed; preview again"
+                )
             projection = await self.project_workspace(
                 include_schedules=params.sync_schedules,
                 create_missing_mappings=False,
