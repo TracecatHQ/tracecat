@@ -1590,8 +1590,8 @@ class WorkspaceSyncService(SyncMappingService):
             )
             if remote_content is None and path in remote_paths:
                 diff = (
-                    "Non-text file will be replaced; previous content cannot be "
-                    "shown as text.\n" + diff
+                    "Existing file will be replaced; previous content is unavailable.\n"
+                    + diff
                 )
             diffs.append(
                 PullResourceDiff(
@@ -1628,7 +1628,7 @@ class WorkspaceSyncService(SyncMappingService):
                         after="",
                     )
                 else:
-                    diff = "Non-text file will be deleted; textual diff unavailable."
+                    diff = "Existing file will be deleted; previous content is unavailable."
                     truncated = False
                 diffs.append(
                     PullResourceDiff(
