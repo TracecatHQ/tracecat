@@ -2177,6 +2177,8 @@ async def test_managed_stream_cut_after_headers_is_stream_interrupted(
     assert stream_log.kwargs["sse_events"] == 1
     assert stream_log.kwargs["saw_message_stop"] is False
     assert stream_log.kwargs["gateway_identity"] == "litellm-0/42"
+    # Gateway pod and pid stay out of the in-jail runtime's response.
+    assert "litellm-0/42" not in response_text
     assert stream_log.kwargs["stream_duration_ms"] >= 0
     # Progress fields stay content-free.
     assert "hello" not in str(log.mock_calls)
@@ -2435,3 +2437,30 @@ async def test_request_max_duration_bounds_wait_for_response_headers(
     assert response_text.startswith("HTTP/1.1 504")
     _assert_request_timed_out(errors)
     assert errors[0].message == errors[0].classification.message
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("short_request_max_duration")
+async def test_request_max_duration_bounds_rate_limit_backoff(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Retry-After backoff ends at the bound instead of sleeping past it."""
+    monkeypatch.setattr(llm_proxy, "_RATE_LIMIT_MAX_DELAY_SECONDS", 20.0)
+    attempts = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(
+            429,
+            headers={"Retry-After": "20"},
+            json={"error": {"type": "rate_limit_error"}},
+        )
+
+    async with asyncio.timeout(5):
+        response_text, errors = await _forward(tmp_path, handler)
+
+    assert attempts == 1
+    assert response_text.startswith("HTTP/1.1 504")
+    _assert_request_timed_out(errors)

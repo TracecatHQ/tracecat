@@ -21,6 +21,7 @@ import signal
 import socket
 import threading
 import time
+from dataclasses import dataclass
 from types import FrameType
 
 from litellm.proxy.middleware.in_flight_requests_middleware import (
@@ -45,35 +46,59 @@ def gateway_identity() -> str:
     return f"{socket.gethostname()}/{os.getpid()}"
 
 
-async def _log_drain(drain_timeout: float) -> None:
+@dataclass(slots=True)
+class _DrainLog:
+    """One worker's drain, from SIGTERM to the end of its in-flight requests."""
+
+    drain_timeout: float
+    gateway: str
+    started_at: float
+    timed_out: bool = False
+    finished: bool = False
+
+    def finish(self) -> None:
+        """Log the drain end once, from the poller or from app teardown."""
+        if self.finished:
+            return
+        self.finished = True
+        logger.info(
+            "LLM gateway drain finished",
+            gateway=self.gateway,
+            in_flight_requests=get_in_flight_requests(),
+            elapsed_seconds=round(time.monotonic() - self.started_at, 2),
+            drain_timeout_exceeded=self.timed_out,
+        )
+
+
+_drain_log: _DrainLog | None = None
+
+
+async def _watch_drain(drain: _DrainLog) -> None:
     """Poll this worker's in-flight requests until they finish."""
-    identity = gateway_identity()
-    started_at = time.monotonic()
     logger.info(
         "LLM gateway drain started",
-        gateway=identity,
+        gateway=drain.gateway,
         in_flight_requests=get_in_flight_requests(),
-        drain_timeout_seconds=drain_timeout,
+        drain_timeout_seconds=drain.drain_timeout,
     )
-    timed_out = False
-    while (in_flight := get_in_flight_requests()) > 0:
-        elapsed = time.monotonic() - started_at
-        if not timed_out and elapsed >= drain_timeout:
-            timed_out = True
+    while not drain.finished and (in_flight := get_in_flight_requests()) > 0:
+        elapsed = time.monotonic() - drain.started_at
+        if not drain.timed_out and elapsed >= drain.drain_timeout:
+            drain.timed_out = True
             logger.warning(
                 "LLM gateway drain timed out",
-                gateway=identity,
+                gateway=drain.gateway,
                 in_flight_requests=in_flight,
                 elapsed_seconds=round(elapsed, 2),
-                drain_timeout_seconds=drain_timeout,
+                drain_timeout_seconds=drain.drain_timeout,
             )
         await asyncio.sleep(_DRAIN_POLL_INTERVAL_SECONDS)
-    logger.info(
-        "LLM gateway drain finished",
-        gateway=identity,
-        elapsed_seconds=round(time.monotonic() - started_at, 2),
-        drain_timeout_exceeded=timed_out,
-    )
+    drain.finish()
+
+
+def _finish_drain_log() -> None:
+    if _drain_log is not None:
+        _drain_log.finish()
 
 
 def install_drain_logging() -> None:
@@ -83,6 +108,11 @@ def install_drain_logging() -> None:
     uvicorn installed its own SIGTERM handler, so the logger chains to it rather
     than replacing it. Outside a running worker (imports in tests or tooling)
     there is no callable handler or event loop, and this is a no-op.
+
+    The poller can miss the last request: uvicorn exits right after app
+    teardown by re-raising SIGTERM. LiteLLM's lifespan teardown calls
+    ``GracefulShutdownManager.start_shutdown()`` once every connection has
+    closed, so that call also finishes the drain log.
     """
     global _drain_logging_installed
     if _drain_logging_installed:
@@ -98,9 +128,15 @@ def install_drain_logging() -> None:
         return
 
     def start_drain_log() -> None:
-        if _drain_tasks:
+        global _drain_log
+        if _drain_log is not None:
             return
-        task = loop.create_task(_log_drain(GracefulShutdownManager.get_timeout()))
+        _drain_log = _DrainLog(
+            drain_timeout=GracefulShutdownManager.get_timeout(),
+            gateway=gateway_identity(),
+            started_at=time.monotonic(),
+        )
+        task = loop.create_task(_watch_drain(_drain_log))
         _drain_tasks.add(task)
 
     def handle_sigterm(signum: int, frame: FrameType | None) -> None:
@@ -108,5 +144,12 @@ def install_drain_logging() -> None:
         loop.call_soon_threadsafe(start_drain_log)
         previous(signum, frame)
 
+    litellm_start_shutdown = GracefulShutdownManager.start_shutdown
+
+    def start_shutdown() -> None:
+        _finish_drain_log()
+        litellm_start_shutdown()
+
+    GracefulShutdownManager.start_shutdown = start_shutdown
     signal.signal(signal.SIGTERM, handle_sigterm)
     _drain_logging_installed = True

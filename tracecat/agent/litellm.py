@@ -4,10 +4,11 @@ Runs LiteLLM on the Tracecat image while preserving the config path shape that
 LiteLLM expects for custom auth and callback module resolution.
 
 Shutdown contract: on SIGTERM every uvicorn worker stops accepting requests and
-drains the ones in flight. LiteLLM's ``GRACEFUL_SHUTDOWN_TIMEOUT`` env var is
-the drain budget ``D`` (LiteLLM default 30 s; set by the deployment). Pod grace
-must exceed preStop + ``D`` + margin. ``tracecat.agent.gateway_drain`` logs each
-worker's drain against ``D``.
+waits, without a bound, for the ones in flight. Pod grace is the hard cutoff:
+SIGKILL ends any request still open. LiteLLM's ``GRACEFUL_SHUTDOWN_TIMEOUT``
+env var (``D``; LiteLLM default 30 s, set by the deployment) does not cut
+requests here; ``tracecat.agent.gateway_drain`` logs each worker's drain and
+marks requests still open after ``D``.
 """
 
 from __future__ import annotations

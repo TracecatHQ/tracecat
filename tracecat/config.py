@@ -1026,8 +1026,7 @@ TRACECAT__LLM_REQUEST_MAX_DURATION_SECONDS = float(
 
 Covers the whole upstream exchange (retries, response headers, and body),
 unlike ``TRACECAT__LLM_PROXY_READ_TIMEOUT``, which only bounds the gap between
-chunks. Keep the managed LiteLLM ``request_timeout`` in ``litellm_config.yaml``
-equal to this value (default: 15 minutes).
+chunks (default: 15 minutes).
 """
 
 

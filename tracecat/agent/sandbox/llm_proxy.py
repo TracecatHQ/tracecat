@@ -399,6 +399,12 @@ async def _request_deadline(deadline: float | None) -> AsyncIterator[asyncio.Tim
         raise _RequestDeadlineExceeded() from exc
 
 
+async def _sleep_before_deadline(deadline: float, seconds: float) -> None:
+    """Retry backoff that fails with the request duration error at the deadline."""
+    async with _request_deadline(deadline):
+        await asyncio.sleep(seconds)
+
+
 def _parse_retry_after(value: str | None) -> float | None:
     """Capped numeric ``Retry-After`` seconds; None for http-dates or junk."""
     if value is None:
@@ -1464,6 +1470,7 @@ class LLMSocketProxy:
                     (_UpstreamRateLimited, _UpstreamConnectionDropped)
                 ),
                 before_sleep=log_rate_limit_retry,
+                sleep=partial(_sleep_before_deadline, deadline),
                 reraise=True,
             ):
                 attempt_number = attempt.retry_state.attempt_number
@@ -1737,7 +1744,13 @@ class LLMSocketProxy:
         try:
             writer.write(response_line.encode())
             for key, value in headers.items():
-                if key.lower() in ("connection", "keep-alive", "transfer-encoding"):
+                # Gateway identity is for proxy logs, not the in-jail runtime.
+                if key.lower() in (
+                    "connection",
+                    "keep-alive",
+                    "transfer-encoding",
+                    _GATEWAY_IDENTITY_HEADER,
+                ):
                     continue
                 writer.write(f"{key}: {value}\r\n".encode())
             if trace_request_id is not None:

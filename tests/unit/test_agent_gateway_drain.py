@@ -3,12 +3,14 @@
 import asyncio
 import os
 import signal
+import time
 from unittest.mock import Mock
 
 import litellm
 import pytest
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.common_utils.user_api_key_cache import UserApiKeyCache
+from litellm.proxy.shutdown.graceful_shutdown_manager import GracefulShutdownManager
 from litellm.proxy.utils import ProxyLogging
 
 from tracecat.agent import gateway_drain
@@ -38,18 +40,23 @@ async def test_drain_log_reports_in_flight_requests_against_budget(
     timed_out: bool,
 ) -> None:
     """Drain logs start, a single timeout past ``D``, and finish per worker."""
-    counts = iter([2, 2, 1, 0])
+    counts = iter([2, 2, 1, 0, 0])
     monkeypatch.setattr(gateway_drain, "get_in_flight_requests", lambda: next(counts))
     monkeypatch.setattr(gateway_drain, "_DRAIN_POLL_INTERVAL_SECONDS", 0.0)
     log = Mock()
     monkeypatch.setattr(gateway_drain, "logger", log)
 
-    await gateway_drain._log_drain(0.0 if timed_out else 3600.0)
+    drain = gateway_drain._DrainLog(
+        drain_timeout=0.0 if timed_out else 3600.0,
+        gateway="litellm-0/1",
+        started_at=time.monotonic(),
+    )
+    await gateway_drain._watch_drain(drain)
 
     started = log.info.call_args_list[0]
     assert started.args == ("LLM gateway drain started",)
     assert started.kwargs["in_flight_requests"] == 2
-    assert started.kwargs["gateway"] == gateway_drain.gateway_identity()
+    assert started.kwargs["gateway"] == "litellm-0/1"
     if timed_out:
         assert log.warning.call_count == 1
         timeout_log = log.warning.call_args
@@ -60,9 +67,24 @@ async def test_drain_log_reports_in_flight_requests_against_budget(
     finished = log.info.call_args_list[-1]
     assert finished.args == ("LLM gateway drain finished",)
     assert finished.kwargs["drain_timeout_exceeded"] is timed_out
+    assert log.info.call_count == 2
+
+
+@pytest.fixture
+def fresh_drain_logging(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reset module state; monkeypatch restores LiteLLM's teardown hook."""
+    monkeypatch.setattr(gateway_drain, "_drain_tasks", set())
+    monkeypatch.setattr(gateway_drain, "_drain_log", None)
+    monkeypatch.setattr(gateway_drain, "_drain_logging_installed", False)
+    monkeypatch.setattr(
+        GracefulShutdownManager,
+        "start_shutdown",
+        GracefulShutdownManager.start_shutdown,
+    )
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("fresh_drain_logging")
 async def test_sigterm_starts_one_drain_log_and_keeps_server_handler(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -71,13 +93,11 @@ async def test_sigterm_starts_one_drain_log_and_keeps_server_handler(
     drain_timeouts: list[float] = []
     drain_started = asyncio.Event()
 
-    async def fake_log_drain(drain_timeout: float) -> None:
-        drain_timeouts.append(drain_timeout)
+    async def fake_watch_drain(drain: gateway_drain._DrainLog) -> None:
+        drain_timeouts.append(drain.drain_timeout)
         drain_started.set()
 
-    monkeypatch.setattr(gateway_drain, "_log_drain", fake_log_drain)
-    monkeypatch.setattr(gateway_drain, "_drain_tasks", set())
-    monkeypatch.setattr(gateway_drain, "_drain_logging_installed", False)
+    monkeypatch.setattr(gateway_drain, "_watch_drain", fake_watch_drain)
     monkeypatch.setenv("GRACEFUL_SHUTDOWN_TIMEOUT", "120")
     original = signal.signal(signal.SIGTERM, server_handler)
     try:
@@ -95,6 +115,44 @@ async def test_sigterm_starts_one_drain_log_and_keeps_server_handler(
 
     assert server_handler.call_count == 2
     assert drain_timeouts == [120.0]
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("fresh_drain_logging")
+async def test_app_teardown_finishes_drain_log_before_poller_wakes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Uvicorn exits right after teardown, so teardown must log the finish."""
+    in_flight = 1
+    monkeypatch.setattr(gateway_drain, "get_in_flight_requests", lambda: in_flight)
+    monkeypatch.setattr(gateway_drain, "_DRAIN_POLL_INTERVAL_SECONDS", 3600.0)
+    log = Mock()
+    monkeypatch.setattr(gateway_drain, "logger", log)
+    original = signal.signal(signal.SIGTERM, Mock())
+    try:
+        gateway_drain.install_drain_logging()
+        handler = signal.getsignal(signal.SIGTERM)
+        assert callable(handler)
+        handler(signal.SIGTERM, None)
+        await asyncio.sleep(0.01)
+        assert [call.args[0] for call in log.info.call_args_list] == [
+            "LLM gateway drain started"
+        ]
+
+        # The last request ends while the poller sleeps; LiteLLM's lifespan
+        # teardown then calls start_shutdown before the worker exits.
+        in_flight = 0
+        GracefulShutdownManager.start_shutdown()
+    finally:
+        signal.signal(signal.SIGTERM, original)
+        GracefulShutdownManager.reset()
+
+    finished = log.info.call_args_list[-1]
+    assert finished.args == ("LLM gateway drain finished",)
+    assert finished.kwargs["in_flight_requests"] == 0
+    assert finished.kwargs["drain_timeout_exceeded"] is False
+    for task in gateway_drain._drain_tasks:
+        task.cancel()
 
 
 def test_drain_logging_is_noop_outside_a_running_server(

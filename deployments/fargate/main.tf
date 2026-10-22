@@ -180,6 +180,7 @@ module "ecs" {
   agent_executor_queue                     = var.agent_executor_queue
   agent_executor_max_concurrent_activities = var.agent_executor_max_concurrent_activities
   llm_proxy_read_timeout                   = var.llm_proxy_read_timeout
+  llm_request_max_duration_seconds         = var.llm_request_max_duration_seconds
 
   llm_gateway_credential_cache_ttl_seconds        = var.llm_gateway_credential_cache_ttl_seconds
   llm_gateway_healthcheck_interval_seconds        = var.llm_gateway_healthcheck_interval_seconds
