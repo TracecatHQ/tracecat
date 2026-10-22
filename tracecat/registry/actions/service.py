@@ -1111,7 +1111,7 @@ class RegistryActionsService(BaseOrgService):
         for row in manifest_rows:
             manifest = RegistryVersionManifest.model_validate_json(row.manifest_json)
             if row.source == "org":
-                json_size = len(row.manifest_json.encode())
+                json_size = len(row.manifest_json)
                 # LRUCache rejects an entry larger than its whole bound.
                 if json_size <= ORG_MANIFEST_CACHE_MAX_JSON_BYTES:
                     key = (self.organization_id, row.registry_version_id)
