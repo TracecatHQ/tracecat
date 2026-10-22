@@ -1985,7 +1985,8 @@ async def test_github_write_files_retries_with_retry_after(
     assert repo.call_counts[retried_call] == 2
     if not branch_exists:
         assert len(repo.created_refs) == 1
-    assert repo.call_counts["ref.edit"] == 1
+    # A new branch is created at the final commit without a second ref update.
+    assert repo.call_counts["ref.edit"] == int(branch_exists)
 
 
 @pytest.mark.anyio
