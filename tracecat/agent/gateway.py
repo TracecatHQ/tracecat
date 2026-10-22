@@ -468,7 +468,8 @@ def _trace_request_id(data: dict[str, Any]) -> str | None:
     """Return the LLM socket proxy's ``X-Request-ID`` for log correlation."""
     match data.get("proxy_server_request"):
         case {"headers": {"x-request-id": str() as trace_request_id}}:
-            return trace_request_id[:128]
+            # Keep the full value so it joins exactly with the proxy's logs.
+            return trace_request_id
         case _:
             return None
 
