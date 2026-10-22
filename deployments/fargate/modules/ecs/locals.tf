@@ -251,6 +251,12 @@ locals {
     { name = k, value = tostring(v) } if v != null
   ]
 
+  # LiteLLM shutdown mirrors the k8s chart (grace = preStop + drain + 30 s), but
+  # Fargate caps a container's stopTimeout at 120 s and has no preStop hook, so
+  # the drain is 90 s here instead of k8s's 30 min.
+  litellm_stop_timeout_seconds  = 120
+  litellm_drain_timeout_seconds = local.litellm_stop_timeout_seconds - 30
+
   litellm_env = [
     for k, v in merge(
       local.tracecat_common_env,
@@ -261,6 +267,8 @@ locals {
         TRACECAT__SERVICE_NAME        = "litellm"
         TRACECAT__LITELLM_PORT        = "4000"
         TRACECAT__LITELLM_NUM_WORKERS = var.litellm_num_workers
+        # Drain budget D: gateway drain logs flag requests still open after it.
+        GRACEFUL_SHUTDOWN_TIMEOUT = local.litellm_drain_timeout_seconds
       }
     ) :
     { name = k, value = tostring(v) } if v != null

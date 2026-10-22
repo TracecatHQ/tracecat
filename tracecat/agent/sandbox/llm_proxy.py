@@ -1690,7 +1690,13 @@ class LLMSocketProxy:
         try:
             writer.write(response_line.encode())
             for key, value in headers.items():
-                if key.lower() in ("connection", "keep-alive", "transfer-encoding"):
+                # Gateway identity is for proxy logs, not the in-jail runtime.
+                if key.lower() in (
+                    "connection",
+                    "keep-alive",
+                    "transfer-encoding",
+                    _GATEWAY_IDENTITY_HEADER,
+                ):
                     continue
                 writer.write(f"{key}: {value}\r\n".encode())
             if trace_request_id is not None:

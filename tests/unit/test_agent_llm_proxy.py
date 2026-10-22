@@ -2177,6 +2177,8 @@ async def test_managed_stream_cut_after_headers_is_stream_interrupted(
     assert stream_log.kwargs["sse_events"] == 1
     assert stream_log.kwargs["saw_message_stop"] is False
     assert stream_log.kwargs["gateway_identity"] == "litellm-0/42"
+    # Gateway pod and pid stay out of the in-jail runtime's response.
+    assert "litellm-0/42" not in response_text
     assert stream_log.kwargs["stream_duration_ms"] >= 0
     # Progress fields stay content-free.
     assert "hello" not in str(log.mock_calls)
