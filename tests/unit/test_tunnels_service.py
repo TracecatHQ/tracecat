@@ -356,3 +356,32 @@ async def test_tunnels_require_kubernetes_gateway_backend(
             subject="test",
             tunnel_id=tunnel.id,
         )
+
+
+async def test_route_to_missing_named_tunnel_has_actionable_error(
+    service: TunnelsService, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stale name, e.g. in a pinned preset version, fails with a clear error."""
+    from contextlib import asynccontextmanager
+
+    from tracecat_ee.tunnels import routing
+
+    @asynccontextmanager
+    async def _session():
+        yield session
+
+    monkeypatch.setattr(
+        routing, "get_async_session_bypass_rls_context_manager", _session
+    )
+    monkeypatch.setattr(routing, "is_org_entitled", AsyncMock(return_value=True))
+
+    with pytest.raises(
+        TunnelRouteError,
+        match=r"Tunnel 'deleted-tunnel' not found in this workspace\. Create it",
+    ):
+        await resolve_tunnel_route(
+            workspace_id=service.workspace_id,
+            organization_id=service.organization_id,
+            subject="test",
+            name="deleted-tunnel",
+        )
