@@ -3,16 +3,49 @@
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import get_type_hints
+from typing import get_args, get_type_hints
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import FastAPI
 from fastapi.routing import APIRoute
+from httpx import ASGITransport, AsyncClient
 
+from tracecat.api.common import generic_exception_handler
 from tracecat.auth.dependencies import WorkspaceUserPathRole
 from tracecat.auth.types import Role
+from tracecat.contexts import ctx_role
+from tracecat.db.engine import get_async_session
 from tracecat.mcp.personal_access_tokens import router as mcp_pat_router
 from tracecat.pagination import CursorPaginatedResponse
+
+
+@pytest.mark.anyio
+async def test_create_mcp_personal_access_token_rejects_nul_before_service(
+    test_admin_role: Role,
+) -> None:
+    role = _with_workspace_read(test_admin_role)
+    app = FastAPI()
+    app.include_router(mcp_pat_router.router)
+    app.add_exception_handler(Exception, generic_exception_handler)
+
+    async def actor_role() -> Role:
+        ctx_role.set(role)
+        return role
+
+    app.dependency_overrides[get_args(WorkspaceUserPathRole)[1].dependency] = actor_role
+    app.dependency_overrides[get_async_session] = lambda: AsyncMock()
+    with patch.object(mcp_pat_router, "MCPPersonalAccessTokenService") as service:
+        async with AsyncClient(
+            transport=ASGITransport(app, raise_app_exceptions=False),
+            base_url="http://test",
+        ) as client:
+            response = await client.post(
+                f"/workspaces/{role.workspace_id}/mcp-personal-access-tokens",
+                json={"name": "synthetic\x00name"},
+            )
+    assert response.status_code == 422
+    service.assert_not_called()
 
 
 def _token_read(

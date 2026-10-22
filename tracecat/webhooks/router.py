@@ -1,6 +1,7 @@
 import posixpath
 import uuid
 from itertools import batched
+from json import JSONDecodeError
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
 from fastapi import (
@@ -491,9 +492,10 @@ async def _incoming_webhook(
             return Response(status_code=200)
         try:
             response["payload"] = await request.json()
-        except Exception as e:
+        except (JSONDecodeError, UnicodeDecodeError) as e:
             logger.warning(
-                "Failed to decode request payload body during echo", error=str(e)
+                "Failed to decode request payload body during echo",
+                error_type=type(e).__name__,
             )
             response["payload"] = None
 

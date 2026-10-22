@@ -10,8 +10,10 @@ from typing import TYPE_CHECKING, Annotated, cast
 import orjson
 from fastapi import Depends, Header, HTTPException, Request, status
 from pydantic import ValidationError
+from python_multipart.exceptions import QuerystringParseError
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
+from starlette.formparsers import MultiPartException
 from starlette.requests import ClientDisconnect
 
 from tracecat.auth.api_keys import verify_api_key
@@ -288,7 +290,7 @@ async def parse_webhook_payload(
         try:
             form_data = await request.form()
             result = dict(form_data)
-        except Exception as e:
+        except (QuerystringParseError, MultiPartException) as e:
             logger.error("Failed to parse form data payload", error=e)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

@@ -6,6 +6,7 @@ import re
 import uuid
 from collections.abc import Callable
 from datetime import datetime
+from math import isfinite
 from typing import Annotated, Any, Literal, Self
 
 from pydantic import (
@@ -97,6 +98,27 @@ def _image_size(value: str) -> int:
 # ----- Form config -----
 
 
+def _check_postgres_json(value: Any) -> Any:
+    """Check text and numbers in arbitrary JSON stored in PostgreSQL."""
+    if isinstance(value, str):
+        if "\x00" in value:
+            raise ValueError("Text cannot contain NUL characters")
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise ValueError("Text must be valid UTF-8") from exc
+    elif isinstance(value, float) and not isfinite(value):
+        raise ValueError("Numbers must be finite")
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _check_postgres_json(key)
+            _check_postgres_json(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _check_postgres_json(item)
+    return value
+
+
 class FormConfigModel(BaseModel):
     """Base for form config models.
 
@@ -105,6 +127,11 @@ class FormConfigModel(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _check_storage_values(cls, value: Any) -> Any:
+        return _check_postgres_json(value)
 
     # No return annotation on purpose: pydantic would publish it as the
     # serialization schema and the OpenAPI output type would lose its fields.
@@ -493,6 +520,11 @@ class FormSubmissionCreate(Schema):
             "If set and stale, the submission is rejected with form_changed."
         ),
     )
+
+    @field_validator("values")
+    @classmethod
+    def _check_storage_values(cls, values: dict[str, Any]) -> dict[str, Any]:
+        return _check_postgres_json(values)
 
 
 class _Submission(Schema):

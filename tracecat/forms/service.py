@@ -24,6 +24,7 @@ from tracecat.db.engine import (
     get_async_session_auth_context_manager,
     get_async_session_bypass_rls_context_manager,
 )
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     Form,
     FormSubmission,
@@ -428,7 +429,9 @@ class FormsService(BaseWorkspaceService):
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
-            raise already_exists from e
+            if is_unique_violation(e, "uq_form_workflow_id"):
+                raise already_exists from e
+            raise
         await self.session.refresh(form)
         return form
 

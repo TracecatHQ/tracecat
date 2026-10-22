@@ -172,6 +172,22 @@ async def test_create_list_and_revoke_mcp_personal_access_token(
     assert issued.token.revoked_by == user.id
 
 
+@pytest.mark.parametrize("days", [-1, 1], ids=["past", "future"])
+async def test_create_token_preserves_expiration_and_verifier_enforces_it(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, days: int
+) -> None:
+    _use_verifier_session(monkeypatch, session)
+    user, organization, workspace = await _create_user_org_workspace(session)
+    expires_at = datetime.now(UTC) + timedelta(days=days)
+    service = MCPPersonalAccessTokenService(
+        session, role=_role_for(user, organization, workspace)
+    )
+    issued = await service.create_token(name="Synthetic token", expires_at=expires_at)
+    assert issued.token.expires_at == expires_at
+    identity = await mcp_pat_service.verify_mcp_personal_access_token(issued.raw_token)
+    assert (identity is not None) == (days > 0)
+
+
 async def test_create_mcp_personal_access_token_allows_org_member_without_workspace_membership(
     session: AsyncSession,
 ) -> None:
