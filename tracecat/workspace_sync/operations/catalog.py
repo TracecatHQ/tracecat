@@ -22,6 +22,8 @@ async def catalog_target_state(
     Catalog rows and their existing grants stay locked through confirmation.
     Workspace access writers take the same workspace fence as sync, including
     insertion of the first override, which can change inherited model access.
+    An effective selection already has an org grant, locked below; uniqueness
+    prevents another such grant. Unrelated org inserts cannot revoke it.
     """
     ids = {
         preset.catalog_id

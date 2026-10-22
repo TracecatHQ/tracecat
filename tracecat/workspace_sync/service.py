@@ -1447,6 +1447,7 @@ class WorkspaceSyncService(SyncMappingService):
         roots = projection.manifest.resources
         deletion_roots = _normalized_path_roots(delete_missing_paths_under)
         diffs: list[PullResourceDiff] = []
+        remote_paths = remote_tree.blob_paths or frozenset(remote_tree.files)
 
         for path, projected_content in sorted(projection.files.items()):
             identity = _resource_identity_from_path(path, roots=roots)
@@ -1463,12 +1464,17 @@ class WorkspaceSyncService(SyncMappingService):
                 before=remote_content,
                 after=projected_content,
             )
+            if remote_content is None and path in remote_paths:
+                diff = (
+                    "Non-text file will be replaced; previous content cannot be "
+                    "shown as text.\n" + diff
+                )
             diffs.append(
                 PullResourceDiff(
                     resource_type=adapter.resource_type.value,
                     source_id=source_id,
                     source_path=path,
-                    change_type="added" if remote_content is None else "modified",
+                    change_type="modified" if path in remote_paths else "added",
                     title=_resource_title(
                         projection.spec,
                         adapter=adapter,
@@ -1480,7 +1486,6 @@ class WorkspaceSyncService(SyncMappingService):
             )
 
         if deletion_roots:
-            remote_paths = remote_tree.blob_paths or frozenset(remote_tree.files)
             for path in sorted(remote_paths):
                 if path in projection.files:
                     continue
