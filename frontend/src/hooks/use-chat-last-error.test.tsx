@@ -297,6 +297,24 @@ describe("useVercelChat retryTurn", () => {
       id: "chat-1#1",
     })
     expect(mockRegenerate).not.toHaveBeenCalled()
+
+    // The reconnect's own replay drops too: Retry reconnects again.
+    const fresh = jest.mocked(useChat).mock.calls.at(-1)?.[0]
+    if (!fresh || !("onError" in fresh) || !("onFinish" in fresh)) {
+      throw new Error("useChat options not captured")
+    }
+    act(() => {
+      fresh.onError?.(new TypeError("Failed to fetch"))
+      finish(fresh.onFinish, { isError: true, isDisconnect: true })
+    })
+    await act(async () => {
+      await hook.result.current.retryTurn("u2")
+    })
+
+    expect(jest.mocked(useChat).mock.calls.at(-1)?.[0]).toMatchObject({
+      id: "chat-1#2",
+    })
+    expect(mockRegenerate).not.toHaveBeenCalled()
   })
 
   it("never resends after a reconnect replay drops", async () => {
