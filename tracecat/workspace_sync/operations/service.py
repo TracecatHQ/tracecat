@@ -244,4 +244,10 @@ class SyncOperationService(BaseWorkspaceService):
             ),
             data_applied=operation.direction == "pull" and operation.result is not None,
             inputs=SyncOperationCreate.model_validate(operation.inputs),
+            preview_revision=cast(
+                int, (operation.summary or {}).get("preview_revision", 0)
+            ),
+            state_revision=max(
+                0, cast(int, (operation.summary or {}).get("lifecycle_revision", 0))
+            ),
         )

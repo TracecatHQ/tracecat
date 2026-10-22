@@ -23,6 +23,15 @@ from tracecat.workspace_sync.operations.activities import (
     workspace_sync_fail,
     workspace_sync_prepare,
 )
+from tracecat.workspace_sync.operations.lifecycle import WorkspaceSyncLifecycleWorkflow
+from tracecat.workspace_sync.operations.lifecycle_activities import (
+    workspace_sync_apply_lifecycle,
+    workspace_sync_committed_lifecycle,
+    workspace_sync_finish_lifecycle,
+    workspace_sync_initialize,
+    workspace_sync_prepare_lifecycle,
+    workspace_sync_project,
+)
 from tracecat.workspace_sync.operations.workflows import WorkspaceSyncWorkflow
 
 
@@ -38,12 +47,18 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         async with Worker(
             client,
             task_queue=config.TRACECAT__BACKGROUND_QUEUE,
-            workflows=[WorkspaceSyncWorkflow],
+            workflows=[WorkspaceSyncWorkflow, WorkspaceSyncLifecycleWorkflow],
             workflow_runner=new_sandbox_runner(),
             activities=[
                 workspace_sync_prepare,
                 workspace_sync_apply,
                 workspace_sync_fail,
+                workspace_sync_initialize,
+                workspace_sync_prepare_lifecycle,
+                workspace_sync_apply_lifecycle,
+                workspace_sync_committed_lifecycle,
+                workspace_sync_finish_lifecycle,
+                workspace_sync_project,
             ],
             max_concurrent_activities=config.TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES,
             disable_eager_activity_execution=True,
