@@ -304,6 +304,22 @@ async def test_push_command_checks_scope_before_consuming_preview(
     value = snapshot(
         inputs, role, status="ready" if kind == "apply" else "failed", revision=3
     )
+    if direction == "pull":
+        value = replace(
+            value,
+            state=replace(
+                value.state,
+                stage="awaiting_confirmation" if kind == "apply" else "applying",
+                preview=SyncPreparedRef(
+                    "synthetic",
+                    "a" * 40,
+                    0,
+                    [],
+                    value.state.expires_at,
+                    write_scopes=[],
+                ),
+            ),
+        )
     _, handle = temporal_client(monkeypatch, [value])
     command = SyncOperationCommand(
         command_id=uuid.uuid4(), preview_revision=1, state_revision=3
@@ -316,4 +332,133 @@ async def test_push_command_checks_scope_before_consuming_preview(
         await SyncLifecycleService(session, svc_role).command(inputs.id, kind, command)
     else:
         await SyncLifecycleService(session, role).command(inputs.id, kind, command)
+    handle.execute_update.assert_awaited_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("kind", ["apply", "retry"])
+@pytest.mark.parametrize(
+    "authority", ["revoked", "newly_granted", "different_sync_grant"]
+)
+async def test_pull_write_preflight_preserves_unconsumed_preview(
+    session, svc_role, monkeypatch, kind, authority
+):
+    inputs = SyncOperationCreate.model_validate(
+        {"id": str(uuid.uuid4()), "direction": "pull", "pull": {"commit_sha": "a" * 40}}
+    )
+    narrow = svc_role.model_copy(
+        update={"scopes": frozenset({"workflow:sync", "variable:read"})}
+    )
+    owner = narrow if authority == "newly_granted" else svc_role
+    current = narrow if authority == "revoked" else svc_role
+    if authority == "different_sync_grant":
+        owner = svc_role.model_copy(
+            update={
+                "scopes": frozenset(
+                    {"workflow:sync", "variable:create", "variable:update"}
+                )
+            }
+        )
+        current = svc_role.model_copy(
+            update={
+                "scopes": frozenset(
+                    {"workspace_sync:sync", "variable:create", "variable:update"}
+                )
+            }
+        )
+    value = snapshot(
+        inputs, owner, status="ready" if kind == "apply" else "failed", revision=3
+    )
+    value = replace(
+        value,
+        state=replace(
+            value.state,
+            stage="awaiting_confirmation" if kind == "apply" else "applying",
+            preview_revision=1,
+            preview=SyncPreparedRef(
+                "synthetic",
+                "a" * 40,
+                0,
+                [],
+                value.state.expires_at,
+                write_scopes=["variable:create", "variable:update"],
+            ),
+        ),
+    )
+    _, handle = temporal_client(monkeypatch, [value])
+    command = SyncOperationCommand(
+        command_id=uuid.uuid4(), preview_revision=1, state_revision=3
+    )
+    with pytest.raises(ScopeDeniedError):
+        await SyncLifecycleService(session, current).command(inputs.id, kind, command)
+    handle.execute_update.assert_not_awaited()
+    assert value.state.revision == 3 and value.state.preview_revision == 1
+    if authority == "revoked":
+        await SyncLifecycleService(session, svc_role).command(inputs.id, kind, command)
+        handle.execute_update.assert_awaited_once()
+        assert handle.execute_update.await_args.args[1].command_id == command.command_id
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("write_scopes", [None, []])
+async def test_pull_permission_metadata_absent_requires_fresh_preview(
+    session, svc_role, monkeypatch, write_scopes
+):
+    inputs = SyncOperationCreate.model_validate(
+        {"id": str(uuid.uuid4()), "direction": "pull", "pull": {"commit_sha": "a" * 40}}
+    )
+    value = snapshot(inputs, svc_role, status="ready", revision=3)
+    value = replace(
+        value,
+        state=replace(
+            value.state,
+            stage="awaiting_confirmation",
+            preview_revision=1,
+            preview=SyncPreparedRef(
+                "synthetic",
+                "a" * 40,
+                0,
+                [],
+                value.state.expires_at,
+                write_scopes=write_scopes,
+            ),
+        ),
+    )
+    _, handle = temporal_client(monkeypatch, [value])
+    command = SyncOperationCommand(
+        command_id=uuid.uuid4(), preview_revision=1, state_revision=3
+    )
+    if write_scopes is None:
+        with pytest.raises(SyncOperationConflictError, match="fresh preview"):
+            await SyncLifecycleService(session, svc_role).command(
+                inputs.id, "apply", command
+            )
+        handle.execute_update.assert_not_awaited()
+    else:
+        await SyncLifecycleService(session, svc_role).command(
+            inputs.id, "apply", command
+        )
+        handle.execute_update.assert_awaited_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "stage,data_applied", [("preparing", False), ("finishing", True)]
+)
+async def test_pull_retry_does_not_gate_preparation_or_committed_followups(
+    session, svc_role, monkeypatch, stage, data_applied
+):
+    inputs = SyncOperationCreate.model_validate(
+        {"id": str(uuid.uuid4()), "direction": "pull", "pull": {"commit_sha": "a" * 40}}
+    )
+    narrow = svc_role.model_copy(update={"scopes": frozenset({"workflow:sync"})})
+    value = snapshot(inputs, narrow, status="failed", revision=3)
+    value = replace(
+        value, state=replace(value.state, stage=stage, data_applied=data_applied)
+    )
+    _, handle = temporal_client(monkeypatch, [value])
+    command = SyncOperationCommand(
+        command_id=uuid.uuid4(), preview_revision=0, state_revision=3
+    )
+    await SyncLifecycleService(session, narrow).command(inputs.id, "retry", command)
     handle.execute_update.assert_awaited_once()

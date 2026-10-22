@@ -11,10 +11,10 @@ from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat import config
-from tracecat.authz.controls import check_scopes
+from tracecat.authz.controls import check_scopes, has_scope
 from tracecat.db.models import WorkspaceSyncOperation
 from tracecat.dsl.client import get_temporal_client
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import ScopeDeniedError, TracecatNotFoundError
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullResult
 from tracecat.workspace_sync.operations.domain import fingerprint
@@ -241,6 +241,45 @@ class SyncLifecycleService(BaseWorkspaceService):
                 )
         return response
 
+    async def _check_pull_confirmation_scopes(
+        self, operation_id: uuid.UUID, kind: str
+    ) -> None:
+        """Reject missing write authority before consuming a prepared pull."""
+        snapshot = await self._query(operation_id)
+        state = snapshot.state
+        if state.data_applied or not (
+            (kind == "apply" and state.status == "ready")
+            or (
+                kind == "retry"
+                and state.status == "failed"
+                and state.stage == "applying"
+            )
+        ):
+            return
+        if state.preview is None or state.preview.write_scopes is None:
+            raise SyncOperationConflictError(
+                "Start a fresh preview to check pull permissions"
+            )
+        owner = snapshot.start.role
+        required = state.preview.write_scopes
+        check_scopes(self.role, *required)
+        check_scopes(owner, *required)
+        sync_scopes = ["workflow:sync", "workspace_sync:sync"]
+        if not any(
+            (
+                owner.is_platform_superuser
+                or has_scope(owner.scopes or frozenset(), scope)
+            )
+            and (
+                self.role.is_platform_superuser
+                or has_scope(self.role.scopes or frozenset(), scope)
+            )
+            for scope in sync_scopes
+        ):
+            raise ScopeDeniedError(
+                required_scopes=sync_scopes, missing_scopes=sync_scopes
+            )
+
     async def command(
         self,
         operation_id: uuid.UUID,
@@ -253,6 +292,15 @@ class SyncLifecycleService(BaseWorkspaceService):
         # The activity still refreshes authorization at the write boundary.
         if current.direction == "push":
             check_scopes(self.role, "workspace_sync:sync")
+        elif not current.data_applied and (
+            (kind == "apply" and current.status == "ready")
+            or (
+                kind == "retry"
+                and current.status == "failed"
+                and current.stage == "applying"
+            )
+        ):
+            await self._check_pull_confirmation_scopes(operation_id, kind)
         history = await self._history(operation_id)
         if (
             history is not None
