@@ -24,6 +24,7 @@ from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.secrets.enums import SecretSource
 from tracecat.sync import PullResult, PushStatus
 from tracecat.tiers.enums import Entitlement
+from tracecat.workspace_sync.operations.mappings import surviving_mapping_targets
 from tracecat.workspace_sync.operations.schemas import (
     PreparedSync,
     SyncOperationCreate,
@@ -500,9 +501,12 @@ class DurableSyncService(WorkspaceSyncService):
                     != prepared.workspace_fingerprint
                 ):
                     raise StaleSyncPreviewError("Workspace changed; preview again")
-            # Retain the identities captured by the reviewed projection, even
-            # if recovery happens after a rename. Never overwrite newer mappings.
-            for offset in range(0, len(projection.mapping_targets), 500):
+            # Retain reviewed identities across renames, but never resurrect a
+            # deleted resource's mapping while recovering a committed write.
+            mapping_targets = projection.mapping_targets
+            if recovered_sha is not None:
+                mapping_targets = await surviving_mapping_targets(self, mapping_targets)
+            for offset in range(0, len(mapping_targets), 500):
                 await self.session.execute(
                     insert(WorkspaceSyncResourceMapping)
                     .values(
@@ -515,9 +519,7 @@ class DurableSyncService(WorkspaceSyncService):
                                 "source_path": target.source_path,
                                 "local_id": target.local_id,
                             }
-                            for target in projection.mapping_targets[
-                                offset : offset + 500
-                            ]
+                            for target in mapping_targets[offset : offset + 500]
                         ]
                     )
                     .on_conflict_do_nothing()
