@@ -28,7 +28,15 @@ You must have the "Organization Admin" role to add and manage the custom registr
   </Step>
   <Step title="Add an SSH key">
     Tracecat clones the repository over SSH.
-    Generate an SSH key pair and add the public key to the repository as a read-only deploy key (GitHub: repository Settings -> Deploy keys).
+    Generate an Ed25519 SSH key pair without a passphrase and add the public key to the repository as a read-only deploy key (GitHub: repository Settings -> Deploy keys).
+
+    ```bash
+    ssh-keygen -t ed25519 -N "" -f tracecat-registry
+    ```
+
+    <Note>
+      The custom registry only supports Ed25519 SSH keys. Tracecat rejects RSA, ECDSA, and other key types.
+    </Note>
 
     Go to Organization settings -> Custom registry -> Repository, click "Add SSH key" in the SSH key section, and paste the private key.
     The name is fixed to `github-ssh-key` and the environment to `default`. Tracecat looks the registry key up by this exact name, whichever Git host you use.
