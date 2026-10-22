@@ -655,7 +655,9 @@ class TestBuildToolDefinitionsActivity:
         lock_service.resolve_lock_with_bindings.assert_awaited_once_with(set())
 
     @pytest.mark.anyio
-    @pytest.mark.parametrize("payload_tunnel_id", [None, str(uuid.uuid4())])
+    @pytest.mark.parametrize(
+        "payload_tunnel_id", [None, "33333333-3333-3333-3333-333333333333"]
+    )
     async def test_mcp_discovery_routes_by_integration_row_tunnel(
         self,
         monkeypatch: pytest.MonkeyPatch,
