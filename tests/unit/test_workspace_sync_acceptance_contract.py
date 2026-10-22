@@ -22,7 +22,6 @@ import pytest
 import yaml
 from cryptography.fernet import Fernet
 from pydantic import SecretStr, ValidationError
-from pydantic_core import PydanticSerializationError
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.secrets.references.service import SecretReferencesService
