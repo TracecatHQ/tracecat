@@ -10,7 +10,6 @@ from pydantic import (
     model_validator,
 )
 
-from tracecat.agent.types import clamp_agent_timeout_seconds
 from tracecat.core.schemas import Schema
 from tracecat.dsl.enums import JoinStrategy, PlatformAction
 from tracecat.dsl.schemas import ActionRetryPolicy
@@ -124,10 +123,7 @@ class ActionRead(Schema):
         """Expose the same deployment-bounded timeout that executes."""
         if PlatformAction.is_agent(self.type):
             retry_policy = self.control_flow.retry_policy
-            explicit = "timeout" in retry_policy.model_fields_set
-            retry_policy.timeout = clamp_agent_timeout_seconds(
-                retry_policy.timeout if explicit else None
-            )
+            retry_policy.timeout = retry_policy.resolved_agent_timeout()
         return self
 
     @computed_field

@@ -176,7 +176,7 @@ For `core.script.run_python`, the shorter of `timeout` and the script's `timeout
 
 Each `for_each` iteration gets the full timeout, but all iterations share one attempt that Tracecat caps at the timeout plus 600 seconds. A loop whose iterations run longer than that fails the attempt, and a retry runs every iteration again.
 
-For `ai.agent`, `ai.action`, and `ai.preset_agent`, `timeout` caps the agent's active runtime in seconds. Unset means 7200 seconds (2 hours). Chat turns always use this default.
+For `ai.agent`, `ai.action`, and `ai.preset_agent`, `timeout` caps the agent's active runtime in seconds. Unset means 7200 seconds (2 hours). Chat turns use this default.
 
 Tracecat clamps an explicit value between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT`, which defaults to 10800 seconds (see [Environment variables](/self-hosting/environment-variables)). Tracecat stores the clamped value instead of rejecting the action. A lower ceiling caps both the default and the minimum.
 
