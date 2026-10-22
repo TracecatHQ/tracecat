@@ -1,5 +1,8 @@
 import dataclasses
 import json
+from enum import StrEnum
+
+from tracecat.exceptions import TracecatValidationError
 
 
 class ConversationNotFoundError(RuntimeError):
@@ -65,3 +68,26 @@ class AgentRunError(RuntimeError):
             )
 
         super().__init__("\n".join(msg_parts))
+
+
+class ProviderKeyCheckErrorCode(StrEnum):
+    INVALID_KEY = "provider_key_invalid"
+    ACCESS_DENIED = "provider_key_access_denied"
+    UNREACHABLE = "provider_unreachable"
+
+
+class ProviderKeyCheckError(TracecatValidationError):
+    """A provider rejected an API key or could not be reached to check it."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: ProviderKeyCheckErrorCode,
+        field: str,
+    ) -> None:
+        super().__init__(
+            message, detail={"code": code, "message": message, "field": field}
+        )
+        self.code = code
+        self.field = field

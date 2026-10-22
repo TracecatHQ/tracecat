@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Self
 from uuid import UUID, uuid4
 
 import httpx
@@ -14,6 +15,8 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from tracecat.agent.catalog.service import AgentCatalogService
+from tracecat.agent.config import PROVIDER_CREDENTIAL_CONFIGS, PROVIDER_KEY_CHECKS
+from tracecat.agent.exceptions import ProviderKeyCheckError, ProviderKeyCheckErrorCode
 from tracecat.agent.provider.schemas import (
     AgentCustomProviderCreate,
     AgentCustomProviderRead,
@@ -25,6 +28,8 @@ from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentCatalog, AgentCustomProvider, AgentModelAccess
 from tracecat.exceptions import TracecatNotFoundError
+from tracecat.logger import logger
+from tracecat.network import DisallowedUrlError
 from tracecat.outbound import create_outbound_http_client
 from tracecat.pagination import (
     BaseCursorPaginator,
@@ -35,6 +40,13 @@ from tracecat.secrets.encryption import decrypt_keyvalues, decrypt_value, encryp
 from tracecat.service import BaseOrgService
 
 CUSTOM_MODEL_PROVIDER_SLUG = "custom-model-provider"
+# Gemini answers an invalid key with 400 rather than 401.
+_REJECTED_KEY_STATUS_CODES = {
+    400: ProviderKeyCheckErrorCode.INVALID_KEY,
+    401: ProviderKeyCheckErrorCode.INVALID_KEY,
+    403: ProviderKeyCheckErrorCode.ACCESS_DENIED,
+}
+_MAX_PROVIDER_MESSAGE_LENGTH = 300
 _LEGACY_CUSTOM_PROVIDER_CONFIG_KEYS = {
     "CUSTOM_MODEL_PROVIDER_API_KEY": "api_key",
     "CUSTOM_MODEL_PROVIDER_BASE_URL": "base_url",
@@ -514,3 +526,107 @@ async def discover_openai_compatible_models(
     if isinstance(data, list):
         return [item for item in data if isinstance(item, dict)]
     raise ValueError(f"Unexpected response format: {type(data)}")
+
+
+async def check_provider_key(provider: str, credentials: Mapping[str, str]) -> None:
+    """Reject a first-class provider API key that fails a live ``GET /models``.
+
+    Other providers and keys routed through a custom base URL are not checked.
+    Only auth failures and unreachable endpoints reject; other errors are logged.
+
+    Args:
+        provider: Provider slug.
+        credentials: Credentials as they will be stored.
+
+    Raises:
+        ProviderKeyCheckError: The provider rejected the key or was unreachable.
+    """
+    if (check := PROVIDER_KEY_CHECKS.get(provider)) is None:
+        return
+    if check.base_url_field and credentials.get(check.base_url_field):
+        return
+    label = PROVIDER_CREDENTIAL_CONFIGS[provider].label
+    try:
+        response = await fetch_openai_compatible_models(
+            base_url=check.models_base_url,
+            api_key=credentials.get(check.api_key_field),
+            api_key_header=check.api_key_header,
+            custom_headers=dict(check.extra_headers),
+            timeout=10.0,
+        )
+    except (DisallowedUrlError, httpx.HTTPError) as err:
+        logger.warning(
+            "Provider API key check could not reach provider",
+            provider=provider,
+            error=str(err) or type(err).__name__,
+        )
+        raise ProviderKeyCheckError(
+            _key_check_message(ProviderKeyCheckErrorCode.UNREACHABLE, label),
+            code=ProviderKeyCheckErrorCode.UNREACHABLE,
+            field=check.api_key_field,
+        ) from err
+    if response.is_success:
+        return
+    error = _ProviderError.from_response(response)
+    code = _REJECTED_KEY_STATUS_CODES.get(response.status_code)
+    if code is not None and (
+        check.rejected_error_codes is None or error.code in check.rejected_error_codes
+    ):
+        logger.info(
+            "Provider rejected API key",
+            provider=provider,
+            status_code=response.status_code,
+            provider_message=error.message,
+        )
+        raise ProviderKeyCheckError(
+            _key_check_message(code, label), code=code, field=check.api_key_field
+        )
+    logger.warning(
+        "Provider API key check was inconclusive",
+        provider=provider,
+        status_code=response.status_code,
+        provider_message=error.message,
+    )
+
+
+def _key_check_message(code: ProviderKeyCheckErrorCode, label: str) -> str:
+    match code:
+        case ProviderKeyCheckErrorCode.INVALID_KEY:
+            return (
+                f"{label} didn't accept this API key. Please check the key and "
+                "try again."
+            )
+        case ProviderKeyCheckErrorCode.ACCESS_DENIED:
+            return (
+                f"This API key can't list {label} models. Please check the key's "
+                "permissions and try again."
+            )
+        case ProviderKeyCheckErrorCode.UNREACHABLE:
+            return (
+                f"Couldn't reach {label} to check this API key. Please check your "
+                "network settings and try again."
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class _ProviderError:
+    message: str
+    code: str | None
+
+    @classmethod
+    def from_response(cls, response: httpx.Response) -> Self:
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+        match body:
+            case {"error": {"message": str(message), "code": str(code)}}:
+                return cls(message[:_MAX_PROVIDER_MESSAGE_LENGTH], code)
+            case (
+                {"error": {"message": str(message)}}
+                | {"message": str(message)}
+                | {"detail": str(message)}
+            ):
+                return cls(message[:_MAX_PROVIDER_MESSAGE_LENGTH], None)
+            case _:
+                return cls(f"HTTP {response.status_code}", None)

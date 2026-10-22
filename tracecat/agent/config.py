@@ -2,6 +2,7 @@ from tracecat.agent.gateway_providers import (
     OLLAMA_DEFAULT_BASE_URL,
     OPENROUTER_DEFAULT_BASE_URL,
 )
+from tracecat.agent.provider.types import ProviderKeyCheck
 from tracecat.agent.schemas import (
     ModelConfig,
     ProviderCredentialConfig,
@@ -539,6 +540,34 @@ PROVIDER_CREDENTIAL_CONFIGS = {
                 required=False,
             ),
         ],
+    ),
+}
+
+# Live API key checks for first-class providers, run before credentials are saved.
+PROVIDER_KEY_CHECKS: dict[str, ProviderKeyCheck] = {
+    "openai": ProviderKeyCheck(
+        api_key_field="OPENAI_API_KEY",
+        base_url_field="OPENAI_BASE_URL",
+        models_base_url="https://api.openai.com/v1",
+        rejected_error_codes=frozenset({"invalid_api_key"}),
+    ),
+    "anthropic": ProviderKeyCheck(
+        api_key_field="ANTHROPIC_API_KEY",
+        base_url_field="ANTHROPIC_BASE_URL",
+        models_base_url="https://api.anthropic.com/v1",
+        api_key_header="x-api-key",
+        extra_headers=(("anthropic-version", "2023-06-01"),),
+    ),
+    "gemini": ProviderKeyCheck(
+        api_key_field="GEMINI_API_KEY",
+        base_url_field=None,
+        models_base_url="https://generativelanguage.googleapis.com/v1beta",
+        api_key_header="x-goog-api-key",
+    ),
+    "mistral": ProviderKeyCheck(
+        api_key_field="MISTRAL_API_KEY",
+        base_url_field="MISTRAL_BASE_URL",
+        models_base_url="https://api.mistral.ai/v1",
     ),
 }
 

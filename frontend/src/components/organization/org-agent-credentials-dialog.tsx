@@ -1,7 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { KeyIcon } from "lucide-react"
+import { KeyIcon, Loader2Icon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
@@ -33,6 +33,11 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
+import {
+  getApiErrorCode,
+  getApiErrorDetail,
+  type TracecatApiError,
+} from "@/lib/errors"
 import { useProviderCredentialConfig } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
@@ -42,6 +47,32 @@ interface AgentCredentialsDialogProps {
   isOpen: boolean
   onClose: () => void
   onSuccess: () => Promise<void> | void
+}
+
+/** Structured detail the API returns when a provider key check fails. */
+interface ProviderKeyCheckDetail {
+  code:
+    | "provider_key_invalid"
+    | "provider_key_access_denied"
+    | "provider_unreachable"
+  message: string
+  field: string
+}
+
+const PROVIDER_KEY_CHECK_CODES = new Set<string>([
+  "provider_key_invalid",
+  "provider_key_access_denied",
+  "provider_unreachable",
+])
+
+function getProviderKeyCheckDetail(
+  error: unknown
+): ProviderKeyCheckDetail | null {
+  const code = getApiErrorCode(error)
+  if (code === null || !PROVIDER_KEY_CHECK_CODES.has(code)) {
+    return null
+  }
+  return (error as TracecatApiError<ProviderKeyCheckDetail>).body.detail ?? null
 }
 
 interface CredentialLayoutSection {
@@ -119,7 +150,6 @@ export function AgentCredentialsDialog({
   onSuccess,
 }: AgentCredentialsDialogProps) {
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   const { providerConfig, providerConfigLoading, providerConfigError } =
     useProviderCredentialConfig(provider)
@@ -160,7 +190,6 @@ export function AgentCredentialsDialog({
           .map((field) => [field.key, field.default ?? ""])
       )
       form.reset(defaults)
-      setError(null)
     }
   }, [provider, providerConfig, form])
 
@@ -169,7 +198,7 @@ export function AgentCredentialsDialog({
 
     try {
       setLoading(true)
-      setError(null)
+      form.clearErrors("root")
       const normalizedCredentials = Object.fromEntries(
         providerConfig.fields.map((field) => {
           const rawValue = data[field.key]
@@ -196,9 +225,22 @@ export function AgentCredentialsDialog({
       await onSuccess()
       onClose()
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to save credentials"
-      )
+      const keyCheck = getProviderKeyCheckDetail(err)
+      if (keyCheck && keyCheck.code !== "provider_unreachable") {
+        form.setError(
+          keyCheck.field,
+          { type: "server", message: keyCheck.message },
+          { shouldFocus: true }
+        )
+      } else {
+        form.setError("root", {
+          type: "server",
+          message:
+            keyCheck?.message ??
+            getApiErrorDetail(err) ??
+            "Couldn't save credentials. Try again.",
+        })
+      }
     } finally {
       setLoading(false)
     }
@@ -279,15 +321,11 @@ export function AgentCredentialsDialog({
             <Spinner className="size-6" />
           </div>
         ) : providerConfigError || !providerConfig ? (
-          <>
-            <div className="rounded-md bg-red-50 p-3">
-              <p className="text-sm text-red-700">
-                {providerConfigError
-                  ? `Failed to load credential configuration: ${providerConfigError.message}`
-                  : `Credentials configuration for ${provider} is not available.`}
-              </p>
-            </div>
-          </>
+          <p className="text-sm text-destructive">
+            {providerConfigError
+              ? "Couldn't load credential settings. Refresh and try again."
+              : `Credentials configuration for ${provider} is not available.`}
+          </p>
         ) : (
           <Form {...form}>
             <form
@@ -359,15 +397,18 @@ export function AgentCredentialsDialog({
                   </div>
                 ))}
 
-                {error && (
-                  <div className="rounded-md bg-red-50 p-3">
-                    <p className="text-sm text-red-700">{error}</p>
-                  </div>
+                {form.formState.errors.root && (
+                  <p className="text-sm text-destructive">
+                    {form.formState.errors.root.message}
+                  </p>
                 )}
               </DialogBody>
               <DialogFooter>
                 <Button size="sm" type="submit" disabled={loading}>
-                  {loading ? "Saving..." : "Save credentials"}
+                  {loading && (
+                    <Loader2Icon className="mr-2 size-3.5 animate-spin" />
+                  )}
+                  {loading ? "Saving…" : "Save credentials"}
                 </Button>
               </DialogFooter>
             </form>
