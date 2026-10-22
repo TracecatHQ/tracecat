@@ -212,7 +212,8 @@ describe("useVercelChat dropped prompt across reloads", () => {
     ])
   })
 
-  it("keeps the restored prompt when another chat's request aborts", async () => {
+  // The SDK delivers a left chat's abort to the current chat's callbacks.
+  it("keeps the restored prompt through an aborted request", async () => {
     await dropTurn()
     const { hook, seeded } = reload(prior)
     const onFinish = seeded && "onFinish" in seeded ? seeded.onFinish : null
