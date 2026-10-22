@@ -14,6 +14,11 @@ from unittest.mock import Mock
 import httpx
 import orjson
 import pytest
+from opentelemetry.sdk.trace import ReadableSpan
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import SpanKind, StatusCode
 from tenacity import AsyncRetrying, RetryCallState
 
 from tracecat import config as app_config
@@ -41,6 +46,11 @@ from tracecat.agent.sandbox.llm_proxy import (
 )
 from tracecat.agent.sandbox.tool_use_rewrite import ToolUseStreamRewriter
 from tracecat.agent.tokens import LLMRouteClaim, mint_llm_token
+from tracecat.observability.otel import (
+    get_platform_tracing,
+    initialize_platform_tracing,
+    shutdown_platform_tracing,
+)
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
@@ -2534,3 +2544,172 @@ async def test_routing_plan_invalid_diagnostic_token_does_not_block_forwarding(
     )
     assert response_text.startswith("HTTP/1.1 500")
     assert len(errors) == 1
+
+
+@pytest.fixture
+def span_exporter(monkeypatch: pytest.MonkeyPatch) -> Iterator[InMemorySpanExporter]:
+    shutdown_platform_tracing()
+    monkeypatch.setattr(app_config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
+    exporter = InMemorySpanExporter()
+    initialize_platform_tracing("tracecat-test", exporter=exporter)
+    yield exporter
+    shutdown_platform_tracing()
+
+
+def _upstream_spans(exporter: InMemorySpanExporter) -> list[ReadableSpan]:
+    return [
+        span
+        for span in exporter.get_finished_spans()
+        if span.name == "tracecat.agent.llm_proxy.upstream"
+    ]
+
+
+@pytest.mark.anyio
+async def test_upstream_span_records_streamed_response_without_content(
+    tmp_path: Path,
+    span_exporter: InMemorySpanExporter,
+) -> None:
+    """One client span per upstream request carries the trace request ID,
+    status, sizes and a first-byte event, but no URL, credential or content."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/event-stream"},
+            stream=httpx.ByteStream(_SSE_MESSAGE_START + _SSE_MESSAGE_STOP),
+        )
+
+    _, errors = await _forward(
+        tmp_path,
+        handler,
+        _request(
+            {"stream": True, "messages": _HELLO},
+            path="/v1/messages?beta=true",
+            headers={**_LLM_HEADERS, "X-Request-ID": "trace-span"},
+        ),
+    )
+
+    assert errors == []
+    [span] = _upstream_spans(span_exporter)
+    assert span.kind is SpanKind.CLIENT
+    assert span.status.status_code is StatusCode.UNSET
+    assert dict(span.attributes or {}) == {
+        "http.request.method": "POST",
+        "http.route": "/v1/messages",
+        "tracecat.agent.llm_proxy.route": "managed",
+        "tracecat.agent.llm_proxy.trace_request_id": "trace-span",
+        "tracecat.agent.llm_proxy.attempt": 1,
+        "http.response.status_code": 200,
+        "http.response.body.size": len(_SSE_MESSAGE_START + _SSE_MESSAGE_STOP),
+        "tracecat.agent.llm_proxy.response.chunks": 1,
+    }
+    [event] = span.events
+    assert event.name == "tracecat.agent.llm_proxy.first_byte"
+    assert span.start_time is not None
+    assert span.end_time is not None
+    assert span.start_time <= event.timestamp <= span.end_time
+    exported = str(span.to_json())
+    for secret in ("hello", "llm-token", "litellm", "message_start"):
+        assert secret not in exported
+
+
+@pytest.mark.anyio
+async def test_upstream_span_per_rate_limited_attempt(
+    tmp_path: Path,
+    span_exporter: InMemorySpanExporter,
+) -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ConnectError("connection refused", request=request)
+        if attempts == 2:
+            return httpx.Response(429, json={"error": {"type": "rate_limit_error"}})
+        return _ok(request)
+
+    _, errors = await _forward(tmp_path, handler)
+
+    assert errors == []
+    spans = _upstream_spans(span_exporter)
+    assert [
+        (span.attributes or {})["tracecat.agent.llm_proxy.attempt"] for span in spans
+    ] == [1, 2, 3]
+    assert {
+        (span.attributes or {})["tracecat.agent.llm_proxy.trace_request_id"]
+        for span in spans
+    } == {"trace-rate-limit"}
+    dropped, limited, ok = spans
+    assert dropped.status.status_code is StatusCode.ERROR
+    assert (dropped.attributes or {})["error.type"] == "ConnectError"
+    assert "http.response.status_code" not in (dropped.attributes or {})
+    assert limited.status.status_code is StatusCode.ERROR
+    assert (limited.attributes or {})["error.type"] == "429"
+    assert (limited.attributes or {})["http.response.status_code"] == 429
+    assert ok.status.status_code is StatusCode.UNSET
+    assert "error.type" not in (ok.attributes or {})
+
+
+@pytest.mark.anyio
+async def test_upstream_span_fails_on_stream_cut_after_headers(
+    tmp_path: Path,
+    span_exporter: InMemorySpanExporter,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/event-stream"},
+            stream=_CutSSEStream(httpx.RemoteProtocolError),
+        )
+
+    _, errors = await _forward(
+        tmp_path,
+        handler,
+        _request({"stream": True, "messages": _HELLO}, headers=_LLM_HEADERS),
+    )
+
+    assert len(errors) == 1
+    [span] = _upstream_spans(span_exporter)
+    attributes = span.attributes or {}
+    assert span.status.status_code is StatusCode.ERROR
+    assert span.status.description is None
+    assert attributes["error.type"] == "RemoteProtocolError"
+    assert attributes["http.response.status_code"] == 200
+    assert attributes["tracecat.agent.llm_proxy.response.chunks"] == 1
+    assert [event.name for event in span.events] == [
+        "tracecat.agent.llm_proxy.first_byte"
+    ]
+    assert "peer closed" not in str(span.to_json())
+
+
+@pytest.mark.anyio
+async def test_upstream_span_joins_the_trace_the_proxy_started_in(
+    short_socket_path: Path,
+    span_exporter: InMemorySpanExporter,
+) -> None:
+    """Connection handlers inherit the context of `start()`, so upstream spans
+    are children of the agent run span that started the proxy."""
+    tracing = get_platform_tracing()
+    assert tracing is not None
+    proxy = LLMSocketProxy(short_socket_path, _routing_plan())
+    with tracing.tracer("test").start_as_current_span("agent-run") as parent:
+        await proxy.start()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(_ok)) as client:
+        proxy._client = client
+        reader, writer = await asyncio.open_unix_connection(proxy.socket_path)
+        try:
+            writer.write(b"POST /v1/messages HTTP/1.1\r\nContent-Length: 0\r\n\r\n")
+            await writer.drain()
+            response = await asyncio.wait_for(reader.read(), timeout=2)
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            await proxy.stop()
+
+    assert response.startswith(b"HTTP/1.1 200 OK")
+    [span] = _upstream_spans(span_exporter)
+    assert span.parent is not None
+    assert span.parent.span_id == parent.get_span_context().span_id
+    assert span.context is not None
+    assert span.context.trace_id == parent.get_span_context().trace_id
