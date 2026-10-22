@@ -12,6 +12,7 @@ from tracecat.db.models import (
     MCPIntegration,
     Workflow,
     Workspace,
+    WorkspaceSyncResourceMapping,
     WorkspaceVariable,
 )
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
@@ -32,10 +33,11 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceProjection,
     WorkspaceRemoteSnapshot,
     WorkspaceSpec,
+    WorkspaceSyncExportRequest,
 )
 from tracecat.workspace_sync.service import WorkspaceSyncService
 from tracecat.workspace_sync.transport import VcsTreeSnapshot
-from tracecat.workspace_sync.types import PreparedPullPreview
+from tracecat.workspace_sync.types import PreparedPullPreview, SyncMappingTarget
 
 
 @pytest.mark.anyio
@@ -336,3 +338,89 @@ async def test_confirmation_holds_repository_settings_lock_through_import(
         # The fence is transaction-scoped; settings become editable afterward.
         async with DurableSyncService.with_session(svc_role) as writer:
             assert await writer.session.scalar(lock_row) is not None
+
+
+@pytest.mark.anyio
+async def test_replaced_unmapped_variable_rejects_push_before_git_write(
+    session, svc_role, monkeypatch
+):
+    variable = WorkspaceVariable(
+        workspace_id=svc_role.workspace_id,
+        name="synthetic-variable",
+        environment="default",
+        values={"value": "example"},
+    )
+    session.add(variable)
+    await session.commit()
+    sync = DurableSyncService(session, svc_role)
+    inputs = SyncOperationCreate(
+        id=uuid.uuid4(),
+        direction="push",
+        push=WorkspaceSyncExportRequest(
+            branch="sync/demo", message="Synthetic sync", create_pr=False
+        ),
+    )
+    remote = VcsTreeSnapshot(commit_sha="a" * 40, tree_sha=None, files={})
+    transport = AsyncMock()
+    transport.branch_exists.return_value = True
+    transport.read_files.return_value = remote
+    monkeypatch.setattr(sync, "_transport_for_provider", lambda: transport)
+    monkeypatch.setattr(sync, "require_entitlement", AsyncMock())
+    monkeypatch.setattr(sync, "_require_spec_entitlements", AsyncMock())
+    monkeypatch.setattr(sync, "repository_fingerprint", AsyncMock(return_value="repo"))
+    monkeypatch.setattr(
+        sync,
+        "_workspace_git_url",
+        AsyncMock(return_value=GitUrl(host="github.com", org="example", repo="demo")),
+    )
+    prepared = await sync.prepare(
+        inputs, fetched=FetchedSync(remote, "repo", "main", True)
+    )
+    assert prepared.projection is not None
+    original_id = variable.id
+    await session.delete(variable)
+    await session.flush()
+    replacement = WorkspaceVariable(
+        workspace_id=svc_role.workspace_id,
+        name="synthetic-variable",
+        environment="default",
+        values={"value": "example"},
+    )
+    session.add(replacement)
+    await session.commit()
+    current = await sync.project_export_preview(
+        resource_ids=None, include_schedules=False
+    )
+    assert current.files == prepared.projection.files
+    assert replacement.id != original_id
+    with pytest.raises(StaleSyncPreviewError):
+        await sync.apply(inputs, prepared, inputs.id)
+    transport.write_files.assert_not_awaited()
+    assert not list(await session.scalars(select(WorkspaceSyncResourceMapping)))
+
+
+@pytest.mark.anyio
+async def test_push_mapping_fingerprint_ignores_iteration_order(svc_role):
+    sync = DurableSyncService(AsyncMock(), svc_role)
+    inputs = SyncOperationCreate(
+        id=uuid.uuid4(),
+        direction="push",
+        push=WorkspaceSyncExportRequest(
+            branch="sync/demo", message="Synthetic sync", create_pr=False
+        ),
+    )
+    targets = [
+        SyncMappingTarget("variable", name, f"variables/{name}.yaml", uuid.uuid4())
+        for name in ["alpha", "beta"]
+    ]
+    projection = WorkspaceProjection(
+        manifest=WorkspaceManifest(),
+        spec=WorkspaceSpec(),
+        files={},
+        mapping_targets=targets,
+    )
+    reviewed = await sync.local_fingerprint(inputs, projection=projection)
+    reordered = projection.model_copy(
+        update={"mapping_targets": list(reversed(targets))}
+    )
+    assert await sync.local_fingerprint(inputs, projection=reordered) == reviewed

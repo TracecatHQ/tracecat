@@ -188,7 +188,20 @@ class DurableSyncService(WorkspaceSyncService):
                 create_missing_mappings=False,
             )
         if inputs.push:
-            return fingerprint(projection.files)
+            return fingerprint(
+                {
+                    "files": projection.files,
+                    "mappings": sorted(
+                        (
+                            target.resource_type,
+                            target.source_id,
+                            target.source_path,
+                            str(target.local_id),
+                        )
+                        for target in projection.mapping_targets
+                    ),
+                }
+            )
         # Exported workflows prefer published definitions. Pull also replaces the
         # editable graph, including drafts that cannot yet be compiled as DSL.
         workflows: list[JsonValue] = list(
@@ -344,7 +357,9 @@ class DurableSyncService(WorkspaceSyncService):
             return PreparedSync(
                 projection=projection,
                 preview=preview,
-                workspace_fingerprint=fingerprint(projection.files),
+                workspace_fingerprint=await self.local_fingerprint(
+                    inputs, projection=projection
+                ),
                 repository_fingerprint=repository_fingerprint,
                 compare_ref=fetched.compare_ref,
                 compare_sha=remote.commit_sha,
