@@ -34,6 +34,8 @@ from tracecat.settings.schemas import (
     GitSettingsUpdate,
     IPAllowlistCheckRequest,
     IPAllowlistCheckResult,
+    PythonPackageSettingsRead,
+    PythonPackageSettingsUpdate,
     SAMLSettingsRead,
     SAMLSettingsUpdate,
     SecuritySettingsRead,
@@ -42,6 +44,7 @@ from tracecat.settings.schemas import (
 )
 from tracecat.settings.service import (
     AgentOtelEndpointNotAllowedError,
+    PythonPackageIndexNotAllowedError,
     SettingsService,
 )
 from tracecat.tiers.entitlements import check_entitlement
@@ -390,4 +393,41 @@ async def update_agent_otel_settings(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Agent OTel endpoint is not allowed",
+        ) from exc
+
+
+@router.get("/python-packages", response_model=PythonPackageSettingsRead)
+@require_scope("org:settings:read")
+async def get_python_package_settings(
+    *,
+    role: OrgActorRole,
+    session: AsyncDBSession,
+) -> PythonPackageSettingsRead:
+    service = SettingsService(session, role)
+    settings = await service.list_org_settings(keys=PythonPackageSettingsUpdate.keys())
+    values, _ = service.get_values_with_decryption_fallback(settings)
+    return PythonPackageSettingsRead(
+        python_package_index_url=values.get("python_package_index_url"),
+        python_package_index_username=values.get("python_package_index_username"),
+        python_package_index_password_configured=bool(
+            values.get("python_package_index_password")
+        ),
+    )
+
+
+@router.patch("/python-packages", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:update")
+async def update_python_package_settings(
+    *,
+    role: OrgActorRole,
+    session: AsyncDBSession,
+    params: PythonPackageSettingsUpdate,
+) -> None:
+    service = SettingsService(session, role)
+    try:
+        await service.update_python_package_settings(params)
+    except PythonPackageIndexNotAllowedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Package index URL must resolve to a public address",
         ) from exc

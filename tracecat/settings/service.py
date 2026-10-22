@@ -29,6 +29,7 @@ from tracecat.db.rls import set_rls_context_from_role
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.network import DisallowedUrlError, validate_url_resolves_public_async
+from tracecat.sandbox.types import PackageIndex
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseOrgService
 from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
@@ -39,6 +40,7 @@ from tracecat.settings.schemas import (
     AuditSettingsUpdate,
     BaseSettingsGroup,
     GitSettingsUpdate,
+    PythonPackageSettingsUpdate,
     SAMLSettingsUpdate,
     SecuritySettingsUpdate,
     SettingCreate,
@@ -50,6 +52,10 @@ AUDIT_SETTINGS_KEYS = frozenset(AuditSettingsUpdate.keys())
 
 class AgentOtelEndpointNotAllowedError(Exception):
     """Raised when the OTel collector endpoint resolves to a non-public address."""
+
+
+class PythonPackageIndexNotAllowedError(Exception):
+    """Raised when the package index URL resolves to a non-public address."""
 
 
 def _deserialize_setting_value(
@@ -80,6 +86,7 @@ class SettingsService(BaseOrgService):
         AppSettingsUpdate,
         AuditSettingsUpdate,
         SecuritySettingsUpdate,
+        PythonPackageSettingsUpdate,
     ]
     """The set of settings groups that are managed by the service."""
 
@@ -384,6 +391,73 @@ class SettingsService(BaseOrgService):
             keys=AgentOtelSettingsUpdate.keys()
         )
         await self._update_grouped_settings(otel_settings, params)
+
+    @require_scope("org:settings:update")
+    @audit_log(resource_type="organization_setting", action="update")
+    async def update_python_package_settings(
+        self, params: PythonPackageSettingsUpdate
+    ) -> None:
+        new_url = params.python_package_index_url
+        if new_url is not None:
+            # Sandboxes fetch from this URL, so a private address would expose
+            # internal services. The install-phase egress filter re-enforces
+            # this at connect time; this check gives the admin a clear error.
+            try:
+                await validate_url_resolves_public_async(new_url)
+            except DisallowedUrlError as exc:
+                raise PythonPackageIndexNotAllowedError from exc
+
+        settings = await self.list_org_settings(keys=PythonPackageSettingsUpdate.keys())
+        fields_set = params.model_fields_set
+        if (
+            "python_package_index_url" in fields_set
+            and "python_package_index_password" not in fields_set
+        ):
+            current_url = next(
+                (
+                    self.get_value(setting)
+                    for setting in settings
+                    if setting.key == "python_package_index_url"
+                ),
+                None,
+            )
+            if current_url != new_url:
+                # The password is write-only; never forward a saved credential
+                # to a host it was not entered for.
+                params = params.model_copy(
+                    update={"python_package_index_password": None}
+                )
+        await self._update_grouped_settings(settings, params)
+
+
+async def get_python_package_index(
+    *, role: Role, session: AsyncSession | None = None
+) -> PackageIndex | None:
+    """Load the org package index for run_python installs.
+
+    The organization comes from the trusted execution role, never from
+    caller-supplied input. Returns None when no index is configured.
+    """
+    keys = PythonPackageSettingsUpdate.keys()
+    if session is not None:
+        await set_rls_context_from_role(session, role)
+        service = SettingsService(session=session, role=role)
+        settings = await service.list_org_settings(keys=keys)
+        values, _ = service.get_values_with_decryption_fallback(settings)
+    else:
+        async with SettingsService.with_session(role=role) as service:
+            settings = await service.list_org_settings(keys=keys)
+            values, _ = service.get_values_with_decryption_fallback(settings)
+    url = values.get("python_package_index_url")
+    if not isinstance(url, str) or not url:
+        return None
+    username = values.get("python_package_index_username")
+    password = values.get("python_package_index_password")
+    return PackageIndex(
+        url=url,
+        username=username if isinstance(username, str) and username else None,
+        password=password if isinstance(password, str) and password else None,
+    )
 
 
 def _resolve_setting_override(key: str) -> Any:
