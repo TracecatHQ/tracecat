@@ -177,7 +177,6 @@ class CaseTagsService(BaseWorkspaceService):
                 name=params.name,
                 ref=ref,
                 workspace_id=self.workspace_id,
-                color=params.color,
             )
             .on_conflict_do_nothing()
         )

@@ -90,7 +90,7 @@ from tracecat.tables.common import (
     validate_identifier as validate_identifier,
 )
 from tracecat.tables.enums import SqlType
-from tracecat.tables.exceptions import TableColumnConflictError, TableRowError
+from tracecat.tables.exceptions import TableRowError
 from tracecat.tables.importer import (
     CSVSchemaInferer,
     InferredCSVColumn,
@@ -214,12 +214,12 @@ def _column_ddl_errors[**P, T](
             if find_db_error(exc, UndefinedColumnError):
                 raise TracecatNotFoundError("Column not found") from exc
             if find_db_error(exc, NotNullViolationError):
-                raise TableColumnConflictError(
+                raise ValueError(
                     "Column cannot be required while existing rows contain null values"
                 ) from exc
             if find_db_error(exc, DatatypeMismatchError):
                 raise ValueError(
-                    "Column type cannot be changed to the requested type"
+                    "Column type is incompatible with the requested change"
                 ) from exc
             raise
 

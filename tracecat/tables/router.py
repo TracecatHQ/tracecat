@@ -28,7 +28,7 @@ from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.tables.common import ColumnHasDuplicateValuesError
 from tracecat.tables.enums import SqlType
-from tracecat.tables.exceptions import TableColumnConflictError, TableRowError
+from tracecat.tables.exceptions import TableRowError
 from tracecat.tables.importer import CSVImporter, normalize_csv_header
 from tracecat.tables.schemas import (
     InferredColumn,
@@ -276,8 +276,6 @@ async def create_column(
         ) from e
     try:
         column = await service.create_column(table, params)
-    except TableColumnConflictError as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -324,7 +322,7 @@ async def update_column(
         ) from e
     try:
         updated_column = await service.update_column(column, params)
-    except (ColumnHasDuplicateValuesError, TableColumnConflictError) as e:
+    except ColumnHasDuplicateValuesError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),

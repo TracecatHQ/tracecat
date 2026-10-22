@@ -464,7 +464,11 @@ class CaseDropdownValuesService(BaseWorkspaceService):
                 )
             new_option_label = new_option.label
 
-        # Concurrent first writes converge on one row; the row lock orders them.
+        # NO KEY UPDATE serializes dropdown writes without blocking FK inserts.
+        await self.session.execute(
+            select(Case.id).where(Case.id == case_id).with_for_update(key_share=True)
+        )
+        # Concurrent first writes converge on one row.
         await self.session.execute(
             pg_insert(CaseDropdownValue)
             .values(case_id=case_id, definition_id=definition_id, option_id=None)
@@ -482,7 +486,6 @@ class CaseDropdownValuesService(BaseWorkspaceService):
             )
         ).one()
 
-        # Eagerly loaded
         old_option_id = row.option.id if row.option else None
         old_option_label = row.option.label if row.option else None
         row.option_id = params.option_id
