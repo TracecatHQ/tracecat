@@ -70,9 +70,7 @@ resource "aws_ecs_service" "tracecat_litellm" {
       port_name      = "litellm"
       discovery_name = "litellm-service"
       timeout {
-        # Outlast the agent LLM proxy's request bound so its typed timeout
-        # error fires before Service Connect cuts the stream.
-        per_request_timeout_seconds = tonumber(var.llm_request_max_duration_seconds) + 60
+        per_request_timeout_seconds = 600
       }
       client_alias {
         port     = 4000

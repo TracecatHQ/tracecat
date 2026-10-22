@@ -787,17 +787,6 @@ variable "llm_proxy_read_timeout" {
   default     = "600"
 }
 
-variable "llm_request_max_duration_seconds" {
-  type        = string
-  description = "Absolute bound on one LLM request through the agent LLM proxy, in seconds (default: 900)"
-  default     = "900"
-
-  validation {
-    condition     = can(tonumber(var.llm_request_max_duration_seconds)) ? tonumber(var.llm_request_max_duration_seconds) > 0 : false
-    error_message = "llm_request_max_duration_seconds must be a positive number of seconds."
-  }
-}
-
 variable "llm_gateway_credential_cache_ttl_seconds" {
   type        = string
   description = "TTL for process-local LLM gateway credential cache entries in seconds"

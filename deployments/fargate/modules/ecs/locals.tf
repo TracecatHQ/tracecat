@@ -232,7 +232,6 @@ locals {
         TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES = var.agent_executor_max_concurrent_activities
         TRACECAT__EXECUTOR_CLIENT_TIMEOUT                  = var.executor_client_timeout
         TRACECAT__LLM_PROXY_READ_TIMEOUT                   = var.llm_proxy_read_timeout
-        TRACECAT__LLM_REQUEST_MAX_DURATION_SECONDS         = var.llm_request_max_duration_seconds
         TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS = var.llm_gateway_credential_cache_ttl_seconds
         TRACECAT__LLM_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS = var.llm_gateway_healthcheck_interval_seconds
         TRACECAT__LLM_GATEWAY_HEALTHCHECK_TIMEOUT_SECONDS  = var.llm_gateway_healthcheck_timeout_seconds

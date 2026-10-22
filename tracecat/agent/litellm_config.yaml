@@ -50,8 +50,3 @@ litellm_settings:
     - tracecat.agent.gateway.callback_handler
   drop_params: true
   reasoning_auto_summary: true
-  # Per-attempt provider timeout (httpx, per operation; LiteLLM's default is
-  # 6000 s). It sits above the agent LLM socket proxy's 600 s idle read timeout,
-  # so it never fires first. The absolute request bound is the proxy's
-  # TRACECAT__LLM_REQUEST_MAX_DURATION_SECONDS (default 900 s).
-  request_timeout: 900
