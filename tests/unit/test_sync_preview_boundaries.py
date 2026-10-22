@@ -4,10 +4,16 @@ import uuid
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 
-from tracecat.db.models import Action, MCPIntegration, Workflow, Workspace
+from tracecat.db.models import (
+    Action,
+    MCPIntegration,
+    Workflow,
+    Workspace,
+    WorkspaceVariable,
+)
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ActionStatement
@@ -309,6 +315,18 @@ async def test_confirmation_holds_repository_settings_lock_through_import(
                 with pytest.raises(DBAPIError) as error:
                     await writer.session.execute(lock_row)
                 assert getattr(error.value.orig, "sqlstate", None) == "55P03"
+            # Unrelated child rows need only a foreign-key key-share lock.
+            async with DurableSyncService.with_session(svc_role) as writer:
+                await writer.session.execute(text("SET LOCAL lock_timeout = '200ms'"))
+                writer.session.add(
+                    WorkspaceVariable(
+                        workspace_id=svc_role.workspace_id,
+                        name="synthetic-concurrent-child",
+                        environment="default",
+                        values={"value": "example"},
+                    )
+                )
+                await writer.session.flush()
             return preview
 
         monkeypatch.setattr(sync, "import_prepared_snapshot", import_snapshot)
