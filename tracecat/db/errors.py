@@ -1,10 +1,33 @@
 from collections.abc import Iterator
 
-from asyncpg import DataError as AsyncpgDataError
-from asyncpg import UniqueViolationError
-from psycopg.errors import DataError as PsycopgDataError
-from psycopg.errors import UniqueViolation
+from asyncpg import (
+    CharacterNotInRepertoireError,
+    DataError,
+    InvalidTextRepresentationError,
+    StringDataRightTruncationError,
+    UniqueViolationError,
+    UntranslatableCharacterError,
+)
+from psycopg.errors import (
+    CharacterNotInRepertoire,
+    InvalidTextRepresentation,
+    StringDataRightTruncation,
+    UniqueViolation,
+    UntranslatableCharacter,
+)
 from sqlalchemy.exc import DBAPIError
+
+# Input the database cannot store; other data exceptions are server defects.
+_UNSTORABLE_INPUT_ERRORS = (
+    CharacterNotInRepertoireError,
+    InvalidTextRepresentationError,
+    StringDataRightTruncationError,
+    UntranslatableCharacterError,
+    CharacterNotInRepertoire,
+    InvalidTextRepresentation,
+    StringDataRightTruncation,
+    UntranslatableCharacter,
+)
 
 
 def _exception_chain(error: BaseException) -> Iterator[BaseException]:
@@ -49,8 +72,10 @@ def is_unique_violation(error: BaseException, *constraint_names: str) -> bool:
 
 
 def is_data_error(error: BaseException) -> bool:
-    """Match PostgreSQL data exceptions, such as NUL bytes or overlong strings."""
+    """Match unstorable input, such as NUL bytes, malformed text, or overlong strings."""
     return any(
-        isinstance(item, AsyncpgDataError | PsycopgDataError)
+        isinstance(item, _UNSTORABLE_INPUT_ERRORS)
+        # asyncpg raises the bare base class when it cannot encode an argument.
+        or type(item) is DataError
         for item in _exception_chain(error)
     )

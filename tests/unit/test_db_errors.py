@@ -70,3 +70,11 @@ async def test_unstorable_text_is_a_data_error(
     )
     assert is_data_error(error)
     assert not is_unique_violation(error, "uq_db_errors_probe_v")
+
+
+@pytest.mark.anyio
+async def test_server_side_data_exceptions_are_not_client_errors(
+    probe_table: AsyncSession,
+) -> None:
+    error = await _raise_from(probe_table, "SELECT 1 / length(:v)", "")
+    assert not is_data_error(error)
