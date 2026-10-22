@@ -137,8 +137,8 @@ class WorkflowImportService(BaseWorkspaceService):
                 message=f"Successfully imported {len(remote_workflows)} workflows",
             )
 
-        except Exception as e:
-            logger.opt(exception=e).error("Failed to import workflows")
+        except Exception:
+            logger.exception("Failed to import workflows")
             return PullResult(
                 success=False,
                 commit_sha=commit_sha,
@@ -242,8 +242,8 @@ class WorkflowImportService(BaseWorkspaceService):
                     details={"validation_errors": e.errors()},
                 )
             )
-        except Exception as e:
-            logger.opt(exception=e).error("Workflow import validation failed")
+        except Exception:
+            logger.exception("Workflow import validation failed")
             diagnostics.append(
                 PullDiagnostic(
                     workflow_path=workflow_path,
@@ -299,8 +299,8 @@ class WorkflowImportService(BaseWorkspaceService):
             return diagnostics or [_registry_diagnostic(str(e))]
         except (RegistryError, EntitlementRequired) as e:
             return [_registry_diagnostic(str(e))]
-        except Exception as e:
-            logger.opt(exception=e).error("Workflow registry validation failed")
+        except Exception:
+            logger.exception("Workflow registry validation failed")
             return [
                 PullDiagnostic(
                     workflow_path="",
@@ -382,10 +382,8 @@ class WorkflowImportService(BaseWorkspaceService):
                             },
                         )
                     )
-                except Exception as e:
-                    logger.opt(exception=e).error(
-                        "Child workflow alias validation failed"
-                    )
+                except Exception:
+                    logger.exception("Child workflow alias validation failed")
                     diagnostics.append(
                         PullDiagnostic(
                             workflow_path=workflow_path,

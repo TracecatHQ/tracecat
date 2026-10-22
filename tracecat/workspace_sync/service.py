@@ -133,7 +133,7 @@ from tracecat.workspaces.service import WorkspaceService
 MAX_PULL_RESOURCE_DIFF_LINES = 240
 """Maximum number of unified-diff lines kept per resource in a pull preview."""
 
-# Import errors whose messages describe the user's input, not internal state.
+# Import errors whose messages are safe to show; ValueError covers input validation.
 _USER_FACING_IMPORT_ERRORS = (
     EntitlementRequired,
     RegistryLockInvalidDataError,
@@ -1150,19 +1150,20 @@ class WorkspaceSyncService(SyncMappingService):
                         )
                 await self.session.commit()
         except Exception as e:
+            cause = e.cause if isinstance(e, WorkflowImportError) else e
+            suffix = (
+                f": {cause}" if isinstance(cause, _USER_FACING_IMPORT_ERRORS) else ""
+            )
             if isinstance(e, WorkflowImportError):
                 source_ids = {
                     local_id: source_id for source_id, local_id in local_ids.items()
                 }
                 title = e.workflow_title
-                diagnostic_message = f"Failed to import workflow {title!r}"
-                if isinstance(e.cause, _USER_FACING_IMPORT_ERRORS):
-                    diagnostic_message = f"{diagnostic_message}: {e.cause}"
                 diagnostic = PullDiagnostic(
                     workflow_path=workflow_source_path(source_ids[e.workflow_id]),
                     workflow_title=title,
                     error_type="transaction",
-                    message=diagnostic_message,
+                    message=f"Failed to import workflow {title!r}{suffix}",
                     details={},
                 )
                 message = f"Workspace import failed on workflow {title!r}"
@@ -1172,9 +1173,7 @@ class WorkspaceSyncService(SyncMappingService):
                     workflow_path="",
                     workflow_title=None,
                     error_type="transaction",
-                    message=f"{message}: {e}"
-                    if isinstance(e, _USER_FACING_IMPORT_ERRORS)
-                    else message,
+                    message=f"{message}{suffix}",
                     details={},
                 )
             self.logger.opt(exception=e).error(
