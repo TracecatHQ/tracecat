@@ -43,6 +43,9 @@ async def surviving_mapping_targets(
     Recovery must finish an already committed Git write even if the workspace
     has since changed. Never adopt a replacement row by name. Shared row locks
     keep surviving targets present until the caller commits its mappings.
+    An unmapped case-field rename changes its derived UUID: recovery finishes
+    the committed push but leaves that absent identity unmapped. Existing field
+    mappings already follow renames; never guess a first-export rename by name.
     """
     selected: dict[SyncResourceType, set[uuid.UUID]] = {}
     for target in targets:

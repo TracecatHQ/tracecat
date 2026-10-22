@@ -188,20 +188,18 @@ class DurableSyncService(WorkspaceSyncService):
                 else bool(inputs.pull and inputs.pull.sync_schedules),
                 create_missing_mappings=False,
             )
+        mapping_identities = sorted(
+            (
+                target.resource_type,
+                target.source_id,
+                target.source_path,
+                str(target.local_id),
+            )
+            for target in projection.mapping_targets
+        )
         if inputs.push:
             return fingerprint(
-                {
-                    "files": projection.files,
-                    "mappings": sorted(
-                        (
-                            target.resource_type,
-                            target.source_id,
-                            target.source_path,
-                            str(target.local_id),
-                        )
-                        for target in projection.mapping_targets
-                    ),
-                }
+                {"files": projection.files, "mappings": mapping_identities}
             )
         # Exported workflows prefer published definitions. Pull also replaces the
         # editable graph, including drafts that cannot yet be compiled as DSL.
@@ -280,7 +278,12 @@ class DurableSyncService(WorkspaceSyncService):
         # Viewport, trigger position, graph version, and audit timestamps are
         # editor metadata preserved by import, not part of the reviewed draft.
         return fingerprint(
-            {"files": projection.files, "workflows": workflows, "actions": actions}
+            {
+                "files": projection.files,
+                "mappings": mapping_identities,
+                "workflows": workflows,
+                "actions": actions,
+            }
         )
 
     async def fetch_remote(
@@ -411,6 +414,10 @@ class DurableSyncService(WorkspaceSyncService):
     ) -> SyncPushResult | PullResult:
         """Apply exactly the reviewed state within the caller's transaction."""
         await self.require_entitlement(Entitlement.GIT_SYNC)
+        if inputs.pull and (
+            not isinstance(prepared.preview, PullResult) or not prepared.preview.success
+        ):
+            raise TracecatValidationError("Pull preview failed; create a new preview")
         if (
             await self.repository_fingerprint(lock=True)
             != prepared.repository_fingerprint
