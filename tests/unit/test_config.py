@@ -570,7 +570,7 @@ def test_copilot_skills_dir_uses_default_for_empty_string(
 
 @pytest.mark.parametrize(
     ("sandbox_timeout", "expected_drain_timeout"),
-    [(None, 3660), (900, 960), (7200, 7260)],
+    [(None, 10860), (900, 960), (7200, 7260)],
 )
 def test_agent_executor_drain_default_covers_all_supported_timeouts(
     monkeypatch: pytest.MonkeyPatch,
