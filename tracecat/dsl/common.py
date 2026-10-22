@@ -1394,6 +1394,7 @@ def build_action_statements_from_actions(
         action_stmt = ActionStatement(
             id=action.id,
             ref=action.ref,
+            description=action.description,
             action=action.type,
             args=args,
             depends_on=dependencies,
