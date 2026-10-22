@@ -42,11 +42,14 @@ export function AgentPresetEventLink({
 }) {
   const workspaceId = useWorkspaceId()
   const canReadAgents = useScopeCheck("agent:read") === true
+  const lookupEnabled = canReadAgents && presetRef.presetId !== null
   // Every agent event mounts one; avoid a list refetch per mount.
-  const { presets } = useAgentPresets(workspaceId, {
-    enabled: canReadAgents && presetRef.presetId !== null,
+  const presetsQuery = useAgentPresets(workspaceId, {
+    enabled: lookupEnabled,
     staleTime: 5 * 60 * 1000,
   })
+  // Disabled queries still return cached data, so gate the read as well.
+  const presets = lookupEnabled ? presetsQuery.presets : undefined
 
   // Match by ID only: slugs are reusable after delete, so slug-only runs stay unlinked.
   const preset = presets?.find((p) => p.id === presetRef.presetId)

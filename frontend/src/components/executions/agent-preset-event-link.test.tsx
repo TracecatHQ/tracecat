@@ -14,7 +14,8 @@ jest.mock("@/hooks/use-agent-presets", () => ({
 let mockCanReadAgents: boolean | undefined = true
 
 jest.mock("@/components/auth/scope-guard", () => ({
-  useScopeCheck: () => mockCanReadAgents,
+  useScopeCheck: (scope: string) =>
+    scope === "agent:read" ? mockCanReadAgents : true,
 }))
 
 jest.mock("@/providers/workspace-id", () => ({
@@ -103,8 +104,8 @@ describe("AgentPresetEventLink", () => {
     expect(screen.getByText("triage-agent")).toBeInTheDocument()
   })
 
-  it("never links a slug-only run, since slugs are reusable", () => {
-    mockUseAgentPresets.mockReturnValue({ presets: undefined })
+  it("ignores cached presets for a slug-only run", () => {
+    mockUseAgentPresets.mockReturnValue({ presets: [PRESET] })
     render(
       <AgentPresetEventLink presetRef={{ presetId: null, slug: PRESET.slug }} />
     )
@@ -114,18 +115,20 @@ describe("AgentPresetEventLink", () => {
       expect.objectContaining({ enabled: false })
     )
     expect(screen.queryByRole("link")).not.toBeInTheDocument()
+    expect(screen.queryByText("Deleted agent")).not.toBeInTheDocument()
     expect(screen.getByText("triage-agent")).toBeInTheDocument()
   })
 
-  it("skips the preset lookup without agent:read", () => {
+  it("ignores cached presets without agent:read", () => {
     mockCanReadAgents = false
-    mockUseAgentPresets.mockReturnValue({ presets: undefined })
+    mockUseAgentPresets.mockReturnValue({ presets: [PRESET] })
     render(<AgentPresetEventLink presetRef={PRESET_REF} />)
 
     expect(mockUseAgentPresets).toHaveBeenCalledWith(
       "workspace-1",
       expect.objectContaining({ enabled: false })
     )
+    expect(screen.queryByRole("link")).not.toBeInTheDocument()
     expect(screen.queryByText("Deleted agent")).not.toBeInTheDocument()
     expect(screen.getByText("triage-agent")).toBeInTheDocument()
   })
