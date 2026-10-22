@@ -814,6 +814,15 @@ integrations. Every workspace using these clients can reach an allowed address.
 Set this in the process/container environment, not workspace or action inputs.
 """
 
+TRACECAT__PLATFORM_ADMIN_IP_ALLOWLIST_BYPASS = env_bool(
+    "TRACECAT__PLATFORM_ADMIN_IP_ALLOWLIST_BYPASS", default=False
+)
+"""Break-glass override that skips the platform admin IP allowlist.
+
+Lets operators recover platform admin access after a lockout. Organization IP
+allowlists are unaffected.
+"""
+
 TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS = env_networks(
     "TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS",
     default=(

@@ -255,6 +255,22 @@ async def test_platform_admin_enforce_when_enforced(
     assert exc_info.value.detail == PLATFORM_ADMIN_IP_ALLOWLIST_DENIED_DETAIL
 
 
+@pytest.mark.anyio
+async def test_platform_admin_enforce_bypass_env(
+    platform_allowlist_stub, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    platform_allowlist_stub["allowlist"] = compile_allowlist(
+        enabled=True, cidrs=["203.0.113.0/24"]
+    )
+    _set_client_ip("198.51.100.9")
+    monkeypatch.setattr(
+        ip_allowlist_enforcement.config,
+        "TRACECAT__PLATFORM_ADMIN_IP_ALLOWLIST_BYPASS",
+        True,
+    )
+    await ip_allowlist_enforcement.enforce_platform_admin_ip_allowlist()
+
+
 def test_ensure_allowlist_admits_caller() -> None:
     _set_client_ip("198.51.100.9")
     ip_allowlist_enforcement.ensure_allowlist_admits_caller(

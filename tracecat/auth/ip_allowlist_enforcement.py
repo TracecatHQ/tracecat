@@ -13,6 +13,7 @@ from async_lru import alru_cache
 from fastapi import HTTPException, status
 from sqlalchemy import select
 
+from tracecat import config
 from tracecat.auth.ip_allowlist import (
     IP_ALLOWLIST_CACHE_TTL_SECONDS,
     IP_ALLOWLIST_DENIED_DETAIL,
@@ -159,6 +160,9 @@ async def enforce_platform_admin_ip_allowlist() -> None:
     Raises:
         HTTPException(403): If the client IP is not in the allowlist.
     """
+    if config.TRACECAT__PLATFORM_ADMIN_IP_ALLOWLIST_BYPASS:
+        return
+
     client_ip = current_client_ip()
     if _admits(await get_platform_admin_ip_allowlist(), client_ip):
         return
