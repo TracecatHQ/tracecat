@@ -97,7 +97,8 @@ function getObservations(client: QueryClient): Observations {
     if (kind !== "sync-operation") return
     const key = JSON.stringify([workspaceId, operationId])
     state.stop.get(key)?.()
-    state.applied.delete(key)
+    // History can publish this completion again after its query is evicted.
+    // Keep its receipt marker for this QueryClient's lifetime.
   })
   return state
 }

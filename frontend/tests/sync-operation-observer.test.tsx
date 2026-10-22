@@ -273,3 +273,35 @@ it("expires retryable failures and stops reads at the deadline while offline", a
   })
   expect(workflowsGetSyncOperation).toHaveBeenCalledTimes(reads)
 })
+
+it.each(["push", "pull"] as const)(
+  "does not republish an old %s completion after its query is evicted",
+  (direction) => {
+    const completed: SyncOperationRead = {
+      ...operation,
+      direction,
+      status: "completed",
+      stage: "finished",
+      data_applied: direction === "pull",
+    }
+    const revisionKey = ["workspace-sync-preview-revision", "workspace-example"]
+    const invalidate = jest.spyOn(client, "invalidateQueries")
+    observeSyncOperation(client, "workspace-example", completed)
+    const invalidations = invalidate.mock.calls.length
+    expect(client.getQueryData(revisionKey)).toBe(1)
+    client.removeQueries({
+      queryKey: ["sync-operation", "workspace-example", completed.id],
+      exact: true,
+    })
+    observeSyncOperation(client, "workspace-example", completed)
+    expect(client.getQueryData(revisionKey)).toBe(1)
+    expect(invalidate).toHaveBeenCalledTimes(invalidations)
+    // A genuinely new operation must still invalidate the open preview.
+    observeSyncOperation(client, "workspace-example", {
+      ...completed,
+      id: "another-completion",
+    })
+    expect(client.getQueryData(revisionKey)).toBe(2)
+    expect(invalidate.mock.calls.length).toBeGreaterThan(invalidations)
+  }
+)
