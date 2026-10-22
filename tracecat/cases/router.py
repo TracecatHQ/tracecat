@@ -76,6 +76,7 @@ from tracecat.cases.service import (
 )
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.errors import is_data_error
 from tracecat.db.models import Case
 from tracecat.exceptions import (
     EntitlementRequired,
@@ -802,6 +803,8 @@ async def update_case(
             detail=str(e),
         ) from e
     except DBAPIError as e:
+        if is_data_error(e):
+            raise
         logger.exception("Database error occurred during case operation")
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
