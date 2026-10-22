@@ -60,6 +60,7 @@ class SyncPreviewSummary(TypedDict):
     preview: JsonValue
     diff_count: int
     read_scopes: list[str]
+    write_scopes: list[str]
 
 
 def lock_key(value: str) -> int:

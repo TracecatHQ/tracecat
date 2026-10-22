@@ -47,6 +47,7 @@ from tracecat.workspace_sync.service import (
     _export_read_scopes_for_projection,
     _export_read_scopes_for_spec,
     _preview_resources_from_spec,
+    _pull_scopes_for_spec,
 )
 from tracecat.workspace_sync.transport import (
     BaseWorkspaceSyncTransport,
@@ -656,4 +657,7 @@ def preview_summary(prepared: PreparedSync) -> SyncPreviewSummary:
         "preview": data,
         "diff_count": diff_count,
         "read_scopes": sorted(read_scopes),
+        "write_scopes": sorted(_pull_scopes_for_spec(spec, dry_run=False))
+        if prepared.snapshot is not None and spec is not None
+        else [],
     }

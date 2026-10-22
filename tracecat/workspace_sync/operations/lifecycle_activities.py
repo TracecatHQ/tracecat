@@ -75,6 +75,9 @@ def _prepared_ref(operation: WorkspaceSyncOperation) -> SyncPreparedRef:
         ),
         expires_at=operation.expires_at,
         valid=summary.get("preview_valid") is not False,
+        write_scopes=TypeAdapter(list[str] | None).validate_python(
+            summary.get("write_scopes")
+        ),
     )
 
 
