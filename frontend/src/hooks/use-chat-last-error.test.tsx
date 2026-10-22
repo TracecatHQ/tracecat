@@ -6,12 +6,13 @@ import { useVercelChat } from "@/hooks/use-chat"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 let mockMessages: UIMessage[] = []
+let mockStatus = "ready"
 const mockRegenerate = jest.fn(() => Promise.resolve())
 const mockResumeStream = jest.fn(() => Promise.resolve())
 
 jest.mock("@ai-sdk/react", () => ({
   useChat: jest.fn(() => ({
-    status: "ready",
+    status: mockStatus,
     messages: mockMessages,
     resumeStream: mockResumeStream,
     sendMessage: () => Promise.resolve(),
@@ -170,6 +171,9 @@ describe("useVercelChat dropped prompt across reloads", () => {
 
     expect(seeded && "messages" in seeded && seeded.messages).toHaveLength(3)
     expect(hook.result.current.lastError).toBeNull()
+    expect(
+      window.localStorage.getItem("tracecat:chat:dropped-prompt:chat-1")
+    ).toBeNull()
   })
 
   it("does not keep a dropped approval continuation", async () => {
@@ -333,6 +337,27 @@ describe("useVercelChat dropped prompt across reloads", () => {
       id: "chat-1#2",
     })
     mockMessages = []
+  })
+
+  it("rechecks the server when a reload's reconnect gets an HTTP error", async () => {
+    global.fetch = jest.fn() as unknown as typeof fetch
+    mockRegenerate.mockClear()
+    const { hook, onError } = renderChat()
+    // The mount reconnect is in flight when GET /stream fails.
+    mockStatus = "submitted"
+    hook.rerender()
+    act(() => onError?.(new Error("Bad gateway")))
+    mockStatus = "ready"
+
+    expect(hook.result.current.lastErrorDisconnected).toBe(true)
+    await act(async () => {
+      await hook.result.current.retryTurn("u1")
+    })
+
+    expect(mockRegenerate).not.toHaveBeenCalled()
+    expect(jest.mocked(useChat).mock.calls.at(-1)?.[0]).toMatchObject({
+      id: "chat-1#1",
+    })
   })
 
   it("never resends when a reconnect without a restored prompt fails", async () => {

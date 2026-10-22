@@ -61,7 +61,10 @@ function holdsPrompt(serverMessages: UIMessage[], prompt: UIMessage): boolean {
   )
 }
 
-/** The prompt a dropped connection cut off, unless the server holds it. */
+/**
+ * The prompt a dropped connection cut off, unless the server holds it. A held
+ * prompt is forgotten, so a later prompt cannot make it read as missing.
+ */
 export function readDroppedPrompt(
   chatId: string | undefined,
   serverMessages: UIMessage[]
@@ -70,7 +73,9 @@ export function readDroppedPrompt(
   try {
     const stored = window.localStorage.getItem(storageKey(chatId))
     const message: unknown = stored ? JSON.parse(stored) : null
-    if (!isStoredPrompt(message) || holdsPrompt(serverMessages, message)) {
+    if (!isStoredPrompt(message)) return null
+    if (holdsPrompt(serverMessages, message)) {
+      window.localStorage.removeItem(storageKey(chatId))
       return null
     }
     return message
