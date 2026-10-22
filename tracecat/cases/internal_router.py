@@ -1067,11 +1067,10 @@ async def create_task(
             status_code=HTTP_404_NOT_FOUND,
             detail="Case not found",
         ) from e
-    except Exception as e:
-        logger.exception("Failed to create task")
+    except TracecatValidationError as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
-            detail="Failed to create task",
+            detail=str(e),
         ) from e
 
 
@@ -1113,11 +1112,10 @@ async def update_task(
             status_code=HTTP_404_NOT_FOUND,
             detail="Task not found",
         ) from e
-    except Exception as e:
-        logger.exception(f"Failed to update task: {e}")
+    except TracecatValidationError as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
-            detail="Failed to update task",
+            detail=str(e),
         ) from e
 
 
@@ -1140,12 +1138,6 @@ async def delete_task(
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
             detail="Task not found",
-        ) from e
-    except Exception as e:
-        logger.exception(f"Failed to delete task: {e}")
-        raise HTTPException(
-            status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete task",
         ) from e
 
 
@@ -1220,11 +1212,10 @@ async def update_task_by_id(
             status_code=HTTP_404_NOT_FOUND,
             detail="Task not found",
         ) from e
-    except Exception as e:
-        logger.exception(f"Failed to update task: {e}")
+    except TracecatValidationError as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
-            detail="Failed to update task",
+            detail=str(e),
         ) from e
 
 
@@ -1244,12 +1235,6 @@ async def delete_task_by_id(
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
             detail="Task not found",
-        ) from e
-    except Exception as e:
-        logger.exception(f"Failed to delete task: {e}")
-        raise HTTPException(
-            status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete task",
         ) from e
 
 

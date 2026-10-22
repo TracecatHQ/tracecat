@@ -76,6 +76,7 @@ from tracecat.cases.service import (
 )
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.errors import get_postgres_error
 from tracecat.db.models import Case
 from tracecat.exceptions import (
     EntitlementRequired,
@@ -92,6 +93,7 @@ from tracecat.pagination import (
 )
 from tracecat.query.errors import TracecatQueryTimeoutError
 from tracecat.query.lexical_types import LexicalSearchError, SearchMode
+from tracecat.tables.exceptions import TableColumnConflictError
 from tracecat.tiers.enums import Entitlement
 
 cases_router = APIRouter(prefix="/cases", tags=["cases"])
@@ -124,20 +126,17 @@ def _raise_case_field_db_error(
     err: ProgrammingError, *, field_id: str, new_name: str | None = None
 ) -> NoReturn:
     """Convert case-field DDL failures into HTTP errors, re-raising unknown ones."""
-    root: BaseException = err
-    while (cause := root.__cause__) is not None:
-        root = cause
-    if isinstance(root, DuplicateColumnError):
+    if get_postgres_error(err, DuplicateColumnError) is not None:
         raise HTTPException(
             status_code=HTTP_409_CONFLICT,
             detail=f"A field with the name '{new_name}' already exists",
         ) from err
-    if isinstance(root, UndefinedColumnError):
+    if get_postgres_error(err, UndefinedColumnError) is not None:
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
             detail=f"Field '{field_id}' not found",
         ) from err
-    if isinstance(root, DatatypeMismatchError):
+    if get_postgres_error(err, DatatypeMismatchError) is not None:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=f"Field '{field_id}' values cannot be converted to the requested type",
@@ -1029,6 +1028,8 @@ async def create_field(
     service = CaseFieldsService(session, role)
     try:
         await service.create_field(params)
+    except TableColumnConflictError as exc:
+        raise HTTPException(status_code=HTTP_409_CONFLICT, detail=str(exc)) from exc
     except (ValueError, TracecatValidationError) as exc:
         _raise_case_field_http_error(exc)
     except ProgrammingError as err:
@@ -1049,6 +1050,8 @@ async def update_field(
     service = CaseFieldsService(session, role)
     try:
         await service.update_field(field_id, params)
+    except TableColumnConflictError as exc:
+        raise HTTPException(status_code=HTTP_409_CONFLICT, detail=str(exc)) from exc
     except (ValueError, TracecatValidationError) as exc:
         _raise_case_field_http_error(exc)
     except ProgrammingError as err:
@@ -1068,6 +1071,8 @@ async def delete_field(
     service = CaseFieldsService(session, role)
     try:
         await service.delete_field(field_id)
+    except TableColumnConflictError as exc:
+        raise HTTPException(status_code=HTTP_409_CONFLICT, detail=str(exc)) from exc
     except (ValueError, TracecatValidationError) as exc:
         _raise_case_field_http_error(exc)
     except ProgrammingError as err:
@@ -1216,11 +1221,10 @@ async def create_task(
             status_code=HTTP_404_NOT_FOUND,
             detail="Case not found",
         ) from e
-    except Exception as e:
-        logger.exception("Failed to create task")
+    except TracecatValidationError as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
-            detail="Failed to create task",
+            detail=str(e),
         ) from e
 
 
@@ -1266,11 +1270,10 @@ async def update_task(
             status_code=HTTP_404_NOT_FOUND,
             detail="Task not found",
         ) from e
-    except Exception as e:
-        logger.exception(f"Failed to update task: {e}")
+    except TracecatValidationError as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
-            detail="Failed to update task",
+            detail=str(e),
         ) from e
 
 
@@ -1297,10 +1300,4 @@ async def delete_task(
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
             detail="Task not found",
-        ) from e
-    except Exception as e:
-        logger.exception(f"Failed to delete task: {e}")
-        raise HTTPException(
-            status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete task",
         ) from e

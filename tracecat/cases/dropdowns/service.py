@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from typing import Protocol, cast
 
-from asyncpg import UniqueViolationError
 from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -21,6 +19,7 @@ from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueSet,
 )
 from tracecat.contexts import ctx_run
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     Case,
     CaseDropdownDefinition,
@@ -30,27 +29,6 @@ from tracecat.db.models import (
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
-
-
-class _UniqueViolationWithConstraint(Protocol):
-    constraint_name: str | None
-
-
-def _get_unique_constraint_name(error: BaseException) -> str | None:
-    errors = [error]
-    seen: set[int] = set()
-    while errors:
-        current = errors.pop()
-        if id(current) in seen:
-            continue
-        seen.add(id(current))
-        if isinstance(current, UniqueViolationError):
-            return cast(_UniqueViolationWithConstraint, current).constraint_name
-        if current.__cause__ is not None:
-            errors.append(current.__cause__)
-        if current.__context__ is not None:
-            errors.append(current.__context__)
-    return None
 
 
 class CaseDropdownDefinitionsService(BaseWorkspaceService):
@@ -158,12 +136,9 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             await self.session.commit()
         except IntegrityError as err:
             await self.session.rollback()
-            if not isinstance(err.orig, BaseException):
-                raise
-            constraint_name = _get_unique_constraint_name(err.orig)
-            if constraint_name == "uq_case_dropdown_definition_ref_workspace":
+            if is_unique_violation(err, "uq_case_dropdown_definition_ref_workspace"):
                 message = "Dropdown definition with this ref already exists"
-            elif constraint_name == "uq_case_dropdown_option_ref_definition":
+            elif is_unique_violation(err, "uq_case_dropdown_option_ref_definition"):
                 message = "Dropdown option with this ref already exists"
             else:
                 raise
@@ -209,6 +184,10 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             await self.session.commit()
         except IntegrityError as err:
             await self.session.rollback()
+            if not is_unique_violation(
+                err, "uq_case_dropdown_definition_ref_workspace"
+            ):
+                raise
             raise TracecatValidationError(
                 "Dropdown definition with this ref already exists"
             ) from err
@@ -269,6 +248,8 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             await self.session.commit()
         except IntegrityError as err:
             await self.session.rollback()
+            if not is_unique_violation(err, "uq_case_dropdown_option_ref_definition"):
+                raise
             raise TracecatValidationError(
                 "Option with this ref already exists for this dropdown"
             ) from err
@@ -291,6 +272,8 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             await self.session.commit()
         except IntegrityError as err:
             await self.session.rollback()
+            if not is_unique_violation(err, "uq_case_dropdown_option_ref_definition"):
+                raise
             raise TracecatValidationError(
                 "Option with this ref already exists for this dropdown"
             ) from err
@@ -452,33 +435,15 @@ class CaseDropdownValuesService(BaseWorkspaceService):
         record_agent_interaction: bool = True,
     ) -> CaseDropdownValueRead:
         case_id = case.id
-        # Resolve old value
-        stmt = select(CaseDropdownValue).where(
-            CaseDropdownValue.case_id == case_id,
-            CaseDropdownValue.definition_id == definition_id,
+        # Serialize writes, including absent values, so event history reflects
+        # the previous committed selection rather than a concurrent insert.
+        locked_case_id = await self.session.scalar(
+            select(Case.id)
+            .where(Case.id == case_id, Case.workspace_id == self.workspace_id)
+            .with_for_update()
         )
-        result = await self.session.execute(stmt)
-        existing = result.scalar_one_or_none()
-
-        old_option_id: uuid.UUID | None = None
-        old_option_label: str | None = None
-
-        if existing is not None:
-            # Eagerly loaded
-            if existing.option:
-                old_option_id = existing.option.id
-                old_option_label = existing.option.label
-            existing.option_id = params.option_id
-            await self.session.flush()
-            row = existing
-        else:
-            row = CaseDropdownValue(
-                case_id=case_id,
-                definition_id=definition_id,
-                option_id=params.option_id,
-            )
-            self.session.add(row)
-            await self.session.flush()
+        if locked_case_id is None:
+            raise TracecatNotFoundError(f"Case {case_id} not found")
 
         # Resolve definition info (workspace-scoped)
         def_stmt = select(CaseDropdownDefinition).where(
@@ -507,6 +472,33 @@ class CaseDropdownValuesService(BaseWorkspaceService):
                     f"Dropdown option {params.option_id} not found for definition {definition_id}"
                 )
             new_option_label = new_option.label
+
+        stmt = (
+            select(CaseDropdownValue)
+            .where(
+                CaseDropdownValue.case_id == case_id,
+                CaseDropdownValue.definition_id == definition_id,
+            )
+            .execution_options(populate_existing=True)
+        )
+        result = await self.session.execute(stmt)
+        existing = result.scalar_one_or_none()
+        old_option_id: uuid.UUID | None = None
+        old_option_label: str | None = None
+        if existing is not None:
+            if existing.option:
+                old_option_id = existing.option.id
+                old_option_label = existing.option.label
+            existing.option_id = params.option_id
+            row = existing
+        else:
+            row = CaseDropdownValue(
+                case_id=case_id,
+                definition_id=definition_id,
+                option_id=params.option_id,
+            )
+            self.session.add(row)
+        await self.session.flush()
 
         # Create event
         run_ctx = ctx_run.get()

@@ -14,6 +14,7 @@ from tracecat.cases.attachments.schemas import (
     CaseAttachmentRead,
 )
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.storage.exceptions import (
     FileContentMismatchError,
@@ -364,30 +365,25 @@ async def download_attachment(
             content_type=content_type,
         )
 
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except TracecatAuthorizationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        ) from e
     except Exception as e:
-        error_type = type(e).__name__
-        if "not found" in str(e).lower():
-            logger.warning(
-                "Attachment not found",
-                case_id=case_id,
-                attachment_id=attachment_id,
-                error=str(e),
-            )
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e),
-            ) from e
-
-        logger.error(
+        logger.exception(
             "Failed to generate download URL",
             case_id=case_id,
             attachment_id=attachment_id,
-            error=str(e),
-            error_type=error_type,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate download URL: {str(e)}",
+            detail="Failed to generate download URL",
         ) from e
 
 
@@ -416,41 +412,23 @@ async def delete_attachment(
 
     try:
         await service.attachments.delete_attachment(case, attachment_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except TracecatAuthorizationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        ) from e
     except Exception as e:
-        error_type = type(e).__name__
-
-        if "not found" in str(e).lower():
-            logger.warning(
-                "Attachment not found",
-                case_id=case_id,
-                attachment_id=attachment_id,
-                error=str(e),
-            )
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e),
-            ) from e
-        if "permission" in str(e).lower():
-            logger.warning(
-                "Permission denied",
-                case_id=case_id,
-                attachment_id=attachment_id,
-                user_id=role.user_id,
-                error=str(e),
-            )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=str(e),
-            ) from e
-
-        logger.error(
+        logger.exception(
             "Failed to delete attachment",
             case_id=case_id,
             attachment_id=attachment_id,
-            error=str(e),
-            error_type=error_type,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete attachment: {str(e)}",
+            detail="Failed to delete attachment",
         ) from e

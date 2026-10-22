@@ -18,7 +18,7 @@ from tracecat.cases.attachments.schemas import (
 from tracecat.cases.dependencies import ExecutorCaseIDPath
 from tracecat.cases.service import CasesService
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.storage.exceptions import (
     FileContentMismatchError,
@@ -230,30 +230,25 @@ async def get_attachment_download_info(
             file_name=filename,
             content_type=content_type,
         )
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except TracecatAuthorizationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        ) from e
     except Exception as e:
-        error_type = type(e).__name__
-        if "not found" in str(e).lower():
-            logger.warning(
-                "Attachment not found",
-                case_id=case_id,
-                attachment_id=attachment_id,
-                error=str(e),
-            )
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e),
-            ) from e
-
-        logger.error(
+        logger.exception(
             "Failed to generate download URL",
             case_id=case_id,
             attachment_id=attachment_id,
-            error=str(e),
-            error_type=error_type,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate download URL: {str(e)}",
+            detail="Failed to generate download URL",
         ) from e
 
 
@@ -311,46 +306,26 @@ async def delete_attachment(
 
     try:
         await service.attachments.delete_attachment(case, attachment_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except TracecatAuthorizationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        ) from e
     except Exception as e:
-        error_type = type(e).__name__
-        if "not found" in str(e).lower():
-            logger.warning(
-                "Attachment not found",
-                case_id=case_id,
-                attachment_id=attachment_id,
-                error=str(e),
-            )
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e),
-            ) from e
-        if "permission" in str(e).lower():
-            logger.warning(
-                "Permission denied",
-                case_id=case_id,
-                attachment_id=attachment_id,
-                user_id=role.user_id,
-                error=str(e),
-            )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=str(e),
-            ) from e
-
-        logger.error(
+        logger.exception(
             "Failed to delete attachment",
             case_id=case_id,
             attachment_id=attachment_id,
-            error=str(e),
-            error_type=error_type,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete attachment: {str(e)}",
+            detail="Failed to delete attachment",
         ) from e
-
-
-# --- Simplified routes for SDK/UDF use cases ---
 
 
 @router.get("/{attachment_id}/metadata")
@@ -436,13 +411,23 @@ async def get_attachment_url(
             expiry=expiry,
         )
         return download_url
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except TracecatAuthorizationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e),
+        ) from e
     except Exception as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e),
-            ) from e
+        logger.exception(
+            "Failed to generate download URL",
+            case_id=case_id,
+            attachment_id=attachment_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate download URL: {str(e)}",
+            detail="Failed to generate download URL",
         ) from e

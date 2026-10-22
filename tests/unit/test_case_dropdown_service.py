@@ -1,6 +1,8 @@
+import asyncio
 import uuid
 
 import pytest
+from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
@@ -11,12 +13,21 @@ from tracecat.cases.dropdowns.schemas import (
     CaseDropdownOptionCreate,
     CaseDropdownOptionUpdate,
     CaseDropdownValueInput,
+    CaseDropdownValueSet,
 )
 from tracecat.cases.dropdowns.service import (
     CaseDropdownDefinitionsService,
     CaseDropdownValuesService,
 )
-from tracecat.db.models import Case
+from tracecat.cases.enums import CasePriority, CaseSeverity
+from tracecat.db.engine import get_async_engine, get_async_session_context_manager
+from tracecat.db.models import (
+    Case,
+    CaseDropdownDefinition,
+    CaseDropdownOption,
+    CaseDropdownValue,
+    CaseEvent,
+)
 from tracecat.exceptions import (
     ScopeDeniedError,
     TracecatNotFoundError,
@@ -24,6 +35,95 @@ from tracecat.exceptions import (
 )
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.mark.anyio
+async def test_concurrent_dropdown_sets_serialize_absent_values(svc_role: Role) -> None:
+    role = svc_role.model_copy(update={"type": "service", "user_id": None})
+    async with get_async_session_context_manager() as seed:
+        case = Case(
+            workspace_id=role.workspace_id,
+            summary="Synthetic concurrent case",
+            description="Synthetic description",
+            priority=CasePriority.UNKNOWN,
+            severity=CaseSeverity.UNKNOWN,
+        )
+        definition = CaseDropdownDefinition(
+            workspace_id=role.workspace_id, name="Synthetic", ref="synthetic"
+        )
+        seed.add_all([case, definition])
+        await seed.flush()
+        options = [
+            CaseDropdownOption(definition_id=definition.id, label=label, ref=label)
+            for label in ("first", "second")
+        ]
+        seed.add_all(options)
+        await seed.commit()
+        case_id, definition_id = case.id, definition.id
+        option_ids = [option.id for option in options]
+
+    attempted = 0
+    both_attempted = asyncio.Event()
+
+    def observe_locks(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        nonlocal attempted
+        if "FOR UPDATE" in statement and "SELECT" in statement:
+            attempted += 1
+            if attempted == 2:
+                both_attempted.set()
+
+    async def set_option(option_id: uuid.UUID) -> None:
+        async with get_async_session_context_manager() as writer:
+            await CaseDropdownValuesService(writer, role).set_value(
+                case_id, definition_id, CaseDropdownValueSet(option_id=option_id)
+            )
+
+    engine = get_async_engine().sync_engine
+    event.listen(engine, "before_cursor_execute", observe_locks)
+    writers: list[asyncio.Task[None]] = []
+    try:
+        async with get_async_session_context_manager() as locker:
+            await locker.execute(
+                select(Case).where(Case.id == case_id).with_for_update()
+            )
+            attempted = 0
+            writers = [
+                asyncio.create_task(set_option(option_id)) for option_id in option_ids
+            ]
+            await asyncio.wait_for(both_attempted.wait(), timeout=10)
+            assert all(not writer.done() for writer in writers)
+            await locker.commit()
+        await asyncio.wait_for(asyncio.gather(*writers), timeout=10)
+    finally:
+        event.remove(engine, "before_cursor_execute", observe_locks)
+        for writer in writers:
+            if not writer.done():
+                writer.cancel()
+        await asyncio.gather(*writers, return_exceptions=True)
+
+    async with get_async_session_context_manager() as reader:
+        rows = (
+            await reader.scalars(
+                select(CaseDropdownValue).where(CaseDropdownValue.case_id == case_id)
+            )
+        ).all()
+        assert len(rows) == 1
+        assert rows[0].option_id in option_ids
+        assert (
+            await reader.scalar(
+                select(func.count())
+                .select_from(CaseEvent)
+                .where(CaseEvent.case_id == case_id)
+            )
+            == 2
+        )
 
 
 @pytest.fixture
