@@ -1309,7 +1309,8 @@ async def _run_stdio_mcp_startup_burst_case(
         if config.resources.max_processes < _STDIO_MCP_BURST_AGENT_NPROC_LIMIT:
             updates["max_processes"] = _STDIO_MCP_BURST_AGENT_NPROC_LIMIT
         if (
-            config.resources.address_space_limit_mb
+            config.resources.address_space_mb is not None
+            and config.resources.address_space_mb
             < _STDIO_MCP_BURST_AGENT_ADDRESS_SPACE_MB
         ):
             updates["address_space_mb"] = _STDIO_MCP_BURST_AGENT_ADDRESS_SPACE_MB

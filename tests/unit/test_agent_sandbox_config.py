@@ -236,9 +236,12 @@ def test_real_uv_resolves_managed_directories_inside_job_state(
         )
 
 
-@pytest.mark.parametrize("address_space_mb, expected", [(None, 6144), (8192, 8192)])
+@pytest.mark.parametrize(
+    "address_space_mb, expected",
+    [(None, "rlimit_as_type: INF"), (8192, "rlimit_as: 8192")],
+)
 def test_agent_cgroup_budget_and_address_space_are_independent(
-    address_space_mb: int | None, expected: int
+    address_space_mb: int | None, expected: str
 ) -> None:
     text = build_agent_nsjail_config(
         rootfs=Path("/rootfs"),
@@ -253,7 +256,8 @@ def test_agent_cgroup_budget_and_address_space_are_independent(
         llm_socket_path=None,
         cgroup_mount=Path("/cgroup"),
     )
-    assert f"rlimit_as: {expected}" in text
+    assert expected in text.splitlines()
+    assert (address_space_mb is None) == ("rlimit_as:" not in text)
     assert f"cgroup_mem_max: {3072 * 1024 * 1024}" in text
     assert "cgroup_mem_swap_max: 0" in text
     assert 'cgroupv2_mount: "/cgroup"' in text

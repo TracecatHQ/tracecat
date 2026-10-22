@@ -735,7 +735,11 @@ _sandbox_address_space_mb = os.environ.get(
 TRACECAT__SANDBOX_ADDRESS_SPACE_MB = (
     int(_sandbox_address_space_mb) if _sandbox_address_space_mb else None
 )
-"""Per-process address-space cap in MiB; defaults to twice the memory budget."""
+"""Per-process address-space cap in MiB.
+
+Unset means uncapped under the sandbox cgroup memory limit, which bounds RAM;
+without that cgroup it defaults to twice the memory budget.
+"""
 if (
     TRACECAT__SANDBOX_ADDRESS_SPACE_MB is not None
     and TRACECAT__SANDBOX_ADDRESS_SPACE_MB <= 0

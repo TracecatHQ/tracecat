@@ -26,14 +26,15 @@ TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
 )
 """Aggregate cgroup memory budget for each agent sandbox in MiB (4 GiB)."""
 
-# Leave unset to derive the address-space guard from each sandbox's memory budget.
+# Leave unset to rely on the cgroup memory budget; without a cgroup the guard
+# falls back to twice that budget.
 _address_space_mb = os.environ.get(
     "TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB", ""
 ).strip()
 TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB = (
     int(_address_space_mb) if _address_space_mb else None
 )
-"""Per-process address-space cap in MiB; defaults to twice the cgroup budget."""
+"""Per-process address-space cap in MiB; unset means uncapped under the cgroup."""
 if (
     TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB is not None
     and TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB <= 0
