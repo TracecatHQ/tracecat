@@ -92,9 +92,14 @@ async def test_action_descriptions_survive_definition_round_trip(
                 version=None,
                 draft=True,
             )
-            exported = ExternalWorkflowDefinition.model_validate(
-                yaml.safe_load(bytes(response.body))
-            )
+            if format == "json":
+                exported = ExternalWorkflowDefinition.model_validate_json(
+                    bytes(response.body)
+                )
+            else:
+                exported = ExternalWorkflowDefinition.model_validate(
+                    yaml.safe_load(bytes(response.body))
+                )
             assert exported.definition.actions[0].description == current
             restored_actions = await service.create_actions_from_dsl(
                 exported.definition, workflow_id
