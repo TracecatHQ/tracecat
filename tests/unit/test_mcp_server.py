@@ -6039,6 +6039,7 @@ async def test_list_integrations_returns_mcp_and_provider_inventory(
         server_type="http",
         auth_type=MCPAuthType.NONE,
         oauth_integration_id=None,
+        tunnel_id=None,
         timeout=30,
     )
     custom_provider = SimpleNamespace(
