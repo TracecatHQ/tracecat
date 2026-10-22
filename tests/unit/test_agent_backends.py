@@ -41,6 +41,7 @@ from tracecat.agent.backends.types import (
     SessionTurnContext,
     SessionWorkflowContext,
 )
+from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
 from tracecat.agent.session.activities import (
     CreateSessionInput,
     create_session_activity,
@@ -1376,12 +1377,12 @@ async def test_handle_construction_failure_is_definitive_before_submission():
 
 
 @pytest.mark.anyio
-async def test_default_backend_runs_sessions_up_to_timeout_ceiling(
+async def test_default_backend_caps_sessions_at_agent_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "tracecat.agent.backends.default.config.TRACECAT__AGENT_SANDBOX_TIMEOUT",
-        5400,
+        "tracecat.agent.types.TRACECAT__AGENT_SANDBOX_TIMEOUT",
+        21600,
     )
     workspace_id = uuid4()
     args = await DefaultBackend().build_workflow_args(
@@ -1411,4 +1412,4 @@ async def test_default_backend_runs_sessions_up_to_timeout_ceiling(
         )
     )
 
-    assert args.agent_args.timeout_seconds == 5400
+    assert args.agent_args.timeout_seconds == AGENT_TIMEOUT_SECONDS_DEFAULT

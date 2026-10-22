@@ -1218,7 +1218,7 @@ class TestRunAgentActivity:
         expected_result = AgentExecutorResult(success=True)
         monkeypatch.setattr(
             "tracecat.agent.types.TRACECAT__AGENT_SANDBOX_TIMEOUT",
-            7200,
+            21600,
         )
 
         with (
@@ -1240,7 +1240,7 @@ class TestRunAgentActivity:
             assert result == expected_result
             mock_executor_cls.assert_called_once_with(
                 input=mock_executor_input,
-                timeout_seconds=1800,
+                timeout_seconds=7200,
             )
             set_span_attributes.assert_called_once_with(
                 {

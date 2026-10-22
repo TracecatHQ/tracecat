@@ -10,14 +10,16 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from tracecat.agent.constants import AGENT_SANDBOX_TIMEOUT_SECONDS_DEFAULT
 from tracecat.executor.enums import ExecutorBackendType
 
 # === Agent Sandbox Config (read directly from env) === #
 
 TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
-    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT") or 3600
+    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT")
+    or AGENT_SANDBOX_TIMEOUT_SECONDS_DEFAULT
 )
-"""Ceiling for agent execution timeouts in seconds (default one hour)."""
+"""Ceiling for agent execution timeouts in seconds."""
 
 TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
     os.environ.get("TRACECAT__AGENT_SANDBOX_MEMORY_MB") or 4096

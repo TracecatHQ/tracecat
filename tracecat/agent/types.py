@@ -13,7 +13,10 @@ from tracecat.agent.common.types import (
     MCPServerConfig,
     read_reasoning_effort_as_enable_thinking,
 )
-from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
+from tracecat.agent.constants import (
+    AGENT_TIMEOUT_SECONDS_DEFAULT,
+    AGENT_TIMEOUT_SECONDS_FLOOR,
+)
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.config import (
@@ -25,15 +28,15 @@ CustomToolList = list[Any]
 
 
 def clamp_agent_timeout_seconds(timeout_seconds: int | None) -> int:
-    """Clamp an agent timeout to the deployment ceiling.
+    """Clamp an agent timeout to the deployment bounds.
 
     ``None`` inherits the hardcoded default; explicit values clamp to
-    [default, ceiling]. Never rejects: out-of-bounds values clamp.
+    [floor, ceiling]. A lower ceiling caps both. Never rejects.
     """
     ceiling = TRACECAT__AGENT_SANDBOX_TIMEOUT
-    floor = min(AGENT_TIMEOUT_SECONDS_DEFAULT, ceiling)
     if timeout_seconds is None:
-        return floor
+        return min(AGENT_TIMEOUT_SECONDS_DEFAULT, ceiling)
+    floor = min(AGENT_TIMEOUT_SECONDS_FLOOR, ceiling)
     return min(max(timeout_seconds, floor), ceiling)
 
 
