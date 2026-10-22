@@ -609,8 +609,7 @@ class AgentPresetService(BaseWorkspaceService):
                 binding_specs=binding_specs,
             )
         if params.tool_tunnels:
-            await self._validate_tool_tunnels(params.tool_tunnels)
-            preset.tool_tunnels = self._granted_tool_tunnels(
+            preset.tool_tunnels = await self._validated_tool_tunnels(
                 params.tool_tunnels,
                 granted=await self._granted_actions(
                     self._tool_inputs(
@@ -638,8 +637,15 @@ class AgentPresetService(BaseWorkspaceService):
         }
         return kept or None
 
-    async def _validate_tool_tunnels(self, tool_tunnels: Mapping[str, str]) -> None:
-        """Validate that tool tunnels name registry actions and workspace tunnels."""
+    async def _validated_tool_tunnels(
+        self, tool_tunnels: Mapping[str, str], *, granted: Collection[str]
+    ) -> dict[str, str] | None:
+        """Keep tunnels for granted tools, then check they name registry actions
+        and workspace tunnels.
+
+        Pruning comes first so a stale map never fails a save on tunnels the
+        agent no longer uses, e.g. after losing the tunnels entitlement.
+        """
         if mcp_tools := sorted(
             name for name in tool_tunnels if name.startswith(("mcp.", "mcp__"))
         ):
@@ -647,14 +653,16 @@ class AgentPresetService(BaseWorkspaceService):
                 "Tunnels for MCP tools are set on the MCP integration, not per tool: "
                 f"{mcp_tools}"
             )
-        await self._validate_actions(list(tool_tunnels))
+        if (kept := self._granted_tool_tunnels(tool_tunnels, granted=granted)) is None:
+            return None
+        await self._validate_actions(list(kept))
         if not await is_org_entitled(
             self.session, self.organization_id, Entitlement.TUNNELS
         ):
             raise TracecatValidationError(
                 "Tunnels are not available on your current plan"
             )
-        names = set(tool_tunnels.values())
+        names = set(kept.values())
         result = await self.session.execute(
             select(WorkspaceTunnel.name).where(
                 WorkspaceTunnel.workspace_id == self.workspace_id,
@@ -665,6 +673,7 @@ class AgentPresetService(BaseWorkspaceService):
             raise TracecatValidationError(
                 f"Tunnels not found in this workspace: {sorted(missing)}"
             )
+        return kept
 
     async def _granted_actions(self, inputs: PresetToolInputs) -> set[str]:
         """Registry actions the agent exposes: authored and skill-granted actions
@@ -807,8 +816,7 @@ class AgentPresetService(BaseWorkspaceService):
                 )
             )
             if tool_tunnels := set_fields.get("tool_tunnels"):
-                await self._validate_tool_tunnels(tool_tunnels)
-                set_fields["tool_tunnels"] = self._granted_tool_tunnels(
+                set_fields["tool_tunnels"] = await self._validated_tool_tunnels(
                     tool_tunnels, granted=granted
                 )
             elif preset.tool_tunnels:
@@ -2588,7 +2596,13 @@ class AgentPresetService(BaseWorkspaceService):
             # to the combined preset and skill grants above.
             namespaces=version.namespaces,
             tool_approvals=policy.tool_approvals or None,
-            tool_tunnels=version.tool_tunnels or None,
+            # A skill published after this version can drop a tunneled tool;
+            # its stale tunnel must not fail the run.
+            tool_tunnels=(
+                self._granted_tool_tunnels(version.tool_tunnels, granted=policy.actions)
+                if version.tool_tunnels
+                else None
+            ),
             mcp_servers=mcp_servers,
             agents=agents,
             retries=version.retries,

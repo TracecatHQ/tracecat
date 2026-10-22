@@ -4481,11 +4481,94 @@ async def test_tool_tunnels_follow_effective_tool_policy(
     )
     assert preset.tool_tunnels is None
 
-    # Unknown actions are still rejected.
-    with pytest.raises(TracecatValidationError):
+    # Tunnels for MCP tools are still rejected: they belong on the integration.
+    with pytest.raises(TracecatValidationError, match="MCP integration"):
         await agent_preset_service.update_preset(
-            preset, AgentPresetUpdate(tool_tunnels={"tools.test.serch": "onprem"})
+            preset, AgentPresetUpdate(tool_tunnels={"mcp__jira__search": "onprem"})
         )
+
+
+async def _tunneled_preset(
+    session: AsyncSession,
+    svc_role: Role,
+    agent_preset_service: AgentPresetService,
+    agent_preset_create_params: AgentPresetCreate,
+) -> AgentPreset:
+    from tracecat.db.models import WorkspaceTunnel
+
+    assert svc_role.workspace_id is not None
+    session.add(
+        WorkspaceTunnel(
+            workspace_id=svc_role.workspace_id,
+            name="onprem",
+            endpoint="https://pangolin.example.com",
+            client_id="client",
+            encrypted_client_secret=b"x",
+            allowed_targets=[],
+        )
+    )
+    agent_preset_create_params.actions = ["tools.test.test_action"]
+    agent_preset_create_params.tool_tunnels = {"tools.test.test_action": "onprem"}
+    return await agent_preset_service.create_preset(agent_preset_create_params)
+
+
+@pytest.mark.anyio
+async def test_stale_tool_tunnel_is_left_out_of_run_config(
+    session: AsyncSession,
+    svc_role: Role,
+    agent_preset_service: AgentPresetService,
+    agent_preset_create_params: AgentPresetCreate,
+    registry_actions: list[RegistryAction],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A tunnel for a tool the agent lost after the version was saved (e.g. a
+    republished skill dropped it) doesn't fail the run's tool build."""
+    monkeypatch.setattr(
+        "tracecat.agent.preset.service.is_org_entitled", AsyncMock(return_value=True)
+    )
+    preset = await _tunneled_preset(
+        session, svc_role, agent_preset_service, agent_preset_create_params
+    )
+    version = await agent_preset_service.get_current_version_for_preset(preset)
+    version.tool_tunnels = {
+        "tools.test.test_action": "onprem",
+        "core.http_request": "onprem",
+    }
+    session.add(version)
+    await session.commit()
+
+    config = await agent_preset_service.resolve_agent_preset_config(preset_id=preset.id)
+
+    assert config.tool_tunnels == {"tools.test.test_action": "onprem"}
+
+
+@pytest.mark.anyio
+async def test_save_without_tunnel_entitlement_prunes_unused_tunnels(
+    session: AsyncSession,
+    svc_role: Role,
+    agent_preset_service: AgentPresetService,
+    agent_preset_create_params: AgentPresetCreate,
+    registry_actions: list[RegistryAction],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After a plan downgrade, removing the tunneled tool still saves although
+    the builder resends the stale map."""
+    entitled = AsyncMock(return_value=True)
+    monkeypatch.setattr("tracecat.agent.preset.service.is_org_entitled", entitled)
+    preset = await _tunneled_preset(
+        session, svc_role, agent_preset_service, agent_preset_create_params
+    )
+    entitled.return_value = False
+
+    preset = await agent_preset_service.update_preset(
+        preset,
+        AgentPresetUpdate(
+            actions=["core.http_request"],
+            tool_tunnels={"tools.test.test_action": "onprem"},
+        ),
+    )
+
+    assert preset.tool_tunnels is None
 
 
 @pytest.mark.anyio
