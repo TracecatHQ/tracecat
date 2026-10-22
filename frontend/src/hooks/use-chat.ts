@@ -37,7 +37,6 @@ import {
 } from "@/lib/chat"
 import {
   chatStreamUrl,
-  isConnectionError,
   readDroppedPrompt,
   refetchChatTranscript,
   saveDroppedPrompt,
@@ -734,14 +733,18 @@ export function useVercelChat({
     onError: (error) => {
       const friendlyMessage = parseChatError(error)
       // A reconnect that fails before its stream opens gets no onFinish, so its
-      // drop is marked here; without a restored prompt it is a replay.
+      // drop is marked here. Any TypeError counts: browsers word fetch failures
+      // differently, and a dropped reconnect only ever rechecks the server.
       const reconnectDropped =
-        requestKindRef.current === "resume" && isConnectionError(error)
+        requestKindRef.current === "resume" && error instanceof TypeError
       setLastError({
         chatKey,
         message: friendlyMessage,
         disconnected: reconnectDropped,
-        replay: reconnectDropped && !droppedPromptRef.current?.prompt,
+        // A Retry reconnect means the server took the turn, so never resend it.
+        replay:
+          reconnectDropped &&
+          (generation > 0 || !droppedPromptRef.current?.prompt),
       })
       console.error("Error in Vercel chat:", error)
       toast({
@@ -879,7 +882,7 @@ export function useVercelChat({
           return
         }
       }
-      void regenerateAfterResume({ messageId })
+      await regenerateAfterResume({ messageId })
     },
     [
       chatId,

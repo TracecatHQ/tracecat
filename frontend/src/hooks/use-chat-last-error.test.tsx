@@ -249,8 +249,9 @@ describe("useVercelChat dropped prompt across reloads", () => {
     }) as unknown as typeof fetch
     mockMessages = [...prior, unsent]
     mockRegenerate.mockClear()
-    // The SDK runs only onError when the reconnect request itself fails.
-    act(() => seeded.onError?.(new TypeError("Failed to fetch")))
+    // The SDK runs only onError when the reconnect request itself fails;
+    // Safari words that failure "Load failed".
+    act(() => seeded.onError?.(new TypeError("Load failed")))
 
     expect(hook.result.current.lastErrorDisconnected).toBe(true)
     await act(async () => {
@@ -259,6 +260,44 @@ describe("useVercelChat dropped prompt across reloads", () => {
 
     expect(global.fetch).toHaveBeenCalledTimes(1)
     expect(mockRegenerate).toHaveBeenCalledWith({ messageId: "u2" })
+    expect(jest.mocked(global.fetch).mock.invocationCallOrder[0]).toBeLessThan(
+      mockRegenerate.mock.invocationCallOrder[0]
+    )
+    mockMessages = []
+  })
+
+  it("never resends when the reconnect Retry started fails", async () => {
+    await dropTurn()
+    const { hook, seeded } = reload(prior)
+    if (!seeded || !("onError" in seeded)) {
+      throw new Error("useChat options not captured")
+    }
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: null,
+    }) as unknown as typeof fetch
+    mockMessages = [...prior, unsent]
+    mockRegenerate.mockClear()
+    act(() => seeded.onError?.(new TypeError("Failed to fetch")))
+    await act(async () => {
+      await hook.result.current.retryTurn("u2")
+    })
+    const fresh = jest.mocked(useChat).mock.calls.at(-1)?.[0]
+    if (!fresh || !("onError" in fresh)) {
+      throw new Error("useChat options not captured")
+    }
+
+    act(() => fresh.onError?.(new TypeError("Failed to fetch")))
+    await act(async () => {
+      await hook.result.current.retryTurn("u2")
+    })
+
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+    expect(mockRegenerate).not.toHaveBeenCalled()
+    expect(jest.mocked(useChat).mock.calls.at(-1)?.[0]).toMatchObject({
+      id: "chat-1#2",
+    })
     mockMessages = []
   })
 
