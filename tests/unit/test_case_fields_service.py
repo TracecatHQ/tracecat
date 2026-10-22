@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Any
 from unittest.mock import patch
 
+import orjson
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.engine.interfaces import ReflectedColumn
@@ -25,6 +26,7 @@ from tracecat.cases.schemas import (
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import Case, CaseFields, WorkspaceSyncResourceMapping
 from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.tables.common import render_default_value
 from tracecat.tables.enums import SqlType
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 
@@ -418,6 +420,22 @@ class TestCaseFieldsService:
         default_sql = column["default"]
         assert default_sql is not None
         assert '["beta", "gamma"]' in default_sql or '["beta","gamma"]' in default_sql
+
+    async def test_create_field_jsonb_default_with_escaped_quotes(
+        self, case_fields_service: CaseFieldsService
+    ) -> None:
+        """JSONB defaults containing escaped quotes must produce valid DDL."""
+        await case_fields_service.create_field(
+            CaseFieldCreate(
+                name="jsonb_default_field",
+                type=SqlType.JSONB,
+                default={"note": 'say "hi"', "path": "C:\\tmp"},
+            )
+        )
+
+        columns = await case_fields_service.editor.get_columns()
+        column = next(c for c in columns if c["name"] == "jsonb_default_field")
+        assert column["default"] is not None
 
     async def test_update_field_rejects_internal_name(
         self, case_fields_service: CaseFieldsService
@@ -856,3 +874,28 @@ class TestCaseFieldsService:
         await session.refresh(definition)
         assert "field_to_delete" not in definition.schema
         assert "field_to_keep" in definition.schema
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("sql_type", "default"),
+    [
+        pytest.param(SqlType.JSONB, '{"x":1}', id="jsonb-string-with-quotes"),
+        pytest.param(SqlType.JSONB, {"a": 'b"c', "d": "e\\f"}, id="jsonb-object"),
+        pytest.param(SqlType.MULTI_SELECT, ['a"b', "c\\d"], id="multi-select"),
+        pytest.param(SqlType.TEXT, "C:\\tmp\\file", id="text-backslashes"),
+        pytest.param(SqlType.TEXT, "it's", id="text-single-quote"),
+    ],
+)
+async def test_render_default_value_round_trips(
+    session: AsyncSession, sql_type: SqlType, default: Any
+) -> None:
+    """Rendered defaults must evaluate in PostgreSQL back to the original value."""
+    rendered = render_default_value(sql_type, default)
+    conn = await session.connection()
+    result = await conn.exec_driver_sql(f"SELECT ({rendered})::text")
+    value = result.scalar_one()
+    if sql_type is SqlType.TEXT:
+        assert value == default
+    else:
+        assert orjson.loads(value) == default

@@ -205,6 +205,16 @@ def _compile_sql_literal(value: Any, sql_type: sa.types.TypeEngine) -> str:
     return str(compiled)
 
 
+def _compile_string_literal(value: str) -> str:
+    """Compile a string literal that round-trips regardless of server settings.
+
+    The offline PostgreSQL dialect doubles backslashes, which only reads back
+    correctly inside an escape string (E'...').
+    """
+    compiled = _compile_sql_literal(value, sa.String())
+    return f"E{compiled}" if "\\" in compiled else compiled
+
+
 def coerce_default_value(type: SqlType, default: Any) -> Any:
     """Coerce a user-provided default into a validated Python value."""
     match type:
@@ -275,12 +285,12 @@ def render_default_value(type: SqlType, default: Any) -> str:
     match type:
         case SqlType.MULTI_SELECT:
             json_literal = orjson.dumps(default).decode()
-            return f"{_compile_sql_literal(json_literal, sa.String())}::jsonb"
+            return f"{_compile_string_literal(json_literal)}::jsonb"
         case SqlType.JSONB:
             json_literal = orjson.dumps(default).decode()
-            return f"{_compile_sql_literal(json_literal, sa.String())}::jsonb"
+            return f"{_compile_string_literal(json_literal)}::jsonb"
         case SqlType.TEXT | SqlType.SELECT:
-            return _compile_sql_literal(default, sa.String())
+            return _compile_string_literal(default)
         case SqlType.DATE:
             return f"{_compile_sql_literal(default, sa.Date())}::date"
         case SqlType.TIMESTAMPTZ:
