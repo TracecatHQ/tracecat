@@ -379,7 +379,7 @@ class TunnelsService(BaseWorkspaceService):
             .order_by(Action.title)
         )
         titles: dict[uuid.UUID, list[str]] = {}
-        for workflow_id, title, inputs in rows.tuples():
+        for workflow_id, title, inputs in rows.tuples().all():
             try:
                 args = yaml.safe_load(inputs)
             except yaml.YAMLError:
