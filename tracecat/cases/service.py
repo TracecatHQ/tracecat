@@ -200,6 +200,21 @@ CASE_BATCH_LOCK_NOT_AVAILABLE_SQLSTATE = "55P03"
 PENDING_CASE_NUMBER = 0
 
 
+async def _validate_case_assignee(
+    session: AsyncSession, assignee_id: uuid.UUID | None
+) -> None:
+    if assignee_id is None:
+        return
+    user_id_column = cast(User.id, UUID)
+    user_id = await session.scalar(
+        select(user_id_column)
+        .where(user_id_column == assignee_id)
+        .with_for_update(read=True, key_share=True)
+    )
+    if user_id is None:
+        raise TracecatValidationError("Assignee not found")
+
+
 class CasesService(BaseWorkspaceService):
     service_name = "cases"
 
@@ -618,6 +633,7 @@ class CasesService(BaseWorkspaceService):
     @audit_log(resource_type="case", action="create")
     async def create_case(self, params: CaseCreate) -> Case:
         try:
+            await _validate_case_assignee(self.session, params.assignee_id)
             # Ensure the workspace-scoped `case_fields` schema/table exists before we
             # take locks on the `case` table (e.g. via INSERT/UPDATE). This avoids
             # deadlocks under concurrency when schema initialization requires a
@@ -887,6 +903,11 @@ class CasesService(BaseWorkspaceService):
         # Update case parameters if provided
         set_fields = params.model_dump(exclude_unset=True)
         dropdown_values = set_fields.pop("dropdown_values", None)
+
+        for field in ("summary", "description"):
+            if field in set_fields and set_fields[field] is None:
+                raise TracecatValidationError(f"Case {field} cannot be null")
+        await _validate_case_assignee(self.session, params.assignee_id)
 
         # Validate closure requirements before any mutations
         if (peek_status := set_fields.get("status")) and peek_status != case.status:
@@ -2790,6 +2811,19 @@ class CaseTasksService(BaseWorkspaceService):
 
     service_name = "case_tasks"
 
+    async def _validate_workflow(self, workflow_id: uuid.UUID | None) -> None:
+        if workflow_id is None:
+            return
+        found = await self.session.scalar(
+            select(Workflow.id)
+            .where(
+                Workflow.workspace_id == self.workspace_id, Workflow.id == workflow_id
+            )
+            .with_for_update(read=True, key_share=True)
+        )
+        if found is None:
+            raise TracecatNotFoundError("Workflow not found")
+
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
         self.agent_session_interactions = CaseAgentSessionInteractionService(
@@ -2924,6 +2958,9 @@ class CaseTasksService(BaseWorkspaceService):
             WorkflowUUID.new(params.workflow_id) if params.workflow_id else None
         )
 
+        await self._validate_workflow(workflow_uuid)
+        await _validate_case_assignee(self.session, params.assignee_id)
+
         if params.default_trigger_values:
             await self._validate_default_trigger_values(
                 workflow_uuid, params.default_trigger_values
@@ -2983,6 +3020,10 @@ class CaseTasksService(BaseWorkspaceService):
             TracecatNotFoundError: If the task is not found
         """
         task = await self.get_task(task_id)
+
+        if params.workflow_id is not None:
+            await self._validate_workflow(WorkflowUUID.new(params.workflow_id))
+        await _validate_case_assignee(self.session, params.assignee_id)
 
         # Load case for event context
         statement = select(Case).where(

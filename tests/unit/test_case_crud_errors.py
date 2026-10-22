@@ -537,3 +537,102 @@ async def test_case_row_link_uses_typed_constraint(error_kind: str) -> None:
             await raise_case_row_link_integrity_error(session, error)
         assert raised_error.value is error
     session.rollback.assert_awaited_once()
+
+
+@pytest.mark.parametrize("prefix", ["", "/internal"])
+@pytest.mark.parametrize("operation", ["create", "update"])
+@pytest.mark.parametrize("unexpected", [False, True])
+def test_case_reference_validation_response(
+    api: tuple[TestClient, MagicMock],
+    monkeypatch: pytest.MonkeyPatch,
+    prefix: str,
+    operation: str,
+    unexpected: bool,
+) -> None:
+    client, _ = api
+    error = (
+        _integrity_error("unrelated_constraint", unique=False)
+        if unexpected
+        else TracecatValidationError("Assignee not found")
+    )
+    monkeypatch.setattr(CasesService, f"{operation}_case", AsyncMock(side_effect=error))
+    if operation == "create":
+        response = client.post(
+            f"{prefix}/cases",
+            json={
+                "summary": "Synthetic case",
+                "description": "",
+                "status": "new",
+                "priority": "unknown",
+                "severity": "unknown",
+            },
+        )
+    else:
+        response = client.patch(
+            f"{prefix}/cases/{CASE_ID}", json={"assignee_id": str(RESOURCE_ID)}
+        )
+    assert response.status_code == (
+        500 if unexpected else 400 if operation == "create" else 422
+    )
+    assert PRIVATE_DIAGNOSTIC not in response.text
+
+
+@pytest.mark.parametrize("prefix", ["", "/internal"])
+@pytest.mark.parametrize("kind", ["missing", "invalid", "unexpected"])
+def test_task_create_reference_response(
+    api: tuple[TestClient, MagicMock],
+    monkeypatch: pytest.MonkeyPatch,
+    prefix: str,
+    kind: str,
+) -> None:
+    client, _ = api
+    if kind == "missing":
+        error = TracecatNotFoundError("Workflow not found")
+        expected = 404
+    elif kind == "invalid":
+        error = TracecatValidationError("Assignee not found")
+        expected = 400
+    else:
+        error = _integrity_error("unrelated_constraint", unique=False)
+        expected = 500
+    monkeypatch.setattr(CaseTasksService, "create_task", AsyncMock(side_effect=error))
+    response = client.post(
+        f"{prefix}/cases/{CASE_ID}/tasks",
+        json={"title": "Synthetic task", "workflow_id": str(RESOURCE_ID)},
+    )
+    assert response.status_code == expected
+    assert PRIVATE_DIAGNOSTIC not in response.text
+
+
+@pytest.mark.parametrize("operation", ["create", "update"])
+@pytest.mark.parametrize("unexpected", [False, True])
+def test_duration_event_reference_response(
+    api: tuple[TestClient, MagicMock],
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+    unexpected: bool,
+) -> None:
+    client, _ = api
+    error = (
+        _integrity_error("unrelated_constraint", unique=False)
+        if unexpected
+        else TracecatNotFoundError("Duration event not found on case")
+    )
+    monkeypatch.setattr(
+        CaseDurationService, f"{operation}_duration", AsyncMock(side_effect=error)
+    )
+    if operation == "create":
+        response = client.post(
+            f"/cases/{CASE_ID}/durations",
+            json={
+                "definition_id": str(RESOURCE_ID),
+                "start_event_id": str(RESOURCE_ID),
+            },
+        )
+    else:
+        response = client.patch(
+            f"/cases/{CASE_ID}/durations/{RESOURCE_ID}",
+            json={"start_event_id": str(RESOURCE_ID)},
+        )
+    assert response.status_code == (500 if unexpected else 404)
+    assert PRIVATE_DIAGNOSTIC not in response.text

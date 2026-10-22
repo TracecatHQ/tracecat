@@ -482,6 +482,26 @@ class CaseDurationService(BaseWorkspaceService):
 
     service_name = "case_durations"
 
+    async def _validate_event_references(
+        self, case_id: uuid.UUID, *event_ids: uuid.UUID | None
+    ) -> None:
+        requested = {event_id for event_id in event_ids if event_id is not None}
+        if not requested:
+            return
+        found = set(
+            await self.session.scalars(
+                select(CaseEvent.id)
+                .where(
+                    CaseEvent.workspace_id == self.workspace_id,
+                    CaseEvent.case_id == case_id,
+                    CaseEvent.id.in_(requested),
+                )
+                .with_for_update(read=True, key_share=True)
+            )
+        )
+        if found != requested:
+            raise TracecatNotFoundError("Duration event not found on case")
+
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
         self.definitions = CaseDurationDefinitionService(
@@ -524,6 +544,9 @@ class CaseDurationService(BaseWorkspaceService):
         case_obj = await self._resolve_case(case)
         await self.definitions.get_definition(params.definition_id)
         await self._ensure_unique_case_duration(case_obj.id, params.definition_id)
+        await self._validate_event_references(
+            case_obj.id, params.start_event_id, params.end_event_id
+        )
 
         entity = CaseDuration(
             workspace_id=self.workspace_id,
@@ -559,6 +582,10 @@ class CaseDurationService(BaseWorkspaceService):
         updates = params.model_dump(exclude_unset=True)
         if not updates:
             return self._to_read_model(entity)
+
+        await self._validate_event_references(
+            case_obj.id, params.start_event_id, params.end_event_id
+        )
 
         if (definition_id := updates.get("definition_id")) is not None:
             await self.definitions.get_definition(definition_id)
