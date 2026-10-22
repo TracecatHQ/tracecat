@@ -16,6 +16,7 @@ from google.oauth2 import service_account
 from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.secrets.stores.backends import get_backend
 from tracecat_registry._internal import secrets as registry_secrets
@@ -67,6 +68,7 @@ from tracecat.db.models import (
     AgentCustomProvider,
     AgentModelAccess,
     OrganizationSecret,
+    OrganizationSetting,
     Secret,
     Workspace,
 )
@@ -93,7 +95,7 @@ from tracecat.secrets.service import (
     is_external_reference,
 )
 from tracecat.service import BaseOrgService
-from tracecat.settings.schemas import SettingCreate, SettingUpdate, ValueType
+from tracecat.settings.schemas import SettingCreate, ValueType
 from tracecat.settings.service import SettingsService
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
@@ -338,20 +340,30 @@ class AgentManagementService(BaseOrgService):
         The caller is responsible for the ``session.commit()`` that flushes
         all staged changes atomically.
         """
-        setting = await self.settings_service.get_org_setting(key)
-        if setting:
-            await self.settings_service._update_setting(
-                setting, SettingUpdate(value=value)
-            )
-            return
-
-        logger.warning("Organization setting not found, creating it", key=key)
-        await self.settings_service._create_org_setting(
-            SettingCreate(
-                key=key,
-                value=value,
-                value_type=ValueType.JSON,
-                is_sensitive=False,
+        params = SettingCreate(
+            key=key,
+            value=value,
+            value_type=ValueType.JSON,
+            is_sensitive=False,
+        )
+        statement = pg_insert(OrganizationSetting).values(
+            organization_id=self.organization_id,
+            key=key,
+            value=self.settings_service._encode_setting_value(params),
+            value_type=params.value_type,
+            is_encrypted=params.is_sensitive,
+        )
+        await self.session.execute(
+            statement.on_conflict_do_update(
+                index_elements=[
+                    OrganizationSetting.organization_id,
+                    OrganizationSetting.key,
+                ],
+                set_={
+                    "value": statement.excluded.value,
+                    "value_type": statement.excluded.value_type,
+                    "is_encrypted": statement.excluded.is_encrypted,
+                },
             )
         )
 
@@ -1117,15 +1129,19 @@ class AgentManagementService(BaseOrgService):
             )
         catalog_entry = AgentCatalogRead.model_validate(catalog_row)
 
-        await self._stage_org_setting_value(
-            key=_DEFAULT_MODEL_SETTING_KEY,
-            value=catalog_entry.model_name,
-        )
-        await self._stage_org_setting_value(
-            key=_DEFAULT_MODEL_CATALOG_ID_SETTING_KEY,
-            value=str(catalog_entry.id),
-        )
-        await self.session.commit()
+        try:
+            await self._stage_org_setting_value(
+                key=_DEFAULT_MODEL_SETTING_KEY,
+                value=catalog_entry.model_name,
+            )
+            await self._stage_org_setting_value(
+                key=_DEFAULT_MODEL_CATALOG_ID_SETTING_KEY,
+                value=str(catalog_entry.id),
+            )
+            await self.session.commit()
+        except SQLAlchemyError:
+            await self.session.rollback()
+            raise
         return self._to_default_model_selection(catalog_entry)
 
     async def get_default_model(self) -> str | None:

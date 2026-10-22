@@ -15,7 +15,11 @@ from tracecat.agent.service import AgentManagementService
 from tracecat.auth.dependencies import OrgUserRole, WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 workspace_router = APIRouter(prefix="/agent", tags=["agent"])
@@ -101,10 +105,15 @@ async def create_provider_credentials(
     try:
         await service.create_provider_credentials(params)
         return {"message": f"Credentials for {params.provider} created successfully"}
-    except Exception as e:
+    except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to create credentials: {str(e)}",
+            detail=str(e),
+        ) from e
+    except TracecatConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
         ) from e
 
 
@@ -127,10 +136,15 @@ async def update_provider_credentials(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Credentials for provider {provider} not found",
         ) from e
-    except Exception as e:
+    except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to update credentials: {str(e)}",
+            detail=str(e),
+        ) from e
+    except TracecatConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
         ) from e
 
 

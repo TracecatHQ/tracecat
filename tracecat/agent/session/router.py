@@ -205,6 +205,10 @@ async def create_session(
                 svc=svc, session=session, role=role, agent_session=parent
             )
         agent_session = await svc.create_session(request)
+    except TracecatConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     except TracecatValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)

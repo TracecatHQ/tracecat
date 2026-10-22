@@ -28,7 +28,7 @@ from sqlalchemy import (
     values,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID, insert
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from tracecat_ee.workspace_chat.policy import is_workspace_chat_entitled
 from tracecat_registry._internal.exceptions import SecretNotFoundError
 
@@ -128,6 +128,7 @@ from tracecat.chat.tools import (
     filter_workspace_chat_tools_for_scopes,
     get_default_tools,
 )
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     APPROVAL_STATUS_ENUM,
     AgentSession,
@@ -594,7 +595,13 @@ class AgentSessionService(BaseWorkspaceService):
         if args.id:
             agent_session.id = args.id
         self.session.add(agent_session)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if is_unique_violation(exc, "ix_agent_session_id"):
+                raise TracecatConflictError("Agent session already exists") from exc
+            raise
         await self.session.refresh(agent_session)
         return agent_session
 

@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.authz.controls import require_scope
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import Skill, SkillTag, SkillTagLink
 from tracecat.exceptions import (
     TracecatConflictError,
@@ -40,7 +41,11 @@ class SkillTagsService(BaseWorkspaceService):
             await self.session.commit()
         except IntegrityError as err:
             await self.session.rollback()
-            raise TracecatConflictError(conflict_message) from err
+            if is_unique_violation(
+                err, "uq_skill_tag_name_workspace", "uq_skill_tag_ref_workspace"
+            ):
+                raise TracecatConflictError(conflict_message) from err
+            raise
 
     async def _get_tag(self, tag_id: SkillTagID) -> SkillTag:
         statement = select(SkillTag).where(
@@ -236,21 +241,19 @@ class SkillTagsService(BaseWorkspaceService):
     async def _require_skill_and_tag_in_workspace(
         self, skill_id: uuid.UUID, tag_id: SkillTagID
     ) -> None:
-        skill_exists = exists(
-            select(Skill.id).where(
+        statement = (
+            select(Skill.id)
+            .join(SkillTag, SkillTag.id == tag_id)
+            .where(
                 Skill.id == skill_id,
                 Skill.workspace_id == self.workspace_id,
                 Skill.deleted_at.is_(None),
                 Skill.archived_at.is_(None),
-            )
-        )
-        tag_exists = exists(
-            select(SkillTag.id).where(
-                SkillTag.id == tag_id,
                 SkillTag.workspace_id == self.workspace_id,
             )
+            .with_for_update(read=True, of=(Skill, SkillTag))
         )
-        is_allowed = await self.session.scalar(select(skill_exists & tag_exists))
+        is_allowed = await self.session.scalar(statement)
         if not is_allowed:
             raise TracecatNotFoundError("Skill or tag not found")
 

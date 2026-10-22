@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+from asyncpg import UniqueViolationError
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.agent.tags.service import AgentTagsService
@@ -326,7 +327,9 @@ async def test_update_tag_commit_conflict_raises_tracecat_conflict(
     session.commit.side_effect = IntegrityError(
         statement="UPDATE agent_tag",
         params={},
-        orig=Exception("duplicate key"),
+        orig=UniqueViolationError.new(
+            {"C": "23505", "M": "synthetic conflict", "n": "uq_agent_tag_ref_workspace"}
+        ),
     )
     service = AgentTagsService(
         session=session,

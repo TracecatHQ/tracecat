@@ -268,19 +268,25 @@ def test_rank_maps_value_error_to_400(
     assert response.json() == {"detail": "invalid ranking input"}
 
 
-def test_run_maps_workflow_failure_to_500(
+@pytest.mark.parametrize("path", ["run", "rank", "rank-pairwise"])
+def test_workflow_failure_is_sanitized(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
+    path: str,
 ) -> None:
     execute = AsyncMock(
-        side_effect=WorkflowFailureError(cause=RuntimeError("durable run failed"))
+        side_effect=WorkflowFailureError(cause=RuntimeError("synthetic-diagnostic"))
     )
     monkeypatch.setattr(internal_router, "_execute_agent_workflow", execute)
 
     response = client.post(
-        "/internal/agent/run",
+        f"/internal/agent/{path}",
         json={
             "user_prompt": "Investigate the alert",
+            "items": [{"id": "a", "text": "Synthetic item"}],
+            "criteria_prompt": "Synthetic ranking",
+            "model_name": "test-model",
+            "model_provider": "test-provider",
             "config": {
                 "model_name": "test-model",
                 "model_provider": "test-provider",
@@ -289,9 +295,5 @@ def test_run_maps_workflow_failure_to_500(
     )
 
     assert response.status_code == 500
-    assert response.json() == {
-        "detail": {
-            "error_type": "RuntimeError",
-            "message": "durable run failed",
-        }
-    }
+    assert response.json() == {"detail": "Internal server error"}
+    assert "synthetic-diagnostic" not in response.text

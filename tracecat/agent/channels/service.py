@@ -29,6 +29,7 @@ from tracecat.agent.channels.schemas import (
     SlackChannelTokenConfig,
 )
 from tracecat.auth.secrets import get_db_encryption_key, get_signing_secret
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import AgentChannelToken, AgentPreset
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
@@ -469,13 +470,9 @@ class AgentChannelService(BaseWorkspaceService):
             raise TracecatValidationError(
                 "Cannot activate token without Slack bot token"
             )
-        lock_preset = (
-            params.is_active
-            or validated_config.slack_bot_token == PENDING_SLACK_BOT_TOKEN
-        )
         await self._require_workspace_preset(
             params.agent_preset_id,
-            lock=lock_preset,
+            lock=True,
         )
 
         token = AgentChannelToken(
@@ -493,6 +490,10 @@ class AgentChannelService(BaseWorkspaceService):
             await self.session.commit()
         except IntegrityError as exc:
             await self.session.rollback()
+            if not is_unique_violation(
+                exc, "ix_agent_channel_token_agent_preset_id_channel_type_active"
+            ):
+                raise
             raise TracecatValidationError(
                 "Active token already exists for this preset and channel type"
             ) from exc
@@ -627,6 +628,10 @@ class AgentChannelService(BaseWorkspaceService):
             await self.session.commit()
         except IntegrityError as exc:
             await self.session.rollback()
+            if not is_unique_violation(
+                exc, "ix_agent_channel_token_agent_preset_id_channel_type_active"
+            ):
+                raise
             raise TracecatValidationError(
                 "Active token already exists for this preset and channel type"
             ) from exc

@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.authz.controls import require_scope
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import AgentPreset, AgentTag, AgentTagLink
 from tracecat.exceptions import (
     TracecatConflictError,
@@ -40,7 +41,11 @@ class AgentTagsService(BaseWorkspaceService):
             await self.session.commit()
         except IntegrityError as err:
             await self.session.rollback()
-            raise TracecatConflictError(conflict_message) from err
+            if is_unique_violation(
+                err, "uq_agent_tag_name_workspace", "uq_agent_tag_ref_workspace"
+            ):
+                raise TracecatConflictError(conflict_message) from err
+            raise
 
     async def _get_tag(self, tag_id: AgentTagID) -> AgentTag:
         statement = select(AgentTag).where(
@@ -236,20 +241,18 @@ class AgentTagsService(BaseWorkspaceService):
     async def _require_preset_and_tag_in_workspace(
         self, preset_id: uuid.UUID, tag_id: AgentTagID
     ) -> None:
-        preset_exists = exists(
-            select(AgentPreset.id).where(
+        statement = (
+            select(AgentPreset.id)
+            .join(AgentTag, AgentTag.id == tag_id)
+            .where(
                 AgentPreset.id == preset_id,
                 AgentPreset.workspace_id == self.workspace_id,
                 AgentPreset.deleted_at.is_(None),
-            )
-        )
-        tag_exists = exists(
-            select(AgentTag.id).where(
-                AgentTag.id == tag_id,
                 AgentTag.workspace_id == self.workspace_id,
             )
+            .with_for_update(read=True, of=(AgentPreset, AgentTag))
         )
-        is_allowed = await self.session.scalar(select(preset_exists & tag_exists))
+        is_allowed = await self.session.scalar(statement)
         if not is_allowed:
             raise TracecatNotFoundError("Agent preset or tag not found")
 

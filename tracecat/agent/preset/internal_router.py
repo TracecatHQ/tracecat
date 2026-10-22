@@ -246,6 +246,11 @@ async def update_preset_by_slug(
             preset, AgentPresetUpdate(**params.model_dump(exclude_unset=True))
         )
         return await service.build_preset_read(updated_preset)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
     except TracecatValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
