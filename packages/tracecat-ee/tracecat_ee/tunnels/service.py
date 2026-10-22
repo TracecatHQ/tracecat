@@ -16,6 +16,7 @@ from tracecat.db.models import (
     AgentPreset,
     MCPIntegration,
     Workflow,
+    WorkflowDefinition,
     Workspace,
     WorkspaceTunnel,
 )
@@ -293,17 +294,33 @@ class TunnelsService(BaseWorkspaceService):
             )
             .scalar_subquery()
         )
+        # Runs execute the published definition, which can differ from the draft.
+        published = (
+            select(WorkflowDefinition.id)
+            .where(
+                WorkflowDefinition.workspace_id == self.workspace_id,
+                WorkflowDefinition.workflow_id == Workflow.id,
+                WorkflowDefinition.version == Workflow.version,
+                WorkflowDefinition.content.contains({"config": {"tunnel": tunnel.name}})
+                | WorkflowDefinition.content.contains(
+                    {"actions": [{"tunnel": tunnel.name}]}
+                ),
+            )
+            .exists()
+        )
         workflow_rows = await self.session.execute(
             select(
                 Workflow.id,
                 Workflow.title,
                 Workflow.config["tunnel"].astext.label("default_tunnel"),
                 action_titles.label("actions"),
+                published.label("published"),
             )
             .where(
                 Workflow.workspace_id == self.workspace_id,
                 (Workflow.config["tunnel"].astext == tunnel.name)
-                | action_titles.is_not(None),
+                | action_titles.is_not(None)
+                | published,
             )
             .order_by(Workflow.title)
             .limit(limit)
@@ -314,6 +331,8 @@ class TunnelsService(BaseWorkspaceService):
                 parts.append("Workflow default")
             if row.actions:
                 parts.append(row.actions)
+            if row.published:
+                parts.append("Published version")
             references.append(
                 TunnelReference(
                     kind=TunnelReferenceKind.WORKFLOW,

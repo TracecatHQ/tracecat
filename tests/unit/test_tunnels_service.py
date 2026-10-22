@@ -385,3 +385,45 @@ async def test_route_to_missing_named_tunnel_has_actionable_error(
             subject="test",
             name="deleted-tunnel",
         )
+
+
+async def test_published_workflow_definition_references_tunnel(
+    service: TunnelsService, session: AsyncSession, svc_role: Role
+) -> None:
+    """A draft that dropped the tunnel still counts while the published run uses it."""
+    from tracecat_ee.tunnels.schemas import TunnelReferenceKind
+
+    from tracecat.db.models import Workflow, WorkflowDefinition
+
+    tunnel = await service.create_tunnel(_params())
+    assert svc_role.workspace_id is not None
+    workflow = Workflow(
+        workspace_id=svc_role.workspace_id,
+        title="Published",
+        description="",
+        version=2,
+    )
+    session.add(workflow)
+    await session.flush()
+    session.add_all(
+        [
+            WorkflowDefinition(
+                workspace_id=svc_role.workspace_id,
+                workflow_id=workflow.id,
+                version=1,
+                content={"actions": [{"ref": "old", "tunnel": "elsewhere"}]},
+            ),
+            WorkflowDefinition(
+                workspace_id=svc_role.workspace_id,
+                workflow_id=workflow.id,
+                version=2,
+                content={"actions": [{"ref": "query", "tunnel": tunnel.name}]},
+            ),
+        ]
+    )
+    await session.commit()
+
+    [reference] = await service.list_tunnel_references(tunnel)
+    assert reference.kind is TunnelReferenceKind.WORKFLOW
+    assert reference.id == workflow.id
+    assert reference.detail == "Published version"

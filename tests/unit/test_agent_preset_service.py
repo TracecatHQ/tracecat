@@ -4401,19 +4401,66 @@ async def test_registry_default_approval_is_shared_by_eligibility_and_attachment
             await agent_preset_service.create_preset(parent)
 
 
-@pytest.mark.parametrize(
-    ("name", "granted"),
-    [
-        ("tools.sublime.search", True),
-        ("tools.okta.list_users", True),
-        ("tools.sublime.serch", False),
-        ("core.http_request", False),
-    ],
-)
-def test_grants_tool_matches_actions_and_namespaces(name: str, granted: bool) -> None:
-    from tracecat.agent.preset.service import _grants_tool
+@pytest.mark.anyio
+async def test_tool_tunnels_follow_effective_tool_policy(
+    configure_minio_for_skills: None,
+    session: AsyncSession,
+    svc_role: Role,
+    agent_preset_service: AgentPresetService,
+    agent_preset_create_params: AgentPresetCreate,
+    registry_actions: list[RegistryAction],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Tunnel keys match the tools the runtime builds: skills grant, namespaces filter."""
+    from tracecat.db.models import WorkspaceTunnel
 
-    assert (
-        _grants_tool(name, actions=["tools.sublime.search"], namespaces=["tools.okta"])
-        is granted
+    monkeypatch.setattr(
+        "tracecat.agent.preset.service.is_org_entitled", AsyncMock(return_value=True)
     )
+    assert svc_role.workspace_id is not None
+    session.add(
+        WorkspaceTunnel(
+            workspace_id=svc_role.workspace_id,
+            name="onprem",
+            endpoint="https://pangolin.example.com",
+            client_id="client",
+            encrypted_client_secret=b"x",
+            allowed_targets=[],
+        )
+    )
+    skill_service = SkillService(session=session, role=svc_role)
+    skill = await skill_service.create_skill(SkillCreate(name="tunnel-tool"))
+    await skill_service.patch_draft(
+        skill_id=skill.id,
+        params=SkillDraftPatch(
+            base_revision=skill.draft_revision,
+            operations=[
+                SkillDraftUpsertTextFileOp(
+                    path="SKILL.md",
+                    content="---\nname: tunnel-tool\nmetadata: {tools: [tools.test.test_action]}\n---\n",
+                )
+            ],
+        ),
+    )
+    await skill_service.publish_skill(skill.id)
+
+    # An authored action the namespace filter removes is not a tool of the agent.
+    agent_preset_create_params.actions = ["core.http_request"]
+    agent_preset_create_params.namespaces = ["tools.test"]
+    agent_preset_create_params.tool_tunnels = {"core.http_request": "onprem"}
+    with pytest.raises(TracecatValidationError, match="doesn't have"):
+        await agent_preset_service.create_preset(agent_preset_create_params)
+    await session.rollback()
+
+    # A skill-granted action can be tunneled.
+    agent_preset_create_params.namespaces = None
+    agent_preset_create_params.skills = [AgentPresetSkillBindingBase(skill_id=skill.id)]
+    agent_preset_create_params.tool_tunnels = {"tools.test.test_action": "onprem"}
+    preset = await agent_preset_service.create_preset(agent_preset_create_params)
+    assert preset.tool_tunnels == {"tools.test.test_action": "onprem"}
+
+    # Filtering the skill tool out drops its tunnel instead of failing the save.
+    preset = await agent_preset_service.update_preset(
+        preset, AgentPresetUpdate(namespaces=["core"])
+    )
+    assert preset.tool_tunnels is None

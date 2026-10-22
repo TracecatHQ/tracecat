@@ -5290,6 +5290,79 @@ class TestMCPProviderOAuth:
         assert result.oauth_connect is not None
         assert result.oauth_connect.auth_url
 
+    async def test_reconnect_catalog_mcp_oauth_keeps_tunnel(
+        self,
+        integration_service: IntegrationService,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """OAuth rediscovery on reconnect goes through the integration's tunnel."""
+        from tracecat.db.models import WorkspaceTunnel
+
+        catalog = _catalog_entry(
+            slug="tunneled-mcp",
+            name="Tunneled MCP",
+            description="Reconnect through tunnel",
+            connection_spec={
+                "kind": "http_oauth2",
+                "server_type": "http",
+                "auth_type": "OAUTH2",
+                "requires_config": False,
+                "config_fields": [],
+                "credentials": [],
+                "server_uri": "https://mcp.example.test/mcp",
+            },
+            sort_key="0000:tunneled-mcp",
+        )
+        _install_catalog_entry(monkeypatch, catalog)
+        integration = await self._store_expired_mcp_integration(
+            integration_service, session
+        )
+        integration.encrypted_refresh_token = b""
+        tunnel = WorkspaceTunnel(
+            workspace_id=integration_service.workspace_id,
+            name="onprem",
+            endpoint="https://pangolin.example.com",
+            client_id="client",
+            encrypted_client_secret=b"x",
+            allowed_targets=[{"host": "mcp.example.test", "ports": [443]}],
+        )
+        session.add(tunnel)
+        await session.flush()
+        session.add(
+            MCPIntegration(
+                workspace_id=integration_service.workspace_id,
+                name="Tunneled MCP",
+                slug="tunneled-mcp",
+                catalog_slug=catalog.slug,
+                server_type="http",
+                server_uri="https://mcp.example.test/mcp",
+                auth_type=MCPAuthType.OAUTH2,
+                oauth_integration_id=integration.id,
+                tunnel_id=tunnel.id,
+                tools=[],
+            )
+        )
+        await session.commit()
+        await _seed_service_user(session, integration_service)
+        _patch_mcp_oauth_client(monkeypatch)
+        connect = AsyncMock(return_value=Mock())
+        monkeypatch.setattr(integration_service, "connect_mcp_oauth_discovery", connect)
+        # Reach the catalog discovery fallback rather than the stored client.
+        monkeypatch.setattr(
+            integration_service,
+            "_start_existing_custom_mcp_oauth",
+            AsyncMock(return_value=None),
+        )
+
+        await integration_service.connect_platform_mcp_catalog(
+            catalog_slug=catalog.slug
+        )
+
+        connect.assert_awaited_once()
+        assert connect.await_args is not None
+        assert connect.await_args.kwargs["params"].tunnel_id == tunnel.id
+
     async def test_generic_mcp_refresh_rejects_private_token_endpoint_resolution(
         self,
         integration_service: IntegrationService,

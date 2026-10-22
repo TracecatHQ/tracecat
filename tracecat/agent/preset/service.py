@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import dataclasses
 import uuid
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -121,15 +122,6 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from tracecat.auth.types import Role
-
-
-def _grants_tool(
-    name: str, *, actions: Sequence[str] | None, namespaces: Sequence[str] | None
-) -> bool:
-    """Whether a preset's actions or namespaces expose the registry action."""
-    return name in (actions or ()) or any(
-        name.startswith(ns) for ns in namespaces or ()
-    )
 
 
 class AgentPresetService(BaseWorkspaceService):
@@ -556,12 +548,6 @@ class AgentPresetService(BaseWorkspaceService):
         )
         if params.actions:
             await self._validate_actions(params.actions)
-        if params.tool_tunnels:
-            await self._validate_tool_tunnels(
-                params.tool_tunnels,
-                actions=params.actions,
-                namespaces=params.namespaces,
-            )
         await self.load_selected_mcp_integrations(params.mcp_integrations)
         if params.skills:
             await self.skills.validate_binding_inputs(
@@ -610,6 +596,7 @@ class AgentPresetService(BaseWorkspaceService):
             parent_preset_id=preset.id,
             parent_slug=slug,
         )
+        binding_specs = []
         if params.skills is not None:
             binding_specs = await self._binding_specs_from_inputs(
                 params.skills,
@@ -620,6 +607,15 @@ class AgentPresetService(BaseWorkspaceService):
                 params.skills,
                 binding_specs=binding_specs,
             )
+        if params.tool_tunnels:
+            await self._validate_tool_tunnels(
+                params.tool_tunnels,
+                granted=await self._granted_actions(
+                    self._tool_inputs(
+                        preset, [spec.skill_version_id for spec in binding_specs]
+                    )
+                ),
+            )
         await self.publish_preset_head(preset)
         await self.session.commit()
         await self.session.refresh(preset)
@@ -629,8 +625,7 @@ class AgentPresetService(BaseWorkspaceService):
         self,
         tool_tunnels: Mapping[str, str],
         *,
-        actions: Sequence[str] | None,
-        namespaces: Sequence[str] | None,
+        granted: Collection[str],
     ) -> None:
         """Validate that tool tunnels name granted actions and workspace tunnels."""
         if mcp_tools := sorted(
@@ -640,11 +635,7 @@ class AgentPresetService(BaseWorkspaceService):
                 "Tunnels for MCP tools are set on the MCP integration, not per tool: "
                 f"{mcp_tools}"
             )
-        if ungranted := sorted(
-            name
-            for name in tool_tunnels
-            if not _grants_tool(name, actions=actions, namespaces=namespaces)
-        ):
+        if ungranted := sorted(name for name in tool_tunnels if name not in granted):
             raise TracecatValidationError(
                 f"Tunnels are set for tools this agent doesn't have: {ungranted}"
             )
@@ -666,6 +657,12 @@ class AgentPresetService(BaseWorkspaceService):
             raise TracecatValidationError(
                 f"Tunnels not found in this workspace: {sorted(missing)}"
             )
+
+    async def _granted_actions(self, inputs: PresetToolInputs) -> set[str]:
+        """Registry actions the agent exposes: authored and skill-granted actions
+        that pass the namespace filter, as the runtime builds them."""
+        policy = (await self.tool_policy.resolve_many([inputs]))[inputs.key]
+        return set(policy.actions)
 
     async def _validate_actions(self, actions: list[str]) -> None:
         """Validate that all actions are in the registry index."""
@@ -746,22 +743,6 @@ class AgentPresetService(BaseWorkspaceService):
                 preset.actions = actions
                 execution_changed = True
 
-        namespaces = set_fields.get("namespaces", preset.namespaces)
-        if "tool_tunnels" in set_fields:
-            if tool_tunnels := set_fields["tool_tunnels"]:
-                await self._validate_tool_tunnels(
-                    tool_tunnels, actions=preset.actions, namespaces=namespaces
-                )
-        elif preset.tool_tunnels:
-            # Drop tunnels for tools the preset no longer has.
-            kept = {
-                name: tunnel
-                for name, tunnel in preset.tool_tunnels.items()
-                if _grants_tool(name, actions=preset.actions, namespaces=namespaces)
-            }
-            if kept != preset.tool_tunnels:
-                set_fields["tool_tunnels"] = kept or None
-
         if "mcp_integrations" in set_fields:
             mcp_integrations = set_fields.pop("mcp_integrations")
             await self.load_selected_mcp_integrations(mcp_integrations)
@@ -805,6 +786,29 @@ class AgentPresetService(BaseWorkspaceService):
             catalog_entry = await self._get_enabled_catalog_entry(effective_catalog_id)
             set_fields["model_name"] = catalog_entry.model_name
             set_fields["model_provider"] = catalog_entry.model_provider
+
+        if set_fields.get("tool_tunnels") or (
+            "tool_tunnels" not in set_fields and preset.tool_tunnels
+        ):
+            granted = await self._granted_actions(
+                dataclasses.replace(
+                    self._tool_inputs(
+                        preset, [binding.skill_version_id for binding in publish_specs]
+                    ),
+                    namespaces=set_fields.get("namespaces", preset.namespaces) or (),
+                )
+            )
+            if tool_tunnels := set_fields.get("tool_tunnels"):
+                await self._validate_tool_tunnels(tool_tunnels, granted=granted)
+            elif preset.tool_tunnels:
+                # Drop tunnels for tools the preset no longer has.
+                kept = {
+                    name: tunnel
+                    for name, tunnel in preset.tool_tunnels.items()
+                    if name in granted
+                }
+                if kept != preset.tool_tunnels:
+                    set_fields["tool_tunnels"] = kept or None
 
         policy = (
             await self.tool_policy.resolve_many(

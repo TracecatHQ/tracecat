@@ -98,7 +98,7 @@ These settings control the [tunnel gateways](/self-hosting/kubernetes#tunnels) t
 
 | Variable | Default | Description |
 | :------- | :------ | :---------- |
-| `TRACECAT__TUNNEL_GATEWAY_BACKEND` | `none` | `kubernetes` to have the `api` service create and reconcile one gateway per tunnel, or `none` to run gateways yourself. |
+| `TRACECAT__TUNNEL_GATEWAY_BACKEND` | `none` | `kubernetes` to have the `api` service create and reconcile one gateway per tunnel. `none` disables tunnels: they can't be created and tunneled traffic fails. |
 | `TRACECAT__TUNNEL_GATEWAY_NAMESPACE` | `tracecat-tunnels` | Kubernetes namespace for gateway Secrets, Deployments, and Services. |
 | `TRACECAT__TUNNEL_GATEWAY_IMAGE` | `ghcr.io/tracecathq/tracecat-tunnel-gateway:<version>` | Gateway image. Defaults to the running Tracecat version; set `repository@sha256:<digest>` to pin an immutable image. |
 | `TRACECAT__TUNNEL_GATEWAY_BLOCKED_CIDRS` | | Comma-separated CIDRs gateways never dial, such as the cluster's pod and service ranges. |

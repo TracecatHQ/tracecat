@@ -378,6 +378,7 @@ class AgentActivities:
             tool_policies_by_integration_id: dict[
                 uuid.UUID, dict[str, MCPToolSummary]
             ] = {}
+            unresolved_server_names: set[str] = set()
             if configs_with_integration_id:
                 async with AgentPresetService.with_session(role=role) as svc:
                     tool_policies_by_integration_id = (
@@ -398,17 +399,21 @@ class AgentActivities:
                         refs = None
                     tunnel_id_by_integration_id = {
                         ref_id: ref.get("tunnel_id")
+                        if is_http_mcp_server(ref)
+                        else None
                         for ref in refs or []
-                        if is_http_mcp_server(ref) and (ref_id := ref.get("id"))
+                        if (ref_id := ref.get("id"))
                     }
                     for hydrated, integration_id in configs_with_integration_id:
-                        if str(integration_id) in tunnel_id_by_integration_id:
-                            if tunnel_id := tunnel_id_by_integration_id[
-                                str(integration_id)
-                            ]:
-                                hydrated["tunnel_id"] = tunnel_id
-                            else:
-                                hydrated.pop("tunnel_id", None)
+                        if str(integration_id) not in tunnel_id_by_integration_id:
+                            # Without the row we can't know its tunnel.
+                            unresolved_server_names.add(hydrated["name"])
+                        elif tunnel_id := tunnel_id_by_integration_id[
+                            str(integration_id)
+                        ]:
+                            hydrated["tunnel_id"] = tunnel_id
+                        else:
+                            hydrated.pop("tunnel_id", None)
                         try:
                             secrets = await svc.resolve_mcp_integration_secrets(
                                 integration_id
@@ -423,6 +428,17 @@ class AgentActivities:
             # Temporal boundary. A tunnel that cannot be used fails closed.
             reachable_servers: list[MCPHttpServerConfig] = []
             for hydrated in hydrated_servers:
+                if hydrated["name"] in unresolved_server_names:
+                    if args.fail_on_mcp_discovery_error:
+                        raise MCPConfigurationError(
+                            f"MCP integration for server {hydrated['name']!r} "
+                            "was not found in this workspace"
+                        )
+                    logger.warning(
+                        "Skipping MCP server whose integration cannot be resolved",
+                        server_name=hydrated["name"],
+                    )
+                    continue
                 if tunnel_id_str := hydrated.get("tunnel_id"):
                     try:
                         if role.workspace_id is None or role.organization_id is None:

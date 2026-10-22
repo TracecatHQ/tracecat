@@ -613,6 +613,14 @@ class TestBuildToolDefinitionsActivity:
                 }
             },
             secrets={"authorization": "Bearer test-token"},
+            refs=[
+                {
+                    "type": "http",
+                    "name": "Jira",
+                    "url": "https://mcp.example.com/mcp",
+                    "id": str(integration_id),
+                }
+            ],
         )
         lock_service = _patch_registry(monkeypatch)
         monkeypatch.setattr(
@@ -707,6 +715,41 @@ class TestBuildToolDefinitionsActivity:
         assert resolve_proxy.await_args is not None
         assert resolve_proxy.await_args.kwargs["tunnel_id"] == uuid.UUID(tunnel_id)
         assert discovered[0]["tunnel_proxy"] == "http://token@gateway:8080"
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("strict", [False, True])
+    async def test_mcp_discovery_skips_server_without_integration_row(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+        strict: bool,
+    ) -> None:
+        integration_id = uuid.uuid4()
+        server: dict[str, Any] = {
+            "type": "http",
+            "name": "Private",
+            "url": "https://mcp.internal.example/mcp",
+            "id": str(integration_id),
+        }
+        _patch_preset_service(monkeypatch, policies={}, refs=None)
+        _patch_registry(monkeypatch)
+        discover = AsyncMock(return_value={})
+        monkeypatch.setattr(user_client, "discover_user_mcp_tools", discover)
+        args = BuildToolDefsArgs(
+            role=mock_role,
+            tool_filters=ToolFilters(actions=[]),
+            mcp_servers=[cast(Any, server)],
+            fail_on_mcp_discovery_error=strict,
+        )
+
+        if strict:
+            with pytest.raises(Exception, match="was not found in this workspace"):
+                await AgentActivities().build_tool_definitions(args)
+            discover.assert_not_awaited()
+        else:
+            await AgentActivities().build_tool_definitions(args)
+            assert discover.await_args is not None
+            assert discover.await_args.args[0] == []
 
     @pytest.mark.anyio
     async def test_rejects_tool_tunnels_for_tools_the_agent_lacks(

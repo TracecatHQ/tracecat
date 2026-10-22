@@ -3376,6 +3376,7 @@ class IntegrationService(BaseWorkspaceService):
                             server_type="http",
                             server_uri=existing.server_uri,
                             auth_type=MCPAuthType.OAUTH2,
+                            tunnel_id=existing.tunnel_id,
                         ),
                         resolved_catalog=connection,
                         existing_mcp_integration=existing,
