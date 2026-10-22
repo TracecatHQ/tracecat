@@ -8,6 +8,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from temporalio import activity
+from temporalio.api.enums.v1 import EventType
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
@@ -50,6 +52,7 @@ from tracecat.dsl.init_activities import (
 from tracecat.dsl.schemas import (
     ActionRetryPolicy,
     ActionStatement,
+    ExecutionContext,
     GatherArgs,
     ScatterArgs,
 )
@@ -247,19 +250,64 @@ async def run_unhandled_subflow_preparation_failure_sets_platform_owner(
     )
 
 
+def _missing_alias_management(
+    sibling_started: asyncio.Event,
+) -> tuple[AsyncMock, AsyncMock]:
+    """Mock alias resolution that misses only after the sibling has started."""
+
+    async def resolve_missing_alias(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        await sibling_started.wait()
+        return None
+
+    management_service = AsyncMock()
+    management_service.resolve_workflow_alias.side_effect = resolve_missing_alias
+    management_context = AsyncMock()
+    management_context.__aenter__.return_value = management_service
+    return management_service, management_context
+
+
+def _missing_child_run_args(
+    *, title: str, sibling_ref: str, sibling_run_if: str | None = None
+) -> DSLRunArgs:
+    return DSLRunArgs(
+        role=_role(),
+        wf_id=WorkflowUUID.new_uuid4(),
+        dsl=DSLInput(
+            title=title,
+            description="Preserve the causal subflow classification",
+            entrypoint=DSLEntrypoint(ref="classified_failure"),
+            actions=[
+                ActionStatement(
+                    ref="classified_failure",
+                    action=PlatformAction.CHILD_WORKFLOW_EXECUTE,
+                    args={"workflow_alias": "deliberately-missing-child"},
+                    retry_policy=ActionRetryPolicy(max_attempts=1, timeout=60),
+                ),
+                ActionStatement(
+                    ref=sibling_ref,
+                    action="core.noop",
+                    args={},
+                    run_if=sibling_run_if,
+                    retry_policy=ActionRetryPolicy(max_attempts=1, timeout=60),
+                ),
+            ],
+        ),
+        trigger_inputs=InlineObject(data={}),
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test"},
+            actions={"core.noop": "tracecat_registry"},
+        ),
+    )
+
+
 async def run_missing_subflow_with_cancelled_sibling_preserves_causal_owner(
     env: WorkflowEnvironment,
     test_worker_factory,
 ) -> ScenarioObservation:
     """A missing child definition remains causal when a sibling is cancelled."""
-    missing_alias = "deliberately-missing-child"
     slow_started = asyncio.Event()
     slow_cancelled = asyncio.Event()
-
-    async def resolve_missing_alias(*args: object, **kwargs: object) -> None:
-        del args, kwargs
-        await slow_started.wait()
-        return None
 
     async def dispatch_slow_action(*, backend: object, input: object) -> object:
         del backend, input
@@ -271,37 +319,9 @@ async def run_missing_subflow_with_cancelled_sibling_preserves_causal_owner(
             raise
         return {"ok": True}  # pragma: no cover - cancelled by the workflow
 
-    management_service = AsyncMock()
-    management_service.resolve_workflow_alias.side_effect = resolve_missing_alias
-    management_context = AsyncMock()
-    management_context.__aenter__.return_value = management_service
-    run_args = DSLRunArgs(
-        role=_role(),
-        wf_id=WorkflowUUID.new_uuid4(),
-        dsl=DSLInput(
-            title="Missing child with cancelled sibling",
-            description="Preserve the causal subflow classification",
-            entrypoint=DSLEntrypoint(ref="classified_failure"),
-            actions=[
-                ActionStatement(
-                    ref="classified_failure",
-                    action=PlatformAction.CHILD_WORKFLOW_EXECUTE,
-                    args={"workflow_alias": missing_alias},
-                    retry_policy=ActionRetryPolicy(max_attempts=1, timeout=60),
-                ),
-                ActionStatement(
-                    ref="slow_sibling",
-                    action="core.noop",
-                    args={},
-                    retry_policy=ActionRetryPolicy(max_attempts=1, timeout=60),
-                ),
-            ],
-        ),
-        trigger_inputs=InlineObject(data={}),
-        registry_lock=RegistryLock(
-            origins={"tracecat_registry": "test"},
-            actions={"core.noop": "tracecat_registry"},
-        ),
+    management_service, management_context = _missing_alias_management(slow_started)
+    run_args = _missing_child_run_args(
+        title="Missing child with cancelled sibling", sibling_ref="slow_sibling"
     )
     dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
 
@@ -347,6 +367,68 @@ async def run_missing_subflow_with_cancelled_sibling_preserves_causal_owner(
 
     assert slow_started.is_set()
     assert slow_cancelled.is_set()
+    return ScenarioObservation(
+        root=handle,
+        failure=exc_info.value,
+        attempts=management_service.resolve_workflow_alias.await_count,
+    )
+
+
+async def run_missing_subflow_with_cancelled_run_if_preserves_causal_owner(
+    env: WorkflowEnvironment,
+    test_worker_factory,
+) -> ScenarioObservation:
+    """A sibling cancelled while evaluating `run_if` stays cancellation fallout."""
+    run_if_started = asyncio.Event()
+
+    @activity.defn(name="evaluate_single_expression_activity")
+    async def evaluate_until_cancelled(
+        expression: str, operand: ExecutionContext
+    ) -> bool:
+        del expression, operand
+        run_if_started.set()
+        while True:
+            activity.heartbeat()
+            await asyncio.sleep(0.1)
+
+    management_service, management_context = _missing_alias_management(run_if_started)
+    run_args = _missing_child_run_args(
+        title="Missing child with cancelled run_if",
+        sibling_ref="guarded_sibling",
+        sibling_run_if="${{ True }}",
+    )
+    dsl_queue = f"runtime-error-attribution-{uuid.uuid4()}"
+
+    with patch(
+        "tracecat.workflow.management.management.WorkflowsManagementService.with_session",
+        return_value=management_context,
+    ):
+        async with test_worker_factory(
+            env.client,
+            activities=[
+                resolve_time_anchor_activity,
+                resolve_workflow_concurrency_limits_enabled_activity,
+                action_module.DSLActivities.prepare_subflow_activity,
+                WorkflowsManagementService.get_error_handler_workflow_id,
+                evaluate_until_cancelled,
+            ],
+            task_queue=dsl_queue,
+        ):
+            handle = await env.client.start_workflow(
+                DSLWorkflow.run,
+                run_args,
+                id=generate_exec_id(run_args.wf_id),
+                task_queue=dsl_queue,
+            )
+            with pytest.raises(WorkflowFailureError) as exc_info:
+                await handle.result()
+
+    history = await handle.fetch_history()
+    assert any(
+        event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_CANCEL_REQUESTED
+        for event in history.events
+    )
+
     return ScenarioObservation(
         root=handle,
         failure=exc_info.value,

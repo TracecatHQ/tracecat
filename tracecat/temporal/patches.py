@@ -16,6 +16,7 @@ class WorkflowPatch(StrEnum):
         "dsl-preserve-original-error-after-handler-failure-v1"
     )
     PRESERVE_RETURN_CANCELLATION = "dsl-preserve-return-cancellation-v1"
+    PRESERVE_RUN_IF_CANCELLATION = "dsl-preserve-run-if-cancellation-v1"
     PRESERVE_TEMPORAL_CANCELLATION = "dsl-preserve-temporal-cancellation-v1"
     RUNTIME_ERROR_ATTRIBUTION_INTERCEPTOR = "runtime-error-attribution-interceptor-v1"
 

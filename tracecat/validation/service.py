@@ -26,7 +26,7 @@ from tracecat.dsl.common import (
     dependency_cycle_message,
 )
 from tracecat.dsl.enums import PlatformAction
-from tracecat.dsl.schemas import ActionStatement
+from tracecat.dsl.schemas import ActionStatement, ScatterArgs
 from tracecat.exceptions import RegistryValidationError, TracecatNotFoundError
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprType
@@ -297,6 +297,9 @@ async def validate_registry_action_args(
             if action_name == PlatformAction.CHILD_WORKFLOW_EXECUTE:
                 validated = ExecuteSubflowArgs.model_validate(args)
             else:
+                if action_name == PlatformAction.TRANSFORM_SCATTER:
+                    # The scheduler parses scatter args before evaluating expressions
+                    ScatterArgs.model_validate(args)
                 service = RegistryActionsService(session, role=role)
                 action_data = await service.get_action_from_index(action_name)
                 if action_data is None:
