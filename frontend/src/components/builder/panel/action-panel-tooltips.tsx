@@ -179,8 +179,8 @@ export function TimeoutTooltip({ isAgent = false }: { isAgent?: boolean }) {
         <pre className="text-xs text-foreground/70">
           {isAgent ? (
             <>
-              timeout: 10800{" "}
-              <span className="text-xs text-muted-foreground"># 3 hours</span>
+              timeout: 7200{" "}
+              <span className="text-xs text-muted-foreground"># 2 hours</span>
             </>
           ) : (
             <>

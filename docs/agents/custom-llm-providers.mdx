@@ -105,7 +105,7 @@ Test connection or Refresh that fails with `Host is not allowed` means the base 
 
 A run that fails with `Model response timed out after <duration> without receiving data` (or `Gateway timeout` on a non-streaming request) hit `TRACECAT__LLM_PROXY_READ_TIMEOUT`, the read timeout between the sandbox LLM proxy and the gateway. The variable takes seconds, defaults to `600`, and applies to both passthrough and managed routes.
 
-A run that fails with `Agent execution timed out after 10800s` hit the action's `timeout`, which caps active runtime at 10800 seconds (3 hours) when unset. Raise `TRACECAT__AGENT_SANDBOX_TIMEOUT` to allow longer runs. See [Actions](/automations/actions#timeout) for the clamp rule.
+A run that fails with `Agent execution timed out after 7200s` hit the action's `timeout`, which caps active runtime at 7200 seconds (2 hours) when unset. Tracecat clamps explicit values between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT` (default `10800`). A lower ceiling caps both the default and the minimum. See [Actions](/automations/actions#timeout).
 
 ## Related pages
 

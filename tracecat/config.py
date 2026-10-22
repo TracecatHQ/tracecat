@@ -974,7 +974,7 @@ TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
 )
 """Ceiling for agent execution timeouts in seconds.
 
-Per-action agent timeouts clamp to [AGENT_TIMEOUT_SECONDS_DEFAULT, this].
+Per-action agent timeouts clamp to [AGENT_TIMEOUT_SECONDS_FLOOR, this].
 """
 
 TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT = int(

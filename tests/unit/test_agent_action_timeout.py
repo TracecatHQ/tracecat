@@ -9,7 +9,10 @@ import uuid
 import pytest
 
 from tracecat.agent import types as agent_types
-from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
+from tracecat.agent.constants import (
+    AGENT_TIMEOUT_SECONDS_DEFAULT,
+    AGENT_TIMEOUT_SECONDS_FLOOR,
+)
 from tracecat.config import TRACECAT__AGENT_SANDBOX_TIMEOUT
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
 from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement
@@ -25,11 +28,6 @@ def _task(
     return ActionStatement(
         ref="task", action=action, args={}, retry_policy=retry_policy
     )
-
-
-# Default == ceiling out of the box; in-range checks raise the ceiling.
-RAISED_CEILING = 2 * AGENT_TIMEOUT_SECONDS_DEFAULT
-IN_RANGE_TIMEOUT = AGENT_TIMEOUT_SECONDS_DEFAULT + 1
 
 
 def _agent_action(timeout: int) -> dict[str, object]:
@@ -54,17 +52,14 @@ def test_regular_action_keeps_default_timeout() -> None:
     assert _task("core.http_request").retry_policy.timeout == DEFAULT_ACTION_TIMEOUT
 
 
-def test_agent_actions_default_to_three_hours() -> None:
+def test_agent_actions_default_to_two_hours() -> None:
     for action in ("ai.agent", "ai.action", "ai.preset_agent"):
         assert _task(action).retry_policy.timeout == AGENT_TIMEOUT_SECONDS_DEFAULT
 
 
-def test_agent_action_explicit_in_range_timeout_survives(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(agent_types, "TRACECAT__AGENT_SANDBOX_TIMEOUT", RAISED_CEILING)
-    task = _task("ai.agent", ActionRetryPolicy(timeout=IN_RANGE_TIMEOUT))
-    assert task.retry_policy.timeout == IN_RANGE_TIMEOUT
+def test_agent_action_explicit_in_range_timeout_survives() -> None:
+    task = _task("ai.agent", ActionRetryPolicy(timeout=2000))
+    assert task.retry_policy.timeout == 2000
 
 
 def test_agent_action_parsed_without_timeout_gets_default() -> None:
@@ -83,8 +78,8 @@ def test_agent_action_parsed_without_timeout_gets_default() -> None:
 @pytest.mark.parametrize(
     ("timeout", "expected"),
     [
-        (1, AGENT_TIMEOUT_SECONDS_DEFAULT),
-        (900, AGENT_TIMEOUT_SECONDS_DEFAULT),
+        (1, AGENT_TIMEOUT_SECONDS_FLOOR),
+        (900, AGENT_TIMEOUT_SECONDS_FLOOR),
         (100_000, TRACECAT__AGENT_SANDBOX_TIMEOUT),
     ],
 )
@@ -120,7 +115,7 @@ def test_non_agent_actions_are_never_clamped() -> None:
 
 @pytest.mark.parametrize(
     ("timeout", "expected"),
-    [(1, AGENT_TIMEOUT_SECONDS_DEFAULT), (100_000, TRACECAT__AGENT_SANDBOX_TIMEOUT)],
+    [(1, AGENT_TIMEOUT_SECONDS_FLOOR), (100_000, TRACECAT__AGENT_SANDBOX_TIMEOUT)],
 )
 def test_external_workflow_definition_upload_normalizes(
     timeout: int, expected: int
@@ -134,7 +129,7 @@ def test_external_workflow_definition_upload_normalizes(
 def test_legacy_db_row_with_baked_generic_default_clamps_up() -> None:
     """Rows persisted before clamping stored the full ActionControlFlow dump,
     baking the generic 300s default in as an explicit author value. Rebuilding
-    statements from such rows must clamp the timeout up to the agent default."""
+    statements from such rows must clamp the timeout up to the agent floor."""
     from tracecat.db.models import Action
     from tracecat.dsl.common import build_action_statements_from_actions
 
@@ -155,12 +150,10 @@ def test_legacy_db_row_with_baked_generic_default_clamps_up() -> None:
     )
     stmts = build_action_statements_from_actions([legacy_row])
     assert len(stmts) == 1
-    assert stmts[0].retry_policy.timeout == AGENT_TIMEOUT_SECONDS_DEFAULT
+    assert stmts[0].retry_policy.timeout == AGENT_TIMEOUT_SECONDS_FLOOR
 
 
-def test_action_write_api_clamps_out_of_bounds_agent_timeout(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_action_write_api_clamps_out_of_bounds_agent_timeout() -> None:
     """Expand phase: the authoring surface clamps and persists instead of
     rejecting; a follow-up flips this to a 422 once telemetry is quiet."""
     from tracecat.workflow.actions.router import _clamp_agent_timeout
@@ -172,17 +165,14 @@ def test_action_write_api_clamps_out_of_bounds_agent_timeout(
 
     # Out-of-bounds values normalize in place.
     low = clamp("ai.agent", {"retry_policy": {"timeout": 60}})
-    assert low is not None and low.retry_policy.timeout == AGENT_TIMEOUT_SECONDS_DEFAULT
+    assert low is not None and low.retry_policy.timeout == AGENT_TIMEOUT_SECONDS_FLOOR
     high = clamp("ai.agent", {"retry_policy": {"timeout": 100_000}})
     assert high is not None
     assert high.retry_policy.timeout == TRACECAT__AGENT_SANDBOX_TIMEOUT
 
     # In-range, non-agent, unset, and absent control flow are untouched.
-    with monkeypatch.context() as m:
-        m.setattr(agent_types, "TRACECAT__AGENT_SANDBOX_TIMEOUT", RAISED_CEILING)
-        in_range = clamp("ai.agent", {"retry_policy": {"timeout": IN_RANGE_TIMEOUT}})
-    assert in_range is not None
-    assert in_range.retry_policy.timeout == IN_RANGE_TIMEOUT
+    in_range = clamp("ai.agent", {"retry_policy": {"timeout": 2000}})
+    assert in_range is not None and in_range.retry_policy.timeout == 2000
     http = clamp("core.http_request", {"retry_policy": {"timeout": 100_000}})
     assert http is not None and http.retry_policy.timeout == 100_000
     # Omitted timeout (cleared field) resets to the default, persisted
@@ -246,9 +236,7 @@ def test_action_read_does_not_clamp_non_agent_timeout(
 
 
 @pytest.mark.anyio
-async def test_action_create_persists_agent_default_timeout(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_action_create_persists_agent_default_timeout() -> None:
     """New agent actions store the deployment default explicitly; explicit
     values and non-agent actions are untouched."""
     from unittest.mock import AsyncMock, MagicMock
@@ -290,15 +278,11 @@ async def test_action_create_persists_agent_default_timeout(
     )
 
     # Explicit in-range value survives.
-    with monkeypatch.context() as m:
-        m.setattr(agent_types, "TRACECAT__AGENT_SANDBOX_TIMEOUT", RAISED_CEILING)
-        explicit = await create(
-            "ai.agent",
-            ActionControlFlow.model_validate(
-                {"retry_policy": {"timeout": IN_RANGE_TIMEOUT}}
-            ),
-        )
-    assert explicit.control_flow["retry_policy"]["timeout"] == IN_RANGE_TIMEOUT
+    explicit = await create(
+        "ai.agent",
+        ActionControlFlow.model_validate({"retry_policy": {"timeout": 2000}}),
+    )
+    assert explicit.control_flow["retry_policy"]["timeout"] == 2000
 
     # Non-agent actions keep the generic default.
     http = await create("core.http_request", None)
@@ -306,9 +290,7 @@ async def test_action_create_persists_agent_default_timeout(
 
 
 @pytest.mark.anyio
-async def test_graph_add_node_persists_agent_default_timeout(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_graph_add_node_persists_agent_default_timeout() -> None:
     """The builder creates nodes via graph operations, not the actions API —
     the default injection must live on that path too."""
     from unittest.mock import AsyncMock, MagicMock
@@ -353,13 +335,11 @@ async def test_graph_add_node_persists_agent_default_timeout(
         AGENT_TIMEOUT_SECONDS_DEFAULT
     )
     # Explicit in-range timeout survives.
-    with monkeypatch.context() as m:
-        m.setattr(agent_types, "TRACECAT__AGENT_SANDBOX_TIMEOUT", RAISED_CEILING)
-        cf = await add("ai.action", {"retry_policy": {"timeout": IN_RANGE_TIMEOUT}})
-    assert cf["retry_policy"]["timeout"] == IN_RANGE_TIMEOUT
+    cf = await add("ai.action", {"retry_policy": {"timeout": 2000}})
+    assert cf["retry_policy"]["timeout"] == 2000
     # Explicit out-of-bounds values clamp at write (stored == executed).
     cf = await add("ai.agent", {"retry_policy": {"timeout": 60}})
-    assert cf["retry_policy"]["timeout"] == AGENT_TIMEOUT_SECONDS_DEFAULT
+    assert cf["retry_policy"]["timeout"] == AGENT_TIMEOUT_SECONDS_FLOOR
     cf = await add("ai.agent", {"retry_policy": {"timeout": 100_000}})
     assert cf["retry_policy"]["timeout"] == TRACECAT__AGENT_SANDBOX_TIMEOUT
     # Malformed values normalize to the default.

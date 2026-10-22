@@ -1240,7 +1240,7 @@ class TestRunAgentActivity:
             assert result == expected_result
             mock_executor_cls.assert_called_once_with(
                 input=mock_executor_input,
-                timeout_seconds=10800,
+                timeout_seconds=7200,
             )
             set_span_attributes.assert_called_once_with(
                 {

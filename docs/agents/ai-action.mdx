@@ -23,7 +23,7 @@ Use `output_type` when a downstream action needs a predictable shape.
 
 ## Timeouts
 
-`timeout` caps active runtime in seconds. Unset means 10800 seconds (3 hours). See [Actions](/automations/actions#timeout) for the clamp rule and the `retry_policy` shape.
+`timeout` caps active runtime in seconds. Unset means 7200 seconds (2 hours), and Tracecat clamps explicit values between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT`, which defaults to 10800 seconds. See [Actions](/automations/actions#timeout) for the clamp rule and the `retry_policy` shape. A lower ceiling caps both the default and the minimum.
 
 ## Reference
 
