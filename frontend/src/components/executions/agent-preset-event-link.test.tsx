@@ -11,6 +11,12 @@ jest.mock("@/hooks/use-agent-presets", () => ({
   useAgentPresets: (...args: unknown[]) => mockUseAgentPresets(...args),
 }))
 
+let mockCanReadAgents: boolean | undefined = true
+
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: () => mockCanReadAgents,
+}))
+
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
 }))
@@ -54,7 +60,10 @@ describe("getAgentPresetRef", () => {
 })
 
 describe("AgentPresetEventLink", () => {
-  beforeEach(() => mockUseAgentPresets.mockReset())
+  beforeEach(() => {
+    mockUseAgentPresets.mockReset()
+    mockCanReadAgents = true
+  })
 
   it("links to the preset with its name and slug", () => {
     mockUseAgentPresets.mockReturnValue({ presets: [PRESET] })
@@ -90,6 +99,33 @@ describe("AgentPresetEventLink", () => {
     mockUseAgentPresets.mockReturnValue({ presets: undefined })
     render(<AgentPresetEventLink presetRef={PRESET_REF} />)
 
+    expect(screen.queryByText("Deleted agent")).not.toBeInTheDocument()
+    expect(screen.getByText("triage-agent")).toBeInTheDocument()
+  })
+
+  it("never links a slug-only run, since slugs are reusable", () => {
+    mockUseAgentPresets.mockReturnValue({ presets: undefined })
+    render(
+      <AgentPresetEventLink presetRef={{ presetId: null, slug: PRESET.slug }} />
+    )
+
+    expect(mockUseAgentPresets).toHaveBeenCalledWith(
+      "workspace-1",
+      expect.objectContaining({ enabled: false })
+    )
+    expect(screen.queryByRole("link")).not.toBeInTheDocument()
+    expect(screen.getByText("triage-agent")).toBeInTheDocument()
+  })
+
+  it("skips the preset lookup without agent:read", () => {
+    mockCanReadAgents = false
+    mockUseAgentPresets.mockReturnValue({ presets: undefined })
+    render(<AgentPresetEventLink presetRef={PRESET_REF} />)
+
+    expect(mockUseAgentPresets).toHaveBeenCalledWith(
+      "workspace-1",
+      expect.objectContaining({ enabled: false })
+    )
     expect(screen.queryByText("Deleted agent")).not.toBeInTheDocument()
     expect(screen.getByText("triage-agent")).toBeInTheDocument()
   })

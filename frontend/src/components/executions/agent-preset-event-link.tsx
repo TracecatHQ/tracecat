@@ -2,6 +2,7 @@
 
 import { MousePointerClickIcon } from "lucide-react"
 import Link from "next/link"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
 import type { WorkflowExecutionEventCompact } from "@/lib/event-history"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -40,15 +41,15 @@ export function AgentPresetEventLink({
   presetRef: AgentPresetRef
 }) {
   const workspaceId = useWorkspaceId()
+  const canReadAgents = useScopeCheck("agent:read") === true
   // Every agent event mounts one; avoid a list refetch per mount.
   const { presets } = useAgentPresets(workspaceId, {
+    enabled: canReadAgents && presetRef.presetId !== null,
     staleTime: 5 * 60 * 1000,
   })
 
-  // Match by ID so a renamed preset still resolves; slug only for legacy input.
-  const preset = presets?.find((p) =>
-    presetRef.presetId ? p.id === presetRef.presetId : p.slug === presetRef.slug
-  )
+  // Match by ID only: slugs are reusable after delete, so slug-only runs stay unlinked.
+  const preset = presets?.find((p) => p.id === presetRef.presetId)
   const slug = presetRef.slug ?? preset?.slug
 
   let label = null
@@ -61,7 +62,7 @@ export function AgentPresetEventLink({
         {preset.name}
       </Link>
     )
-  } else if (presets && presetRef.presetId) {
+  } else if (presets) {
     label = <span className="italic">Deleted agent</span>
   }
 
