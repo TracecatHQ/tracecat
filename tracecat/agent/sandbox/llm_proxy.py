@@ -86,6 +86,10 @@ from tracecat.runtime.errors import RuntimeErrorClassification, RuntimeErrorKind
 # a 404 "model not found".
 _PASSTHROUGH_VERSION_SUFFIX_RE = re.compile(r"/v\d+/?$")
 _SAFE_ERROR_TOKEN_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+# The jailed runtime chooses inbound trace IDs; only short tokens are logged and
+# forwarded so the gateway can join on the exact value. Keep in sync with the
+# gateway's cap in ``tracecat.agent.gateway``.
+_SAFE_TRACE_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 
 # Socket filename (created in job's socket directory)
 LLM_SOCKET_NAME = "llm.sock"
@@ -924,9 +928,12 @@ def _load_fields() -> dict[str, int]:
 
 
 def _get_or_create_trace_request_id(headers: dict[str, str]) -> str:
-    """Return the incoming trace ID header or generate a new one."""
+    """Return a safe incoming trace ID header or generate a new one."""
     for key, value in headers.items():
-        if key.lower() == _TRACE_REQUEST_ID_HEADER and value:
+        if (
+            key.lower() == _TRACE_REQUEST_ID_HEADER
+            and _SAFE_TRACE_REQUEST_ID_RE.fullmatch(value)
+        ):
             return value
     return str(uuid4())
 

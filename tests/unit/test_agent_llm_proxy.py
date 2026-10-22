@@ -2285,6 +2285,9 @@ async def test_forward_request_does_not_retry_direct_connect_error(
     [
         (False, {}, "generated"),
         (False, {"x-request-id": "trace-inbound"}, "trace-inbound"),
+        # Oversized or unsafe runtime-chosen IDs are replaced, not forwarded.
+        (False, {"x-request-id": "t" * 129}, "generated"),
+        (False, {"x-request-id": "trace id\twith spaces"}, "generated"),
         (True, {}, None),
     ],
 )
@@ -2310,6 +2313,8 @@ async def test_forward_request_sends_trace_request_id_to_gateway(
         assert sent == [[]]
     elif expected == "generated":
         assert len(sent[0]) == 1
+        assert sent[0][0] != inbound_headers.get("x-request-id")
+        assert str(uuid.UUID(sent[0][0])) == sent[0][0]
         assert f"X-Request-ID: {sent[0][0]}" in response_text
     else:
         assert sent == [[expected]]

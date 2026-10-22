@@ -468,8 +468,9 @@ def _trace_request_id(data: dict[str, Any]) -> str | None:
     """Return the LLM socket proxy's ``X-Request-ID`` for log correlation."""
     match data.get("proxy_server_request"):
         case {"headers": {"x-request-id": str() as trace_request_id}}:
-            # Keep the full value so it joins exactly with the proxy's logs.
-            return trace_request_id
+            # The LLM socket proxy only forwards IDs up to 128 characters, so
+            # this cap bounds the log field without breaking the exact join.
+            return trace_request_id[:128]
         case _:
             return None
 

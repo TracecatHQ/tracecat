@@ -668,7 +668,7 @@ async def test_pre_call_hook_filters_model_settings(
         ),
         (
             {"proxy_server_request": {"headers": {"x-request-id": "t" * 129}}},
-            "t" * 129,
+            "t" * 128,
         ),
         ({"proxy_server_request": {"headers": {}}}, None),
         ({}, None),
