@@ -7,6 +7,7 @@ from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import WorkflowTag
+from tracecat.exceptions import TracecatConflictError
 from tracecat.identifiers import TagID
 from tracecat.tags.schemas import TagCreate, TagRead, TagUpdate
 from tracecat.tags.service import TagsService
@@ -58,6 +59,11 @@ async def create_tag(
     service = TagsService(session, role)
     try:
         return await service.create_tag(tag)
+    except TracecatConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
     except IntegrityError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -76,7 +82,13 @@ async def update_tag(
 ) -> WorkflowTag:
     """Update an existing tag."""
     service = TagsService(session, role)
-    tag = await service.get_tag(tag_id)
+    try:
+        tag = await service.get_tag(tag_id)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tag not found",
+        ) from e
     try:
         return await service.update_tag(tag, tag_update)
     except IntegrityError as e:

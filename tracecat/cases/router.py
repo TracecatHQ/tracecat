@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Literal, NoReturn, TypedDict
 
-from asyncpg import DuplicateColumnError
+from asyncpg import DatatypeMismatchError, DuplicateColumnError, UndefinedColumnError
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 from starlette.status import (
@@ -118,6 +118,31 @@ def _raise_case_field_http_error(
 ) -> NoReturn:
     """Convert case-field validation failures into HTTP 400 responses."""
     raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+def _raise_case_field_db_error(
+    err: ProgrammingError, *, field_id: str, new_name: str | None = None
+) -> NoReturn:
+    """Convert case-field DDL failures into HTTP errors, re-raising unknown ones."""
+    root: BaseException = err
+    while (cause := root.__cause__) is not None:
+        root = cause
+    if isinstance(root, DuplicateColumnError):
+        raise HTTPException(
+            status_code=HTTP_409_CONFLICT,
+            detail=f"A field with the name '{new_name}' already exists",
+        ) from err
+    if isinstance(root, UndefinedColumnError):
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail=f"Field '{field_id}' not found",
+        ) from err
+    if isinstance(root, DatatypeMismatchError):
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=f"Field '{field_id}' values cannot be converted to the requested type",
+        ) from err
+    raise err
 
 
 async def _build_case_read(
@@ -1006,16 +1031,8 @@ async def create_field(
         await service.create_field(params)
     except (ValueError, TracecatValidationError) as exc:
         _raise_case_field_http_error(exc)
-    except ProgrammingError as e:
-        # Drill down to the root cause
-        while (cause := e.__cause__) is not None:
-            e = cause
-        if isinstance(e, DuplicateColumnError):
-            raise HTTPException(
-                status_code=HTTP_409_CONFLICT,
-                detail=f"A field with the name '{params.name}' already exists",
-            ) from e
-        raise
+    except ProgrammingError as err:
+        _raise_case_field_db_error(err, field_id=params.name, new_name=params.name)
     return await _read_case_field(service, params.name)
 
 
@@ -1035,14 +1052,7 @@ async def update_field(
     except (ValueError, TracecatValidationError) as exc:
         _raise_case_field_http_error(exc)
     except ProgrammingError as err:
-        while (cause := err.__cause__) is not None:
-            err = cause
-        if isinstance(err, DuplicateColumnError):
-            raise HTTPException(
-                status_code=HTTP_409_CONFLICT,
-                detail=f"A field with the name '{params.name}' already exists",
-            ) from err
-        raise
+        _raise_case_field_db_error(err, field_id=field_id, new_name=params.name)
     return await _read_case_field(service, params.name or field_id)
 
 
@@ -1060,6 +1070,8 @@ async def delete_field(
         await service.delete_field(field_id)
     except (ValueError, TracecatValidationError) as exc:
         _raise_case_field_http_error(exc)
+    except ProgrammingError as err:
+        _raise_case_field_db_error(err, field_id=field_id)
 
 
 # Case Events

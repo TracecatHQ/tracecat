@@ -6,7 +6,7 @@ from types import ModuleType
 from unittest.mock import ANY, AsyncMock, patch
 
 import pytest
-from asyncpg import DuplicateColumnError
+from asyncpg import DatatypeMismatchError, DuplicateColumnError, UndefinedColumnError
 from fastapi import status
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import ProgrammingError
@@ -15,6 +15,7 @@ from tracecat.auth.types import Role
 from tracecat.cases import filters as case_filters
 from tracecat.cases import internal_router as internal_cases_router
 from tracecat.cases import router as cases_router
+from tracecat.cases.dropdowns import router as case_dropdowns_router
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.enums import (
     CaseEventType,
@@ -233,6 +234,38 @@ async def test_create_case_field_accepts_long_text_kind(
 
 
 @pytest.mark.anyio
+async def test_duplicate_dropdown_definition_maps_to_http_409(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(
+        case_dropdowns_router, "CaseDropdownDefinitionsService"
+    ) as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.create_definition.side_effect = TracecatValidationError(
+            "Dropdown definition with this ref already exists"
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.post(
+            "/case-dropdowns",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "name": "Synthetic dropdown",
+                "ref": "synthetic_duplicate_ref",
+                "is_ordered": False,
+                "options": [],
+                "required_on_closure": False,
+            },
+        )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert (
+        response.json()["detail"] == "Dropdown definition with this ref already exists"
+    )
+
+
+@pytest.mark.anyio
 async def test_list_case_fields_preserves_reserved_uuid_type(
     client: TestClient,
     test_admin_role: Role,
@@ -309,11 +342,14 @@ async def test_case_field_kind_validation_rejects_before_service(
     mock_service_cls.assert_not_called()
 
 
-def _duplicate_column_error() -> ProgrammingError:
-    duplicate_error = DuplicateColumnError("Column already exists")
-    programming_error = ProgrammingError("", {}, duplicate_error)
-    programming_error.__cause__ = duplicate_error
+def _programming_error(cause: Exception) -> ProgrammingError:
+    programming_error = ProgrammingError("", {}, cause)
+    programming_error.__cause__ = cause
     return programming_error
+
+
+def _duplicate_column_error() -> ProgrammingError:
+    return _programming_error(DuplicateColumnError("Column already exists"))
 
 
 @pytest.mark.anyio
@@ -383,6 +419,46 @@ def _duplicate_column_error() -> ProgrammingError:
             status.HTTP_409_CONFLICT,
             "A field with the name 'duplicate_name' already exists",
             id="update-duplicate-name",
+        ),
+        pytest.param(
+            "POST",
+            "/case-fields",
+            {"name": "existing_field", "type": "TEXT"},
+            "create_field",
+            _duplicate_column_error(),
+            status.HTTP_409_CONFLICT,
+            "A field with the name 'existing_field' already exists",
+            id="create-duplicate-name",
+        ),
+        pytest.param(
+            "PATCH",
+            "/case-fields/missing_field",
+            {"nullable": True},
+            "update_field",
+            _programming_error(UndefinedColumnError("Column does not exist")),
+            status.HTTP_404_NOT_FOUND,
+            "Field 'missing_field' not found",
+            id="update-missing-column",
+        ),
+        pytest.param(
+            "DELETE",
+            "/case-fields/missing_field",
+            None,
+            "delete_field",
+            _programming_error(UndefinedColumnError("Column does not exist")),
+            status.HTTP_404_NOT_FOUND,
+            "Field 'missing_field' not found",
+            id="delete-missing-column",
+        ),
+        pytest.param(
+            "PATCH",
+            "/case-fields/text_field",
+            {"type": "INTEGER"},
+            "update_field",
+            _programming_error(DatatypeMismatchError("Cannot cast")),
+            status.HTTP_400_BAD_REQUEST,
+            "Field 'text_field' values cannot be converted to the requested type",
+            id="update-type-mismatch",
         ),
     ],
 )

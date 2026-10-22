@@ -11,6 +11,7 @@ from tracecat.identifiers import VariableID
 from tracecat.logger import logger
 from tracecat.variables.schemas import (
     VariableCreate,
+    VariableName,
     VariableRead,
     VariableReadMinimal,
     VariableSearch,
@@ -28,7 +29,7 @@ async def search_variables(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     environment: str | None = Query(None),
-    names: set[str] | None = Query(
+    names: set[VariableName] | None = Query(
         None, alias="name", description="Filter by variable name"
     ),
     ids: set[VariableID] | None = Query(

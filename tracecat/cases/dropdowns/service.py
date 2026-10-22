@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from typing import Protocol, cast
 
+from asyncpg import UniqueViolationError
 from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -28,6 +30,27 @@ from tracecat.db.models import (
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
+
+
+class _UniqueViolationWithConstraint(Protocol):
+    constraint_name: str | None
+
+
+def _get_unique_constraint_name(error: BaseException) -> str | None:
+    errors = [error]
+    seen: set[int] = set()
+    while errors:
+        current = errors.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, UniqueViolationError):
+            return cast(_UniqueViolationWithConstraint, current).constraint_name
+        if current.__cause__ is not None:
+            errors.append(current.__cause__)
+        if current.__context__ is not None:
+            errors.append(current.__context__)
+    return None
 
 
 class CaseDropdownDefinitionsService(BaseWorkspaceService):
@@ -118,26 +141,33 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             position=params.position,
         )
         self.session.add(definition)
-        await self.session.flush()
-
-        for opt in params.options:
-            option = CaseDropdownOption(
-                definition_id=definition.id,
-                label=opt.label,
-                ref=opt.ref,
-                icon_name=opt.icon_name,
-                color=opt.color,
-                position=opt.position,
-            )
-            self.session.add(option)
-
         try:
+            await self.session.flush()
+
+            for opt in params.options:
+                option = CaseDropdownOption(
+                    definition_id=definition.id,
+                    label=opt.label,
+                    ref=opt.ref,
+                    icon_name=opt.icon_name,
+                    color=opt.color,
+                    position=opt.position,
+                )
+                self.session.add(option)
+
             await self.session.commit()
         except IntegrityError as err:
             await self.session.rollback()
-            raise TracecatValidationError(
-                "Dropdown definition with this ref already exists"
-            ) from err
+            if not isinstance(err.orig, BaseException):
+                raise
+            constraint_name = _get_unique_constraint_name(err.orig)
+            if constraint_name == "uq_case_dropdown_definition_ref_workspace":
+                message = "Dropdown definition with this ref already exists"
+            elif constraint_name == "uq_case_dropdown_option_ref_definition":
+                message = "Dropdown option with this ref already exists"
+            else:
+                raise
+            raise TracecatValidationError(message) from err
         await self.session.refresh(definition)
         return definition
 

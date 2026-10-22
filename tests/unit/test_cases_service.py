@@ -203,6 +203,50 @@ async def _create_dropdown_with_option(
     return definition, option
 
 
+@pytest.mark.anyio
+async def test_duplicate_dropdown_definition_ref_returns_validation_error(
+    cases_service: CasesService,
+) -> None:
+    service = CaseDropdownDefinitionsService(
+        session=cases_service.session, role=cases_service.role
+    )
+    params = CaseDropdownDefinitionCreate(
+        name="Synthetic dropdown",
+        ref=f"duplicate-{uuid.uuid4().hex}",
+        is_ordered=False,
+        options=[],
+        required_on_closure=False,
+    )
+
+    await service.create_definition(params)
+
+    with pytest.raises(TracecatValidationError, match="definition with this ref"):
+        await service.create_definition(params)
+
+
+@pytest.mark.anyio
+async def test_duplicate_dropdown_option_ref_returns_validation_error(
+    cases_service: CasesService,
+) -> None:
+    service = CaseDropdownDefinitionsService(
+        session=cases_service.session, role=cases_service.role
+    )
+    duplicate_option_ref = f"duplicate-{uuid.uuid4().hex}"
+    params = CaseDropdownDefinitionCreate(
+        name="Synthetic dropdown",
+        ref=f"dropdown-{uuid.uuid4().hex}",
+        is_ordered=False,
+        options=[
+            CaseDropdownOptionCreate(label="First", ref=duplicate_option_ref),
+            CaseDropdownOptionCreate(label="Second", ref=duplicate_option_ref),
+        ],
+        required_on_closure=False,
+    )
+
+    with pytest.raises(TracecatValidationError, match="option with this ref"):
+        await service.create_definition(params)
+
+
 def _assert_batch_audit_calls(
     mock_create_event: AsyncMock,
     *,

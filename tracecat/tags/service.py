@@ -7,6 +7,7 @@ from sqlalchemy import select
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import WorkflowTag
+from tracecat.exceptions import TracecatConflictError
 from tracecat.identifiers import TagID
 from tracecat.service import BaseWorkspaceService
 from tracecat.tags.schemas import TagCreate, TagUpdate
@@ -62,7 +63,7 @@ class TagsService(BaseWorkspaceService):
             )
         )
         if existing.one_or_none():
-            raise ValueError(f"Tag with slug '{ref}' already exists")
+            raise TracecatConflictError("Tag with this name already exists")
 
         db_tag = WorkflowTag(
             name=tag.name, ref=ref, workspace_id=self.workspace_id, color=tag.color
