@@ -29522,6 +29522,7 @@ export const $ScheduleCreate = {
     },
     timeout: {
       type: "number",
+      minimum: 0,
       title: "Timeout",
       description:
         "The maximum number of seconds to wait for the workflow to complete",

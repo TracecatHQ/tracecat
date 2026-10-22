@@ -14331,6 +14331,13 @@ export type SchedulesCreateScheduleData = {
 
 export type SchedulesCreateScheduleResponse = ScheduleRead
 
+export type SchedulesSearchSchedulesData = {
+  params: ScheduleSearch
+  workspaceId: string
+}
+
+export type SchedulesSearchSchedulesResponse = Array<ScheduleRead>
+
 export type SchedulesGetScheduleData = {
   scheduleId: string
   workspaceId: string
@@ -14352,13 +14359,6 @@ export type SchedulesDeleteScheduleData = {
 }
 
 export type SchedulesDeleteScheduleResponse = void
-
-export type SchedulesSearchSchedulesData = {
-  requestBody: ScheduleSearch
-  workspaceId: string
-}
-
-export type SchedulesSearchSchedulesResponse = Array<ScheduleRead>
 
 export type TagsListTagsData = {
   workspaceId: string
@@ -19954,6 +19954,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/schedules/search": {
+    get: {
+      req: SchedulesSearchSchedulesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ScheduleRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/schedules/{schedule_id}": {
     get: {
       req: SchedulesGetScheduleData
@@ -19988,21 +20003,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/schedules/search": {
-    get: {
-      req: SchedulesSearchSchedulesData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<ScheduleRead>
         /**
          * Validation Error
          */

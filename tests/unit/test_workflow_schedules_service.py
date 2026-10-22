@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.exceptions import ApplicationError
 
@@ -13,11 +14,14 @@ from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import EDITOR_SCOPES
+from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Schedule, Workflow
+from tracecat.db.session_events import AfterCommitQueue
 from tracecat.exceptions import (
     ScopeDeniedError,
     TracecatConflictError,
     TracecatNotFoundError,
+    TracecatValidationError,
 )
 from tracecat.identifiers import ScheduleUUID, WorkspaceID
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -31,6 +35,7 @@ from tracecat.workflow.schedules import bridge
 from tracecat.workflow.schedules.schemas import (
     GetScheduleActivityInputs,
     ScheduleCreate,
+    ScheduleRead,
     ScheduleUpdate,
 )
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
@@ -204,6 +209,154 @@ async def test_update_schedule_updates_existing_schedule(
 
     assert updated.status == "online"
     assert updated_temporal_schedule_ids == [schedule.id]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("use_cron", [True, False])
+async def test_update_schedule_persists_only_the_active_spec(
+    session: AsyncSession,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+    use_cron: bool,
+) -> None:
+    assert svc_role.workspace_id is not None
+    _, schedule = await _create_workflow_with_schedule(session, svc_role.workspace_id)
+    if not use_cron:
+        schedule.cron = "0 0 * * *"
+        schedule.every = None
+        await session.commit()
+    else:
+        schedule.offset = timedelta(minutes=10)
+        await session.commit()
+    temporal_update = AsyncMock()
+    monkeypatch.setattr(bridge, "update_schedule", temporal_update)
+    params = (
+        ScheduleUpdate(cron="0 9 * * *")
+        if use_cron
+        else ScheduleUpdate(every=timedelta(hours=2))
+    )
+    updated = await WorkflowSchedulesService(session, role=svc_role).update_schedule(
+        schedule.id, params
+    )
+    await session.refresh(updated)
+    response = ScheduleRead.model_validate(updated)
+    assert response.cron == ("0 9 * * *" if use_cron else None)
+    assert response.every == (None if use_cron else timedelta(hours=2))
+    assert response.offset is None
+    temporal_update.assert_awaited_once()
+    assert temporal_update.await_args is not None
+    sent_params = temporal_update.await_args.args[1]
+    assert sent_params.cron == response.cron
+    assert sent_params.every == response.every
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("use_cron", [True, False])
+async def test_update_cannot_remove_the_active_spec(
+    session: AsyncSession,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+    use_cron: bool,
+) -> None:
+    assert svc_role.workspace_id is not None
+    _, schedule = await _create_workflow_with_schedule(session, svc_role.workspace_id)
+    if use_cron:
+        schedule.cron = "0 0 * * *"
+        schedule.every = None
+        await session.commit()
+    temporal_update = AsyncMock()
+    monkeypatch.setattr(bridge, "update_schedule", temporal_update)
+    queue = AfterCommitQueue.of(session)
+    with patch.object(session, "commit", AsyncMock()) as commit:
+        with pytest.raises(TracecatValidationError, match="Either cron or every"):
+            await WorkflowSchedulesService(session, role=svc_role).update_schedule(
+                schedule.id,
+                ScheduleUpdate(cron=None) if use_cron else ScheduleUpdate(every=None),
+            )
+        commit.assert_not_awaited()
+    assert queue.callbacks == []
+    temporal_update.assert_not_awaited()
+    assert schedule.cron == ("0 0 * * *" if use_cron else None)
+    assert schedule.every == (None if use_cron else timedelta(hours=1))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("change_every", [True, False])
+async def test_update_validates_offset_against_persisted_interval(
+    session: AsyncSession, svc_role: Role, change_every: bool
+) -> None:
+    assert svc_role.workspace_id is not None
+    _, schedule = await _create_workflow_with_schedule(session, svc_role.workspace_id)
+    schedule.offset = timedelta(minutes=30)
+    await session.commit()
+    params = (
+        ScheduleUpdate(every=timedelta(minutes=15))
+        if change_every
+        else ScheduleUpdate(offset=timedelta(hours=2))
+    )
+    with patch.object(session, "commit", AsyncMock()) as commit:
+        with pytest.raises(
+            TracecatValidationError, match="offset must be less than every"
+        ):
+            await WorkflowSchedulesService(session, role=svc_role).update_schedule(
+                schedule.id, params
+            )
+        commit.assert_not_awaited()
+    assert AfterCommitQueue.of(session).callbacks == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("operation", ["update", "delete"])
+async def test_schedule_deleted_while_waiting_for_lock_is_not_found(
+    svc_role: Role, operation: str
+) -> None:
+    assert svc_role.workspace_id is not None
+    async with (
+        get_async_session_context_manager() as session,
+        get_async_session_context_manager() as contender,
+        get_async_session_context_manager() as observer,
+    ):
+        workflow, schedule = await _create_workflow_with_schedule(
+            session, svc_role.workspace_id
+        )
+        schedule_id = schedule.id
+        workflow_id = workflow.id
+        await WorkflowSchedulesService(
+            session, role=svc_role
+        )._get_schedule_with_workflow_lock(schedule_id)
+        pid = await contender.scalar(text("SELECT pg_backend_pid()"))
+        service = WorkflowSchedulesService(contender, role=svc_role)
+
+        async def mutate_schedule() -> None:
+            if operation == "update":
+                await service.update_schedule(
+                    schedule_id, ScheduleUpdate(status="online")
+                )
+            else:
+                await service.delete_schedule(schedule_id)
+
+        task = asyncio.create_task(mutate_schedule())
+        try:
+            async with asyncio.timeout(5):
+                while not await observer.scalar(
+                    text(
+                        "SELECT wait_event_type = 'Lock' FROM pg_stat_activity WHERE pid = :pid"
+                    ),
+                    {"pid": pid},
+                ):
+                    await asyncio.sleep(0.01)
+            await session.delete(schedule)
+            await session.commit()
+            with pytest.raises(TracecatNotFoundError):
+                await task
+        finally:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            await contender.rollback()
+            await session.rollback()
+            await session.execute(delete(Workflow).where(Workflow.id == workflow_id))
+            await session.commit()
 
 
 @pytest.mark.anyio

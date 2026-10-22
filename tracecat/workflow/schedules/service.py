@@ -11,7 +11,11 @@ from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import Schedule, Workflow
 from tracecat.db.session_events import AfterCommitQueue
-from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers import ScheduleUUID, WorkflowID
 from tracecat.identifiers.schedules import AnyScheduleID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
@@ -278,7 +282,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                 Schedule.id == schedule_uuid,
                 Workflow.workspace_id == self.workspace_id,
             )
-            .with_for_update(of=Workflow)
+            .with_for_update(of=(Workflow, Schedule))
         )
         try:
             return result.scalar_one()
@@ -316,8 +320,26 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         """
         schedule = await self._get_schedule_with_workflow_lock(schedule_id)
 
+        updates = params.model_dump(exclude_unset=True)
+        if params.cron is not None:
+            updates["every"] = None
+            updates["offset"] = None
+        elif params.every is not None:
+            updates["cron"] = None
+            if schedule.every is None and "offset" not in updates:
+                updates["offset"] = None
+        every = updates.get("every", schedule.every)
+        offset = updates.get("offset", schedule.offset)
+        if updates.get("cron", schedule.cron) is None and every is None:
+            raise TracecatValidationError(
+                "Either cron or every must be provided for a schedule"
+            )
+        if every is not None and offset is not None and offset >= every:
+            raise TracecatValidationError("Schedule offset must be less than every")
+        temporal_params = ScheduleUpdate.model_validate(updates)
+
         # Update the schedule in DB first
-        for key, value in params.model_dump(exclude_unset=True).items():
+        for key, value in updates.items():
             # Safety: params have been validated
             setattr(schedule, key, value)
 
@@ -326,7 +348,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         # After-commit callback to update Temporal schedule
         async def _update_schedule():
             try:
-                await bridge.update_schedule(schedule_id, params)
+                await bridge.update_schedule(schedule_id, temporal_params)
                 logger.info(
                     "Updated schedule",
                     schedule_id=schedule_id,

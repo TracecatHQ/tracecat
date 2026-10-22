@@ -19,7 +19,7 @@ from starlette.status import (
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
-from temporalio.service import RPCError
+from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat.agent.authoring_context import (
     WorkflowAuthoringContextResponse,
@@ -867,7 +867,7 @@ async def execute_workflow(
         logger.error("Failed to build DSL from definition", error=str(e))
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to build DSL for workflow '{wf_id}': {e}",
+            detail="Failed to build workflow definition",
         ) from e
 
     # Start workflow execution
@@ -904,11 +904,20 @@ async def execute_workflow(
             workflow_execution_id=response["wf_exec_id"],
             message=response["message"],
         )
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail={
+                "type": "TracecatValidationError",
+                "message": str(e),
+                "detail": e.detail,
+            },
+        ) from e
     except Exception as e:
         logger.error("Failed to start workflow execution", error=str(e))
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start workflow execution: {e}",
+            detail="Failed to start workflow execution",
         ) from e
 
 
@@ -1038,7 +1047,7 @@ async def get_execution_status(
         )
 
     except RPCError as e:
-        if "not found" in str(e).lower():
+        if e.status == RPCStatusCode.NOT_FOUND:
             raise HTTPException(
                 status_code=HTTP_404_NOT_FOUND,
                 detail=f"Workflow execution '{execution_id}' not found",
@@ -1046,7 +1055,7 @@ async def get_execution_status(
         logger.error("RPC error getting execution status", error=str(e))
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get execution status: {e}",
+            detail="Failed to get execution status",
         ) from e
     except HTTPException:
         raise
@@ -1054,5 +1063,5 @@ async def get_execution_status(
         logger.error("Failed to get execution status", error=str(e))
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get execution status: {e}",
+            detail="Failed to get execution status",
         ) from e

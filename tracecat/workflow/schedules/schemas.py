@@ -31,10 +31,10 @@ class ScheduleCreate(BaseModel):
     inputs: dict[str, Any] | None = None
     cron: str | None = None
     every: timedelta | None = Field(
-        default=None, description="ISO 8601 duration string"
+        default=None, ge=timedelta(seconds=1), description="ISO 8601 duration string"
     )
     offset: timedelta | None = Field(
-        default=None, description="ISO 8601 duration string"
+        default=None, ge=timedelta(0), description="ISO 8601 duration string"
     )
     start_at: datetime | None = Field(
         default=None, description="ISO 8601 datetime string"
@@ -45,6 +45,8 @@ class ScheduleCreate(BaseModel):
     status: Literal["online", "offline"] = "online"
     timeout: float = Field(
         default=0,
+        ge=0,
+        allow_inf_nan=False,
         description="The maximum number of seconds to wait for the workflow to complete",
     )
 
@@ -55,12 +57,18 @@ class ScheduleCreate(BaseModel):
             raise ValueError("Either cron or every must be provided for a schedule")
         if self.cron is not None and self.every is not None:
             raise ValueError("Only one of cron or every may be provided for a schedule")
+        if (
+            self.every is not None
+            and self.offset is not None
+            and self.offset >= self.every
+        ):
+            raise ValueError("Schedule offset must be less than every")
         return self
 
     @field_validator("cron")
     @classmethod
     def validate_cron_expression(cls, cron: str | None) -> str | None:
-        if cron and not croniter.is_valid(cron):
+        if cron is not None and not croniter.is_valid(cron):
             raise ValueError(f"Invalid cron expression: {cron}")
         return cron
 
@@ -69,10 +77,10 @@ class ScheduleUpdate(BaseModel):
     inputs: dict[str, Any] | None = None
     cron: str | None = None
     every: timedelta | None = Field(
-        default=None, description="ISO 8601 duration string"
+        default=None, ge=timedelta(seconds=1), description="ISO 8601 duration string"
     )
     offset: timedelta | None = Field(
-        default=None, description="ISO 8601 duration string"
+        default=None, ge=timedelta(0), description="ISO 8601 duration string"
     )
     start_at: datetime | None = Field(
         default=None, description="ISO 8601 datetime string"
@@ -84,15 +92,35 @@ class ScheduleUpdate(BaseModel):
     timeout: float | None = Field(
         default=None,
         ge=0,
+        allow_inf_nan=False,
         description="The maximum number of seconds to wait for the workflow to complete",
     )
 
     @field_validator("cron")
     @classmethod
     def validate_cron_expression(cls, cron: str | None) -> str | None:
-        if cron and not croniter.is_valid(cron):
+        if cron is not None and not croniter.is_valid(cron):
             raise ValueError(f"Invalid cron expression: {cron}")
         return cron
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, status: str | None) -> str:
+        if status is None:
+            raise ValueError("Schedule status cannot be null")
+        return status
+
+    @model_validator(mode="after")
+    def validate_schedule_spec(self) -> "ScheduleUpdate":
+        if self.cron is not None and self.every is not None:
+            raise ValueError("Only one of cron or every may be provided for a schedule")
+        if (
+            self.every is not None
+            and self.offset is not None
+            and self.offset >= self.every
+        ):
+            raise ValueError("Schedule offset must be less than every")
+        return self
 
 
 class ScheduleSearch(BaseModel):
