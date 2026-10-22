@@ -401,6 +401,7 @@ class TestActionRunner:
         base_dir = temp_cache_dir / "base"
         base_dir.mkdir()
         captured_env: dict[str, str] = {}
+        captured_handover_env: dict[str, str] = {}
         resolved_context = ResolvedContext(
             action_impl=ActionImplementation(
                 type="udf",
@@ -422,6 +423,7 @@ class TestActionRunner:
         ) -> SandboxResult:
             assert _executor.cgroup_mount == delegated_cgroup
             captured_env.update(sandbox_config.env_vars)
+            captured_handover_env.update(sandbox_config.handover_env)
             return SandboxResult(success=True, output={"data": "test"})
 
         monkeypatch.setattr(
@@ -439,8 +441,11 @@ class TestActionRunner:
         )
 
         assert result == {"data": "test"}
+        # The token is per-action, so a pre-spawned jail must never start with it.
+        assert "TRACECAT__EXECUTOR_TOKEN" not in captured_env
         assert (
-            captured_env["TRACECAT__EXECUTOR_TOKEN"] == resolved_context.executor_token
+            captured_handover_env["TRACECAT__EXECUTOR_TOKEN"]
+            == resolved_context.executor_token
         )
 
     @pytest.mark.anyio

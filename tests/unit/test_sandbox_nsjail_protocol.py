@@ -441,6 +441,7 @@ async def test_workload_start_proof_is_scoped_to_each_nsjail_invocation(
         process: object,
         *,
         timeout: float,
+        input: bytes | None = None,  # noqa: A002
     ) -> tuple[bytes, bytes]:
         nonlocal invocation
         invocation += 1

@@ -958,6 +958,24 @@ TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE = float(
 Covers sandbox startup, imports, and result serialization around the timed
 function call, which the action runner enforces itself."""
 
+TRACECAT__EXECUTOR_WARM_JAILS_ENABLED = env_bool(
+    "TRACECAT__EXECUTOR_WARM_JAILS_ENABLED", default=False
+)
+"""Hand sandboxed actions to pre-spawned, single-use nsjail jails (default: false).
+
+A warm jail has already started Python and imported the registry stack. It
+receives exactly one action's payload over stdin and is then discarded."""
+
+TRACECAT__EXECUTOR_WARM_JAILS_MAX = bound_env(
+    "TRACECAT__EXECUTOR_WARM_JAILS_MAX", 2, lower=1, upper=32
+)
+"""Most warm jails, idle or starting, one executor process keeps (default: 2)."""
+
+TRACECAT__EXECUTOR_WARM_JAIL_IDLE_SECONDS = bound_env(
+    "TRACECAT__EXECUTOR_WARM_JAIL_IDLE_SECONDS", 60.0, lower=1.0, upper=600.0
+)
+"""Seconds an unused warm jail lives before it is discarded (default: 60)."""
+
 # === Action Gateway === #
 TRACECAT__ACTION_GATEWAY_SOCKET = (
     os.environ.get("TRACECAT__ACTION_GATEWAY_SOCKET")

@@ -112,6 +112,11 @@ class EphemeralBackend(ExecutorBackend):
             return ExecutorResultFailure(error=result)
         return ExecutorResultSuccess(result=result)
 
+    async def shutdown(self) -> None:
+        """Discard idle warm jails before the worker exits."""
+        if (warm_jails := get_action_runner().warm_jails) is not None:
+            await warm_jails.close()
+
     async def _get_artifact_uris(
         self,
         input: RunActionInput,

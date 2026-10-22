@@ -1,5 +1,6 @@
 """nsjail executor for sandboxed Python execution."""
 
+import dataclasses
 import os
 import re
 import signal
@@ -23,7 +24,13 @@ from tracecat.sandbox.exceptions import (
     SandboxValidationError,
 )
 from tracecat.sandbox.networking import resolve_sandbox_network_plan
-from tracecat.sandbox.nsjail_protocol import NsjailCompletedProcess, invoke_nsjail
+from tracecat.sandbox.nsjail_protocol import (
+    NsjailCompletedProcess,
+    NsjailProcess,
+    finish_nsjail,
+    invoke_nsjail,
+    start_nsjail,
+)
 from tracecat.sandbox.result_envelope import (
     ResultEnvelopeOutcome,
     decode_result_envelope,
@@ -56,6 +63,9 @@ class ActionSandboxConfig:
         tracecat_app_dir: Directory containing tracecat package (not mounted in untrusted mode).
         site_packages_dir: Directory containing Python site-packages (not mounted in untrusted mode).
         env_vars: Environment variables to inject (SDK context, NOT DB credentials).
+        handover_env: Per-action environment variables. A cold jail receives
+            them in its process environment; a warm jail receives them over
+            stdin at hand-over, so they are never part of a pre-spawned jail.
         action_gateway_socket: Optional host-side action gateway Unix socket to bind
             into the sandbox for SDK calls.
         action_gateway_socket_mount_path: Socket path visible inside the sandbox.
@@ -68,6 +78,7 @@ class ActionSandboxConfig:
     tracecat_app_dir: Path
     site_packages_dir: Path | None = None
     env_vars: dict[str, str] = field(default_factory=dict)
+    handover_env: dict[str, str] = field(default_factory=dict)
     action_gateway_socket: Path | None = None
     action_gateway_socket_mount_path: Path = Path(
         "/var/run/tracecat/action-gateway.sock"
@@ -95,7 +106,12 @@ SANDBOX_BASE_ENV = {
     "LC_ALL": "C.UTF-8",
 }
 
-SANDBOX_PROTECTED_ENV_VARS = frozenset({"TRACECAT__SANDBOX_RLIMIT_NPROC"})
+WARM_HANDOVER_ENV_VAR = "TRACECAT__SANDBOX_WARM_HANDOVER"
+"""Tells the action runner to pre-import and then read its payload from stdin."""
+
+SANDBOX_PROTECTED_ENV_VARS = frozenset(
+    {"TRACECAT__SANDBOX_RLIMIT_NPROC", WARM_HANDOVER_ENV_VAR}
+)
 """Host-injected sandbox environment variables users cannot override."""
 
 _NSJAIL_HINT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
@@ -292,6 +308,23 @@ def _validate_env_key(key: str) -> None:
             f"Invalid environment variable key: {key!r}. "
             "Keys must match pattern [A-Za-z_][A-Za-z0-9_]*"
         )
+
+
+def validate_action_env(env_vars: dict[str, str]) -> None:
+    """Reject env var names a caller may not set in an action jail.
+
+    Warm jails apply ``handover_env`` inside the jail, so the pool runs this
+    same check on it before hand-over.
+
+    Raises:
+        SandboxValidationError: If a key is malformed or host-protected.
+    """
+    for key in env_vars:
+        _validate_env_key(key)
+        if key in SANDBOX_PROTECTED_ENV_VARS:
+            raise SandboxValidationError(
+                f"Cannot override protected sandbox env var: {key}"
+            )
 
 
 def _validate_path(path: Path, name: str) -> None:
@@ -1017,8 +1050,13 @@ class NsjailExecutor:
     def _build_action_env_map(
         self,
         config: ActionSandboxConfig,
+        *,
+        warm: bool = False,
     ) -> dict[str, str]:
-        """Construct environment for action sandbox execution (untrusted mode)."""
+        """Construct environment for action sandbox execution (untrusted mode).
+
+        A warm jail gets the hand-over marker instead of ``handover_env``.
+        """
         env_map: dict[str, str] = {**SANDBOX_BASE_ENV}
 
         # Set PYTHONPATH with multiple registry paths: /packages/0:/packages/1:...
@@ -1032,18 +1070,16 @@ class NsjailExecutor:
             env_map["PYTHONPATH"] = ":".join(pythonpath_parts)
 
         # Add user-provided env vars (SDK context, NOT DB credentials)
-        for key, value in config.env_vars.items():
-            _validate_env_key(key)
-            if key in SANDBOX_PROTECTED_ENV_VARS:
-                raise SandboxValidationError(
-                    f"Cannot override protected sandbox env var: {key}"
-                )
-            env_map[key] = value
+        env_vars = config.env_vars if warm else config.env_vars | config.handover_env
+        validate_action_env(env_vars)
+        env_map.update(env_vars)
 
         # Enforce the process cap inside the jail: nsjail cannot apply
         # rlimit_nproc under clone_newuser, so the trusted minimal runner
         # applies this injected value before untrusted code runs.
         env_map["TRACECAT__SANDBOX_RLIMIT_NPROC"] = str(config.resources.max_processes)
+        if warm:
+            env_map[WARM_HANDOVER_ENV_VAR] = "1"
 
         return env_map
 
@@ -1087,8 +1123,82 @@ class NsjailExecutor:
             workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
             workload_started_marker=_WORKLOAD_STARTED_MARKER,
         )
-        returncode = completed.returncode
+        return self._action_result(completed, job_dir, start_time)
 
+    async def spawn_action(
+        self,
+        job_dir: Path,
+        config: ActionSandboxConfig,
+        *,
+        idle_seconds: float,
+    ) -> NsjailProcess:
+        """Launch a warm action jail that waits for its payload on stdin.
+
+        The jail is configured exactly like ``execute_action`` would configure
+        it, except ``handover_env`` is withheld until ``handover_action``. Its
+        nsjail ``time_limit`` also covers up to ``idle_seconds`` of waiting.
+
+        Args:
+            job_dir: Fresh directory for this jail (mounted at /work).
+            config: Action sandbox configuration; ``handover_env`` is ignored.
+            idle_seconds: Longest the caller keeps the jail before hand-over.
+
+        Returns:
+            The launched nsjail process with its stdin pipe open.
+        """
+        jail_config = dataclasses.replace(
+            config, timeout_seconds=config.timeout_seconds + idle_seconds
+        )
+        nsjail_config = self._build_action_config(job_dir, jail_config)
+        env_map = self._build_action_env_map(config, warm=True)
+        return await start_nsjail(
+            nsjail_path=self.nsjail_path,
+            job_dir=job_dir,
+            config_text=nsjail_config,
+            env=env_map,
+            workload_launcher_name=_WORKLOAD_LAUNCHER_NAME,
+            workload_launcher_script=_WORKLOAD_LAUNCHER_SCRIPT,
+            workload_started_marker=_WORKLOAD_STARTED_MARKER,
+            stdin_pipe=True,
+        )
+
+    async def handover_action(
+        self,
+        handle: NsjailProcess,
+        job_dir: Path,
+        config: ActionSandboxConfig,
+        payload: bytes,
+    ) -> SandboxResult:
+        """Hand one action payload to a warm jail and collect its result.
+
+        Args:
+            handle: A jail from ``spawn_action`` that has not been handed over.
+            job_dir: The jail's job directory.
+            config: The action's sandbox configuration.
+            payload: The action input, including ``handover_env``.
+
+        Returns:
+            SandboxResult with execution outcome, timed from hand-over.
+        """
+        start_time = time.time()
+        completed = await finish_nsjail(
+            handle,
+            input=payload,
+            timeout_seconds=config.timeout_seconds + 10,
+            timeout_message=(
+                f"Action execution timed out after {config.timeout_seconds}s"
+            ),
+        )
+        return self._action_result(completed, job_dir, start_time)
+
+    def _action_result(
+        self,
+        completed: NsjailCompletedProcess,
+        job_dir: Path,
+        start_time: float,
+    ) -> SandboxResult:
+        """Decode an action jail's result file or classify its failure."""
+        returncode = completed.returncode
         execution_time_ms = (time.time() - start_time) * 1000
         stdout = completed.stdout.decode("utf-8", errors="replace")
         stderr = completed.stderr.decode("utf-8", errors="replace")

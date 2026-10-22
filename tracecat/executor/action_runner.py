@@ -50,6 +50,7 @@ from tracecat.executor.secret_preprocessors import (
     SecretEnvProjection,
     project_secret_env,
 )
+from tracecat.executor.warm_jails import WarmJailPool
 from tracecat.logger import logger
 from tracecat.outbound import TUNNEL_PROXY_ENV
 from tracecat.sandbox.cgroup import sandbox_cgroup
@@ -68,6 +69,7 @@ from tracecat.sandbox.types import (
     SandboxErrorCode,
     SandboxNetworkPurpose,
     SandboxNetworkRequest,
+    SandboxResult,
 )
 from tracecat.sandbox.utils import (
     communicate_process_group,
@@ -190,6 +192,15 @@ class ActionRunner:
     def __init__(self, cache_dir: Path | None = None):
         self.cache_dir = cache_dir or Path(config.TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR)
         self.registry_artifacts = RegistryArtifactCache(self.cache_dir)
+        self.warm_jails = (
+            WarmJailPool(
+                self.registry_artifacts,
+                max_jails=config.TRACECAT__EXECUTOR_WARM_JAILS_MAX,
+                idle_seconds=config.TRACECAT__EXECUTOR_WARM_JAIL_IDLE_SECONDS,
+            )
+            if config.TRACECAT__EXECUTOR_WARM_JAILS_ENABLED
+            else None
+        )
         logger.info("ActionRunner initialized", cache_dir=str(self.cache_dir))
 
     async def execute_action(
@@ -247,6 +258,7 @@ class ActionRunner:
                 return await self._execute_sandboxed(
                     input=input,
                     role=role,
+                    artifact_uris=artifact_uris,
                     registry_paths=registry_paths,
                     secret_projection=secret_projection,
                     env_vars=env_vars,
@@ -272,6 +284,7 @@ class ActionRunner:
         resolved_context: ResolvedContext,
         env_vars: dict[str, str] | None = None,
         timeout: float | None = None,
+        artifact_uris: list[str] | None = None,
     ) -> ExecutionResult:
         """Execute an action in an nsjail sandbox (untrusted mode).
 
@@ -285,32 +298,161 @@ class ActionRunner:
             resolved_context: Pre-resolved secrets, variables, and action impl
             env_vars: Additional environment variables for the subprocess
             timeout: Execution timeout in seconds
+            artifact_uris: Registry artifact URIs that ``registry_paths`` came
+                from; a warm jail for the next action leases the same ones
         """
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
-        # Create temporary directory for file-based IPC
-        job_dir = Path(tempfile.mkdtemp(prefix="tracecat_action_"))
+        # Build payload with resolved_context
+        payload: dict[str, Any] = {
+            "input": input,
+            "role": role,
+            "resolved_context": resolved_context,
+            "secret_env": secret_projection.env,
+            "secret_mask_values": sorted(masks.values)
+            if (masks := ctx_secret_masks.get())
+            else [],
+            "timeout_seconds": timeout,
+        }
+        # The runner times the function call; the jail only backstops
+        # startup and serialization around it.
+        hard_timeout = timeout + config.TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE
 
+        # Build environment variables for sandbox (untrusted mode only)
+        # NOTE: DB credentials are intentionally NOT passed
+        sandbox_env: dict[str, str] = {}
+        if env_vars:
+            sandbox_env.update(env_vars)
+        # Only the executor may route an action through a tunnel.
+        sandbox_env.pop(TUNNEL_PROXY_ENV, None)
+
+        # SDK context for any registry SDK operations
+        sandbox_env["TRACECAT__API_URL"] = config.TRACECAT__API_URL
+        action_gateway_socket = action_gateway_socket_path()
+        sandbox_env["TRACECAT__ACTION_GATEWAY_SOCKET"] = str(
+            ACTION_GATEWAY_SANDBOX_SOCKET
+        )
+        # Per-action context. A warm jail receives it at hand-over, never at spawn.
+        handover_env: dict[str, str] = {
+            "TRACECAT__WORKSPACE_ID": str(role.workspace_id)
+            if role.workspace_id
+            else "",
+            "TRACECAT__WORKFLOW_ID": str(input.run_context.wf_id),
+            "TRACECAT__RUN_ID": str(input.run_context.wf_run_id),
+            "TRACECAT__WF_EXEC_ID": str(input.run_context.wf_exec_id),
+            "TRACECAT__ENVIRONMENT": input.run_context.environment,
+            # Preserve the signed execution provenance from the service boundary.
+            "TRACECAT__EXECUTOR_TOKEN": resolved_context.executor_token,
+        }
+
+        network = SandboxNetworkRequest(SandboxNetworkPurpose.ACTION)
+        if route := _tunnel_route(input, resolved_context):
+            proxy_url, gateway_ip, gateway_port = route
+            handover_env.update(tunnel_proxy_env(proxy_url))
+            network = SandboxNetworkRequest(
+                SandboxNetworkPurpose.ACTION,
+                policy=gateway_only_network_policy(gateway_ip, gateway_port),
+            )
+
+        logger.debug(
+            "Using untrusted mode - no DB credentials passed to sandbox",
+            action=input.task.action,
+        )
+
+        # Configure sandbox
+        sandbox_config = ActionSandboxConfig(
+            registry_paths=registry_paths,
+            tracecat_app_dir=_get_tracecat_app_dir(),
+            site_packages_dir=_get_site_packages_dir(),
+            env_vars=sandbox_env,
+            handover_env=handover_env,
+            network=network,
+            action_gateway_socket=action_gateway_socket,
+            action_gateway_socket_mount_path=ACTION_GATEWAY_SANDBOX_SOCKET,
+            resources=ResourceLimits(
+                memory_mb=config.TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
+                address_space_mb=config.TRACECAT__SANDBOX_ADDRESS_SPACE_MB,
+                timeout_seconds=math.ceil(hard_timeout),
+            ),
+            timeout_seconds=hard_timeout,
+        )
+
+        # Tunneled actions always start cold: their egress policy and proxy
+        # environment are specific to one tunnel.
+        warm_jails = self.warm_jails if route is None else None
+        jail = warm_jails.claim(sandbox_config) if warm_jails is not None else None
+
+        start_time = time.monotonic()
         try:
-            # Build payload with resolved_context
-            payload: dict[str, Any] = {
-                "input": input,
-                "role": role,
-                "resolved_context": resolved_context,
-                "secret_env": secret_projection.env,
-                "secret_mask_values": sorted(masks.values)
-                if (masks := ctx_secret_masks.get())
-                else [],
-                "timeout_seconds": timeout,
-            }
-            # The runner times the function call; the jail only backstops
-            # startup and serialization around it.
-            hard_timeout = timeout + config.TRACECAT__EXECUTOR_SUBPROCESS_STARTUP_GRACE
+            if warm_jails is not None and jail is not None:
+                payload["handover_env"] = handover_env
+                result = await warm_jails.run(jail, to_json(payload))
+            else:
+                result = await self._execute_cold_jail(input, payload, sandbox_config)
+        finally:
+            # Replace the jail this action used, warm or cold, once it no
+            # longer competes with the action for CPU.
+            if warm_jails is not None:
+                warm_jails.replenish(artifact_uris, sandbox_config)
+        elapsed_ms = (time.monotonic() - start_time) * 1000
+        logger.info(
+            "Sandbox execution completed",
+            action=input.task.action,
+            elapsed_ms=f"{elapsed_ms:.1f}",
+            success=result.success,
+            exit_code=result.exit_code,
+            warm=jail is not None,
+        )
 
+        # Process result
+        if result.success:
+            return result.output
+
+        raise_for_sandbox_error_code(
+            result.error_code,
+            _sandbox_failure_message(
+                result.error_code,
+                stderr=result.stderr,
+                mask_values=secret_projection.mask_values,
+            ),
+        )
+
+        # Handle error from sandbox
+        if result.error:
+            masked_error = apply_masks_object(
+                result.error, masks=secret_projection.mask_values
+            )
+            # Try to parse as ExecutorActionErrorInfo
+            if isinstance(masked_error, dict):
+                return ExecutorActionErrorInfo.model_validate(masked_error)
+            return ExecutorActionErrorInfo(
+                type="SandboxError",
+                message=str(masked_error),
+                action_name=input.task.action,
+                filename="<sandbox>",
+                function="execute_action",
+            )
+
+        return ExecutorActionErrorInfo(
+            type="SandboxError",
+            message=f"Sandbox execution failed with exit code {result.exit_code}",
+            action_name=input.task.action,
+            filename="<sandbox>",
+            function="execute_action",
+        )
+
+    async def _execute_cold_jail(
+        self,
+        input: RunActionInput,
+        payload: dict[str, Any],
+        sandbox_config: ActionSandboxConfig,
+    ) -> SandboxResult:
+        """Run one action in a freshly launched jail with file-based IPC."""
+        job_dir = Path(tempfile.mkdtemp(prefix="tracecat_action_"))
+        try:
             # Write input JSON to job directory
-            input_json = to_json(payload)
             input_path = job_dir / "input.json"
-            input_path.write_bytes(input_json)
+            input_path.write_bytes(to_json(payload))
 
             # Copy minimal_runner.py to job directory
             from tracecat.executor import minimal_runner as minimal_runner_module
@@ -319,119 +461,14 @@ class ActionRunner:
             minimal_runner_dst = job_dir / "minimal_runner.py"
             shutil.copy2(minimal_runner_src, minimal_runner_dst)
 
-            # Build environment variables for sandbox (untrusted mode only)
-            # NOTE: DB credentials are intentionally NOT passed
-            sandbox_env: dict[str, str] = {}
-            if env_vars:
-                sandbox_env.update(env_vars)
-            # Only the executor may route an action through a tunnel.
-            sandbox_env.pop(TUNNEL_PROXY_ENV, None)
-
-            # SDK context for any registry SDK operations
-            sandbox_env["TRACECAT__API_URL"] = config.TRACECAT__API_URL
-            sandbox_env["TRACECAT__WORKSPACE_ID"] = (
-                str(role.workspace_id) if role.workspace_id else ""
-            )
-            sandbox_env["TRACECAT__WORKFLOW_ID"] = str(input.run_context.wf_id)
-            sandbox_env["TRACECAT__RUN_ID"] = str(input.run_context.wf_run_id)
-            sandbox_env["TRACECAT__WF_EXEC_ID"] = str(input.run_context.wf_exec_id)
-            sandbox_env["TRACECAT__ENVIRONMENT"] = input.run_context.environment
-            action_gateway_socket = action_gateway_socket_path()
-            sandbox_env["TRACECAT__ACTION_GATEWAY_SOCKET"] = str(
-                ACTION_GATEWAY_SANDBOX_SOCKET
-            )
-
-            # Preserve the signed execution provenance from the service boundary.
-            sandbox_env["TRACECAT__EXECUTOR_TOKEN"] = resolved_context.executor_token
-
-            network = SandboxNetworkRequest(SandboxNetworkPurpose.ACTION)
-            if route := _tunnel_route(input, resolved_context):
-                proxy_url, gateway_ip, gateway_port = route
-                sandbox_env.update(tunnel_proxy_env(proxy_url))
-                network = SandboxNetworkRequest(
-                    SandboxNetworkPurpose.ACTION,
-                    policy=gateway_only_network_policy(gateway_ip, gateway_port),
-                )
-
-            logger.debug(
-                "Using untrusted mode - no DB credentials passed to sandbox",
-                action=input.task.action,
-            )
-
-            # Configure sandbox
-            sandbox_config = ActionSandboxConfig(
-                registry_paths=registry_paths,
-                tracecat_app_dir=_get_tracecat_app_dir(),
-                site_packages_dir=_get_site_packages_dir(),
-                env_vars=sandbox_env,
-                network=network,
-                action_gateway_socket=action_gateway_socket,
-                action_gateway_socket_mount_path=ACTION_GATEWAY_SANDBOX_SOCKET,
-                resources=ResourceLimits(
-                    memory_mb=config.TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
-                    address_space_mb=config.TRACECAT__SANDBOX_ADDRESS_SPACE_MB,
-                    timeout_seconds=math.ceil(hard_timeout),
-                ),
-                timeout_seconds=hard_timeout,
-            )
-
             logger.debug(
                 "Executing action in nsjail sandbox",
                 action=input.task.action,
                 job_dir=str(job_dir),
-                registry_paths_count=len(registry_paths),
+                registry_paths_count=len(sandbox_config.registry_paths),
             )
-
-            # Execute in sandbox
-            start_time = time.monotonic()
             executor = NsjailExecutor(cgroup_mount=sandbox_cgroup())
-            result = await executor.execute_action(job_dir, sandbox_config)
-            elapsed_ms = (time.monotonic() - start_time) * 1000
-            logger.info(
-                "Sandbox execution completed",
-                action=input.task.action,
-                elapsed_ms=f"{elapsed_ms:.1f}",
-                success=result.success,
-                exit_code=result.exit_code,
-            )
-
-            # Process result
-            if result.success:
-                return result.output
-
-            raise_for_sandbox_error_code(
-                result.error_code,
-                _sandbox_failure_message(
-                    result.error_code,
-                    stderr=result.stderr,
-                    mask_values=secret_projection.mask_values,
-                ),
-            )
-
-            # Handle error from sandbox
-            if result.error:
-                masked_error = apply_masks_object(
-                    result.error, masks=secret_projection.mask_values
-                )
-                # Try to parse as ExecutorActionErrorInfo
-                if isinstance(masked_error, dict):
-                    return ExecutorActionErrorInfo.model_validate(masked_error)
-                return ExecutorActionErrorInfo(
-                    type="SandboxError",
-                    message=str(masked_error),
-                    action_name=input.task.action,
-                    filename="<sandbox>",
-                    function="execute_action",
-                )
-
-            return ExecutorActionErrorInfo(
-                type="SandboxError",
-                message=f"Sandbox execution failed with exit code {result.exit_code}",
-                action_name=input.task.action,
-                filename="<sandbox>",
-                function="execute_action",
-            )
-
+            return await executor.execute_action(job_dir, sandbox_config)
         finally:
             # Cleanup job directory
             shutil.rmtree(job_dir, ignore_errors=True)

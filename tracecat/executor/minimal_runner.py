@@ -74,6 +74,15 @@ except ImportError:
 _API_URL = os.environ.get("TRACECAT__API_URL", "http://api:8000")
 _ACTION_GATEWAY_SOCKET = os.environ.get("TRACECAT__ACTION_GATEWAY_SOCKET") or None
 _CAPTURED_OUTPUT_CHAR_LIMIT = 8192
+_WARM_HANDOVER_ENV_VAR = "TRACECAT__SANDBOX_WARM_HANDOVER"
+# Imported by every UDF call. A warm jail loads them before its hand-over.
+_WARM_PREIMPORT_MODULES = (
+    "httpx",
+    "tracecat_registry",
+    "tracecat_registry.context",
+    "tracecat_registry._internal.secrets",
+    "tracecat_registry.sdk.client",
+)
 _SUPPRESSED_OUTPUT_PREVIEW_CHAR_LIMIT = 500
 
 
@@ -807,6 +816,19 @@ def _action_display_name(action_impl: dict[str, Any] | None) -> str:
     return "<unknown>"
 
 
+def _preimport_action_stack() -> None:
+    """Import the modules every UDF call needs before the payload arrives.
+
+    A failure here is not reported: the action's own import repeats it after
+    hand-over and returns it as that action's error.
+    """
+    for module_name in _WARM_PREIMPORT_MODULES:
+        try:
+            importlib.import_module(module_name)
+        except Exception:
+            continue
+
+
 def _enforce_nproc_limit() -> None:
     """Cap the sandbox's process count via RLIMIT_NPROC.
 
@@ -849,22 +871,29 @@ if __name__ == "__main__":
 
     _enforce_nproc_limit()
 
-    # Determine input source: file (sandbox) or stdin (direct)
+    # Determine input source: file (sandbox), stdin after a warm jail's
+    # hand-over (sandbox), or stdin (direct)
     input_path = Path("/work/input.json")
     output_path = Path("/work/result.json")
+    warm_handover = os.environ.get(_WARM_HANDOVER_ENV_VAR) == "1"
+    if warm_handover:
+        _preimport_action_stack()
+    use_file_io = warm_handover or input_path.exists()
 
     # A large enough payload can exhaust the cap while it is being read or
     # decoded, before main_minimal's handlers exist. Dying here would leave no
     # result.json and report a generic workload failure for what really was
     # the memory limit.
     try:
-        if input_path.exists():
+        if warm_handover:
+            input_data = json_loads(sys.stdin.buffer.read())
+            # The per-action environment a cold jail would have started with.
+            os.environ.update(input_data.pop("handover_env", {}))
+        elif use_file_io:
             input_data = json_loads(input_path.read_bytes())
-            use_file_io = True
         else:
             input_bytes = sys.stdin.buffer.read()
             input_data = json_loads(input_bytes)
-            use_file_io = False
     except Exception as exc:
         if (limit := resource_limit_from_error(exc)) is None:
             raise
@@ -875,7 +904,7 @@ if __name__ == "__main__":
                 action_name="<unknown>",
             )
         )
-        if input_path.exists():
+        if use_file_io:
             output_path.write_bytes(envelope)
         else:
             sys.stdout.buffer.write(envelope)
