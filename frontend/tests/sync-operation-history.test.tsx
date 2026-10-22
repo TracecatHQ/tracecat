@@ -54,7 +54,7 @@ function mountHistory() {
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   })
   // Model the connected view's subscription to this local import counter.
-  client.setQueryDefaults(["workspace-sync-import-revision"], {
+  client.setQueryDefaults(["workspace-sync-preview-revision"], {
     gcTime: Infinity,
   })
   return {
@@ -324,6 +324,11 @@ it("keeps observing an active operation while viewing an older terminal page", a
     const view = mountHistory()
     fireEvent.click(await screen.findByRole("button", { name: "Older" }))
     await screen.findByRole("button", { name: "Newer" })
+    const previousRevision =
+      view.client.getQueryData<number>([
+        "workspace-sync-preview-revision",
+        "workspace-test",
+      ]) ?? 0
     await act(async () => {
       await jest.advanceTimersByTimeAsync(1500)
     })
@@ -333,10 +338,10 @@ it("keeps observing an active operation while viewing an older terminal page", a
     })
     expect(
       view.client.getQueryData([
-        "workspace-sync-import-revision",
+        "workspace-sync-preview-revision",
         "workspace-test",
       ])
-    ).toBe(1)
+    ).toBe(previousRevision + 1)
     view.unmount()
   } finally {
     jest.useRealTimers()
@@ -399,7 +404,7 @@ it("notifies open composers once when a history pull has imported its data", asy
   const { client } = mountHistory()
   const confirm = await screen.findByRole("button", { name: "Apply pull" })
   expect(
-    client.getQueryData(["workspace-sync-import-revision", "workspace-test"])
+    client.getQueryData(["workspace-sync-preview-revision", "workspace-test"])
   ).toBeUndefined()
   fireEvent.click(
     screen.getByRole("checkbox", { name: "Apply these prepared changes" })
@@ -407,7 +412,7 @@ it("notifies open composers once when a history pull has imported its data", asy
   fireEvent.click(confirm)
   await waitFor(() =>
     expect(
-      client.getQueryData(["workspace-sync-import-revision", "workspace-test"])
+      client.getQueryData(["workspace-sync-preview-revision", "workspace-test"])
     ).toBe(1)
   )
   expect(screen.getByText(/finishing automatically/)).toBeInTheDocument()
@@ -415,6 +420,6 @@ it("notifies open composers once when a history pull has imported its data", asy
     await Promise.resolve()
   })
   expect(
-    client.getQueryData(["workspace-sync-import-revision", "workspace-test"])
+    client.getQueryData(["workspace-sync-preview-revision", "workspace-test"])
   ).toBe(1)
 })

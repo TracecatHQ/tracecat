@@ -89,9 +89,9 @@ function GitSyncConnectedView({
   const queryClient = useQueryClient()
   const [direction, setDirection] = useState<SyncDirection>("push")
   const [showConnection, setShowConnection] = useState(false)
-  const [pullCount, setPullCount] = useState(0)
-  const { data: importRevision } = useQuery({
-    queryKey: ["workspace-sync-import-revision", workspaceId],
+  const [localPullRevision, setLocalPullRevision] = useState(0)
+  const { data: previewRevision } = useQuery({
+    queryKey: ["workspace-sync-preview-revision", workspaceId],
     queryFn: () => 0,
     initialData: 0,
     enabled: false,
@@ -200,7 +200,7 @@ function GitSyncConnectedView({
             baseBranch={baseBranch}
             branchesIsLoading={branchesIsLoading}
             branchesError={branchesError}
-            pullCount={pullCount + importRevision}
+            syncRevision={localPullRevision + previewRevision}
           />
         </TabsContent>
         <TabsContent
@@ -219,7 +219,7 @@ function GitSyncConnectedView({
             commitsIsLoading={commitsIsLoading}
             commitsError={commitsError}
             isActive={direction === "pull" && !showConnection}
-            onPulled={() => setPullCount((count) => count + 1)}
+            onPulled={() => setLocalPullRevision((count) => count + 1)}
           />
         </TabsContent>
       </div>

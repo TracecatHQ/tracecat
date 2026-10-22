@@ -118,7 +118,7 @@ function publishOperation(
     invalidateWorkspaceSyncResources(client, workspaceId)
     // Composers observe this counter even when history is on another page.
     client.setQueryData<number>(
-      ["workspace-sync-import-revision", workspaceId],
+      ["workspace-sync-preview-revision", workspaceId],
       (revision = 0) => revision + 1
     )
   }
@@ -128,6 +128,11 @@ function publishOperation(
     !state.applied.has(key)
   ) {
     state.applied.add(key)
+    // The branch head changed; other prepared pushes to it are now stale too.
+    client.setQueryData<number>(
+      ["workspace-sync-preview-revision", workspaceId],
+      (revision = 0) => revision + 1
+    )
     for (const query of ["workflow-sync-branches", "repository_commits"]) {
       void client.invalidateQueries({ queryKey: [query, workspaceId] })
     }
