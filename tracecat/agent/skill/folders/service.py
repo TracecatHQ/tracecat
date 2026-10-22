@@ -92,9 +92,12 @@ class SkillFolderService(BaseWorkspaceService):
         *,
         conflict_path: str,
         commit: bool,
+        old_path: str | None = None,
     ) -> None:
         """Persist a folder write and translate unique conflicts cleanly."""
         try:
+            if old_path is not None and old_path != conflict_path:
+                await self._update_descendant_paths(old_path, conflict_path)
             if commit:
                 await self.session.commit()
             else:
@@ -314,6 +317,18 @@ class SkillFolderService(BaseWorkspaceService):
         if not skill:
             raise TracecatNotFoundError(f"Skill {skill_id} not found")
 
+        if folder is not None:
+            # Key-share lock keeps the folder from being deleted before commit.
+            folder_id = await self.session.scalar(
+                select(SkillFolder.id)
+                .where(
+                    SkillFolder.workspace_id == self.workspace_id,
+                    SkillFolder.id == folder.id,
+                )
+                .with_for_update(read=True, key_share=True)
+            )
+            if folder_id is None:
+                raise TracecatNotFoundError("Skill folder not found")
         skill.folder_id = folder.id if folder else None
         self.session.add(skill)
         await self.session.commit()
@@ -353,10 +368,9 @@ class SkillFolderService(BaseWorkspaceService):
         folder.path = new_path
         self.session.add(folder)
 
-        if new_path != old_path:
-            await self._update_descendant_paths(old_path, new_path)
-
-        await self._write_folder_change(conflict_path=new_path, commit=True)
+        await self._write_folder_change(
+            conflict_path=new_path, commit=True, old_path=old_path
+        )
         await self.session.refresh(folder)
         return folder
 
@@ -413,10 +427,9 @@ class SkillFolderService(BaseWorkspaceService):
         folder.path = new_path
         self.session.add(folder)
 
-        if new_path != old_path:
-            await self._update_descendant_paths(old_path, new_path)
-
-        await self._write_folder_change(conflict_path=new_path, commit=True)
+        await self._write_folder_change(
+            conflict_path=new_path, commit=True, old_path=old_path
+        )
         await self.session.refresh(folder)
         return folder
 

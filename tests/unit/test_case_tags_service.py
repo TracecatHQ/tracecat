@@ -220,6 +220,26 @@ class TestCaseTagsService:  # noqa: D101
         assert case_tags[0].id == tag.id
 
     @pytest.mark.anyio
+    async def test_create_if_missing_reuses_concurrently_created_tag(
+        self,
+        case_tags_service: CaseTagsService,
+        case_id: uuid.UUID,
+    ) -> None:
+        # Simulates losing the race: the lookup missed, then another request won.
+        winner = await case_tags_service.create_tag(TagCreate(name="Phishing"))
+        tag = await case_tags_service._create_tag_if_missing("Phishing")
+        assert tag.id == winner.id
+
+        await case_tags_service.add_case_tag(
+            case_id, "Phishing Lure", create_if_missing=True
+        )
+        await case_tags_service.add_case_tag(
+            case_id, "Phishing Lure", create_if_missing=True
+        )
+        case_tags = await case_tags_service.list_tags_for_case(case_id)
+        assert [tag.ref for tag in case_tags] == [slugify("Phishing Lure")]
+
+    @pytest.mark.anyio
     @pytest.mark.parametrize("identifier_type", ["id", "ref", "mixed"])
     async def test_remove_tags_by_different_identifiers(
         self,

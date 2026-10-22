@@ -3,6 +3,7 @@ from collections.abc import Sequence
 
 from slugify import slugify
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import NoResultFound
 
 from tracecat.cases.enums import CaseEventType
@@ -166,6 +167,21 @@ class CaseTagsService(BaseWorkspaceService):
         await self.session.refresh(tag)
         return tag
 
+    async def _create_tag_if_missing(self, name: str) -> CaseTag:
+        # Concurrent requests may create the same tag; reuse whichever won.
+        ref = slugify(name)
+        await self.session.execute(
+            pg_insert(CaseTag)
+            .values(name=name, ref=ref, workspace_id=self.workspace_id)
+            .on_conflict_do_nothing()
+        )
+        result = await self.session.scalars(
+            select(CaseTag).where(
+                CaseTag.workspace_id == self.workspace_id, CaseTag.ref == ref
+            )
+        )
+        return result.one()
+
     async def update_tag(self, tag: CaseTag, params: TagUpdate) -> CaseTag:
         """Update an existing case tag."""
         original_ref = tag.ref
@@ -291,23 +307,17 @@ class CaseTagsService(BaseWorkspaceService):
         except NoResultFound:
             if not create_if_missing:
                 raise
-            # Create the tag
-            tag = await self.create_tag(TagCreate(name=tag_identifier))
+            tag = await self._create_tag_if_missing(tag_identifier)
 
-        # Check if already exists
-        stmt = select(CaseTagLink).where(
-            CaseTagLink.case_id == case_id,
-            CaseTagLink.tag_id == tag.id,
+        # Concurrent adds of the same tag keep the first link and its event.
+        linked = await self.session.scalar(
+            pg_insert(CaseTagLink)
+            .values(case_id=case_id, tag_id=tag.id)
+            .on_conflict_do_nothing()
+            .returning(CaseTagLink.tag_id)
         )
-        result = await self.session.execute(stmt)
-        existing = result.scalar_one_or_none()
-
-        if existing:
-            return tag  # Already exists, return tag
-
-        # Create new
-        case_tag = CaseTagLink(case_id=case_id, tag_id=tag.id)
-        self.session.add(case_tag)
+        if linked is None:
+            return tag
 
         await self._create_tag_event(
             case=case, tag=tag, event_type=CaseEventType.TAG_ADDED

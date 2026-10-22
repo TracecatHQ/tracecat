@@ -9,7 +9,7 @@ from pydantic import BaseModel, SecretStr
 from pydantic_core import to_jsonable_python
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.common import get_default_organization_id
@@ -24,8 +24,10 @@ from tracecat.db.engine import (
     SupportsExecute,
     get_async_session_bypass_rls_context_manager,
 )
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import OrganizationSetting
 from tracecat.db.rls import set_rls_context_from_role
+from tracecat.exceptions import TracecatConflictError
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.network import DisallowedUrlError, validate_url_resolves_public_async
@@ -227,12 +229,23 @@ class SettingsService(BaseOrgService):
         self.session.add(setting)
         return setting
 
+    async def _commit_settings(self) -> None:
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if not is_unique_violation(
+                exc, "uq_organization_settings_organization_id_key"
+            ):
+                raise
+            raise TracecatConflictError("Setting already exists") from exc
+
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="create")
     async def create_org_setting(self, params: SettingCreate) -> OrganizationSetting:
         """Create a new organization setting."""
         setting = await self._create_org_setting(params)
-        await self.session.commit()
+        await self._commit_settings()
         if params.key in AUDIT_SETTINGS_KEYS:
             clear_audit_setting_cache()
         return setting
@@ -319,7 +332,7 @@ class SettingsService(BaseOrgService):
             else:
                 params = SettingUpdate(value=value)
                 await self._update_setting(setting, params)
-        await self.session.commit()
+        await self._commit_settings()
 
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")

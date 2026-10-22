@@ -92,6 +92,7 @@ from tracecat.pagination import (
 )
 from tracecat.query.errors import TracecatQueryTimeoutError
 from tracecat.query.lexical_types import LexicalSearchError, SearchMode
+from tracecat.tables.exceptions import TableColumnConflictError
 from tracecat.tiers.enums import Entitlement
 
 cases_router = APIRouter(prefix="/cases", tags=["cases"])
@@ -757,7 +758,7 @@ async def create_case(
     service = CasesService(session, role)
     try:
         case = await service.create_case(params)
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -1004,6 +1005,10 @@ async def create_field(
     service = CaseFieldsService(session, role)
     try:
         await service.create_field(params)
+    except TableColumnConflictError as exc:
+        raise HTTPException(status_code=HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except TracecatNotFoundError as exc:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (ValueError, TracecatValidationError) as exc:
         _raise_case_field_http_error(exc)
     except ProgrammingError as e:
@@ -1032,6 +1037,10 @@ async def update_field(
     service = CaseFieldsService(session, role)
     try:
         await service.update_field(field_id, params)
+    except TableColumnConflictError as exc:
+        raise HTTPException(status_code=HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except TracecatNotFoundError as exc:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (ValueError, TracecatValidationError) as exc:
         _raise_case_field_http_error(exc)
     except ProgrammingError as err:
@@ -1058,6 +1067,10 @@ async def delete_field(
     service = CaseFieldsService(session, role)
     try:
         await service.delete_field(field_id)
+    except TableColumnConflictError as exc:
+        raise HTTPException(status_code=HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except TracecatNotFoundError as exc:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (ValueError, TracecatValidationError) as exc:
         _raise_case_field_http_error(exc)
 

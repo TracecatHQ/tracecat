@@ -14,6 +14,7 @@ from dotenv import dotenv_values
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from tests._db_error_utils import unique_violation
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.agent.channels.schemas import (
@@ -312,6 +313,19 @@ def agent_preset_create_params() -> AgentPresetCreate:
 
 @pytest.mark.anyio
 class TestAgentPresetService:
+    async def test_concurrent_slug_claim_is_validation_error(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        error = unique_violation("uq_agent_preset_workspace_slug_active")
+        monkeypatch.setattr(
+            agent_preset_service, "_create_preset", AsyncMock(side_effect=error)
+        )
+        with pytest.raises(TracecatValidationError, match="slug is already in use"):
+            await agent_preset_service.create_preset(agent_preset_create_params)
+
     async def test_chat_visibility_is_opt_in_and_does_not_publish_versions(
         self,
         agent_preset_service: AgentPresetService,

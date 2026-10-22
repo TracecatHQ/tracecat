@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException
 from tracecat_ee.admin.router import router as admin_router
@@ -75,6 +76,7 @@ from tracecat.api.common import (
     auth_pool_exhausted_exception_handler,
     bootstrap_role,
     custom_generate_unique_id,
+    database_exception_handler,
     generic_exception_handler,
     http_exception_handler,
     query_overflow_exception_handler,
@@ -809,6 +811,7 @@ def create_app(**kwargs) -> FastAPI:
         AuthPoolExhaustedError,
         auth_pool_exhausted_exception_handler,
     )
+    app.add_exception_handler(DBAPIError, database_exception_handler)
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(TableRowError, table_row_exception_handler)
     app.add_exception_handler(FormError, form_error_handler)

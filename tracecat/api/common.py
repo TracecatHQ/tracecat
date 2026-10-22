@@ -87,17 +87,22 @@ def _replace_surrogates(value: Any) -> Any:
     return value
 
 
+async def database_exception_handler(request: Request, exc: Exception) -> Response:
+    # Handled here, not in the catch-all, so rejected client data does not page.
+    if not is_data_error(exc):
+        raise exc
+    logger.warning(
+        "Database rejected request data",
+        error_type=type(exc).__name__,
+        path=request.url.path,
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": "Request contains a value that cannot be stored"},
+    )
+
+
 async def generic_exception_handler(request: Request, exc: Exception) -> Response:
-    if is_data_error(exc):
-        logger.warning(
-            "Database rejected request data",
-            error_type=type(exc).__name__,
-            path=request.url.path,
-        )
-        return ORJSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            content={"detail": "Request contains a value that cannot be stored"},
-        )
     logger.exception(
         "Unexpected error",
         exc=exc,

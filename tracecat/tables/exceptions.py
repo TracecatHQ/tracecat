@@ -2,7 +2,12 @@
 
 from typing import Literal, TypedDict
 
-from tracecat.exceptions import TracecatException
+from tracecat.exceptions import TracecatConflictError, TracecatException
+
+
+class TableColumnConflictError(TracecatConflictError):
+    """Existing rows prevent applying a column change."""
+
 
 type TableRowErrorCode = Literal[
     "missing_required_column",

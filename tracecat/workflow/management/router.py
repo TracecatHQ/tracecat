@@ -925,6 +925,8 @@ async def create_webhook(
         )
     except TracecatConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     return WebhookRead.model_validate(webhook, from_attributes=True)
 
 

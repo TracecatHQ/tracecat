@@ -1,7 +1,8 @@
 import csv
+import functools
 import json
 from collections import defaultdict
-from collections.abc import Awaitable, Sequence
+from collections.abc import Awaitable, Callable, Collection, Sequence
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
@@ -12,9 +13,11 @@ import sqlalchemy as sa
 from asyncpg.exceptions import (
     CardinalityViolationError,
     DataError,
+    DatatypeMismatchError,
     InFailedSQLTransactionError,
     InvalidCachedStatementError,
     NotNullViolationError,
+    UndefinedColumnError,
     UndefinedTableError,
     UniqueViolationError,
 )
@@ -34,6 +37,7 @@ from tracecat import config
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
+from tracecat.db.errors import find_db_error
 from tracecat.db.models import Table, TableColumn
 from tracecat.exceptions import (
     TracecatImportError,
@@ -86,7 +90,7 @@ from tracecat.tables.common import (
     validate_identifier as validate_identifier,
 )
 from tracecat.tables.enums import SqlType
-from tracecat.tables.exceptions import TableRowError
+from tracecat.tables.exceptions import TableColumnConflictError, TableRowError
 from tracecat.tables.importer import (
     CSVSchemaInferer,
     InferredCSVColumn,
@@ -150,7 +154,7 @@ def visible_column_clauses(column_names: Sequence[str]) -> list[sa.ColumnClause]
 
 
 async def _execute_row_write[T](
-    operation: Awaitable[T], columns: Sequence[TableColumn]
+    operation: Awaitable[T], column_names: Collection[str]
 ) -> T:
     """Translate known row input errors without exposing SQL or submitted values.
 
@@ -164,12 +168,11 @@ async def _execute_row_write[T](
         while cause is not None:
             if isinstance(cause, NotNullViolationError):
                 column_name = cause.as_dict().get("column_name")
-                column = next((c for c in columns if c.name == column_name), None)
-                if column is not None:
+                if column_name in column_names:
                     error = TableRowError(
                         "null_not_allowed",
-                        f"Column '{column.name}' cannot be null.",
-                        column=column.name,
+                        f"Column '{column_name}' cannot be null.",
+                        column=column_name,
                     )
                 break
             if isinstance(cause, UniqueViolationError):
@@ -196,6 +199,31 @@ async def _execute_row_write[T](
     # exception context consumed by workflow and observability code.
     assert error is not None
     raise error
+
+
+def _column_ddl_errors[**P, T](
+    method: Callable[P, Awaitable[T]],
+) -> Callable[P, Awaitable[T]]:
+    """Report column changes that existing rows reject as client errors."""
+
+    @functools.wraps(method)
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+        try:
+            return await method(*args, **kwargs)
+        except DBAPIError as exc:
+            if find_db_error(exc, UndefinedColumnError):
+                raise TracecatNotFoundError("Column not found") from exc
+            if find_db_error(exc, NotNullViolationError):
+                raise TableColumnConflictError(
+                    "Column cannot be required while existing rows contain null values"
+                ) from exc
+            if find_db_error(exc, DatatypeMismatchError):
+                raise TableColumnConflictError(
+                    "Existing values cannot be converted to the requested type"
+                ) from exc
+            raise
+
+    return wrapper
 
 
 class BaseTablesService(BaseWorkspaceService):
@@ -768,6 +796,7 @@ class BaseTablesService(BaseWorkspaceService):
             raise TracecatNotFoundError("Column not found")
         return column
 
+    @_column_ddl_errors
     @audit_log(resource_type="table_column", action="create")
     async def create_column(
         self, table: Table, params: TableColumnCreate
@@ -855,6 +884,7 @@ class BaseTablesService(BaseWorkspaceService):
             column_def.append(f"DEFAULT {rendered_default}")
         return column, " ".join(column_def)
 
+    @_column_ddl_errors
     @audit_log(resource_type="table_column", action="update")
     async def update_column(
         self,
@@ -1075,6 +1105,7 @@ class BaseTablesService(BaseWorkspaceService):
 
         await self.session.flush()
 
+    @_column_ddl_errors
     @audit_log(resource_type="table_column", action="delete")
     async def delete_column(self, column: TableColumn) -> None:
         """Remove a column from an existing table."""
@@ -1232,7 +1263,9 @@ class BaseTablesService(BaseWorkspaceService):
                 index_elements=index, set_=update_dict
             ).returning(*self._visible_columns(table))
 
-        result = await _execute_row_write(conn.execute(stmt), table.columns)
+        result = await _execute_row_write(
+            conn.execute(stmt), [column.name for column in table.columns]
+        )
         await self.session.flush()
         row = result.mappings().one()
         if needs_indexing:
@@ -1294,7 +1327,9 @@ class BaseTablesService(BaseWorkspaceService):
             .returning(*self._visible_columns(table))
         )
 
-        result = await conn.execute(stmt)
+        result = await _execute_row_write(
+            conn.execute(stmt), [column.name for column in table.columns]
+        )
         await self.session.flush()
 
         try:
@@ -2010,7 +2045,8 @@ class BaseTablesService(BaseWorkspaceService):
                 existing_ids = set()
                 changed_ids = set()
             result = await _execute_row_write(
-                conn.execute(stmt.returning(sa.column("id"))), table.columns
+                conn.execute(stmt.returning(sa.column("id"))),
+                [column.name for column in table.columns],
             )
             written = result.scalars().all()
             total_affected += len(written)
@@ -2343,6 +2379,7 @@ class TableEditorService(BaseWorkspaceService):
             if not is_internal_column_name(column.get("name"))
         ]
 
+    @_column_ddl_errors
     async def create_column(self, params: TableColumnCreate) -> None:
         """Add a new column to an existing table.
 
@@ -2404,6 +2441,7 @@ class TableEditorService(BaseWorkspaceService):
         await self.session.flush()
         self._invalidate_visible_columns_cache()
 
+    @_column_ddl_errors
     async def update_column(self, column_name: str, params: TableColumnUpdate) -> None:
         """Update a column in an existing table.
 
@@ -2517,6 +2555,7 @@ class TableEditorService(BaseWorkspaceService):
         await self.session.flush()
         self._invalidate_visible_columns_cache()
 
+    @_column_ddl_errors
     async def delete_column(self, column_name: str) -> None:
         """Remove a column from an existing table."""
         self._assert_user_column_name_allowed(column_name)
@@ -2665,7 +2704,9 @@ class TableEditorService(BaseWorkspaceService):
             .values(**value_clauses)
             .returning(*visible_columns)
         )
-        result = await conn.execute(stmt)
+        result = await _execute_row_write(
+            conn.execute(stmt), visible_column_names(list(col_map))
+        )
         await self.session.flush()
         row = result.mappings().one()
         return dict(row)
@@ -2730,7 +2771,9 @@ class TableEditorService(BaseWorkspaceService):
             .returning(*visible_columns)
         )
 
-        result = await conn.execute(stmt)
+        result = await _execute_row_write(
+            conn.execute(stmt), visible_column_names(list(col_map))
+        )
         await self.session.flush()
 
         try:

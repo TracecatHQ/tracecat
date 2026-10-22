@@ -961,13 +961,13 @@ class RBACService(BaseOrgService):
             workspace_id=workspace_id,
             assigned_by=self.role.user_id,
         )
-        if workspace_id is not None:
-            # Legacy workspace table is still written for app versions reading it.
-            await mirror_workspace_membership(
-                self.session, user_id=user_id, workspace_id=workspace_id
-            )
-        self.session.add(assignment)
         try:
+            if workspace_id is not None:
+                # Legacy workspace table is still written for app versions reading it.
+                await mirror_workspace_membership(
+                    self.session, user_id=user_id, workspace_id=workspace_id
+                )
+            self.session.add(assignment)
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
