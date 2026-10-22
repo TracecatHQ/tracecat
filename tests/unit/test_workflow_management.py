@@ -1287,6 +1287,8 @@ def test_control_flow_from_statement_raises_user_facing_error(
     message = str(exc.value)
     assert "'start'" in message
     assert value not in message
+    assert exc.value.__cause__ is None
+    assert exc.value.__context__ is None
     assert [detail.loc for detail in exc.value.detail or []] == [(field,)]
 
 

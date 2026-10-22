@@ -108,14 +108,14 @@ class ActionControlFlow(Schema):
             return cls.model_validate(stmt)
         except ValidationError as e:
             details = ValidationDetail.list_from_pydantic(e)
-            reasons = "; ".join(
-                f"{'.'.join(str(part) for part in d.loc or ())}: {d.msg}"
-                for d in details
-            )
-            raise TracecatValidationError(
-                f"Invalid control flow for action {stmt.ref!r}: {reasons}",
-                detail=details,
-            ) from e
+        # Raise after the handler so the rejected value isn't chained as context.
+        reasons = "; ".join(
+            f"{'.'.join(str(part) for part in d.loc or ())}: {d.msg}" for d in details
+        )
+        raise TracecatValidationError(
+            f"Invalid control flow for action {stmt.ref!r}: {reasons}",
+            detail=details,
+        )
 
 
 def validate_control_flows(actions: Iterable[ActionStatement]) -> None:
