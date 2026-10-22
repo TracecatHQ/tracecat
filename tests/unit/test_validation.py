@@ -873,3 +873,6 @@ async def test_scatter_args_validated_at_commit(
         )
 
     assert [(d.type, d.loc) for r in results for d in r.detail or []] == expected
+    assert all(
+        r.msg == "Error validating action core.transform.scatter" for r in results
+    )

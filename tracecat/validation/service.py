@@ -444,7 +444,11 @@ async def validate_dsl_actions(
             val_res.append(
                 ActionValidationResult(
                     status="error",
-                    msg=result.msg,
+                    msg=(
+                        result.msg
+                        if result.status == "error"
+                        else f"Error validating action {act_stmt.action}"
+                    ),
                     ref=act_stmt.ref,
                     detail=details,
                     action_type=act_stmt.action,
