@@ -249,6 +249,10 @@ class SyncLifecycleService(BaseWorkspaceService):
     ) -> SyncOperationRead:
         # Validate visibility before asking the workflow to accept a command.
         current = await self.get(operation_id)
+        # Reject lost push permission before the workflow consumes its preview.
+        # The activity still refreshes authorization at the write boundary.
+        if current.direction == "push":
+            check_scopes(self.role, "workspace_sync:sync")
         history = await self._history(operation_id)
         if (
             history is not None
