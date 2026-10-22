@@ -1737,6 +1737,19 @@ class ClaudeAgentRuntime:
             )
             self._session_flush_event.set()
 
+        # api_retry: the CLI is retrying a failed model request itself, for
+        # example after the LLM proxy ended an interrupted stream.
+        elif message.subtype == "api_retry":
+            await self._event_writer.send_log(
+                "warning",
+                "Claude SDK retrying model request",
+                attempt=message.data.get("attempt"),
+                max_retries=message.data.get("max_retries"),
+                retry_delay_ms=message.data.get("retry_delay_ms"),
+                error_status=message.data.get("error_status"),
+                error=message.data.get("error"),
+            )
+
     async def _emit_user_tool_results(self, message: UserMessage) -> None:
         """Stream non-approval tool results from SDK user messages."""
         if not isinstance(message.content, list):

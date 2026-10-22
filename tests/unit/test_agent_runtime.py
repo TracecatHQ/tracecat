@@ -26,6 +26,7 @@ from claude_agent_sdk.types import (
     StopHookInput,
     StreamEvent,
     SyncHookJSONOutput,
+    SystemMessage,
     ToolUseBlock,
 )
 
@@ -3834,3 +3835,38 @@ async def test_interrupt_preserves_live_connection_error(
 
     with pytest.raises(connection_error, match="synthetic live failure"):
         await runtime.interrupt(reason="user_cancel")
+
+
+@pytest.mark.anyio
+async def test_api_retry_system_message_is_logged(
+    mock_socket_writer: MagicMock,
+) -> None:
+    """The CLI's own model-call retries show up in executor logs."""
+    runtime = ClaudeAgentRuntime(
+        mock_socket_writer, transport_factory=lambda _: MagicMock()
+    )
+
+    await runtime._handle_system_message(
+        SystemMessage(
+            subtype="api_retry",
+            data={
+                "type": "system",
+                "subtype": "api_retry",
+                "attempt": 1,
+                "max_retries": 10,
+                "retry_delay_ms": 605,
+                "error_status": None,
+                "error": "unknown",
+            },
+        )
+    )
+
+    mock_socket_writer.send_log.assert_awaited_once_with(
+        "warning",
+        "Claude SDK retrying model request",
+        attempt=1,
+        max_retries=10,
+        retry_delay_ms=605,
+        error_status=None,
+        error="unknown",
+    )
