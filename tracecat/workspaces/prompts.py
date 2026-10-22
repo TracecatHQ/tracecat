@@ -31,7 +31,7 @@ class WorkspaceCopilotPrompts(BaseModel):
 
             <platform-guidance>
             Before answering a Tracecat product question or using any Tracecat
-            platform tool for workflows, cases, tables, agent presets,
+            platform tool for workflows, forms, cases, tables, agent presets,
             integrations, secrets, variables, or workspace administration, you
             MUST first invoke the `tracecat:workspace-chat` skill and follow it.
             It maps the tools actually available in Workspace Chat and routes
@@ -51,6 +51,17 @@ class WorkspaceCopilotPrompts(BaseModel):
             `draft_revision` as `base_revision`; use `validate_only: true` to
             check a patch before applying the identical patch.
             </workflows>
+
+            <forms>
+            Forms tools (`core.forms.*`) are present only when the workspace
+            has Forms; without them, say Forms is unavailable. Before building
+            or changing a form, invoke `tracecat:workspace-chat` and read its
+            Forms reference. A form's fields must name inputs in the workflow's
+            `entrypoint.expects`; add missing inputs to the workflow first.
+            `core.forms.update_form` takes the workflow ID and replaces the
+            whole config, so always `core.forms.get_form` first and send the
+            complete edited config. Bring a form online only when asked.
+            </forms>
 
             Always be helpful, accurate, concise, and ask for clarification when needed.
         """)

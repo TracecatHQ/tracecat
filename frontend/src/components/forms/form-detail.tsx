@@ -49,7 +49,11 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import UserAvatar from "@/components/user-avatar"
-import { useFormConfigCheck, useFormConfigDraft } from "@/hooks/use-form-config"
+import {
+  useFormConfigCheck,
+  useFormConfigDraft,
+  useFormConfigScaffold,
+} from "@/hooks/use-form-config"
 import { useFormDetail, useFormSubmissions } from "@/hooks/use-forms"
 import { executionId } from "@/lib/event-history"
 import { getFormLoadFailure } from "@/lib/forms/errors"
@@ -466,7 +470,8 @@ function FormDetailBody({ form }: { form: FormRead }) {
 
   // The buffer lives above the tabs, so it survives a visit to Activity and
   // feeds the preview. A read-only builder's buffer is the saved config.
-  const draft = useFormConfigDraft(form)
+  const scaffold = useFormConfigScaffold(form)
+  const draft = useFormConfigDraft(form, canEdit ? scaffold.text : "")
   const check = useFormConfigCheck(
     { workspaceId: form.workspace_id, formId: form.id },
     draft.text
@@ -508,6 +513,7 @@ function FormDetailBody({ form }: { form: FormRead }) {
               canEdit={canEdit}
               draft={draft}
               check={check}
+              fields={scaffold.fields}
             />
           </TabsContent>
           <TabsContent value="activity" className="mt-0 min-h-0 flex-1">

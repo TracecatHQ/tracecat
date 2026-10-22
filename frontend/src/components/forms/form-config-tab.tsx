@@ -1,5 +1,6 @@
 "use client"
 
+import { autocompletion } from "@codemirror/autocomplete"
 import {
   lintGutter,
   nextDiagnostic,
@@ -20,11 +21,13 @@ import { type ChangeEvent, useEffect, useRef, useState } from "react"
 import type { FormRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
+import { tracecatSyntaxHighlighting } from "@/components/editor/codemirror/syntax-highlight"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/use-toast"
 import type { FormConfigCheck, FormConfigDraft } from "@/hooks/use-form-config"
 import { useUpdateForm } from "@/hooks/use-forms"
 import { getFormConfigIssues, getFormErrorDetail } from "@/lib/forms/errors"
+import { formBlockCompletions } from "@/lib/forms/form-block-commands"
 import {
   FORM_IMAGE_TYPES,
   FormImageError,
@@ -165,6 +168,96 @@ function InsertImageButton({ view }: { view: EditorView | null }) {
 }
 
 /**
+ * Editor chrome on the app's own tokens, so it matches the page in both
+ * themes instead of the bundled one-dark and default light themes.
+ */
+const formEditorTheme = Prec.highest(
+  EditorView.theme({
+    "&": {
+      backgroundColor: "hsl(var(--background))",
+      color: "hsl(var(--foreground))",
+    },
+    ".cm-gutters": {
+      backgroundColor: "hsl(var(--background))",
+      color: "hsl(var(--muted-foreground))",
+      borderRight: "1px solid hsl(var(--border))",
+    },
+    ".cm-activeLine, .cm-activeLineGutter": {
+      backgroundColor: "hsl(var(--muted) / 0.5)",
+    },
+    ".cm-placeholder": { color: "hsl(var(--muted-foreground))" },
+    ".cm-cursor, .cm-dropCursor": {
+      borderLeftColor: "hsl(var(--foreground))",
+    },
+    "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
+      { backgroundColor: "hsl(var(--muted-foreground) / 0.25)" },
+    ".cm-gutter-lint": { width: "1rem" },
+    ".cm-gutter-lint .cm-gutterElement": {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "0",
+    },
+    ".cm-lint-marker": {
+      width: "0.4rem",
+      height: "0.4rem",
+      borderRadius: "9999px",
+      content: "none",
+    },
+    ".cm-lint-marker-error": { backgroundColor: "rgb(239 68 68)" },
+    ".cm-lint-marker-warning": { backgroundColor: "rgb(245 158 11)" },
+    ".cm-lint-marker-info": { backgroundColor: "rgb(59 130 246)" },
+    ".cm-lintRange-error": {
+      backgroundImage: "none",
+      textDecoration: "underline wavy rgb(239 68 68)",
+      textUnderlineOffset: "3px",
+    },
+    ".cm-lintRange-warning": {
+      backgroundImage: "none",
+      textDecoration: "underline wavy rgb(245 158 11)",
+      textUnderlineOffset: "3px",
+    },
+    ".cm-tooltip": {
+      backgroundColor: "hsl(var(--popover))",
+      color: "hsl(var(--popover-foreground))",
+      border: "1px solid hsl(var(--border))",
+      borderRadius: "0.375rem",
+      boxShadow: "0 4px 12px rgb(0 0 0 / 0.12)",
+      overflow: "hidden",
+    },
+    ".cm-tooltip-lint": { padding: "0" },
+    ".cm-diagnostic": {
+      padding: "0.375rem 0.625rem",
+      fontSize: "0.75rem",
+      borderLeftWidth: "3px",
+    },
+    ".cm-diagnostic-error": { borderLeftColor: "rgb(239 68 68)" },
+    ".cm-diagnostic-warning": { borderLeftColor: "rgb(245 158 11)" },
+    ".cm-diagnostic-info": { borderLeftColor: "rgb(59 130 246)" },
+    ".cm-tooltip-autocomplete > ul": {
+      fontFamily: "inherit",
+      fontSize: "0.75rem",
+      maxHeight: "16rem",
+    },
+    ".cm-tooltip-autocomplete > ul > li": { padding: "0.25rem 0.5rem" },
+    ".cm-tooltip-autocomplete > ul > li[aria-selected]": {
+      backgroundColor: "hsl(var(--accent))",
+      color: "hsl(var(--accent-foreground))",
+    },
+    ".cm-completionDetail": {
+      marginLeft: "0.75rem",
+      fontStyle: "normal",
+      color: "hsl(var(--muted-foreground))",
+    },
+    ".cm-completionIcon": { display: "none" },
+    ".cm-completionMatchedText": {
+      textDecoration: "none",
+      fontWeight: "600",
+    },
+  })
+)
+
+/**
  * The Config tab of a form: a YAML editor with Save, the problems the server
  * finds marked on their lines, and the workflow the inputs come from. The
  * YAML is sent as JSON, and the buffer is rewritten from the stored config.
@@ -174,12 +267,15 @@ export function FormConfigTab({
   canEdit,
   draft,
   check,
+  fields = [],
 }: {
   form: FormRead
   /** Whether the caller holds `form:update`. Without it the editor is read-only. */
   canEdit: boolean
   draft: FormConfigDraft
   check: FormConfigCheck
+  /** Workflow inputs the slash menu offers as field blocks. */
+  fields?: string[]
 }) {
   const { mutateAsync: updateForm } = useUpdateForm({
     workspaceId: form.workspace_id,
@@ -207,10 +303,18 @@ export function FormConfigTab({
 
   const saveRef = useRef(save)
   saveRef.current = save
+  const fieldsRef = useRef(fields)
+  fieldsRef.current = fields
   const [extensions] = useState<Extension[]>(() => [
     imageChips,
     chipTheme,
+    tracecatSyntaxHighlighting,
+    formEditorTheme,
     lintGutter(),
+    autocompletion({
+      override: [formBlockCompletions(() => fieldsRef.current)],
+      icons: false,
+    }),
     Prec.highest(
       keymap.of([
         {
@@ -306,7 +410,16 @@ export function FormConfigTab({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-9 flex-none items-center gap-2 border-b px-3">
         {canEdit ? (
-          <InsertImageButton view={view} />
+          <>
+            <InsertImageButton view={view} />
+            <span className="hidden truncate text-xs text-muted-foreground sm:inline">
+              Type{" "}
+              <kbd className="rounded border bg-muted px-1 font-mono text-[11px]">
+                /
+              </kbd>{" "}
+              to add a block
+            </span>
+          </>
         ) : (
           <span className="text-xs text-muted-foreground">Read only</span>
         )}
