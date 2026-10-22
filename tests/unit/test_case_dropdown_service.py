@@ -6,6 +6,7 @@ from sqlalchemy import event, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from tests.database import TEST_DB_CONFIG
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import VIEWER_SCOPES
 from tracecat.cases.dropdowns.schemas import (
@@ -21,13 +22,13 @@ from tracecat.cases.dropdowns.service import (
     CaseDropdownValuesService,
 )
 from tracecat.cases.enums import CasePriority, CaseSeverity
-from tracecat.db.engine import get_async_engine
 from tracecat.db.models import (
     Case,
     CaseDropdownDefinition,
     CaseDropdownOption,
     CaseDropdownValue,
     CaseEvent,
+    Workspace,
 )
 from tracecat.exceptions import (
     ScopeDeniedError,
@@ -38,14 +39,67 @@ from tracecat.exceptions import (
 pytestmark = pytest.mark.usefixtures("db")
 
 
+async def _wait_for_dropdown_lock_attempts(
+    both_attempted: asyncio.Event, writers: list[asyncio.Task[None]]
+) -> None:
+    barrier = asyncio.create_task(both_attempted.wait())
+    try:
+        done, _ = await asyncio.wait(
+            [barrier, *writers], timeout=10, return_when=asyncio.FIRST_COMPLETED
+        )
+        for writer in writers:
+            if writer in done:
+                writer.result()
+                pytest.fail("Dropdown writer completed while the case lock was held")
+        if barrier not in done:
+            raise TimeoutError("Dropdown writers did not reach the case lock")
+    finally:
+        barrier.cancel()
+        await asyncio.gather(barrier, return_exceptions=True)
+
+
+@pytest.mark.anyio
+async def test_dropdown_lock_barrier_propagates_writer_failure() -> None:
+    async def fail() -> None:
+        raise RuntimeError("Synthetic writer failure")
+
+    writer = asyncio.create_task(fail())
+    with pytest.raises(RuntimeError, match="Synthetic writer failure"):
+        await asyncio.wait_for(
+            _wait_for_dropdown_lock_attempts(asyncio.Event(), [writer]), timeout=1
+        )
+
+
+@pytest.mark.anyio
+async def test_dropdown_lock_barrier_rejects_early_writer_completion() -> None:
+    async def finish() -> None:
+        return
+
+    writer = asyncio.create_task(finish())
+    with pytest.raises(pytest.fail.Exception, match="case lock was held"):
+        await asyncio.wait_for(
+            _wait_for_dropdown_lock_attempts(asyncio.Event(), [writer]), timeout=1
+        )
+
+
 @pytest.mark.anyio
 async def test_concurrent_dropdown_sets_serialize_absent_values(svc_role: Role) -> None:
-    role = svc_role.model_copy(update={"type": "service", "user_id": None})
-    # Keep the lock barrier independent of the bounded application pool.
-    concurrent_engine = create_async_engine(get_async_engine().url, poolclass=NullPool)
+    role = svc_role.model_copy(
+        update={"type": "service", "user_id": None, "workspace_id": uuid.uuid4()}
+    )
+    # Isolate the barrier from shared schema setup and the bounded application pool.
+    concurrent_engine = create_async_engine(TEST_DB_CONFIG.test_url, poolclass=NullPool)
     sessions = async_sessionmaker(concurrent_engine, expire_on_commit=False)
     try:
         async with sessions() as seed:
+            seed.add(
+                Workspace(
+                    id=role.workspace_id,
+                    organization_id=role.organization_id,
+                    name="Synthetic concurrent workspace",
+                )
+            )
+            await seed.flush()
             case = Case(
                 workspace_id=role.workspace_id,
                 summary="Synthetic concurrent case",
@@ -107,7 +161,7 @@ async def test_concurrent_dropdown_sets_serialize_absent_values(svc_role: Role) 
                     asyncio.create_task(set_option(option_id))
                     for option_id in option_ids
                 ]
-                await asyncio.wait_for(both_attempted.wait(), timeout=10)
+                await _wait_for_dropdown_lock_attempts(both_attempted, writers)
                 assert all(not writer.done() for writer in writers)
                 await locker.commit()
             await asyncio.wait_for(asyncio.gather(*writers), timeout=10)
