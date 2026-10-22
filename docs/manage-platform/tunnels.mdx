@@ -321,31 +321,11 @@ Only the listed tools use a tunnel. An action's `tunnel` field and the workflow'
 
 ## Run the tunnel gateway
 
-Each tunnel has one gateway that forwards action traffic through Pangolin. Tracecat Cloud runs gateways for you. On Kubernetes, the Helm chart runs them; see [Tunnels](/self-hosting/kubernetes#tunnels).
+Each tunnel has one gateway that forwards traffic through Pangolin. Tracecat Cloud runs gateways for you. If you self-host, the Helm chart runs them on Kubernetes; see [Tunnels](/self-hosting/kubernetes#tunnels).
 
-Elsewhere, such as Docker Compose, run one gateway container per tunnel. Issue its gateway key first. Each new key revokes the previous one and is returned once:
-
-```bash
-curl -X POST "https://<tracecat-host>/api/tunnels/<tunnel_id>/gateway-key?workspace_id=<workspace_id>" \
-  -H "Authorization: Bearer <api_key>"
-# {"tunnel_id": "<tunnel_id>", "gateway_key": "<gateway_key>"}
-```
-
-```bash
-docker run -d --name tunnel-gateway --cap-add NET_ADMIN --device /dev/net/tun \
-  -e PANGOLIN_ENDPOINT=<pangolin_endpoint> \
-  -e PANGOLIN_CLIENT_ID=<machine_client_id> \
-  -e PANGOLIN_CLIENT_SECRET=<machine_client_secret> \
-  -e TRACECAT_TUNNEL_ID=<tunnel_id> \
-  -e TRACECAT_TUNNEL_GATEWAY_KEY=<gateway_key> \
-  -e TRACECAT_TUNNEL_API_URL=http://api:8000 \
-  ghcr.io/tracecathq/tracecat-tunnel-gateway
-```
-
-- Allow only executors to reach the gateway on port `8080`, and set `TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE` on executors to its hostname.
-- Allow outbound TCP 443 and UDP 21820 from the gateway to the Pangolin endpoint.
-- Set `TRACECAT_TUNNEL_GATEWAY_BLOCKED_CIDRS` to the internal ranges the gateway must never dial. It always refuses loopback, link-local, cloud metadata, and the Tracecat API's own addresses.
-- Restart the gateway with the new key after a key rotation. The gateway applies disabled tunnels and removed targets within 15 seconds.
+<Note>
+  Tunnels require Kubernetes. On Docker Compose and AWS ECS Fargate, `TRACECAT__TUNNEL_GATEWAY_BACKEND` is `none`. Tracecat rejects creating a tunnel or issuing a gateway key there. Any action, agent tool, or MCP server set to use a tunnel fails instead of connecting directly.
+</Note>
 
 ## Use TLS with private services
 

@@ -22,6 +22,7 @@ from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.secrets.encryption import decrypt_value
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
+from tracecat_ee.tunnels.gateways import TUNNELS_REQUIRE_KUBERNETES, kubernetes_enabled
 from tracecat_ee.tunnels.tokens import TUNNEL_TOKEN_MAX_TTL_SECONDS, mint_tunnel_token
 
 PROXY_USERNAME = "tracecat"
@@ -95,6 +96,8 @@ async def resolve_tunnel_route(
     """
     if (name is None) == (tunnel_id is None):
         raise ValueError("Pass exactly one of name or tunnel_id")
+    if not kubernetes_enabled():
+        raise TunnelRouteError(TUNNELS_REQUIRE_KUBERNETES)
     async with get_async_session_bypass_rls_context_manager() as session:
         if not await is_org_entitled(session, organization_id, Entitlement.TUNNELS):
             raise TunnelRouteError("Tunnels are not available on your current plan")

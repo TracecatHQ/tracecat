@@ -987,6 +987,8 @@ import type {
   TunnelsCreateTunnelResponse,
   TunnelsDeleteTunnelData,
   TunnelsDeleteTunnelResponse,
+  TunnelsGetTunnelAvailabilityData,
+  TunnelsGetTunnelAvailabilityResponse,
   TunnelsGetTunnelData,
   TunnelsGetTunnelResponse,
   TunnelsGetTunnelStatusData,
@@ -4209,6 +4211,29 @@ export const tunnelsCreateTunnel = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Tunnel Availability
+ * Report whether this deployment can run tunnel gateways.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns TunnelAvailabilityRead Successful Response
+ * @throws ApiError
+ */
+export const tunnelsGetTunnelAvailability = (
+  data: TunnelsGetTunnelAvailabilityData
+): CancelablePromise<TunnelsGetTunnelAvailabilityResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/tunnels/availability",
+    path: {
+      workspace_id: data.workspaceId,
+    },
     errors: {
       422: "Validation Error",
     },

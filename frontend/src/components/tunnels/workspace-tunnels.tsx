@@ -62,6 +62,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import {
+  useTunnelAvailability,
   useTunnelStatus,
   useTunnels,
   useTunnelUsages,
@@ -71,6 +72,8 @@ import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const CREATE_TUNNEL_FORM_ID = "create-tunnel-form"
+const KUBERNETES_ONLY_MESSAGE =
+  "This deployment has no tunnel gateway backend, so tunnels can't be created or used. Deploy Tracecat with the Helm chart and enable tunnels."
 const TUNNEL_NAME_PATTERN = /^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$/
 
 /**
@@ -121,10 +124,13 @@ export function CreateTunnelButton() {
   const { createManagedTunnel, createPending } = useTunnels(workspaceId, {
     enabled: tunnelsEnabled,
   })
+  const tunnelsAvailable = useTunnelAvailability(workspaceId, {
+    enabled: tunnelsEnabled,
+  })
   const [createOpen, setCreateOpen] = useState(false)
   const [created, setCreated] = useState<ManagedTunnelCreated | null>(null)
 
-  if (!tunnelsEnabled || canCreate !== true) {
+  if (!tunnelsEnabled || canCreate !== true || tunnelsAvailable !== true) {
     return null
   }
 
@@ -203,6 +209,9 @@ export function WorkspaceTunnels() {
     issueGatewayKey,
     issueGatewayKeyPending,
   } = useTunnels(workspaceId, { enabled: tunnelsEnabled })
+  const tunnelsAvailable = useTunnelAvailability(workspaceId, {
+    enabled: tunnelsEnabled,
+  })
 
   const [rotateTarget, setRotateTarget] = useState<TunnelRead | null>(null)
   const [issuedKey, setIssuedKey] = useState<TunnelGatewayKeyRead | null>(null)
@@ -272,6 +281,20 @@ export function WorkspaceTunnels() {
     body = (
       <div className="flex h-full items-center justify-center">
         <CenteredSpinner />
+      </div>
+    )
+  } else if (tunnels.length === 0 && tunnelsAvailable === false) {
+    body = (
+      <div className="flex h-full p-6">
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <NetworkIcon className="size-5 text-muted-foreground/60" />
+            </EmptyMedia>
+            <EmptyTitle>Tunnels require Kubernetes</EmptyTitle>
+            <EmptyDescription>{KUBERNETES_ONLY_MESSAGE}</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       </div>
     )
   } else if (tunnels.length === 0) {
@@ -370,6 +393,20 @@ export function WorkspaceTunnels() {
           </div>
         ))}
       </div>
+    )
+  }
+
+  if (tunnelsAvailable === false && tunnels.length > 0) {
+    body = (
+      <>
+        <div className="p-4">
+          <AlertNotification
+            level="warning"
+            message={`Tunnels require Kubernetes. ${KUBERNETES_ONLY_MESSAGE}`}
+          />
+        </div>
+        {body}
+      </>
     )
   }
 

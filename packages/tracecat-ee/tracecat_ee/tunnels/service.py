@@ -28,7 +28,7 @@ from tracecat.tiers.enums import Entitlement
 from tracecat_ee.tunnels.gateways import (
     delete_gateway,
     gateway_ready,
-    kubernetes_enabled,
+    require_kubernetes_gateways,
     sync_gateway,
 )
 from tracecat_ee.tunnels.pangolin import (
@@ -157,6 +157,7 @@ class TunnelsService(BaseWorkspaceService):
     @audit_log(resource_type="workspace_tunnel", action="create")
     async def create_tunnel(self, params: TunnelCreate) -> WorkspaceTunnel:
         await self.require_entitlement(Entitlement.TUNNELS)
+        require_kubernetes_gateways()
         tunnel = WorkspaceTunnel(
             workspace_id=self.workspace_id,
             name=params.name,
@@ -170,9 +171,8 @@ class TunnelsService(BaseWorkspaceService):
             allowed_targets=serialize_targets(params.allowed_targets),
             enabled=params.enabled,
         )
-        if kubernetes_enabled():
-            # Tracecat runs the gateway, so it needs a key from the start.
-            tunnel.encrypted_gateway_key = self._encrypt_secret(generate_gateway_key())
+        # Tracecat runs the gateway, so it needs a key from the start.
+        tunnel.encrypted_gateway_key = self._encrypt_secret(generate_gateway_key())
         self.session.add(tunnel)
         await self.session.commit()
         await self.session.refresh(tunnel)
@@ -327,6 +327,7 @@ class TunnelsService(BaseWorkspaceService):
     async def issue_gateway_key(self, tunnel: WorkspaceTunnel) -> str:
         """Issue a new gateway key, revoking any previous one. Returns it once."""
         await self.require_entitlement(Entitlement.TUNNELS)
+        require_kubernetes_gateways()
         self._ensure_owned(tunnel)
         gateway_key = generate_gateway_key()
         tunnel.encrypted_gateway_key = self._encrypt_secret(gateway_key)
@@ -361,6 +362,7 @@ class TunnelsService(BaseWorkspaceService):
         a later step fails.
         """
         await self.require_entitlement(Entitlement.TUNNELS)
+        require_kubernetes_gateways()
         settings = await self._pangolin_settings()
         tunnel_id = uuid.uuid4()
         label = f"tracecat-{self.workspace_id}-{params.name}"

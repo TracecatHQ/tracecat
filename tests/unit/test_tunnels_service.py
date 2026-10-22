@@ -4,9 +4,13 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.tunnels import service as service_module
+from tracecat_ee.tunnels.gateways import TunnelGatewayUnavailableError
+from tracecat_ee.tunnels.routing import TunnelRouteError, resolve_tunnel_route
 from tracecat_ee.tunnels.schemas import TunnelCreate, TunnelUpdate
 from tracecat_ee.tunnels.service import TunnelsService
 
+from tracecat import config
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import VIEWER_SCOPES
@@ -15,7 +19,6 @@ from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
     TracecatNotFoundError,
-    TracecatValidationError,
 )
 from tracecat.pagination import PageParams
 from tracecat.secrets.encryption import decrypt_value
@@ -23,6 +26,13 @@ from tracecat.secrets.encryption import decrypt_value
 pytestmark = [pytest.mark.usefixtures("db"), pytest.mark.anyio]
 
 SECRET = "machine-client-secret"
+
+
+@pytest.fixture(autouse=True)
+def kubernetes_gateways(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(config, "TRACECAT__TUNNEL_GATEWAY_BACKEND", "kubernetes")
+    monkeypatch.setattr(service_module, "sync_gateway", AsyncMock())
+    monkeypatch.setattr(service_module, "delete_gateway", AsyncMock())
 
 
 @pytest.fixture(autouse=True)
@@ -199,9 +209,7 @@ async def test_viewer_cannot_manage_tunnels(
 
 async def test_gateway_key_issue_and_rotate(service: TunnelsService) -> None:
     tunnel = await service.create_tunnel(_params())
-    assert tunnel.encrypted_gateway_key is None
-    with pytest.raises(TracecatValidationError):
-        await service.get_gateway_key(tunnel)
+    assert tunnel.encrypted_gateway_key is not None
 
     first = await service.issue_gateway_key(tunnel)
     assert tunnel.encrypted_gateway_key is not None
@@ -314,3 +322,22 @@ async def test_delete_in_use_lists_every_usage(
 
     other_usages = await service.list_tunnel_usages(other)
     assert [usage.id for usage in other_usages] == [unrelated_preset.id]
+
+
+async def test_tunnels_require_kubernetes_gateway_backend(
+    service: TunnelsService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tunnel = await service.create_tunnel(_params())
+    monkeypatch.setattr(config, "TRACECAT__TUNNEL_GATEWAY_BACKEND", "none")
+
+    with pytest.raises(TunnelGatewayUnavailableError, match="Kubernetes"):
+        await service.create_tunnel(_params("another"))
+    with pytest.raises(TunnelGatewayUnavailableError, match="Kubernetes"):
+        await service.issue_gateway_key(tunnel)
+    with pytest.raises(TunnelRouteError, match="Kubernetes"):
+        await resolve_tunnel_route(
+            workspace_id=tunnel.workspace_id,
+            organization_id=service.organization_id,
+            subject="test",
+            tunnel_id=tunnel.id,
+        )

@@ -10,6 +10,7 @@ import {
   type TunnelUsageList,
   tunnelsCreateManagedTunnel,
   tunnelsDeleteTunnel,
+  tunnelsGetTunnelAvailability,
   tunnelsGetTunnelStatus,
   tunnelsIssueTunnelGatewayKey,
   tunnelsListTunnels,
@@ -20,6 +21,20 @@ import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 function tunnelsQueryKey(workspaceId: string) {
   return ["workspace-tunnels", workspaceId] as const
+}
+
+/** Whether this deployment can run tunnel gateways, which needs Kubernetes. */
+export function useTunnelAvailability(
+  workspaceId: string,
+  { enabled = true }: { enabled?: boolean } = {}
+) {
+  const { data } = useQuery({
+    queryKey: ["workspace-tunnels-availability", workspaceId] as const,
+    queryFn: async () => await tunnelsGetTunnelAvailability({ workspaceId }),
+    enabled: enabled && Boolean(workspaceId),
+    staleTime: Number.POSITIVE_INFINITY,
+  })
+  return data?.available
 }
 
 /** Lists a workspace's tunnels and exposes the tunnel mutations. */

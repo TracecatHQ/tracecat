@@ -37208,6 +37208,21 @@ export const $TriggerType = {
   description: "Trigger type for a workflow execution.",
 } as const
 
+export const $TunnelAvailabilityRead = {
+  properties: {
+    available: {
+      type: "boolean",
+      title: "Available",
+      description:
+        "False when Tracecat runs without the Kubernetes gateway backend, e.g. on Docker Compose or Fargate.",
+    },
+  },
+  type: "object",
+  required: ["available"],
+  title: "TunnelAvailabilityRead",
+  description: "Whether this deployment can run tunnel gateways.",
+} as const
+
 export const $TunnelCreate = {
   properties: {
     name: {

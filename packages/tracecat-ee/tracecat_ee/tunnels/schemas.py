@@ -232,6 +232,15 @@ class TunnelRead(BaseModel):
         )
 
 
+class TunnelAvailabilityRead(BaseModel):
+    """Whether this deployment can run tunnel gateways."""
+
+    available: bool = Field(
+        ...,
+        description="False when Tracecat runs without the Kubernetes gateway backend, e.g. on Docker Compose or Fargate.",
+    )
+
+
 class TunnelGatewayKeyRead(BaseModel):
     """A newly issued gateway key. It is only returned once, at issue time."""
 

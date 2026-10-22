@@ -16,10 +16,15 @@ from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import Page, PageParams, PaginationError
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
+from tracecat_ee.tunnels.gateways import (
+    TunnelGatewayUnavailableError,
+    kubernetes_enabled,
+)
 from tracecat_ee.tunnels.pangolin import PangolinError
 from tracecat_ee.tunnels.schemas import (
     ManagedTunnelCreate,
     ManagedTunnelCreated,
+    TunnelAvailabilityRead,
     TunnelCreate,
     TunnelGatewayKeyRead,
     TunnelGatewayPolicyRead,
@@ -78,6 +83,16 @@ async def list_tunnels(
     )
 
 
+@router.get("/availability")
+@require_scope("tunnel:read")
+async def get_tunnel_availability(
+    *,
+    role: WorkspaceActorRouteRole,
+) -> TunnelAvailabilityRead:
+    """Report whether this deployment can run tunnel gateways."""
+    return TunnelAvailabilityRead(available=kubernetes_enabled())
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 @require_scope("tunnel:create")
 async def create_tunnel(
@@ -93,6 +108,10 @@ async def create_tunnel(
     except IntegrityError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=_TUNNEL_EXISTS
+        ) from exc
+    except TunnelGatewayUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
     return TunnelRead.from_database(tunnel)
 
@@ -115,6 +134,10 @@ async def create_managed_tunnel(
     except IntegrityError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=_TUNNEL_EXISTS
+        ) from exc
+    except TunnelGatewayUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
     except PangolinError as exc:
         raise HTTPException(
@@ -268,6 +291,10 @@ async def issue_tunnel_gateway_key(
     except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except TunnelGatewayUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
     return TunnelGatewayKeyRead(tunnel_id=tunnel.id, gateway_key=gateway_key)
 

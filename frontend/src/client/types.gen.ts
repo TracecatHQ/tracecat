@@ -11285,6 +11285,16 @@ export type type6 = "schedule" | "webhook"
  */
 export type TriggerType = "manual" | "scheduled" | "webhook" | "case" | "form"
 
+/**
+ * Whether this deployment can run tunnel gateways.
+ */
+export type TunnelAvailabilityRead = {
+  /**
+   * False when Tracecat runs without the Kubernetes gateway backend, e.g. on Docker Compose or Fargate.
+   */
+  available: boolean
+}
+
 export type TunnelCreate = {
   name: string
   description?: string | null
@@ -14292,6 +14302,12 @@ export type TunnelsCreateTunnelData = {
 }
 
 export type TunnelsCreateTunnelResponse = TunnelRead
+
+export type TunnelsGetTunnelAvailabilityData = {
+  workspaceId: string
+}
+
+export type TunnelsGetTunnelAvailabilityResponse = TunnelAvailabilityRead
 
 export type TunnelsCreateManagedTunnelData = {
   requestBody: ManagedTunnelCreate
@@ -19845,6 +19861,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: TunnelRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tunnels/availability": {
+    get: {
+      req: TunnelsGetTunnelAvailabilityData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TunnelAvailabilityRead
         /**
          * Validation Error
          */
