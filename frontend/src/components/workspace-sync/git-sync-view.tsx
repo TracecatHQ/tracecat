@@ -23,7 +23,7 @@ import {
   useRepositoryCommits,
 } from "@/hooks/use-workspace-sync"
 import { getRepoDisplayName } from "@/lib/git"
-import { useQueryClient } from "@/lib/query"
+import { useQuery, useQueryClient } from "@/lib/query"
 import { cn } from "@/lib/utils"
 
 type SyncDirection = "push" | "pull"
@@ -90,6 +90,12 @@ function GitSyncConnectedView({
   const [direction, setDirection] = useState<SyncDirection>("push")
   const [showConnection, setShowConnection] = useState(false)
   const [pullCount, setPullCount] = useState(0)
+  const { data: importRevision } = useQuery({
+    queryKey: ["workspace-sync-import-revision", workspaceId],
+    queryFn: () => 0,
+    initialData: 0,
+    enabled: false,
+  })
 
   const { branches, branchesIsLoading, branchesError } = useRepositoryBranches(
     workspaceId,
@@ -194,7 +200,7 @@ function GitSyncConnectedView({
             baseBranch={baseBranch}
             branchesIsLoading={branchesIsLoading}
             branchesError={branchesError}
-            pullCount={pullCount}
+            pullCount={pullCount + importRevision}
           />
         </TabsContent>
         <TabsContent

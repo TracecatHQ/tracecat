@@ -60,8 +60,13 @@ jest.mock("@/hooks/use-workspace-sync", () => ({
 }))
 
 const mockInvalidateQueries = jest.fn()
+let mockImportRevision = 0
+beforeEach(() => {
+  mockImportRevision = 0
+})
 
 jest.mock("@/lib/query", () => ({
+  useQuery: () => ({ data: mockImportRevision }),
   useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
 }))
 
@@ -1229,4 +1234,23 @@ describe("GitSyncView connected", () => {
       )
     )
   })
+})
+
+it("clears an open push preview when an observed pull imports data", async () => {
+  const user = userEvent.setup()
+  const workspace = setup({ preview: PUSH_PREVIEW })
+  const view = renderWithTooltips(
+    <GitSyncView workspace={workspace} canSync canManageConnection />
+  )
+  await user.click(screen.getByRole("button", { name: "Preview" }))
+  expect(await screen.findByText("Included in this push")).toBeInTheDocument()
+  mockImportRevision = 1
+  view.rerender(
+    <TooltipProvider>
+      <GitSyncView workspace={workspace} canSync canManageConnection />
+    </TooltipProvider>
+  )
+  await waitFor(() =>
+    expect(screen.queryByText("Included in this push")).not.toBeInTheDocument()
+  )
 })
