@@ -470,13 +470,18 @@ class TestCaseFieldsService:
         )
         await case_fields_service.upsert_field_values(test_case, {"label": "alpha"})
 
-        cases: list[tuple[str, CaseFieldUpdate, type[Exception]]] = [
-            ("missing", CaseFieldUpdate(name="renamed"), TracecatNotFoundError),
-            ("notes", CaseFieldUpdate(nullable=False), TableColumnConflictError),
-            ("label", CaseFieldUpdate(type=SqlType.INTEGER), TableColumnConflictError),
+        cases: list[tuple[str, CaseFieldUpdate, type[Exception], str]] = [
+            ("missing", CaseFieldUpdate(name="renamed"), TracecatNotFoundError, ""),
+            ("notes", CaseFieldUpdate(nullable=False), TableColumnConflictError, ""),
+            (
+                "label",
+                CaseFieldUpdate(type=SqlType.INTEGER),
+                ValueError,
+                "Column type cannot be changed",
+            ),
         ]
-        for field_id, params, error in cases:
-            with pytest.raises(error):
+        for field_id, params, error, match in cases:
+            with pytest.raises(error, match=match):
                 async with session.begin_nested():
                     await case_fields_service.update_field(field_id, params)
 

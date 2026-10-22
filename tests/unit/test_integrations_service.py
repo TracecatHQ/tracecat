@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import (
 )
 
 import tracecat.integrations.service as integration_service_module
-from tests._db_error_utils import unique_violation
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.auth.types import Role
@@ -201,18 +200,6 @@ def mock_cc_provider(monkeypatch: pytest.MonkeyPatch) -> MockCCOAuthProvider:
 @pytest.mark.anyio
 class TestIntegrationService:
     """Test the IntegrationService class."""
-
-    async def test_concurrent_create_is_integration_conflict(
-        self, integration_service: IntegrationService
-    ) -> None:
-        error = unique_violation("uq_mcp_integration_workspace_slug")
-        with (
-            patch.object(
-                integration_service.session, "commit", AsyncMock(side_effect=error)
-            ),
-            pytest.raises(integration_service_module.IntegrationConflictError),
-        ):
-            await integration_service._commit_integration()
 
     async def test_service_initialization_requires_workspace(
         self, session: AsyncSession

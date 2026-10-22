@@ -2,7 +2,7 @@ import uuid
 from collections.abc import Sequence
 
 from slugify import slugify
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import NoResultFound
 
@@ -168,17 +168,28 @@ class CaseTagsService(BaseWorkspaceService):
         return tag
 
     async def _create_tag_if_missing(self, name: str) -> CaseTag:
+        params = TagCreate(name=name)
+        ref = slugify(params.name)
         # Concurrent requests may create the same tag; reuse whichever won.
-        ref = slugify(name)
         await self.session.execute(
             pg_insert(CaseTag)
-            .values(name=name, ref=ref, workspace_id=self.workspace_id)
+            .values(
+                name=params.name,
+                ref=ref,
+                workspace_id=self.workspace_id,
+                color=params.color,
+            )
             .on_conflict_do_nothing()
         )
+        # A synced tag can hold this name under a different ref.
         result = await self.session.scalars(
-            select(CaseTag).where(
-                CaseTag.workspace_id == self.workspace_id, CaseTag.ref == ref
+            select(CaseTag)
+            .where(
+                CaseTag.workspace_id == self.workspace_id,
+                or_(CaseTag.ref == ref, CaseTag.name == params.name),
             )
+            .order_by((CaseTag.ref == ref).desc())
+            .limit(1)
         )
         return result.one()
 

@@ -1,13 +1,12 @@
 from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4
-from sqlalchemy.exc import IntegrityError, NoResultFound
+from sqlalchemy.exc import NoResultFound
 
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.cases.tags.schemas import CaseTagCreate, CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.errors import is_unique_violation
 from tracecat.exceptions import TracecatNotFoundError
 
 router = APIRouter(prefix="/cases", tags=["cases"])
@@ -52,12 +51,6 @@ async def add_tag(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found"
         ) from err
-    except IntegrityError as e:
-        if not is_unique_violation(e, "pk_case_tag_link"):
-            raise
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Tag operation failed"
-        ) from e
 
 
 @router.delete(

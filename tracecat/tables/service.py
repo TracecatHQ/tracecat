@@ -218,8 +218,8 @@ def _column_ddl_errors[**P, T](
                     "Column cannot be required while existing rows contain null values"
                 ) from exc
             if find_db_error(exc, DatatypeMismatchError):
-                raise TableColumnConflictError(
-                    "Existing values cannot be converted to the requested type"
+                raise ValueError(
+                    "Column type cannot be changed to the requested type"
                 ) from exc
             raise
 
