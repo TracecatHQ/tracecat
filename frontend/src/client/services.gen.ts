@@ -20,6 +20,8 @@ import type {
   ActionsUpdateActionResponse,
   AdminAgentListPlatformCatalogData,
   AdminAgentListPlatformCatalogResponse,
+  AdminCheckIpAllowlistData,
+  AdminCheckIpAllowlistResponse,
   AdminCreateOrganizationData,
   AdminCreateOrganizationDomainData,
   AdminCreateOrganizationDomainResponse,
@@ -48,6 +50,7 @@ import type {
   AdminGetOrgTierData,
   AdminGetOrgTierResponse,
   AdminGetRegistrySettingsResponse,
+  AdminGetSecuritySettingsResponse,
   AdminGetTierData,
   AdminGetTierResponse,
   AdminGetUserData,
@@ -107,6 +110,8 @@ import type {
   AdminUpdateOrgTierResponse,
   AdminUpdateRegistrySettingsData,
   AdminUpdateRegistrySettingsResponse,
+  AdminUpdateSecuritySettingsData,
+  AdminUpdateSecuritySettingsResponse,
   AdminUpdateTierData,
   AdminUpdateTierResponse,
   AgentChannelsCreateChannelTokenData,
@@ -9122,6 +9127,67 @@ export const adminUpdateRegistrySettings = (
   return __request(OpenAPI, {
     method: "PATCH",
     url: "/admin/settings/registry",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Security Settings
+ * Get the platform admin IP allowlist.
+ * @returns PlatformSecuritySettingsRead Successful Response
+ * @throws ApiError
+ */
+export const adminGetSecuritySettings =
+  (): CancelablePromise<AdminGetSecuritySettingsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/admin/settings/security",
+    })
+  }
+
+/**
+ * Update Security Settings
+ * Update the platform admin IP allowlist.
+ *
+ * Enabling a non-empty allowlist that excludes the caller's own IP is
+ * rejected so a platform admin cannot lock themselves out.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns PlatformSecuritySettingsRead Successful Response
+ * @throws ApiError
+ */
+export const adminUpdateSecuritySettings = (
+  data: AdminUpdateSecuritySettingsData
+): CancelablePromise<AdminUpdateSecuritySettingsResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/admin/settings/security",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Check Ip Allowlist
+ * Report whether an IP address is admitted by the saved platform admin allowlist.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns IPAllowlistCheckResult Successful Response
+ * @throws ApiError
+ */
+export const adminCheckIpAllowlist = (
+  data: AdminCheckIpAllowlistData
+): CancelablePromise<AdminCheckIpAllowlistResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/settings/security/ip-allowlist/check",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {

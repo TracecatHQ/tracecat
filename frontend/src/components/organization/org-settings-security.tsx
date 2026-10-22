@@ -12,7 +12,13 @@ import {
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import type { IPAllowlist, IPAllowlistCheckResult } from "@/client"
+import type {
+  IPAllowlist,
+  IPAllowlistCheckRequest,
+  IPAllowlistCheckResult,
+  SecuritySettingsRead,
+  SecuritySettingsUpdate,
+} from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -58,6 +64,7 @@ import {
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { useOrgSecuritySettings } from "@/hooks/use-org-security-settings"
+import type { TracecatApiError } from "@/lib/errors"
 
 const IPV4_CIDR_PATTERN =
   /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}(\/(3[0-2]|[12]?\d))?$/
@@ -97,21 +104,46 @@ const allowlistFormSchema = z.object({
 
 type AllowlistFormValues = z.infer<typeof allowlistFormSchema>
 
+export interface IPAllowlistSettingsFormProps {
+  securitySettings?: SecuritySettingsRead
+  securitySettingsIsLoading: boolean
+  securitySettingsError: TracecatApiError | null
+  updateSecuritySettings: (params: SecuritySettingsUpdate) => Promise<unknown>
+  updateSecuritySettingsIsPending: boolean
+  checkIpAllowlist: (
+    params: IPAllowlistCheckRequest
+  ) => Promise<IPAllowlistCheckResult>
+  checkIpAllowlistIsPending: boolean
+  /** Explains what the enforcement toggle restricts. */
+  enforcementDescription: string
+}
+
 /**
  * Organization IP allowlist settings: enforcement toggle, named allowlists
  * managed through a create/edit dialog, and a saved-policy IP checker.
  */
 export function OrgSettingsSecurityForm() {
-  const {
-    securitySettings,
-    securitySettingsIsLoading,
-    securitySettingsError,
-    updateSecuritySettings,
-    updateSecuritySettingsIsPending,
-    checkIpAllowlist,
-    checkIpAllowlistIsPending,
-  } = useOrgSecuritySettings()
+  return (
+    <IPAllowlistSettingsForm
+      {...useOrgSecuritySettings()}
+      enforcementDescription="Only allow sign-in and API access to this organization from the IP ranges in the allowlists below. Your current IP must be covered before enforcement can be enabled. Platform superusers are exempt."
+    />
+  )
+}
 
+/**
+ * IP allowlist editor shared by organization and platform admin settings.
+ */
+export function IPAllowlistSettingsForm({
+  securitySettings,
+  securitySettingsIsLoading,
+  securitySettingsError,
+  updateSecuritySettings,
+  updateSecuritySettingsIsPending,
+  checkIpAllowlist,
+  checkIpAllowlistIsPending,
+  enforcementDescription,
+}: IPAllowlistSettingsFormProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [deletingIndex, setDeletingIndex] = useState<number | null>(null)
@@ -210,9 +242,7 @@ export function OrgSettingsSecurityForm() {
         <div className="space-y-0.5">
           <Label htmlFor="ip-allowlist-enabled">Enforce IP allowlist</Label>
           <p className="text-sm text-muted-foreground">
-            Only allow sign-in and API access to this organization from the IP
-            ranges in the allowlists below. Your current IP must be covered
-            before enforcement can be enabled. Platform superusers are exempt.
+            {enforcementDescription}
           </p>
         </div>
         <Switch

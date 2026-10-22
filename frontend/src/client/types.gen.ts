@@ -7963,6 +7963,30 @@ export type PlatformRegistrySettingsUpdate = {
   git_allowed_domains?: Array<string> | null
 }
 
+/**
+ * Platform admin IP allowlist settings response.
+ */
+export type PlatformSecuritySettingsRead = {
+  ip_allowlist_enabled: boolean
+  ip_allowlists: Array<IPAllowlist>
+}
+
+/**
+ * Update the platform admin IP allowlist.
+ *
+ * Applies only to the platform admin API, not to organizations.
+ */
+export type PlatformSecuritySettingsUpdate = {
+  /**
+   * Restrict organization API access to the configured IP allowlists. Has no effect while no allowlists exist.
+   */
+  ip_allowlist_enabled?: boolean
+  /**
+   * Named groups of allowed IP addresses or CIDR ranges.
+   */
+  ip_allowlists?: Array<IPAllowlist>
+}
+
 export type Position = {
   x?: number
   y?: number
@@ -15713,6 +15737,20 @@ export type AdminUpdateRegistrySettingsData = {
 
 export type AdminUpdateRegistrySettingsResponse = PlatformRegistrySettingsRead
 
+export type AdminGetSecuritySettingsResponse = PlatformSecuritySettingsRead
+
+export type AdminUpdateSecuritySettingsData = {
+  requestBody: PlatformSecuritySettingsUpdate
+}
+
+export type AdminUpdateSecuritySettingsResponse = PlatformSecuritySettingsRead
+
+export type AdminCheckIpAllowlistData = {
+  requestBody: IPAllowlistCheckRequest
+}
+
+export type AdminCheckIpAllowlistResponse = IPAllowlistCheckResult
+
 export type AdminListTiersData = {
   /**
    * Include inactive tiers in results
@@ -22607,6 +22645,44 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: PlatformRegistrySettingsRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/settings/security": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformSecuritySettingsRead
+      }
+    }
+    patch: {
+      req: AdminUpdateSecuritySettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformSecuritySettingsRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/settings/security/ip-allowlist/check": {
+    post: {
+      req: AdminCheckIpAllowlistData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: IPAllowlistCheckResult
         /**
          * Validation Error
          */

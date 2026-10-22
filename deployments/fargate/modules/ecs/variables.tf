@@ -307,6 +307,12 @@ variable "result_externalization_enabled" {
   default     = true
 }
 
+variable "platform_admin_ip_allowlist_bypass" {
+  type        = bool
+  description = "Break-glass: skip the platform admin IP allowlist so platform admins can recover after a lockout. Organization IP allowlists are unaffected."
+  default     = false
+}
+
 variable "unsafe_disable_secret_error_withholding" {
   type        = bool
   description = "UNSAFE: surface original action and expression error details even when secrets are in scope, instead of the generic 'Details withheld' message. Not recommended; may expose secret-derived values in error messages."

@@ -13,17 +13,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.audit.logger import audit_log
 from tracecat.audit.service import clear_audit_setting_cache
+from tracecat.auth.ip_allowlist import (
+    PLATFORM_ADMIN_IP_ALLOWLIST_ENABLED_KEY,
+    PLATFORM_ADMIN_IP_ALLOWLISTS_KEY,
+)
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import PlatformRole
 from tracecat.db.models import PlatformSetting
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BasePlatformService
-from tracecat.settings.schemas import AuditSettingsUpdate
+from tracecat.settings.schemas import AuditSettingsUpdate, parse_stored_ip_allowlists
 from tracecat_ee.admin.settings.schemas import (
     PlatformAuditSettingsRead,
     PlatformAuditSettingsUpdate,
     PlatformRegistrySettingsRead,
     PlatformRegistrySettingsUpdate,
+    PlatformSecuritySettingsRead,
+    PlatformSecuritySettingsUpdate,
 )
 
 # Platform settings keys that should be encrypted
@@ -41,6 +47,11 @@ REGISTRY_SETTINGS_KEYS = {
 }
 
 AUDIT_SETTINGS_KEYS = AuditSettingsUpdate.keys()
+
+SECURITY_SETTINGS_KEYS = {
+    PLATFORM_ADMIN_IP_ALLOWLIST_ENABLED_KEY,
+    PLATFORM_ADMIN_IP_ALLOWLISTS_KEY,
+}
 
 
 class AdminSettingsService(BasePlatformService):
@@ -172,3 +183,32 @@ class AdminSettingsService(BasePlatformService):
                 await self._upsert_setting(key, value)
         await self.session.commit()
         return await self.get_registry_settings()
+
+    async def get_security_settings(self) -> PlatformSecuritySettingsRead:
+        """Get the platform admin IP allowlist."""
+        settings = await self._get_settings(SECURITY_SETTINGS_KEYS)
+        return PlatformSecuritySettingsRead(
+            ip_allowlist_enabled=settings.get(PLATFORM_ADMIN_IP_ALLOWLIST_ENABLED_KEY)
+            is True,
+            ip_allowlists=parse_stored_ip_allowlists(
+                settings.get(PLATFORM_ADMIN_IP_ALLOWLISTS_KEY)
+            ),
+        )
+
+    @audit_log(resource_type="platform_setting", action="update")
+    async def update_security_settings(
+        self, params: PlatformSecuritySettingsUpdate
+    ) -> PlatformSecuritySettingsRead:
+        """Replace the platform admin IP allowlist.
+
+        Callers must clear the IP allowlist cache after this commits.
+        """
+        await self._upsert_setting(
+            PLATFORM_ADMIN_IP_ALLOWLIST_ENABLED_KEY, params.ip_allowlist_enabled
+        )
+        await self._upsert_setting(
+            PLATFORM_ADMIN_IP_ALLOWLISTS_KEY,
+            [allowlist.model_dump(mode="json") for allowlist in params.ip_allowlists],
+        )
+        await self.session.commit()
+        return await self.get_security_settings()

@@ -12,6 +12,7 @@ from fastapi import (
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
+from fastapi.routing import APIRoute
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -84,7 +85,7 @@ from tracecat.api.common import (
     without_inputs,
 )
 from tracecat.api.lifespan import LifespanTaskSupervisor
-from tracecat.auth.credentials import authenticated_user_only
+from tracecat.auth.credentials import authenticated_user_only, require_superuser
 from tracecat.auth.dependencies import (
     require_any_auth_type_enabled,
     require_workspace_id_path,
@@ -566,6 +567,20 @@ def _include_workspace_scoped_router(app: FastAPI, router: APIRouter) -> None:
     )
 
 
+_SUPERUSER_USER_ROUTE_NAMES = frozenset(
+    {"users:user", "users:patch_user", "users:delete_user"}
+)
+
+
+def _users_router() -> APIRouter:
+    """fastapi-users router whose superuser-only routes honor the platform admin IP allowlist."""
+    users_router = fastapi_users.get_users_router(UserRead, UserUpdate)
+    for route in users_router.routes:
+        if isinstance(route, APIRoute) and route.name in _SUPERUSER_USER_ROUTE_NAMES:
+            route.dependencies.append(Depends(require_superuser))
+    return users_router
+
+
 def create_app(**kwargs) -> FastAPI:
     if config.TRACECAT__ALLOW_ORIGINS is not None:
         allow_origins = config.TRACECAT__ALLOW_ORIGINS.split(",")
@@ -713,7 +728,7 @@ def create_app(**kwargs) -> FastAPI:
     # no session dependency and is mounted unguarded by the org gate.
     app.include_router(scim_protocol_router)
     app.include_router(
-        fastapi_users.get_users_router(UserRead, UserUpdate),
+        _users_router(),
         prefix="/users",
         tags=["users"],
         dependencies=[Depends(authenticated_user_only)],

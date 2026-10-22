@@ -255,7 +255,12 @@ export function WorkspaceActionsInventory() {
     useRegistryActions({ includeLocked: true })
   const { repos, reposIsLoading, reposError } = useRegistryRepositories()
   const { status: platformStatus, isLoading: platformStatusIsLoading } =
-    useAdminRegistryStatus({ enabled: canReadPlatformRegistryMetadata })
+    useAdminRegistryStatus({
+      enabled: canReadPlatformRegistryMetadata,
+      // Platform metadata is optional enrichment; a platform admin IP
+      // allowlist denial must not toast on workspace pages.
+      suppressErrorToast: true,
+    })
   const [searchQuery, setSearchQuery] = useState("")
   const [namespaceFilter, setNamespaceFilter] = useState("all")
   const [typeFilter, setTypeFilter] = useState<ActionTypeFilter>("all")
@@ -283,6 +288,7 @@ export function WorkspaceActionsInventory() {
           limit: PLATFORM_VERSION_FETCH_LIMIT,
         }),
       enabled: canReadPlatformRegistryMetadata,
+      meta: { suppressErrorToast: true },
     })),
   })
 
