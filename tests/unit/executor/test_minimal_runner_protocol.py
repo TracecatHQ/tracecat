@@ -4,6 +4,7 @@ import asyncio
 import errno
 import io
 import re
+import subprocess
 import sys
 import types
 from collections.abc import Callable
@@ -1093,3 +1094,48 @@ def test_main_minimal_without_timeout_runs_to_completion(monkeypatch) -> None:
     result = _run_timed_action(monkeypatch, action, timeout_seconds=None)
 
     assert result == {"success": True, "result": "done"}
+
+
+def test_sandbox_runner_skips_heavy_imports_for_plain_builtin_action() -> None:
+    """A builtin action without secrets starts without pydantic or httpx's CLI.
+
+    Every sandboxed call pays its imports in a fresh interpreter. The secret
+    models (pydantic) load on first access and the runner blocks httpx's
+    optional CLI module (rich, click, pygments), which together cost roughly
+    100 ms per call. The gateway socket is set so the SDK client, and with it
+    httpx, is imported as it is in production.
+    """
+    payload = orjson.dumps(
+        {
+            "resolved_context": {
+                "action_impl": {
+                    "type": "udf",
+                    "module": "tracecat_registry.core.transform",
+                    "name": "deduplicate",
+                },
+                "evaluated_args": {
+                    "items": [{"a": 3}, {"a": 3}, {"b": 3}],
+                    "keys": [],
+                    "persist": False,
+                },
+            },
+        }
+    )
+    probe = (
+        "import runpy, sys\n"
+        f"runpy.run_path({minimal_runner.__file__!r}, run_name='__main__')\n"
+        "heavy = ('pydantic', 'rich', 'click', 'tracecat_registry._internal.models')\n"
+        "sys.stderr.write(repr(sorted(m for m in heavy if m in sys.modules)))\n"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", probe],
+        input=payload,
+        capture_output=True,
+        env={"TRACECAT__ACTION_GATEWAY_SOCKET": "/nonexistent/gateway.sock"},
+        check=True,
+        timeout=60,
+    )
+
+    assert orjson.loads(proc.stdout) == {"success": True, "result": [{"a": 3, "b": 3}]}
+    assert proc.stderr.decode().strip() == "[]"
