@@ -1,6 +1,7 @@
 """Changes hidden by published definitions still invalidate a reviewed pull."""
 
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
@@ -9,6 +10,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 
 from tests.support.fake_vcs import FakeVcsServer
+from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import (
     Action,
     AgentPreset,
@@ -23,6 +25,7 @@ from tracecat.db.models import (
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ActionStatement
+from tracecat.exceptions import TracecatValidationError
 from tracecat.git.types import GitUrl
 from tracecat.integrations.enums import MCPAuthType
 from tracecat.sync import PullResult
@@ -352,8 +355,9 @@ async def test_confirmation_holds_repository_settings_lock_through_import(
 
 
 @pytest.mark.anyio
-async def test_replaced_unmapped_variable_rejects_push_before_git_write(
-    session, svc_role, monkeypatch
+@pytest.mark.parametrize("direction", ["push", "pull"])
+async def test_replaced_unmapped_variable_rejects_confirmation_before_write(
+    session, svc_role, monkeypatch, direction
 ):
     variable = WorkspaceVariable(
         workspace_id=svc_role.workspace_id,
@@ -364,14 +368,28 @@ async def test_replaced_unmapped_variable_rejects_push_before_git_write(
     session.add(variable)
     await session.commit()
     sync = DurableSyncService(session, svc_role)
-    inputs = SyncOperationCreate(
-        id=uuid.uuid4(),
-        direction="push",
-        push=WorkspaceSyncExportRequest(
-            branch="sync/demo", message="Synthetic sync", create_pr=False
-        ),
+    if direction == "push":
+        inputs = SyncOperationCreate(
+            id=uuid.uuid4(),
+            direction="push",
+            push=WorkspaceSyncExportRequest(
+                branch="sync/demo", message="Synthetic sync", create_pr=False
+            ),
+        )
+    else:
+        inputs = SyncOperationCreate(
+            id=uuid.uuid4(),
+            direction="pull",
+            pull=WorkflowSyncPullRequest(commit_sha="a" * 40),
+        )
+    reviewed = await sync.project_export_preview(
+        resource_ids=None, include_schedules=False
     )
-    remote = VcsTreeSnapshot(commit_sha="a" * 40, tree_sha=None, files={})
+    remote = VcsTreeSnapshot(
+        commit_sha="a" * 40,
+        tree_sha=None,
+        files=reviewed.files if direction == "pull" else {},
+    )
     transport = AsyncMock()
     transport.branch_exists.return_value = True
     transport.read_files.return_value = remote
@@ -385,9 +403,13 @@ async def test_replaced_unmapped_variable_rejects_push_before_git_write(
         AsyncMock(return_value=GitUrl(host="github.com", org="example", repo="demo")),
     )
     prepared = await sync.prepare(
-        inputs, fetched=FetchedSync(remote, "repo", "main", True)
+        inputs,
+        fetched=FetchedSync(
+            remote, "repo", "main" if direction == "push" else "a" * 40, True
+        ),
     )
-    assert prepared.projection is not None
+    if direction == "pull":
+        assert isinstance(prepared.preview, PullResult) and prepared.preview.success
     original_id = variable.id
     await session.delete(variable)
     await session.flush()
@@ -402,7 +424,7 @@ async def test_replaced_unmapped_variable_rejects_push_before_git_write(
     current = await sync.project_export_preview(
         resource_ids=None, include_schedules=False
     )
-    assert current.files == prepared.projection.files
+    assert current.files == reviewed.files
     assert replacement.id != original_id
     with pytest.raises(StaleSyncPreviewError):
         await sync.apply(inputs, prepared, inputs.id)
@@ -564,3 +586,84 @@ async def test_recovery_omits_soft_deleted_resources_and_removed_schema_fields(
     fields.schema = {}
     await session.commit()
     assert await surviving_mapping_targets(sync, targets) == []
+
+
+@pytest.mark.anyio
+async def test_failed_partial_pull_preview_cannot_reach_import(
+    session, svc_role, monkeypatch
+):
+    sync = DurableSyncService(session, svc_role)
+    monkeypatch.setattr(sync, "require_entitlement", AsyncMock())
+    monkeypatch.setattr(sync, "repository_fingerprint", AsyncMock(return_value="repo"))
+    monkeypatch.setattr(
+        sync,
+        "_workspace_git_url",
+        AsyncMock(return_value=GitUrl(host="github.com", org="example", repo="demo")),
+    )
+    inputs = SyncOperationCreate(
+        id=uuid.uuid4(),
+        direction="pull",
+        pull=WorkflowSyncPullRequest(commit_sha="a" * 40),
+    )
+    remote = VcsTreeSnapshot(
+        commit_sha="a" * 40,
+        tree_sha=None,
+        files={
+            "tracecat.json": '{"version":2}',
+            "workflows/broken/definition.yml": "[invalid",
+        },
+    )
+    prepared = await sync.prepare(
+        inputs, fetched=FetchedSync(remote, "repo", "a" * 40, True)
+    )
+    assert isinstance(prepared.preview, PullResult) and not prepared.preview.success
+    assert prepared.preview.diagnostics
+    importer = AsyncMock(return_value=replace(prepared.preview, success=True))
+    monkeypatch.setattr(sync, "import_prepared_snapshot", importer)
+    with pytest.raises(TracecatValidationError, match="preview"):
+        await sync.apply(inputs, prepared, inputs.id)
+    importer.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("already_mapped", [True, False])
+async def test_case_field_recovery_preserves_existing_rename_mapping_without_guessing(
+    session, svc_role, already_mapped
+):
+    fields = CaseFields(workspace_id=svc_role.workspace_id, schema={"original": {}})
+    session.add(fields)
+    await session.commit()
+    sync = DurableSyncService(session, svc_role)
+    field = (await CASE_FIELD_RESOURCE_ADAPTER.project(sync)).resources[0]
+    target = SyncMappingTarget(
+        "case_field", field.source_id, field.source_path, field.local_id
+    )
+    if already_mapped:
+        session.add(
+            WorkspaceSyncResourceMapping(
+                workspace_id=svc_role.workspace_id,
+                provider="github",
+                resource_type="case_field",
+                source_id=target.source_id,
+                source_path=target.source_path,
+                local_id=target.local_id,
+            )
+        )
+        await session.commit()
+    # The production rename path moves the schema key, then its existing mapping.
+    fields.schema = {"renamed": {}}
+    await CaseFieldsService(
+        session, svc_role
+    )._update_workspace_sync_mapping_for_field_rename("original", "renamed")
+    await session.commit()
+    current = (await CASE_FIELD_RESOURCE_ADAPTER.project(sync)).resources[0]
+    assert current.local_id != target.local_id
+    assert await surviving_mapping_targets(sync, [target]) == []
+    mappings = list(await session.scalars(select(WorkspaceSyncResourceMapping)))
+    if already_mapped:
+        assert len(mappings) == 1
+        assert mappings[0].source_id == target.source_id
+        assert mappings[0].local_id == current.local_id
+    else:
+        # Rename and delete-then-create are indistinguishable without an old mapping.
+        assert mappings == []
