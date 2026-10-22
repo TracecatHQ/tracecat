@@ -1762,11 +1762,16 @@ class ClaudeAgentRuntime:
             duration_ms=message.duration_ms,
             usage=message.usage,
         )
-        # The SDK sets is_error on a "success" result only when the CLI's last
-        # model request failed after its own retries, for example a gateway
-        # that keeps cutting streams. The result text is that API error, not
-        # an answer. Keep the usage, drop the text, and fail the turn.
-        model_request_failed = message.is_error and message.subtype == "success"
+        # An "api_error" terminal reason means the CLI's last model request
+        # failed after its own retries, for example a gateway that keeps
+        # cutting streams. The result text is that API error, not an answer.
+        # Keep the usage, drop the text, and fail the turn. Refusals and other
+        # error results keep their existing handling.
+        model_request_failed = (
+            message.is_error
+            and message.subtype == "success"
+            and message.terminal_reason == "api_error"
+        )
         if model_request_failed:
             result_output = None
         elif message.structured_output is not None:

@@ -473,6 +473,7 @@ async def test_repeated_cuts_after_complete_text_fail_the_turn(short_dir: Path) 
     assert outcome.result is not None
     assert outcome.result.is_error is True
     assert outcome.result.subtype == "success"
+    assert outcome.result.terminal_reason == "api_error"
 
     writer = AsyncMock()
     runtime = ClaudeAgentRuntime(writer, transport_factory=lambda _: AsyncMock())

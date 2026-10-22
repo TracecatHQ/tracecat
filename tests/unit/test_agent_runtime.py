@@ -3872,7 +3872,9 @@ async def test_api_retry_system_message_is_logged(
     )
 
 
-def _result_message(*, subtype: str, is_error: bool) -> ResultMessage:
+def _result_message(
+    *, subtype: str, is_error: bool, terminal_reason: str | None
+) -> ResultMessage:
     return ResultMessage(
         subtype=subtype,
         duration_ms=10,
@@ -3883,24 +3885,33 @@ def _result_message(*, subtype: str, is_error: bool) -> ResultMessage:
         usage={"input_tokens": 3},
         result="API Error: Connection lost mid-response." if is_error else "Done.",
         api_error_status=None,
+        terminal_reason=terminal_reason,
     )
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("subtype", "is_error", "output", "fails"),
+    ("subtype", "is_error", "terminal_reason", "output", "fails"),
     [
-        ("success", False, "Done.", False),
+        ("success", False, "completed", "Done.", False),
         # The CLI's last model request failed after its own retries.
-        ("success", True, None, True),
-        # Other error subtypes keep their existing result handling.
-        ("error_max_turns", True, "API Error: Connection lost mid-response.", False),
+        ("success", True, "api_error", None, True),
+        # Other error results keep their existing handling.
+        ("success", True, "refusal", "API Error: Connection lost mid-response.", False),
+        (
+            "error_max_turns",
+            True,
+            "max_turns",
+            "API Error: Connection lost mid-response.",
+            False,
+        ),
     ],
 )
 async def test_result_message_fails_turn_only_on_model_api_error(
     mock_socket_writer: MagicMock,
     subtype: str,
     is_error: bool,
+    terminal_reason: str,
     output: str | None,
     fails: bool,
 ) -> None:
@@ -3909,7 +3920,9 @@ async def test_result_message_fails_turn_only_on_model_api_error(
     )
 
     await runtime._handle_result_message(
-        _result_message(subtype=subtype, is_error=is_error)
+        _result_message(
+            subtype=subtype, is_error=is_error, terminal_reason=terminal_reason
+        )
     )
 
     mock_socket_writer.send_result.assert_awaited_once_with(
