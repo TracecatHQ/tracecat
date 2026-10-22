@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Self
+from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
@@ -22,7 +21,10 @@ from tracecat.agent.provider.schemas import (
     AgentCustomProviderRead,
     AgentCustomProviderUpdate,
 )
-from tracecat.agent.provider.types import ResolvedCustomProviderCredentials
+from tracecat.agent.provider.types import (
+    ProviderKeyCheck,
+    ResolvedCustomProviderCredentials,
+)
 from tracecat.audit.logger import audit_log
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import require_scope
@@ -40,7 +42,6 @@ from tracecat.secrets.encryption import decrypt_keyvalues, decrypt_value, encryp
 from tracecat.service import BaseOrgService
 
 CUSTOM_MODEL_PROVIDER_SLUG = "custom-model-provider"
-_MAX_PROVIDER_MESSAGE_LENGTH = 300
 _LEGACY_CUSTOM_PROVIDER_CONFIG_KEYS = {
     "CUSTOM_MODEL_PROVIDER_API_KEY": "api_key",
     "CUSTOM_MODEL_PROVIDER_BASE_URL": "base_url",
@@ -561,31 +562,39 @@ async def check_provider_key(provider: str, credentials: Mapping[str, str]) -> N
         ) from err
     if response.is_success:
         return
-    error = _ProviderError.from_response(response)
-    if response.status_code in check.invalid_key_status_codes:
-        code = ProviderKeyCheckErrorCode.INVALID_KEY
-    elif response.status_code == 403:
-        code = ProviderKeyCheckErrorCode.ACCESS_DENIED
-    else:
-        code = None
-    if code is not None and (
-        check.rejected_error_codes is None or error.code in check.rejected_error_codes
-    ):
-        logger.info(
-            "Provider rejected API key",
+    error_code = _provider_error_code(response)
+    if (code := _rejection_code(check, response.status_code, error_code)) is None:
+        logger.warning(
+            "Provider API key check was inconclusive",
             provider=provider,
             status_code=response.status_code,
-            provider_message=error.message,
+            provider_error_code=error_code,
         )
-        raise ProviderKeyCheckError(
-            _key_check_message(code, label), code=code, field=check.api_key_field
-        )
-    logger.warning(
-        "Provider API key check was inconclusive",
+        return
+    logger.info(
+        "Provider rejected API key",
         provider=provider,
         status_code=response.status_code,
-        provider_message=error.message,
+        provider_error_code=error_code,
     )
+    raise ProviderKeyCheckError(
+        _key_check_message(code, label), code=code, field=check.api_key_field
+    )
+
+
+def _rejection_code(
+    check: ProviderKeyCheck, status_code: int, error_code: str | None
+) -> ProviderKeyCheckErrorCode | None:
+    if (
+        check.rejected_error_codes is not None
+        and error_code not in check.rejected_error_codes
+    ):
+        return None
+    if status_code in check.invalid_key_status_codes:
+        return ProviderKeyCheckErrorCode.INVALID_KEY
+    if status_code == 403:
+        return ProviderKeyCheckErrorCode.ACCESS_DENIED
+    return None
 
 
 def _key_check_message(code: ProviderKeyCheckErrorCode, label: str) -> str:
@@ -607,25 +616,14 @@ def _key_check_message(code: ProviderKeyCheckErrorCode, label: str) -> str:
             )
 
 
-@dataclass(frozen=True, slots=True)
-class _ProviderError:
-    message: str
-    code: str | None
-
-    @classmethod
-    def from_response(cls, response: httpx.Response) -> Self:
-        try:
-            body = response.json()
-        except ValueError:
-            body = None
-        match body:
-            case {"error": {"message": str(message), "code": str(code)}}:
-                return cls(message[:_MAX_PROVIDER_MESSAGE_LENGTH], code)
-            case (
-                {"error": {"message": str(message)}}
-                | {"message": str(message)}
-                | {"detail": str(message)}
-            ):
-                return cls(message[:_MAX_PROVIDER_MESSAGE_LENGTH], None)
-            case _:
-                return cls(f"HTTP {response.status_code}", None)
+def _provider_error_code(response: httpx.Response) -> str | None:
+    # Read only the structured code; provider messages can echo the submitted key.
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    match body:
+        case {"error": {"code": str(code)}}:
+            return code
+        case _:
+            return None

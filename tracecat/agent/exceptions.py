@@ -89,5 +89,3 @@ class ProviderKeyCheckError(TracecatValidationError):
         super().__init__(
             message, detail={"code": code, "message": message, "field": field}
         )
-        self.code = code
-        self.field = field

@@ -1,7 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { KeyIcon, Loader2Icon } from "lucide-react"
+import { KeyIcon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
@@ -47,32 +47,6 @@ interface AgentCredentialsDialogProps {
   isOpen: boolean
   onClose: () => void
   onSuccess: () => Promise<void> | void
-}
-
-/** Structured detail the API returns when a provider key check fails. */
-interface ProviderKeyCheckDetail {
-  code:
-    | "provider_key_invalid"
-    | "provider_key_access_denied"
-    | "provider_unreachable"
-  message: string
-  field: string
-}
-
-const PROVIDER_KEY_CHECK_CODES = new Set<string>([
-  "provider_key_invalid",
-  "provider_key_access_denied",
-  "provider_unreachable",
-])
-
-function getProviderKeyCheckDetail(
-  error: unknown
-): ProviderKeyCheckDetail | null {
-  const code = getApiErrorCode(error)
-  if (code === null || !PROVIDER_KEY_CHECK_CODES.has(code)) {
-    return null
-  }
-  return (error as TracecatApiError<ProviderKeyCheckDetail>).body.detail ?? null
 }
 
 interface CredentialLayoutSection {
@@ -225,21 +199,22 @@ export function AgentCredentialsDialog({
       await onSuccess()
       onClose()
     } catch (err) {
-      const keyCheck = getProviderKeyCheckDetail(err)
-      if (keyCheck && keyCheck.code !== "provider_unreachable") {
-        form.setError(
-          keyCheck.field,
-          { type: "server", message: keyCheck.message },
-          { shouldFocus: true }
-        )
-      } else {
-        form.setError("root", {
-          type: "server",
-          message:
-            keyCheck?.message ??
-            getApiErrorDetail(err) ??
-            "Couldn't save credentials. Try again.",
-        })
+      const message =
+        getApiErrorDetail(err) ?? "Couldn't save credentials. Please try again."
+      switch (getApiErrorCode(err)) {
+        case "provider_key_invalid":
+        case "provider_key_access_denied": {
+          const { field } = (err as TracecatApiError<{ field: string }>).body
+            .detail!
+          form.setError(
+            field,
+            { type: "server", message },
+            { shouldFocus: true }
+          )
+          break
+        }
+        default:
+          form.setError("root", { type: "server", message })
       }
     } finally {
       setLoading(false)
@@ -323,7 +298,7 @@ export function AgentCredentialsDialog({
         ) : providerConfigError || !providerConfig ? (
           <p className="text-sm text-destructive">
             {providerConfigError
-              ? "Couldn't load credential settings. Refresh and try again."
+              ? "Couldn't load credential settings. Please refresh and try again."
               : `Credentials configuration for ${provider} is not available.`}
           </p>
         ) : (
@@ -405,9 +380,7 @@ export function AgentCredentialsDialog({
               </DialogBody>
               <DialogFooter>
                 <Button size="sm" type="submit" disabled={loading}>
-                  {loading && (
-                    <Loader2Icon className="mr-2 size-3.5 animate-spin" />
-                  )}
+                  {loading && <Spinner className="mr-2 size-4" />}
                   {loading ? "Saving…" : "Save credentials"}
                 </Button>
               </DialogFooter>

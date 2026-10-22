@@ -189,10 +189,9 @@ class SecretsService(BaseOrgService):
             raise ValueError(
                 "CA certificate secrets must be created with their key values. Delete and recreate the secret instead."
             )
-        set_fields = params.model_dump(exclude_unset=True)
-        keys = set_fields.pop("keys", None)
+        set_fields = params.model_dump(exclude_unset=True, exclude={"keys"})
 
-        if keys is None:
+        if params.keys is None:
             try:
                 self.decrypt_keys(secret.encrypted_keys)
             except (InvalidToken, ValidationError, ValueError) as e:
@@ -205,8 +204,8 @@ class SecretsService(BaseOrgService):
                 ) from e
 
         # Handle keys separately
-        if keys:
-            merged_keyvalues = self.merge_key_values(secret, params.keys or [])
+        if params.keys:
+            merged_keyvalues = self.merge_key_values(secret, params.keys)
 
             if existing_type == SecretType.MTLS:
                 validate_mtls_key_values(merged_keyvalues)
