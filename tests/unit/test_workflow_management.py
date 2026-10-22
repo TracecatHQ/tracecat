@@ -8,12 +8,21 @@ import pytest
 
 from tracecat.auth.types import Role
 from tracecat.db.models import Action, Workflow, WorkflowDefinition
-from tracecat.dsl.common import DSLInput
+from tracecat.dsl.common import DSLEntrypoint, DSLInput
+from tracecat.dsl.enums import JoinStrategy
+from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.mcp.schemas import WorkflowEditDocument
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.workflow.actions.schemas import ActionControlFlow
 from tracecat.workflow.management import management
+from tracecat.workflow.management.draft import (
+    WorkflowEditError,
+    build_workflow_edit_document,
+    validate_workflow_edit_document,
+)
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 
@@ -1276,50 +1285,80 @@ async def test_create_actions_from_dsl_persists_action_environment() -> None:
 _OVERLONG_EXPRESSION = "${{ " + " && ".join(["True"] * 250) + " }}"
 
 
+def _control_flow_dsl(**control_flow: Any) -> DSLInput:
+    return DSLInput(
+        title="control flow wf",
+        description="",
+        entrypoint=DSLEntrypoint(ref="notify", expects={}),
+        actions=[
+            ActionStatement(
+                ref="notify", action="core.transform.reshape", **control_flow
+            )
+        ],
+    )
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("run_if", _OVERLONG_EXPRESSION),
-        ("for_each", _OVERLONG_EXPRESSION),
-        ("wait_until", "not a date"),
+        pytest.param("run_if", _OVERLONG_EXPRESSION, id="run_if"),
+        pytest.param("for_each", _OVERLONG_EXPRESSION, id="for_each"),
+        pytest.param("wait_until", "not a date", id="wait_until"),
     ],
 )
-def test_build_action_control_flow_raises_user_facing_error(
+def test_control_flow_from_statement_raises_user_facing_error(
     field: str, value: str
 ) -> None:
-    """Control-flow limits stricter than the DSL surface as TracecatValidationError."""
-    from tracecat.dsl.schemas import ActionStatement
-    from tracecat.workflow.management.management import build_action_control_flow
-
-    stmt = ActionStatement.model_validate(
-        {"ref": "notify", "action": "core.transform.reshape", field: value}
-    )
+    stmt = _control_flow_dsl(**{field: value}).actions[0]
 
     with pytest.raises(TracecatValidationError) as exc:
-        build_action_control_flow(stmt)
+        ActionControlFlow.from_statement(stmt)
 
     message = str(exc.value)
     assert "'notify'" in message
-    assert field in message
-    assert _OVERLONG_EXPRESSION not in message
-    assert exc.value.detail
+    assert value not in message
+    assert [detail.loc for detail in exc.value.detail or []] == [(field,)]
+
+
+def test_control_flow_from_statement_copies_every_field() -> None:
+    stmt = ActionStatement(
+        ref="notify",
+        action="core.transform.reshape",
+        run_if="${{ True }}",
+        for_each="${{ for var.x in [1] }}",
+        retry_policy=ActionRetryPolicy(max_attempts=3),
+        start_delay=5.0,
+        wait_until="tomorrow",
+        join_strategy=JoinStrategy.ANY,
+        environment="prod",
+        tunnel="edge",
+        mask_output=True,
+        unsafe_disable_secret_error_withholding=True,
+    )
+
+    control_flow = ActionControlFlow.from_statement(stmt)
+
+    for name in ActionControlFlow.model_fields:
+        assert getattr(control_flow, name) == getattr(stmt, name), name
+
+
+@pytest.mark.anyio
+async def test_create_workflow_from_dsl_returns_control_flow_errors() -> None:
+    dsl = _control_flow_dsl(run_if=_OVERLONG_EXPRESSION)
+
+    response = await _service(_role()).create_workflow_from_dsl(
+        dsl.model_dump(mode="json")
+    )
+
+    assert response.workflow is None
+    assert response.errors is not None
+    [error] = response.errors
+    assert error.root.model_dump(mode="json")["detail"][0]["loc"] == ["run_if"]
 
 
 @pytest.mark.anyio
 async def test_validate_edit_document_rejects_overlong_run_if() -> None:
-    """An overlong ``run_if`` fails validation instead of erroring during persist.
-
-    Regression: ``ActionControlFlow`` caps ``run_if``/``for_each`` at 1000 chars
-    but ``ActionStatement`` does not, so the edit document validated and the
-    persist path raised a raw pydantic ``ValidationError`` (HTTP 500).
-    """
-    from tracecat.mcp.schemas import WorkflowEditDocument
-    from tracecat.workflow.management.draft import (
-        WorkflowEditError,
-        build_workflow_edit_document,
-        validate_workflow_edit_document,
-    )
-
+    """An overlong ``run_if`` fails validation instead of erroring during persist."""
     source = _edit_document_workflow_source()
     data = build_workflow_edit_document(cast(Any, source)).model_dump(mode="json")
     data["definition"]["actions"] = [
@@ -1337,28 +1376,9 @@ async def test_validate_edit_document_rejects_overlong_run_if() -> None:
         await validate_workflow_edit_document(
             document, workflow_id=WorkflowUUID.new(source.id)
         )
-    assert "run_if" in str(exc.value)
-    assert "1000 characters" in str(exc.value)
 
-
-def test_build_action_control_flow_preserves_fields() -> None:
-    from tracecat.dsl.schemas import ActionStatement
-    from tracecat.workflow.management.management import build_action_control_flow
-
-    stmt = ActionStatement.model_validate(
-        {
-            "ref": "notify",
-            "action": "core.transform.reshape",
-            "run_if": "${{ True }}",
-            "environment": "prod",
-            "tunnel": "edge",
-            "mask_output": True,
-        }
-    )
-
-    control_flow = build_action_control_flow(stmt)
-
-    assert control_flow.run_if == "${{ True }}"
-    assert control_flow.environment == "prod"
-    assert control_flow.tunnel == "edge"
-    assert control_flow.mask_output is True
+    assert exc.value.code == "validation_error"
+    details = json.dumps(exc.value.details)
+    assert "run_if" in details
+    assert "1000 characters" in details
+    assert _OVERLONG_EXPRESSION not in details

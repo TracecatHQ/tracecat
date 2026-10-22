@@ -658,6 +658,33 @@ class TestWorkflowImportService:
             assert "String should match pattern" in str(e)
 
     @pytest.mark.anyio
+    async def test_validate_rejects_unpersistable_control_flow(
+        self, import_service: WorkflowImportService
+    ):
+        remote = RemoteWorkflowDefinition(
+            id="wf_testworkflow001",
+            definition=DSLInput(
+                title="Overlong run_if",
+                description="",
+                entrypoint=DSLEntrypoint(ref="test_action"),
+                actions=[
+                    ActionStatement(
+                        ref="test_action",
+                        action="core.transform.transform",
+                        args={"value": "test"},
+                        run_if="${{ " + " && ".join(["True"] * 250) + " }}",
+                    )
+                ],
+            ),
+        )
+
+        [diagnostic] = await import_service._validate_single_workflow(remote)
+
+        assert diagnostic.error_type == "validation"
+        assert "'test_action'" in diagnostic.message
+        assert diagnostic.details["validation_errors"][0]["loc"] == ["run_if"]
+
+    @pytest.mark.anyio
     async def test_import_transaction_rollback_on_failure(
         self, import_service: WorkflowImportService, session: AsyncSession
     ):

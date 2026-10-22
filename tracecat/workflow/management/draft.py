@@ -55,18 +55,17 @@ from tracecat.validation.schemas import (
     ValidationDetail,
     ValidationDetailListTA,
     ValidationResult,
+    ValidationResultType,
 )
 from tracecat.validation.service import validate_dsl
+from tracecat.workflow.actions.schemas import validate_control_flows
 from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerConfig,
     CaseTriggerRead,
     is_case_trigger_configured,
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
-from tracecat.workflow.management.management import (
-    WorkflowsManagementService,
-    build_action_control_flow,
-)
+from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import WorkflowUpdate
 from tracecat.workflow.schedules.schemas import ScheduleCreate, ScheduleRead
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
@@ -721,19 +720,27 @@ async def validate_workflow_edit_document(
     if document.definition.actions:
         try:
             dsl = workflow_edit_document_to_dsl(document)
-            for act_stmt in dsl.actions:
-                build_action_control_flow(act_stmt)
         except (TracecatValidationError, ValidationError, ValueError) as exc:
             raise WorkflowEditError(f"Invalid workflow definition: {exc}") from exc
+        validation_results: list[ValidationResult] = []
+        try:
+            validate_control_flows(dsl.actions)
+        except TracecatValidationError as exc:
+            validation_results.append(
+                ValidationResult.new(
+                    type=ValidationResultType.DSL,
+                    status="error",
+                    msg=str(exc),
+                    detail=exc.detail,
+                )
+            )
         if validate_definition:
             if session is None or role is None:
                 raise RuntimeError("session and role are required for DSL validation")
-            validation_results = await validate_dsl(
-                session=session,
-                dsl=dsl,
-                role=role,
+            validation_results.extend(
+                await validate_dsl(session=session, dsl=dsl, role=role)
             )
-            _raise_dsl_validation_edit_error(validation_results)
+        _raise_dsl_validation_edit_error(validation_results)
     for schedule in document.schedules:
         try:
             schedule_create_from_payload(

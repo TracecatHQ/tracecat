@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from typing import Literal, NotRequired, Self, TypedDict
 
 import dateparser
@@ -5,6 +6,7 @@ import yaml
 from pydantic import (
     Field,
     TypeAdapter,
+    ValidationError,
     computed_field,
     field_validator,
     model_validator,
@@ -13,11 +15,13 @@ from pydantic import (
 from tracecat.agent.types import clamp_agent_timeout_seconds
 from tracecat.core.schemas import Schema
 from tracecat.dsl.enums import JoinStrategy, PlatformAction
-from tracecat.dsl.schemas import ActionRetryPolicy
+from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement
 from tracecat.dsl.view import Position
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.action import ActionID
 from tracecat.identifiers.action import ref as _ref
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort
+from tracecat.validation.schemas import ValidationDetail
 
 
 class ActionEdge(TypedDict):
@@ -94,8 +98,41 @@ class ActionControlFlow(Schema):
                 )
                 is None
             ):
-                raise ValueError(f"'{v}' is not a valid `wait_until` value")
+                raise ValueError("Not a valid `wait_until` date or time")
         return v
+
+    @classmethod
+    def from_statement(cls, stmt: ActionStatement) -> Self:
+        """Build from a DSL statement, which has looser limits than persisted control flow."""
+        try:
+            return cls(
+                run_if=stmt.run_if,
+                for_each=stmt.for_each,
+                retry_policy=stmt.retry_policy,
+                start_delay=stmt.start_delay,
+                wait_until=stmt.wait_until,
+                join_strategy=stmt.join_strategy,
+                environment=stmt.environment,
+                tunnel=stmt.tunnel,
+                mask_output=stmt.mask_output,
+                unsafe_disable_secret_error_withholding=stmt.unsafe_disable_secret_error_withholding,
+            )
+        except ValidationError as e:
+            details = ValidationDetail.list_from_pydantic(e)
+            reasons = "; ".join(
+                f"{'.'.join(str(part) for part in d.loc or ())}: {d.msg}"
+                for d in details
+            )
+            raise TracecatValidationError(
+                f"Invalid control flow for action {stmt.ref!r}: {reasons}",
+                detail=details,
+            ) from e
+
+
+def validate_control_flows(actions: Iterable[ActionStatement]) -> None:
+    """Raise TracecatValidationError if any action's control flow can't be persisted."""
+    for stmt in actions:
+        ActionControlFlow.from_statement(stmt)
 
 
 class ActionLockStatus(Schema):

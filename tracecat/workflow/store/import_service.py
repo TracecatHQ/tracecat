@@ -6,6 +6,7 @@ import uuid
 from collections.abc import Iterable
 
 from pydantic import ValidationError
+from pydantic_core import to_jsonable_python
 from sqlalchemy import select
 
 from tracecat.db.models import Webhook, Workflow, WorkflowTag, WorkflowTagLink
@@ -16,6 +17,7 @@ from tracecat.exceptions import (
     RegistryError,
     RegistryLockActionNotFoundError,
     TracecatAuthorizationError,
+    TracecatValidationError,
 )
 from tracecat.forms.enums import FormStatus
 from tracecat.forms.service import FormsService
@@ -24,6 +26,7 @@ from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import PullDiagnostic, PullResult
+from tracecat.workflow.actions.schemas import validate_control_flows
 from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerConfig,
     is_case_trigger_configured,
@@ -227,6 +230,8 @@ class WorkflowImportService(BaseWorkspaceService):
                 )
                 return diagnostics
 
+            validate_control_flows(dsl_input.actions)
+
             # Check for conflicts
             wf_id = WorkflowUUID.new(remote_workflow.id)
             await self.wf_mgmt.get_workflow(wf_id, normalize=normalize_existing)
@@ -239,6 +244,16 @@ class WorkflowImportService(BaseWorkspaceService):
                     error_type="validation",
                     message=f"Validation error: {str(e)}",
                     details={"validation_errors": e.errors()},
+                )
+            )
+        except TracecatValidationError as e:
+            diagnostics.append(
+                PullDiagnostic(
+                    workflow_path=workflow_path,
+                    workflow_title=remote_workflow.definition.title,
+                    error_type="validation",
+                    message=f"Validation error: {e}",
+                    details={"validation_errors": to_jsonable_python(e.detail)},
                 )
             )
         except Exception as e:

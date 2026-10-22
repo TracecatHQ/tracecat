@@ -315,6 +315,21 @@ async def create_workflow(
                     "errors": [error.root.model_dump(mode="json", exclude_none=True)],
                 },
             ) from e
+        except TracecatValidationError as e:
+            error = ValidationResult.new(
+                type=ValidationResultType.DSL,
+                status="error",
+                msg=str(e),
+                detail=e.detail,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "status": "failure",
+                    "message": "1 validation error(s)",
+                    "errors": [error.root.model_dump(mode="json", exclude_none=True)],
+                },
+            ) from e
         except ValidationError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
