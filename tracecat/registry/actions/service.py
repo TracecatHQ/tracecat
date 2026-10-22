@@ -107,6 +107,18 @@ class _CachedOrgManifest:
     json_size: int
 
 
+def _manifest_json_size(manifest: dict[str, object]) -> int | None:
+    """Return a manifest's JSON size, or None if orjson cannot encode it.
+
+    JSONB accepts integers beyond 64 bits, which orjson rejects; such manifests
+    are served uncached.
+    """
+    try:
+        return len(orjson.dumps(manifest))
+    except orjson.JSONEncodeError:
+        return None
+
+
 _platform_manifests: LRUCache[uuid.UUID, RegistryVersionManifest] = LRUCache(
     maxsize=PLATFORM_MANIFEST_CACHE_SIZE
 )
@@ -1113,8 +1125,11 @@ class RegistryActionsService(BaseOrgService):
             manifest = RegistryVersionManifest.model_validate(row.manifest)
             if row.source == "org":
                 # LRUCache rejects an entry larger than its whole bound.
-                json_size = len(orjson.dumps(row.manifest))
-                if json_size <= ORG_MANIFEST_CACHE_MAX_JSON_BYTES:
+                json_size = _manifest_json_size(row.manifest)
+                if (
+                    json_size is not None
+                    and json_size <= ORG_MANIFEST_CACHE_MAX_JSON_BYTES
+                ):
                     key = (self.organization_id, row.registry_version_id)
                     _org_manifests[key] = _CachedOrgManifest(manifest, json_size)
             else:

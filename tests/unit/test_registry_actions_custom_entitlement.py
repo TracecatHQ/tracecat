@@ -356,6 +356,46 @@ async def test_org_manifest_larger_than_cache_bound_is_served_uncached(
 
 
 @pytest.mark.anyio
+async def test_org_manifest_orjson_cannot_size_is_served_uncached(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_name = "acme.bigint.action"
+    origin = "git+ssh://git@github.com/acme/bigint-registry.git"
+    repo = await _seed_org_registry(
+        session,
+        role=svc_role,
+        origin=origin,
+        version="bigint-1.0",
+        action_names=[action_name],
+    )
+    # JSONB keeps integers beyond 64 bits, which orjson cannot encode.
+    manifest = _make_manifest([action_name], origin=origin)
+    manifest["actions"][action_name]["interface"]["expects"] = {
+        "type": "object",
+        "properties": {"limit": {"type": "integer", "default": 2**128 - 1}},
+    }
+    await session.execute(
+        update(RegistryVersion)
+        .where(RegistryVersion.id == repo.current_version_id)
+        .values(manifest=manifest)
+    )
+    await session.commit()
+    org_manifests: LRUCache[tuple[uuid.UUID, uuid.UUID], _CachedOrgManifest] = LRUCache(
+        maxsize=1024, getsizeof=lambda entry: entry.json_size
+    )
+    service = RegistryActionsService(session, role=svc_role)
+    with (
+        patch("tracecat.registry.actions.service._org_manifests", org_manifests),
+        patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)),
+    ):
+        found = await service.get_actions_from_index([action_name])
+
+    assert action_name in found
+    assert len(org_manifests) == 0
+
+
+@pytest.mark.anyio
 async def test_cached_org_manifest_is_never_served_to_another_org(
     svc_role: Role,
     session: AsyncSession,
