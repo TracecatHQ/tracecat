@@ -29244,6 +29244,7 @@ export const $RuntimeErrorKind = {
     "sandbox.resource_limit_exceeded",
     "workflow.definition.not_found",
     "workflow.definition.lookup_unavailable",
+    "workflow.definition.invalid",
     "workflow.definition.invalid_data",
     "workflow.trigger.input_invalid",
     "workflow.subflow.input_invalid",

@@ -26,7 +26,7 @@ from tracecat.dsl.common import (
     dependency_cycle_message,
 )
 from tracecat.dsl.enums import PlatformAction
-from tracecat.dsl.schemas import ActionStatement
+from tracecat.dsl.schemas import ActionStatement, ScatterArgs
 from tracecat.exceptions import RegistryValidationError, TracecatNotFoundError
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprType
@@ -431,6 +431,15 @@ async def validate_dsl_actions(
                         loc=(act_stmt.ref, "for_each"),
                     )
                 )
+        # The scheduler parses scatter args before evaluating expressions
+        if (
+            act_stmt.action == PlatformAction.TRANSFORM_SCATTER
+            and result.status == "success"
+        ):
+            try:
+                ScatterArgs.model_validate(act_stmt.args)
+            except ValidationError as e:
+                details.extend(ValidationDetail.list_from_pydantic(e))
         if details:
             val_res.append(
                 ActionValidationResult(

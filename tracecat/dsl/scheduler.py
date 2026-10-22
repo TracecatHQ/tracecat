@@ -17,6 +17,7 @@ _SCHEDULER_TASK_SPAWN_YIELD_EVERY = 16
 """Yield while spawning ready task coroutines to avoid long workflow activations."""
 
 with workflow.unsafe.imports_passed_through():
+    from pydantic import ValidationError
     from pydantic_core import to_json
     from temporalio.exceptions import ApplicationError
 
@@ -91,6 +92,7 @@ with workflow.unsafe.imports_passed_through():
         extract_error_classification,
     )
     from tracecat.temporal.patches import WorkflowPatch
+    from tracecat.validation.schemas import ValidationDetail
 
 
 def _get_collection_size(stored: StoredObject) -> int:
@@ -116,6 +118,21 @@ def _loop_limit_error(message: str) -> ApplicationError:
         RuntimeErrorClassification.user(
             kind=RuntimeErrorKind.WORKFLOW_LOOP_LIMIT_EXCEEDED,
             message=message,
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
+        )
+    )
+
+
+def _scatter_args_error(ref: str, error: ValidationError) -> ApplicationError:
+    """Build a user-attributed failure for authored scatter arguments."""
+    problems = "; ".join(
+        f"{'.'.join(str(part) for part in detail.loc or ())}: {detail.msg}"
+        for detail in ValidationDetail.list_from_pydantic(error)
+    )
+    return application_error_from_classification(
+        RuntimeErrorClassification.user(
+            kind=RuntimeErrorKind.WORKFLOW_EXPRESSION_INVALID,
+            message=f"Scatter action '{ref}' has invalid arguments: {problems}",
             retry_disposition=RetryDisposition.NON_RETRYABLE,
         )
     )
@@ -1160,6 +1177,11 @@ class DSLScheduler:
             try:
                 expr_result = await self.resolve_expression(run_if, context)
             except Exception as e:
+                # Sibling-failure cancellation is fallout, never the run's cause.
+                if is_cancelled_exception(e) and workflow.patched(
+                    WorkflowPatch.PRESERVE_RUN_IF_CANCELLATION
+                ):
+                    raise
                 raise ApplicationError(
                     f"Error evaluating `run_if` condition: {e}",
                     non_retryable=True,
@@ -1317,7 +1339,10 @@ class DSLScheduler:
             self.logger.debug("Skipped scatter", task=task)
             return await self._handle_scatter_skip_stream(task, curr_stream_id)
 
-        args = ScatterArgs(**stmt.args)
+        try:
+            args = ScatterArgs(**stmt.args)
+        except ValidationError as e:
+            raise _scatter_args_error(task.ref, e) from None
         context = self._build_collection_context(stmt, curr_stream_id)
 
         collection_key = action_collection_prefix(
