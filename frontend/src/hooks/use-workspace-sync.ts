@@ -180,8 +180,8 @@ export function useWorkspaceSyncExport(workspaceId: string) {
         workspaceId,
         operationId,
       ])
-      if (!prepared)
-        throw new Error("Reload the prepared preview before confirming")
+      if (!prepared || expireSyncOperation(prepared).status !== "ready")
+        throw new Error("Preview expired or is no longer ready")
       const started = await sendSyncOperationCommand(
         workspaceId,
         prepared,

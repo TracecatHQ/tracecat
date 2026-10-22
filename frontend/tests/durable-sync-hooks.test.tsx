@@ -15,9 +15,10 @@ import {
 } from "@/hooks/use-sync-operation"
 import {
   useWorkflowSync,
+  useWorkspaceSyncExport,
   useWorkspaceSyncExportPreview,
 } from "@/hooks/use-workspace-sync"
-import { QueryClient, QueryClientProvider } from "@/lib/query"
+import { QueryClient, QueryClientProvider, useQueryClient } from "@/lib/query"
 
 jest.mock("@/client", () => ({
   ...jest.requireActual("@/client"),
@@ -444,5 +445,42 @@ it.each([403, 404, 503, "network"] as const)(
       })
     }
     unmount()
+  }
+)
+
+it.each([false, true])(
+  "rejects an expired push at click time (cached expiry: %s)",
+  async (normalized) => {
+    jest.useFakeTimers()
+    const { result } = renderHook(
+      () => ({
+        ...useWorkspaceSyncExport("workspace-test"),
+        client: useQueryClient(),
+      }),
+      { wrapper }
+    )
+    const ready: SyncOperationRead = {
+      ...operation,
+      direction: "push",
+      status: normalized ? "expired" : "ready",
+      expires_at: new Date(Date.now() + 1000).toISOString(),
+      inputs: {
+        id: operation.id,
+        direction: "push",
+        push: { branch: "sync/demo", message: "Synthetic sync" },
+      },
+    }
+    result.current.client.setQueryData(
+      ["sync-operation", "workspace-test", ready.id],
+      ready
+    )
+    // Background-tab timers have not run, so the raw cached object can stay ready.
+    jest.setSystemTime(Date.now() + 1001)
+    await act(async () => {
+      await expect(
+        result.current.exportWorkspace({ operationId: ready.id })
+      ).rejects.toThrow("Preview expired or is no longer ready")
+    })
+    expect(workflowsApplySyncOperation).not.toHaveBeenCalled()
   }
 )

@@ -228,8 +228,20 @@ it("refreshes Git caches once when a history-observed push completes", async () 
     ).toBe(false)
   }
   expect(invalidate).toHaveBeenCalledTimes(2)
+  expect(
+    client.getQueryData([
+      "workspace-sync-preview-revision",
+      "workspace-example",
+    ])
+  ).toBe(1)
   observeSyncOperation(client, "workspace-example", completed)
   expect(invalidate).toHaveBeenCalledTimes(2)
+  expect(
+    client.getQueryData([
+      "workspace-sync-preview-revision",
+      "workspace-example",
+    ])
+  ).toBe(1)
 })
 
 it("expires retryable failures and stops reads at the deadline while offline", async () => {
