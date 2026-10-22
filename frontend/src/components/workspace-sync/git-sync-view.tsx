@@ -60,6 +60,7 @@ export function GitSyncView({
         ) : (
           <GitSyncConnectionEmptyState />
         )}
+        {canSync && <SyncOperationHistory workspaceId={workspace.id} />}
       </div>
     )
   }

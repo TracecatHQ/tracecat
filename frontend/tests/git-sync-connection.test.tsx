@@ -794,12 +794,23 @@ describe("GitSyncView connection", () => {
     )
 
     expect(screen.getByText("No repository connected")).toBeInTheDocument()
+    expect(screen.getByTestId("sync-operation-history")).toBeInTheDocument()
     expect(
       screen.getByText(
         "Ask a workspace admin to connect one. Once it's connected, you can push and pull here."
       )
     ).toBeInTheDocument()
     expect(useGitHubAppRepositories).not.toHaveBeenCalled()
+  })
+
+  it("hides operation history without sync access", () => {
+    render(
+      <GitSyncView workspace={setup()} canSync={false} canManageConnection />
+    )
+
+    expect(
+      screen.queryByTestId("sync-operation-history")
+    ).not.toBeInTheDocument()
   })
 
   it("renders the remote line inline for admins without a repository", () => {
