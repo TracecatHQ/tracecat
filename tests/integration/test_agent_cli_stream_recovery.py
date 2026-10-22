@@ -20,6 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Literal, cast
+from unittest.mock import AsyncMock
 
 import pytest
 from claude_agent_sdk import (
@@ -33,6 +34,10 @@ from claude_agent_sdk import (
 
 from tracecat.agent.adapter.vercel import TextDeltaEventPayload, VercelStreamContext
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
+from tracecat.agent.runtime.claude_code.runtime import (
+    MODEL_REQUEST_FAILED_MESSAGE,
+    ClaudeAgentRuntime,
+)
 from tracecat.agent.sandbox.llm_proxy import (
     LLMProxyError,
     LLMRoute,
@@ -49,7 +54,7 @@ _DEAD_TEXT = "Text from the dead stream. "
 _INTRO_TEXT = "Counting now. "
 _FINAL_TEXT = "Counted exactly once."
 
-type _Fault = Literal["after_tool_use", "after_text", "mid_text"]
+type _Fault = Literal["after_tool_use", "after_text", "after_text_always", "mid_text"]
 
 
 def _sse(event: str, data: dict[str, Any]) -> bytes:
@@ -152,7 +157,11 @@ def _has_tool_result(messages: list[dict[str, Any]]) -> bool:
 
 @dataclass(slots=True)
 class _GatewayState:
-    """What the fake gateway saw; the first main request gets the fault."""
+    """What the fake gateway saw.
+
+    The first main streaming request gets the fault; ``after_text_always``
+    faults every one.
+    """
 
     fault: _Fault
     main_requests: list[list[dict[str, Any]]] = field(default_factory=list)
@@ -235,13 +244,13 @@ class _GatewayHandler(BaseHTTPRequestHandler):
         self.send_header("transfer-encoding", "chunked")
         self.end_headers()
         events = [_message_start(message_id, model)]
-        if main_index == 1:
+        if main_index == 1 or state.fault == "after_text_always":
             # Faulted response: never reaches message_delta or message_stop.
             match state.fault:
                 case "after_tool_use":
                     events += _text_block(0, _INTRO_TEXT)
                     events += _tool_use_block(1, f"toolu_{message_id}")
-                case "after_text":
+                case "after_text" | "after_text_always":
                     events += _text_block(0, _DEAD_TEXT)
                 case "mid_text":
                     events += _text_block(0, _DEAD_TEXT, complete=False)
@@ -447,3 +456,28 @@ async def test_cut_after_complete_text_keeps_it_and_continues(short_dir: Path) -
     assert _DEAD_TEXT in json.dumps(outcome.main_requests[1])
     assert outcome.ui_text.count(_DEAD_TEXT) == 1
     assert outcome.ui_text.count(_FINAL_TEXT) == 1
+
+
+@pytest.mark.anyio
+async def test_repeated_cuts_after_complete_text_fail_the_turn(short_dir: Path) -> None:
+    """When the CLI runs out of continuations, the runtime fails the turn.
+
+    Every response is cut after a completed block, so the proxy suppresses every
+    interruption and never reaches its fatal path. The CLI gives up with an API
+    error result that must not be recorded as the turn's answer.
+    """
+    outcome = await _run_turn("after_text_always", short_dir)
+
+    assert outcome.proxy_errors == []
+    assert outcome.tool_calls == 0
+    assert outcome.result is not None
+    assert outcome.result.is_error is True
+    assert outcome.result.subtype == "success"
+
+    writer = AsyncMock()
+    runtime = ClaudeAgentRuntime(writer, transport_factory=lambda _: AsyncMock())
+    await runtime._handle_result_message(outcome.result)
+
+    writer.send_result.assert_awaited_once()
+    assert writer.send_result.await_args.kwargs["output"] is None
+    writer.send_error.assert_awaited_once_with(MODEL_REQUEST_FAILED_MESSAGE)

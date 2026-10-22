@@ -3870,3 +3870,57 @@ async def test_api_retry_system_message_is_logged(
         error_status=None,
         error="unknown",
     )
+
+
+def _result_message(*, subtype: str, is_error: bool) -> ResultMessage:
+    return ResultMessage(
+        subtype=subtype,
+        duration_ms=10,
+        duration_api_ms=5,
+        is_error=is_error,
+        num_turns=2,
+        session_id="sdk-session",
+        usage={"input_tokens": 3},
+        result="API Error: Connection lost mid-response." if is_error else "Done.",
+        api_error_status=None,
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("subtype", "is_error", "output", "fails"),
+    [
+        ("success", False, "Done.", False),
+        # The CLI's last model request failed after its own retries.
+        ("success", True, None, True),
+        # Other error subtypes keep their existing result handling.
+        ("error_max_turns", True, "API Error: Connection lost mid-response.", False),
+    ],
+)
+async def test_result_message_fails_turn_only_on_model_api_error(
+    mock_socket_writer: MagicMock,
+    subtype: str,
+    is_error: bool,
+    output: str | None,
+    fails: bool,
+) -> None:
+    runtime = ClaudeAgentRuntime(
+        mock_socket_writer, transport_factory=lambda _: MagicMock()
+    )
+
+    await runtime._handle_result_message(
+        _result_message(subtype=subtype, is_error=is_error)
+    )
+
+    mock_socket_writer.send_result.assert_awaited_once_with(
+        usage={"input_tokens": 3},
+        num_turns=2,
+        duration_ms=10,
+        output=output,
+    )
+    if fails:
+        mock_socket_writer.send_error.assert_awaited_once_with(
+            runtime_module.MODEL_REQUEST_FAILED_MESSAGE
+        )
+    else:
+        mock_socket_writer.send_error.assert_not_awaited()
