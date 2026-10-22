@@ -738,17 +738,27 @@ def test_background_activity_capacity_rejects_invalid_values(monkeypatch, value)
 
 
 @pytest.mark.parametrize("path", SANDBOX_POLICY_COMPOSE_ENV_FILES, ids=lambda p: p.name)
-def test_background_worker_agent_timeout_matches_api_and_executors(path: Path) -> None:
-    """Imported presets use the same allowed timeout as ordinary API edits."""
+@pytest.mark.parametrize(
+    "setting",
+    [
+        "TRACECAT__AGENT_SANDBOX_TIMEOUT",
+        "TRACECAT__CONTEXT_COMPRESSION_ENABLED",
+        "TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB",
+    ],
+)
+def test_background_worker_shared_settings_match_other_services(
+    path: Path, setting: str
+) -> None:
+    """Background activities use the same validation and payload codec settings."""
     source = path.read_text()
     values = []
-    for service in ("api", "background-worker", "executor", "agent-executor"):
+    for service in ("api", "worker", "background-worker", "executor", "agent-executor"):
         block = re.search(
             rf"(?ms)^  {service}:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
             source,
         )
         assert block is not None
-        value = re.search(r"TRACECAT__AGENT_SANDBOX_TIMEOUT:\s*(\S+)", block["body"])
+        value = re.search(rf"{setting}:\s*(\S+)", block["body"])
         assert value is not None, service
         values.append(value[1])
     assert len(set(values)) == 1, values
