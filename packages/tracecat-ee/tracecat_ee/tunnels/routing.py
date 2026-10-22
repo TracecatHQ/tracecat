@@ -110,7 +110,12 @@ async def resolve_tunnel_route(
             stmt = stmt.where(WorkspaceTunnel.name == name)
         tunnel = (await session.execute(stmt)).scalar_one_or_none()
         if tunnel is None:
-            raise TunnelRouteError("Tunnel not found in this workspace")
+            raise TunnelRouteError(
+                f"Tunnel {name!r} not found in this workspace. Create it, or "
+                "remove it from the workflow or agent that uses it."
+                if name is not None
+                else "Tunnel not found in this workspace"
+            )
         name = tunnel.name
         if not tunnel.enabled:
             raise TunnelRouteError(f"Tunnel {name!r} is disabled")

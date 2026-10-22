@@ -232,6 +232,17 @@ class TunnelRead(BaseModel):
         )
 
 
+class TunnelDetailRead(TunnelRead):
+    """A tunnel and the resources that reference it."""
+
+    referenced_by: list[TunnelReference] = Field(
+        description=(
+            "MCP integrations, current agent preset versions and workflows that "
+            "route through the tunnel. Each kind is capped at 200 entries."
+        )
+    )
+
+
 class TunnelAvailabilityRead(BaseModel):
     """Whether this deployment can run tunnel gateways."""
 
@@ -302,23 +313,24 @@ def serialize_endpoint(endpoint: AnyHttpUrl) -> str:
     return _validate_endpoint(endpoint)
 
 
-class TunnelUsageKind(StrEnum):
+class TunnelReferenceKind(StrEnum):
     MCP_INTEGRATION = "mcp_integration"
     AGENT_PRESET = "agent_preset"
     WORKFLOW = "workflow"
 
+    @property
+    def by_name(self) -> bool:
+        """Whether the resource stores the tunnel name rather than its ID."""
+        return self is not TunnelReferenceKind.MCP_INTEGRATION
 
-class TunnelUsage(BaseModel):
+
+class TunnelReference(BaseModel):
     """A workspace resource that routes traffic through a tunnel."""
 
-    kind: TunnelUsageKind
+    kind: TunnelReferenceKind
     id: uuid.UUID
     name: str
     detail: str | None = Field(
         default=None,
         description="Where in the resource the tunnel is set, e.g. an action or tool",
     )
-
-
-class TunnelUsageList(BaseModel):
-    items: list[TunnelUsage]

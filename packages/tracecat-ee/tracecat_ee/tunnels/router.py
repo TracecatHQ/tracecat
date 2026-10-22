@@ -26,12 +26,12 @@ from tracecat_ee.tunnels.schemas import (
     ManagedTunnelCreated,
     TunnelAvailabilityRead,
     TunnelCreate,
+    TunnelDetailRead,
     TunnelGatewayKeyRead,
     TunnelGatewayPolicyRead,
     TunnelRead,
     TunnelStatusRead,
     TunnelUpdate,
-    TunnelUsageList,
 )
 from tracecat_ee.tunnels.service import (
     TunnelDisabledError,
@@ -40,6 +40,17 @@ from tracecat_ee.tunnels.service import (
     get_gateway_policy,
 )
 from tracecat_ee.tunnels.tokens import TunnelTokenError
+
+
+def _tunnel_in_use(exc: TunnelInUseError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "tunnel_in_use",
+            "message": str(exc),
+            "referenced_by": [ref.model_dump(mode="json") for ref in exc.referenced_by],
+        },
+    )
 
 
 async def _require_entitlement(
@@ -177,16 +188,19 @@ async def get_tunnel(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     tunnel_id: uuid.UUID,
-) -> TunnelRead:
-    """Get a tunnel in the workspace."""
+) -> TunnelDetailRead:
+    """Get a tunnel in the workspace and the resources that reference it."""
     service = TunnelsService(session, role=role)
     try:
         tunnel = await service.get_tunnel(tunnel_id)
+        referenced_by = await service.list_tunnel_references(tunnel)
     except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
-    return TunnelRead.from_database(tunnel)
+    return TunnelDetailRead(
+        **TunnelRead.from_database(tunnel).model_dump(), referenced_by=referenced_by
+    )
 
 
 @router.patch("/{tunnel_id}")
@@ -207,31 +221,13 @@ async def update_tunnel(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
+    except TunnelInUseError as exc:
+        raise _tunnel_in_use(exc) from exc
     except IntegrityError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=_TUNNEL_EXISTS
         ) from exc
     return TunnelRead.from_database(updated)
-
-
-@router.get("/{tunnel_id}/usages")
-@require_scope("tunnel:read")
-async def list_tunnel_usages(
-    *,
-    role: WorkspaceActorRouteRole,
-    session: AsyncDBSession,
-    tunnel_id: uuid.UUID,
-) -> TunnelUsageList:
-    """List the MCP integrations, agent presets and workflows using the tunnel."""
-    service = TunnelsService(session, role=role)
-    try:
-        tunnel = await service.get_tunnel(tunnel_id)
-        usages = await service.list_tunnel_usages(tunnel)
-    except TracecatNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-        ) from exc
-    return TunnelUsageList(items=usages)
 
 
 @router.delete("/{tunnel_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -252,18 +248,11 @@ async def delete_tunnel(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
         ) from exc
     except TunnelInUseError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "message": "Tunnel is in use. Remove it from these resources first.",
-                "usages": [usage.model_dump(mode="json") for usage in exc.usages],
-            },
-        ) from exc
+        raise _tunnel_in_use(exc) from exc
     except IntegrityError as exc:
-        # A resource started using the tunnel after the usage check.
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"message": "Tunnel is in use", "usages": []},
+        # An MCP integration started using the tunnel after the reference check.
+        raise _tunnel_in_use(
+            TunnelInUseError("Tunnel is in use. Reload and try again.", [])
         ) from exc
     except PangolinError as exc:
         raise HTTPException(

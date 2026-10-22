@@ -11310,6 +11310,29 @@ export type TunnelCreate = {
 }
 
 /**
+ * A tunnel and the resources that reference it.
+ */
+export type TunnelDetailRead = {
+  id: string
+  workspace_id: string
+  name: string
+  description: string | null
+  provider: TunnelProvider
+  endpoint: string
+  client_id: string
+  allowed_targets: Array<TunnelTarget>
+  enabled: boolean
+  has_gateway_key: boolean
+  managed: boolean
+  created_at: string
+  updated_at: string
+  /**
+   * MCP integrations, current agent preset versions and workflows that route through the tunnel. Each kind is capped at 200 entries.
+   */
+  referenced_by: Array<TunnelReference>
+}
+
+/**
  * A newly issued gateway key. It is only returned once, at issue time.
  */
 export type TunnelGatewayKeyRead = {
@@ -11341,6 +11364,24 @@ export type TunnelRead = {
   updated_at: string
 }
 
+/**
+ * A workspace resource that routes traffic through a tunnel.
+ */
+export type TunnelReference = {
+  kind: TunnelReferenceKind
+  id: string
+  name: string
+  /**
+   * Where in the resource the tunnel is set, e.g. an action or tool
+   */
+  detail?: string | null
+}
+
+export type TunnelReferenceKind =
+  | "mcp_integration"
+  | "agent_preset"
+  | "workflow"
+
 export type TunnelStatusRead = {
   tunnel_id: string
   managed: boolean
@@ -11367,25 +11408,6 @@ export type TunnelUpdate = {
   client_secret?: string | null
   allowed_targets?: Array<TunnelTarget> | null
   enabled?: boolean | null
-}
-
-/**
- * A workspace resource that routes traffic through a tunnel.
- */
-export type TunnelUsage = {
-  kind: TunnelUsageKind
-  id: string
-  name: string
-  /**
-   * Where in the resource the tunnel is set, e.g. an action or tool
-   */
-  detail?: string | null
-}
-
-export type TunnelUsageKind = "mcp_integration" | "agent_preset" | "workflow"
-
-export type TunnelUsageList = {
-  items: Array<TunnelUsage>
 }
 
 /**
@@ -14328,7 +14350,7 @@ export type TunnelsGetTunnelData = {
   workspaceId: string
 }
 
-export type TunnelsGetTunnelResponse = TunnelRead
+export type TunnelsGetTunnelResponse = TunnelDetailRead
 
 export type TunnelsUpdateTunnelData = {
   requestBody: TunnelUpdate
@@ -14344,13 +14366,6 @@ export type TunnelsDeleteTunnelData = {
 }
 
 export type TunnelsDeleteTunnelResponse = void
-
-export type TunnelsListTunnelUsagesData = {
-  tunnelId: string
-  workspaceId: string
-}
-
-export type TunnelsListTunnelUsagesResponse = TunnelUsageList
 
 export type TunnelsIssueTunnelGatewayKeyData = {
   tunnelId: string
@@ -19920,7 +19935,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: TunnelRead
+        200: TunnelDetailRead
         /**
          * Validation Error
          */
@@ -19947,21 +19962,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/tunnels/{tunnel_id}/usages": {
-    get: {
-      req: TunnelsListTunnelUsagesData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: TunnelUsageList
         /**
          * Validation Error
          */

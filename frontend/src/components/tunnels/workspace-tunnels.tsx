@@ -14,8 +14,8 @@ import type {
   ManagedTunnelCreated,
   TunnelGatewayKeyRead,
   TunnelRead,
+  TunnelReference,
   TunnelTarget,
-  TunnelUsage,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CopyButton } from "@/components/copy-button"
@@ -63,9 +63,9 @@ import { toast } from "@/components/ui/use-toast"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import {
   useTunnelAvailability,
+  useTunnelDetail,
   useTunnelStatus,
   useTunnels,
-  useTunnelUsages,
 } from "@/hooks/use-tunnels"
 import { getApiErrorDetail } from "@/lib/errors"
 import { cn } from "@/lib/utils"
@@ -216,11 +216,9 @@ export function WorkspaceTunnels() {
   const [rotateTarget, setRotateTarget] = useState<TunnelRead | null>(null)
   const [issuedKey, setIssuedKey] = useState<TunnelGatewayKeyRead | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<TunnelRead | null>(null)
-  const { data: usageList, isLoading: usagesLoading } = useTunnelUsages(
-    workspaceId,
-    deleteTarget?.id
-  )
-  const usages = usageList?.items ?? []
+  const { data: deleteTargetDetail, isLoading: referencesLoading } =
+    useTunnelDetail(workspaceId, deleteTarget?.id)
+  const referencedBy = deleteTargetDetail?.referenced_by ?? []
 
   if (entitlementsLoading) {
     return <CenteredSpinner />
@@ -483,21 +481,26 @@ export function WorkspaceTunnels() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {deleteTarget?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              {usagesLoading
+              {referencesLoading
                 ? "Checking where this tunnel is used..."
-                : usages.length > 0
+                : referencedBy.length > 0
                   ? "This tunnel is still in use. Remove it from these resources, then delete it."
                   : "Nothing uses this tunnel."}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {usages.length > 0 ? (
-            <TunnelUsagesList workspaceId={workspaceId} usages={usages} />
+          {referencedBy.length > 0 ? (
+            <TunnelReferencesList
+              workspaceId={workspaceId}
+              references={referencedBy}
+            />
           ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              disabled={deletePending || usagesLoading || usages.length > 0}
+              disabled={
+                deletePending || referencesLoading || referencedBy.length > 0
+              }
               onClick={async () => {
                 if (!deleteTarget) return
                 try {
@@ -522,51 +525,54 @@ export function WorkspaceTunnels() {
   )
 }
 
-const USAGE_KIND_LABELS: Record<TunnelUsage["kind"], string> = {
+const REFERENCE_KIND_LABELS: Record<TunnelReference["kind"], string> = {
   mcp_integration: "MCP server",
   agent_preset: "Agent",
   workflow: "Workflow",
 }
 
-function tunnelUsageHref(workspaceId: string, usage: TunnelUsage): string {
-  switch (usage.kind) {
+function tunnelReferenceHref(
+  workspaceId: string,
+  reference: TunnelReference
+): string {
+  switch (reference.kind) {
     case "mcp_integration":
       return `/workspaces/${workspaceId}/mcp-servers`
     case "agent_preset":
-      return `/workspaces/${workspaceId}/agents/${usage.id}`
+      return `/workspaces/${workspaceId}/agents/${reference.id}`
     case "workflow":
-      return `/workspaces/${workspaceId}/workflows/${usage.id}`
+      return `/workspaces/${workspaceId}/workflows/${reference.id}`
   }
 }
 
-function TunnelUsagesList({
+function TunnelReferencesList({
   workspaceId,
-  usages,
+  references,
 }: {
   workspaceId: string
-  usages: TunnelUsage[]
+  references: TunnelReference[]
 }) {
   return (
     <ul className="max-h-64 divide-y overflow-y-auto rounded-md border text-sm">
-      {usages.map((usage) => (
+      {references.map((reference) => (
         <li
-          key={`${usage.kind}:${usage.id}`}
+          key={`${reference.kind}:${reference.id}`}
           className="flex items-center gap-3 px-3 py-2"
         >
           <span className="w-20 shrink-0 text-xs text-muted-foreground">
-            {USAGE_KIND_LABELS[usage.kind]}
+            {REFERENCE_KIND_LABELS[reference.kind]}
           </span>
           <div className="min-w-0 flex-1">
             <Link
-              href={tunnelUsageHref(workspaceId, usage)}
+              href={tunnelReferenceHref(workspaceId, reference)}
               target="_blank"
               className="block truncate font-medium hover:underline"
             >
-              {usage.name}
+              {reference.name}
             </Link>
-            {usage.detail ? (
+            {reference.detail ? (
               <p className="truncate text-xs text-muted-foreground">
-                {usage.detail}
+                {reference.detail}
               </p>
             ) : null}
           </div>

@@ -37297,6 +37297,104 @@ export const $TunnelCreate = {
   title: "TunnelCreate",
 } as const
 
+export const $TunnelDetailRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    provider: {
+      $ref: "#/components/schemas/TunnelProvider",
+    },
+    endpoint: {
+      type: "string",
+      title: "Endpoint",
+    },
+    client_id: {
+      type: "string",
+      title: "Client Id",
+    },
+    allowed_targets: {
+      items: {
+        $ref: "#/components/schemas/TunnelTarget",
+      },
+      type: "array",
+      title: "Allowed Targets",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+    },
+    has_gateway_key: {
+      type: "boolean",
+      title: "Has Gateway Key",
+    },
+    managed: {
+      type: "boolean",
+      title: "Managed",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    referenced_by: {
+      items: {
+        $ref: "#/components/schemas/TunnelReference",
+      },
+      type: "array",
+      title: "Referenced By",
+      description:
+        "MCP integrations, current agent preset versions and workflows that route through the tunnel. Each kind is capped at 200 entries.",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "name",
+    "description",
+    "provider",
+    "endpoint",
+    "client_id",
+    "allowed_targets",
+    "enabled",
+    "has_gateway_key",
+    "managed",
+    "created_at",
+    "updated_at",
+    "referenced_by",
+  ],
+  title: "TunnelDetailRead",
+  description: "A tunnel and the resources that reference it.",
+} as const
+
 export const $TunnelGatewayKeyRead = {
   properties: {
     tunnel_id: {
@@ -37411,6 +37509,46 @@ export const $TunnelRead = {
   title: "TunnelRead",
   description:
     "Tunnel metadata. The client secret is write-only and never returned.",
+} as const
+
+export const $TunnelReference = {
+  properties: {
+    kind: {
+      $ref: "#/components/schemas/TunnelReferenceKind",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    detail: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Detail",
+      description:
+        "Where in the resource the tunnel is set, e.g. an action or tool",
+    },
+  },
+  type: "object",
+  required: ["kind", "id", "name"],
+  title: "TunnelReference",
+  description: "A workspace resource that routes traffic through a tunnel.",
+} as const
+
+export const $TunnelReferenceKind = {
+  type: "string",
+  enum: ["mcp_integration", "agent_preset", "workflow"],
+  title: "TunnelReferenceKind",
 } as const
 
 export const $TunnelStatusRead = {
@@ -37582,61 +37720,6 @@ export const $TunnelUpdate = {
   additionalProperties: false,
   type: "object",
   title: "TunnelUpdate",
-} as const
-
-export const $TunnelUsage = {
-  properties: {
-    kind: {
-      $ref: "#/components/schemas/TunnelUsageKind",
-    },
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    name: {
-      type: "string",
-      title: "Name",
-    },
-    detail: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Detail",
-      description:
-        "Where in the resource the tunnel is set, e.g. an action or tool",
-    },
-  },
-  type: "object",
-  required: ["kind", "id", "name"],
-  title: "TunnelUsage",
-  description: "A workspace resource that routes traffic through a tunnel.",
-} as const
-
-export const $TunnelUsageKind = {
-  type: "string",
-  enum: ["mcp_integration", "agent_preset", "workflow"],
-  title: "TunnelUsageKind",
-} as const
-
-export const $TunnelUsageList = {
-  properties: {
-    items: {
-      items: {
-        $ref: "#/components/schemas/TunnelUsage",
-      },
-      type: "array",
-      title: "Items",
-    },
-  },
-  type: "object",
-  required: ["items"],
-  title: "TunnelUsageList",
 } as const
 
 export const $UIMessage = {

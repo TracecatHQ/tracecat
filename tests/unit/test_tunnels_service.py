@@ -245,10 +245,10 @@ async def test_viewer_cannot_issue_gateway_key(
         await viewer.issue_gateway_key(tunnel)
 
 
-async def test_delete_in_use_lists_every_usage(
+async def test_delete_in_use_lists_every_reference(
     service: TunnelsService, session: AsyncSession, svc_role: Role
 ) -> None:
-    from tracecat_ee.tunnels.schemas import TunnelUsageKind
+    from tracecat_ee.tunnels.schemas import TunnelReferenceKind
     from tracecat_ee.tunnels.service import TunnelInUseError
 
     from tracecat.db.models import Action, AgentPreset, MCPIntegration, Workflow
@@ -303,25 +303,40 @@ async def test_delete_in_use_lists_every_usage(
     )
     await session.commit()
 
-    usages = await service.list_tunnel_usages(tunnel)
-    by_kind = {usage.kind: usage for usage in usages}
+    references = await service.list_tunnel_references(tunnel)
+    by_kind = {ref.kind: ref for ref in references}
     assert set(by_kind) == {
-        TunnelUsageKind.MCP_INTEGRATION,
-        TunnelUsageKind.AGENT_PRESET,
-        TunnelUsageKind.WORKFLOW,
+        TunnelReferenceKind.MCP_INTEGRATION,
+        TunnelReferenceKind.AGENT_PRESET,
+        TunnelReferenceKind.WORKFLOW,
     }
-    assert by_kind[TunnelUsageKind.MCP_INTEGRATION].id == mcp.id
-    assert by_kind[TunnelUsageKind.AGENT_PRESET].id == preset.id
-    assert by_kind[TunnelUsageKind.AGENT_PRESET].detail == "tools.sublime.list_messages"
-    assert by_kind[TunnelUsageKind.WORKFLOW].detail == "Workflow default; Query Splunk"
+    assert by_kind[TunnelReferenceKind.MCP_INTEGRATION].id == mcp.id
+    assert by_kind[TunnelReferenceKind.AGENT_PRESET].id == preset.id
+    assert (
+        by_kind[TunnelReferenceKind.AGENT_PRESET].detail
+        == "tools.sublime.list_messages"
+    )
+    assert (
+        by_kind[TunnelReferenceKind.WORKFLOW].detail == "Workflow default; Query Splunk"
+    )
 
     with pytest.raises(TunnelInUseError) as exc_info:
         await service.delete_tunnel(tunnel)
-    assert len(exc_info.value.usages) == 3
+    assert len(exc_info.value.referenced_by) == 3
     assert await service.get_tunnel(tunnel.id)
 
-    other_usages = await service.list_tunnel_usages(other)
-    assert [usage.id for usage in other_usages] == [unrelated_preset.id]
+    other_references = await service.list_tunnel_references(other)
+    assert [ref.id for ref in other_references] == [unrelated_preset.id]
+
+    with pytest.raises(TunnelInUseError) as rename_exc:
+        await service.update_tunnel(other, TunnelUpdate(name="renamed"))
+    assert [ref.id for ref in rename_exc.value.referenced_by] == [unrelated_preset.id]
+    await service.update_tunnel(other, TunnelUpdate(name=other.name))
+
+    await session.delete(unrelated_preset)
+    await session.commit()
+    renamed = await service.update_tunnel(other, TunnelUpdate(name="renamed"))
+    assert renamed.name == "renamed"
 
 
 async def test_tunnels_require_kubernetes_gateway_backend(

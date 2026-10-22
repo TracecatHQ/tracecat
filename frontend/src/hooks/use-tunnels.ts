@@ -3,18 +3,18 @@
 import {
   type ManagedTunnelCreate,
   type ManagedTunnelCreated,
+  type TunnelDetailRead,
   type TunnelGatewayKeyRead,
   type TunnelRead,
   type TunnelStatusRead,
   type TunnelUpdate,
-  type TunnelUsageList,
   tunnelsCreateManagedTunnel,
   tunnelsDeleteTunnel,
+  tunnelsGetTunnel,
   tunnelsGetTunnelAvailability,
   tunnelsGetTunnelStatus,
   tunnelsIssueTunnelGatewayKey,
   tunnelsListTunnels,
-  tunnelsListTunnelUsages,
   tunnelsUpdateTunnel,
 } from "@/client"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
@@ -106,15 +106,15 @@ export function useTunnels(
   }
 }
 
-/** Lists the MCP integrations, agent presets and workflows using a tunnel. */
-export function useTunnelUsages(
+/** Reads a tunnel and the MCP integrations, agents and workflows using it. */
+export function useTunnelDetail(
   workspaceId: string,
   tunnelId: string | null | undefined
 ) {
-  return useQuery<TunnelUsageList, Error>({
-    queryKey: [...tunnelsQueryKey(workspaceId), tunnelId, "usages"],
+  return useQuery<TunnelDetailRead, Error>({
+    queryKey: [...tunnelsQueryKey(workspaceId), tunnelId, "detail"],
     queryFn: async () =>
-      await tunnelsListTunnelUsages({ workspaceId, tunnelId: tunnelId ?? "" }),
+      await tunnelsGetTunnel({ workspaceId, tunnelId: tunnelId ?? "" }),
     enabled: Boolean(workspaceId && tunnelId),
     staleTime: 0,
   })

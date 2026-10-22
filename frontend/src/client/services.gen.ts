@@ -997,8 +997,6 @@ import type {
   TunnelsIssueTunnelGatewayKeyResponse,
   TunnelsListTunnelsData,
   TunnelsListTunnelsResponse,
-  TunnelsListTunnelUsagesData,
-  TunnelsListTunnelUsagesResponse,
   TunnelsUpdateTunnelData,
   TunnelsUpdateTunnelResponse,
   UpdateCatalogEntryData,
@@ -4295,11 +4293,11 @@ export const tunnelsGetTunnelStatus = (
 
 /**
  * Get Tunnel
- * Get a tunnel in the workspace.
+ * Get a tunnel in the workspace and the resources that reference it.
  * @param data The data for the request.
  * @param data.tunnelId
  * @param data.workspaceId
- * @returns TunnelRead Successful Response
+ * @returns TunnelDetailRead Successful Response
  * @throws ApiError
  */
 export const tunnelsGetTunnel = (
@@ -4361,31 +4359,6 @@ export const tunnelsDeleteTunnel = (
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/workspaces/{workspace_id}/tunnels/{tunnel_id}",
-    path: {
-      tunnel_id: data.tunnelId,
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * List Tunnel Usages
- * List the MCP integrations, agent presets and workflows using the tunnel.
- * @param data The data for the request.
- * @param data.tunnelId
- * @param data.workspaceId
- * @returns TunnelUsageList Successful Response
- * @throws ApiError
- */
-export const tunnelsListTunnelUsages = (
-  data: TunnelsListTunnelUsagesData
-): CancelablePromise<TunnelsListTunnelUsagesResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/workspaces/{workspace_id}/tunnels/{tunnel_id}/usages",
     path: {
       tunnel_id: data.tunnelId,
       workspace_id: data.workspaceId,

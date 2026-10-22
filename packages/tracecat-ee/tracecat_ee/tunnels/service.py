@@ -44,10 +44,10 @@ from tracecat_ee.tunnels.schemas import (
     TunnelCreate,
     TunnelGatewayPolicyRead,
     TunnelRead,
+    TunnelReference,
+    TunnelReferenceKind,
     TunnelStatusRead,
     TunnelUpdate,
-    TunnelUsage,
-    TunnelUsageKind,
     serialize_endpoint,
     serialize_targets,
 )
@@ -64,11 +64,11 @@ class TunnelDisabledError(Exception):
 
 
 class TunnelInUseError(Exception):
-    """The tunnel cannot be deleted while resources still route through it."""
+    """The tunnel cannot be deleted or renamed while resources reference it."""
 
-    def __init__(self, usages: list[TunnelUsage]):
-        super().__init__("Tunnel is in use")
-        self.usages = usages
+    def __init__(self, message: str, referenced_by: list[TunnelReference]):
+        super().__init__(message)
+        self.referenced_by = referenced_by
 
 
 async def get_gateway_policy(
@@ -192,7 +192,19 @@ class TunnelsService(BaseWorkspaceService):
             raise TracecatValidationError(
                 "Endpoint, credentials, and targets of a managed tunnel cannot be changed"
             )
-        if "name" in fields and params.name is not None:
+        if "name" in fields and params.name is not None and params.name != tunnel.name:
+            # Agents and workflows reference tunnels by name so they stay portable
+            # across synced workspaces; a rename would silently break them.
+            if referenced_by := [
+                ref
+                for ref in await self.list_tunnel_references(tunnel)
+                if ref.kind.by_name
+            ]:
+                raise TunnelInUseError(
+                    "Tunnel is referenced by name. Remove it from these resources "
+                    "before renaming it.",
+                    referenced_by,
+                )
             tunnel.name = params.name
         if "description" in fields:
             tunnel.description = params.description
@@ -215,16 +227,18 @@ class TunnelsService(BaseWorkspaceService):
         return tunnel
 
     @require_scope("tunnel:read")
-    async def list_tunnel_usages(
+    async def list_tunnel_references(
         self, tunnel: WorkspaceTunnel, *, limit: int = 200
-    ) -> list[TunnelUsage]:
+    ) -> list[TunnelReference]:
         """List resources that route through the tunnel, by ID or by name.
 
         Every query is filtered by workspace; MCP integrations use the indexed
         foreign key. ``limit`` caps each kind so large workspaces stay cheap.
+        Only current preset versions are checked: an older version pinned by a
+        workflow fails that tool call with a "not found" error instead.
         """
         self._ensure_owned(tunnel)
-        usages: list[TunnelUsage] = []
+        references: list[TunnelReference] = []
         mcp_rows = await self.session.execute(
             select(MCPIntegration.id, MCPIntegration.name)
             .where(
@@ -234,8 +248,10 @@ class TunnelsService(BaseWorkspaceService):
             .order_by(MCPIntegration.name)
             .limit(limit)
         )
-        usages.extend(
-            TunnelUsage(kind=TunnelUsageKind.MCP_INTEGRATION, id=row.id, name=row.name)
+        references.extend(
+            TunnelReference(
+                kind=TunnelReferenceKind.MCP_INTEGRATION, id=row.id, name=row.name
+            )
             for row in mcp_rows
         )
 
@@ -258,9 +274,9 @@ class TunnelsService(BaseWorkspaceService):
             .order_by(AgentPreset.name)
             .limit(limit)
         )
-        usages.extend(
-            TunnelUsage(
-                kind=TunnelUsageKind.AGENT_PRESET,
+        references.extend(
+            TunnelReference(
+                kind=TunnelReferenceKind.AGENT_PRESET,
                 id=row.id,
                 name=row.name,
                 detail=row.tools,
@@ -298,23 +314,26 @@ class TunnelsService(BaseWorkspaceService):
                 parts.append("Workflow default")
             if row.actions:
                 parts.append(row.actions)
-            usages.append(
-                TunnelUsage(
-                    kind=TunnelUsageKind.WORKFLOW,
+            references.append(
+                TunnelReference(
+                    kind=TunnelReferenceKind.WORKFLOW,
                     id=row.id,
                     name=row.title,
                     detail="; ".join(parts) or None,
                 )
             )
-        return usages
+        return references
 
     @require_scope("tunnel:delete")
     @audit_log(resource_type="workspace_tunnel", action="delete")
     async def delete_tunnel(self, tunnel: WorkspaceTunnel) -> None:
         await self.require_entitlement(Entitlement.TUNNELS)
         self._ensure_owned(tunnel)
-        if usages := await self.list_tunnel_usages(tunnel):
-            raise TunnelInUseError(usages)
+        if referenced_by := await self.list_tunnel_references(tunnel):
+            raise TunnelInUseError(
+                "Tunnel is in use. Remove it from these resources first.",
+                referenced_by,
+            )
         if tunnel.managed:
             await self._delete_managed_resources(tunnel)
         tunnel_id = tunnel.id
