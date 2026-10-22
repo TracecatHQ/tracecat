@@ -5,6 +5,7 @@ from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, NamedTuple, TypedDict
 from typing import cast as typing_cast
 
+from cachetools import LRUCache
 from pydantic import ValidationError
 from pydantic_core import ErrorDetails, to_jsonable_python
 from sqlalchemy import (
@@ -88,6 +89,19 @@ from tracecat.tiers.service import TierService
 
 if TYPE_CHECKING:
     from tracecat.ssh import SshEnv
+
+# Parsed manifests by registry version, shared across requests in this process.
+# Versions are immutable, so an entry never goes stale; the bounds cap memory
+# (the builtin registry's manifest parses to about 27 MB). Callers must not
+# mutate a cached manifest.
+PLATFORM_MANIFEST_CACHE_SIZE = 2
+ORG_MANIFEST_CACHE_SIZE = 16
+_platform_manifests: LRUCache[uuid.UUID, RegistryVersionManifest] = LRUCache(
+    maxsize=PLATFORM_MANIFEST_CACHE_SIZE
+)
+_org_manifests: LRUCache[tuple[uuid.UUID, uuid.UUID], RegistryVersionManifest] = (
+    LRUCache(maxsize=ORG_MANIFEST_CACHE_SIZE)
+)
 
 
 # NamedTuple types for UNION ALL query results.
@@ -1043,16 +1057,31 @@ class RegistryActionsService(BaseOrgService):
         self,
         rows: Sequence[_ActionMetadataRow],
     ) -> dict[tuple[str, uuid.UUID], RegistryVersionManifest]:
-        """Load and validate each registry version manifest once."""
+        """Load and validate each registry version manifest once per process.
+
+        Only versions missing from the process cache are read, through this
+        service's session. An organization's manifests are cached under its ID.
+        """
         if not rows:
             return {}
 
-        org_version_ids = {
-            row.registry_version_id for row in rows if row.source == "org"
-        }
-        platform_version_ids = {
-            row.registry_version_id for row in rows if row.source == "platform"
-        }
+        manifests: dict[tuple[str, uuid.UUID], RegistryVersionManifest] = {}
+        org_version_ids: set[uuid.UUID] = set()
+        platform_version_ids: set[uuid.UUID] = set()
+        for row in rows:
+            version_id = row.registry_version_id
+            if row.source == "org":
+                cached = _org_manifests.get((self.organization_id, version_id))
+                missing = org_version_ids
+            else:
+                cached = _platform_manifests.get(version_id)
+                missing = platform_version_ids
+            if cached is not None:
+                manifests[(row.source, version_id)] = cached
+            else:
+                missing.add(version_id)
+        if not org_version_ids and not platform_version_ids:
+            return manifests
 
         org_statement = select(
             RegistryVersion.id.label("registry_version_id"),
@@ -1072,12 +1101,16 @@ class RegistryActionsService(BaseOrgService):
             union_all(org_statement, platform_statement)
         )
         manifest_rows = typing_cast(list[_VersionManifestRow], result.all())
-        return {
-            (row.source, row.registry_version_id): (
-                RegistryVersionManifest.model_validate(row.manifest)
-            )
-            for row in manifest_rows
-        }
+        for row in manifest_rows:
+            manifest = RegistryVersionManifest.model_validate(row.manifest)
+            if row.source == "org":
+                _org_manifests[(self.organization_id, row.registry_version_id)] = (
+                    manifest
+                )
+            else:
+                _platform_manifests[row.registry_version_id] = manifest
+            manifests[(row.source, row.registry_version_id)] = manifest
+        return manifests
 
     async def search_actions_from_index(
         self,

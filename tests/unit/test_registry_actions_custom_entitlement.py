@@ -269,6 +269,82 @@ async def test_get_actions_from_index_reuses_manifest_for_same_version(
 
 
 @pytest.mark.anyio
+async def test_get_actions_from_index_reuses_manifest_across_services(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_name = "acme.cached.action"
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-cached-manifest",
+        action_names=[action_name],
+    )
+
+    first = await RegistryActionsService(session, role=svc_role).get_actions_from_index(
+        [action_name]
+    )
+    service = RegistryActionsService(session, role=svc_role)
+    with patch.object(
+        RegistryVersionManifest,
+        "model_validate",
+        side_effect=AssertionError("manifest parsed again"),
+    ):
+        second = await service.get_actions_from_index([action_name])
+
+    assert second[action_name].manifest is first[action_name].manifest
+
+
+@pytest.mark.anyio
+async def test_cached_org_manifest_is_never_served_to_another_org(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_name = "acme.private.action"
+    await _seed_org_registry(
+        session,
+        role=svc_role,
+        origin="git+ssh://git@github.com/acme/private-registry.git",
+        version="private-1.0",
+        action_names=[action_name],
+    )
+    service = RegistryActionsService(session, role=svc_role)
+    with patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)):
+        found = await service.get_actions_from_index([action_name])
+    assert action_name in found
+    version_id = await session.scalar(
+        select(RegistryVersion.id).where(
+            RegistryVersion.organization_id == svc_role.organization_id,
+            RegistryVersion.version == "private-1.0",
+        )
+    )
+    assert version_id is not None
+    # The other org names the cached version, as a forged index row would.
+    row = _ActionMetadataRow(
+        id=uuid.uuid4(),
+        namespace="acme.private",
+        name="action",
+        action_type="udf",
+        description="Private action",
+        default_title=None,
+        display_group=None,
+        options={},
+        doc_url=None,
+        author=None,
+        deprecated=None,
+        registry_version_id=version_id,
+        origin="git+ssh://git@github.com/acme/private-registry.git",
+        repo_id=uuid.uuid4(),
+        source="org",
+    )
+
+    other = RegistryActionsService(
+        session, role=svc_role.model_copy(update={"organization_id": uuid.uuid4()})
+    )
+    assert await other._load_action_manifests([row]) == {}
+
+
+@pytest.mark.anyio
 async def test_get_actions_from_index_retries_version_replaced_between_queries(
     svc_role: Role,
 ) -> None:
