@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useMemo } from "react"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import type { FilterOption } from "@/components/filters/filter-multi-select"
 import { useAgentPresets } from "@/hooks/use-agent-presets"
 import type { TracecatApiError } from "@/lib/errors"
@@ -39,9 +40,10 @@ export function useSkillAgentFilter({
   filterIsLoading: boolean
   filterError: TracecatApiError | null
 } {
+  const canReadAgents = useScopeCheck("agent:read") === true
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
-    { enabled }
+    { enabled: enabled && canReadAgents }
   )
   const agentIds = useMemo(
     () => parseSkillAgentFilter(searchParams),

@@ -120,7 +120,10 @@ describe("SkillsDashboard entitlement split", () => {
     })
     mockUseAgentPresets.mockReset()
     mockUseAgentPresets.mockReturnValue({
-      presets: [{ id: "agent-1", name: "Triage", skill_ids: ["skill-1"] }],
+      presets: [
+        { id: "agent-1", name: "Triage", skill_ids: ["skill-1"] },
+        { id: "agent-empty", name: "Empty", skill_ids: [] },
+      ],
       presetsIsLoading: false,
       presetsError: null,
     })
@@ -193,7 +196,7 @@ describe("SkillsDashboard entitlement split", () => {
   })
 
   it("shows the filtered empty state when selected agents have no skills", () => {
-    mockSearchParams.current = new URLSearchParams("agent=agent-without-skills")
+    mockSearchParams.current = new URLSearchParams("agent=agent-empty")
 
     renderDashboard()
 
