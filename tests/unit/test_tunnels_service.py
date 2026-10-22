@@ -244,6 +244,7 @@ async def test_delete_in_use_lists_every_usage(
     from tracecat_ee.tunnels.service import TunnelInUseError
 
     from tracecat.db.models import Action, AgentPreset, MCPIntegration, Workflow
+    from tracecat.integrations.enums import MCPAuthType
 
     tunnel = await service.create_tunnel(_params())
     other = await service.create_tunnel(_params("unused"))
@@ -255,6 +256,7 @@ async def test_delete_in_use_lists_every_usage(
         slug="private-splunk",
         server_type="http",
         server_uri="https://splunk.corp.example:8089/mcp",
+        auth_type=MCPAuthType.NONE,
         tunnel_id=tunnel.id,
     )
     preset = AgentPreset(
@@ -274,7 +276,10 @@ async def test_delete_in_use_lists_every_usage(
         tool_tunnels={"tools.sublime.list_messages": other.name},
     )
     workflow = Workflow(
-        workspace_id=workspace_id, title="Enrich", config={"tunnel": tunnel.name}
+        workspace_id=workspace_id,
+        title="Enrich",
+        description="",
+        config={"tunnel": tunnel.name},
     )
     session.add_all([mcp, preset, unrelated_preset, workflow])
     await session.flush()
@@ -284,6 +289,7 @@ async def test_delete_in_use_lists_every_usage(
             workflow_id=workflow.id,
             type="core.http_request",
             title="Query Splunk",
+            description="",
             control_flow={"tunnel": tunnel.name},
         )
     )
