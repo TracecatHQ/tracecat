@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal
 
@@ -38,6 +39,23 @@ def clamp_agent_timeout_seconds(timeout_seconds: int | None) -> int:
         return min(AGENT_TIMEOUT_SECONDS_DEFAULT, ceiling)
     floor = min(AGENT_TIMEOUT_SECONDS_FLOOR, ceiling)
     return min(max(timeout_seconds, floor), ceiling)
+
+
+def granted_tool_tunnels(
+    tool_tunnels: Mapping[str, str] | None, granted: Collection[str] | None
+) -> dict[str, str] | None:
+    """Keep only the tool tunnels of tools the agent has.
+
+    Tool grants change through actions, skills, namespace filters and run-time
+    action overrides, so a preset's saved map can name a tool the agent no
+    longer has. That tunnel has no effect, and keeping it would fail the tool
+    build.
+    """
+    allowed = set(granted or ())
+    kept = {
+        name: tunnel for name, tunnel in (tool_tunnels or {}).items() if name in allowed
+    }
+    return kept or None
 
 
 class StreamKey(str):
@@ -93,6 +111,7 @@ class AgentConfig:
     actions: list[str] | None = None
     namespaces: list[str] | None = None
     tool_approvals: dict[str, bool] | None = None
+    tool_tunnels: dict[str, str] | None = None
     # MCP
     model_settings: dict[str, Any] | None = None
     mcp_servers: list[MCPServerConfig] | None = None

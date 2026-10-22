@@ -4344,6 +4344,13 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         nullable=True,
         doc="Tool approval requirements by tool name",
     )
+    tool_tunnels: Mapped[dict[str, str] | None] = mapped_column(
+        # Store ``None`` as SQL NULL, not JSON ``null``: tunnel reference
+        # checks expand this column with ``jsonb_each_text``.
+        JSONB(none_as_null=True),
+        nullable=True,
+        doc="Workspace tunnel name by registry action name for agent tool calls",
+    )
     mcp_integrations: Mapped[list[str] | None] = mapped_column(
         JSONB,
         nullable=True,
@@ -4489,6 +4496,13 @@ class AgentPresetVersion(WorkspaceModel):
         JSONB,
         nullable=True,
         doc="Tool approval requirements by tool name",
+    )
+    tool_tunnels: Mapped[dict[str, str] | None] = mapped_column(
+        # Store ``None`` as SQL NULL, not JSON ``null``: tunnel reference
+        # checks expand this column with ``jsonb_each_text``.
+        JSONB(none_as_null=True),
+        nullable=True,
+        doc="Workspace tunnel name by registry action name for agent tool calls",
     )
     mcp_integrations: Mapped[list[str] | None] = mapped_column(
         JSONB,
@@ -5612,6 +5626,13 @@ class MCPIntegration(TimestampMixin, Base):
         Integer,
         nullable=True,
         doc="Timeout in seconds (HTTP timeout for http type, process timeout for stdio type)",
+    )
+    tunnel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("workspace_tunnel.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+        doc="Workspace tunnel that every request to this HTTP server goes through",
     )
     tools: Mapped[list[dict[str, Any]] | None] = mapped_column(
         JSONB,

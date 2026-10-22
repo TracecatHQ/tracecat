@@ -81,12 +81,17 @@ class OAuthDiscoveryResult(BaseModel):
     )
 
 
-def validate_oauth_endpoint(url: str, base_domain: str | None = None) -> None:
+def validate_oauth_endpoint(
+    url: str, base_domain: str | None = None, *, allow_private_hosts: bool = False
+) -> None:
     """Validate an OAuth endpoint URL for security.
 
     Args:
         url: The endpoint URL to validate
         base_domain: Optional base domain to validate against
+        allow_private_hosts: Skip the localhost and private-address checks.
+            Only for requests sent through a tunnel, whose allowed targets
+            decide which hosts are reachable.
 
     Raises:
         ValueError: If the URL fails validation
@@ -101,14 +106,15 @@ def validate_oauth_endpoint(url: str, base_domain: str | None = None) -> None:
     if not hostname:
         raise ValueError(f"OAuth endpoint must include a hostname: {url}")
     normalized_hostname = hostname.rstrip(".").lower()
-    if normalized_hostname in {"localhost", "localhost.localdomain"}:
-        raise ValueError("OAuth endpoint host is not allowed")
-    try:
-        address = ipaddress.ip_address(normalized_hostname)
-    except ValueError:
-        address = None
-    if address and is_disallowed_address(address):
-        raise ValueError("OAuth endpoint host is not allowed")
+    if not allow_private_hosts:
+        if normalized_hostname in {"localhost", "localhost.localdomain"}:
+            raise ValueError("OAuth endpoint host is not allowed")
+        try:
+            address = ipaddress.ip_address(normalized_hostname)
+        except ValueError:
+            address = None
+        if address and is_disallowed_address(address):
+            raise ValueError("OAuth endpoint host is not allowed")
 
     # Validate against base domain if provided
     if base_domain:

@@ -992,6 +992,8 @@ import type {
   TunnelsCreateTunnelResponse,
   TunnelsDeleteTunnelData,
   TunnelsDeleteTunnelResponse,
+  TunnelsGetTunnelAvailabilityData,
+  TunnelsGetTunnelAvailabilityResponse,
   TunnelsGetTunnelData,
   TunnelsGetTunnelResponse,
   TunnelsGetTunnelStatusData,
@@ -4219,6 +4221,29 @@ export const tunnelsCreateTunnel = (
 }
 
 /**
+ * Get Tunnel Availability
+ * Report whether this deployment can run tunnel gateways.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns TunnelAvailabilityRead Successful Response
+ * @throws ApiError
+ */
+export const tunnelsGetTunnelAvailability = (
+  data: TunnelsGetTunnelAvailabilityData
+): CancelablePromise<TunnelsGetTunnelAvailabilityResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/tunnels/availability",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Create Managed Tunnel
  * Create a tunnel whose Pangolin site, machine client, and resources Tracecat provisions.
  *
@@ -4273,11 +4298,11 @@ export const tunnelsGetTunnelStatus = (
 
 /**
  * Get Tunnel
- * Get a tunnel in the workspace.
+ * Get a tunnel in the workspace and the resources that reference it.
  * @param data The data for the request.
  * @param data.tunnelId
  * @param data.workspaceId
- * @returns TunnelRead Successful Response
+ * @returns TunnelDetailRead Successful Response
  * @throws ApiError
  */
 export const tunnelsGetTunnel = (

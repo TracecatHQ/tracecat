@@ -734,6 +734,9 @@ export type AgentPresetCreate = {
   tool_approvals?: {
     [key: string]: boolean
   } | null
+  tool_tunnels?: {
+    [key: string]: string
+  } | null
   mcp_integrations?: Array<string> | null
   library_skills?: Array<string> | null
   agents?: AgentSubagentsConfig_Input
@@ -787,6 +790,9 @@ export type AgentPresetRead = {
   namespaces?: Array<string> | null
   tool_approvals?: {
     [key: string]: boolean
+  } | null
+  tool_tunnels?: {
+    [key: string]: string
   } | null
   mcp_integrations?: Array<string> | null
   library_skills?: Array<string> | null
@@ -943,6 +949,9 @@ export type AgentPresetUpdate = {
   tool_approvals?: {
     [key: string]: boolean
   } | null
+  tool_tunnels?: {
+    [key: string]: string
+  } | null
   mcp_integrations?: Array<string> | null
   library_skills?: Array<string> | null
   agents?: AgentSubagentsConfig_Input | null
@@ -994,6 +1003,7 @@ export type AgentPresetVersionDiff = {
   scalar_changes?: Array<ScalarFieldChange>
   list_changes?: Array<StringListFieldChange>
   tool_approval_changes?: Array<ToolApprovalFieldChange>
+  tool_tunnel_changes?: Array<ToolTunnelFieldChange>
   skill_changes?: Array<AgentPresetSkillBindingChange>
   total_changes?: number
 }
@@ -1012,6 +1022,9 @@ export type AgentPresetVersionRead = {
   namespaces?: Array<string> | null
   tool_approvals?: {
     [key: string]: boolean
+  } | null
+  tool_tunnels?: {
+    [key: string]: string
   } | null
   mcp_integrations?: Array<string> | null
   library_skills?: Array<string> | null
@@ -6917,6 +6930,10 @@ export type MCPHttpIntegrationCreate = {
    */
   oauth_integration_id?: string | null
   /**
+   * Workspace tunnel that every request to this server goes through
+   */
+  tunnel_id?: string | null
+  /**
    * HTTP headers as a JSON object. Required for custom auth type; optional additional headers for OAuth2 auth type.
    */
   custom_credentials?: string | null
@@ -6936,6 +6953,7 @@ export type MCPHttpIntegrationTestConnectionRequest = {
   server_uri: string
   auth_type?: MCPAuthType
   oauth_integration_id?: string | null
+  tunnel_id?: string | null
   /**
    * JSON object of custom headers; falls back to stored headers when omitted
    */
@@ -6968,6 +6986,8 @@ export type MCPHttpServerConfig = {
   timeout?: number
   id?: string
   tools?: Array<MCPServerToolSummary>
+  tunnel_id?: string
+  tunnel_proxy?: string
 }
 
 export type transport = "http" | "sse"
@@ -6994,6 +7014,7 @@ export type MCPIntegrationRead = {
   server_uri: string | null
   auth_type: MCPAuthType
   oauth_integration_id: string | null
+  tunnel_id?: string | null
   state:
     | "not_configured"
     | "configured"
@@ -7044,6 +7065,10 @@ export type MCPIntegrationUpdate = {
   server_uri?: string | null
   auth_type?: MCPAuthType | null
   oauth_integration_id?: string | null
+  /**
+   * Workspace tunnel for this HTTP server. Send null to stop using one.
+   */
+  tunnel_id?: string | null
   /**
    * Custom credentials as JSON headers. Required for custom auth type; optional additional headers for OAuth2 auth type.
    */
@@ -11211,6 +11236,15 @@ export type ToolResultBlock = {
   is_error?: boolean | null
 }
 
+/**
+ * Tunnel routing diff for a single tool.
+ */
+export type ToolTunnelFieldChange = {
+  tool: string
+  old_value?: string | null
+  new_value?: string | null
+}
+
 export type ToolUIPartInputAvailable = {
   type: string
   toolCallId: string
@@ -11291,6 +11325,16 @@ export type type6 = "schedule" | "webhook"
  */
 export type TriggerType = "manual" | "scheduled" | "webhook" | "case" | "form"
 
+/**
+ * Whether this deployment can run tunnel gateways.
+ */
+export type TunnelAvailabilityRead = {
+  /**
+   * False when Tracecat runs without the Kubernetes gateway backend, e.g. on Docker Compose or Fargate.
+   */
+  available: boolean
+}
+
 export type TunnelCreate = {
   name: string
   description?: string | null
@@ -11303,6 +11347,29 @@ export type TunnelCreate = {
   client_secret: string
   allowed_targets: Array<TunnelTarget>
   enabled?: boolean
+}
+
+/**
+ * A tunnel and the resources that reference it.
+ */
+export type TunnelDetailRead = {
+  id: string
+  workspace_id: string
+  name: string
+  description: string | null
+  provider: TunnelProvider
+  endpoint: string
+  client_id: string
+  allowed_targets: Array<TunnelTarget>
+  enabled: boolean
+  has_gateway_key: boolean
+  managed: boolean
+  created_at: string
+  updated_at: string
+  /**
+   * MCP integrations, current agent preset versions and workflows that route through the tunnel. Each kind is capped at 200 entries.
+   */
+  referenced_by: Array<TunnelReference>
 }
 
 /**
@@ -11336,6 +11403,24 @@ export type TunnelRead = {
   created_at: string
   updated_at: string
 }
+
+/**
+ * A workspace resource that routes traffic through a tunnel.
+ */
+export type TunnelReference = {
+  kind: TunnelReferenceKind
+  id: string
+  name: string
+  /**
+   * Where in the resource the tunnel is set, e.g. an action or tool
+   */
+  detail?: string | null
+}
+
+export type TunnelReferenceKind =
+  | "mcp_integration"
+  | "agent_preset"
+  | "workflow"
 
 export type TunnelStatusRead = {
   tunnel_id: string
@@ -14280,6 +14365,12 @@ export type TunnelsCreateTunnelData = {
 
 export type TunnelsCreateTunnelResponse = TunnelRead
 
+export type TunnelsGetTunnelAvailabilityData = {
+  workspaceId: string
+}
+
+export type TunnelsGetTunnelAvailabilityResponse = TunnelAvailabilityRead
+
 export type TunnelsCreateManagedTunnelData = {
   requestBody: ManagedTunnelCreate
   workspaceId: string
@@ -14299,7 +14390,7 @@ export type TunnelsGetTunnelData = {
   workspaceId: string
 }
 
-export type TunnelsGetTunnelResponse = TunnelRead
+export type TunnelsGetTunnelResponse = TunnelDetailRead
 
 export type TunnelsUpdateTunnelData = {
   requestBody: TunnelUpdate
@@ -19846,6 +19937,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/tunnels/availability": {
+    get: {
+      req: TunnelsGetTunnelAvailabilityData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TunnelAvailabilityRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/tunnels/managed": {
     post: {
       req: TunnelsCreateManagedTunnelData
@@ -19883,7 +19989,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: TunnelRead
+        200: TunnelDetailRead
         /**
          * Validation Error
          */

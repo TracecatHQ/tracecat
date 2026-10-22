@@ -86,6 +86,9 @@ async def resolve_agent_preset_config_activity(
                 slug=args.preset_slug,
                 preset_version_id=args.preset_version_id,
                 preset_version=args.preset_version,
+                # The workflow may override actions, then prunes tool tunnels
+                # against the final actions itself.
+                prune_tool_tunnels=False,
             ) as config:
                 return agent_config_to_payload(config)
     except (

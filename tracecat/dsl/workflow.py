@@ -1879,6 +1879,7 @@ class DSLWorkflow:
                     base_url=action_args.base_url,
                     actions=action_args.actions,
                     tool_approvals=action_args.tool_approvals,
+                    tool_tunnels=action_args.tool_tunnels,
                     agents=action_args.agents,
                     mcp_servers=action_args.mcp_servers,
                 ),

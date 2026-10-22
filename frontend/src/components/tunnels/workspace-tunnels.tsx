@@ -8,11 +8,13 @@ import {
   PlusIcon,
   Trash2Icon,
 } from "lucide-react"
+import Link from "next/link"
 import { useState } from "react"
 import type {
   ManagedTunnelCreated,
   TunnelGatewayKeyRead,
   TunnelRead,
+  TunnelReference,
   TunnelTarget,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
@@ -59,12 +61,19 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import { useTunnelStatus, useTunnels } from "@/hooks/use-tunnels"
+import {
+  useTunnelAvailability,
+  useTunnelDetail,
+  useTunnelStatus,
+  useTunnels,
+} from "@/hooks/use-tunnels"
 import { getApiErrorDetail } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const CREATE_TUNNEL_FORM_ID = "create-tunnel-form"
+const KUBERNETES_ONLY_MESSAGE =
+  "This deployment has no tunnel gateway backend, so tunnels can't be created or used. Deploy Tracecat with the Helm chart and enable tunnels."
 const TUNNEL_NAME_PATTERN = /^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$/
 
 /**
@@ -115,10 +124,13 @@ export function CreateTunnelButton() {
   const { createManagedTunnel, createPending } = useTunnels(workspaceId, {
     enabled: tunnelsEnabled,
   })
+  const tunnelsAvailable = useTunnelAvailability(workspaceId, {
+    enabled: tunnelsEnabled,
+  })
   const [createOpen, setCreateOpen] = useState(false)
   const [created, setCreated] = useState<ManagedTunnelCreated | null>(null)
 
-  if (!tunnelsEnabled || canCreate !== true) {
+  if (!tunnelsEnabled || canCreate !== true || tunnelsAvailable !== true) {
     return null
   }
 
@@ -197,10 +209,16 @@ export function WorkspaceTunnels() {
     issueGatewayKey,
     issueGatewayKeyPending,
   } = useTunnels(workspaceId, { enabled: tunnelsEnabled })
+  const tunnelsAvailable = useTunnelAvailability(workspaceId, {
+    enabled: tunnelsEnabled,
+  })
 
   const [rotateTarget, setRotateTarget] = useState<TunnelRead | null>(null)
   const [issuedKey, setIssuedKey] = useState<TunnelGatewayKeyRead | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<TunnelRead | null>(null)
+  const { data: deleteTargetDetail, isLoading: referencesLoading } =
+    useTunnelDetail(workspaceId, deleteTarget?.id)
+  const referencedBy = deleteTargetDetail?.referenced_by ?? []
 
   if (entitlementsLoading) {
     return <CenteredSpinner />
@@ -261,6 +279,20 @@ export function WorkspaceTunnels() {
     body = (
       <div className="flex h-full items-center justify-center">
         <CenteredSpinner />
+      </div>
+    )
+  } else if (tunnels.length === 0 && tunnelsAvailable === false) {
+    body = (
+      <div className="flex h-full p-6">
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <NetworkIcon className="size-5 text-muted-foreground/60" />
+            </EmptyMedia>
+            <EmptyTitle>Tunnels require Kubernetes</EmptyTitle>
+            <EmptyDescription>{KUBERNETES_ONLY_MESSAGE}</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       </div>
     )
   } else if (tunnels.length === 0) {
@@ -362,6 +394,20 @@ export function WorkspaceTunnels() {
     )
   }
 
+  if (tunnelsAvailable === false && tunnels.length > 0) {
+    body = (
+      <>
+        <div className="p-4">
+          <AlertNotification
+            level="warning"
+            message={`Tunnels require Kubernetes. ${KUBERNETES_ONLY_MESSAGE}`}
+          />
+        </div>
+        {body}
+      </>
+    )
+  }
+
   return (
     <div className="flex size-full flex-col overflow-hidden">
       <div className="min-h-0 flex-1 overflow-auto">{body}</div>
@@ -435,15 +481,26 @@ export function WorkspaceTunnels() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {deleteTarget?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              Actions that use this tunnel will fail until they are pointed at
-              another tunnel.
+              {referencesLoading
+                ? "Checking where this tunnel is used..."
+                : referencedBy.length > 0
+                  ? "This tunnel is still in use. Remove it from these resources, then delete it."
+                  : "Nothing uses this tunnel."}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {referencedBy.length > 0 ? (
+            <TunnelReferencesList
+              workspaceId={workspaceId}
+              references={referencedBy}
+            />
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              disabled={deletePending}
+              disabled={
+                deletePending || referencesLoading || referencedBy.length > 0
+              }
               onClick={async () => {
                 if (!deleteTarget) return
                 try {
@@ -465,6 +522,63 @@ export function WorkspaceTunnels() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  )
+}
+
+const REFERENCE_KIND_LABELS: Record<TunnelReference["kind"], string> = {
+  mcp_integration: "MCP server",
+  agent_preset: "Agent",
+  workflow: "Workflow",
+}
+
+function tunnelReferenceHref(
+  workspaceId: string,
+  reference: TunnelReference
+): string {
+  switch (reference.kind) {
+    case "mcp_integration":
+      return `/workspaces/${workspaceId}/mcp-servers`
+    case "agent_preset":
+      return `/workspaces/${workspaceId}/agents/${reference.id}`
+    case "workflow":
+      return `/workspaces/${workspaceId}/workflows/${reference.id}`
+  }
+}
+
+function TunnelReferencesList({
+  workspaceId,
+  references,
+}: {
+  workspaceId: string
+  references: TunnelReference[]
+}) {
+  return (
+    <ul className="max-h-64 divide-y overflow-y-auto rounded-md border text-sm">
+      {references.map((reference) => (
+        <li
+          key={`${reference.kind}:${reference.id}`}
+          className="flex items-center gap-3 px-3 py-2"
+        >
+          <span className="w-20 shrink-0 text-xs text-muted-foreground">
+            {REFERENCE_KIND_LABELS[reference.kind]}
+          </span>
+          <div className="min-w-0 flex-1">
+            <Link
+              href={tunnelReferenceHref(workspaceId, reference)}
+              target="_blank"
+              className="block truncate font-medium hover:underline"
+            >
+              {reference.name}
+            </Link>
+            {reference.detail ? (
+              <p className="truncate text-xs text-muted-foreground">
+                {reference.detail}
+              </p>
+            ) : null}
+          </div>
+        </li>
+      ))}
+    </ul>
   )
 }
 

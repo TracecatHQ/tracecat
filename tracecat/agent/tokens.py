@@ -133,6 +133,9 @@ class MCPTokenClaims(BaseModel):
     """Context for internal tools (preset_id, entity_type, etc.)."""
     # Decode must tolerate already-signed legacy tokens. New tokens require this
     # at mint time so registry tool execution stays pinned to compile-time locks.
+    tool_tunnels: dict[str, str] = Field(default_factory=dict)
+    """Workspace tunnel name by registry action. Calls to these actions run
+    through the tunnel and fail if it cannot be used."""
     registry_lock: RegistryLock | None = None
     """Registry lock resolved for this token's registry actions.
 
@@ -162,6 +165,7 @@ def mint_mcp_token(
     user_mcp_servers: list[UserMCPServerClaim] | None = None,
     allowed_internal_tools: list[str] | None = None,
     internal_tool_context: InternalToolContext | None = None,
+    tool_tunnels: dict[str, str] | None = None,
     ttl_seconds: int | None = None,
 ) -> str:
     """Create a signed MCP JWT containing workspace identity and allowed actions.
@@ -186,6 +190,7 @@ def mint_mcp_token(
         user_mcp_servers: User-defined MCP server configs for proxying
         allowed_internal_tools: Set of allowed internal tool names
         internal_tool_context: Context for internal tools (preset_id, entity_type)
+        tool_tunnels: Workspace tunnel name by registry action
         ttl_seconds: Token TTL in seconds (defaults to the agent sandbox timeout
             plus a small buffer so the token outlives one full turn)
 
@@ -228,6 +233,7 @@ def mint_mcp_token(
             user_mcp_servers=user_mcp_servers or [],
             allowed_internal_tools=allowed_internal_tools or [],
             internal_tool_context=internal_tool_context,
+            tool_tunnels=tool_tunnels or {},
             registry_lock=registry_lock,
         ).model_dump(mode="json", exclude_none=True)
     )

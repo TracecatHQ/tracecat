@@ -50,6 +50,8 @@ class MCPHttpServerConfigPayload(BaseModel):
     history."""
     tools: list[MCPServerToolSummaryPayload] | None = Field(default=None)
     """Explicit non-secret tool subset granted by attached skills."""
+    tunnel_id: str | None = Field(default=None)
+    """UUID of the workspace tunnel every request to this server goes through."""
 
 
 class MCPServerToolSummaryPayload(BaseModel):
@@ -141,6 +143,7 @@ class AgentConfigPayload(BaseModel):
     actions: list[str] | None = Field(default=None)
     namespaces: list[str] | None = Field(default=None)
     tool_approvals: dict[str, bool] | None = Field(default=None)
+    tool_tunnels: dict[str, str] | None = Field(default=None)
     model_settings: dict[str, Any] | None = Field(default=None)
     mcp_servers: list[MCPServerConfigPayload] | None = Field(default=None)
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)

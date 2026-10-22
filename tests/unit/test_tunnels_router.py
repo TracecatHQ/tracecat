@@ -17,6 +17,7 @@ from tracecat_ee.tunnels.router import router as tunnels_router
 from tracecat_ee.tunnels.service import TunnelsService
 from tracecat_ee.tunnels.tokens import generate_gateway_key, mint_gateway_policy_token
 
+from tracecat import config
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session, get_async_session_bypass_rls
@@ -49,6 +50,13 @@ async def other_workspace(
     session.add(workspace)
     await session.commit()
     yield workspace
+
+
+@pytest.fixture(autouse=True)
+def kubernetes_gateways(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(config, "TRACECAT__TUNNEL_GATEWAY_BACKEND", "kubernetes")
+    monkeypatch.setattr(tunnels_service_module, "sync_gateway", AsyncMock())
+    monkeypatch.setattr(tunnels_service_module, "delete_gateway", AsyncMock())
 
 
 @pytest.fixture
@@ -169,9 +177,7 @@ async def test_gateway_key_is_returned_once(
     other_workspace: Workspace,
 ) -> None:
     tunnel_id = (await client.post("/tunnels", json=CREATE_BODY)).json()["id"]
-    assert (await client.get(f"/tunnels/{tunnel_id}")).json()[
-        "has_gateway_key"
-    ] is False
+    assert (await client.get(f"/tunnels/{tunnel_id}")).json()["has_gateway_key"] is True
 
     issued = await client.post(f"/tunnels/{tunnel_id}/gateway-key")
     assert issued.status_code == 201
@@ -375,3 +381,83 @@ async def test_managed_status_cross_workspace_is_404(
     response = await client.get(f"/tunnels/{tunnel_id}/status")
 
     assert response.status_code == 404
+
+
+async def test_tunnels_without_gateway_backend_are_unavailable(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert (await client.get("/tunnels/availability")).json() == {"available": True}
+    tunnel_id = (await client.post("/tunnels", json=CREATE_BODY)).json()["id"]
+    monkeypatch.setattr(config, "TRACECAT__TUNNEL_GATEWAY_BACKEND", "none")
+
+    assert (await client.get("/tunnels/availability")).json() == {"available": False}
+    created = await client.post("/tunnels", json={**CREATE_BODY, "name": "another"})
+    assert created.status_code == 422
+    assert "Kubernetes" in created.json()["detail"]
+    issued = await client.post(f"/tunnels/{tunnel_id}/gateway-key")
+    assert issued.status_code == 422
+
+
+async def test_tunnel_references_need_read_access_to_each_resource(
+    client: httpx.AsyncClient,
+    holder: _RoleHolder,
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    """``tunnel:read`` alone shows the tunnel but not the names or IDs of the
+    workflows, agents and integrations that use it."""
+    from tracecat.db.models import AgentPreset, MCPIntegration, Workflow
+    from tracecat.integrations.enums import MCPAuthType
+
+    created = await client.post("/tunnels", json=CREATE_BODY)
+    tunnel = created.json()
+    assert svc_role.workspace_id is not None
+    session.add_all(
+        [
+            MCPIntegration(
+                workspace_id=svc_role.workspace_id,
+                name="Private Splunk",
+                slug="private-splunk",
+                server_type="http",
+                server_uri="https://splunk.corp.example:8089/mcp",
+                auth_type=MCPAuthType.NONE,
+                tunnel_id=uuid.UUID(tunnel["id"]),
+            ),
+            AgentPreset(
+                workspace_id=svc_role.workspace_id,
+                name="Triage",
+                slug="triage",
+                model_name="claude",
+                model_provider="anthropic",
+                tool_tunnels={"tools.sublime.list_messages": tunnel["name"]},
+            ),
+            Workflow(
+                workspace_id=svc_role.workspace_id,
+                title="Enrich",
+                description="",
+                config={"tunnel": tunnel["name"]},
+            ),
+        ]
+    )
+    await session.commit()
+
+    full = await client.get(f"/tunnels/{tunnel['id']}")
+    assert {ref["kind"] for ref in full.json()["referenced_by"]} == {
+        "mcp_integration",
+        "agent_preset",
+        "workflow",
+    }
+
+    holder.role = svc_role.model_copy(
+        update={"scopes": frozenset({"tunnel:read", "agent:read"})}
+    )
+    narrow = await client.get(f"/tunnels/{tunnel['id']}")
+    assert narrow.status_code == 200
+    assert [ref["name"] for ref in narrow.json()["referenced_by"]] == ["Triage"]
+
+    holder.role = svc_role.model_copy(
+        update={"scopes": frozenset({"tunnel:read", "tunnel:delete"})}
+    )
+    blocked = await client.delete(f"/tunnels/{tunnel['id']}")
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"]["referenced_by"] == []

@@ -49,6 +49,7 @@ from tracecat.exceptions import (
     EntitlementRequired,
     RegistryLockAmbiguousActionError,
     RegistryLockInvalidDataError,
+    TracecatValidationError,
 )
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
@@ -68,6 +69,7 @@ class BuildToolDefsArgs(BaseModel):
     role: Role
     tool_filters: ToolFilters
     tool_approvals: dict[str, bool] | None = None
+    tool_tunnels: dict[str, str] | None = None
     mcp_servers: list[MCPServerConfig] | None = None
     """User-defined MCP server configurations to discover tools from."""
     internal_tool_context: InternalToolContext | None = None
@@ -80,6 +82,7 @@ class BuildAgentScopeToolDefsArgs(BaseModel):
     scope: str
     tool_filters: ToolFilters
     tool_approvals: dict[str, bool] | None = None
+    tool_tunnels: dict[str, str] | None = None
     mcp_servers: list[MCPServerConfig] | None = None
     """User-defined MCP server configurations to discover tools from."""
     internal_tool_context: InternalToolContext | None = None
@@ -97,6 +100,8 @@ class BuildToolDefsResult(BaseModel):
     """List of allowed internal tool names for JWT claims."""
     tool_approvals: dict[str, bool] | None = None
     """Effective tool approval policy for the compiled scope."""
+    tool_tunnels: dict[str, str] | None = None
+    """Tunnel name by registry action for the compiled scope's tools."""
 
 
 class BuildAgentToolDefsArgs(BaseModel):
@@ -295,6 +300,7 @@ class AgentActivities:
         # Convert to dict[str, MCPToolDefinition] keyed by canonical action name
         # Tools already have canonical names (with dots, e.g., "core.cases.list_cases")
         defs: dict[str, MCPToolDefinition] = {}
+        registry_tool_names = {tool.name for tool in result.tools}
         for tool in result.tools:
             defs[tool.name] = MCPToolDefinition(
                 name=tool.name,
@@ -327,7 +333,11 @@ class AgentActivities:
                 discover_user_mcp_tools,
             )
             from tracecat.agent.preset.service import AgentPresetService
-            from tracecat.integrations.mcp_validation import MCPSecretResolutionError
+            from tracecat.integrations.mcp_tunnel import resolve_mcp_tunnel_proxy
+            from tracecat.integrations.mcp_validation import (
+                MCPConfigurationError,
+                MCPSecretResolutionError,
+            )
 
             http_servers = [cfg for cfg in args.mcp_servers if is_http_mcp_server(cfg)]
             if not http_servers:
@@ -345,14 +355,29 @@ class AgentActivities:
             # Fetch secrets per server, attach for ``tools/list``, and drop
             # them before returning so they never enter ``BuildToolDefsResult``
             # or leak across the Temporal boundary.
-            hydrated_servers: list[MCPHttpServerConfig] = [
-                {**cfg} for cfg in http_servers
-            ]
+            hydrated_servers: list[MCPHttpServerConfig] = []
+            for cfg in http_servers:
+                hydrated: MCPHttpServerConfig = {**cfg}
+                # The gateway proxy is only ever minted below from a checked
+                # tunnel. A caller-supplied one would skip the tunnel's
+                # ownership and allowed-target checks.
+                hydrated.pop("tunnel_proxy", None)
+                hydrated_servers.append(hydrated)
             configs_with_integration_id: list[
                 tuple[MCPHttpServerConfig, uuid.UUID]
             ] = []
             integration_id_by_server_name: dict[str, uuid.UUID] = {}
+            # Servers that must not be contacted, with the reason why.
+            unusable_servers: dict[str, str] = {}
             for hydrated in hydrated_servers:
+                if not hydrated.get("id") and hydrated.get("tunnel_id"):
+                    # Inline servers execute from their JWT claim, which has
+                    # no tunnel, so their calls would go direct.
+                    unusable_servers[hydrated["name"]] = (
+                        f"MCP server {hydrated['name']!r} sets a tunnel without "
+                        "an MCP integration. Tunnels are only supported on MCP "
+                        "integrations."
+                    )
                 if integration_id_str := hydrated.get("id"):
                     try:
                         integration_id = uuid.UUID(integration_id_str)
@@ -378,7 +403,44 @@ class AgentActivities:
                             ]
                         )
                     )
+                    # Address, route and credentials all come from the
+                    # integration row, as they do at execution. A stale or
+                    # edited payload can't send fresh credentials to an old
+                    # URL, or go direct by dropping ``tunnel_id``.
+                    try:
+                        refs = await svc.resolve_mcp_integration_refs(
+                            [str(i) for _, i in configs_with_integration_id]
+                        )
+                    except TracecatValidationError:
+                        refs = None
+                    http_ref_by_integration_id = {
+                        ref_id: ref
+                        for ref in refs or []
+                        if is_http_mcp_server(ref) and (ref_id := ref.get("id"))
+                    }
                     for hydrated, integration_id in configs_with_integration_id:
+                        ref = http_ref_by_integration_id.get(str(integration_id))
+                        if ref is None:
+                            unusable_servers[hydrated["name"]] = (
+                                f"MCP integration for server {hydrated['name']!r} "
+                                "was not found in this workspace"
+                            )
+                            continue
+                        hydrated["url"] = ref["url"]
+                        if (transport := ref.get("transport")) is not None:
+                            hydrated["transport"] = transport
+                        else:
+                            hydrated.pop("transport", None)
+                        if (timeout := ref.get("timeout")) is not None:
+                            hydrated["timeout"] = timeout
+                        else:
+                            hydrated.pop("timeout", None)
+                        if tunnel_id := ref.get("tunnel_id"):
+                            hydrated["tunnel_id"] = tunnel_id
+                        else:
+                            hydrated.pop("tunnel_id", None)
+                        # Only credentials resolved below may reach the URL.
+                        hydrated.pop("headers", None)
                         try:
                             secrets = await svc.resolve_mcp_integration_secrets(
                                 integration_id
@@ -388,9 +450,44 @@ class AgentActivities:
                         if secrets:
                             hydrated["headers"] = secrets
 
+            # Tunneled servers get a short-lived gateway proxy for discovery.
+            # It is dropped with the hydrated configs and never crosses the
+            # Temporal boundary. A tunnel that cannot be used fails closed.
+            reachable_servers: list[MCPHttpServerConfig] = []
+            for hydrated in hydrated_servers:
+                if reason := unusable_servers.get(hydrated["name"]):
+                    if args.fail_on_mcp_discovery_error:
+                        raise MCPConfigurationError(reason)
+                    logger.warning(
+                        "Skipping MCP server that cannot be used",
+                        server_name=hydrated["name"],
+                        reason=reason,
+                    )
+                    continue
+                if tunnel_id_str := hydrated.get("tunnel_id"):
+                    try:
+                        if role.workspace_id is None or role.organization_id is None:
+                            raise ValueError("MCP tunnels require a workspace role")
+                        hydrated["tunnel_proxy"] = await resolve_mcp_tunnel_proxy(
+                            workspace_id=role.workspace_id,
+                            organization_id=role.organization_id,
+                            tunnel_id=uuid.UUID(tunnel_id_str),
+                            subject=f"mcp_integration:{hydrated.get('id', '')}",
+                        )
+                    except (ValueError, MCPConfigurationError) as e:
+                        if args.fail_on_mcp_discovery_error:
+                            raise
+                        logger.warning(
+                            "Skipping MCP server whose tunnel cannot be used",
+                            server_name=hydrated["name"],
+                            error=str(e),
+                        )
+                        continue
+                reachable_servers.append(hydrated)
+
             try:
                 user_mcp_tools = await discover_user_mcp_tools(
-                    hydrated_servers,
+                    reachable_servers,
                     fail_on_error=args.fail_on_mcp_discovery_error,
                 )
                 # Add user MCP tools to definitions, honoring stored policy:
@@ -533,12 +630,28 @@ class AgentActivities:
                 e.detail,
             )
 
+        if unknown_tunnel_tools := sorted(
+            set(args.tool_tunnels or {}) - registry_tool_names
+        ):
+            raise_application_error_from_classification(
+                RuntimeErrorClassification.user(
+                    kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
+                    message=(
+                        "Tool tunnels are set for tools this agent doesn't have: "
+                        f"{unknown_tunnel_tools}. Add the tools or remove their tunnels."
+                    ),
+                    retry_disposition=RetryDisposition.NON_RETRYABLE,
+                ),
+                {"code": "unknown_tool_tunnels", "tools": unknown_tunnel_tools},
+            )
+
         return BuildToolDefsResult(
             tool_definitions=defs,
             registry_lock=registry_lock,
             user_mcp_claims=user_mcp_claims,
             allowed_internal_tools=allowed_internal_tools,
             tool_approvals=effective_tool_approvals or None,
+            tool_tunnels=args.tool_tunnels or None,
         )
 
     @activity.defn
@@ -554,6 +667,7 @@ class AgentActivities:
                 scope="root",
                 tool_filters=args.tool_filters,
                 tool_approvals=args.tool_approvals,
+                tool_tunnels=args.tool_tunnels,
                 mcp_servers=args.mcp_servers,
                 internal_tool_context=args.internal_tool_context,
                 fail_on_mcp_discovery_error=args.fail_on_mcp_discovery_error,

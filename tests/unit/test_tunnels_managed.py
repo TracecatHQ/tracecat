@@ -19,6 +19,7 @@ from tracecat_ee.tunnels.pangolin import (
 from tracecat_ee.tunnels.schemas import ManagedTunnelCreate, TunnelUpdate
 from tracecat_ee.tunnels.service import TunnelsService
 
+from tracecat import config
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
 from tracecat.db.models import Organization, Workspace, WorkspaceTunnel
@@ -204,6 +205,8 @@ class TestPangolinAPI:
 class TestManagedTunnels:
     @pytest.fixture(autouse=True)
     def fake_pangolin(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(config, "TRACECAT__TUNNEL_GATEWAY_BACKEND", "kubernetes")
+        monkeypatch.setattr(service_module, "sync_gateway", AsyncMock())
         monkeypatch.setattr(
             TunnelsService, "has_entitlement", AsyncMock(return_value=True)
         )
