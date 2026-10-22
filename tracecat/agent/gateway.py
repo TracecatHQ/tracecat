@@ -464,6 +464,17 @@ def _anthropic_error_message(error_type: str, message: str) -> str:
     ).decode()
 
 
+def _trace_request_id(data: dict[str, Any]) -> str | None:
+    """Return the LLM socket proxy's ``X-Request-ID`` for log correlation."""
+    match data.get("proxy_server_request"):
+        case {"headers": {"x-request-id": str() as trace_request_id}}:
+            # The LLM socket proxy only forwards IDs up to 128 characters, so
+            # this cap bounds the log field without breaking the exact join.
+            return trace_request_id[:128]
+        case _:
+            return None
+
+
 class TracecatCallbackHandler(CustomLogger):
     """LiteLLM callback handler that injects provider credentials per request."""
 
@@ -662,6 +673,7 @@ class TracecatCallbackHandler(CustomLogger):
             workspace_id=str(workspace_id),
             provider=provider,
             model=model,
+            trace_request_id=_trace_request_id(data),
         )
         return data
 

@@ -50,6 +50,7 @@ from tracecat.agent.error_policy import (
     agent_llm_provider_subscription_required,
     agent_llm_rate_limited,
     agent_llm_read_timeout,
+    agent_llm_stream_interrupted,
     invalid_agent_configuration,
     user_agent_execution_failed,
 )
@@ -85,6 +86,10 @@ from tracecat.runtime.errors import RuntimeErrorClassification, RuntimeErrorKind
 # a 404 "model not found".
 _PASSTHROUGH_VERSION_SUFFIX_RE = re.compile(r"/v\d+/?$")
 _SAFE_ERROR_TOKEN_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+# The jailed runtime chooses inbound trace IDs; only short tokens are logged and
+# forwarded so the gateway can join on the exact value. Keep in sync with the
+# gateway's cap in ``tracecat.agent.gateway``.
+_SAFE_TRACE_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 
 # Socket filename (created in job's socket directory)
 LLM_SOCKET_NAME = "llm.sock"
@@ -156,6 +161,10 @@ _RATE_LIMIT_MAX_DELAY_SECONDS = 20.0
 # closes them, so a request is never sent on a socket the gateway is closing.
 _MANAGED_KEEPALIVE_EXPIRY_SECONDS = 4.0
 _TRACE_REQUEST_ID_HEADER = "x-request-id"
+# Optional gateway pod/worker identity a managed gateway may return; logged so
+# an interrupted stream can be attributed to the gateway process that served it.
+_GATEWAY_IDENTITY_HEADER = "x-tracecat-gateway"
+_MAX_GATEWAY_IDENTITY_CHARS = 128
 _ANTHROPIC_ONLY_FIELDS = (
     "anthropic_beta",
     "context_management",
@@ -222,6 +231,18 @@ class ParsedRequest(TypedDict):
     path: str
     headers: dict[str, str]
     body: bytes
+
+
+class _StreamProgress(TypedDict):
+    """Privacy-safe progress of one streamed response, for log fields."""
+
+    route: Literal["managed", "direct"]
+    trace_request_id: str | None
+    stream_duration_ms: float | None
+    response_bytes: int
+    sse_events: int | None
+    saw_message_stop: bool | None
+    gateway_identity: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -394,6 +415,24 @@ def _transport_error_classification(
     if isinstance(error, httpx.TimeoutException):
         return agent_executor_timed_out(error)
     return agent_executor_unclassified(error)
+
+
+def _is_managed_stream_interruption(error: Exception, *, route_is_direct: bool) -> bool:
+    """Whether a managed gateway connection dropped mid-body."""
+    return not route_is_direct and isinstance(
+        error, httpx.RemoteProtocolError | httpx.ReadError
+    )
+
+
+def _stream_transport_error_classification(
+    error: httpx.TransportError,
+    *,
+    route_is_direct: bool,
+) -> RuntimeErrorClassification:
+    """Classify a transport failure after response headers reached the runtime."""
+    if _is_managed_stream_interruption(error, route_is_direct=route_is_direct):
+        return agent_llm_stream_interrupted(error)
+    return _transport_error_classification(error, route_is_direct=route_is_direct)
 
 
 def _transport_proxy_error(
@@ -863,8 +902,8 @@ class _UpstreamStreamError(Exception):
 
 async def _rewrite_sse_stream(
     chunks: AsyncIterable[bytes],
+    rewriter: ToolUseStreamRewriter,
 ) -> AsyncIterable[bytes]:
-    rewriter = ToolUseStreamRewriter()
     async for chunk in chunks:
         if out := rewriter.feed(chunk):
             yield out
@@ -889,11 +928,27 @@ def _load_fields() -> dict[str, int]:
 
 
 def _get_or_create_trace_request_id(headers: dict[str, str]) -> str:
-    """Return the incoming trace ID header or generate a new one."""
+    """Return a safe incoming trace ID header or generate a new one."""
     for key, value in headers.items():
-        if key.lower() == _TRACE_REQUEST_ID_HEADER and value:
+        if (
+            key.lower() == _TRACE_REQUEST_ID_HEADER
+            and _SAFE_TRACE_REQUEST_ID_RE.fullmatch(value)
+        ):
             return value
     return str(uuid4())
+
+
+def _with_trace_request_id(
+    headers: dict[str, str], trace_request_id: str
+) -> dict[str, str]:
+    """Return upstream headers carrying exactly one trace ID header."""
+    forwarded = {
+        key: value
+        for key, value in headers.items()
+        if key.lower() != _TRACE_REQUEST_ID_HEADER
+    }
+    forwarded["X-Request-ID"] = trace_request_id
+    return forwarded
 
 
 def _is_non_critical_request(method: str | None, path: str) -> bool:
@@ -1317,6 +1372,14 @@ class LLMSocketProxy:
             body=body,
             data=data,
         )
+        if not route.is_direct:
+            # Lets gateway logs be joined to proxy failures for this request.
+            upstream_request = replace(
+                upstream_request,
+                headers=_with_trace_request_id(
+                    upstream_request.headers, trace_request_id
+                ),
+            )
 
         diagnostic = partial(
             self.routing_plan.error_diagnostics, request_model, upstream_request.headers
@@ -1384,6 +1447,7 @@ class LLMSocketProxy:
                         ) as response:
                             headers_received = True
                             body_chunks: AsyncIterable[bytes] | list[bytes]
+                            stream_rewriter: ToolUseStreamRewriter | None = None
                             if (
                                 response.status_code >= 400
                                 and not _is_non_critical_request(method, path)
@@ -1441,6 +1505,7 @@ class LLMSocketProxy:
                                 (
                                     body_chunks,
                                     response_headers,
+                                    stream_rewriter,
                                 ) = await self._rewrite_tool_use(
                                     response, method=method, path=path
                                 )
@@ -1458,10 +1523,16 @@ class LLMSocketProxy:
                                 path=path,
                                 route_is_direct=route.is_direct,
                                 diagnostic_factory=diagnostic,
+                                stream_rewriter=stream_rewriter,
                             )
-                    except (httpx.RemoteProtocolError, httpx.ReadError) as exc:
+                    except (
+                        httpx.RemoteProtocolError,
+                        httpx.ReadError,
+                        httpx.ConnectError,
+                    ) as exc:
                         # Nothing has reached the runtime yet. A pooled socket the
-                        # gateway closed while idle fails here; retry it once.
+                        # gateway closed while idle, or a gateway pod that stopped
+                        # listening during a rollout, fails here; retry it once.
                         if (
                             headers_received
                             or route.is_direct
@@ -1522,11 +1593,16 @@ class LLMSocketProxy:
         *,
         method: str,
         path: str,
-    ) -> tuple[AsyncIterable[bytes] | list[bytes], dict[str, str]]:
+    ) -> tuple[
+        AsyncIterable[bytes] | list[bytes],
+        dict[str, str],
+        ToolUseStreamRewriter | None,
+    ]:
         """Return body chunks and headers with tool_use inputs normalized.
 
         Only successful ``POST /v1/messages`` responses are inspected. Streaming
-        responses are rewritten frame-by-frame. JSON responses are buffered
+        responses are rewritten frame-by-frame, and their rewriter is returned
+        so the caller can log stream progress. JSON responses are buffered
         before the rewrite, so their ``Content-Length`` is dropped; each socket
         connection carries one response and is closed afterwards, which
         delimits the body.
@@ -1537,18 +1613,23 @@ class LLMSocketProxy:
             or path.split("?", 1)[0] != MESSAGES_PATH
             or response.status_code >= 300
         ):
-            return response.aiter_bytes(), headers
+            return response.aiter_bytes(), headers, None
         content_type = response.headers.get("content-type", "").lower()
         if "text/event-stream" in content_type:
-            return _rewrite_sse_stream(response.aiter_bytes()), headers
+            rewriter = ToolUseStreamRewriter()
+            return (
+                _rewrite_sse_stream(response.aiter_bytes(), rewriter),
+                headers,
+                rewriter,
+            )
         if "application/json" not in content_type:
-            return response.aiter_bytes(), headers
+            return response.aiter_bytes(), headers, None
         headers = {
             key: value
             for key, value in headers.items()
             if key.lower() not in ("content-length", "content-encoding")
         }
-        return _rewrite_json_body(response.aiter_bytes()), headers
+        return _rewrite_json_body(response.aiter_bytes()), headers, None
 
     async def _write_response(
         self,
@@ -1565,6 +1646,7 @@ class LLMSocketProxy:
         path: str | None = None,
         route_is_direct: bool = False,
         diagnostic_factory: Callable[[], LLMErrorDiagnostics] | None = None,
+        stream_rewriter: ToolUseStreamRewriter | None = None,
     ) -> None:
         """Write an HTTP response head and stream the response body."""
         content_type = next(
@@ -1574,9 +1656,36 @@ class LLMSocketProxy:
         is_streaming_response = (
             content_type is not None and "text/event-stream" in content_type.lower()
         )
+        gateway_identity = next(
+            (
+                value[:_MAX_GATEWAY_IDENTITY_CHARS]
+                for key, value in headers.items()
+                if key.lower() == _GATEWAY_IDENTITY_HEADER
+            ),
+            None,
+        )
         ttft_logged = False
         first_chunk_at: float | None = None
         last_chunk_at: float | None = None
+        bytes_forwarded = 0
+
+        def stream_progress() -> _StreamProgress:
+            return _StreamProgress(
+                route="direct" if route_is_direct else "managed",
+                trace_request_id=trace_request_id,
+                stream_duration_ms=(
+                    (time.monotonic() - started_at) * 1000
+                    if started_at is not None
+                    else None
+                ),
+                response_bytes=bytes_forwarded,
+                sse_events=stream_rewriter.event_count if stream_rewriter else None,
+                saw_message_stop=(
+                    stream_rewriter.saw_message_stop if stream_rewriter else None
+                ),
+                gateway_identity=gateway_identity,
+            )
+
         response_line = f"HTTP/1.1 {status_code} {reason_phrase}\r\n"
         try:
             writer.write(response_line.encode())
@@ -1618,6 +1727,7 @@ class LLMSocketProxy:
                         )
                     writer.write(chunk)
                     await writer.drain()
+                    bytes_forwarded += len(chunk)
                 except Exception as exc:
                     if (
                         not self._is_client_disconnect_error(exc)
@@ -1626,6 +1736,8 @@ class LLMSocketProxy:
                         raise
                     logger.debug("Client disconnected during response streaming")
                     return
+            if is_streaming_response:
+                logger.info("LLM proxy stream finished", **stream_progress())
         except Exception as exc:
             if self._stopping:
                 logger.debug("Response stream closed during proxy shutdown")
@@ -1657,6 +1769,13 @@ class LLMSocketProxy:
                         "without receiving data. Please retry the agent execution."
                     )
                     surfaced_error = detail
+                elif _is_managed_stream_interruption(
+                    exc, route_is_direct=route_is_direct
+                ):
+                    # Transport text is not source-owned; surface the policy message.
+                    status_code = 502
+                    detail = agent_llm_stream_interrupted().message
+                    surfaced_error = detail
                 else:
                     status_code = getattr(exc, "status_code", 502)
                     detail = (
@@ -1670,11 +1789,11 @@ class LLMSocketProxy:
                     status_code=status_code,
                     detail=detail,
                     error_type=type(exc).__name__,
-                    trace_request_id=trace_request_id,
+                    **stream_progress(),
                 )
                 if path is not None and not _is_non_critical_request(method, path):
                     classification = (
-                        _transport_error_classification(
+                        _stream_transport_error_classification(
                             exc, route_is_direct=route_is_direct
                         )
                         if isinstance(exc, httpx.TransportError)

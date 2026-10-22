@@ -324,6 +324,22 @@ def agent_llm_read_timeout(
     )
 
 
+def agent_llm_stream_interrupted(
+    error: BaseException | None = None,
+) -> RuntimeErrorClassification:
+    """Classify a managed gateway response cut off after headers were sent.
+
+    The runtime already received a partial response, so the proxy cannot retry
+    transparently. A gateway pod rollout or restart is the usual cause.
+    """
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_STREAM_INTERRUPTED,
+        message="The LLM gateway response stream was interrupted before it completed",
+        retry_disposition=RetryDisposition.RETRYABLE,
+        cause=error,
+    )
+
+
 def agent_llm_gateway_auth_failed() -> RuntimeErrorClassification:
     """Classify a rejected internal gateway credential at its trusted source."""
     return RuntimeErrorClassification.platform(
