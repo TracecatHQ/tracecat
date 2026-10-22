@@ -102,6 +102,7 @@ describe("InboxDetail", () => {
       chatLoading: false,
       chatFetching: false,
       chatError: null,
+      refetchChat: jest.fn(),
     })
     mockUseChatReadiness.mockReturnValue({
       ready: true,
@@ -186,6 +187,7 @@ describe("InboxDetail model badge", () => {
       chatLoading: false,
       chatFetching: false,
       chatError: null,
+      refetchChat: jest.fn(),
     }))
     // The workspace default, unless the caller passes the session's model.
     mockUseChatReadiness.mockImplementation((_workspaceId, options) => ({

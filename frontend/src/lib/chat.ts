@@ -798,6 +798,24 @@ export function isUserPrompt(
 }
 
 /**
+ * vercel.py streams StreamError.format() as reply text and as errorText. The
+ * chat shows it as an error line, so drop the reply copy.
+ */
+export function withoutStreamedError(
+  messages: ai.UIMessage[],
+  error: string | null
+): ai.UIMessage[] {
+  const last = messages.at(-1)
+  if (!error || last?.role !== "assistant") return messages
+  const parts = last.parts.filter(
+    (part) => !(part.type === "text" && part.text.trim() === error)
+  )
+  if (parts.length === last.parts.length) return messages
+  const rest = messages.slice(0, -1)
+  return parts.length > 0 ? [...rest, { ...last, parts }] : rest
+}
+
+/**
  * Transforms UI messages by managing tool call state visibility.
  *
  * Implements a state machine that tracks tool call lifecycle:

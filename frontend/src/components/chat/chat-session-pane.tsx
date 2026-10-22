@@ -7,12 +7,7 @@ import {
   isToolUIPart,
   type UIMessage,
 } from "ai"
-import {
-  Loader2,
-  MousePointerClickIcon,
-  RefreshCcwIcon,
-  XIcon,
-} from "lucide-react"
+import { Loader2, MousePointerClickIcon, XIcon } from "lucide-react"
 import { motion } from "motion/react"
 import {
   type ChangeEvent,
@@ -31,7 +26,6 @@ import type {
   ApprovalDecision,
   ChatReadVercel,
 } from "@/client"
-import { Action, Actions } from "@/components/ai-elements/actions"
 import {
   Conversation,
   ConversationContent,
@@ -65,6 +59,7 @@ import {
 } from "@/components/chat/approval-request-part"
 import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
 import { ChatToolsPicker } from "@/components/chat/chat-tools-picker"
+import { RetryAction, TurnErrorLine } from "@/components/chat/chat-turn-error"
 import {
   getRunningLineLabel,
   isAwaitingOutput,
@@ -74,7 +69,6 @@ import {
 import { getIcon, ProviderIcon } from "@/components/icons"
 import { MentionHint } from "@/components/mentions/mention-hint"
 import { MentionPopover } from "@/components/mentions/mention-popover"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Trace } from "@/components/ui/trace"
 import { toast } from "@/components/ui/use-toast"
@@ -108,6 +102,7 @@ import {
   markLiveDenials,
   toUIMessage,
   transformMessages,
+  withoutStreamedError,
 } from "@/lib/chat"
 import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
 import { findAgentMention, type MentionRange } from "@/lib/mentions"
@@ -407,9 +402,10 @@ export function ChatSessionPane({
     messages,
     setMessages,
     status,
-    regenerate,
     lastError,
+    lastErrorDisconnected,
     clearError,
+    retryTurn,
     subagentStore,
   } = useVercelChat({
     chatId: chat?.id,
@@ -432,17 +428,17 @@ export function ChatSessionPane({
   // reopened session whose last run failed still surfaces why (the live error
   // only exists during/right after the failing run).
   //
-  // Suppress the persisted error the moment a new turn starts — optimistically
-  // on submit, before the backend clears last_error — because the new run will
-  // produce its own outcome (a fresh error or a reply) that supersedes it.
-  // The live error is always the current run's, so it is never suppressed.
+  // Suppress both the moment a new turn starts — optimistically on submit,
+  // before the backend clears last_error — because the new run (or a reload's
+  // replay of a dropped one) produces its own outcome that supersedes them.
   const hasNewTurnStarted =
     optimisticMessageText !== null ||
     status === "submitted" ||
     status === "streaming"
-  const persistedError =
-    hasNewTurnStarted || !chat ? null : getSessionLastError(chat)
-  const displayedError = lastError ?? persistedError
+  const persistedError = chat ? getSessionLastError(chat) : null
+  const displayedError = hasNewTurnStarted
+    ? null
+    : (lastError ?? persistedError)
 
   useAdoptServerTranscript({
     status,
@@ -999,9 +995,14 @@ export function ChatSessionPane({
     [selectedTools, toolLabels]
   )
 
-  const transformedMessages = useMemo(
+  const baseMessages = useMemo(
     () => transformMessages(markLiveDenials(messages, sentDecisions)),
     [messages, sentDecisions]
+  )
+  // Keeps the same array when nothing is hidden, so downstream memos hold.
+  const transformedMessages = useMemo(
+    () => withoutStreamedError(baseMessages, displayedError),
+    [baseMessages, displayedError]
   )
 
   // Reads the merged thread so a continuation folded into an earlier card
@@ -1070,6 +1071,27 @@ export function ChatSessionPane({
     () => messages.findLast(isTurnRequest)?.id,
     [messages]
   )
+  // Retry starts a run, so it follows the composer's gate.
+  const canRetry =
+    !isWaitingForResponse &&
+    !isReadonly &&
+    !cannotExecuteAgents &&
+    !inputDisabled
+  const retryingRef = useRef(false)
+  const handleRetry = useCallback(async () => {
+    if (retryingRef.current) return
+    retryingRef.current = true
+    try {
+      await retryTurn(retryMessageId)
+    } catch {
+      toast({
+        title: "Couldn't reach Tracecat",
+        description: "Retry once the connection is back.",
+      })
+    } finally {
+      retryingRef.current = false
+    }
+  }, [retryTurn, retryMessageId])
 
   const { cancelledTurnMessageIds, interruptedToolCallIds } = useMemo(
     () => collectCancelledTurns(transformedMessages),
@@ -1451,12 +1473,6 @@ export function ChatSessionPane({
             resize={status === "streaming" ? "instant" : "smooth"}
           >
             <ConversationContent className={chatContentCenterClass}>
-              {displayedError && (
-                <Alert variant="destructive" className="mb-4">
-                  <AlertTitle>Last run failed</AlertTitle>
-                  <AlertDescription>{displayedError}</AlertDescription>
-                </Alert>
-              )}
               {optimisticMessageText ? (
                 <OptimisticPendingMessage text={optimisticMessageText} />
               ) : null}
@@ -1526,28 +1542,25 @@ export function ChatSessionPane({
                         isReadonly ? undefined : handleSubmitApprovals
                       }
                     />
-                    {/* Retry starts a run, so it follows the composer's gate. */}
-                    {holdsLatestResponse &&
-                      !isWaitingForResponse &&
-                      !isReadonly &&
-                      !cannotExecuteAgents &&
-                      !inputDisabled && (
-                        <Actions className="mt-4">
-                          <Action
-                            size="sm"
-                            onClick={() =>
-                              regenerate({ messageId: retryMessageId })
-                            }
-                            label="Retry"
-                            tooltip="Retry"
-                          >
-                            <RefreshCcwIcon className="size-3" />
-                          </Action>
-                        </Actions>
-                      )}
+                    {/* A failed turn's Retry sits with its error below. */}
+                    {holdsLatestResponse && canRetry && !displayedError && (
+                      <RetryAction onRetry={handleRetry} />
+                    )}
                   </div>
                 )
               })}
+              {displayedError && (
+                <TurnErrorLine
+                  error={displayedError}
+                  dropped={lastErrorDisconnected}
+                  // A drop reconnects, so it needs no message to resend.
+                  onRetry={
+                    canRetry && (lastErrorDisconnected || messages.length > 0)
+                      ? handleRetry
+                      : undefined
+                  }
+                />
+              )}
               {runningLineLabel && <ThinkingLine label={runningLineLabel} />}
             </ConversationContent>
             <ConversationScrollButton />
