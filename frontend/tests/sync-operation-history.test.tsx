@@ -49,10 +49,12 @@ const firstDiff = {
   diff: "",
 }
 
-function mountHistory() {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
-  })
+function mountHistory(existingClient?: QueryClient) {
+  const client =
+    existingClient ??
+    new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    })
   // Model the connected view's subscription to this local import counter.
   client.setQueryDefaults(["workspace-sync-preview-revision"], {
     gcTime: Infinity,
@@ -452,5 +454,61 @@ it.each(["push", "pull"] as const)(
     expect(view.client.getQueryData(revisionKey)).toBe(5)
     view.unmount()
     view.client.clear()
+  }
+)
+
+it.each([
+  ["push", false],
+  ["pull", false],
+  ["push", true],
+  ["pull", true],
+] as const)(
+  "announces a new remote %s completion after an empty baseline (remount=%s)",
+  async (direction, remount) => {
+    jest.mocked(workflowsListSyncOperations).mockResolvedValue({ items: [] })
+    let view = mountHistory()
+    const { client } = view
+    await waitFor(() =>
+      expect(
+        client.getQueryData(["sync-operations", "workspace-test", undefined])
+      ).toEqual({ items: [] })
+    )
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    const revisionKey = ["workspace-sync-preview-revision", "workspace-test"]
+    client.setQueryData(revisionKey, 5)
+    const remote = {
+      ...operation,
+      id: "completed-in-another-tab",
+      direction,
+      status: "completed" as const,
+      stage: "finished" as const,
+      diff_count: 0,
+      data_applied: direction === "pull",
+    }
+    jest
+      .mocked(workflowsListSyncOperations)
+      .mockResolvedValue({ items: [remote] })
+    if (remount) {
+      view.unmount()
+      client.removeQueries({ queryKey: ["sync-operations", "workspace-test"] })
+      view = mountHistory(client)
+    } else {
+      await act(async () => {
+        await client.invalidateQueries({
+          queryKey: ["sync-operations", "workspace-test"],
+        })
+      })
+    }
+    await waitFor(() => expect(client.getQueryData(revisionKey)).toBe(6))
+    await act(async () => {
+      await client.invalidateQueries({
+        queryKey: ["sync-operations", "workspace-test"],
+      })
+    })
+    expect(client.getQueryData(revisionKey)).toBe(6)
+    view.unmount()
+    client.clear()
   }
 )

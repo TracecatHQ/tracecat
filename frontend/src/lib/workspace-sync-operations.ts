@@ -83,13 +83,18 @@ type OperationPage = { items: SyncOperationRead[] }
 type Observations = {
   stop: Map<string, () => void>
   applied: Set<string>
+  historyInitialized: Set<string>
 }
 const observations = new WeakMap<QueryClient, Observations>()
 
 function getObservations(client: QueryClient): Observations {
   const existing = observations.get(client)
   if (existing) return existing
-  const state: Observations = { stop: new Map(), applied: new Set() }
+  const state: Observations = {
+    stop: new Map(),
+    applied: new Set(),
+    historyInitialized: new Set(),
+  }
   observations.set(client, state)
   client.getQueryCache().subscribe((event) => {
     if (event.type !== "removed") return
@@ -157,6 +162,25 @@ function publishOperation(
       }
     }
   )
+}
+
+/** Seed historical receipts once, then publish new completions on latest-page refresh. */
+export function observeSyncHistory(
+  client: QueryClient,
+  workspaceId: string,
+  operations: readonly SyncOperationRead[],
+  isLatestPage: boolean
+) {
+  const state = getObservations(client)
+  const source =
+    isLatestPage && state.historyInitialized.has(workspaceId)
+      ? "live"
+      : "history"
+  // An empty first page is still a baseline. Keep it across panel remounts.
+  if (isLatestPage) state.historyInitialized.add(workspaceId)
+  for (const operation of operations) {
+    observeSyncOperation(client, workspaceId, operation, source)
+  }
 }
 
 /**
