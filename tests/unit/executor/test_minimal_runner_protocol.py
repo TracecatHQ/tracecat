@@ -1124,7 +1124,10 @@ def test_sandbox_runner_skips_heavy_imports_for_plain_builtin_action() -> None:
     probe = (
         "import runpy, sys\n"
         f"runpy.run_path({minimal_runner.__file__!r}, run_name='__main__')\n"
-        "heavy = ('pydantic', 'rich', 'click', 'tracecat_registry._internal.models')\n"
+        "heavy = (\n"
+        "    'pydantic', 'rich', 'click', 'pygments',\n"
+        "    'tracecat_registry._internal.models',\n"
+        ")\n"
         "sys.stderr.write(repr(sorted(m for m in heavy if m in sys.modules)))\n"
     )
 
