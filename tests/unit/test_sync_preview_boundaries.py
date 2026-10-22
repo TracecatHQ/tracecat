@@ -155,13 +155,13 @@ async def test_push_preview_lists_every_deleted_blob_path(svc_role):
     }
     assert all(diff.change_type == "deleted" for diff in changes)
     assert all(
-        diff.diff == "Non-text file will be deleted; textual diff unavailable."
+        diff.diff == "Existing file will be deleted; previous content is unavailable."
         for diff in changes
     )
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("remote_kind", ["binary", "text", "missing"])
+@pytest.mark.parametrize("remote_kind", ["binary", "filtered_text", "text", "missing"])
 @pytest.mark.parametrize("content", ["title: Reviewed workflow\n", ""])
 async def test_push_preview_distinguishes_replacements_from_additions(
     svc_role, remote_kind, content
@@ -184,8 +184,8 @@ async def test_push_preview_distinguishes_replacements_from_additions(
     change = changes[0]
     assert change.source_path == path
     assert change.change_type == ("added" if remote_kind == "missing" else "modified")
-    assert ("Non-text file will be replaced" in change.diff) == (
-        remote_kind == "binary"
+    assert ("Existing file will be replaced" in change.diff) == (
+        remote_kind in {"binary", "filtered_text"}
     )
     if content:
         assert "+title: Reviewed workflow" in change.diff
