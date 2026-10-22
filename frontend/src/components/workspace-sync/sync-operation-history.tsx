@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils"
 import { sendSyncOperationCommand } from "@/lib/workspace-sync-command"
 import {
   expireSyncOperation,
+  observeSyncHistory,
   observeSyncOperation,
 } from "@/lib/workspace-sync-operations"
 
@@ -32,9 +33,8 @@ export function SyncOperationHistory({ workspaceId }: { workspaceId: string }) {
       workflowsListSyncOperations({ workspaceId, cursor, limit: 10 }),
   })
   useEffect(() => {
-    for (const operation of data?.items ?? []) {
-      observeSyncOperation(client, workspaceId, operation, "history")
-    }
+    if (!data) return
+    observeSyncHistory(client, workspaceId, data.items, !data.prev_cursor)
   }, [client, workspaceId, data])
   function changePage(nextCursor?: string | null) {
     setSelected(undefined)
