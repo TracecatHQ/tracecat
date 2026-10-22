@@ -303,6 +303,7 @@ def build_agent_nsjail_config(
     # the full tracecat.sandbox package to be mounted inside the jail.
     from tracecat.sandbox.networking import resolve_sandbox_network_plan
     from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
+    from tracecat.sandbox.types import nsjail_rlimit_as
 
     if cgroup_mount is not None:
         _validate_path(cgroup_mount, "cgroup_mount")
@@ -523,18 +524,16 @@ def build_agent_nsjail_config(
                 ]
             )
 
-    # Resource limits. An omitted rlimit_as falls back to nsjail's 4096 MiB
-    # default, so uncapped must be written explicitly as RLIM_INFINITY.
-    address_space_limit_mb = config.resources.address_space_limit_mb(
-        cgroup_memory_limit=cgroup_mount is not None
-    )
+    # Resource limits
     lines.extend(
         [
             "",
             "# Resource limits",
-            "rlimit_as_type: INF"
-            if address_space_limit_mb is None
-            else f"rlimit_as: {address_space_limit_mb}",
+            nsjail_rlimit_as(
+                config.resources.address_space_limit_mb(
+                    cgroup_memory_limit=cgroup_mount is not None
+                )
+            ),
             f"rlimit_cpu: {config.resources.cpu_seconds}",
             f"rlimit_fsize: {config.resources.max_file_size_mb}",
             f"rlimit_nofile: {config.resources.max_open_files}",
