@@ -229,10 +229,63 @@ Subflows, scatter, gather, loops, AI agent actions, and `core.script.run_python`
 
 ## Route agents through a tunnel
 
-Agents can reach private MCP servers and private APIs through the same tunnels.
+Agents reach private services through the same tunnels as workflows. Pick the tunnel in one of two places:
 
-- **MCP servers**: In the MCP server's connection settings, pick a tunnel under **Use tunnel (optional)**. Every request to that server goes through the tunnel: connection tests, tool discovery, OAuth discovery, client registration, token exchange and refresh, and tool calls. Every agent, preset, and chat that uses the server picks it up. Add the server's host and port to the tunnel's allowed targets first; Tracecat rejects the save otherwise. Only HTTP MCP servers can use a tunnel.
-- **Agent tools**: Pick a tunnel for a registry action in the agent preset's tool list, next to its approval setting. In a workflow, set `tool_tunnels` on `ai.agent`, keyed by action name:
+- **On an MCP server**: all traffic to that server goes through the tunnel.
+- **On an agent tool**: only that tool's calls go through the tunnel. The agent's other tools still connect directly.
+
+Nothing else changes. Agents, tools, and MCP servers without a tunnel keep connecting directly. If the tunnel is disabled or missing, the request fails instead of going direct.
+
+<Note>
+  First add the private host and port to the tunnel's allowed targets. For example, add `mcp.internal:8443` for an MCP server at `https://mcp.internal:8443/mcp`.
+</Note>
+
+### Connect a private MCP server
+
+<Steps>
+  <Step title="Open the MCP server">
+    Go to **MCP servers** in the sidebar. Click **Add MCP server** for a new server, or click **Configure** on an existing one.
+  </Step>
+  <Step title="Pick the tunnel">
+    Set **Server URI** to the server's private URL. Under **Use tunnel (optional)**, pick your tunnel. Click **Test** to check the connection, then click **Connect** for a new server or **Update** for an existing one.
+    <Frame>
+      <img src="/img/manage-platform/tunnels-mcp-server.png" alt="Use tunnel (optional) set to onprem in the Edit MCP server dialog" />
+    </Frame>
+    If the server's host and port aren't an allowed target of the tunnel, Tracecat rejects the save.
+  </Step>
+  <Step title="Use the server in an agent">
+    Add the server to an agent as usual. Every agent and chat that uses the server goes through the tunnel. That includes connection tests, tool discovery, OAuth sign-in and token refresh, and tool calls.
+  </Step>
+</Steps>
+
+Only **URL (HTTP/SSE)** servers can use a tunnel.
+
+### Route one agent tool through a tunnel
+
+<Steps>
+  <Step title="Open the agent">
+    Go to **Agents** in the sidebar and open the agent.
+  </Step>
+  <Step title="Open the tool's integration">
+    In the right-hand panel, click the **Tools** tab. Under **Tools**, click the integration that has the tool, for example **Sublime**.
+    <Frame>
+      <img src="/img/manage-platform/tunnels-agent-tools-list.png" alt="Tools tab of an agent with the Sublime integration highlighted" />
+    </Frame>
+  </Step>
+  <Step title="Pick a tunnel next to the tool">
+    Each tool has a tunnel menu between its name and its approval setting (**Auto** or **Needs approval**). Open the menu and pick your tunnel. To go back to connecting directly, pick **No tunnel**.
+    <Frame>
+      <img src="/img/manage-platform/tunnels-agent-tool-tunnel.png" alt="Tunnel menu next to a Sublime tool, with No tunnel and onprem options" />
+    </Frame>
+  </Step>
+  <Step title="Save the agent">
+    Click **Save version**. New runs and chats with the agent use the tunnel for that tool.
+  </Step>
+</Steps>
+
+MCP tools don't have a tunnel menu. They use the tunnel set on their MCP server.
+
+To do the same for an `ai.agent` action in a workflow, set `tool_tunnels` to a map from each action name to a tunnel name:
 
 ```yaml
 actions:
@@ -241,13 +294,30 @@ actions:
     args:
       user_prompt: Triage the reported phishing email
       actions:
-        - tools.sublime_security.list_messages
+        - tools.sublime.action_message
         - tools.virustotal.lookup_url
       tool_tunnels:
-        tools.sublime_security.list_messages: onprem-sublime
+        tools.sublime.action_message: onprem
 ```
 
-Only the listed tools use the tunnel; the agent's other tools keep direct egress. The `tunnel` field and the workflow default tunnel do not apply to an agent's tool calls. As with workflow actions, a disabled or missing tunnel fails the call and never falls back to direct egress.
+Only the listed tools use a tunnel. An action's `tunnel` field and the workflow's default tunnel don't apply to an agent's tool calls.
+
+### Delete a tunnel that's in use
+
+<Steps>
+  <Step title="Delete the tunnel">
+    On the **Tunnels** page, open the tunnel's menu and click **Delete**.
+  </Step>
+  <Step title="Remove the tunnel where it's used">
+    If the tunnel is still in use, Tracecat lists every MCP server, agent, and workflow that uses it, and **Delete** stays disabled. For each agent and workflow, the list also shows which tool or action uses the tunnel. Click each one to open it, then remove the tunnel or pick another one.
+    <Frame>
+      <img src="/img/manage-platform/tunnels-delete-in-use.png" alt="Delete dialog listing an MCP server, an agent, and a workflow that use the tunnel" />
+    </Frame>
+  </Step>
+  <Step title="Delete it">
+    Once nothing uses the tunnel, open its menu again and click **Delete**.
+  </Step>
+</Steps>
 
 ## Run the tunnel gateway
 
