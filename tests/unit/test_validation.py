@@ -1,6 +1,7 @@
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Annotated, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
@@ -823,20 +824,35 @@ async def test_agent_tool_approvals_do_not_require_agent_addons(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("interval", "expected_loc"),
+    ("interval", "expected"),
     [
-        ("${{ TRIGGER.delay }}", ("interval",)),
-        ("every ${{ TRIGGER.delay }} seconds", ("interval",)),
-        (0.5, None),
-        (None, None),
+        ("${{ TRIGGER.delay }}", [("pydantic.float_parsing", ("interval",))]),
+        (
+            "every ${{ TRIGGER.delay }} seconds",
+            [("pydantic.float_parsing", ("interval",))],
+        ),
+        (0.5, []),
+        (None, []),
     ],
 )
-async def test_scatter_args_validated_at_commit(
-    interval: object, expected_loc: tuple[str, ...] | None
+async def test_scatter_args_validation_matches_runtime_parse(
+    interval: object, expected: list[tuple[str, tuple[str, ...]]]
 ) -> None:
-    """Scatter args are parsed before evaluation, so expressions fail commit."""
+    """The registry schema accepts expressions, but the scheduler parses scatter
+    args before evaluating them, so commit validation must reject them too."""
+    repo = Repository()
+    repo.init(include_base=True, include_templates=False)
+    interface = RegistryActionCreate.from_bound(
+        repo.get("core.transform.scatter"), uuid.uuid4()
+    ).interface
     registry = MagicMock()
-    registry.return_value.get_action_from_index = AsyncMock(return_value=None)
+    registry.return_value.get_action_from_index = AsyncMock(
+        return_value=SimpleNamespace(
+            manifest=SimpleNamespace(
+                actions={"core.transform.scatter": SimpleNamespace(interface=interface)}
+            )
+        )
+    )
 
     with patch("tracecat.validation.service.RegistryActionsService", new=registry):
         result = await validate_registry_action_args(
@@ -847,11 +863,5 @@ async def test_scatter_args_validated_at_commit(
             args={"collection": "${{ [1, 2] }}", "interval": interval},
         )
 
-    # Valid scatter args fall through to the (empty) registry lookup
-    expected = (
-        [("general", None)]
-        if expected_loc is None
-        else [("pydantic.float_parsing", expected_loc)]
-    )
-    assert result.msg == "Error validating action core.transform.scatter"
+    assert result.status == ("error" if expected else "success")
     assert [(d.type, d.loc) for d in result.detail or []] == expected
