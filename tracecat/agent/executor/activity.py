@@ -32,7 +32,6 @@ from tracecat.agent.common.config import (
     TRACECAT__EXECUTOR_BACKEND,
 )
 from tracecat.agent.common.exceptions import (
-    AgentPreparationError,
     AgentSandboxExecutionError,
     AgentSandboxValidationError,
 )
@@ -60,7 +59,6 @@ from tracecat.agent.executor.loopback import (
     LoopbackResult,
 )
 from tracecat.agent.filesystem import hydrate_agent_work_dir, persist_agent_work_dir
-from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.mcp.stdio_probe import (
     probe_stdio_mcp_tools_in_sandbox,
 )
@@ -89,9 +87,8 @@ from tracecat.agent.runtime_services import (
 from tracecat.agent.sandbox.llm_proxy import (
     LLM_SOCKET_NAME,
     LLMProxyError,
-    LLMRoute,
-    LLMRoutingPlan,
     LLMSocketProxy,
+    build_llm_routing_plan,
 )
 from tracecat.agent.sandbox.otel_relay import (
     OTEL_SOCKET_NAME,
@@ -433,7 +430,7 @@ class SandboxedAgentExecutor:
             self._fatal_error = error
             self._fatal_error_event.set()
 
-        routing_plan = self._llm_routing_plan()
+        routing_plan = build_llm_routing_plan(self.input.config, self.input.subagents)
         runtime_routing_plan = await routing_plan.materialize(self.input.role)
 
         logger.info(
@@ -445,113 +442,6 @@ class SandboxedAgentExecutor:
             socket_path=socket_path,
             routing_plan=runtime_routing_plan,
             on_error=on_error,
-        )
-
-    def _llm_routing_plan(self) -> LLMRoutingPlan:
-        """Build the socket proxy routing table from each agent's model config.
-
-        Each agent's passthrough setting determines its transport. Managed
-        requests use the shared LiteLLM gateway, which selects the model and
-        provider from the signed token. Passthrough requests use an exact-model
-        route with their own endpoint, credentials, and upstream model name.
-        Root and subagent requests follow the same rules.
-
-        Returns:
-            Routing plan for the host-side LLM socket proxy.
-        """
-        # Keep all root/subagent semantics on the executor side. The proxy only
-        # receives model-key routes and does not know which agent emitted them.
-        config = cast(Any, self.input.config)
-        return LLMRoutingPlan(
-            managed_route=LLMRoute(
-                base_url=app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/"),
-                model_provider=config.model_provider,
-                mode="managed",
-                # Managed subagent requests use synthetic LiteLLM route keys, so
-                # the proxy should let LiteLLM do provider-specific body cleanup.
-                local_provider_cleanup=not self.input.subagents,
-            ),
-            direct_routes=self._direct_passthrough_routes(),
-        )
-
-    def _direct_passthrough_routes(self) -> dict[str, LLMRoute]:
-        """Build direct passthrough routes from each agent's own model config.
-
-        Each entry is keyed by the exact model string the runtime will send in
-        the request body. The proxy can then make a local routing decision
-        without needing to know which agent produced the request.
-
-        A single execution can include a passthrough root agent and multiple
-        passthrough subagents. Passthrough requests go straight to their
-        provider endpoint instead of through managed LiteLLM, so the shared
-        proxy needs one direct route per exact runtime model key rather than
-        one global passthrough destination. Agents without passthrough need no
-        entry here; their requests use the managed route.
-
-        Returns:
-            Direct passthrough routes keyed by request model.
-        """
-        routes: dict[str, LLMRoute] = {}
-        config = cast(Any, self.input.config)
-        if config.passthrough:
-            # Root routing is keyed by the model string the root agent sends.
-            routes[config.model_name] = self._direct_passthrough_route(
-                config.base_url,
-                model_provider=config.model_provider,
-                catalog_id=config.catalog_id,
-            )
-
-        for subagent in self.input.subagents:
-            config = subagent.config
-            if not config.passthrough:
-                continue
-            # Subagents usually send a synthetic scoped model key. If that subagent
-            # is passthrough, the scoped key should direct-route to its own gateway.
-            request_model = subagent.model_route or get_litellm_route_model(
-                model_provider=config.model_provider,
-                model_name=config.model_name,
-                passthrough=True,
-            )
-            routes[request_model] = self._direct_passthrough_route(
-                config.base_url,
-                model_provider=config.model_provider,
-                catalog_id=config.catalog_id,
-                upstream_model_name=config.model_name,
-            )
-        return routes
-
-    @staticmethod
-    def _direct_passthrough_route(
-        base_url: str | None,
-        *,
-        model_provider: str,
-        catalog_id: uuid.UUID | None,
-        upstream_model_name: str | None = None,
-    ) -> LLMRoute:
-        """Create one direct passthrough route.
-
-        Args:
-            base_url: Resolved provider base URL.
-            model_provider: Provider behind the direct route.
-            catalog_id: Optional provider catalog row for credentials.
-            upstream_model_name: Optional model name to send to the upstream.
-
-        Returns:
-            Direct route for the model config.
-
-        Raises:
-            AgentPreparationError: If passthrough is enabled without a
-                resolved base URL.
-        """
-        if base_url is None:
-            raise AgentPreparationError(
-                "Model provider passthrough requires a resolved base_url."
-            )
-        return LLMRoute(
-            base_url=base_url,
-            model_provider=model_provider,
-            catalog_id=catalog_id,
-            upstream_model_name=upstream_model_name,
         )
 
     async def _resolve_agent_otel_config(self) -> ResolvedAgentOtelConfig:

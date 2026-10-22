@@ -15,7 +15,14 @@ import orjson
 import pytest
 from tenacity import AsyncRetrying, RetryCallState
 
-from tracecat.agent.diagnostics import MAX_LLM_ERROR_BODY_BYTES, LLMErrorDiagnostics
+from tracecat import config as app_config
+from tracecat.agent.common.types import SandboxAgentConfig, SandboxSubagentConfig
+from tracecat.agent.diagnostics import (
+    MAX_LLM_ERROR_BODY_BYTES,
+    LLMErrorDiagnostics,
+    ProviderConfiguration,
+)
+from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.observability import LLMGatewayLoadTracker
 from tracecat.agent.sandbox import llm_proxy
 from tracecat.agent.sandbox.llm_proxy import (
@@ -29,6 +36,7 @@ from tracecat.agent.sandbox.llm_proxy import (
     _rate_limit_wait,
     _rewrite_json_body,
     _UpstreamRateLimited,
+    build_llm_routing_plan,
 )
 from tracecat.agent.sandbox.tool_use_rewrite import ToolUseStreamRewriter
 from tracecat.agent.tokens import LLMRouteClaim, mint_llm_token
@@ -167,12 +175,14 @@ async def _forward(
     request: ParsedRequest = _RATE_LIMIT_REQUEST,
     *,
     routing_plan: LLMRoutingPlan | None = None,
+    rewrite_tool_use: bool = True,
 ) -> tuple[str, list[LLMProxyError]]:
     errors: list[LLMProxyError] = []
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
         routing_plan=routing_plan or _routing_plan(),
         on_error=errors.append,
+        rewrite_tool_use=rewrite_tool_use,
     )
     writer = _FakeWriter()
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
@@ -1905,12 +1915,8 @@ async def test_successful_managed_request_skips_diagnostic_token_verification(
     verify.assert_not_called()
 
 
-@pytest.mark.anyio
-@pytest.mark.parametrize("streaming", [True, False])
-async def test_forward_request_normalizes_read_tool_use_before_sandbox(
-    tmp_path: Path, streaming: bool
-) -> None:
-    """Malformed Read inputs are fixed in the response the CLI validates."""
+def _read_tool_use_response(streaming: bool) -> tuple[bytes, str]:
+    """Return an upstream Messages response with a malformed Read input."""
     bad_input = {"file_path": "/skills/demo/references/api.md", "pages": ""}
     if streaming:
         upstream_body = (
@@ -1941,6 +1947,16 @@ async def test_forward_request_normalizes_read_tool_use_before_sandbox(
             }
         )
         content_type = "application/json"
+    return upstream_body, content_type
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("streaming", [True, False])
+async def test_forward_request_normalizes_read_tool_use_before_sandbox(
+    tmp_path: Path, streaming: bool
+) -> None:
+    """Malformed Read inputs are fixed in the response the CLI validates."""
+    upstream_body, content_type = _read_tool_use_response(streaming)
 
     async def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -1961,6 +1977,31 @@ async def test_forward_request_normalizes_read_tool_use_before_sandbox(
         assert payload["content"][0]["input"] == {
             "file_path": "/skills/demo/references/api.md"
         }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("streaming", [True, False])
+async def test_forward_request_skips_tool_use_rewrite_when_disabled(
+    tmp_path: Path, streaming: bool
+) -> None:
+    """Runtimes other than Claude Code receive upstream responses unchanged."""
+    upstream_body, content_type = _read_tool_use_response(streaming)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, headers={"Content-Type": content_type}, content=upstream_body
+        )
+
+    response_text, _ = await _forward(
+        tmp_path,
+        handler,
+        _request({"stream": streaming, "messages": []}),
+        rewrite_tool_use=False,
+    )
+
+    head, _, body = response_text.encode().partition(b"\r\n\r\n")
+    assert b"HTTP/1.1 200" in head
+    assert body == upstream_body
 
 
 @pytest.mark.anyio
@@ -2320,3 +2361,104 @@ async def test_forward_request_sends_trace_request_id_to_gateway(
         assert f"X-Request-ID: {sent[0][0]}" in response_text
     else:
         assert sent == [[expected]]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "root_provider, child_provider, root_configuration, child_configuration",
+    [
+        ("openai", "custom-model-provider", "builtin", "custom"),
+        ("custom-model-provider", "anthropic", "custom", "builtin"),
+    ],
+)
+async def test_routing_plan_derives_diagnostics_from_root_and_subagent_providers(
+    root_provider: str,
+    child_provider: str,
+    root_configuration: ProviderConfiguration,
+    child_configuration: ProviderConfiguration,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = SandboxAgentConfig(
+        model_name="synthetic-root", model_provider=root_provider
+    )
+    subagents = [
+        SandboxSubagentConfig(
+            alias="synthetic-child",
+            description="Synthetic child",
+            prompt="Synthetic prompt",
+            model_route="synthetic-child-route",
+            config=SandboxAgentConfig(
+                # The signed token, not a reconstructed config index, is authoritative.
+                model_name="synthetic-model",
+                model_provider=root_provider,
+            ),
+            mcp_auth_token="synthetic-token",
+        )
+    ]
+    monkeypatch.setattr(
+        app_config, "TRACECAT__SERVICE_KEY", "synthetic-signing-key-for-tests-only"
+    )
+    token = mint_llm_token(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        model="synthetic-root",
+        provider=root_provider,
+        routes={
+            "synthetic-child-route": LLMRouteClaim(
+                model="synthetic-model", provider=child_provider
+            )
+        },
+    )
+    plan = build_llm_routing_plan(config, subagents)
+    headers = {"authorization": f"Bearer {token}"}
+    # Materialization preserves transport selection.
+    plan = await plan.materialize(None)
+    assert plan.error_diagnostics(
+        get_litellm_route_model(
+            model_provider=root_provider, model_name="synthetic-root"
+        ),
+        headers,
+    ) == LLMErrorDiagnostics(route="managed", provider_configuration=root_configuration)
+    assert plan.error_diagnostics(
+        "synthetic-child-route", headers
+    ) == LLMErrorDiagnostics(
+        route="managed", provider_configuration=child_configuration
+    )
+    assert plan.error_diagnostics("unrecognized-route", headers) == LLMErrorDiagnostics(
+        route="managed", provider_configuration=root_configuration
+    )
+    assert (
+        plan.error_diagnostics(None, headers).provider_configuration
+        == root_configuration
+    )
+
+    selected = plan.resolve("synthetic-child-route")
+    assert selected is plan.managed_route
+    assert not selected.local_provider_cleanup
+    for model in (None, "unrecognized-route", 123):
+        assert plan.resolve(model) is plan.managed_route
+        assert (
+            plan.error_diagnostics(model, headers).provider_configuration
+            == root_configuration
+        )
+    body = b'{"model":"synthetic-child-route","thinking":{"type":"enabled"}}'
+    request = selected.prepare_forward_request(
+        path="/v1/messages",
+        headers={"Authorization": "Bearer synthetic-token"},
+        body=body,
+        data=orjson.loads(body),
+    )
+    assert request.url == plan.managed_route.forward_url("/v1/messages")
+    assert request.headers["Authorization"] == "Bearer synthetic-token"
+    assert request.body == body
+
+
+def test_routing_plan_invalid_diagnostic_token_does_not_block_forwarding() -> None:
+    plan = build_llm_routing_plan(
+        SandboxAgentConfig(model_name="synthetic-model", model_provider="openai")
+    )
+    assert plan.error_diagnostics(
+        "synthetic-model", {"Authorization": "Bearer synthetic-invalid-token"}
+    ) == LLMErrorDiagnostics(route="managed")
+    assert plan.resolve("synthetic-model") is plan.managed_route
