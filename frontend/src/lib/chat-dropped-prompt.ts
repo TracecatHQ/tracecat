@@ -39,7 +39,12 @@ export async function refetchChatTranscript(
   workspaceId: string
 ): Promise<UIMessage[]> {
   const queryKey = ["chat", chatId, workspaceId, "vercel"]
-  await queryClient.refetchQueries({ queryKey, exact: true })
+  // A stale cache never holds a mid-turn prompt, so a failed refetch must not
+  // read as the server missing it.
+  await queryClient.refetchQueries(
+    { queryKey, exact: true },
+    { throwOnError: true }
+  )
   const session =
     queryClient.getQueryData<AgentSessionsGetSessionVercelResponse>(queryKey)
   return (session?.messages ?? []).map(toUIMessage)

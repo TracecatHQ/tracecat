@@ -1,5 +1,9 @@
 import type { UIMessage } from "ai"
-import { serverTookPrompt } from "@/lib/chat-dropped-prompt"
+import {
+  refetchChatTranscript,
+  serverTookPrompt,
+} from "@/lib/chat-dropped-prompt"
+import { QueryClient } from "@/lib/query"
 
 jest.mock("@/lib/api", () => ({ getBaseUrl: () => "https://example.invalid" }))
 
@@ -40,5 +44,21 @@ describe("serverTookPrompt", () => {
 
   it("throws rather than guessing when the check fails", async () => {
     await expect(probe(502)).rejects.toThrow("Turn check failed with 502")
+  })
+})
+
+describe("refetchChatTranscript", () => {
+  it("throws when the transcript can't be fetched", async () => {
+    const queryClient = new QueryClient()
+    const queryKey = ["chat", "chat-1", "workspace-1", "vercel"]
+    queryClient.setQueryDefaults(queryKey, {
+      queryFn: () => Promise.reject(new Error("offline")),
+      retry: false,
+    })
+    queryClient.setQueryData(queryKey, { messages: [] })
+
+    await expect(
+      refetchChatTranscript(queryClient, "chat-1", "workspace-1")
+    ).rejects.toThrow("offline")
   })
 })
