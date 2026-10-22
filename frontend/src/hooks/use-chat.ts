@@ -658,6 +658,14 @@ export function useVercelChat({
   }, [chatKey])
   // Whether the request in flight is this tab's send or a reconnect replay.
   const requestKindRef = useRef<"send" | "resume">("send")
+  // A replay's prompt is off screen, so its turn is never resent. A Retry
+  // reconnect means the server took the turn; a restored prompt is on screen.
+  function isReplay(): boolean {
+    return (
+      requestKindRef.current === "resume" &&
+      (generation > 0 || !droppedPromptRef.current?.prompt)
+    )
+  }
   // Live child-session transcripts. Child chunks are transient data parts, so
   // they never enter `messages`; they are routed here instead.
   const subagentStore = useMemo(
@@ -732,19 +740,16 @@ export function useVercelChat({
     }),
     onError: (error) => {
       const friendlyMessage = parseChatError(error)
-      // A reconnect that fails before its stream opens gets no onFinish, so its
-      // drop is marked here. Any TypeError counts: browsers word fetch failures
-      // differently, and a dropped reconnect only ever rechecks the server.
+      // A failed reconnect gets no onFinish, so its drop is marked here. Any
+      // TypeError counts, as browsers word fetch failures differently.
       const reconnectDropped =
-        requestKindRef.current === "resume" && error instanceof TypeError
+        requestKindRef.current === "resume" &&
+        (generation > 0 || error instanceof TypeError)
       setLastError({
         chatKey,
         message: friendlyMessage,
         disconnected: reconnectDropped,
-        // A Retry reconnect means the server took the turn, so never resend it.
-        replay:
-          reconnectDropped &&
-          (generation > 0 || !droppedPromptRef.current?.prompt),
+        replay: reconnectDropped && isReplay(),
       })
       console.error("Error in Vercel chat:", error)
       toast({
@@ -759,17 +764,17 @@ export function useVercelChat({
       // Leaving a chat aborts its request, and the SDK runs that abort's
       // onFinish with the next chat's callbacks; sends already cleared state.
       if (!isAbort) {
-        const replay = requestKindRef.current === "resume"
         if (!isError) {
           setLastError((prev) => (prev?.chatKey === chatKey ? null : prev))
         } else if (isDisconnect) {
           // The SDK also runs onFinish after onError; keep that turn's error.
+          const replay = isReplay()
           setLastError(
             (prev) => prev && { ...prev, disconnected: true, replay }
           )
         }
-        // A dropped replay must not save the previous turn's prompt instead.
-        if (chatId && !(isDisconnect && replay)) {
+        // A dropped reconnect must not save the previous turn's prompt instead.
+        if (chatId && !(isDisconnect && requestKindRef.current === "resume")) {
           saveDroppedPrompt(chatId, isDisconnect ? turnMessages : null)
         }
       }

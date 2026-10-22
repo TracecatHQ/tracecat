@@ -266,6 +266,40 @@ describe("useVercelChat dropped prompt across reloads", () => {
     mockMessages = []
   })
 
+  it("never resends when the reconnect Retry started gets an HTTP error", async () => {
+    await dropTurn()
+    const { hook, seeded } = reload(prior)
+    if (!seeded || !("onError" in seeded)) {
+      throw new Error("useChat options not captured")
+    }
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: null,
+    }) as unknown as typeof fetch
+    mockMessages = [...prior, unsent]
+    mockRegenerate.mockClear()
+    act(() => seeded.onError?.(new TypeError("Failed to fetch")))
+    await act(async () => {
+      await hook.result.current.retryTurn("u2")
+    })
+    const fresh = jest.mocked(useChat).mock.calls.at(-1)?.[0]
+    if (!fresh || !("onError" in fresh)) {
+      throw new Error("useChat options not captured")
+    }
+
+    act(() => fresh.onError?.(new Error("Bad gateway")))
+    await act(async () => {
+      await hook.result.current.retryTurn("u2")
+    })
+
+    expect(mockRegenerate).not.toHaveBeenCalled()
+    expect(jest.mocked(useChat).mock.calls.at(-1)?.[0]).toMatchObject({
+      id: "chat-1#2",
+    })
+    mockMessages = []
+  })
+
   it("never resends when the reconnect Retry started fails", async () => {
     await dropTurn()
     const { hook, seeded } = reload(prior)
