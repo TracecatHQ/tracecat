@@ -69,7 +69,7 @@ def serialize_validation_errors(errors: Sequence[Any]) -> list[Any]:
 
 
 def _replace_surrogates(value: Any) -> Any:
-    # Pydantic error context can contain arbitrary exception and model objects.
+    # pydantic_core rejects surrogate keys; fallback=str can reintroduce them.
     if isinstance(value, str):
         return re.sub(r"[\ud800-\udfff]", "\ufffd", value)
     if isinstance(value, (list, tuple)):
