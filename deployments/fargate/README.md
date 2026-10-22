@@ -92,6 +92,7 @@ does not need either extension.
 
 - API task startup includes an internal migrations init container.
 - API container starts only if migrations succeed (`dependsOn: SUCCESS`).
+- Terraform waits for healthy API tasks (`wait_for_steady_state = true`) before updating dependent services. A migration failure prevents the API rollout from becoming healthy; the wait fails instead of starting the new worker revision.
 - `worker`, `background-worker`, `executor`, and `agent-executor` are ordered after API in Terraform, so service updates do not proceed past API if migrations fail.
 
 By default, the migrations init container uses the same backend image repository
@@ -140,10 +141,19 @@ Roll back application images without removing the operation table or artifacts.
 ### Upgrading the Git sync lifecycle
 
 Keep `background_worker_desired_count` at one or more. Apply the additive database
-migration before starting the updated application services. Terraform already
-orders the API migration container before the background worker. New sync
-requests can remain queued briefly while the worker updates; verify that the
-updated worker is polling the configured queue before declaring the rollout healthy.
+migration before starting the updated application services. Terraform waits for
+the API deployment to become healthy before updating the background worker. The
+API cannot become healthy until its migration container succeeds.
+
+This configuration requires Terraform 1.2 or newer for its startup precondition.
+When `background_worker_desired_count` is positive, `api_desired_count` must also
+be positive so at least one API task can run migrations. Set both counts to zero
+to pause the API and background sync. A standalone worker with a separately managed migration
+step is not supported by this configuration.
+
+New sync requests can remain queued briefly while the worker updates. Verify
+that the updated worker is polling the configured queue before declaring the
+rollout healthy.
 
 The updated worker registers both the old phase workflow and the new lifecycle
 workflow. This lets an already-running old import finish. A preview prepared by
