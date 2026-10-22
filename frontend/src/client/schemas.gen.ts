@@ -26418,6 +26418,52 @@ export const $PlatformRegistrySettingsUpdate = {
   description: "Update platform registry settings.",
 } as const
 
+export const $PlatformSecuritySettingsRead = {
+  properties: {
+    ip_allowlist_enabled: {
+      type: "boolean",
+      title: "Ip Allowlist Enabled",
+    },
+    ip_allowlists: {
+      items: {
+        $ref: "#/components/schemas/IPAllowlist",
+      },
+      type: "array",
+      title: "Ip Allowlists",
+    },
+  },
+  type: "object",
+  required: ["ip_allowlist_enabled", "ip_allowlists"],
+  title: "PlatformSecuritySettingsRead",
+  description: "Platform admin IP allowlist settings response.",
+} as const
+
+export const $PlatformSecuritySettingsUpdate = {
+  properties: {
+    ip_allowlist_enabled: {
+      type: "boolean",
+      title: "Ip Allowlist Enabled",
+      description:
+        "Restrict organization API access to the configured IP allowlists. Has no effect while no allowlists exist.",
+      default: false,
+    },
+    ip_allowlists: {
+      items: {
+        $ref: "#/components/schemas/IPAllowlist",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Ip Allowlists",
+      description: "Named groups of allowed IP addresses or CIDR ranges.",
+    },
+  },
+  type: "object",
+  title: "PlatformSecuritySettingsUpdate",
+  description: `Update the platform admin IP allowlist.
+
+Applies only to the platform admin API, not to organizations.`,
+} as const
+
 export const $Position = {
   properties: {
     x: {

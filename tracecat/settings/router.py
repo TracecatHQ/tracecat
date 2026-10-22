@@ -10,10 +10,10 @@ from tracecat.audit.service import (
 )
 from tracecat.auth.dependencies import OrgActorRole, OrgUserRole
 from tracecat.auth.enums import AuthType
-from tracecat.auth.ip_allowlist import compile_allowlist, parse_client_ip
 from tracecat.auth.ip_allowlist_enforcement import (
+    check_ip_against_allowlists,
     clear_ip_allowlist_cache,
-    current_client_ip,
+    ensure_allowlist_admits_caller,
 )
 from tracecat.authz.controls import require_scope
 from tracecat.config import SAML_PUBLIC_ACS_URL
@@ -32,14 +32,12 @@ from tracecat.settings.schemas import (
     AuditWebhookTestResult,
     GitSettingsRead,
     GitSettingsUpdate,
-    IPAllowlist,
     IPAllowlistCheckRequest,
     IPAllowlistCheckResult,
     SAMLSettingsRead,
     SAMLSettingsUpdate,
     SecuritySettingsRead,
     SecuritySettingsUpdate,
-    ip_allowlist_cidrs,
     parse_stored_ip_allowlists,
 )
 from tracecat.settings.service import (
@@ -271,13 +269,6 @@ async def _load_security_settings(service: SettingsService) -> SecuritySettingsR
     )
 
 
-def _find_allowlist_name(allowlists: list[IPAllowlist], cidr: str) -> str | None:
-    for allowlist in allowlists:
-        if cidr in allowlist.cidrs:
-            return allowlist.name
-    return None
-
-
 @router.patch("/security", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("org:settings:update")
 async def update_security_settings(
@@ -291,19 +282,10 @@ async def update_security_settings(
     Enabling a non-empty allowlist that excludes the caller's own IP is
     rejected so an admin cannot lock themselves out of the organization.
     """
+    ensure_allowlist_admits_caller(
+        enabled=params.ip_allowlist_enabled, cidrs=params.cidrs
+    )
     service = SettingsService(session, role)
-    if params.ip_allowlist_enabled and params.cidrs:
-        caller_ip = current_client_ip()
-        allowlist = compile_allowlist(enabled=True, cidrs=params.cidrs)
-        if caller_ip is None or allowlist.match(caller_ip) is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    "Your current IP address"
-                    + (f" ({caller_ip})" if caller_ip else "")
-                    + " is not in the allowlist. Add it before enabling."
-                ),
-            )
     await service.update_security_settings(params)
     clear_ip_allowlist_cache()
 
@@ -317,29 +299,12 @@ async def check_ip_allowlist(
     params: IPAllowlistCheckRequest,
 ) -> IPAllowlistCheckResult:
     """Report whether an IP address is admitted by the saved allowlist."""
-    ip = parse_client_ip(params.ip_address)
-    if ip is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid IP address",
-        )
     service = SettingsService(session, role)
     saved = await _load_security_settings(service)
-    allowlist = compile_allowlist(
+    return check_ip_against_allowlists(
+        params.ip_address,
         enabled=saved.ip_allowlist_enabled,
-        cidrs=ip_allowlist_cidrs(saved.ip_allowlists),
-    )
-    matched = allowlist.match(ip)
-    matched_cidr = matched.with_prefixlen if matched else None
-    return IPAllowlistCheckResult(
-        allowed=matched is not None or not allowlist.enforced,
-        matched_cidr=matched_cidr,
-        matched_allowlist=(
-            _find_allowlist_name(saved.ip_allowlists, matched_cidr)
-            if matched_cidr
-            else None
-        ),
-        enforced=allowlist.enforced,
+        allowlists=saved.ip_allowlists,
     )
 
 

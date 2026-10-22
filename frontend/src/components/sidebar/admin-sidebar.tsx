@@ -7,6 +7,7 @@ import {
   LogOutIcon,
   LogsIcon,
   MousePointerClickIcon,
+  ShieldCheckIcon,
   UsersIcon,
   WrenchIcon,
 } from "lucide-react"
@@ -69,6 +70,12 @@ export function AdminSidebar({
       url: "/admin/audit",
       icon: LogsIcon,
       isActive: pathname?.includes("/admin/audit"),
+    },
+    {
+      title: "Security",
+      url: "/admin/security",
+      icon: ShieldCheckIcon,
+      isActive: pathname?.includes("/admin/security"),
     },
     {
       title: "Maintenance",

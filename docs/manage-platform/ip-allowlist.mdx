@@ -41,6 +41,12 @@ Turning enforcement off restores access from every address and keeps the allowli
 - Not covered: the Tracecat MCP server, which authenticates with its own OAuth tokens, inbound workflow webhooks, and Tracecat's internal service calls. Use [webhook CIDR allowlists](/automations/triggers/webhooks) to restrict webhook senders.
 - Platform superusers bypass the allowlist for break-glass access.
 
+## Platform admin IP allowlist
+
+Platform superusers can restrict the platform admin console and admin API to approved addresses under Security in the platform admin sidebar at `/admin/security`. It takes the same allowlists, limits, lockout check, and `Validate an IP address` tool as an organization allowlist, and is off until you turn it on.
+
+While enforcement is on, every superuser-only request from an address outside the allowlist fails with `403` and `Access from your IP address is not permitted by the platform admin IP allowlist.` This covers every `/admin` endpoint and the superuser-only `/users/{id}` endpoints. It does not restrict organization access: organization-scoped requests, including those from superusers, are never checked against the platform admin allowlist.
+
 ## Client IP resolution
 
 Tracecat resolves the client address from `X-Forwarded-For`, skipping hops listed in `TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS`. The default covers loopback and private ranges, which includes the bundled reverse proxy, the UI container, and load balancers on private subnets. Add any proxy with a public address to that variable before enabling enforcement; otherwise Tracecat treats the proxy address as the client and denies every request. A hop outside the trusted list can never inject a forwarded address, so a client cannot spoof its way onto the allowlist.

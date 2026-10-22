@@ -10,13 +10,24 @@ from tracecat.audit.service import (
     AuditWebhookUrlNotAllowedError,
 )
 from tracecat.auth.credentials import SuperuserRole
+from tracecat.auth.ip_allowlist_enforcement import (
+    check_ip_against_allowlists,
+    clear_ip_allowlist_cache,
+    ensure_allowlist_admits_caller,
+)
 from tracecat.db.dependencies import AsyncDBSessionBypass
-from tracecat.settings.schemas import AuditWebhookTestResult
+from tracecat.settings.schemas import (
+    AuditWebhookTestResult,
+    IPAllowlistCheckRequest,
+    IPAllowlistCheckResult,
+)
 from tracecat_ee.admin.settings.schemas import (
     PlatformAuditSettingsRead,
     PlatformAuditSettingsUpdate,
     PlatformRegistrySettingsRead,
     PlatformRegistrySettingsUpdate,
+    PlatformSecuritySettingsRead,
+    PlatformSecuritySettingsUpdate,
 )
 from tracecat_ee.admin.settings.service import AdminSettingsService
 
@@ -88,3 +99,49 @@ async def update_registry_settings(
     """Update platform registry settings."""
     service = AdminSettingsService(session, role)
     return await service.update_registry_settings(params)
+
+
+@router.get("/security", response_model=PlatformSecuritySettingsRead)
+async def get_security_settings(
+    role: SuperuserRole,
+    session: AsyncDBSessionBypass,
+) -> PlatformSecuritySettingsRead:
+    """Get the platform admin IP allowlist."""
+    service = AdminSettingsService(session, role)
+    return await service.get_security_settings()
+
+
+@router.patch("/security", response_model=PlatformSecuritySettingsRead)
+async def update_security_settings(
+    role: SuperuserRole,
+    session: AsyncDBSessionBypass,
+    params: PlatformSecuritySettingsUpdate,
+) -> PlatformSecuritySettingsRead:
+    """Update the platform admin IP allowlist.
+
+    Enabling a non-empty allowlist that excludes the caller's own IP is
+    rejected so a platform admin cannot lock themselves out.
+    """
+    ensure_allowlist_admits_caller(
+        enabled=params.ip_allowlist_enabled, cidrs=params.cidrs
+    )
+    service = AdminSettingsService(session, role)
+    result = await service.update_security_settings(params)
+    clear_ip_allowlist_cache()
+    return result
+
+
+@router.post("/security/ip-allowlist/check", response_model=IPAllowlistCheckResult)
+async def check_ip_allowlist(
+    role: SuperuserRole,
+    session: AsyncDBSessionBypass,
+    params: IPAllowlistCheckRequest,
+) -> IPAllowlistCheckResult:
+    """Report whether an IP address is admitted by the saved platform admin allowlist."""
+    service = AdminSettingsService(session, role)
+    saved = await service.get_security_settings()
+    return check_ip_against_allowlists(
+        params.ip_address,
+        enabled=saved.ip_allowlist_enabled,
+        allowlists=saved.ip_allowlists,
+    )

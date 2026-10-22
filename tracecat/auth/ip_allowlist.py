@@ -1,7 +1,8 @@
-"""Organization IP allowlist rules.
+"""Organization and platform admin IP allowlist rules.
 
 An organization may restrict API access to a set of IP addresses or CIDR
-ranges (for example, its VPN egress). This module holds the pure parsing and
+ranges (for example, its VPN egress), and the platform may separately restrict
+the platform admin (superuser) surface. This module holds the pure parsing and
 matching logic; see ``tracecat.auth.ip_allowlist_enforcement`` for the
 request-time check.
 """
@@ -15,6 +16,8 @@ from tracecat.logger import logger
 
 IP_ALLOWLIST_ENABLED_KEY = "ip_allowlist_enabled"
 IP_ALLOWLISTS_KEY = "ip_allowlists"
+PLATFORM_ADMIN_IP_ALLOWLIST_ENABLED_KEY = "platform_admin_ip_allowlist_enabled"
+PLATFORM_ADMIN_IP_ALLOWLISTS_KEY = "platform_admin_ip_allowlists"
 IP_ALLOWLIST_MAX_ENTRIES = 100
 IP_ALLOWLIST_MAX_CIDRS_PER_LIST = 50
 IP_ALLOWLIST_NAME_MAX_LENGTH = 100
@@ -24,6 +27,9 @@ IP_ALLOWLIST_CACHE_TTL_SECONDS = 30
 IP_ALLOWLIST_DENIED_DETAIL = (
     "Access from your IP address is not permitted by your organization's IP allowlist."
 )
+PLATFORM_ADMIN_IP_ALLOWLIST_DENIED_DETAIL = (
+    "Access from your IP address is not permitted by the platform admin IP allowlist."
+)
 
 type IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 type IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
@@ -31,7 +37,7 @@ type IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 
 @dataclass(frozen=True, slots=True)
 class OrgIPAllowlist:
-    """Compiled allowlist for one organization."""
+    """Compiled allowlist for one organization or the platform admin surface."""
 
     enabled: bool
     networks: tuple[IPNetwork, ...]
