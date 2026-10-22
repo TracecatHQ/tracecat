@@ -33,7 +33,7 @@ export function SyncOperationHistory({ workspaceId }: { workspaceId: string }) {
   })
   useEffect(() => {
     for (const operation of data?.items ?? []) {
-      observeSyncOperation(client, workspaceId, operation)
+      observeSyncOperation(client, workspaceId, operation, "history")
     }
   }, [client, workspaceId, data])
   function changePage(nextCursor?: string | null) {

@@ -423,3 +423,34 @@ it("notifies open composers once when a history pull has imported its data", asy
     client.getQueryData(["workspace-sync-preview-revision", "workspace-test"])
   ).toBe(1)
 })
+
+it.each(["push", "pull"] as const)(
+  "does not announce a previously unseen old %s completion when paging history",
+  async (direction) => {
+    const old = {
+      ...operation,
+      id: "older-completion",
+      direction,
+      status: "completed" as const,
+      stage: "finished" as const,
+      diff_count: 0,
+      data_applied: direction === "pull",
+    }
+    jest
+      .mocked(workflowsListSyncOperations)
+      .mockResolvedValueOnce({ items: [operation], next_cursor: "older" })
+      .mockResolvedValue({ items: [old], prev_cursor: "newer" })
+    const view = mountHistory()
+    await screen.findByRole("button", { name: "Older" })
+    const revisionKey = ["workspace-sync-preview-revision", "workspace-test"]
+    view.client.setQueryData(revisionKey, 5)
+    fireEvent.click(screen.getByRole("button", { name: "Older" }))
+    await screen.findByRole("button", { name: "Newer" })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(view.client.getQueryData(revisionKey)).toBe(5)
+    view.unmount()
+    view.client.clear()
+  }
+)
