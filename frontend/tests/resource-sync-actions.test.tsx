@@ -1,11 +1,27 @@
 /** @jest-environment jsdom */
 
-import { render, screen } from "@testing-library/react"
+import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { useState } from "react"
-import type { WorkspaceSyncExportPreview } from "@/client"
+import type { SyncOperationRead, WorkspaceSyncExportPreview } from "@/client"
 import { WorkspaceResourceSyncActions } from "@/components/workspace-sync/resource-sync-actions"
 import { useWorkspaceSyncExportPreview } from "@/hooks/use-workspace-sync"
+
+import { QueryClient, QueryClientProvider } from "@/lib/query"
+import { observeSyncOperation } from "@/lib/workspace-sync-operations"
+
+let client: QueryClient
+function renderActions() {
+  return render(
+    <QueryClientProvider client={client}>
+      <WorkspaceResourceSyncActions
+        label="Variables"
+        branchSlug="variables"
+        resources={["variable"]}
+      />
+    </QueryClientProvider>
+  )
+}
 
 const mockPreviewRequests = jest.fn()
 const mockExport = jest.fn()
@@ -53,6 +69,7 @@ jest.mock("@/hooks/use-workspace-sync", () => ({
 
 beforeEach(() => {
   jest.clearAllMocks()
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   jest
     .mocked(useWorkspaceSyncExportPreview)
     .mockImplementation(function usePreview(_workspaceId, options) {
@@ -76,13 +93,7 @@ it.each(["message", "branch"])(
   "allows a fresh resource preview after editing its %s",
   async (field) => {
     const user = userEvent.setup()
-    render(
-      <WorkspaceResourceSyncActions
-        label="Variables"
-        branchSlug="variables"
-        resources={["variable"]}
-      />
-    )
+    renderActions()
     await user.click(screen.getByRole("button", { name: "Push" }))
     await user.click(screen.getByRole("button", { name: "Preview changes" }))
     expect(
@@ -123,13 +134,7 @@ it("disables confirmation while a replacement preview is pending", async () => {
       }
     })
   const user = userEvent.setup()
-  render(
-    <WorkspaceResourceSyncActions
-      label="Variables"
-      branchSlug="variables"
-      resources={["variable"]}
-    />
-  )
+  renderActions()
   await user.click(screen.getByRole("button", { name: "Push" }))
   expect(screen.getByRole("button", { name: "Push & open PR" })).toBeDisabled()
   await user.click(screen.getByRole("button", { name: "Preview changes" }))
@@ -140,3 +145,53 @@ it("disables confirmation while a replacement preview is pending", async () => {
   await user.click(push)
   expect(mockExport).not.toHaveBeenCalled()
 })
+
+afterEach(() => client.clear())
+
+it.each(["push", "pull"] as const)(
+  "clears a reviewed resource preview after another %s finishes, preserving drafts",
+  async (direction) => {
+    const user = userEvent.setup()
+    renderActions()
+    await user.click(screen.getByRole("button", { name: "Push" }))
+    const message = screen.getByRole("textbox", { name: "Commit message" })
+    await user.clear(message)
+    await user.type(message, "Synthetic reviewed message")
+    const branch = screen.getByPlaceholderText("sync/variables")
+    await user.clear(branch)
+    await user.type(branch, "sync/synthetic")
+    await user.click(screen.getByRole("button", { name: "Preview changes" }))
+    expect(screen.getByRole("button", { name: "Push & open PR" })).toBeEnabled()
+    const completed: SyncOperationRead = {
+      id: "other-operation",
+      direction,
+      status: "completed",
+      stage: "finished",
+      created_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 86400000).toISOString(),
+      can_retry: false,
+      data_applied: direction === "pull",
+      inputs: {
+        id: "other-operation",
+        direction,
+        ...(direction === "push"
+          ? { push: { branch: "sync/synthetic", message: "Synthetic sync" } }
+          : { pull: { commit_sha: "abc" } }),
+      },
+    }
+    act(() => observeSyncOperation(client, "workspace-test", completed))
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Push & open PR" })
+      ).toBeDisabled()
+    )
+    expect(message).toHaveValue("Synthetic reviewed message")
+    expect(branch).toHaveValue("sync/synthetic")
+    await user.click(screen.getByRole("button", { name: "Preview changes" }))
+    expect(screen.getByRole("button", { name: "Push & open PR" })).toBeEnabled()
+    // Observing the same receipt twice must not clear the fresh preview again.
+    act(() => observeSyncOperation(client, "workspace-test", completed))
+    expect(screen.getByRole("button", { name: "Push & open PR" })).toBeEnabled()
+    expect(mockExport).not.toHaveBeenCalled()
+  }
+)
