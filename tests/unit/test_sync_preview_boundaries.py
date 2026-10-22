@@ -161,6 +161,37 @@ async def test_push_preview_lists_every_deleted_blob_path(svc_role):
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("remote_kind", ["binary", "text", "missing"])
+@pytest.mark.parametrize("content", ["title: Reviewed workflow\n", ""])
+async def test_push_preview_distinguishes_replacements_from_additions(
+    svc_role, remote_kind, content
+):
+    path = "workflows/synthetic/definition.yml"
+    projection = WorkspaceProjection(
+        manifest=WorkspaceManifest(), spec=WorkspaceSpec(), files={path: content}
+    )
+    remote = VcsTreeSnapshot(
+        commit_sha="a" * 40,
+        tree_sha=None,
+        files={path: "title: Previous workflow\n"} if remote_kind == "text" else {},
+        blob_paths=frozenset([path]) if remote_kind != "missing" else frozenset(),
+    )
+    sync = WorkspaceSyncService(session=AsyncMock(), role=svc_role)
+    changes = sync._resource_diffs_for_export(
+        projection, remote, delete_missing_paths_under=["workflows"]
+    )
+    assert len(changes) == 1
+    change = changes[0]
+    assert change.source_path == path
+    assert change.change_type == ("added" if remote_kind == "missing" else "modified")
+    assert ("Non-text file will be replaced" in change.diff) == (
+        remote_kind == "binary"
+    )
+    if content:
+        assert "+title: Reviewed workflow" in change.diff
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("reference", ["preset", "workflow"])
 @pytest.mark.parametrize("change", ["delete", "server", "unrelated"])
 async def test_selected_mcp_target_is_revalidated_before_import(
@@ -867,7 +898,14 @@ async def test_catalog_confirmation_fences_targets_grants_and_first_override(svc
                     }
                 ),
             )
-            await sync.catalog_target_fingerprint(snapshot, lock=True)
+            fingerprint = await sync.catalog_target_fingerprint(snapshot, lock=True)
+            # Harmless org inserts remain possible; selected access stays the same.
+            async with AgentModelAccessService.with_session(svc_role) as writer:
+                await writer.enable_model(other_id)
+            assert await sync.catalog_target_fingerprint(snapshot) == fingerprint
+            async with AgentModelAccessService.with_session(svc_role) as writer:
+                with pytest.raises(TracecatValidationError, match="already enabled"):
+                    await writer.enable_model(target_id)
             for model, row_id in [
                 (AgentCatalog, target_id),
                 (AgentModelAccess, access_id),
