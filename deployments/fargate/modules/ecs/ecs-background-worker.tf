@@ -39,6 +39,13 @@ resource "aws_ecs_service" "tracecat_background_worker" {
   desired_count        = var.background_worker_desired_count
   force_new_deployment = var.force_new_deployment
 
+  lifecycle {
+    precondition {
+      condition     = var.background_worker_desired_count == 0 || var.api_desired_count > 0
+      error_message = "An active background worker requires at least one API task so its migrations can finish before the worker starts. Pause both services together."
+    }
+  }
+
   network_configuration {
     subnets = var.private_subnet_ids
     security_groups = [
