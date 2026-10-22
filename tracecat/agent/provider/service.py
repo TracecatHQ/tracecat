@@ -526,7 +526,7 @@ async def discover_openai_compatible_models(
 async def check_provider_key(provider: str, credentials: Mapping[str, str]) -> None:
     """Reject a first-class provider API key that fails a live ``GET /models``.
 
-    Other providers and keys routed through a custom base URL are not checked.
+    Other providers and keys routed through a non-provider base URL are not checked.
     Only auth failures and unreachable endpoints reject; other errors are logged.
 
     Args:
@@ -538,12 +538,13 @@ async def check_provider_key(provider: str, credentials: Mapping[str, str]) -> N
     """
     if (check := PROVIDER_KEY_CHECKS.get(provider)) is None:
         return
-    if check.base_url_field and credentials.get(check.base_url_field):
+    base_url = credentials.get(check.base_url_field) if check.base_url_field else None
+    if (models_base_url := _key_check_base_url(check, base_url)) is None:
         return
     label = PROVIDER_CREDENTIAL_CONFIGS[provider].label
     try:
         response = await fetch_openai_compatible_models(
-            base_url=check.models_base_url,
+            base_url=models_base_url,
             api_key=credentials.get(check.api_key_field),
             api_key_header=check.api_key_header,
             custom_headers=dict(check.extra_headers),
@@ -580,6 +581,26 @@ async def check_provider_key(provider: str, credentials: Mapping[str, str]) -> N
     raise ProviderKeyCheckError(
         _key_check_message(code, label), code=code, field=check.api_key_field
     )
+
+
+def _key_check_base_url(check: ProviderKeyCheck, base_url: str | None) -> str | None:
+    """Return the ``/models`` base URL to check, or None for a non-provider host."""
+    if not base_url:
+        return check.models_base_url
+    try:
+        url = httpx.URL(base_url.strip())
+    except httpx.InvalidURL:
+        return None
+    host = url.host.lower()
+    if url.scheme != "https" or url.port is not None or not host:
+        return None
+    if not any(
+        host == allowed or (allowed.startswith("*.") and host.endswith(allowed[1:]))
+        for allowed in check.official_hosts
+    ):
+        return None
+    # Keep the provider's path so a user-entered path can't redirect the check.
+    return str(httpx.URL(check.models_base_url).copy_with(host=host))
 
 
 def _rejection_code(

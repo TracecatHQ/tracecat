@@ -20,6 +20,8 @@ class ProviderKeyCheck:
     models_base_url: str
     api_key_header: str | None = None
     extra_headers: tuple[tuple[str, str], ...] = ()
+    # Base URL hosts the provider runs, e.g. regional endpoints; "*." matches subdomains.
+    official_hosts: frozenset[str] = frozenset()
     invalid_key_status_codes: frozenset[int] = frozenset({401})
     # When set, only these error codes reject; restricted keys may lack model read.
     rejected_error_codes: frozenset[str] | None = None

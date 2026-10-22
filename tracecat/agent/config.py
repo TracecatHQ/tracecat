@@ -549,6 +549,7 @@ PROVIDER_KEY_CHECKS: dict[str, ProviderKeyCheck] = {
         api_key_field="OPENAI_API_KEY",
         base_url_field="OPENAI_BASE_URL",
         models_base_url="https://api.openai.com/v1",
+        official_hosts=frozenset({"api.openai.com", "*.api.openai.com"}),
         rejected_error_codes=frozenset({"invalid_api_key"}),
     ),
     "anthropic": ProviderKeyCheck(
@@ -557,6 +558,7 @@ PROVIDER_KEY_CHECKS: dict[str, ProviderKeyCheck] = {
         models_base_url="https://api.anthropic.com/v1",
         api_key_header="x-api-key",
         extra_headers=(("anthropic-version", "2023-06-01"),),
+        official_hosts=frozenset({"api.anthropic.com"}),
     ),
     "gemini": ProviderKeyCheck(
         api_key_field="GEMINI_API_KEY",
@@ -570,6 +572,9 @@ PROVIDER_KEY_CHECKS: dict[str, ProviderKeyCheck] = {
         api_key_field="MISTRAL_API_KEY",
         base_url_field="MISTRAL_BASE_URL",
         models_base_url="https://api.mistral.ai/v1",
+        official_hosts=frozenset(
+            {"api.mistral.ai", "api.eu.mistral.ai", "api.us.mistral.ai"}
+        ),
     ),
 }
 

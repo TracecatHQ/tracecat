@@ -566,12 +566,84 @@ async def test_inconclusive_status_does_not_reject(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
+    ("provider", "base_url", "expected"),
+    [
+        pytest.param(
+            "openai",
+            "https://api.openai.com/v1/",
+            "https://api.openai.com/v1",
+            id="openai-official",
+        ),
+        pytest.param(
+            "openai",
+            "https://eu.api.openai.com/v1",
+            "https://eu.api.openai.com/v1",
+            id="openai-regional",
+        ),
+        pytest.param(
+            "mistral",
+            "https://api.eu.mistral.ai",
+            "https://api.eu.mistral.ai/v1",
+            id="mistral-regional-without-path",
+        ),
+        pytest.param(
+            "anthropic",
+            "https://api.anthropic.com/v1/messages",
+            "https://api.anthropic.com/v1",
+            id="anthropic-path-ignored",
+        ),
+    ],
+)
+async def test_provider_base_url_is_checked(
+    fake_fetch: _FakeFetch, provider: str, base_url: str, expected: str
+) -> None:
+    prefix = provider.upper()
+    await check_provider_key(
+        provider, {f"{prefix}_API_KEY": "sk", f"{prefix}_BASE_URL": base_url}
+    )
+
+    assert [call["base_url"] for call in fake_fetch.calls] == [expected]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
     ("provider", "credentials"),
     [
         pytest.param(
             "openai",
             {"OPENAI_API_KEY": "sk", "OPENAI_BASE_URL": "http://proxy.internal/v1"},
             id="custom-base-url",
+        ),
+        pytest.param(
+            "openai",
+            {"OPENAI_API_KEY": "sk", "OPENAI_BASE_URL": "http://api.openai.com/v1"},
+            id="plain-http",
+        ),
+        pytest.param(
+            "openai",
+            {
+                "OPENAI_API_KEY": "sk",
+                "OPENAI_BASE_URL": "https://api.openai.com.example.net/v1",
+            },
+            id="lookalike-host",
+        ),
+        pytest.param(
+            "openai",
+            {"OPENAI_API_KEY": "sk", "OPENAI_BASE_URL": "https://api.openai.com:8443"},
+            id="non-default-port",
+        ),
+        pytest.param(
+            "anthropic",
+            {
+                "ANTHROPIC_API_KEY": "sk",
+                "ANTHROPIC_BASE_URL": "https://eu.api.anthropic.com",
+            },
+            id="unlisted-subdomain",
+        ),
+        pytest.param(
+            "mistral",
+            {"MISTRAL_API_KEY": "sk", "MISTRAL_BASE_URL": "not a url"},
+            id="malformed",
         ),
         pytest.param("bedrock", {"AWS_ACCESS_KEY_ID": "id"}, id="unchecked-provider"),
     ],
