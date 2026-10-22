@@ -85,6 +85,7 @@ class PreparedSync(BaseModel):
     preview: WorkspaceSyncExportPreview | PullResult
     secret_store_fingerprint: str | None = Field(default=None)
     mcp_target_fingerprint: str | None = Field(default=None)
+    catalog_target_fingerprint: str | None = Field(default=None)
     workspace_fingerprint: str
     repository_fingerprint: str
     compare_ref: str

@@ -6,13 +6,16 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.exc import DBAPIError
 
 from tests.support.fake_vcs import FakeVcsServer
+from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import (
     Action,
+    AgentCatalog,
+    AgentModelAccess,
     AgentPreset,
     CaseFields,
     MCPIntegration,
@@ -426,9 +429,12 @@ async def test_replaced_unmapped_variable_rejects_confirmation_before_write(
     )
     assert current.files == reviewed.files
     assert replacement.id != original_id
+    importer = AsyncMock(wraps=sync.import_prepared_snapshot)
+    monkeypatch.setattr(sync, "import_prepared_snapshot", importer)
     with pytest.raises(StaleSyncPreviewError):
         await sync.apply(inputs, prepared, inputs.id)
     transport.write_files.assert_not_awaited()
+    importer.assert_not_awaited()
     assert not list(await session.scalars(select(WorkspaceSyncResourceMapping)))
 
 
@@ -667,3 +673,232 @@ async def test_case_field_recovery_preserves_existing_rename_mapping_without_gue
     else:
         # Rename and delete-then-create are indistinguishable without an old mapping.
         assert mappings == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("reference", ["preset", "action", "nested_action"])
+@pytest.mark.parametrize(
+    "change",
+    ["delete", "model", "revoke_org", "revoke_workspace", "override", "unrelated"],
+)
+async def test_selected_catalog_target_is_revalidated_before_import(
+    session, svc_role, monkeypatch, reference, change
+):
+    target = AgentCatalog(model_provider="synthetic", model_name="reviewed-model")
+    other = AgentCatalog(model_provider="synthetic", model_name="other-model")
+    session.add_all([target, other])
+    await session.flush()
+    org_access = AgentModelAccess(
+        organization_id=svc_role.organization_id, catalog_id=target.id
+    )
+    session.add_all(
+        [
+            org_access,
+            AgentModelAccess(
+                organization_id=svc_role.organization_id, catalog_id=other.id
+            ),
+        ]
+    )
+    workspace_access = AgentModelAccess(
+        organization_id=svc_role.organization_id,
+        workspace_id=svc_role.workspace_id,
+        catalog_id=target.id,
+    )
+    if change == "revoke_workspace":
+        session.add_all(
+            [
+                workspace_access,
+                AgentModelAccess(
+                    organization_id=svc_role.organization_id,
+                    workspace_id=svc_role.workspace_id,
+                    catalog_id=other.id,
+                ),
+            ]
+        )
+    await session.commit()
+    spec = WorkspaceSpec()
+    if reference == "preset":
+        spec.agent_presets["synthetic"] = AgentPresetResourceSpec(
+            id="synthetic",
+            slug="synthetic",
+            name="Synthetic preset",
+            catalog_id=target.id,
+            model_provider=target.model_provider,
+            model_name=target.model_name,
+        )
+    else:
+        model = {
+            "catalog_id": str(target.id),
+            "model_provider": target.model_provider,
+            "model_name": target.model_name,
+        }
+        spec.workflows["synthetic"] = WorkflowResourceSpec(
+            id="synthetic",
+            definition=DSLInput(
+                title="Synthetic workflow",
+                description="Synthetic",
+                entrypoint=DSLEntrypoint(ref="agent"),
+                actions=[
+                    ActionStatement(
+                        ref="agent",
+                        action=PlatformAction.AI_AGENT,
+                        args={"model": model}
+                        if reference == "nested_action"
+                        else model,
+                        depends_on=[],
+                    )
+                ],
+            ),
+        )
+    preview = PullResult(
+        success=True,
+        commit_sha="a" * 40,
+        workflows_found=len(spec.workflows),
+        workflows_imported=0,
+        diagnostics=[],
+        message="Synthetic preview",
+    )
+    snapshot = WorkspaceRemoteSnapshot(commit_sha="a" * 40, files={}, spec=spec)
+    sync = DurableSyncService(session, svc_role)
+    monkeypatch.setattr(sync, "require_entitlement", AsyncMock())
+    monkeypatch.setattr(sync, "_require_spec_entitlements", AsyncMock())
+    monkeypatch.setattr(sync, "repository_fingerprint", AsyncMock(return_value="repo"))
+    monkeypatch.setattr(
+        sync,
+        "_workspace_git_url",
+        AsyncMock(return_value=GitUrl(host="github.com", org="example", repo="demo")),
+    )
+    monkeypatch.setattr(sync, "parse_files", AsyncMock(return_value=(snapshot, [])))
+    monkeypatch.setattr(
+        sync,
+        "prepare_pull_preview",
+        AsyncMock(return_value=PreparedPullPreview(snapshot=snapshot, preview=preview)),
+    )
+    monkeypatch.setattr(
+        sync,
+        "project_workspace",
+        AsyncMock(
+            return_value=WorkspaceProjection(
+                manifest=WorkspaceManifest(), spec=WorkspaceSpec(), files={}
+            )
+        ),
+    )
+    importer = AsyncMock(return_value=preview)
+    monkeypatch.setattr(sync, "import_prepared_snapshot", importer)
+    inputs = SyncOperationCreate(
+        id=uuid.uuid4(),
+        direction="pull",
+        pull=WorkflowSyncPullRequest(commit_sha="a" * 40),
+    )
+    prepared = await sync.prepare(
+        inputs,
+        fetched=FetchedSync(
+            VcsTreeSnapshot(commit_sha="a" * 40, tree_sha=None, files={}),
+            "repo",
+            "a" * 40,
+            True,
+        ),
+    )
+    if change == "delete":
+        await session.delete(target)
+    elif change == "model":
+        target.model_name = "changed-model"
+    elif change == "revoke_org":
+        await session.delete(org_access)
+    elif change == "revoke_workspace":
+        await session.delete(workspace_access)
+    elif change == "override":
+        session.add(
+            AgentModelAccess(
+                organization_id=svc_role.organization_id,
+                workspace_id=svc_role.workspace_id,
+                catalog_id=other.id,
+            )
+        )
+    else:
+        other.model_name = "changed-unrelated-model"
+    await session.commit()
+    if change == "unrelated":
+        assert await sync.apply(inputs, prepared, inputs.id) is preview
+        importer.assert_awaited_once()
+    else:
+        with pytest.raises(StaleSyncPreviewError):
+            await sync.apply(inputs, prepared, inputs.id)
+        importer.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_catalog_confirmation_fences_targets_grants_and_first_override(svc_role):
+    target_id, other_id = uuid.uuid4(), uuid.uuid4()
+    target_name = f"reviewed-{target_id}"
+    try:
+        # Real committed transactions are required for a second connection to see rows.
+        async with DurableSyncService.with_session(svc_role) as sync:
+            session = sync.session
+            target = AgentCatalog(
+                id=target_id, model_provider="synthetic", model_name=target_name
+            )
+            other = AgentCatalog(
+                id=other_id, model_provider="synthetic", model_name=f"other-{other_id}"
+            )
+            session.add_all([target, other])
+            await session.flush()
+            access = AgentModelAccess(
+                organization_id=svc_role.organization_id, catalog_id=target.id
+            )
+            session.add(access)
+            await session.commit()
+            target_id, other_id, access_id = target.id, other.id, access.id
+            # This is the same workspace fence held by repository_fingerprint(lock=True).
+            await sync.repository_fingerprint(lock=True)
+            snapshot = WorkspaceRemoteSnapshot(
+                commit_sha="a" * 40,
+                files={},
+                spec=WorkspaceSpec(
+                    agent_presets={
+                        "synthetic": AgentPresetResourceSpec(
+                            id="synthetic",
+                            slug="synthetic",
+                            name="Synthetic preset",
+                            catalog_id=target_id,
+                            model_provider="synthetic",
+                            model_name=target_name,
+                        )
+                    }
+                ),
+            )
+            await sync.catalog_target_fingerprint(snapshot, lock=True)
+            for model, row_id in [
+                (AgentCatalog, target_id),
+                (AgentModelAccess, access_id),
+            ]:
+                async with DurableSyncService.with_session(svc_role) as writer:
+                    with pytest.raises(DBAPIError) as error:
+                        await writer.session.execute(
+                            select(model.id)
+                            .where(model.id == row_id)
+                            .with_for_update(nowait=True)
+                        )
+                    assert getattr(error.value.orig, "sqlstate", None) == "55P03"
+            async with AgentModelAccessService.with_session(svc_role) as writer:
+                await writer.session.execute(text("SET LOCAL lock_timeout = '100ms'"))
+                with pytest.raises(DBAPIError) as error:
+                    await writer.enable_model(
+                        other_id, workspace_id=svc_role.workspace_id
+                    )
+                assert getattr(error.value.orig, "sqlstate", None) == "55P03"
+            await session.commit()
+            # The writer is allowed once confirmation releases the workspace fence.
+            async with AgentModelAccessService.with_session(svc_role) as writer:
+                enabled = await writer.enable_model(
+                    other_id, workspace_id=svc_role.workspace_id
+                )
+                assert enabled.catalog_id == other_id
+    finally:
+        # Service sessions commit outside the savepoint-backed fixture database.
+        # Remove only this test's rows even when a lock assertion fails.
+        async with DurableSyncService.with_session(svc_role) as cleanup:
+            await cleanup.session.execute(
+                delete(AgentCatalog).where(AgentCatalog.id.in_([target_id, other_id]))
+            )
+            await cleanup.session.commit()
