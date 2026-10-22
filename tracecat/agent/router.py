@@ -104,7 +104,7 @@ async def create_provider_credentials(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to create credentials: {str(e)}",
+            detail="Failed to create credentials",
         ) from e
 
 
@@ -130,7 +130,7 @@ async def update_provider_credentials(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to update credentials: {str(e)}",
+            detail="Failed to update credentials",
         ) from e
 
 

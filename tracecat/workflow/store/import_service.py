@@ -59,6 +59,7 @@ class WorkflowImportError(Exception):
         workflow_title: str,
     ) -> None:
         super().__init__(str(cause))
+        self.cause = cause
         self.workflow_id = workflow_id
         self.workflow_title = workflow_title
 
@@ -137,7 +138,7 @@ class WorkflowImportService(BaseWorkspaceService):
             )
 
         except Exception as e:
-            logger.error(f"Failed to import workflows: {e}")
+            logger.opt(exception=e).error("Failed to import workflows")
             return PullResult(
                 success=False,
                 commit_sha=commit_sha,
@@ -148,8 +149,8 @@ class WorkflowImportService(BaseWorkspaceService):
                         workflow_path="",
                         workflow_title=None,
                         error_type="transaction",
-                        message=f"Transaction failed: {str(e)}",
-                        details={"exception": str(e)},
+                        message="Import transaction failed",
+                        details={},
                     )
                 ],
                 message="Import transaction failed",
@@ -242,13 +243,14 @@ class WorkflowImportService(BaseWorkspaceService):
                 )
             )
         except Exception as e:
+            logger.opt(exception=e).error("Workflow import validation failed")
             diagnostics.append(
                 PullDiagnostic(
                     workflow_path=workflow_path,
                     workflow_title=getattr(remote_workflow.definition, "title", None),
                     error_type="validation",
-                    message=f"Unexpected validation error: {str(e)}",
-                    details={"exception": str(e)},
+                    message="Unexpected workflow validation error",
+                    details={},
                 )
             )
 
@@ -298,13 +300,14 @@ class WorkflowImportService(BaseWorkspaceService):
         except (RegistryError, EntitlementRequired) as e:
             return [_registry_diagnostic(str(e))]
         except Exception as e:
+            logger.opt(exception=e).error("Workflow registry validation failed")
             return [
                 PullDiagnostic(
                     workflow_path="",
                     workflow_title=None,
                     error_type="validation",
-                    message=f"Unexpected validation error: {str(e)}",
-                    details={"exception": str(e)},
+                    message="Unexpected registry validation error",
+                    details={},
                 )
             ]
         return []
@@ -380,13 +383,16 @@ class WorkflowImportService(BaseWorkspaceService):
                         )
                     )
                 except Exception as e:
+                    logger.opt(exception=e).error(
+                        "Child workflow alias validation failed"
+                    )
                     diagnostics.append(
                         PullDiagnostic(
                             workflow_path=workflow_path,
                             workflow_title=remote_workflow.definition.title,
                             error_type="validation",
                             message="Error validating child workflow alias reference",
-                            details={"exception": str(e)},
+                            details={},
                         )
                     )
 

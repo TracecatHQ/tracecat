@@ -821,7 +821,7 @@ async def test_connection(
             success=False,
             provider_id=impl.id,
             message="Failed to connect using client credentials",
-            error=str(e),
+            error=str(e) if isinstance(e, ValueError) else "Connection test failed",
         )
 
 

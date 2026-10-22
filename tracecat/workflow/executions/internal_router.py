@@ -867,7 +867,7 @@ async def execute_workflow(
         logger.error("Failed to build DSL from definition", error=str(e))
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to build DSL for workflow '{wf_id}': {e}",
+            detail="Failed to build workflow definition",
         ) from e
 
     # Start workflow execution
@@ -908,7 +908,7 @@ async def execute_workflow(
         logger.error("Failed to start workflow execution", error=str(e))
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start workflow execution: {e}",
+            detail="Failed to start workflow execution",
         ) from e
 
 
@@ -1046,7 +1046,7 @@ async def get_execution_status(
         logger.error("RPC error getting execution status", error=str(e))
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get execution status: {e}",
+            detail="Failed to get execution status",
         ) from e
     except HTTPException:
         raise
@@ -1054,5 +1054,5 @@ async def get_execution_status(
         logger.error("Failed to get execution status", error=str(e))
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get execution status: {e}",
+            detail="Failed to get execution status",
         ) from e

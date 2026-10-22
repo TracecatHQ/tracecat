@@ -25,6 +25,7 @@ from tracecat.agent.catalog.schemas import AgentCatalogRead
 from tracecat.agent.catalog.types import ModelKey
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import AgentCatalog, AgentCustomProvider
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
@@ -525,6 +526,10 @@ class AgentCatalogService(BaseService):
             await self.session.commit()
         except IntegrityError as err:
             await self.session.rollback()
+            if not is_unique_violation(
+                err, "uq_agent_catalog_custom_provider_model_provider_model_name"
+            ):
+                raise
             raise TracecatValidationError(
                 f"Catalog entry for provider {model_provider!r} and model "
                 f"{model_name!r} already exists"

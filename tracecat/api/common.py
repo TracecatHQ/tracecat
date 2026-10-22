@@ -1,3 +1,4 @@
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -5,6 +6,7 @@ from fastapi import HTTPException, Request, Response, status
 from fastapi.exception_handlers import http_exception_handler as default_http_handler
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
+from pydantic_core import to_jsonable_python
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -25,6 +27,7 @@ from tenacity import (
 from tracecat.auth.types import Role
 from tracecat.config import TEMPORAL__CLUSTER_NAMESPACE
 from tracecat.contexts import ctx_role
+from tracecat.db.errors import is_data_error
 from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatException
@@ -59,7 +62,39 @@ def without_inputs(errors: Sequence[Any]) -> list[Any]:
     ]
 
 
+def serialize_validation_errors(errors: Sequence[Any]) -> list[Any]:
+    """Make validation errors safe for UTF-8 JSON."""
+    errors = _replace_surrogates(errors)
+    return _replace_surrogates(to_jsonable_python(errors, fallback=str))
+
+
+def _replace_surrogates(value: Any) -> Any:
+    # Pydantic error context can contain arbitrary exception and model objects.
+    if isinstance(value, str):
+        return re.sub(r"[\ud800-\udfff]", "\ufffd", value)
+    if isinstance(value, (list, tuple)):
+        return [_replace_surrogates(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            (
+                _replace_surrogates(key) if isinstance(key, str) else key
+            ): _replace_surrogates(item)
+            for key, item in value.items()
+        }
+    return value
+
+
 async def generic_exception_handler(request: Request, exc: Exception) -> Response:
+    if is_data_error(exc):
+        logger.warning(
+            "Database rejected request data",
+            error_type=type(exc).__name__,
+            path=request.url.path,
+        )
+        return ORJSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": "Request contains a value that cannot be stored"},
+        )
     logger.exception(
         "Unexpected error",
         exc=exc,

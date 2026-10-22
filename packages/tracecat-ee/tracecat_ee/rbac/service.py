@@ -34,6 +34,7 @@ from tracecat.authz.service import (
     resolve_grantable_role,
     resolve_granter_scopes,
 )
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     ExternalGroupMapping,
     Group,
@@ -970,6 +971,12 @@ class RBACService(BaseOrgService):
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
+            if not is_unique_violation(
+                e,
+                "uq_user_role_assignment_user_id_workspace_id",
+                "ix_user_role_assignment_user_org_unique",
+            ):
+                raise
             raise TracecatConflictError(
                 "User already has an assignment for this workspace"
             ) from e

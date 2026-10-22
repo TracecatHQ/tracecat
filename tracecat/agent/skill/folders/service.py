@@ -19,6 +19,7 @@ from tracecat.agent.skill.folders.schemas import (
     SkillFolderDirectoryItem,
 )
 from tracecat.authz.controls import require_scope
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import Skill, SkillFolder
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import (
@@ -100,6 +101,8 @@ class SkillFolderService(BaseWorkspaceService):
                 await self.session.flush()
         except IntegrityError as exc:
             await self.session.rollback()
+            if not is_unique_violation(exc, "uq_skill_folder_path_workspace"):
+                raise
             raise self._folder_validation_error(
                 f"Folder {conflict_path} already exists",
                 code=SkillFolderErrorCode.CONFLICT,

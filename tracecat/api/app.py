@@ -14,7 +14,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
-from pydantic_core import to_jsonable_python
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException
 from tracecat_ee.admin.router import router as admin_router
@@ -80,6 +79,7 @@ from tracecat.api.common import (
     http_exception_handler,
     query_overflow_exception_handler,
     query_timeout_exception_handler,
+    serialize_validation_errors,
     table_row_exception_handler,
     tracecat_exception_handler,
     without_inputs,
@@ -431,8 +431,7 @@ def validation_exception_handler(request: Request, exc: Exception) -> Response:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={"detail": str(exc)},
         )
-    errors = exc.errors()
-    ser_errors = to_jsonable_python(errors, fallback=str)
+    ser_errors = serialize_validation_errors(exc.errors())
     logger.error(
         "API Model Validation error",
         method=request.method,

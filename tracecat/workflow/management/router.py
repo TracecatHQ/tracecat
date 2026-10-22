@@ -6,7 +6,6 @@ from typing import Literal
 
 import orjson
 import yaml
-from asyncpg import UniqueViolationError
 from fastapi import (
     APIRouter,
     File,
@@ -38,6 +37,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.common import DBConstraints
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import WebhookApiKey, Workflow
 from tracecat.dsl.common import apply_expects_order
 from tracecat.dsl.schemas import DSLConfig
@@ -328,6 +328,10 @@ async def create_workflow(
                 ),
             ) from e
         except IntegrityError as e:
+            if not is_unique_violation(
+                e, "ix_workflow_id", DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE
+            ):
+                raise
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Workflow already exists",
@@ -429,19 +433,11 @@ async def update_workflow(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         ) from e
     except IntegrityError as e:
-        while cause := e.__cause__:
-            e = cause
-        if isinstance(
-            e, UniqueViolationError
-        ) and DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE in str(e):
-            logger.warning("Unique violation error", error=e)
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg(),
-            ) from e
+        if not is_unique_violation(e, DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Workflow already exists",
+            detail=DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg(),
         ) from e
     workflow = await service.get_workflow(workflow_id)
     if workflow is None:
@@ -684,19 +680,11 @@ async def restore_workflow_definition(
             detail=str(e),
         ) from e
     except IntegrityError as e:
-        while cause := e.__cause__:
-            e = cause
-        if isinstance(
-            e, UniqueViolationError
-        ) and DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE in str(e):
-            logger.warning("Unique violation error", error=e)
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg(),
-            ) from e
+        if not is_unique_violation(e, DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Workflow already exists",
+            detail=DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg(),
         ) from e
     return await get_workflow(role=role, session=session, workflow_id=workflow_id)
 

@@ -289,9 +289,4 @@ def test_run_maps_workflow_failure_to_500(
     )
 
     assert response.status_code == 500
-    assert response.json() == {
-        "detail": {
-            "error_type": "RuntimeError",
-            "message": "durable run failed",
-        }
-    }
+    assert response.json() == {"detail": "Internal server error"}

@@ -2251,11 +2251,20 @@ class WorkflowExecutionsService:
                         ok=True,
                         new_run_id=new_run_id,
                     )
-                except Exception as e:
+                except ValueError as e:
                     return WorkflowExecutionBulkResetItemResult(
                         execution_id=execution_id,
                         ok=False,
                         error=str(e),
+                    )
+                except Exception:
+                    self.logger.exception(
+                        "Failed to reset workflow execution", execution_id=execution_id
+                    )
+                    return WorkflowExecutionBulkResetItemResult(
+                        execution_id=execution_id,
+                        ok=False,
+                        error="Failed to reset workflow execution",
                     )
 
         return await asyncio.gather(

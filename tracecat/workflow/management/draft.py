@@ -21,7 +21,6 @@ from collections.abc import Collection, Iterator, Mapping, Sequence
 from typing import Any, Literal, Protocol, cast
 
 import orjson
-from asyncpg import UniqueViolationError
 from fastmcp.exceptions import ToolError
 from pydantic import ValidationError
 from sqlalchemy import delete, select
@@ -31,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.auth.types import Role
 from tracecat.db.common import DBConstraints
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import Action, Workflow
 from tracecat.dsl.common import (
     DSLEntrypoint,
@@ -1017,16 +1017,13 @@ async def persist_workflow_edit_document(
         # commit. Map the unique violation to a recoverable WorkflowEditError so
         # the conflict surfaces as a 400/409 instead of a raw 500.
         await service.session.rollback()
-        cause: BaseException = exc
-        while cause.__cause__ is not None:
-            cause = cause.__cause__
-        if isinstance(
-            cause, UniqueViolationError
-        ) and DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE in str(cause):
-            raise WorkflowEditError(
-                DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg()
-            ) from exc
-        raise WorkflowEditError("Workflow already exists") from exc
+        if not is_unique_violation(
+            exc, DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE
+        ):
+            raise
+        raise WorkflowEditError(
+            DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE.msg()
+        ) from exc
     await service.session.refresh(workflow)
     if any(section in changed_sections for section in {"definition", "layout"}):
         await service.session.refresh(workflow, ["actions"])

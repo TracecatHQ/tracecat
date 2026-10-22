@@ -232,7 +232,7 @@ async def update_table(
             ) from e
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected DB error occurred: {e}",
+            detail="An error occurred while updating the table",
         ) from e
     return await _build_table_read(service, table.id)
 
@@ -292,7 +292,7 @@ async def create_column(
             ) from e
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error occurred: {e}",
+            detail="An unexpected error occurred",
         ) from e
     index_columns = await service.get_index(table)
     return _build_column_read(column, index_columns=index_columns)
@@ -342,7 +342,7 @@ async def update_column(
             ) from e
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error occurred: {e}",
+            detail="An unexpected error occurred",
         ) from e
     table = await service.get_table(table_id)
     index_columns = await service.get_index(table)
@@ -728,7 +728,7 @@ async def import_table_from_csv(
         logger.warning(f"Unexpected error during table import: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error processing CSV: {str(e)}",
+            detail="Error processing CSV",
         ) from e
 
 
@@ -838,7 +838,7 @@ async def import_csv(
         logger.warning(f"Unexpected error during import: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error processing CSV: {str(e)}",
+            detail="Error processing CSV",
         ) from e
     finally:
         if csv_file is not None:

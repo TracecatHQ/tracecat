@@ -15,11 +15,11 @@ from fastapi import (
 )
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import ORJSONResponse
-from pydantic_core import to_jsonable_python
 
 from tracecat.api.common import (
     query_overflow_exception_handler,
     query_timeout_exception_handler,
+    serialize_validation_errors,
     table_row_exception_handler,
     without_inputs,
 )
@@ -75,7 +75,7 @@ def validation_exception_handler(request: Request, exc: Exception) -> Response:
     action error that is kept with the run.
     """
     errors = (
-        to_jsonable_python(without_inputs(exc.errors()), fallback=str)
+        serialize_validation_errors(without_inputs(exc.errors()))
         if isinstance(exc, RequestValidationError)
         else str(exc)
     )

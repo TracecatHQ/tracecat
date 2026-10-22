@@ -19,6 +19,7 @@ from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueSet,
 )
 from tracecat.contexts import ctx_run
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     Case,
     CaseDropdownDefinition,
@@ -135,6 +136,12 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             await self.session.commit()
         except IntegrityError as err:
             await self.session.rollback()
+            if not is_unique_violation(
+                err,
+                "uq_case_dropdown_definition_ref_workspace",
+                "uq_case_dropdown_option_ref_definition",
+            ):
+                raise
             raise TracecatValidationError(
                 "Dropdown definition with this ref already exists"
             ) from err
@@ -179,6 +186,10 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             await self.session.commit()
         except IntegrityError as err:
             await self.session.rollback()
+            if not is_unique_violation(
+                err, "uq_case_dropdown_definition_ref_workspace"
+            ):
+                raise
             raise TracecatValidationError(
                 "Dropdown definition with this ref already exists"
             ) from err
@@ -239,6 +250,8 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             await self.session.commit()
         except IntegrityError as err:
             await self.session.rollback()
+            if not is_unique_violation(err, "uq_case_dropdown_option_ref_definition"):
+                raise
             raise TracecatValidationError(
                 "Option with this ref already exists for this dropdown"
             ) from err
@@ -261,6 +274,8 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             await self.session.commit()
         except IntegrityError as err:
             await self.session.rollback()
+            if not is_unique_violation(err, "uq_case_dropdown_option_ref_definition"):
+                raise
             raise TracecatValidationError(
                 "Option with this ref already exists for this dropdown"
             ) from err

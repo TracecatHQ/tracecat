@@ -8,8 +8,8 @@ import pytest
 from cryptography.fernet import InvalidToken
 from fastapi import status
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import IntegrityError
 
+from tests._db_error_utils import unique_violation
 from tracecat.auth.types import Role
 from tracecat.db.models import OrganizationSecret, Secret, Workspace
 from tracecat.exceptions import TracecatNotFoundError
@@ -130,9 +130,23 @@ _MISSING_SECRET_ID = "00000000-0000-4000-8000-000000000000"
                 "environment": "default",
             },
             "create_secret",
-            IntegrityError("", {}, Exception("Duplicate")),
+            unique_violation("uq_secret_name_environment_workspace_id"),
             status.HTTP_409_CONFLICT,
             id="create-conflict",
+        ),
+        pytest.param(
+            "POST",
+            "/secrets",
+            {
+                "name": "duplicate_secret",
+                "type": "custom",
+                "keys": [{"key": "api_key", "value": "secret_value"}],
+                "environment": "default",
+            },
+            "create_secret",
+            unique_violation("uq_some_other_constraint"),
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            id="create-other-integrity-error",
         ),
         pytest.param(
             "POST",
