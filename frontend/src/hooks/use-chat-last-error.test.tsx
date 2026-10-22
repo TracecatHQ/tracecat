@@ -236,6 +236,49 @@ describe("useVercelChat dropped prompt across reloads", () => {
     ])
   })
 
+  it("rechecks the server before resending when a reload's reconnect fails", async () => {
+    await dropTurn()
+    const { hook, seeded } = reload(prior)
+    if (!seeded || !("onError" in seeded)) {
+      throw new Error("useChat options not captured")
+    }
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 204,
+      body: null,
+    }) as unknown as typeof fetch
+    mockMessages = [...prior, unsent]
+    mockRegenerate.mockClear()
+    // The SDK runs only onError when the reconnect request itself fails.
+    act(() => seeded.onError?.(new TypeError("Failed to fetch")))
+
+    expect(hook.result.current.lastErrorDisconnected).toBe(true)
+    await act(async () => {
+      await hook.result.current.retryTurn("u2")
+    })
+
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+    expect(mockRegenerate).toHaveBeenCalledWith({ messageId: "u2" })
+    mockMessages = []
+  })
+
+  it("never resends when a reconnect without a restored prompt fails", async () => {
+    global.fetch = jest.fn() as unknown as typeof fetch
+    mockRegenerate.mockClear()
+    const { hook, onError } = renderChat()
+    act(() => onError?.(new TypeError("Failed to fetch")))
+
+    await act(async () => {
+      await hook.result.current.retryTurn("u1")
+    })
+
+    expect(mockRegenerate).not.toHaveBeenCalled()
+    expect(global.fetch).not.toHaveBeenCalled()
+    expect(jest.mocked(useChat).mock.calls.at(-1)?.[0]).toMatchObject({
+      id: "chat-1#1",
+    })
+  })
+
   it("forgets the prompt after a later turn fails", async () => {
     await dropTurn()
     const { hook: later, onFinish } = renderChat()

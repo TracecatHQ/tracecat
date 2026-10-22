@@ -32,6 +32,11 @@ function isStoredPrompt(value: unknown): value is UIMessage {
   )
 }
 
+/** Whether a chat request failed on the network, as the AI SDK classifies it. */
+export function isConnectionError(error: Error): boolean {
+  return error instanceof TypeError && /fetch|network/i.test(error.message)
+}
+
 /** Refetches a chat's server transcript and returns its messages. */
 export async function refetchChatTranscript(
   queryClient: QueryClient,
