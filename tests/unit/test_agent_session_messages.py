@@ -375,6 +375,128 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
     assert "Continue" not in history.sdk_session_data
 
 
+def _history_row(kind: MessageKind, content: dict[str, Any]) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=uuid.uuid4(), kind=kind.value, raw_session_line=None, content=content
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("answered", [True, False])
+async def test_load_session_history_keeps_meta_prompt_between_assistant_messages(
+    answered: bool,
+) -> None:
+    """A hidden prompt that separates two assistant messages stays in history.
+
+    After a stream dies mid-response, Claude Code keeps the completed blocks
+    and asks the model to resume with a hidden meta prompt. Without it the
+    rebuilt transcript has two adjacent assistant messages. A meta prompt that
+    no assistant message answers is still dropped.
+    """
+    service, _ = _build_service()
+    session_id = uuid.uuid4()
+    service.get_session = AsyncMock(
+        return_value=SimpleNamespace(
+            id=session_id,
+            forked_from_session_id=None,
+            forked_from_sdk_session_id=None,
+            sdk_session_id="sdk-session-123",
+        )
+    )
+    next_row = (
+        _history_row(
+            MessageKind.CHAT_MESSAGE,
+            {
+                "type": "assistant",
+                "uuid": "resumed-uuid",
+                "parentUuid": "attachment-uuid",
+                "message": {
+                    "id": "msg_2",
+                    "content": [{"type": "text", "text": "Resumed answer."}],
+                },
+            },
+        )
+        if answered
+        else _history_row(
+            MessageKind.CHAT_MESSAGE,
+            {
+                "type": "user",
+                "uuid": "next-prompt-uuid",
+                "parentUuid": "attachment-uuid",
+                "message": {"role": "user", "content": "Next question."},
+            },
+        )
+    )
+    entries = [
+        _history_row(
+            MessageKind.CHAT_MESSAGE,
+            {
+                "type": "user",
+                "uuid": "prompt-uuid",
+                "message": {"role": "user", "content": "Summarize the case."},
+            },
+        ),
+        _history_row(
+            MessageKind.CHAT_MESSAGE,
+            {
+                "type": "assistant",
+                "uuid": "partial-uuid",
+                "parentUuid": "prompt-uuid",
+                "message": {
+                    "id": "msg_1",
+                    "content": [{"type": "text", "text": "Partial answer."}],
+                },
+            },
+        ),
+        _history_row(
+            MessageKind.INTERNAL,
+            {
+                "type": "user",
+                "uuid": "meta-uuid",
+                "isMeta": True,
+                "parentUuid": "partial-uuid",
+                "message": {"role": "user", "content": "Resume where it stopped."},
+            },
+        ),
+        _history_row(
+            MessageKind.INTERNAL,
+            {
+                "type": "attachment",
+                "uuid": "attachment-uuid",
+                "parentUuid": "meta-uuid",
+            },
+        ),
+        next_row,
+    ]
+    service.session.execute = AsyncMock(return_value=_mock_scalar_result(entries))
+
+    history = await service.load_session_history(session_id)
+
+    assert history is not None
+    lines = [orjson.loads(line) for line in history.sdk_session_data.splitlines()]
+    if answered:
+        assert [line["uuid"] for line in lines] == [
+            "prompt-uuid",
+            "partial-uuid",
+            "meta-uuid",
+            "resumed-uuid",
+        ]
+        assert [line["type"] for line in lines] == [
+            "user",
+            "assistant",
+            "user",
+            "assistant",
+        ]
+        assert lines[3]["parentUuid"] == "meta-uuid"
+    else:
+        assert [line["uuid"] for line in lines] == [
+            "prompt-uuid",
+            "partial-uuid",
+            "next-prompt-uuid",
+        ]
+        assert lines[2]["parentUuid"] == "partial-uuid"
+
+
 @pytest.mark.anyio
 async def test_list_messages_skips_misclassified_continuation_artifacts() -> None:
     service, agent_session = _build_service()
