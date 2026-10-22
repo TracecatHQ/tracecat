@@ -32,6 +32,7 @@ import {
   useWorkspaceSyncBranchTarget,
   WorkspaceSyncBranchSelector,
 } from "@/components/workspace-sync/branch-target-selector"
+import { ExportErrorMessage } from "@/components/workspace-sync/export-error"
 import {
   formatResourceTotal,
   getWorkspaceSyncPreviewResourceTotal,
@@ -53,7 +54,6 @@ import {
   useWorkspaceSyncExport,
   useWorkspaceSyncExportPreview,
 } from "@/hooks/use-workspace-sync"
-import { getApiErrorDetail } from "@/lib/errors"
 import { getRepoDisplayName } from "@/lib/git"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -143,9 +143,9 @@ export function WorkspaceResourceSyncActions({
   const reviewRequestLabel = getReviewRequestLabel(provider)
   const reviewRequestTitle =
     reviewRequestLabel === "merge request" ? "Merge request" : "Pull request"
-  const previewErrorMessage = previewError
-    ? (getApiErrorDetail(previewError) ?? "Request failed")
-    : undefined
+  const previewErrorMessage = previewError ? (
+    <ExportErrorMessage error={previewError} workspaceId={workspaceId} />
+  ) : undefined
   const exportDisabled =
     !gitRepoUrl ||
     exportWorkspaceIsPending ||
@@ -202,7 +202,9 @@ export function WorkspaceResourceSyncActions({
     } catch (error) {
       toast({
         title: "Push failed",
-        description: getApiErrorDetail(error) ?? "Request failed",
+        description: (
+          <ExportErrorMessage error={error} workspaceId={workspaceId} />
+        ),
         variant: "destructive",
       })
     }

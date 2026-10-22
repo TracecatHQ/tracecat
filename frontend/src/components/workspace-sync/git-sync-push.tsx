@@ -24,6 +24,7 @@ import {
   useWorkspaceSyncBranchTarget,
   writeLastPushBranch,
 } from "@/components/workspace-sync/branch-target-selector"
+import { ExportErrorMessage } from "@/components/workspace-sync/export-error"
 import { GitSyncActionBar } from "@/components/workspace-sync/git-sync-action-bar"
 import { GitSyncBranchPicker } from "@/components/workspace-sync/git-sync-branch-picker"
 import {
@@ -44,7 +45,6 @@ import {
   useWorkspaceSyncExport,
   useWorkspaceSyncExportPreview,
 } from "@/hooks/use-workspace-sync"
-import { getApiErrorDetail } from "@/lib/errors"
 import { useQueryClient } from "@/lib/query"
 
 interface GitSyncPushTabProps {
@@ -198,7 +198,9 @@ export function GitSyncPushTab({
     } catch (error) {
       toast({
         title: "Push failed",
-        description: getApiErrorDetail(error) ?? "Request failed",
+        description: (
+          <ExportErrorMessage error={error} workspaceId={workspaceId} />
+        ),
         variant: "destructive",
       })
     }
@@ -216,7 +218,10 @@ export function GitSyncPushTab({
         {previewError && (
           <GitSyncNotice tone="error">
             Could not preview this push:{" "}
-            {getApiErrorDetail(previewError) ?? "Request failed"}
+            <ExportErrorMessage
+              error={previewError}
+              workspaceId={workspaceId}
+            />
           </GitSyncNotice>
         )}
         {visiblePreview ? (

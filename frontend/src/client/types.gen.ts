@@ -12704,6 +12704,47 @@ export type WorkflowExecutionTerminate = {
   reason?: string | null
 }
 
+export type WorkflowExportCode =
+  | "no_actions"
+  | "invalid_definition"
+  | "missing_child_workflow"
+
+/**
+ * Safe workflow context for an export that cannot proceed.
+ */
+export type WorkflowExportDiagnostic = {
+  /**
+   * Authorized local workflow ID.
+   */
+  workflow_id: string
+  /**
+   * Workflow display title.
+   */
+  workflow_title: string
+  /**
+   * Existing stable Git ID.
+   */
+  source_id?: string | null
+  /**
+   * Existing repository path.
+   */
+  source_path?: string | null
+  /**
+   * Export stage that failed.
+   */
+  stage: WorkflowExportStage
+  /**
+   * Machine-readable corrective error code.
+   */
+  code: WorkflowExportCode
+  /**
+   * Safe corrective message without workflow inputs.
+   */
+  message: string
+}
+
+export type WorkflowExportStage = "definition" | "dependency"
+
 export type WorkflowFolderCreate = {
   name: string
   parent_path?: string
@@ -13162,6 +13203,18 @@ export type WorkspaceSettingsUpdate = {
    * Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.
    */
   validate_attachment_magic_number?: boolean | null
+}
+
+/**
+ * Additive diagnostics while retaining the legacy string detail field.
+ */
+export type WorkspaceSyncExportError = {
+  /**
+   * Human-readable failure summary.
+   */
+  detail: string
+  diagnostics?: Array<WorkflowExportDiagnostic>
+  omitted_count?: number
 }
 
 /**
@@ -19551,6 +19604,10 @@ export type $OpenApiTs = {
          */
         200: WorkflowDslPublishResult
         /**
+         * Bad Request
+         */
+        400: WorkspaceSyncExportError
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -19611,6 +19668,10 @@ export type $OpenApiTs = {
          */
         200: WorkspaceSyncExportResult
         /**
+         * Bad Request
+         */
+        400: WorkspaceSyncExportError
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -19625,6 +19686,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkspaceSyncExportPreview
+        /**
+         * Bad Request
+         */
+        400: WorkspaceSyncExportError
         /**
          * Validation Error
          */

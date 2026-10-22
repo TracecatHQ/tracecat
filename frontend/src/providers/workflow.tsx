@@ -23,6 +23,10 @@ import {
 } from "@/client"
 import { ToastAction } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
+import {
+  ExportErrorMessage,
+  getExportError,
+} from "@/components/workspace-sync/export-error"
 import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
 import {
   type MutateFunction,
@@ -182,7 +186,15 @@ export function WorkflowProvider({
       queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
     },
     onError: (error: ApiError) => {
-      console.warn("Failed to publish workflow:", error)
+      if (getExportError(error)) {
+        toast({
+          title: "Failed to publish workflow",
+          description: (
+            <ExportErrorMessage error={error} workspaceId={workspaceId} />
+          ),
+        })
+        return
+      }
       const apiError = error as TracecatApiError<string>
       const detail = apiError.body?.detail
       switch (apiError.status) {
