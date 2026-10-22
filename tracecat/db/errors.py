@@ -24,6 +24,16 @@ def _exception_chain(error: BaseException) -> Iterator[BaseException]:
             pending.append(current.__context__)
 
 
+def find_db_error[T: BaseException](
+    error: BaseException, error_type: type[T]
+) -> T | None:
+    """Find a driver error through SQLAlchemy wrappers and exception chaining."""
+    return next(
+        (item for item in _exception_chain(error) if isinstance(item, error_type)),
+        None,
+    )
+
+
 def is_unique_violation(error: BaseException, *constraint_names: str) -> bool:
     """Match only unique violations with one of the specified constraint names."""
     for item in _exception_chain(error):

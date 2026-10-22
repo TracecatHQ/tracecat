@@ -24,8 +24,9 @@ from tracecat.cases.schemas import (
 )
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import Case, CaseFields, WorkspaceSyncResourceMapping
-from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.tables.enums import SqlType
+from tracecat.tables.exceptions import TableColumnConflictError
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -454,6 +455,30 @@ class TestCaseFieldsService:
                 'safe_field"; DROP TABLE case_fields; --',
                 CaseFieldUpdate(default="still text"),
             )
+
+    async def test_update_field_reports_changes_rejected_by_existing_rows(
+        self,
+        session: AsyncSession,
+        case_fields_service: CaseFieldsService,
+        test_case: Case,
+    ) -> None:
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="notes", type=SqlType.TEXT)
+        )
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="label", type=SqlType.TEXT)
+        )
+        await case_fields_service.upsert_field_values(test_case, {"label": "alpha"})
+
+        cases: list[tuple[str, CaseFieldUpdate, type[Exception]]] = [
+            ("missing", CaseFieldUpdate(name="renamed"), TracecatNotFoundError),
+            ("notes", CaseFieldUpdate(nullable=False), TableColumnConflictError),
+            ("label", CaseFieldUpdate(type=SqlType.INTEGER), TableColumnConflictError),
+        ]
+        for field_id, params, error in cases:
+            with pytest.raises(error):
+                async with session.begin_nested():
+                    await case_fields_service.update_field(field_id, params)
 
     async def test_delete_field(self, case_fields_service: CaseFieldsService) -> None:
         """Test deleting a case field."""

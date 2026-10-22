@@ -232,6 +232,14 @@ class CaseUpdate(Schema):
     assignee_id: uuid.UUID | None = None
     payload: dict[str, Any] | None = None
 
+    @field_validator("summary", "description")
+    @classmethod
+    def reject_explicit_null(cls, value: str | None) -> str | None:
+        # Omit the field to leave it unchanged; the columns are NOT NULL.
+        if value is None:
+            raise ValueError("must not be null")
+        return value
+
 
 class CaseBatchUpdate(Schema):
     """Request body for updating multiple cases."""

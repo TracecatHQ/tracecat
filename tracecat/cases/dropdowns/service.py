@@ -119,20 +119,18 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             position=params.position,
         )
         self.session.add(definition)
-        await self.session.flush()
-
-        for opt in params.options:
-            option = CaseDropdownOption(
-                definition_id=definition.id,
-                label=opt.label,
-                ref=opt.ref,
-                icon_name=opt.icon_name,
-                color=opt.color,
-                position=opt.position,
-            )
-            self.session.add(option)
-
         try:
+            await self.session.flush()
+            for opt in params.options:
+                option = CaseDropdownOption(
+                    definition_id=definition.id,
+                    label=opt.label,
+                    ref=opt.ref,
+                    icon_name=opt.icon_name,
+                    color=opt.color,
+                    position=opt.position,
+                )
+                self.session.add(option)
             await self.session.commit()
         except IntegrityError as err:
             await self.session.rollback()
@@ -437,34 +435,6 @@ class CaseDropdownValuesService(BaseWorkspaceService):
         record_agent_interaction: bool = True,
     ) -> CaseDropdownValueRead:
         case_id = case.id
-        # Resolve old value
-        stmt = select(CaseDropdownValue).where(
-            CaseDropdownValue.case_id == case_id,
-            CaseDropdownValue.definition_id == definition_id,
-        )
-        result = await self.session.execute(stmt)
-        existing = result.scalar_one_or_none()
-
-        old_option_id: uuid.UUID | None = None
-        old_option_label: str | None = None
-
-        if existing is not None:
-            # Eagerly loaded
-            if existing.option:
-                old_option_id = existing.option.id
-                old_option_label = existing.option.label
-            existing.option_id = params.option_id
-            await self.session.flush()
-            row = existing
-        else:
-            row = CaseDropdownValue(
-                case_id=case_id,
-                definition_id=definition_id,
-                option_id=params.option_id,
-            )
-            self.session.add(row)
-            await self.session.flush()
-
         # Resolve definition info (workspace-scoped)
         def_stmt = select(CaseDropdownDefinition).where(
             CaseDropdownDefinition.id == definition_id,
@@ -492,6 +462,36 @@ class CaseDropdownValuesService(BaseWorkspaceService):
                     f"Dropdown option {params.option_id} not found for definition {definition_id}"
                 )
             new_option_label = new_option.label
+
+        # Lock the case so concurrent first writes cannot both insert.
+        await self.session.execute(
+            select(Case.id).where(Case.id == case_id).with_for_update()
+        )
+        stmt = select(CaseDropdownValue).where(
+            CaseDropdownValue.case_id == case_id,
+            CaseDropdownValue.definition_id == definition_id,
+        )
+        result = await self.session.execute(stmt)
+        existing = result.scalar_one_or_none()
+
+        old_option_id: uuid.UUID | None = None
+        old_option_label: str | None = None
+
+        if existing is not None:
+            # Eagerly loaded
+            if existing.option:
+                old_option_id = existing.option.id
+                old_option_label = existing.option.label
+            existing.option_id = params.option_id
+            row = existing
+        else:
+            row = CaseDropdownValue(
+                case_id=case_id,
+                definition_id=definition_id,
+                option_id=params.option_id,
+            )
+            self.session.add(row)
+        await self.session.flush()
 
         # Create event
         run_ctx = ctx_run.get()

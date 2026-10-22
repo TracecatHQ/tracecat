@@ -12,6 +12,7 @@ import sqlalchemy as sa
 from slugify import slugify
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import JSONB, aggregate_order_by
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only, selectinload
 
 from tracecat import config
@@ -76,6 +77,7 @@ from tracecat.agent.types import (
 )
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     AgentCatalog,
     AgentPreset,
@@ -534,7 +536,17 @@ class AgentPresetService(BaseWorkspaceService):
     @audit_log(resource_type="agent_preset", action="create")
     async def create_preset(self, params: AgentPresetCreate) -> AgentPreset:
         """Create a new agent preset scoped to the current workspace."""
+        try:
+            return await self._create_preset(params)
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if not is_unique_violation(exc, "uq_agent_preset_workspace_slug_active"):
+                raise
+            raise TracecatValidationError(
+                "Agent preset slug is already in use for this workspace"
+            ) from exc
 
+    async def _create_preset(self, params: AgentPresetCreate) -> AgentPreset:
         slug = await self._normalize_and_validate_slug(
             proposed_slug=params.slug,
             fallback_name=params.name,
@@ -648,6 +660,19 @@ class AgentPresetService(BaseWorkspaceService):
         self, preset: AgentPreset, params: AgentPresetUpdate
     ) -> AgentPreset:
         """Update an existing preset."""
+        try:
+            return await self._update_preset(preset, params)
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if not is_unique_violation(exc, "uq_agent_preset_workspace_slug_active"):
+                raise
+            raise TracecatValidationError(
+                "Agent preset slug is already in use for this workspace"
+            ) from exc
+
+    async def _update_preset(
+        self, preset: AgentPreset, params: AgentPresetUpdate
+    ) -> AgentPreset:
         set_fields = params.model_dump(exclude_unset=True, exclude={"skills"})
         execution_changed = False
         requested_skills = None
