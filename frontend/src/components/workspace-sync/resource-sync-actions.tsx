@@ -47,6 +47,7 @@ import {
 } from "@/components/workspace-sync/push-target-policy"
 import { PushResourcePreview } from "@/components/workspace-sync/resource-diff-review"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { SyncOperationWaitCancelled } from "@/hooks/use-sync-operation"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import {
   useRepositoryBranches,
@@ -217,6 +218,7 @@ export function WorkspaceResourceSyncActions({
       })
       setOpen(false)
     } catch (error) {
+      if (error instanceof SyncOperationWaitCancelled) return
       toast({
         title: "Push failed",
         description: getApiErrorDetail(error) ?? "Request failed",

@@ -5,7 +5,9 @@
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { GitCommitInfo, PullDiagnostic, PullResult } from "@/client"
+import { toast } from "@/components/ui/use-toast"
 import { GitSyncPullTab } from "@/components/workspace-sync/git-sync-pull"
+import { SyncOperationWaitCancelled } from "@/hooks/use-sync-operation"
 import { useWorkflowSync } from "@/hooks/use-workspace-sync"
 
 jest.mock("@/components/workspace-sync/sync-operation-diffs", () => ({
@@ -128,4 +130,13 @@ describe("GitSyncPullTab failures", () => {
       screen.getByText("Workspace import failed on workflow 'Example enrich'")
     ).toBeInTheDocument()
   })
+})
+
+it("does not toast a failed preview when its local waiter detaches", async () => {
+  jest.mocked(toast).mockClear()
+  const pull = jest.fn().mockRejectedValueOnce(new SyncOperationWaitCancelled())
+  renderPullTab(pull)
+  await userEvent.click(screen.getByRole("button", { name: "Preview" }))
+  expect(pull).toHaveBeenCalledTimes(1)
+  expect(toast).not.toHaveBeenCalled()
 })

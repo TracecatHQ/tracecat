@@ -10,6 +10,7 @@ import {
 } from "@/client"
 import {
   SyncOperationPollingError,
+  SyncOperationWaitCancelled,
   useSyncOperation,
   useSyncOperationWaiter,
 } from "@/hooks/use-sync-operation"
@@ -484,3 +485,49 @@ it.each([false, true])(
     expect(workflowsApplySyncOperation).not.toHaveBeenCalled()
   }
 )
+
+it.each(["success", "error"] as const)(
+  "detaches quietly after unmount with a late GET %s",
+  async (outcome) => {
+    let finish!: (operation: SyncOperationRead) => void
+    let fail!: (reason: Error) => void
+    jest.mocked(workflowsGetSyncOperation).mockImplementationOnce(
+      () =>
+        new CancelablePromise((resolve, reject) => {
+          finish = resolve
+          fail = reject
+        })
+    )
+    const view = renderHook(() => useSyncOperationWaiter("workspace-test"))
+    const waiting = view.result
+      .current(operation.id)
+      .catch((error: unknown) => error)
+    view.unmount()
+    await act(async () => {
+      if (outcome === "success") finish({ ...operation, status: "completed" })
+      else fail(new Error("Late read failure"))
+    })
+    expect(await waiting).toBeInstanceOf(SyncOperationWaitCancelled)
+    expect(workflowsGetSyncOperation).toHaveBeenCalledTimes(1)
+  }
+)
+
+it("detaches the local waiter during its sleep without cancelling the operation", async () => {
+  jest.useFakeTimers()
+  jest
+    .mocked(workflowsGetSyncOperation)
+    .mockResolvedValue({ ...operation, status: "applying" })
+  const view = renderHook(() => useSyncOperationWaiter("workspace-test"))
+  const waiting = view.result
+    .current(operation.id)
+    .catch((error: unknown) => error)
+  await act(async () => {
+    await Promise.resolve()
+  })
+  view.unmount()
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(1500)
+  })
+  expect(await waiting).toBeInstanceOf(SyncOperationWaitCancelled)
+  expect(workflowsGetSyncOperation).toHaveBeenCalledTimes(1)
+})

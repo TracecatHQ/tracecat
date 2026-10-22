@@ -4,7 +4,9 @@ import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { useState } from "react"
 import type { SyncOperationRead, WorkspaceSyncExportPreview } from "@/client"
+import { toast } from "@/components/ui/use-toast"
 import { WorkspaceResourceSyncActions } from "@/components/workspace-sync/resource-sync-actions"
+import { SyncOperationWaitCancelled } from "@/hooks/use-sync-operation"
 import { useWorkspaceSyncExportPreview } from "@/hooks/use-workspace-sync"
 
 import { QueryClient, QueryClientProvider } from "@/lib/query"
@@ -195,3 +197,14 @@ it.each(["push", "pull"] as const)(
     expect(mockExport).not.toHaveBeenCalled()
   }
 )
+
+it("does not report a background continuation as a failed resource push", async () => {
+  const user = userEvent.setup()
+  mockExport.mockRejectedValueOnce(new SyncOperationWaitCancelled())
+  renderActions()
+  await user.click(screen.getByRole("button", { name: "Push" }))
+  await user.click(screen.getByRole("button", { name: "Preview changes" }))
+  await user.click(screen.getByRole("button", { name: "Push & open PR" }))
+  await waitFor(() => expect(mockExport).toHaveBeenCalledTimes(1))
+  expect(toast).not.toHaveBeenCalled()
+})

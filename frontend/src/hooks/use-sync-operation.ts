@@ -17,6 +17,14 @@ export class SyncOperationPollingError extends Error {
   }
 }
 
+/** Leaving the view detaches its waiter while the accepted operation continues. */
+export class SyncOperationWaitCancelled extends Error {
+  constructor() {
+    super("Sync continues in the background")
+    this.name = "SyncOperationWaitCancelled"
+  }
+}
+
 /** Poll one durable phase while this view is mounted; leaving never cancels the job. */
 export function useSyncOperationWaiter(workspaceId: string) {
   const mounted = useRef(true)
@@ -37,8 +45,10 @@ export function useSyncOperationWaiter(workspaceId: string) {
           workspaceId,
           operationId: id,
         })
+        if (!mounted.current) throw new SyncOperationWaitCancelled()
         failures = 0
       } catch (error) {
+        if (!mounted.current) throw new SyncOperationWaitCancelled()
         if (!isTransientSyncError(error)) throw error
         if (++failures > 3) throw new SyncOperationPollingError()
         await new Promise((resolve) =>
@@ -50,9 +60,7 @@ export function useSyncOperationWaiter(workspaceId: string) {
         return operation
       await new Promise((resolve) => setTimeout(resolve, 1500))
     }
-    throw new Error(
-      "Sync continues in the background. Reopen Git sync to see the result."
-    )
+    throw new SyncOperationWaitCancelled()
   }
 }
 

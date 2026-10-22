@@ -39,6 +39,7 @@ import {
   getWorkspaceSyncPushOutcome,
   type WorkspaceSyncPushMode,
 } from "@/components/workspace-sync/push-target-policy"
+import { SyncOperationWaitCancelled } from "@/hooks/use-sync-operation"
 import {
   useWorkspaceSyncExport,
   useWorkspaceSyncExportPreview,
@@ -201,6 +202,7 @@ export function GitSyncPushTab({
         ) : undefined,
       })
     } catch (error) {
+      if (error instanceof SyncOperationWaitCancelled) return
       toast({
         title: "Push failed",
         description: getApiErrorDetail(error) ?? "Request failed",

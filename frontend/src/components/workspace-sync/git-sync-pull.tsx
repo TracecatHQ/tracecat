@@ -67,6 +67,7 @@ import {
   getWorkspaceSyncResourceAbbr,
   getWorkspaceSyncResourceLabel,
 } from "@/components/workspace-sync/resource-metadata"
+import { SyncOperationWaitCancelled } from "@/hooks/use-sync-operation"
 import { useWorkflowSync } from "@/hooks/use-workspace-sync"
 import { getApiErrorDetail } from "@/lib/errors"
 import { cn } from "@/lib/utils"
@@ -297,6 +298,7 @@ export function GitSyncPullTab({
         storeMappingsKey: JSON.stringify(storeSelections),
       })
     } catch (error) {
+      if (error instanceof SyncOperationWaitCancelled) return
       toast({
         title: "Pull preview failed",
         description: getApiErrorDetail(error) ?? "Request failed",
@@ -367,6 +369,7 @@ export function GitSyncPullTab({
         variant: result.success ? undefined : "destructive",
       })
     } catch (error) {
+      if (error instanceof SyncOperationWaitCancelled) return
       toast({
         title: "Pull failed",
         description: getApiErrorDetail(error) ?? "Request failed",

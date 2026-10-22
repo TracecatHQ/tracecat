@@ -512,3 +512,33 @@ it.each([
     client.clear()
   }
 )
+
+it("checks expiry at history confirmation even when background timers have not fired", async () => {
+  const view = mountHistory()
+  const confirm = await screen.findByRole("button", { name: "Confirm push" })
+  fireEvent.click(
+    screen.getByRole("checkbox", { name: "Apply these prepared changes" })
+  )
+  const now = jest
+    .spyOn(Date, "now")
+    .mockReturnValue(Date.parse(operation.expires_at) + 1)
+  try {
+    await act(async () => {
+      fireEvent.click(confirm)
+    })
+    expect(workflowsApplySyncOperation).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(
+        view.client.getQueryData<SyncOperationRead>([
+          "sync-operation",
+          "workspace-test",
+          operation.id,
+        ])?.status
+      ).toBe("expired")
+    )
+  } finally {
+    now.mockRestore()
+    view.unmount()
+    view.client.clear()
+  }
+})
