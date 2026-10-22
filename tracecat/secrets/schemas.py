@@ -240,10 +240,12 @@ class SecretCreate(BaseModel):
 
     type: SecretType = SecretType.CUSTOM
     name: str = Field(..., min_length=1, max_length=100)
-    description: str | None = Field(default=None, min_length=0, max_length=1000)
+    description: str | None = Field(default=None, min_length=0, max_length=255)
     keys: list[SecretKeyValue] = Field(..., min_length=1, max_length=100)
     tags: dict[str, str] | None = None
-    environment: str = DEFAULT_SECRETS_ENVIRONMENT
+    environment: str = Field(
+        default=DEFAULT_SECRETS_ENVIRONMENT, min_length=1, max_length=255
+    )
 
     @staticmethod
     def from_strings(name: str, keyvalues: list[str]) -> SecretCreate:
@@ -294,6 +296,13 @@ class SecretUpdate(BaseModel):
     @classmethod
     def reject_explicit_null(cls, value: str | None) -> str | None:
         # Omit the field to leave it unchanged; the columns are NOT NULL.
+        if value is None:
+            raise ValueError("must not be null")
+        return value
+
+    @field_validator("type")
+    @classmethod
+    def reject_null_type(cls, value: SecretType | None) -> SecretType:
         if value is None:
             raise ValueError("must not be null")
         return value

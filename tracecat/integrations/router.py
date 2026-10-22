@@ -1,12 +1,14 @@
 import json
 import uuid
+from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime
-from typing import Annotated, NoReturn, cast
+from typing import Annotated, Any, NoReturn, cast
 from urllib.parse import urlencode
 
 import httpx
 from authlib.integrations.base_client.errors import OAuthError
-from fastapi import APIRouter, Body, HTTPException, Query, status
+from fastapi import APIRouter, Body, HTTPException, Query, Request, Response, status
+from fastapi.routing import APIRoute
 from pydantic import SecretStr
 
 from tracecat import config
@@ -66,7 +68,9 @@ from tracecat.integrations.schemas import (
 )
 from tracecat.integrations.service import (
     InsecureOAuthEndpointError,
+    IntegrationConflictError,
     IntegrationService,
+    IntegrationWorkspaceNotFoundError,
     PlatformMCPCatalogConnectResult,
     ProviderConfigurationRequiredError,
 )
@@ -74,16 +78,42 @@ from tracecat.integrations.types import MCPServerType, TokenResponse
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginationParams
 
-integrations_router = APIRouter(prefix="/integrations", tags=["integrations"])
+
+class IntegrationRoute(APIRoute):
+    """Map integration domain errors consistently across callbacks and CRUD."""
+
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        handler = super().get_route_handler()
+
+        async def handle(request: Request) -> Response:
+            try:
+                return await handler(request)
+            except IntegrationConflictError as exc:
+                raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+            except IntegrationWorkspaceNotFoundError as exc:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+        return handle
+
+
+integrations_router = APIRouter(
+    prefix="/integrations", tags=["integrations"], route_class=IntegrationRoute
+)
 """Routes for managing dynamic integration states."""
 
-oauth_router = APIRouter(prefix="/integrations", tags=["integrations"])
+oauth_router = APIRouter(
+    prefix="/integrations", tags=["integrations"], route_class=IntegrationRoute
+)
 """Routes for integration OAuth callbacks that resolve workspace context from state."""
 
-providers_router = APIRouter(prefix="/providers", tags=["providers"])
+providers_router = APIRouter(
+    prefix="/providers", tags=["providers"], route_class=IntegrationRoute
+)
 """Routes for managing static provider metadata."""
 
-mcp_router = APIRouter(prefix="/mcp-integrations", tags=["mcp-integrations"])
+mcp_router = APIRouter(
+    prefix="/mcp-integrations", tags=["mcp-integrations"], route_class=IntegrationRoute
+)
 """Routes for managing MCP integrations."""
 
 
@@ -195,6 +225,11 @@ def _raise_mcp_connect_http_error(exc: Exception) -> NoReturn:
     Bad input or insecure/unconfigured providers map to 400; an unreachable
     upstream OAuth server maps to 502.
     """
+    if isinstance(exc, IntegrationConflictError):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
     if isinstance(
         exc,
         ProviderConfigurationRequiredError | InsecureOAuthEndpointError | ValueError,
@@ -787,8 +822,23 @@ async def test_connection(
         # Create provider instance and attempt to get token
         provider = await impl.instantiate(config=provider_config)
         token_response = await provider.get_client_credentials_token()
+    except (ValueError, OAuthError, httpx.HTTPError) as e:
+        logger.error(
+            "Client credentials test failed",
+            provider_key=provider_info.key,
+            workspace_id=role.workspace_id,
+            error_type=type(e).__name__,
+        )
+        return IntegrationTestConnectionResponse(
+            success=False,
+            provider_id=impl.id,
+            message="Failed to connect using client credentials",
+            error=str(e)
+            if isinstance(e, ValueError)
+            else "Could not authenticate with the OAuth provider",
+        )
 
-        # Store the token if successful
+    try:
         await svc.store_integration(
             provider_key=provider_info.key,
             access_token=token_response.access_token,
@@ -797,32 +847,22 @@ async def test_connection(
             authorization_endpoint=provider.authorization_endpoint,
             token_endpoint=provider.token_endpoint,
         )
+    except IntegrationConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
 
-        logger.info(
-            "Client credentials test successful",
-            provider=provider_info.key,
-            workspace_id=role.workspace_id,
-        )
-
-        return IntegrationTestConnectionResponse(
-            success=True,
-            provider_id=impl.id,
-            message="Successfully connected using client credentials",
-        )
-
-    except Exception as e:
-        logger.error(
-            "Client credentials test failed",
-            provider_key=provider_info.key,
-            workspace_id=role.workspace_id,
-            error=str(e),
-        )
-        return IntegrationTestConnectionResponse(
-            success=False,
-            provider_id=impl.id,
-            message="Failed to connect using client credentials",
-            error=str(e),
-        )
+    logger.info(
+        "Client credentials test successful",
+        provider=provider_info.key,
+        workspace_id=role.workspace_id,
+    )
+    return IntegrationTestConnectionResponse(
+        success=True,
+        provider_id=impl.id,
+        message="Successfully connected using client credentials",
+    )
 
 
 @integrations_router.put("/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -852,6 +892,10 @@ async def update_integration(
             token_endpoint=params.token_endpoint,
             requested_scopes=params.scopes,
         )
+    except IntegrationConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     except InsecureOAuthEndpointError as exc:
         logger.warning(
             "Rejected insecure OAuth endpoint on provider update",
@@ -890,6 +934,10 @@ async def create_custom_provider(
     svc = IntegrationService(session, role=role)
     try:
         provider = await svc.create_custom_provider(params=params)
+    except IntegrationConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     except InsecureOAuthEndpointError as exc:
         logger.warning(
             "Rejected insecure OAuth endpoint on custom provider create",
@@ -1024,6 +1072,10 @@ async def create_mcp_integration(
     svc = IntegrationService(session, role=role)
     try:
         mcp_integration = await svc.create_mcp_integration(params=params)
+    except IntegrationConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -3,7 +3,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
 
-from tracecat.exceptions import TracecatValidationError
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 from tracecat.registry.actions.schemas import (
     RegistryActionRead,
@@ -40,7 +39,8 @@ class RegistryRepositoryCreate(BaseModel):
         max_length=255,
     )
 
-    @field_validator("origin", mode="before")
+    @field_validator("origin")
+    @classmethod
     def validate_origin(cls, v: str) -> str:
         """Validates if a git+ssh URL is safe and properly formatted.
 
@@ -61,11 +61,11 @@ class RegistryRepositoryCreate(BaseModel):
 
         # Aside from the default origins, we only support git+ssh URLs
         if not v.startswith("git+ssh://"):
-            raise TracecatValidationError("Only git+ssh URLs are currently supported")
+            raise ValueError("Only git+ssh URLs are currently supported")
 
         # Delegate to shared regex to ensure consistency across validators
         if not GIT_SSH_URL_REGEX.match(v):
-            raise TracecatValidationError(
+            raise ValueError(
                 "Must be a valid Git SSH URL (e.g., git+ssh://<user>@github.com/org/repo.git)"
             )
         return v
@@ -85,6 +85,13 @@ class RegistryRepositoryUpdate(BaseModel):
         min_length=1,
         max_length=255,
     )
+
+    @field_validator("origin")
+    @classmethod
+    def validate_origin(cls, value: str | None) -> str:
+        if value is None:
+            raise ValueError("Origin must not be null")
+        return RegistryRepositoryCreate.validate_origin(value)
 
 
 class GitCommitInfo(BaseModel):

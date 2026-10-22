@@ -14,6 +14,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import RegistryRepository
 from tracecat.exceptions import (
     EntitlementRequired,
@@ -405,11 +406,12 @@ async def create_registry_repository(
     try:
         created_repository = await service.create_repository(params)
     except IntegrityError as e:
-        msg = str(e)
-        logger.error("Error creating registry repository", exc=e)
+        await session.rollback()
+        if not is_unique_violation(e, "uq_registry_repository_organization_id_origin"):
+            raise
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=msg,
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Registry repository already exists",
         ) from e
     except TracecatValidationError as e:
         logger.error("Error creating registry repository", exc=e)
@@ -468,7 +470,16 @@ async def update_registry_repository(
 
     await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
 
-    updated_repository = await repos_service.update_repository(repository, params)
+    try:
+        updated_repository = await repos_service.update_repository(repository, params)
+    except IntegrityError as e:
+        await session.rollback()
+        if not is_unique_violation(e, "uq_registry_repository_organization_id_origin"):
+            raise
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Registry repository already exists",
+        ) from e
     actions = await actions_service.list_actions_from_index_by_repository(repository_id)
     return RegistryRepositoryRead(
         id=updated_repository.id,

@@ -45,6 +45,7 @@ from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
     get_async_session_context_manager,
 )
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     AgentPreset,
     AgentPresetVersionSkill,
@@ -54,6 +55,7 @@ from tracecat.db.models import (
     OAuthStateDB,
     Skill,
     SkillVersionMcpTool,
+    Workspace,
     WorkspaceOAuthProvider,
 )
 from tracecat.dsl.client import get_temporal_client
@@ -180,6 +182,14 @@ class ProviderConfigurationRequiredError(ValueError):
     """Raised when an OAuth provider must be configured before connection."""
 
 
+class IntegrationConflictError(Exception):
+    """Raised when an integration resource conflicts with existing state."""
+
+
+class IntegrationWorkspaceNotFoundError(Exception):
+    """Raised when an integration's workspace no longer exists."""
+
+
 class OAuthRefreshBusyError(RuntimeError):
     """Raised when an OAuth integration stays locked past the retry deadline."""
 
@@ -250,6 +260,42 @@ class IntegrationService(BaseWorkspaceService):
     """Service for managing user integrations."""
 
     service_name = "integrations"
+
+    async def _lock_workspace_integrations(self) -> None:
+        # The nullable user ID cannot enforce workspace-grant uniqueness in SQL.
+        # Serialize the existence check and write on a stable parent row.
+        statement = (
+            select(Workspace.id)
+            .where(
+                Workspace.id == self.workspace_id,
+                Workspace.organization_id == self.role.organization_id,
+            )
+            .with_for_update()
+        )
+        try:
+            workspace_id = await self.session.scalar(statement)
+        except DBAPIError:
+            await self.session.rollback()
+            raise
+        if workspace_id is None:
+            await self.session.rollback()
+            raise IntegrationWorkspaceNotFoundError("Workspace not found")
+
+    async def _commit_integration(self) -> None:
+        try:
+            await self.session.commit()
+        except DBAPIError as exc:
+            await self.session.rollback()
+            if is_unique_violation(
+                exc,
+                "uq_oauth_integration_workspace_provider_user_flow",
+                "uq_oauth_provider_workspace_provider_grant_type",
+                "uq_mcp_integration_workspace_slug",
+            ):
+                raise IntegrationConflictError(
+                    "Integration resource already exists"
+                ) from exc
+            raise
 
     @staticmethod
     def _escape_like_pattern(value: str) -> str:
@@ -561,7 +607,7 @@ class IntegrationService(BaseWorkspaceService):
         )
 
         self.session.add(provider)
-        await self.session.commit()
+        await self._commit_integration()
         await self.session.refresh(provider)
 
         await self.store_provider_config(
@@ -620,8 +666,15 @@ class IntegrationService(BaseWorkspaceService):
         )
         if user_id is not None:
             statement = statement.where(OAuthIntegration.user_id == user_id)
-        result = await self.session.execute(statement)
-        return result.scalars().first()
+        result = await self.session.execute(statement.limit(2))
+        integrations = result.scalars().all()
+        if len(integrations) > 1:
+            await self.session.rollback()
+            raise IntegrationConflictError(
+                "Multiple integrations exist for this provider. "
+                "Remove duplicate configurations before continuing."
+            )
+        return integrations[0] if integrations else None
 
     async def list_integrations(
         self, *, provider_keys: set[ProviderKey] | None = None
@@ -1899,6 +1952,7 @@ class IntegrationService(BaseWorkspaceService):
         token_endpoint_auth_method: str | None = None,
     ) -> OAuthIntegration:
         """Store or update a user's integration."""
+        await self._lock_workspace_integrations()
         # Calculate expiration time if expires_in is provided
         expires_at = None
         if expires_in is not None:
@@ -1962,7 +2016,7 @@ class IntegrationService(BaseWorkspaceService):
             integration.token_endpoint_auth_method = token_endpoint_auth_method
 
             self.session.add(integration)
-            await self.session.commit()
+            await self._commit_integration()
             await self.session.refresh(integration)
 
             self.logger.info(
@@ -2003,7 +2057,7 @@ class IntegrationService(BaseWorkspaceService):
             )
 
             self.session.add(integration)
-            await self.session.commit()
+            await self._commit_integration()
             await self.session.refresh(integration)
 
             self.logger.info(
@@ -2137,6 +2191,8 @@ class IntegrationService(BaseWorkspaceService):
                                             grant_type=locked.grant_type,
                                             provider=locked.provider_id,
                                         )
+                            except DBAPIError:
+                                raise
                             except Exception as e:
                                 refresh_error = e
                                 await refresh_session.refresh(locked)
@@ -2417,6 +2473,7 @@ class IntegrationService(BaseWorkspaceService):
         requested_scopes: list[str] | None = None,
     ) -> OAuthIntegration:
         """Store or update provider configuration (client credentials) for a workspace."""
+        await self._lock_workspace_integrations()
         # Check if integration configuration already exists for this provider
 
         provider_impl = await self.resolve_provider_impl(provider_key=provider_key)
@@ -2465,7 +2522,7 @@ class IntegrationService(BaseWorkspaceService):
                 )
 
             self.session.add(integration)
-            await self.session.commit()
+            await self._commit_integration()
             await self.session.refresh(integration)
 
             self.logger.info(
@@ -2511,7 +2568,7 @@ class IntegrationService(BaseWorkspaceService):
             )
 
             self.session.add(integration)
-            await self.session.commit()
+            await self._commit_integration()
             await self.session.refresh(integration)
 
             self.logger.info(
@@ -2700,7 +2757,7 @@ class IntegrationService(BaseWorkspaceService):
                 oauth_integration_id=integration.id,
             )
             self.session.add(mcp_integration)
-            await self.session.commit()
+            await self._commit_integration()
             await self.session.refresh(mcp_integration)
 
             self.logger.info(
@@ -3128,7 +3185,7 @@ class IntegrationService(BaseWorkspaceService):
         )
 
         self.session.add(mcp_integration)
-        await self.session.commit()
+        await self._commit_integration()
         await self.session.refresh(mcp_integration)
 
         self.logger.info(
@@ -3871,6 +3928,11 @@ class IntegrationService(BaseWorkspaceService):
                 "Connection to the MCP server timed out",
                 sanitize_urls_in_text(str(e)) or "Timed out",
             ) from e
+        except DBAPIError:
+            await self.session.rollback()
+            raise
+        except IntegrationConflictError:
+            raise
         except Exception as e:
             # Transport errors can echo the full request URL, including
             # userinfo or query-string secrets — sanitize before this text

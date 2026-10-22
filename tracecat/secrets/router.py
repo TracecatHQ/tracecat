@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from tracecat.auth.dependencies import OrgActorRole, WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.errors import is_unique_violation
 from tracecat.exceptions import (
     TracecatNotFoundError,
 )
@@ -213,10 +214,12 @@ async def create_secret(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
         ) from e
     except IntegrityError as e:
-        logger.error("Secret integrity error", e=str(e))
+        await session.rollback()
+        if not is_unique_violation(e, "uq_secret_name_environment_workspace_id"):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Secret creation integrity error: {e!r}",
+            detail="Secret already exists",
         ) from e
     return _serialize_secret_read_minimal(service=service, secret=secret)
 
@@ -245,7 +248,9 @@ async def update_secret_by_id(
             status_code=status.HTTP_404_NOT_FOUND, detail="Secret does not exist"
         ) from e
     except IntegrityError as e:
-        logger.info("Secret already exists", secret_id=secret_id)
+        await session.rollback()
+        if not is_unique_violation(e, "uq_secret_name_environment_workspace_id"):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Secret already exists"
         ) from e
@@ -329,10 +334,14 @@ async def create_org_secret(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
         ) from e
     except IntegrityError as e:
-        logger.error("Organization secret integrity error", e=str(e))
+        await session.rollback()
+        if not is_unique_violation(
+            e, "uq_organization_secret_organization_id_name_environment"
+        ):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Organization secret creation integrity error: {e!r}",
+            detail="Organization secret already exists",
         ) from e
     return _serialize_secret_read_minimal(service=service, secret=secret)
 
@@ -365,7 +374,11 @@ async def update_org_secret_by_id(
             detail="Organization secret does not exist",
         ) from e
     except IntegrityError as e:
-        logger.info("Organization secret already exists", secret_id=secret_id)
+        await session.rollback()
+        if not is_unique_violation(
+            e, "uq_organization_secret_organization_id_name_environment"
+        ):
+            raise
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Organization secret already exists",

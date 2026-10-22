@@ -30947,7 +30947,7 @@ export const $SecretCreate = {
       anyOf: [
         {
           type: "string",
-          maxLength: 1000,
+          maxLength: 255,
           minLength: 0,
         },
         {
@@ -30981,6 +30981,8 @@ export const $SecretCreate = {
     },
     environment: {
       type: "string",
+      maxLength: 255,
+      minLength: 1,
       title: "Environment",
       default: "default",
     },

@@ -7,8 +7,10 @@ from collections.abc import Sequence
 from typing import ClassVar
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import PlatformRegistryRepository, PlatformRegistryVersion
 from tracecat.exceptions import RegistryError
 from tracecat.registry.repositories.schemas import (
@@ -75,7 +77,19 @@ class PlatformRegistryReposService(BaseService):
         """Get an existing repository or create a new one."""
         repo = await self.get_repository(origin)
         if repo is None:
-            repo = await self.create_repository(RegistryRepositoryCreate(origin=origin))
+            try:
+                repo = await self.create_repository(
+                    RegistryRepositoryCreate(origin=origin)
+                )
+            except IntegrityError as exc:
+                await self.session.rollback()
+                if not is_unique_violation(
+                    exc, "uq_platform_registry_repository_origin"
+                ):
+                    raise
+                repo = await self.get_repository(origin)
+                if repo is None:
+                    raise
             self.logger.info("Created platform registry repository", origin=origin)
         return repo
 
