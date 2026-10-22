@@ -416,6 +416,7 @@ class AgentPresetService(BaseWorkspaceService):
         self, presets: Sequence[AgentPreset]
     ) -> list[AgentPresetReadMinimal]:
         policies = await self.resolve_tool_policies(presets)
+        skill_ids = await self._list_head_skill_ids(presets)
         supports_subagent_approvals = subagent_approvals_available()
         return [
             build_agent_preset_read_minimal(
@@ -425,6 +426,7 @@ class AgentPresetService(BaseWorkspaceService):
                     "tool_summary": build_agent_preset_tool_summary(
                         policies[preset.id]
                     ),
+                    "skill_ids": skill_ids.get(preset.id, []),
                     "capabilities": _agent_preset_capabilities(
                         agents_config=preset.agents,
                         tool_approvals=policies[preset.id].tool_approvals,
@@ -440,6 +442,25 @@ class AgentPresetService(BaseWorkspaceService):
             )
             for preset in presets
         ]
+
+    async def _list_head_skill_ids(
+        self, presets: Sequence[AgentPreset]
+    ) -> dict[uuid.UUID, list[uuid.UUID]]:
+        """Batch-load the skill IDs bound to each preset head."""
+        if not presets:
+            return {}
+        stmt = (
+            select(AgentPresetSkill.preset_id, AgentPresetSkill.skill_id)
+            .where(
+                AgentPresetSkill.workspace_id == self.workspace_id,
+                AgentPresetSkill.preset_id.in_([preset.id for preset in presets]),
+            )
+            .order_by(AgentPresetSkill.skill_id)
+        )
+        ids: dict[uuid.UUID, list[uuid.UUID]] = {}
+        for preset_id, skill_id in (await self.session.execute(stmt)).tuples():
+            ids.setdefault(preset_id, []).append(skill_id)
+        return ids
 
     async def build_preset_read(self, preset: AgentPreset) -> AgentPresetRead:
         """Build the response model for a preset."""

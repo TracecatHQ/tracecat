@@ -7,6 +7,7 @@ const mockSearchParams = { current: new URLSearchParams() }
 const mockUseSkills = jest.fn()
 const mockUseSkillDirectoryItems = jest.fn()
 const mockUseSkillTagCatalog = jest.fn()
+const mockUseAgentPresets = jest.fn()
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
@@ -27,6 +28,10 @@ jest.mock("@/hooks/use-entitlements", () => ({
     isLoading: false,
     hasEntitlementData: true,
   }),
+}))
+
+jest.mock("@/hooks/use-agent-presets", () => ({
+  useAgentPresets: (...args: unknown[]) => mockUseAgentPresets(...args),
 }))
 
 jest.mock("@/hooks/use-skills", () => ({
@@ -113,6 +118,15 @@ describe("SkillsDashboard entitlement split", () => {
       skillTags: [],
       skillTagsIsLoading: false,
     })
+    mockUseAgentPresets.mockReset()
+    mockUseAgentPresets.mockReturnValue({
+      presets: [
+        { id: "agent-1", name: "Triage", skill_ids: ["skill-1"] },
+        { id: "agent-empty", name: "Empty", skill_ids: [] },
+      ],
+      presetsIsLoading: false,
+      presetsError: null,
+    })
   })
 
   it("renders a flat list and disables organization queries when unentitled", () => {
@@ -165,5 +179,46 @@ describe("SkillsDashboard entitlement split", () => {
     expect(lastOptions(mockUseSkillTagCatalog)?.enabled).toBe(true)
     expect(screen.getByText("Shared")).toBeInTheDocument()
     expect(screen.getByText("important")).toBeInTheDocument()
+  })
+
+  it("narrows the list to skills attached to the selected agents", () => {
+    mockUseSkills.mockReturnValue({
+      skills: [SKILL, { ...SKILL, id: "skill-2", name: "Unattached skill" }],
+      skillsLoading: false,
+      skillsError: null,
+    })
+    mockSearchParams.current = new URLSearchParams("agent=agent-1")
+
+    renderDashboard()
+
+    expect(screen.getByText("Example skill")).toBeInTheDocument()
+    expect(screen.queryByText("Unattached skill")).not.toBeInTheDocument()
+  })
+
+  it("shows the filtered empty state when selected agents have no skills", () => {
+    mockSearchParams.current = new URLSearchParams("agent=agent-empty")
+
+    renderDashboard()
+
+    expect(screen.queryByText("Example skill")).not.toBeInTheDocument()
+    expect(screen.getByText("No skills match your filters")).toBeInTheDocument()
+  })
+
+  it("searches the flat catalog in folder view so nested skills match", () => {
+    mockHasEntitlement.mockImplementation((key) => key === "agent_addons")
+    mockSearchParams.current = new URLSearchParams(
+      "view=folders&path=/&agent=agent-1"
+    )
+    mockUseSkills.mockReturnValue({
+      skills: [{ ...SKILL, folder_id: "folder-1" }],
+      skillsLoading: false,
+      skillsError: null,
+    })
+
+    renderDashboard()
+
+    expect(lastOptions(mockUseSkills)?.enabled).toBe(true)
+    expect(lastOptions(mockUseSkillDirectoryItems)?.enabled).toBe(false)
+    expect(screen.getByText("Example skill")).toBeInTheDocument()
   })
 })

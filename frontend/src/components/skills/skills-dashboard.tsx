@@ -38,6 +38,7 @@ import {
   type SkillsSortValue,
   type SkillsViewMode,
 } from "@/components/skills/skills-header"
+import { useSkillAgentFilter } from "@/components/skills/use-skill-agent-filter"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -97,6 +98,7 @@ import {
   useSkillTagMutations,
 } from "@/hooks/use-skill-tags"
 import { useDeleteSkill, useSkills } from "@/hooks/use-skills"
+import { matchesSkillAgentFilter } from "@/lib/skill-catalog-filters"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -941,12 +943,35 @@ export function SkillsDashboard({ workspaceId }: { workspaceId: string }) {
     ? parseSkillsViewMode(searchParams?.get("view"))
     : "list"
   const currentPath = normalizeSkillFolderPath(searchParams?.get("path"))
+  const buildRoute = useCallback(
+    (params: URLSearchParams) => {
+      const query = params.toString()
+      return query
+        ? `/workspaces/${workspaceId}/skills?${query}`
+        : `/workspaces/${workspaceId}/skills`
+    },
+    [workspaceId]
+  )
+  const replaceParams = useCallback(
+    (params: URLSearchParams) => router.replace(buildRoute(params)),
+    [buildRoute, router]
+  )
+  const { filter, agentSkillIds, filterIsLoading, filterError } =
+    useSkillAgentFilter({
+      workspaceId,
+      searchParams,
+      replaceParams,
+      enabled: !entitlementsLoading,
+    })
+  // A folder only lists its own children, so an active filter searches the
+  // flat catalog to reach skills in nested folders.
+  const flatCatalog = view === "list" || filter.active
   const { skills, skillsLoading, skillsError } = useSkills(workspaceId, {
-    enabled: !organizationEnabled || view === "list",
+    enabled: flatCatalog,
   })
   const { directoryItems, directoryItemsIsLoading, directoryItemsError } =
     useSkillDirectoryItems(currentPath, workspaceId, {
-      enabled: organizationEnabled && view === "folders",
+      enabled: organizationEnabled && !flatCatalog,
     })
   const { skillTags, skillTagsIsLoading } = useSkillTagCatalog(workspaceId, {
     enabled: organizationEnabled,
@@ -965,16 +990,6 @@ export function SkillsDashboard({ workspaceId }: { workspaceId: string }) {
     null
   )
 
-  const buildRoute = useCallback(
-    (params: URLSearchParams) => {
-      const query = params.toString()
-      return query
-        ? `/workspaces/${workspaceId}/skills?${query}`
-        : `/workspaces/${workspaceId}/skills`
-    },
-    [workspaceId]
-  )
-
   const handleViewChange = useCallback(
     (nextView: SkillsViewMode) => {
       const params = new URLSearchParams(searchParams?.toString() ?? "")
@@ -984,9 +999,9 @@ export function SkillsDashboard({ workspaceId }: { workspaceId: string }) {
       } else if (!params.has("path")) {
         params.set("path", "/")
       }
-      router.replace(buildRoute(params))
+      replaceParams(params)
     },
-    [buildRoute, router, searchParams]
+    [replaceParams, searchParams]
   )
 
   const handleOpenFolder = useCallback(
@@ -1018,13 +1033,18 @@ export function SkillsDashboard({ workspaceId }: { workspaceId: string }) {
     },
     [normalizedSearch]
   )
+  const matchesQuery = useCallback(
+    (item: SkillDirectoryEntry) =>
+      matchesSearch(item) && matchesSkillAgentFilter(item, agentSkillIds),
+    [agentSkillIds, matchesSearch]
+  )
 
   const sortedDirectoryItems = useMemo(
     () =>
       [...(directoryItems ?? [])]
-        .filter(matchesSearch)
+        .filter(matchesQuery)
         .sort((a, b) => compareSkillItems(a, b, sortBy)),
-    [directoryItems, matchesSearch, sortBy]
+    [directoryItems, matchesQuery, sortBy]
   )
   const sortedListItems = useMemo(() => {
     const items: SkillDirectoryEntry[] = (skills ?? []).map((skill) => ({
@@ -1040,27 +1060,30 @@ export function SkillsDashboard({ workspaceId }: { workspaceId: string }) {
       updated_at: skill.updated_at,
     }))
     return items
-      .filter(matchesSearch)
+      .filter(matchesQuery)
       .sort((a, b) => compareSkillItems(a, b, sortBy))
-  }, [matchesSearch, skills, sortBy])
+  }, [matchesQuery, skills, sortBy])
 
-  const totalCount =
-    view === "folders" ? sortedDirectoryItems.length : sortedListItems.length
-  const maxPage =
-    view === "folders" ? 0 : Math.max(Math.ceil(totalCount / limit) - 1, 0)
+  const totalCount = flatCatalog
+    ? sortedListItems.length
+    : sortedDirectoryItems.length
+  const maxPage = flatCatalog
+    ? Math.max(Math.ceil(totalCount / limit) - 1, 0)
+    : 0
   const safePage = Math.min(page, maxPage)
-  const visibleItems =
-    view === "folders"
-      ? sortedDirectoryItems
-      : sortedListItems.slice(safePage * limit, safePage * limit + limit)
+  const visibleItems = flatCatalog
+    ? sortedListItems.slice(safePage * limit, safePage * limit + limit)
+    : sortedDirectoryItems
   const isLoading =
     entitlementsLoading ||
-    (view === "folders" ? directoryItemsIsLoading : skillsLoading)
-  const error = view === "folders" ? directoryItemsError : skillsError
+    filterIsLoading ||
+    (flatCatalog ? skillsLoading : directoryItemsIsLoading)
+  const error = (flatCatalog ? skillsError : directoryItemsError) ?? filterError
 
+  const agentFilterKey = filter.agentIds.join(",")
   useEffect(() => {
     setPage(0)
-  }, [limit, searchQuery, sortBy, view])
+  }, [agentFilterKey, limit, searchQuery, sortBy, view])
 
   useEffect(() => {
     if (!selectedItem || selectedItem.type !== "skill") return
@@ -1106,6 +1129,7 @@ export function SkillsDashboard({ workspaceId }: { workspaceId: string }) {
         onSearchChange={setSearchQuery}
         sortBy={sortBy}
         onSortByChange={setSortBy}
+        agentFilter={filter}
         view={view}
         onViewChange={handleViewChange}
         viewSwitchEnabled={organizationEnabled}
@@ -1138,8 +1162,8 @@ export function SkillsDashboard({ workspaceId }: { workspaceId: string }) {
                   <Pyramid className="size-5 text-muted-foreground/60" />
                 </EmptyMedia>
                 <EmptyTitle>
-                  {searchQuery.trim()
-                    ? "No skills match your search"
+                  {searchQuery.trim() || filter.active
+                    ? "No skills match your filters"
                     : "No skills yet"}
                 </EmptyTitle>
               </EmptyHeader>
