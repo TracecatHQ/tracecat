@@ -2318,3 +2318,120 @@ async def test_forward_request_sends_trace_request_id_to_gateway(
         assert f"X-Request-ID: {sent[0][0]}" in response_text
     else:
         assert sent == [[expected]]
+
+
+_SSE_PING = b'event: ping\ndata: {"type":"ping"}\n\n'
+
+
+class _SlowDripStream(httpx.AsyncByteStream):
+    """Body that never ends but sends a chunk every 10 ms.
+
+    The gap between chunks stays far inside the idle read timeout, so only the
+    absolute request bound can end it.
+    """
+
+    def __init__(self, first: bytes, drip: bytes) -> None:
+        self._first = first
+        self._drip = drip
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield self._first
+        while True:
+            await asyncio.sleep(0.01)
+            yield self._drip
+
+
+def _assert_request_timed_out(errors: list[LLMProxyError]) -> None:
+    assert len(errors) == 1
+    classification = errors[0].classification
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_REQUEST_TIMED_OUT
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert classification.cause_type == "_RequestDeadlineExceeded"
+
+
+@pytest.fixture
+def short_request_max_duration(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "tracecat.agent.sandbox.llm_proxy.app_config.TRACECAT__LLM_REQUEST_MAX_DURATION_SECONDS",
+        0.2,
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("short_request_max_duration")
+@pytest.mark.parametrize("direct", [False, True])
+async def test_request_max_duration_ends_slow_drip_stream(
+    tmp_path: Path,
+    direct: bool,
+) -> None:
+    """A stream that keeps sending is cut at the bound with a typed SSE error."""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/event-stream"},
+            stream=_SlowDripStream(_SSE_MESSAGE_START, _SSE_PING),
+        )
+
+    request, plan = _direct_or_managed(direct)
+    async with asyncio.timeout(5):
+        response_text, errors = await _forward(
+            tmp_path, handler, request, routing_plan=plan
+        )
+
+    assert response_text.startswith("HTTP/1.1 200 OK")
+    assert response_text.count("HTTP/1.1") == 1
+    assert "event: message_start" in response_text
+    assert "event: ping" in response_text
+    assert "event: error" in response_text
+    assert "maximum request duration of 0.2 seconds" in response_text
+    _assert_request_timed_out(errors)
+    assert errors[0].message.startswith(
+        "Model response exceeded the maximum request duration"
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("short_request_max_duration")
+async def test_request_max_duration_ends_slow_drip_json_body(
+    tmp_path: Path,
+) -> None:
+    """A non-streaming body that never completes fails with the same kind."""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            stream=_SlowDripStream(b'{"content":[', b" "),
+        )
+
+    async with asyncio.timeout(5):
+        response_text, errors = await _forward(tmp_path, handler)
+
+    assert response_text.count("HTTP/1.1") == 1
+    _assert_request_timed_out(errors)
+    assert errors[0].message == errors[0].classification.message
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("short_request_max_duration")
+async def test_request_max_duration_bounds_wait_for_response_headers(
+    tmp_path: Path,
+) -> None:
+    """Before the runtime has a response, the bound returns a 504."""
+    attempts = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        await asyncio.sleep(10)
+        return _ok(request)
+
+    async with asyncio.timeout(5):
+        response_text, errors = await _forward(tmp_path, handler)
+
+    assert attempts == 1
+    assert response_text.startswith("HTTP/1.1 504")
+    _assert_request_timed_out(errors)
+    assert errors[0].message == errors[0].classification.message

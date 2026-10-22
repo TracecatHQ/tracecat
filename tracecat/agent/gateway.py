@@ -27,6 +27,11 @@ from openai import RateLimitError as OpenAIRateLimitError
 
 from tracecat import config as app_config
 from tracecat.agent.diagnostics import parse_bounded_error_body
+from tracecat.agent.gateway_drain import (
+    GATEWAY_IDENTITY_HEADER,
+    gateway_identity,
+    install_drain_logging,
+)
 from tracecat.agent.gateway_outbound import (
     OutboundLLMHTTPHandler,
     install_outbound_http_policy,
@@ -51,6 +56,7 @@ from tracecat.temporal.error_chain import iter_error_chain
 
 apply_patch()
 install_outbound_http_policy()
+install_drain_logging()
 
 _UNAUTHENTICATED_HEALTH_ROUTES = frozenset(
     {
@@ -676,6 +682,18 @@ class TracecatCallbackHandler(CustomLogger):
             trace_request_id=_trace_request_id(data),
         )
         return data
+
+    async def async_post_call_response_headers_hook(
+        self,
+        data: dict,
+        user_api_key_dict: UserAPIKeyAuth,
+        response: object,
+        request_headers: dict[str, str] | None = None,
+        litellm_call_info: dict[str, object] | None = None,
+    ) -> dict[str, str] | None:
+        """Tag every LLM response with the gateway worker that served it."""
+        del data, user_api_key_dict, response, request_headers, litellm_call_info
+        return {GATEWAY_IDENTITY_HEADER: gateway_identity()}
 
 
 callback_handler = TracecatCallbackHandler()

@@ -340,6 +340,22 @@ def agent_llm_stream_interrupted(
     )
 
 
+def agent_llm_request_timed_out(
+    error: BaseException | None = None,
+) -> RuntimeErrorClassification:
+    """Classify an LLM request that outlived the proxy's absolute duration bound.
+
+    Unlike a read timeout, the upstream may still be sending data; the request
+    as a whole ran longer than ``TRACECAT__LLM_REQUEST_MAX_DURATION_SECONDS``.
+    """
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_REQUEST_TIMED_OUT,
+        message="The LLM request exceeded the maximum request duration",
+        retry_disposition=RetryDisposition.RETRYABLE,
+        cause=error,
+    )
+
+
 def agent_llm_gateway_auth_failed() -> RuntimeErrorClassification:
     """Classify a rejected internal gateway credential at its trusted source."""
     return RuntimeErrorClassification.platform(

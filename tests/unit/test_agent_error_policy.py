@@ -37,6 +37,7 @@ from tracecat.agent.error_policy import (
     agent_executor_timed_out,
     agent_executor_unclassified,
     agent_llm_read_timeout,
+    agent_llm_request_timed_out,
     agent_llm_stream_interrupted,
     agent_preparation_failed,
     agent_runtime_failure,
@@ -173,6 +174,12 @@ def test_legacy_executor_unavailable_kind_deserializes_as_unclassified() -> None
             agent_llm_stream_interrupted,
             RuntimeErrorOwner.PLATFORM,
             RuntimeErrorKind.AGENT_LLM_STREAM_INTERRUPTED,
+            RetryDisposition.RETRYABLE,
+        ),
+        (
+            agent_llm_request_timed_out,
+            RuntimeErrorOwner.PLATFORM,
+            RuntimeErrorKind.AGENT_LLM_REQUEST_TIMED_OUT,
             RetryDisposition.RETRYABLE,
         ),
         (

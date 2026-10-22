@@ -14,7 +14,8 @@ import os
 import re
 import time
 import uuid
-from collections.abc import AsyncIterable, Callable
+from collections.abc import AsyncIterable, AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
@@ -50,6 +51,7 @@ from tracecat.agent.error_policy import (
     agent_llm_provider_subscription_required,
     agent_llm_rate_limited,
     agent_llm_read_timeout,
+    agent_llm_request_timed_out,
     agent_llm_stream_interrupted,
     invalid_agent_configuration,
     user_agent_execution_failed,
@@ -373,6 +375,30 @@ class _UpstreamConnectionDropped(Exception):
         self.error = error
 
 
+class _RequestDeadlineExceeded(httpx.TimeoutException):
+    """The request outlived ``TRACECAT__LLM_REQUEST_MAX_DURATION_SECONDS``.
+
+    A transport timeout subtype, so the existing pre-header, streaming, and
+    non-streaming transport failure paths report it without special cases.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("LLM request exceeded the maximum request duration")
+
+
+@asynccontextmanager
+async def _request_deadline(deadline: float | None) -> AsyncIterator[asyncio.Timeout]:
+    """Bound a block by an absolute event-loop deadline; None disables it."""
+    timeout = asyncio.timeout_at(deadline)
+    try:
+        async with timeout:
+            yield timeout
+    except TimeoutError as exc:
+        if not timeout.expired():
+            raise
+        raise _RequestDeadlineExceeded() from exc
+
+
 def _parse_retry_after(value: str | None) -> float | None:
     """Capped numeric ``Retry-After`` seconds; None for http-dates or junk."""
     if value is None:
@@ -408,6 +434,8 @@ def _transport_error_classification(
     *,
     route_is_direct: bool,
 ) -> RuntimeErrorClassification:
+    if isinstance(error, _RequestDeadlineExceeded):
+        return agent_llm_request_timed_out(error)
     if isinstance(error, httpx.ReadTimeout):
         return agent_llm_read_timeout(error)
     if route_is_direct:
@@ -444,8 +472,9 @@ def _transport_proxy_error(
 ) -> LLMProxyError:
     """Build the terminal proxy error for one upstream transport failure.
 
-    Read timeouts carry their own source-owned message; every other transport
-    failure surfaces the caller's site-specific text.
+    Read timeouts and the request duration bound carry their own source-owned
+    message; every other transport failure surfaces the caller's site-specific
+    text.
 
     Args:
         error: Transport failure raised while talking to the upstream.
@@ -462,7 +491,7 @@ def _transport_proxy_error(
     return LLMProxyError(
         message=(
             classification.message
-            if isinstance(error, httpx.ReadTimeout)
+            if isinstance(error, httpx.ReadTimeout | _RequestDeadlineExceeded)
             else fallback_message
         ),
         classification=classification,
@@ -1384,6 +1413,12 @@ class LLMSocketProxy:
         diagnostic = partial(
             self.routing_plan.error_diagnostics, request_model, upstream_request.headers
         )
+        # One absolute bound for the whole exchange, separate from the idle
+        # read timeout, so a slow-drip stream cannot hold a turn open.
+        deadline = (
+            asyncio.get_running_loop().time()
+            + app_config.TRACECAT__LLM_REQUEST_MAX_DURATION_SECONDS
+        )
 
         response_phase: Literal["response_headers", "error_body"] = "response_headers"
         try:
@@ -1437,14 +1472,17 @@ class LLMSocketProxy:
                 with attempt:
                     headers_received = False
                     try:
-                        async with client.stream(
-                            method=method,
-                            url=upstream_request.url,
-                            headers=upstream_request.headers,
-                            content=upstream_request.body
-                            if upstream_request.body
-                            else None,
-                        ) as response:
+                        async with (
+                            _request_deadline(deadline) as exchange_deadline,
+                            client.stream(
+                                method=method,
+                                url=upstream_request.url,
+                                headers=upstream_request.headers,
+                                content=upstream_request.body
+                                if upstream_request.body
+                                else None,
+                            ) as response,
+                        ):
                             headers_received = True
                             body_chunks: AsyncIterable[bytes] | list[bytes]
                             stream_rewriter: ToolUseStreamRewriter | None = None
@@ -1510,6 +1548,9 @@ class LLMSocketProxy:
                                     response, method=method, path=path
                                 )
 
+                            # _write_response enforces the same deadline and
+                            # reports it on the response the runtime already has.
+                            exchange_deadline.reschedule(None)
                             await self._write_response(
                                 writer,
                                 status_code=response.status_code,
@@ -1524,6 +1565,7 @@ class LLMSocketProxy:
                                 route_is_direct=route.is_direct,
                                 diagnostic_factory=diagnostic,
                                 stream_rewriter=stream_rewriter,
+                                deadline=deadline,
                             )
                     except (
                         httpx.RemoteProtocolError,
@@ -1647,8 +1689,13 @@ class LLMSocketProxy:
         route_is_direct: bool = False,
         diagnostic_factory: Callable[[], LLMErrorDiagnostics] | None = None,
         stream_rewriter: ToolUseStreamRewriter | None = None,
+        deadline: float | None = None,
     ) -> None:
-        """Write an HTTP response head and stream the response body."""
+        """Write an HTTP response head and stream the response body.
+
+        ``deadline`` is an absolute event-loop time; the body stream fails
+        with the request duration error once it passes.
+        """
         content_type = next(
             (value for key, value in headers.items() if key.lower() == "content-type"),
             None,
@@ -1704,38 +1751,39 @@ class LLMSocketProxy:
             raise
 
         try:
-            async for chunk in self._iter_body_chunks(body_chunks):
-                if chunk:
-                    last_chunk_at = time.monotonic()
-                    if first_chunk_at is None:
-                        first_chunk_at = last_chunk_at
-                try:
-                    if (
-                        is_streaming_response
-                        and not ttft_logged
-                        and first_chunk_at is not None
-                        and started_at is not None
-                    ):
-                        ttft_logged = True
-                        logger.info(
-                            "LLM proxy first response chunk",
-                            request_counter=request_counter,
-                            method=method,
-                            path=path,
-                            trace_request_id=trace_request_id,
-                            ttft_ms=(first_chunk_at - started_at) * 1000,
-                        )
-                    writer.write(chunk)
-                    await writer.drain()
-                    bytes_forwarded += len(chunk)
-                except Exception as exc:
-                    if (
-                        not self._is_client_disconnect_error(exc)
-                        and not writer.is_closing()
-                    ):
-                        raise
-                    logger.debug("Client disconnected during response streaming")
-                    return
+            async with _request_deadline(deadline):
+                async for chunk in self._iter_body_chunks(body_chunks):
+                    if chunk:
+                        last_chunk_at = time.monotonic()
+                        if first_chunk_at is None:
+                            first_chunk_at = last_chunk_at
+                    try:
+                        if (
+                            is_streaming_response
+                            and not ttft_logged
+                            and first_chunk_at is not None
+                            and started_at is not None
+                        ):
+                            ttft_logged = True
+                            logger.info(
+                                "LLM proxy first response chunk",
+                                request_counter=request_counter,
+                                method=method,
+                                path=path,
+                                trace_request_id=trace_request_id,
+                                ttft_ms=(first_chunk_at - started_at) * 1000,
+                            )
+                        writer.write(chunk)
+                        await writer.drain()
+                        bytes_forwarded += len(chunk)
+                    except Exception as exc:
+                        if (
+                            not self._is_client_disconnect_error(exc)
+                            and not writer.is_closing()
+                        ):
+                            raise
+                        logger.debug("Client disconnected during response streaming")
+                        return
             if is_streaming_response:
                 logger.info("LLM proxy stream finished", **stream_progress())
         except Exception as exc:
@@ -1767,6 +1815,16 @@ class LLMSocketProxy:
                     detail = (
                         f"Model response timed out after {timeout_duration} "
                         "without receiving data. Please retry the agent execution."
+                    )
+                    surfaced_error = detail
+                elif isinstance(exc, _RequestDeadlineExceeded):
+                    status_code = 504
+                    max_duration = _format_timeout_duration(
+                        app_config.TRACECAT__LLM_REQUEST_MAX_DURATION_SECONDS
+                    )
+                    detail = (
+                        "Model response exceeded the maximum request duration of "
+                        f"{max_duration}. Please retry the agent execution."
                     )
                     surfaced_error = detail
                 elif _is_managed_stream_interruption(

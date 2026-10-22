@@ -8947,6 +8947,7 @@ export type RuntimeErrorKind =
   | "agent.llm.rate_limited"
   | "agent.llm.read_timeout"
   | "agent.llm.stream_interrupted"
+  | "agent.llm.request_timed_out"
   | "agent.mcp.auth_failed"
   | "agent.mcp.unavailable"
   | "agent.execution.failed"
