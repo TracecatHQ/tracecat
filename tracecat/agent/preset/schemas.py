@@ -521,6 +521,14 @@ class ToolApprovalFieldChange(BaseModel):
     new_value: bool | None = None
 
 
+class ToolTunnelFieldChange(BaseModel):
+    """Tunnel routing diff for a single tool."""
+
+    tool: str
+    old_value: str | None = None
+    new_value: str | None = None
+
+
 class AgentPresetVersionDiff(BaseModel):
     """Structured diff between two preset versions."""
 
@@ -534,5 +542,6 @@ class AgentPresetVersionDiff(BaseModel):
     scalar_changes: list[ScalarFieldChange] = Field(default_factory=list)
     list_changes: list[StringListFieldChange] = Field(default_factory=list)
     tool_approval_changes: list[ToolApprovalFieldChange] = Field(default_factory=list)
+    tool_tunnel_changes: list[ToolTunnelFieldChange] = Field(default_factory=list)
     skill_changes: list[AgentPresetSkillBindingChange] = Field(default_factory=list)
     total_changes: int = 0

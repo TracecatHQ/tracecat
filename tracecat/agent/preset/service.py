@@ -45,6 +45,7 @@ from tracecat.agent.preset.schemas import (
     ScalarFieldChange,
     StringListFieldChange,
     ToolApprovalFieldChange,
+    ToolTunnelFieldChange,
     _agent_preset_capabilities,
     build_agent_preset_read_minimal,
     build_agent_preset_tool_summary,
@@ -2459,6 +2460,21 @@ class AgentPresetService(BaseWorkspaceService):
                     )
                 )
 
+        tool_tunnel_changes: list[ToolTunnelFieldChange] = []
+        base_tunnels = base_version.tool_tunnels or {}
+        compare_tunnels = compare_version.tool_tunnels or {}
+        for tool in sorted(set(base_tunnels) | set(compare_tunnels)):
+            old_tunnel = base_tunnels.get(tool)
+            new_tunnel = compare_tunnels.get(tool)
+            if old_tunnel != new_tunnel:
+                tool_tunnel_changes.append(
+                    ToolTunnelFieldChange(
+                        tool=tool,
+                        old_value=old_tunnel,
+                        new_value=new_tunnel,
+                    )
+                )
+
         skill_changes = await self._compare_version_skill_bindings(
             base_version.id,
             compare_version.id,
@@ -2469,6 +2485,7 @@ class AgentPresetService(BaseWorkspaceService):
             + len(scalar_changes)
             + len(list_changes)
             + len(tool_approval_changes)
+            + len(tool_tunnel_changes)
             + len(skill_changes)
         )
 
@@ -2483,6 +2500,7 @@ class AgentPresetService(BaseWorkspaceService):
             scalar_changes=scalar_changes,
             list_changes=list_changes,
             tool_approval_changes=tool_approval_changes,
+            tool_tunnel_changes=tool_tunnel_changes,
             skill_changes=skill_changes,
             total_changes=total_changes,
         )

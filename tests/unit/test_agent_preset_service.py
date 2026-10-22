@@ -4464,3 +4464,54 @@ async def test_tool_tunnels_follow_effective_tool_policy(
         preset, AgentPresetUpdate(namespaces=["core"])
     )
     assert preset.tool_tunnels is None
+
+
+@pytest.mark.anyio
+async def test_compare_versions_reports_tool_tunnel_changes(
+    session: AsyncSession,
+    svc_role: Role,
+    agent_preset_service: AgentPresetService,
+    agent_preset_create_params: AgentPresetCreate,
+    registry_actions: list[RegistryAction],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A version that only reroutes a tool still shows up in the diff."""
+    from tracecat.db.models import WorkspaceTunnel
+
+    monkeypatch.setattr(
+        "tracecat.agent.preset.service.is_org_entitled", AsyncMock(return_value=True)
+    )
+    assert svc_role.workspace_id is not None
+    for name in ("onprem", "dmz"):
+        session.add(
+            WorkspaceTunnel(
+                workspace_id=svc_role.workspace_id,
+                name=name,
+                endpoint="https://pangolin.example.com",
+                client_id=f"client-{name}",
+                encrypted_client_secret=b"x",
+                allowed_targets=[],
+            )
+        )
+    agent_preset_create_params.actions = ["tools.test.test_action"]
+    agent_preset_create_params.tool_tunnels = {"tools.test.test_action": "onprem"}
+    preset = await agent_preset_service.create_preset(agent_preset_create_params)
+    version_1 = await agent_preset_service.get_current_version_for_preset(preset)
+
+    await agent_preset_service.update_preset(
+        preset, AgentPresetUpdate(tool_tunnels={"tools.test.test_action": "dmz"})
+    )
+    version_2 = await agent_preset_service.get_current_version_for_preset(preset)
+    await agent_preset_service.update_preset(preset, AgentPresetUpdate(tool_tunnels={}))
+    version_3 = await agent_preset_service.get_current_version_for_preset(preset)
+
+    rerouted = await agent_preset_service.compare_versions(version_1, version_2)
+    assert [
+        (c.tool, c.old_value, c.new_value) for c in rerouted.tool_tunnel_changes
+    ] == [("tools.test.test_action", "onprem", "dmz")]
+    assert rerouted.total_changes == 1
+
+    removed = await agent_preset_service.compare_versions(version_2, version_3)
+    assert [
+        (c.tool, c.old_value, c.new_value) for c in removed.tool_tunnel_changes
+    ] == [("tools.test.test_action", "dmz", None)]

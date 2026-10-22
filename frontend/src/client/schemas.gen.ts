@@ -3921,6 +3921,13 @@ export const $AgentPresetVersionDiff = {
       type: "array",
       title: "Tool Approval Changes",
     },
+    tool_tunnel_changes: {
+      items: {
+        $ref: "#/components/schemas/ToolTunnelFieldChange",
+      },
+      type: "array",
+      title: "Tool Tunnel Changes",
+    },
     skill_changes: {
       items: {
         $ref: "#/components/schemas/AgentPresetSkillBindingChange",
@@ -36977,6 +36984,41 @@ export const $ToolResultBlock = {
   type: "object",
   required: ["tool_use_id"],
   title: "ToolResultBlock",
+} as const
+
+export const $ToolTunnelFieldChange = {
+  properties: {
+    tool: {
+      type: "string",
+      title: "Tool",
+    },
+    old_value: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Old Value",
+    },
+    new_value: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New Value",
+    },
+  },
+  type: "object",
+  required: ["tool"],
+  title: "ToolTunnelFieldChange",
+  description: "Tunnel routing diff for a single tool.",
 } as const
 
 export const $ToolUIPartInputAvailable = {

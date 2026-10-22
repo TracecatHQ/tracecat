@@ -999,6 +999,7 @@ export type AgentPresetVersionDiff = {
   scalar_changes?: Array<ScalarFieldChange>
   list_changes?: Array<StringListFieldChange>
   tool_approval_changes?: Array<ToolApprovalFieldChange>
+  tool_tunnel_changes?: Array<ToolTunnelFieldChange>
   skill_changes?: Array<AgentPresetSkillBindingChange>
   total_changes?: number
 }
@@ -11203,6 +11204,15 @@ export type ToolResultBlock = {
       }>
     | null
   is_error?: boolean | null
+}
+
+/**
+ * Tunnel routing diff for a single tool.
+ */
+export type ToolTunnelFieldChange = {
+  tool: string
+  old_value?: string | null
+  new_value?: string | null
 }
 
 export type ToolUIPartInputAvailable = {
