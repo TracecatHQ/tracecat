@@ -132,6 +132,7 @@ from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
 )
+from tracecat.db.errors import is_data_error
 from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.db.rls import set_rls_context_from_role
 from tracecat.db.soft_delete import assert_soft_delete_listener_registered
@@ -390,6 +391,15 @@ def _install_scim_exception_handlers(app: FastAPI) -> None:
 
         return handler
 
+    async def _database(request: Request, exc: Exception) -> Response:
+        if is_scim_path(request) and is_data_error(exc):
+            return scim_error_response(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Request contains a value that cannot be stored",
+                scim_type="invalidValue",
+            )
+        return await database_exception_handler(request, exc)
+
     def _authorization(request: Request, exc: Exception) -> Response:
         if is_scim_path(request):
             return scim_error_response(
@@ -418,6 +428,7 @@ def _install_scim_exception_handlers(app: FastAPI) -> None:
         )
 
     app.add_exception_handler(Exception, _unexpected)
+    app.add_exception_handler(DBAPIError, _database)
     app.add_exception_handler(TracecatAuthorizationError, _authorization)
     app.add_exception_handler(ScopeDeniedError, _scope_denied)
     app.add_exception_handler(HTTPException, _http_async)
