@@ -24,7 +24,7 @@ import GenerateSecrets from "/snippets/generate-secrets.mdx";
 
 ## Git sync background worker
 
-For releases that support durable Git sync, deploy the matching Helm chart and app image together and set `backgroundWorker.enabled: true`. The chart keeps this worker disabled by default for compatibility with older app images.
+For releases that support durable Git sync, use the companion Helm chart with a released app image that contains `tracecat.background.worker`. The companion chart enables this worker by default and rejects app versions below its supported minimum. Keep `backgroundWorker.enabled: true`.
 
 ```yaml
 backgroundWorker:

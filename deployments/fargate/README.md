@@ -135,3 +135,24 @@ not passed to the worker. Preserve artifacts for at
 least the 24-hour preview confirmation window. API acceptance is durable even
 while the worker is unavailable; operations remain queued until it returns.
 Roll back application images without removing the operation table or artifacts.
+
+
+### Upgrading the Git sync lifecycle
+
+Keep `background_worker_desired_count` at one or more. Apply the additive database
+migration before starting the updated application services. Terraform already
+orders the API migration container before the background worker. New sync
+requests can remain queued briefly while the worker updates; verify that the
+updated worker is polling the configured queue before declaring the rollout healthy.
+
+The updated worker registers both the old phase workflow and the new lifecycle
+workflow. This lets an already-running old import finish. A preview prepared by
+the old application must be created again before you confirm it in the new UI.
+The new API accepts an operation only after Temporal records it. Temporal then
+keeps its preparation, confirmation, retry, and expiration in one workflow.
+The database keeps history and write receipts, not a queue that starts workflows.
+
+Keep the operation table and stored preview artifacts when rolling back. Let
+running lifecycle workflows finish on a worker that understands them before
+removing that worker version. After an import commits, the worker retries pending
+schedule and background updates automatically; it does not import those resources again.
