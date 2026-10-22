@@ -36,6 +36,10 @@ const mockUseVercelChatResult = {
   lastError: null as string | null,
   messages: [] as UIMessage[],
   regenerate: jest.fn(),
+  // Without a dropped connection, the hook's retry resends.
+  retryTurn: jest.fn(async (messageId: string | undefined) => {
+    mockUseVercelChatResult.regenerate({ messageId })
+  }),
   sendMessage: jest.fn(),
   status: "ready" as ChatStatus,
 }
