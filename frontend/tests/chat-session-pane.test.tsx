@@ -1353,7 +1353,7 @@ describe("ChatSessionPane", () => {
       renderPane()
 
       const alert = screen.getByRole("alert")
-      expect(within(alert).getByText("Last run failed")).toBeInTheDocument()
+      expect(screen.queryByText("Last run failed")).not.toBeInTheDocument()
       expect(
         within(alert).getByText("Provider unavailable")
       ).toBeInTheDocument()
@@ -1393,7 +1393,7 @@ describe("ChatSessionPane", () => {
       renderPane()
 
       const alert = screen.getByRole("alert")
-      expect(within(alert).getByText("Last run failed")).toBeInTheDocument()
+      expect(within(alert).getByText(error)).toBeInTheDocument()
       expect(screen.getAllByText(error)).toHaveLength(1)
       expect(screen.getByText("There are no open cases.")).toBeInTheDocument()
       expect(screen.getByText("Reading the case now.")).toBeInTheDocument()

@@ -42,9 +42,8 @@ export function TurnErrorLine({
           className="flex items-start gap-2 text-sm text-destructive"
         >
           <AlertCircleIcon className="mt-0.5 size-3.5 shrink-0" />
-          <span className="min-w-0 break-words">
-            <span className="font-medium">Last run failed</span>{" "}
-            <span className="whitespace-pre-wrap">{error}</span>
+          <span className="min-w-0 whitespace-pre-wrap break-words">
+            {error}
           </span>
         </p>
       )}
