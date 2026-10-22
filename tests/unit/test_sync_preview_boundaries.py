@@ -1,15 +1,20 @@
 """Changes hidden by published definitions still invalidate a reviewed pull."""
 
 import uuid
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 
+from tests.support.fake_vcs import FakeVcsServer
 from tracecat.db.models import (
     Action,
+    AgentPreset,
+    CaseFields,
     MCPIntegration,
+    Skill,
     Workflow,
     Workspace,
     WorkspaceSyncResourceMapping,
@@ -22,9 +27,15 @@ from tracecat.git.types import GitUrl
 from tracecat.integrations.enums import MCPAuthType
 from tracecat.sync import PullResult
 from tracecat.workflow.store.schemas import WorkflowSyncPullRequest
+from tracecat.workspace_sync.adapters.registry import CASE_FIELD_RESOURCE_ADAPTER
 from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspace_sync.operations.domain import DurableSyncService
-from tracecat.workspace_sync.operations.schemas import PreparedSync, SyncOperationCreate
+from tracecat.workspace_sync.operations.mappings import surviving_mapping_targets
+from tracecat.workspace_sync.operations.schemas import (
+    PreparedSync,
+    SyncOperationCreate,
+    SyncPushResult,
+)
 from tracecat.workspace_sync.operations.types import FetchedSync, StaleSyncPreviewError
 from tracecat.workspace_sync.schemas import (
     AgentPresetResourceSpec,
@@ -424,3 +435,132 @@ async def test_push_mapping_fingerprint_ignores_iteration_order(svc_role):
         update={"mapping_targets": list(reversed(targets))}
     )
     assert await sync.local_fingerprint(inputs, projection=reordered) == reviewed
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("change", ["delete", "replace", "rename"])
+async def test_push_recovery_maps_only_surviving_reviewed_resources(
+    session, svc_role, monkeypatch, change
+):
+    server = FakeVcsServer()
+    url = GitUrl(host="github.com", org="example", repo="synthetic-sync")
+    workspace = await session.scalar(
+        select(Workspace).where(Workspace.id == svc_role.workspace_id)
+    )
+    assert workspace is not None
+    workspace.settings = {"git_repo_url": url.to_url(), "git_provider": "github"}
+    variable = WorkspaceVariable(
+        workspace_id=svc_role.workspace_id,
+        name="synthetic-variable",
+        environment="default",
+        values={"value": "example"},
+    )
+    session.add(variable)
+    await session.commit()
+    original_id = variable.id
+    sync = DurableSyncService(
+        session, svc_role, transport_factory=server.transport_factory
+    )
+    monkeypatch.setattr(sync, "require_entitlement", AsyncMock())
+    monkeypatch.setattr(sync, "_require_spec_entitlements", AsyncMock())
+    inputs = SyncOperationCreate(
+        id=uuid.uuid4(),
+        direction="push",
+        push=WorkspaceSyncExportRequest(
+            branch="sync/demo", message="Synthetic sync", create_pr=False
+        ),
+    )
+    prepared = await sync.prepare(inputs)
+    transport = sync._transport_for_provider()
+    write = transport.write_files
+    writes = 0
+
+    async def lose_first_acknowledgement(**kwargs):
+        nonlocal writes
+        writes += 1
+        commit = await write(**kwargs)
+        if writes == 1:
+            raise ConnectionResetError("Synthetic lost acknowledgement")
+        return commit
+
+    monkeypatch.setattr(transport, "write_files", lose_first_acknowledgement)
+    monkeypatch.setattr(sync, "_transport_for_provider", lambda: transport)
+    with pytest.raises(ConnectionResetError):
+        await sync.apply(inputs, prepared, inputs.id)
+    await session.rollback()
+    history = await transport.list_commits(url=url, branch="sync/demo")
+    variable = await session.scalar(
+        select(WorkspaceVariable).where(WorkspaceVariable.id == original_id)
+    )
+    assert variable is not None
+    if change == "rename":
+        variable.name = "renamed-after-push"
+    else:
+        await session.delete(variable)
+        await session.flush()
+        if change == "replace":
+            session.add(
+                WorkspaceVariable(
+                    workspace_id=svc_role.workspace_id,
+                    name="synthetic-variable",
+                    environment="default",
+                    values={"value": "example"},
+                )
+            )
+    await session.commit()
+    result = await sync.apply(inputs, prepared, inputs.id)
+    assert isinstance(result, SyncPushResult)
+    assert result.commit.sha == history[0].sha
+    assert await transport.list_commits(url=url, branch="sync/demo") == history
+    assert (
+        writes == 2
+    )  # Recovery finishes transport bookkeeping without another commit.
+    mappings = list(await session.scalars(select(WorkspaceSyncResourceMapping)))
+    if change == "rename":
+        assert len(mappings) == 1
+        assert mappings[0].local_id == original_id
+        assert mappings[0].source_path == "variables/default/synthetic-variable.yml"
+    else:
+        assert mappings == []  # Never rebind reviewed contents to the replacement UUID.
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("skill_removal", ["deleted", "archived"])
+async def test_recovery_omits_soft_deleted_resources_and_removed_schema_fields(
+    session, svc_role, skill_removal
+):
+    preset = AgentPreset(
+        workspace_id=svc_role.workspace_id,
+        name="Synthetic preset",
+        slug="synthetic",
+        model_name="synthetic",
+        model_provider="synthetic",
+    )
+    skill = Skill(
+        workspace_id=svc_role.workspace_id, name="Synthetic skill", slug="synthetic"
+    )
+    fields = CaseFields(workspace_id=svc_role.workspace_id, schema={"synthetic": {}})
+    session.add_all([preset, skill, fields])
+    await session.commit()
+    sync = DurableSyncService(session, svc_role)
+    projected = await CASE_FIELD_RESOURCE_ADAPTER.project(sync)
+    assert len(projected.resources) == 1
+    field = projected.resources[0]
+    targets = [
+        SyncMappingTarget(
+            "agent_preset", "synthetic", "agent-presets/synthetic.yml", preset.id
+        ),
+        SyncMappingTarget("skill", "synthetic", "skills/synthetic/skill.yml", skill.id),
+        SyncMappingTarget(
+            "case_field", field.source_id, field.source_path, field.local_id
+        ),
+    ]
+    assert await surviving_mapping_targets(sync, targets) == targets
+    preset.deleted_at = datetime.now(UTC)
+    if skill_removal == "deleted":
+        skill.deleted_at = datetime.now(UTC)
+    else:
+        skill.archived_at = datetime.now(UTC)
+    fields.schema = {}
+    await session.commit()
+    assert await surviving_mapping_targets(sync, targets) == []
