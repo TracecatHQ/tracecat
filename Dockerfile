@@ -45,6 +45,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl wget jq iputils-ping git openssh-client squashfs-tools \
     && rm -rf /var/lib/apt/lists/*
 
+# The slim base ships the stdlib without bytecode, and sandboxes mount this
+# rootfs read-only, so every sandboxed Python process would recompile the
+# stdlib from source. Unchecked hash-based .pyc files stay valid whatever
+# mtimes the later COPY steps leave on the sources.
+RUN python -m compileall -q -j0 --invalidation-mode unchecked-hash \
+    "$(python -c 'import sysconfig; print(sysconfig.get_path("stdlib"))')"
+
 # This rootfs is shared by run_python and agent sandboxes; CLI additions here
 # are intentionally available to both. DuckDB is not available from Bookworm
 # apt, so install the official release binary, verify it, preinstall extensions,
