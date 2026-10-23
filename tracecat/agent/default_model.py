@@ -51,7 +51,11 @@ async def read_default_model_catalog_id(
 async def list_saved_default_models(
     session: AsyncSession,
 ) -> tuple[set[UUID], set[str]]:
-    """Return every organization's saved default catalog IDs and legacy names."""
+    """Return every organization's saved default catalog IDs and legacy names.
+
+    Sees every organization only on a bypass-RLS session; under RLS it
+    returns the current organization's settings alone.
+    """
     settings = await session.scalars(
         select(OrganizationSetting).where(
             OrganizationSetting.key.in_(
