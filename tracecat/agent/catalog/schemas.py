@@ -5,11 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
-from tracecat.agent.catalog.lifecycle import (
-    ModelLifecycle,
-    ModelLifecycleStatus,
-    read_model_lifecycle,
-)
+from tracecat.agent.catalog.lifecycle import read_model_lifecycle
+from tracecat.agent.catalog.types import ModelLifecycle, ModelLifecycleStatus
 
 
 class ModelLifecycleRead(ModelLifecycle):

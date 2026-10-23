@@ -11,9 +11,10 @@ from tracecat.agent.catalog.bundled import (
     parse_retired_models,
     read_platform_catalog_document,
 )
-from tracecat.agent.catalog.lifecycle import ModelLifecycle, read_model_lifecycle
+from tracecat.agent.catalog.lifecycle import read_model_lifecycle
 from tracecat.agent.catalog.loader import get_platform_catalog_models
 from tracecat.agent.catalog.schemas import AgentCatalogRead
+from tracecat.agent.catalog.types import ModelLifecycle
 
 # Capabilities an agent run can depend on: tools, structured output, thinking,
 # and file inputs. A replacement must keep every one its retired model had.

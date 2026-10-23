@@ -9,9 +9,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import yaml
 
-from tracecat.agent.catalog.lifecycle import ModelLifecycle
 from tracecat.agent.catalog.service import AgentCatalogService
-from tracecat.agent.catalog.types import ModelKey
+from tracecat.agent.catalog.types import ModelKey, ModelLifecycle
 from tracecat.exceptions import RegistryValidationError
 from tracecat.registry.repository import Repository
 from tracecat.sync import CatalogMappingCandidate
