@@ -784,7 +784,12 @@ async def test_steer_delegates_to_a_steering_backend(accepted: bool):
     provider.get_turn_lifecycle = AsyncMock(return_value=TurnLifecycle.RUNNING)
     provider.steer = AsyncMock(return_value=accepted)
     request = AgentSessionSteerRequest(id=uuid4(), text="Focus on the newest alert")
+    redis = Mock(set_if_not_exists=AsyncMock(return_value=True), get=AsyncMock())
     with (
+        patch(
+            "tracecat.agent.session.service.get_redis_client",
+            AsyncMock(return_value=redis),
+        ),
         patch.object(service, "get_session", return_value=ctx.session),
         patch.object(service, "require_entitlement", return_value=None),
         patch(
@@ -832,6 +837,46 @@ async def test_steer_needs_a_steering_backend_and_a_running_turn(
             ctx.session.id, AgentSessionSteerRequest(id=uuid4(), text="Stop")
         )
     provider.steer.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("same_run", [True, False])
+async def test_a_steer_retry_never_reaches_a_later_turn(same_run: bool):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    ctx.session.curr_run_id = ctx.run_id
+    service = AgentSessionService(ctx.db, ctx.role)
+    provider = Mock(spec=DefaultBackend)
+    provider.steering = True
+    provider.get_turn_lifecycle = AsyncMock(return_value=TurnLifecycle.RUNNING)
+    provider.steer = AsyncMock(return_value=True)
+    first_run = ctx.run_id if same_run else uuid4()
+    # The ID was bound when its first attempt reached `first_run`.
+    redis = Mock(
+        set_if_not_exists=AsyncMock(return_value=False),
+        get=AsyncMock(return_value=str(first_run)),
+    )
+    request = AgentSessionSteerRequest(id=uuid4(), text="Stop")
+    with (
+        patch(
+            "tracecat.agent.session.service.get_redis_client",
+            AsyncMock(return_value=redis),
+        ),
+        patch.object(service, "get_session", return_value=ctx.session),
+        patch.object(service, "require_entitlement", return_value=None),
+        patch(
+            "tracecat.agent.session.service.get_agent_backend", return_value=provider
+        ),
+        patch(
+            "tracecat.agent.session.service.find_agent_backend", return_value=provider
+        ),
+    ):
+        if same_run:
+            await service.steer(ctx.session.id, request)
+        else:
+            with pytest.raises(TracecatConflictError, match="earlier turn"):
+                await service.steer(ctx.session.id, request)
+    assert provider.steer.await_count == (1 if same_run else 0)
 
 
 @pytest.mark.anyio

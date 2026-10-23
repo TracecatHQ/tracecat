@@ -245,7 +245,10 @@ class AgentSessionSteerRequest(BaseModel):
     """A message for the active turn to take into account before it answers."""
 
     id: uuid.UUID = Field(
-        description="Client-generated steering ID. Retries reuse it and get the first outcome."
+        description=(
+            "Client-generated steering ID. A retry while its turn runs gets the "
+            "first outcome; a retry never reaches a later turn."
+        )
     )
     text: str = Field(min_length=1, max_length=100_000)
 

@@ -1308,7 +1308,7 @@ export type AgentSessionReadWithMessages = {
  */
 export type AgentSessionSteerRequest = {
   /**
-   * Client-generated steering ID. Retries reuse it and get the first outcome.
+   * Client-generated steering ID. A retry while its turn runs gets the first outcome; a retry never reaches a later turn.
    */
   id: string
   text: string

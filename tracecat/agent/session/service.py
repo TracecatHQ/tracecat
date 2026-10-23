@@ -171,6 +171,8 @@ AGENT_SESSION_EXECUTION_SCOPES: frozenset[str] = frozenset(
     }
 )
 APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
+# How long a steering ID stays bound to the run it first reached.
+STEER_RUN_BINDING_TTL_SECONDS = 24 * 60 * 60
 _background_tasks: set[asyncio.Task[None]] = set()
 
 
@@ -2662,6 +2664,7 @@ class AgentSessionService(BaseWorkspaceService):
                 detail={"lifecycle": lifecycle.value},
             )
 
+        await self._bind_steer_to_run(agent_session, request.id, curr_run_id)
         accepted = await backend.steer(curr_run_id, request.id, request.text)
         return AgentSessionSteerResponse(
             session_id=session_id,
@@ -2669,6 +2672,41 @@ class AgentSessionService(BaseWorkspaceService):
             id=request.id,
             status="accepted" if accepted else "rejected",
         )
+
+    async def _bind_steer_to_run(
+        self, agent_session: AgentSession, steer_id: uuid.UUID, run_id: uuid.UUID
+    ) -> None:
+        """Keep a steering ID on the run it first reached.
+
+        The backend deduplicates a retry within one run only. A retry whose first
+        attempt may have reached an earlier run must not reach this one.
+
+        Raises:
+            TracecatConflictError: If the ID was first sent to another run.
+        """
+        key = (
+            f"agent-steer-run:{agent_session.workspace_id}:"
+            f"{agent_session.id}:{steer_id}"
+        )
+        try:
+            client = await get_redis_client()
+            if await client.set_if_not_exists(
+                key, str(run_id), expire_seconds=STEER_RUN_BINDING_TTL_SECONDS
+            ):
+                return
+            bound = await client.get(key)
+        except Exception as exc:
+            logger.warning(
+                "Steering run binding unavailable; proceeding best-effort",
+                session_id=str(agent_session.id),
+                run_id=str(run_id),
+                error=str(exc),
+            )
+            return
+        if bound is not None and bound != str(run_id):
+            raise TracecatConflictError(
+                "This steering message was sent to an earlier turn"
+            )
 
     @contextlib.asynccontextmanager
     async def _build_agent_config(
