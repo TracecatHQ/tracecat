@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.common.config import TRACECAT__LITELLM_BASE_URL
 from tracecat.agent.gateway_providers import resolve_gateway_provider_config
 from tracecat.agent.llm_routing import get_litellm_route_model
@@ -21,6 +22,7 @@ from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import mint_llm_token
 from tracecat.auth.types import Role
 from tracecat.exceptions import (
+    AgentModelRetiredError,
     TracecatAuthorizationError,
     TracecatNotFoundError,
     TracecatValidationError,
@@ -58,6 +60,22 @@ async def complete(
     model_selection = await svc.get_default_model_selection()
     if model_selection is None:
         raise TracecatNotFoundError("No default model set")
+    try:
+        replacement = await AgentCatalogService(session).resolve_model_replacement(
+            role=role,
+            model_provider=model_selection.model_provider,
+            model_name=model_selection.model_name,
+            catalog_id=model_selection.catalog_id,
+        )
+    except AgentModelRetiredError as e:
+        raise LLMCompletionError(str(e)) from e
+    if replacement is not None:
+        model_selection = model_selection.model_copy(
+            update={
+                "model_name": replacement.model_name,
+                "catalog_id": replacement.catalog_id,
+            }
+        )
     try:
         creds = await svc.get_catalog_credentials(model_selection.catalog_id)
     except TracecatAuthorizationError as e:

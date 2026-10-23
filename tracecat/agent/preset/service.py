@@ -18,6 +18,7 @@ from sqlalchemy.orm import load_only, selectinload
 from tracecat import config
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.backends.registry import subagent_approvals_available
+from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.channels.service import AgentChannelService
 from tracecat.agent.common.config import AGENT_RUNTIME_PROTECTED_ENV_VARS
 from tracecat.agent.common.types import (
@@ -1021,11 +1022,26 @@ class AgentPresetService(BaseWorkspaceService):
             preset_version=preset_version,
             include_deleted=include_deleted,
         )
-        return await self._version_to_agent_config(
+        config = await self._version_to_agent_config(
             version,
             prune_tool_tunnels=prune_tool_tunnels,
             resolve_dependencies_from_heads=resolve_dependencies_from_heads,
         )
+        # Runtime only: stored presets keep the retired model.
+        if replacement := await AgentCatalogService(
+            self.session
+        ).resolve_model_replacement(
+            role=self.role,
+            model_provider=config.model_provider,
+            model_name=config.model_name,
+            catalog_id=config.catalog_id,
+        ):
+            config = dataclasses.replace(
+                config,
+                model_name=replacement.model_name,
+                catalog_id=replacement.catalog_id,
+            )
+        return config
 
     async def resolve_agent_preset_version(
         self,

@@ -1,6 +1,8 @@
 """Domain types for the agent model catalog."""
 
+from dataclasses import dataclass
 from typing import NamedTuple
+from uuid import UUID
 
 
 class ModelKey(NamedTuple):
@@ -12,3 +14,11 @@ class ModelKey(NamedTuple):
 
     model_provider: str
     model_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class ModelReplacement:
+    """Model a retired model's runs move to."""
+
+    model_name: str
+    catalog_id: UUID | None

@@ -70,9 +70,11 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetConfigActivityInput,
         ResolveAgentsConfigActivityInput,
+        ResolveModelReplacementActivityInput,
         resolve_agent_preset_config_activity,
         resolve_agents_config_activity,
         resolve_custom_model_provider_config_activity,
+        resolve_model_replacement_activity,
     )
     from tracecat.agent.preset.resolver import (
         ResolvedAgentsRuntimeConfig,
@@ -640,6 +642,26 @@ class DurableAgentWorkflow:
             has_base_url=bool(cfg.base_url),
         )
 
+    async def _replace_retired_model(self, cfg: AgentConfig) -> None:
+        if not workflow.patched(DurableAgentWorkflowPatch.REPLACE_RETIRED_MODEL):
+            return
+        # Local: runs on this worker, so it always has the activity.
+        replacement = await workflow.execute_local_activity(
+            resolve_model_replacement_activity,
+            ResolveModelReplacementActivityInput(
+                role=self.role,
+                model_provider=cfg.model_provider,
+                model_name=cfg.model_name,
+                catalog_id=cfg.catalog_id,
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RETRY_POLICIES["activity:fail_slow"],
+        )
+        if replacement is None:
+            return
+        cfg.model_name = replacement.model_name
+        cfg.catalog_id = replacement.catalog_id
+
     async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
         if args.agent_args.preset_slug:
             activity_input = (
@@ -693,6 +715,8 @@ class DurableAgentWorkflow:
                     invalid_agent_configuration()
                 )
             cfg = args.agent_args.config
+            # Idempotent: chat turns send preset configs inline, already swapped.
+            await self._replace_retired_model(cfg)
 
         await self._apply_custom_model_provider_config(cfg)
         return cfg

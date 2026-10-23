@@ -817,6 +817,70 @@ class TestAgentPresetService:
         assert config.model_name == "claude-sonnet-4-5"
         assert config.model_provider == "anthropic"
 
+    async def test_resolve_agent_preset_config_runs_disabled_retired_model_on_replacement(
+        self,
+        session: AsyncSession,
+        svc_organization: Organization,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        retired = AgentCatalog(
+            organization_id=None,
+            custom_provider_id=None,
+            model_provider="openai",
+            model_name="gpt-5.1-codex-max",
+            model_metadata={},
+        )
+        replacement = AgentCatalog(
+            organization_id=None,
+            custom_provider_id=None,
+            model_provider="openai",
+            model_name="gpt-5.6-sol",
+            model_metadata={},
+        )
+        session.add_all([retired, replacement])
+        await session.flush()
+        retired_access = AgentModelAccess(
+            organization_id=svc_organization.id,
+            workspace_id=None,
+            catalog_id=retired.id,
+        )
+        session.add_all(
+            [
+                retired_access,
+                AgentModelAccess(
+                    organization_id=svc_organization.id,
+                    workspace_id=None,
+                    catalog_id=replacement.id,
+                ),
+            ]
+        )
+        await session.commit()
+        preset = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(update={"catalog_id": retired.id})
+        )
+        # The provider retires the model and an admin disables it afterwards.
+        retired.model_metadata = {
+            "lifecycle": {"retires_on": "2000-01-01", "replacement": "gpt-5.6-sol"}
+        }
+        await session.delete(retired_access)
+        await session.commit()
+
+        config = await agent_preset_service.resolve_agent_preset_config(
+            preset_id=preset.id
+        )
+
+        assert (config.model_name, config.catalog_id) == (
+            "gpt-5.6-sol",
+            replacement.id,
+        )
+        stored = await agent_preset_service.get_preset(preset.id)
+        assert stored is not None
+        assert (stored.model_name, stored.catalog_id) == (
+            "gpt-5.1-codex-max",
+            retired.id,
+        )
+
     async def test_update_preset_rejects_catalog_id_excluded_by_workspace_override(
         self,
         session: AsyncSession,

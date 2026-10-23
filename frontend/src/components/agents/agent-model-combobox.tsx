@@ -1,5 +1,6 @@
 "use client"
 
+import { format, parseISO } from "date-fns"
 import { Check, ChevronsUpDown } from "lucide-react"
 import {
   type ComponentPropsWithoutRef,
@@ -7,7 +8,11 @@ import {
   type ReactNode,
   useState,
 } from "react"
-import type { AgentCatalogRead, WorkspaceAgentModelRead } from "@/client"
+import type {
+  AgentCatalogRead,
+  ModelLifecycleRead,
+  WorkspaceAgentModelRead,
+} from "@/client"
 import { LogoTile } from "@/components/agents/agent-preset-rail-primitives"
 import { getModelProviderIconId, ProviderIcon } from "@/components/icons"
 import {
@@ -38,6 +43,7 @@ export interface EnabledModelOption {
   sourceName: string
   sourceType: string
   baseUrl?: string | null
+  lifecycle: ModelLifecycleRead | null
 }
 
 /** Stored fields used to resolve an enabled or legacy model. */
@@ -106,6 +112,7 @@ export function buildEnabledModelOptions(
         sourceName,
         sourceType: getSourceType(model),
         baseUrl: model.custom_provider_base_url ?? null,
+        lifecycle: model.lifecycle ?? null,
       }
     })
     .sort(
@@ -135,6 +142,31 @@ function getProviderDisplayLabel(provider: string): string {
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
       .join(" ")
   )
+}
+
+/**
+ * Short provider-deprecation note for a model, or null while it is current.
+ * A retired model runs on its replacement only when the workspace enables it.
+ */
+export function getModelLifecycleNote(
+  option: EnabledModelOption,
+  options: EnabledModelOption[]
+): string | null {
+  const lifecycle = option.lifecycle
+  if (!lifecycle) return null
+  if (lifecycle.status === "retired") {
+    const { replacement } = lifecycle
+    if (!replacement) return "Retired"
+    const enabled = findEnabledModelOption(
+      options,
+      { modelProvider: option.modelProvider, modelName: replacement },
+      { matchAnySource: true }
+    )
+    return enabled
+      ? `Retired · runs on ${replacement}`
+      : `Retired · enable ${replacement}`
+  }
+  return `Deprecated · retires ${format(parseISO(lifecycle.retires_on), "MMM d, yyyy")}`
 }
 
 function normalizeOptional(value: string | null | undefined) {
@@ -197,6 +229,7 @@ function ModelLabel({
   detail,
   inline = false,
   status,
+  lifecycleNote,
 }: {
   iconId: string
   name: string
@@ -204,6 +237,7 @@ function ModelLabel({
   inline?: boolean
   /** Inline only: a muted note such as "Legacy" after the name. */
   status?: string
+  lifecycleNote?: string | null
 }) {
   if (inline) {
     return (
@@ -221,6 +255,11 @@ function ModelLabel({
         {status ? (
           <span className="shrink-0 text-muted-foreground">{status}</span>
         ) : null}
+        {lifecycleNote ? (
+          <span className="shrink-0 text-muted-foreground">
+            {lifecycleNote}
+          </span>
+        ) : null}
       </span>
     )
   }
@@ -235,6 +274,9 @@ function ModelLabel({
         {name}
       </span>
       <span className="shrink-0 text-muted-foreground">{detail}</span>
+      {lifecycleNote ? (
+        <span className="shrink-0 text-muted-foreground">{lifecycleNote}</span>
+      ) : null}
     </span>
   )
 }
@@ -271,6 +313,7 @@ export const AgentModelCombobox = forwardRef<
         name={selected.displayName}
         detail={selected.sourceName}
         inline={inline}
+        lifecycleNote={getModelLifecycleNote(selected, options)}
       />
     )
   } else if (value.modelProvider && value.modelName) {
@@ -342,36 +385,50 @@ export const AgentModelCombobox = forwardRef<
           <CommandList>
             <CommandEmpty>No models match the search.</CommandEmpty>
             <CommandGroup>
-              {options.map((option) => (
-                <CommandItem
-                  key={modelOptionKey(option)}
-                  value={modelOptionKey(option)}
-                  onSelect={() => {
-                    onChange(option)
-                    setOpen(false)
-                  }}
-                  className="flex items-center gap-2"
-                >
-                  <ProviderIcon
-                    providerId={option.iconId}
-                    className="size-4 shrink-0 rounded-none bg-transparent p-0"
-                  />
-                  <span className="min-w-0 truncate" title={option.displayName}>
-                    {option.displayName}
-                  </span>
-                  <span className="shrink-0 text-[11px] text-muted-foreground">
-                    {option.sourceName}
-                  </span>
-                  <Check
-                    className={cn(
-                      "ml-auto size-4 shrink-0",
-                      selected?.catalogId === option.catalogId
-                        ? "opacity-100"
-                        : "opacity-0"
-                    )}
-                  />
-                </CommandItem>
-              ))}
+              {options.map((option) => {
+                const lifecycleNote = getModelLifecycleNote(option, options)
+                const isSelected = selected?.catalogId === option.catalogId
+                return (
+                  <CommandItem
+                    key={modelOptionKey(option)}
+                    value={modelOptionKey(option)}
+                    // A retired model stays visible while selected, never newly picked.
+                    disabled={
+                      option.lifecycle?.status === "retired" && !isSelected
+                    }
+                    onSelect={() => {
+                      onChange(option)
+                      setOpen(false)
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    <ProviderIcon
+                      providerId={option.iconId}
+                      className="size-4 shrink-0 rounded-none bg-transparent p-0"
+                    />
+                    <span
+                      className="min-w-0 truncate"
+                      title={option.displayName}
+                    >
+                      {option.displayName}
+                    </span>
+                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                      {option.sourceName}
+                    </span>
+                    {lifecycleNote ? (
+                      <span className="shrink-0 text-[11px] text-muted-foreground">
+                        {lifecycleNote}
+                      </span>
+                    ) : null}
+                    <Check
+                      className={cn(
+                        "ml-auto size-4 shrink-0",
+                        isSelected ? "opacity-100" : "opacity-0"
+                      )}
+                    />
+                  </CommandItem>
+                )
+              })}
             </CommandGroup>
           </CommandList>
         </Command>
