@@ -7,6 +7,10 @@ from datetime import date
 
 import pytest
 
+from tracecat.agent.catalog.bundled import (
+    parse_retired_models,
+    read_platform_catalog_document,
+)
 from tracecat.agent.catalog.lifecycle import ModelLifecycle, read_model_lifecycle
 from tracecat.agent.catalog.loader import get_platform_catalog_models
 from tracecat.agent.catalog.schemas import AgentCatalogRead
@@ -101,3 +105,27 @@ def test_bundled_lifecycles_point_at_compatible_current_replacements() -> None:
         ]
         assert not missing, f"{model_name} -> {lifecycle.replacement}: {missing}"
     assert seeded > 0
+
+
+def test_bundled_retired_models_point_at_current_replacements() -> None:
+    current = {
+        (entry.model_provider, entry.model_name): entry.metadata
+        for entry in get_platform_catalog_models()
+    }
+    document = read_platform_catalog_document()
+    retired = parse_retired_models(document)
+
+    # Every raw entry parses, so none is silently dropped.
+    assert len(retired) == len(document.get("retired", []))
+    for key, lifecycle in retired.items():
+        assert key not in current, f"{key.model_name}: still in models"
+        assert lifecycle.status_on() == "retired", key.model_name
+        target = lifecycle.replacement_key(key.model_provider)
+        if target is None:
+            continue
+        # A retired replacement must be repointed to its own successor.
+        replacement = current.get(target)
+        assert replacement is not None, f"{key.model_name}: {target.model_name} gone"
+        assert read_model_lifecycle(replacement) is None, (
+            f"{key.model_name}: {target.model_name} is itself deprecated"
+        )

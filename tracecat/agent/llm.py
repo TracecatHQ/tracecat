@@ -71,10 +71,7 @@ async def complete(
         raise LLMCompletionError(str(e)) from e
     if replacement is not None:
         model_selection = model_selection.model_copy(
-            update={
-                "model_name": replacement.model_name,
-                "catalog_id": replacement.catalog_id,
-            }
+            update=replacement.selection_update()
         )
     try:
         creds = await svc.get_catalog_credentials(model_selection.catalog_id)

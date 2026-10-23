@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
@@ -642,9 +642,9 @@ class DurableAgentWorkflow:
             has_base_url=bool(cfg.base_url),
         )
 
-    async def _replace_retired_model(self, cfg: AgentConfig) -> None:
+    async def _replace_retired_model(self, cfg: AgentConfig) -> AgentConfig:
         if not workflow.patched(DurableAgentWorkflowPatch.REPLACE_RETIRED_MODEL):
-            return
+            return cfg
         # Local: runs on this worker, so it always has the activity.
         replacement = await workflow.execute_local_activity(
             resolve_model_replacement_activity,
@@ -658,9 +658,8 @@ class DurableAgentWorkflow:
             retry_policy=RETRY_POLICIES["activity:fail_slow"],
         )
         if replacement is None:
-            return
-        cfg.model_name = replacement.model_name
-        cfg.catalog_id = replacement.catalog_id
+            return cfg
+        return replace(cfg, **replacement.selection_update())
 
     async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
         if args.agent_args.preset_slug:
@@ -714,9 +713,8 @@ class DurableAgentWorkflow:
                 raise_application_error_from_classification(
                     invalid_agent_configuration()
                 )
-            cfg = args.agent_args.config
             # Idempotent: chat turns send preset configs inline, already swapped.
-            await self._replace_retired_model(cfg)
+            cfg = await self._replace_retired_model(args.agent_args.config)
 
         await self._apply_custom_model_provider_config(cfg)
         return cfg
