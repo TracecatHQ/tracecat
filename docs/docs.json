@@ -81,6 +81,7 @@
               "agents/skills",
               "agents/secrets-variables",
               "agents/human-in-the-loop",
+              "agents/timeouts",
               "agents/channels"
             ]
           },
