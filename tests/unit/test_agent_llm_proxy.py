@@ -89,11 +89,16 @@ class _FakeWriter:
 
 
 class _FailingResponseStream(httpx.AsyncByteStream):
-    def __init__(self, request: httpx.Request) -> None:
+    def __init__(
+        self,
+        request: httpx.Request,
+        error: type[httpx.TransportError] = httpx.ReadError,
+    ) -> None:
         self._request = request
+        self._error = error
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
-        raise httpx.ReadError("provider disconnected", request=self._request)
+        raise self._error("provider disconnected", request=self._request)
         yield b""  # pragma: no cover
 
 
@@ -1890,7 +1895,7 @@ async def test_restart_reports_active_stream_failure(short_socket_path: Path) ->
                 reason_phrase="OK",
                 headers={"Content-Type": "text/event-stream"},
                 body_chunks=_FailingResponseStream(
-                    httpx.Request("POST", "http://example.com")
+                    httpx.Request("POST", "http://example.com"), httpx.ReadTimeout
                 ),
                 path="/v1/messages",
             )
@@ -2317,11 +2322,17 @@ class _CutSSEStream(httpx.AsyncByteStream):
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("error", [httpx.RemoteProtocolError, httpx.ReadError])
-async def test_managed_stream_cut_after_headers_is_stream_interrupted(
+async def test_managed_stream_cut_after_headers_ends_stream_for_runtime_recovery(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     error: type[httpx.TransportError],
 ) -> None:
+    """A managed mid-stream cut is not fatal and reaches the runtime as EOF.
+
+    The Claude Code CLI recovers on its own from a clean EOF (re-stream, or keep
+    completed blocks and continue). The fatal callback would cancel the turn
+    first, and an SSE error event would force a non-streaming fallback.
+    """
     log = Mock()
     monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy.logger", log)
     upstream_request_ids: list[str | None] = []
@@ -2347,23 +2358,19 @@ async def test_managed_stream_cut_after_headers_is_stream_interrupted(
     assert len(upstream_request_ids) == 1
     assert response_text.startswith("HTTP/1.1 200 OK")
     assert response_text.count("HTTP/1.1") == 1
-    assert "event: message_start" in response_text
-    assert "event: error" in response_text
-    # Raw transport text is not source-owned, so neither the runtime nor the
-    # terminal error sees it.
-    assert "peer closed connection" not in response_text
-    assert len(errors) == 1
-    classification = errors[0].classification
-    assert errors[0].message == classification.message
-    assert classification.kind is RuntimeErrorKind.AGENT_LLM_STREAM_INTERRUPTED
-    assert classification.owner is RuntimeErrorOwner.PLATFORM
-    assert classification.retry_disposition is RetryDisposition.RETRYABLE
-    assert classification.cause_type == error.__name__
+    # The forwarded events end cleanly: nothing is appended after the cut.
+    assert response_text.endswith(_SSE_MESSAGE_START.decode())
+    assert "event: error" not in response_text
+    assert errors == []
 
     stream_log = next(
         call
         for call in log.warning.call_args_list
-        if call.args == ("Stream error after headers sent, emitting SSE error event",)
+        if call.args
+        == (
+            "LLM stream interrupted after headers sent, ending stream "
+            "for runtime recovery",
+        )
     )
     trace_request_id = upstream_request_ids[0]
     assert trace_request_id is not None
