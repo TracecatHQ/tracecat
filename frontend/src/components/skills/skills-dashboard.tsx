@@ -4,7 +4,6 @@ import {
   BoxIcon,
   CircleCheck,
   CircleDot,
-  Clock3,
   Copy,
   ExternalLinkIcon,
   FolderIcon,
@@ -39,6 +38,7 @@ import {
   type SkillsViewMode,
 } from "@/components/skills/skills-header"
 import { useSkillAgentFilter } from "@/components/skills/use-skill-agent-filter"
+import { RowTimestamps } from "@/components/timestamps"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -126,25 +126,6 @@ function parseSkillsViewMode(value: string | null): SkillsViewMode {
   return value === "list" ? "list" : "folders"
 }
 
-function getRelativeDateLabel(dateValue: string): string {
-  const timestamp = new Date(dateValue).getTime()
-  if (Number.isNaN(timestamp)) {
-    return "0m"
-  }
-  const diffMs = Math.max(0, Date.now() - timestamp)
-  const minuteMs = 60_000
-  const hourMs = 60 * minuteMs
-  const dayMs = 24 * hourMs
-  const monthMs = 30 * dayMs
-  const yearMs = 365 * dayMs
-
-  if (diffMs < hourMs) return `${Math.max(1, Math.floor(diffMs / minuteMs))}m`
-  if (diffMs < dayMs) return `${Math.max(1, Math.floor(diffMs / hourMs))}hr`
-  if (diffMs < monthMs) return `${Math.max(1, Math.floor(diffMs / dayMs))}d`
-  if (diffMs < yearMs) return `${Math.max(1, Math.floor(diffMs / monthMs))}mo`
-  return `${Math.max(1, Math.floor(diffMs / yearMs))}y`
-}
-
 function compareSkillItems(
   a: SkillDirectoryEntry,
   b: SkillDirectoryEntry,
@@ -210,13 +191,6 @@ function SkillTagPills({ tags }: { tags: TagRead[] }) {
 function SkillMetadataBadges({ item }: { item: SkillDirectoryItem }) {
   return (
     <div className="flex shrink-0 items-center gap-1">
-      <Badge
-        variant="secondary"
-        className="h-5 cursor-default px-2 text-[10px] font-normal"
-      >
-        <Clock3 className="mr-1 size-3" />
-        {getRelativeDateLabel(item.updated_at)}
-      </Badge>
       {item.current_version_id ? (
         <Badge variant="secondary" className="h-5 px-2 text-[10px] font-normal">
           <CircleCheck className="mr-1 size-3" />
@@ -806,6 +780,11 @@ function SkillCatalogRow({
                   <BoxIcon className="mr-1 size-3" />
                   {item.num_items} {itemCountLabel}
                 </Badge>
+                <RowTimestamps
+                  className="ml-auto"
+                  createdAt={item.created_at}
+                  updatedAt={item.updated_at}
+                />
               </div>
             </button>
           </div>
@@ -846,6 +825,10 @@ function SkillCatalogRow({
                   <SkillTagPills tags={item.tags} />
                 ) : null}
               </div>
+              <RowTimestamps
+                createdAt={item.created_at}
+                updatedAt={item.updated_at}
+              />
             </div>
           </button>
         </div>

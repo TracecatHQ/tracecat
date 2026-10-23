@@ -1,6 +1,5 @@
 "use client"
 
-import { format } from "date-fns"
 import {
   AlertTriangleIcon,
   ArrowDownIcon,
@@ -78,6 +77,7 @@ import {
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { ListHeaderSearch } from "@/components/list-header-search"
 import { CenteredSpinner, Spinner } from "@/components/loading/spinner"
+import { RowTimestamps } from "@/components/timestamps"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   AlertDialog,
@@ -837,33 +837,6 @@ function normalizeAgentFolderPath(rawPath: string | null): string {
   return withLeadingSlash.endsWith("/") && withLeadingSlash !== "/"
     ? withLeadingSlash.slice(0, -1)
     : withLeadingSlash
-}
-
-function getAgentRelativeDateLabel(dateValue: string): string {
-  const timestamp = new Date(dateValue).getTime()
-  if (Number.isNaN(timestamp)) {
-    return "0m"
-  }
-  const diffMs = Math.max(0, Date.now() - timestamp)
-  const minuteMs = 60_000
-  const hourMs = 60 * minuteMs
-  const dayMs = 24 * hourMs
-  const monthMs = 30 * dayMs
-  const yearMs = 365 * dayMs
-
-  if (diffMs < hourMs) {
-    return `${Math.max(1, Math.floor(diffMs / minuteMs))}m`
-  }
-  if (diffMs < dayMs) {
-    return `${Math.max(1, Math.floor(diffMs / hourMs))}hr`
-  }
-  if (diffMs < monthMs) {
-    return `${Math.max(1, Math.floor(diffMs / dayMs))}d`
-  }
-  if (diffMs < yearMs) {
-    return `${Math.max(1, Math.floor(diffMs / monthMs))}mo`
-  }
-  return `${Math.max(1, Math.floor(diffMs / yearMs))}y`
 }
 
 function getAgentItemName(item: AgentDirectoryItem): string {
@@ -1825,20 +1798,11 @@ function AgentCatalogRow({
                     <BoxIcon className="mr-1 size-3" />
                     {item.num_items} {itemCountLabel}
                   </Badge>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge
-                        variant="secondary"
-                        className="h-5 shrink-0 cursor-default px-2 text-[10px] font-normal"
-                      >
-                        <Clock3 className="mr-1 size-3" />
-                        {getAgentRelativeDateLabel(item.updated_at)}
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {format(new Date(item.updated_at), "PPpp")}
-                    </TooltipContent>
-                  </Tooltip>
+                  <RowTimestamps
+                    className="ml-1"
+                    createdAt={item.created_at}
+                    updatedAt={item.updated_at}
+                  />
                 </div>
               </div>
             </button>
@@ -1908,24 +1872,14 @@ function AgentCatalogRow({
                       Default
                     </Badge>
                   ) : null}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge
-                        variant="secondary"
-                        className="h-5 shrink-0 cursor-default px-2 text-[10px] font-normal"
-                      >
-                        <Clock3 className="mr-1 size-3" />
-                        {getAgentRelativeDateLabel(item.updated_at)}
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {format(new Date(item.updated_at), "PPpp")}
-                    </TooltipContent>
-                  </Tooltip>
                 </div>
                 {organizationEnabled ? (
                   <AgentPresetTagPills tags={item.tags} />
                 ) : null}
+                <RowTimestamps
+                  createdAt={item.created_at}
+                  updatedAt={item.updated_at}
+                />
               </div>
             </div>
           </button>
