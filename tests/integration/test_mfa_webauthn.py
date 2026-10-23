@@ -538,3 +538,23 @@ async def test_org_admin_can_toggle_policy_only_with_a_key() -> None:
         read = await client.get("/settings/security/mfa")
         # Plain members lack org:settings:read; the route must still be gated.
         assert read.status_code in (200, 403), read.text
+
+
+@pytest.mark.parametrize(
+    ("public_app_url", "expected_origin"),
+    [
+        ("http://localhost:80", "http://localhost"),
+        ("https://App.Example.test:443/", "https://app.example.test"),
+        ("http://localhost:3000", "http://localhost:3000"),
+        ("https://app.example.test:8443", "https://app.example.test:8443"),
+    ],
+)
+def test_relying_party_origin_matches_browser_origin(
+    monkeypatch: pytest.MonkeyPatch, public_app_url: str, expected_origin: str
+) -> None:
+    from tracecat.auth.mfa.webauthn import get_relying_party
+
+    monkeypatch.setattr(config, "TRACECAT__PUBLIC_APP_URL", public_app_url)
+    rp = get_relying_party()
+    assert rp.origin == expected_origin
+    assert rp.id == expected_origin.split("://", 1)[1].split(":", 1)[0]

@@ -67,7 +67,12 @@ def get_relying_party() -> RelyingParty:
         raise WebAuthnUnavailableError(
             "Security keys require Tracecat to be served over HTTPS."
         )
-    origin = f"{parts.scheme}://{parts.netloc.lower()}"
+    # Browsers omit default ports from the origin in clientDataJSON.
+    port = parts.port
+    if port is None or (parts.scheme, port) in {("http", 80), ("https", 443)}:
+        origin = f"{parts.scheme}://{host}"
+    else:
+        origin = f"{parts.scheme}://{host}:{port}"
     return RelyingParty(id=host, name="Tracecat", origin=origin)
 
 
