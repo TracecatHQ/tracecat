@@ -85,7 +85,11 @@ from tracecat.api.common import (
     without_inputs,
 )
 from tracecat.api.lifespan import LifespanTaskSupervisor
-from tracecat.auth.credentials import authenticated_user_only, require_superuser
+from tracecat.auth.credentials import (
+    authenticated_user_only,
+    require_superuser,
+    require_superuser_step_up,
+)
 from tracecat.auth.dependencies import (
     require_any_auth_type_enabled,
     require_workspace_id_path,
@@ -568,17 +572,26 @@ def _include_workspace_scoped_router(app: FastAPI, router: APIRouter) -> None:
     )
 
 
-_SUPERUSER_USER_ROUTE_NAMES = frozenset(
-    {"users:user", "users:patch_user", "users:delete_user"}
+_SUPERUSER_USER_ROUTE_NAMES = frozenset({"users:user"})
+_SUPERUSER_STEP_UP_USER_ROUTE_NAMES = frozenset(
+    {"users:patch_user", "users:delete_user"}
 )
 
 
 def _users_router() -> APIRouter:
-    """fastapi-users router whose superuser-only routes honor the platform admin IP allowlist."""
+    """fastapi-users router whose superuser-only routes honor the platform admin IP allowlist.
+
+    Changing or deleting another user also needs a recent security key
+    verification, like the other privileged platform admin actions.
+    """
     users_router = fastapi_users.get_users_router(UserRead, UserUpdate)
     for route in users_router.routes:
-        if isinstance(route, APIRoute) and route.name in _SUPERUSER_USER_ROUTE_NAMES:
+        if not isinstance(route, APIRoute):
+            continue
+        if route.name in _SUPERUSER_USER_ROUTE_NAMES:
             route.dependencies.append(Depends(require_superuser))
+        elif route.name in _SUPERUSER_STEP_UP_USER_ROUTE_NAMES:
+            route.dependencies.append(Depends(require_superuser_step_up))
     return users_router
 
 

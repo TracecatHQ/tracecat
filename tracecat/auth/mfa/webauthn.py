@@ -117,14 +117,14 @@ async def store_challenge_state(
 async def consume_challenge_state(
     purpose: ChallengePurpose, session_id: uuid.UUID
 ) -> dict[str, Any] | None:
-    """Return and delete ceremony state. Each challenge is usable once."""
+    """Return and delete ceremony state. Each challenge is usable once.
+
+    GETDEL is atomic, so concurrent callers cannot both receive one challenge
+    or consume a newer challenge stored between a read and a delete.
+    """
     client = await get_redis_client()
-    key = _challenge_key(purpose, session_id)
-    raw = await client.get(key)
+    raw = await client.getdel(_challenge_key(purpose, session_id))
     if raw is None:
-        return None
-    # Only the caller whose delete removed the key may use the challenge.
-    if await client.delete(key) != 1:
         return None
     state = orjson.loads(raw)
     return state if isinstance(state, dict) else None

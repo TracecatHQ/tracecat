@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Response, status
 
 from tracecat import config
 from tracecat.audit.service import AuditService
-from tracecat.audit.types import AuditAction
+from tracecat.audit.types import AuditAction, AuditMetadata
 from tracecat.auth.mfa.dependencies import (
     AnyMfaSession,
     MfaSession,
@@ -27,6 +27,7 @@ from tracecat.auth.mfa.policy import (
     user_has_credentials,
 )
 from tracecat.auth.mfa.schemas import (
+    AuthenticationPurpose,
     MfaStatusRead,
     RecoveryCodesRead,
     RecoveryCodeVerify,
@@ -78,6 +79,7 @@ async def _audit(
     *,
     resource_id: uuid.UUID | None = None,
     actor_id: uuid.UUID | None = None,
+    data: AuditMetadata | None = None,
 ) -> None:
     role = Role(type="user", user_id=actor_id or user.id, service_id="tracecat-api")
     try:
@@ -88,6 +90,7 @@ async def _audit(
                 resource_type="security_key",
                 action=action,
                 resource_id=resource_id or user.id,
+                data=data,
                 include_actor_label=False,
             )
     except Exception as exc:
@@ -190,12 +193,21 @@ async def complete_authentication(
     mfa_session: AnyMfaSession, params: WebAuthnAuthenticationVerify
 ) -> MfaStatusRead:
     """Verify a security key. Satisfies both the sign-in challenge and step-up."""
+    purpose: AuthenticationPurpose = (
+        "sign_in" if mfa_session.state.is_pending else "step_up"
+    )
     try:
-        await MfaService(mfa_session.db).complete_authentication(
+        credential = await MfaService(mfa_session.db).complete_authentication(
             mfa_session.user, mfa_session.access_token, params.credential
         )
     except (MfaVerificationError, WebAuthnUnavailableError) as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    await _audit(
+        mfa_session.user,
+        "accept",
+        resource_id=credential.id,
+        data={"operation": purpose, "auth_method": "security_key"},
+    )
     mfa_session.state = SessionMfaState.VERIFIED
     return await get_mfa_status(mfa_session)
 
@@ -214,7 +226,11 @@ async def verify_recovery_code(
         )
     except MfaVerificationError as e:
         raise _verification_failed(e) from e
-    await _audit(mfa_session.user, "accept")
+    await _audit(
+        mfa_session.user,
+        "accept",
+        data={"operation": "sign_in", "auth_method": "recovery_code"},
+    )
     mfa_session.state = SessionMfaState.VERIFIED
     return await get_mfa_status(mfa_session)
 

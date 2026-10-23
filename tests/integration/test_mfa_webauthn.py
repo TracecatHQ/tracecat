@@ -1,4 +1,4 @@
-"""End-to-end MFA flows through the real API, database, and WebAuthn verifier.
+"""End-to-end MFA flows through the real API, database, Redis, and WebAuthn verifier.
 
 A software authenticator signs real WebAuthn responses, so registration and
 assertion go through python-fido2's verification unmodified.
@@ -6,13 +6,16 @@ assertion go through python-fido2's verification unmodified.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import hashlib
 import os
+import re
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any, cast, get_args
 
 import httpx
 import orjson
@@ -31,61 +34,86 @@ from fido2.webauthn import (
 )
 from sqlalchemy import delete, select, update
 
+from tests._route_utils import iter_effective_api_routes
+from tests.database import TEST_DB_CONFIG
+from tests.support.membership import grant_org_membership
 from tracecat import config
 from tracecat.api.app import app
+from tracecat.audit.service import AuditService
+from tracecat.auth.credentials import SuperuserStepUpRole
 from tracecat.auth.mfa import webauthn as mfa_webauthn
-from tracecat.auth.mfa.constants import ORG_MFA_REQUIRED_KEY
+from tracecat.auth.mfa.constants import (
+    MFA_STEP_UP_REQUIRED_CODE,
+    ORG_MFA_REQUIRED_KEY,
+)
 from tracecat.auth.mfa.policy import clear_mfa_policy_cache
+from tracecat.auth.mfa.service import MfaService
 from tracecat.auth.users import SessionMetadataDatabaseStrategy, cookie_transport
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.authz.seeding import seed_system_scopes
+from tracecat.db.engine import (
+    get_async_session_bypass_rls_context_manager,
+    reset_async_engine,
+)
 from tracecat.db.models import (
     AccessToken,
     MfaRecoveryCode,
     Organization,
-    OrganizationMembership,
     OrganizationSetting,
     PlatformSetting,
     User,
     WebAuthnCredential,
 )
+from tracecat.redis.client import RedisClient
 
 pytestmark = pytest.mark.usefixtures("db")
 
 APP_URL = "https://app.example.test"
 RP_ID = "app.example.test"
 PASSWORD = "correct-horse-battery-staple"
+ACTIVE_ORG_COOKIE = "tracecat:active-org-id"
 
+_STEP_UP_DEPENDENCY = get_args(SuperuserStepUpRole)[1].dependency
 
-class _FakeRedis:
-    def __init__(self) -> None:
-        self.data: dict[str, str] = {}
-
-    async def set(
-        self, key: str, value: str, *, expire_seconds: int | None = None
-    ) -> bool:
-        self.data[key] = value
-        return True
-
-    async def get(self, key: str) -> str | None:
-        return self.data.get(key)
-
-    async def delete(self, key: str) -> int:
-        return 1 if self.data.pop(key, None) is not None else 0
+# Mutating platform admin routes that change no customer data, so they skip
+# step-up. Every other mutating /admin route must require it.
+_STEP_UP_EXEMPT_ADMIN_ROUTES = {
+    ("POST", "/admin/maintenance/case-agent-session-interactions/backfill"),
+    ("POST", "/admin/registry/versions/artifacts/backfill"),
+    ("POST", "/admin/settings/audit/test"),
+    ("POST", "/admin/settings/security/ip-allowlist/check"),
+}
 
 
 @pytest.fixture(autouse=True)
-def mfa_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[_FakeRedis]:
-    redis = _FakeRedis()
-
-    async def _get_redis_client() -> _FakeRedis:
-        return redis
-
+def mfa_env(monkeypatch: pytest.MonkeyPatch, env_sandbox: None) -> Iterator[None]:
+    # Each xdist worker has its own database, so platform-wide settings such as
+    # the platform admin MFA policy cannot leak between parallel tests.
+    monkeypatch.setattr(config, "TRACECAT__DB_URI", TEST_DB_CONFIG.test_url_sync)
     monkeypatch.setattr(config, "TRACECAT__PUBLIC_APP_URL", APP_URL)
     monkeypatch.setattr(config, "TRACECAT__PLATFORM_ADMIN_MFA_BYPASS", False)
-    monkeypatch.setattr(mfa_webauthn, "get_redis_client", _get_redis_client)
+    reset_async_engine()
     clear_mfa_policy_cache()
-    yield redis
+    yield
     clear_mfa_policy_cache()
+    reset_async_engine()
+
+
+@pytest.fixture(autouse=True)
+async def close_redis_after_test() -> AsyncIterator[None]:
+    yield
+    await RedisClient().close()
+
+
+@pytest.fixture
+def audit_events(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """Capture audit events instead of delivering them to a webhook."""
+    events: list[dict[str, Any]] = []
+
+    async def _record(self: AuditService, **kwargs: Any) -> None:
+        events.append(kwargs)
+
+    monkeypatch.setattr(AuditService, "create_event", _record)
+    return events
 
 
 class SoftAuthenticator:
@@ -98,9 +126,12 @@ class SoftAuthenticator:
         # Synced passkeys are backup eligible/backed up and keep the counter at 0.
         self.synced = synced
         self.origin = origin
+        self.user_verified = True
 
     def _flags(self, *, attested: bool) -> AuthenticatorData.FLAG:
-        flags = AuthenticatorData.FLAG.UP | AuthenticatorData.FLAG.UV
+        flags = AuthenticatorData.FLAG.UP
+        if self.user_verified:
+            flags |= AuthenticatorData.FLAG.UV
         if self.synced:
             flags |= AuthenticatorData.FLAG.BE | AuthenticatorData.FLAG.BS
         if attested:
@@ -197,16 +228,26 @@ async def _create_user(*, superuser: bool = False) -> User:
         return user
 
 
-async def _create_org(*, members: list[User], mfa_required: bool) -> uuid.UUID:
+async def _create_org(
+    *, members: list[User], mfa_required: bool, admins: list[User] | None = None
+) -> uuid.UUID:
     async with get_async_session_bypass_rls_context_manager() as session:
+        await seed_system_scopes(session)
         org = Organization(
             name="MFA Test Org", slug=f"mfa-{uuid.uuid4().hex[:10]}", is_active=True
         )
         session.add(org)
         await session.flush()
         for member in members:
-            session.add(
-                OrganizationMembership(user_id=member.id, organization_id=org.id)
+            await grant_org_membership(
+                session, user_id=member.id, organization_id=org.id
+            )
+        for admin in admins or []:
+            await grant_org_membership(
+                session,
+                user_id=admin.id,
+                organization_id=org.id,
+                slug="organization-admin",
             )
         session.add(
             OrganizationSetting(
@@ -246,6 +287,14 @@ async def _set_step_up_age(token: str, age: timedelta) -> None:
         await session.commit()
 
 
+async def _credential_count(user: User) -> int:
+    async with get_async_session_bypass_rls_context_manager() as session:
+        result = await session.execute(
+            select(WebAuthnCredential.id).where(WebAuthnCredential.user_id == user.id)
+        )
+        return len(result.scalars().all())
+
+
 async def _register(
     client: httpx.AsyncClient, authenticator: SoftAuthenticator, name: str = "Key"
 ) -> httpx.Response:
@@ -258,16 +307,48 @@ async def _register(
     )
 
 
-async def _assert_key(
-    client: httpx.AsyncClient, authenticator: SoftAuthenticator
-) -> httpx.Response:
+async def _authentication_options(client: httpx.AsyncClient) -> dict[str, Any]:
     options = await client.post("/auth/mfa/webauthn/authenticate/options")
     assert options.status_code == 200, options.text
     public_key = options.json()["public_key"]
     assert public_key["userVerification"] == "required"
+    return public_key
+
+
+async def _verify(
+    client: httpx.AsyncClient, assertion: dict[str, Any]
+) -> httpx.Response:
     return await client.post(
-        "/auth/mfa/webauthn/authenticate/verify",
-        json={"credential": authenticator.get(public_key)},
+        "/auth/mfa/webauthn/authenticate/verify", json={"credential": assertion}
+    )
+
+
+async def _assert_key(
+    client: httpx.AsyncClient, authenticator: SoftAuthenticator
+) -> httpx.Response:
+    public_key = await _authentication_options(client)
+    return await _verify(client, authenticator.get(public_key))
+
+
+def _is_step_up_denial(response: httpx.Response) -> bool:
+    if response.status_code != 403:
+        return False
+    detail = response.json().get("detail")
+    return isinstance(detail, dict) and detail.get("code") == MFA_STEP_UP_REQUIRED_CODE
+
+
+def _depends_on(dependant: Any, call: object) -> bool:
+    return any(
+        sub.call is call or _depends_on(sub, call) for sub in dependant.dependencies
+    )
+
+
+def _mutating_routes() -> list[tuple[str, str, bool]]:
+    """(method, path, requires step-up) for every non-GET API route."""
+    return sorted(
+        (method, route.path, _depends_on(route.dependant, _STEP_UP_DEPENDENCY))
+        for route in iter_effective_api_routes(app)
+        for method in route.methods - {"GET", "HEAD", "OPTIONS"}
     )
 
 
@@ -328,6 +409,54 @@ async def test_org_policy_forces_enrollment_then_challenge_on_next_login() -> No
         verified = await _assert_key(client, hardware_key)
         assert verified.status_code == 200, verified.text
         assert verified.json()["state"] == "verified"
+        assert (await client.get("/users/me")).status_code == 200
+
+
+@pytest.mark.anyio
+async def test_org_admin_toggles_policy_only_with_a_key() -> None:
+    owner = await _create_user()
+    member = await _create_user()
+    org_id = await _create_org(members=[member], admins=[owner], mfa_required=False)
+    owner_token = await _new_session(owner)
+
+    async with _client(await _new_session(member)) as client:
+        client.cookies.set(ACTIVE_ORG_COOKIE, str(org_id))
+        forbidden = await client.patch(
+            "/settings/security/mfa", json={"mfa_required": True}
+        )
+        assert forbidden.status_code == 403, forbidden.text
+
+    async with _client(owner_token) as client:
+        client.cookies.set(ACTIVE_ORG_COOKIE, str(org_id))
+        # The admin must be able to satisfy the policy before enabling it.
+        rejected = await client.patch(
+            "/settings/security/mfa", json={"mfa_required": True}
+        )
+        assert rejected.status_code == 400, rejected.text
+        assert (await _register(client, SoftAuthenticator())).status_code == 201
+        enabled = await client.patch(
+            "/settings/security/mfa", json={"mfa_required": True}
+        )
+        assert enabled.status_code == 200, enabled.text
+        assert enabled.json()["mfa_required"] is True
+        read = await client.get("/settings/security/mfa")
+        assert read.json()["mfa_required"] is True
+
+    async with _client(await _new_session(member)) as client:
+        assert (await client.get("/users/me")).status_code == 401
+        assert (await client.get("/auth/mfa/status")).json()["state"] == (
+            "enrollment_required"
+        )
+
+    async with _client(owner_token) as client:
+        client.cookies.set(ACTIVE_ORG_COOKIE, str(org_id))
+        disabled = await client.patch(
+            "/settings/security/mfa", json={"mfa_required": False}
+        )
+        assert disabled.status_code == 200, disabled.text
+        assert disabled.json()["mfa_required"] is False
+
+    async with _client(await _new_session(member)) as client:
         assert (await client.get("/users/me")).status_code == 200
 
 
@@ -397,8 +526,7 @@ async def test_recovery_code_signs_in_once_but_does_not_satisfy_step_up() -> Non
         denied = await client.patch(
             "/admin/settings/security/mfa", json={"mfa_required": False}
         )
-        assert denied.status_code == 403
-        assert denied.json()["detail"]["code"] == "mfa_step_up_required"
+        assert _is_step_up_denial(denied), denied.text
 
     async with _client(await _new_session(user)) as client:
         reused = await client.post(
@@ -431,8 +559,7 @@ async def test_platform_admin_step_up_window_and_policy() -> None:
         expired = await client.patch(
             "/admin/settings/security/mfa", json={"mfa_required": True}
         )
-        assert expired.status_code == 403
-        assert expired.json()["detail"]["code"] == "mfa_step_up_required"
+        assert _is_step_up_denial(expired), expired.text
         # Read-only admin routes do not need step-up.
         assert (await client.get("/admin/settings/security/mfa")).status_code == 200
 
@@ -451,6 +578,44 @@ async def test_platform_admin_step_up_window_and_policy() -> None:
         assert (await client.get("/auth/mfa/status")).json()["state"] == (
             "enrollment_required"
         )
+
+
+def test_every_mutating_admin_route_requires_step_up() -> None:
+    routes = _mutating_routes()
+    admin_without_step_up = {
+        (method, path)
+        for method, path, step_up in routes
+        if path.startswith("/admin") and not step_up
+    }
+    assert admin_without_step_up == _STEP_UP_EXEMPT_ADMIN_ROUTES
+    # Editing or deleting any user is also a privileged platform admin action.
+    step_up_routes = {(method, path) for method, path, step_up in routes if step_up}
+    assert {("PATCH", "/users/{id}"), ("DELETE", "/users/{id}")} <= step_up_routes
+
+
+@pytest.mark.anyio
+async def test_privileged_admin_routes_reject_a_stale_step_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Organization create and delete sit behind this deployment gate.
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+    step_up_routes = [
+        (method, path) for method, path, step_up in _mutating_routes() if step_up
+    ]
+    admin = await _create_user(superuser=True)
+    token = await _new_session(admin)
+    async with _client(token) as client:
+        assert (await _register(client, SoftAuthenticator())).status_code == 201
+        await _set_step_up_age(token, timedelta(minutes=10))
+        not_enforced: list[tuple[str, str, int]] = []
+        for method, path in step_up_routes:
+            # The step-up dependency runs before path and body validation, so
+            # placeholder IDs and an empty body reach it without side effects.
+            url = re.sub(r"\{[^}]+\}", lambda _: str(uuid.uuid4()), path)
+            response = await client.request(method, url, json={})
+            if not _is_step_up_denial(response):
+                not_enforced.append((method, path, response.status_code))
+    assert not_enforced == []
 
 
 @pytest.mark.anyio
@@ -475,6 +640,26 @@ async def test_break_glass_bypass_skips_admin_mfa(
 
 
 @pytest.mark.anyio
+async def test_break_glass_bypass_keeps_organization_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin = await _create_user(superuser=True)
+    await _create_org(members=[admin], mfa_required=True)
+    key = SoftAuthenticator()
+    async with _client(await _new_session(admin)) as client:
+        assert (await _register(client, key)).status_code == 201
+
+    monkeypatch.setattr(config, "TRACECAT__PLATFORM_ADMIN_MFA_BYPASS", True)
+    async with _client(await _new_session(admin)) as client:
+        assert (await client.get("/users/me")).status_code == 401
+        assert (await client.get("/auth/mfa/status")).json()["state"] == (
+            "challenge_required"
+        )
+        assert (await _assert_key(client, key)).status_code == 200
+        assert (await client.get("/users/me")).status_code == 200
+
+
+@pytest.mark.anyio
 async def test_admin_reset_removes_keys_revokes_sessions_and_requires_step_up() -> None:
     admin = await _create_user(superuser=True)
     admin_key = SoftAuthenticator()
@@ -490,7 +675,7 @@ async def test_admin_reset_removes_keys_revokes_sessions_and_requires_step_up() 
         assert (await _register(client, admin_key)).status_code == 201
         await _set_step_up_age(admin_token, timedelta(minutes=10))
         denied = await client.post(f"/admin/users/{member.id}/mfa/reset")
-        assert denied.status_code == 403
+        assert _is_step_up_denial(denied), denied.text
         assert (await _assert_key(client, admin_key)).status_code == 200
         reset = await client.post(f"/admin/users/{member.id}/mfa/reset")
         assert reset.status_code == 204, reset.text
@@ -498,19 +683,13 @@ async def test_admin_reset_removes_keys_revokes_sessions_and_requires_step_up() 
     async with _client(member_token) as client:
         assert (await client.get("/users/me")).status_code == 401
 
-    async with get_async_session_bypass_rls_context_manager() as session:
-        result = await session.execute(
-            select(WebAuthnCredential).where(WebAuthnCredential.user_id == member.id)
-        )
-        assert result.scalars().all() == []
+    assert await _credential_count(member) == 0
     async with _client(await _new_session(member)) as client:
         assert (await client.get("/users/me")).status_code == 200
 
 
 @pytest.mark.anyio
-async def test_rejects_wrong_origin_rp_and_replayed_challenge(
-    mfa_env: _FakeRedis,
-) -> None:
+async def test_rejects_wrong_origin_rp_and_replayed_registration() -> None:
     user = await _create_user()
     async with _client(await _new_session(user)) as client:
         phishing = SoftAuthenticator(origin="https://app.example.test.evil.example")
@@ -527,6 +706,10 @@ async def test_rejects_wrong_origin_rp_and_replayed_challenge(
             )
         ).status_code == 400
 
+        unverified = SoftAuthenticator()
+        unverified.user_verified = False
+        assert (await _register(client, unverified)).status_code == 400
+
         key = SoftAuthenticator()
         options = (await client.post("/auth/mfa/webauthn/register/options")).json()
         credential = key.create(options["public_key"])
@@ -539,8 +722,149 @@ async def test_rejects_wrong_origin_rp_and_replayed_challenge(
             "/auth/mfa/webauthn/register/verify",
             json={"credential": credential, "name": "Key"},
         )
-        assert replay.status_code in (400, 403)
-        assert not mfa_env.data
+        assert replay.status_code == 400
+    assert await _credential_count(user) == 1
+
+
+@pytest.mark.anyio
+async def test_assertion_without_user_verification_is_rejected() -> None:
+    user = await _create_user()
+    key = SoftAuthenticator()
+    async with _client(await _new_session(user)) as client:
+        assert (await _register(client, key)).status_code == 201
+
+    key.user_verified = False
+    async with _client(await _new_session(user)) as client:
+        assert (await _assert_key(client, key)).status_code == 400
+        assert (await client.get("/users/me")).status_code == 401
+
+
+@pytest.mark.anyio
+async def test_assertion_from_another_users_key_is_rejected() -> None:
+    alice, bob = await _create_user(), await _create_user()
+    alice_key, bob_key = SoftAuthenticator(), SoftAuthenticator()
+    async with _client(await _new_session(alice)) as client:
+        assert (await _register(client, alice_key)).status_code == 201
+    async with _client(await _new_session(bob)) as client:
+        assert (await _register(client, bob_key)).status_code == 201
+
+    async with _client(await _new_session(bob)) as client:
+        assert (await _assert_key(client, alice_key)).status_code == 400
+        assert (await client.get("/users/me")).status_code == 401
+
+
+@pytest.mark.anyio
+async def test_challenge_is_bound_to_the_session_that_requested_it() -> None:
+    user = await _create_user()
+    key = SoftAuthenticator()
+    async with _client(await _new_session(user)) as client:
+        assert (await _register(client, key)).status_code == 201
+
+    first_token, second_token = await _new_session(user), await _new_session(user)
+    async with _client(first_token) as first, _client(second_token) as second:
+        assertion = key.get(await _authentication_options(first))
+        # The second session has no ceremony of its own.
+        assert (await _verify(second, assertion)).status_code == 400
+        # Its own ceremony uses a different challenge.
+        await _authentication_options(second)
+        assert (await _verify(second, assertion)).status_code == 400
+        assert (await second.get("/users/me")).status_code == 401
+
+        assert (await _verify(first, assertion)).status_code == 200
+        assert (await first.get("/users/me")).status_code == 200
+
+
+@pytest.mark.anyio
+async def test_signature_counter_regression_is_rejected() -> None:
+    user = await _create_user()
+    key = SoftAuthenticator()
+    async with _client(await _new_session(user)) as client:
+        assert (await _register(client, key)).status_code == 201
+    async with _client(await _new_session(user)) as client:
+        assert (await _assert_key(client, key)).status_code == 200
+
+    # A cloned authenticator replays an older counter value.
+    key.counter = 0
+    async with _client(await _new_session(user)) as client:
+        assert (await _assert_key(client, key)).status_code == 400
+        assert (await client.get("/users/me")).status_code == 401
+
+
+@pytest.mark.anyio
+async def test_authentication_challenge_expires(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = await _create_user()
+    key = SoftAuthenticator()
+    async with _client(await _new_session(user)) as client:
+        assert (await _register(client, key)).status_code == 201
+
+    monkeypatch.setattr(mfa_webauthn, "CHALLENGE_TTL_SECONDS", 1)
+    async with _client(await _new_session(user)) as client:
+        public_key = await _authentication_options(client)
+        await asyncio.sleep(1.5)
+        expired = await _verify(client, key.get(public_key))
+        assert expired.status_code == 400
+        assert expired.json()["detail"] == "Verification expired. Try again."
+        assert (await client.get("/users/me")).status_code == 401
+
+
+@pytest.mark.anyio
+async def test_concurrent_submissions_of_one_assertion_verify_once() -> None:
+    user = await _create_user()
+    # Synced passkeys keep a zero counter, so only challenge consumption stops
+    # the same assertion from verifying twice.
+    passkey = SoftAuthenticator(synced=True)
+    async with _client(await _new_session(user)) as client:
+        assert (await _register(client, passkey)).status_code == 201
+
+    async with _client(await _new_session(user)) as client:
+        assertion = passkey.get(await _authentication_options(client))
+        responses = await asyncio.gather(
+            *(_verify(client, assertion) for _ in range(4))
+        )
+    assert sorted(r.status_code for r in responses) == [200, 400, 400, 400]
+
+
+@pytest.mark.anyio
+async def test_slow_consumer_cannot_take_a_newer_challenge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = await _create_user()
+    passkey = SoftAuthenticator(synced=True)
+    async with _client(await _new_session(user)) as client:
+        assert (await _register(client, passkey)).status_code == 201
+
+    # Delay the first verification after its Redis read returns, until the
+    # same session has started a newer ceremony.
+    read_returned, newer_stored = asyncio.Event(), asyncio.Event()
+
+    def delay_first_challenge_read(read: Any) -> Any:
+        async def _read(self: RedisClient, key: str) -> str | None:
+            value = await read(self, key)
+            if key.startswith("mfa:webauthn:authenticate:") and not (
+                read_returned.is_set()
+            ):
+                read_returned.set()
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(newer_stored.wait(), timeout=2)
+            return value
+
+        return _read
+
+    monkeypatch.setattr(RedisClient, "get", delay_first_challenge_read(RedisClient.get))
+    monkeypatch.setattr(
+        RedisClient, "getdel", delay_first_challenge_read(RedisClient.getdel)
+    )
+    async with _client(await _new_session(user)) as client:
+        stale = passkey.get(await _authentication_options(client))
+        slow = asyncio.create_task(_verify(client, stale))
+        await asyncio.wait_for(read_returned.wait(), timeout=2)
+        newer = await _authentication_options(client)
+        newer_stored.set()
+        assert (await slow).status_code == 200
+        # The slow request consumed only its own challenge.
+        assert (await _verify(client, passkey.get(newer))).status_code == 200
 
 
 @pytest.mark.anyio
@@ -557,14 +881,83 @@ async def test_cannot_remove_last_key_when_policy_requires_it() -> None:
 
 
 @pytest.mark.anyio
-async def test_org_admin_can_toggle_policy_only_with_a_key() -> None:
+async def test_concurrent_deletions_keep_the_last_required_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     user = await _create_user()
-    org_id = await _create_org(members=[user], mfa_required=False)
+    await _create_org(members=[user], mfa_required=True)
     async with _client(await _new_session(user)) as client:
-        client.cookies.set("tracecat:active-org-id", str(org_id))
-        read = await client.get("/settings/security/mfa")
-        # Plain members lack org:settings:read; the route must still be gated.
-        assert read.status_code in (200, 403), read.text
+        first = (await _register(client, SoftAuthenticator())).json()["credential"]
+        second = (await _register(client, SoftAuthenticator())).json()["credential"]
+
+        # Hold each deletion after it counts keys until the other one has
+        # counted too (or a second passes). Without per-user serialization both
+        # see two keys and both delete.
+        count_credentials = MfaService.count_credentials
+        counted = 0
+        both_counted = asyncio.Event()
+
+        async def count_after_peer(self: MfaService, user_id: uuid.UUID) -> int:
+            nonlocal counted
+            counted += 1
+            if counted >= 2:
+                both_counted.set()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(both_counted.wait(), timeout=1)
+            return await count_credentials(self, user_id)
+
+        monkeypatch.setattr(MfaService, "count_credentials", count_after_peer)
+        responses = await asyncio.gather(
+            client.delete(f"/auth/mfa/credentials/{first['id']}"),
+            client.delete(f"/auth/mfa/credentials/{second['id']}"),
+        )
+    assert sorted(r.status_code for r in responses) == [204, 400]
+    assert await _credential_count(user) == 1
+
+
+@pytest.mark.anyio
+async def test_security_key_and_recovery_code_use_is_audited(
+    audit_events: list[dict[str, Any]],
+) -> None:
+    user = await _create_user()
+    key = SoftAuthenticator()
+    async with _client(await _new_session(user)) as client:
+        registered = (await _register(client, key)).json()
+    credential_id = uuid.UUID(registered["credential"]["id"])
+
+    async with _client(await _new_session(user)) as client:
+        assert (await _assert_key(client, key)).status_code == 200
+        # A second verification on a signed-in session is a step-up.
+        assert (await _assert_key(client, key)).status_code == 200
+    async with _client(await _new_session(user)) as client:
+        used = await client.post(
+            "/auth/mfa/recovery-codes/verify",
+            json={"code": registered["recovery_codes"][0]},
+        )
+        assert used.status_code == 200, used.text
+
+    accepted = [
+        (event["resource_type"], event["resource_id"], event["data"])
+        for event in audit_events
+        if event["action"] == "accept"
+    ]
+    assert accepted == [
+        (
+            "security_key",
+            credential_id,
+            {"operation": "sign_in", "auth_method": "security_key"},
+        ),
+        (
+            "security_key",
+            credential_id,
+            {"operation": "step_up", "auth_method": "security_key"},
+        ),
+        (
+            "security_key",
+            user.id,
+            {"operation": "sign_in", "auth_method": "recovery_code"},
+        ),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -579,9 +972,7 @@ async def test_org_admin_can_toggle_policy_only_with_a_key() -> None:
 def test_relying_party_origin_matches_browser_origin(
     monkeypatch: pytest.MonkeyPatch, public_app_url: str, expected_origin: str
 ) -> None:
-    from tracecat.auth.mfa.webauthn import get_relying_party
-
     monkeypatch.setattr(config, "TRACECAT__PUBLIC_APP_URL", public_app_url)
-    rp = get_relying_party()
+    rp = mfa_webauthn.get_relying_party()
     assert rp.origin == expected_origin
     assert rp.id == expected_origin.split("://", 1)[1].split(":", 1)[0]

@@ -1485,6 +1485,8 @@ async def _require_superuser_step_up(
     return role
 
 
+require_superuser_step_up = _require_superuser_step_up
+
 SuperuserStepUpRole = Annotated[PlatformRole, Depends(_require_superuser_step_up)]
 """``SuperuserRole`` plus a security key verification within the step-up window."""
 

@@ -102,6 +102,14 @@ def clear_mfa_policy_cache() -> None:
     _user_organization_ids.cache_clear()
 
 
+async def _org_policy_requires_mfa(user_id: uuid.UUID) -> bool:
+    """Whether any organization ``user_id`` belongs to requires a security key."""
+    for organization_id in await _user_organization_ids(user_id):
+        if await org_requires_mfa(organization_id):
+            return True
+    return False
+
+
 async def mfa_required_by_policy(user: User) -> bool:
     """Whether any policy applying to ``user`` requires a security key.
 
@@ -110,10 +118,7 @@ async def mfa_required_by_policy(user: User) -> bool:
     """
     if user.is_superuser and await platform_admin_requires_mfa():
         return True
-    for organization_id in await _user_organization_ids(user.id):
-        if await org_requires_mfa(organization_id):
-            return True
-    return False
+    return await _org_policy_requires_mfa(user.id)
 
 
 def platform_admin_mfa_bypassed(user: User) -> bool:
@@ -132,7 +137,11 @@ async def get_session_mfa_state(
 ) -> SessionMfaState:
     if access_token.mfa_verified_at is not None:
         return SessionMfaState.VERIFIED
-    if platform_admin_mfa_bypassed(user):
+    # Break-glass covers platform admin MFA only: a superuser whose
+    # organization requires a security key still has to use one.
+    if platform_admin_mfa_bypassed(user) and not await _org_policy_requires_mfa(
+        user.id
+    ):
         return SessionMfaState.NOT_REQUIRED
     if await user_has_credentials(session, user.id):
         return SessionMfaState.CHALLENGE_REQUIRED

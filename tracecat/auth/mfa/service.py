@@ -110,6 +110,20 @@ class MfaService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    async def _lock_user(self, user_id: uuid.UUID) -> None:
+        """Serialize security key and recovery code changes for one user.
+
+        The user row lock is held until the transaction ends, so concurrent
+        requests cannot both pass a credential count check (for example, two
+        deletions each leaving "one" key).
+        """
+        user_id_column = cast(Any, User.id)
+        await self.session.execute(
+            select(user_id_column)
+            .where(user_id_column == user_id)
+            .with_for_update(key_share=True)
+        )
+
     # --- Credentials ---
 
     async def list_credentials(self, user_id: uuid.UUID) -> list[WebAuthnCredential]:
@@ -155,6 +169,7 @@ class MfaService:
         Removing the last key also removes recovery codes, since they only
         exist to recover access to an enrolled account.
         """
+        await self._lock_user(user_id)
         credential = await self.get_credential(user_id, credential_id)
         remaining = await self.count_credentials(user_id) - 1
         if remaining == 0 and not allow_last:
@@ -183,6 +198,7 @@ class MfaService:
         Sessions are revoked so an already verified session cannot outlive the
         keys that verified it.
         """
+        await self._lock_user(user_id)
         result = await self.session.execute(
             delete(WebAuthnCredential).where(WebAuthnCredential.user_id == user_id)
         )
@@ -239,7 +255,13 @@ class MfaService:
         if credential_data is None:
             raise MfaVerificationError("Security key registration failed.")
 
-        is_first = await self.count_credentials(user.id) == 0
+        await self._lock_user(user.id)
+        count = await self.count_credentials(user.id)
+        if count >= MAX_CREDENTIALS_PER_USER:
+            raise MfaVerificationError(
+                f"You can register at most {MAX_CREDENTIALS_PER_USER} security keys."
+            )
+        is_first = count == 0
         duplicate = await self.session.execute(
             select(WebAuthnCredential.id).where(
                 WebAuthnCredential.credential_id == credential_data.credential_id
@@ -339,6 +361,7 @@ class MfaService:
         return int(result.scalar_one())
 
     async def regenerate_recovery_codes(self, user_id: uuid.UUID) -> list[str]:
+        await self._lock_user(user_id)
         if await self.count_credentials(user_id) == 0:
             raise MfaVerificationError(
                 "Add a security key before generating recovery codes."
