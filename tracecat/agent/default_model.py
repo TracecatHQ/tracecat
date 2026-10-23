@@ -1,6 +1,7 @@
 """Shared read-only resolution of the organization's saved default model."""
 
 from collections.abc import Sequence
+from typing import NamedTuple
 from uuid import UUID
 
 from sqlalchemy import or_, select
@@ -9,6 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.agent.catalog.schemas import AgentCatalogRead
 from tracecat.db.models import AgentCatalog, AgentModelAccess, OrganizationSetting
 from tracecat.settings.service import _deserialize_setting_value
+
+DEFAULT_MODEL_SETTING_KEY = "agent_default_model"
+DEFAULT_MODEL_CATALOG_ID_SETTING_KEY = "agent_default_model_catalog_id"
+
+
+class SavedDefaultModels(NamedTuple):
+    catalog_ids: set[UUID]
+    model_names: set[str]
 
 
 async def _read_string_setting(
@@ -30,7 +39,9 @@ async def read_default_model_name(
     session: AsyncSession, organization_id: UUID
 ) -> str | None:
     """Read the legacy name used when no valid catalog ID is saved."""
-    return await _read_string_setting(session, organization_id, "agent_default_model")
+    return await _read_string_setting(
+        session, organization_id, DEFAULT_MODEL_SETTING_KEY
+    )
 
 
 async def read_default_model_catalog_id(
@@ -38,7 +49,7 @@ async def read_default_model_catalog_id(
 ) -> UUID | None:
     """Read a valid catalog ID; malformed IDs allow legacy-name resolution."""
     value = await _read_string_setting(
-        session, organization_id, "agent_default_model_catalog_id"
+        session, organization_id, DEFAULT_MODEL_CATALOG_ID_SETTING_KEY
     )
     if value is None:
         return None
@@ -48,9 +59,7 @@ async def read_default_model_catalog_id(
         return None
 
 
-async def list_saved_default_models(
-    session: AsyncSession,
-) -> tuple[set[UUID], set[str]]:
+async def list_saved_default_models(session: AsyncSession) -> SavedDefaultModels:
     """Return every organization's saved default catalog IDs and legacy names.
 
     Sees every organization only on a bypass-RLS session; under RLS it
@@ -59,24 +68,23 @@ async def list_saved_default_models(
     settings = await session.scalars(
         select(OrganizationSetting).where(
             OrganizationSetting.key.in_(
-                ("agent_default_model_catalog_id", "agent_default_model")
+                (DEFAULT_MODEL_CATALOG_ID_SETTING_KEY, DEFAULT_MODEL_SETTING_KEY)
             )
         )
     )
-    catalog_ids: set[UUID] = set()
-    model_names: set[str] = set()
+    saved = SavedDefaultModels(catalog_ids=set(), model_names=set())
     for setting in settings:
         value = _deserialize_setting_value(setting)
         if not isinstance(value, str) or not value:
             continue
-        if setting.key == "agent_default_model":
-            model_names.add(value)
+        if setting.key == DEFAULT_MODEL_SETTING_KEY:
+            saved.model_names.add(value)
             continue
         try:
-            catalog_ids.add(UUID(value))
+            saved.catalog_ids.add(UUID(value))
         except ValueError:
             continue
-    return catalog_ids, model_names
+    return saved
 
 
 def resolve_legacy_default_model(
