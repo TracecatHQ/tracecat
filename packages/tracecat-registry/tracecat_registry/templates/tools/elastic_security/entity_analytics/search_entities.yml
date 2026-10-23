@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Search entities
-  description: Search Elastic Entity Store records for investigation context, including entity risk and asset data.
+  description: Search Elastic Entity Store records for investigation context, including entity risk and asset data. On Kibana 8.18 to 9.3, set `use_legacy_endpoint` to true.
   display_group: Elastic Security
   doc_url: https://www.elastic.co/docs/api/doc/kibana/operation/operation-get-security-entity-store-entities
   namespace: tools.elastic_security
@@ -54,6 +54,10 @@ definition:
       type: list[str] | None
       description: "Entity types to include in the results. Possible values: user, host, service, generic."
       default: null
+    use_legacy_endpoint:
+      type: bool
+      description: "Set to true on Kibana 8.18 to 9.3, which serve this list at GET /api/entity_store/entities/list (Kibana 9.4+ uses /api/security/entity_store/entities). The legacy endpoint requires `entity_types` and only accepts `sort_field`, `sort_order`, `page`, `per_page`, and `filterQuery`."
+      default: false
     base_url:
       type: str | None
       description: Kibana base URL (e.g. https://localhost:5601).
@@ -72,11 +76,15 @@ definition:
       args:
         inputs:
           space_id: ${{ inputs.space_id }}
+          use_legacy_endpoint: ${{ inputs.use_legacy_endpoint }}
         script: |
           from urllib.parse import quote
 
-          def main(space_id):
-              path = "/api/security/entity_store/entities"
+          def main(space_id, use_legacy_endpoint):
+              if use_legacy_endpoint:
+                  path = "/api/entity_store/entities/list"
+              else:
+                  path = "/api/security/entity_store/entities"
               if space_id:
                   return f"/s/{quote(space_id, safe='')}{path}"
               return path

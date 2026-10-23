@@ -77,6 +77,66 @@ Default: `true`.
 
 </ParamField>
 
+## Assign attack users
+
+Action ID: `tools.elastic_security.assign_attack_users`
+
+Assign or unassign users on Attack Discovery attack alerts. Requires Kibana 9.5+.
+
+Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-setattacksassignees](https://www.elastic.co/docs/api/doc/kibana/operation/operation-setattacksassignees)
+
+### Secrets
+
+Required secrets:
+
+- `elastic_security`: required values `ELASTIC_API_KEY`.
+
+### Input fields
+
+<ParamField path="assignees" type="object" required>
+
+Object with `add` and `remove`, each a list of user profile UIDs.
+
+</ParamField>
+
+<ParamField path="ids" type="array[string]" required>
+
+A list of attack alert `id`s.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Kibana base URL (e.g. https://localhost:5601).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="update_related_alerts" type="boolean">
+
+When `true`, the change is also applied to detection alerts related to the attacks.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Whether to verify SSL certificates.
+
+Default: `true`.
+
+</ParamField>
+
 ## Assign detection alert users
 
 Action ID: `tools.elastic_security.assign_detection_alert_users`
@@ -187,7 +247,7 @@ Default: `true`.
 
 Action ID: `tools.elastic_security.cancel_response_action`
 
-Cancel an Elastic Endpoint response action.
+Cancel an Elastic Endpoint response action. Requires Kibana 9.2+.
 
 Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-cancelaction](https://www.elastic.co/docs/api/doc/kibana/operation/operation-cancelaction)
 
@@ -279,7 +339,7 @@ Default: `true`.
 
 Action ID: `tools.elastic_security.create_endpoint_script`
 
-Create a script in the Elastic Endpoint response script library.
+Create a script in the Elastic Endpoint response script library. Requires Kibana 9.4+.
 
 Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-endpointscriptlibrarycreatescript](https://www.elastic.co/docs/api/doc/kibana/operation/operation-endpointscriptlibrarycreatescript)
 
@@ -433,6 +493,246 @@ Default: `true`.
 
 </ParamField>
 
+## Create or update note
+
+Action ID: `tools.elastic_security.create_or_update_note`
+
+Add a note to an alert/event or Timeline, or update an existing note.
+
+Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-persistnoteroute](https://www.elastic.co/docs/api/doc/kibana/operation/operation-persistnoteroute)
+
+### Secrets
+
+Required secrets:
+
+- `elastic_security`: required values `ELASTIC_API_KEY`.
+
+### Input fields
+
+<ParamField path="payload" type="object" required>
+
+API-native JSON request body. Requires `note` (e.g. `note` text, `eventId` for an alert/event, `timelineId`); pass `noteId` and `version` to update an existing note.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Kibana base URL (e.g. https://localhost:5601).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Whether to verify SSL certificates.
+
+Default: `true`.
+
+</ParamField>
+
+## Create timeline
+
+Action ID: `tools.elastic_security.create_timeline`
+
+Create an Elastic Security Timeline or Timeline template.
+
+Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-createtimelines](https://www.elastic.co/docs/api/doc/kibana/operation/operation-createtimelines)
+
+### Secrets
+
+Required secrets:
+
+- `elastic_security`: required values `ELASTIC_API_KEY`.
+
+### Input fields
+
+<ParamField path="payload" type="object" required>
+
+API-native JSON request body. Requires `timeline` (e.g. `title`, `description`, `dataProviders`, `kqlQuery`, `dateRange`); optional `status`, `timelineId`, `timelineType`, `templateTimelineId`, `templateTimelineVersion`, `version`.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Kibana base URL (e.g. https://localhost:5601).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Whether to verify SSL certificates.
+
+Default: `true`.
+
+</ParamField>
+
+## Create value list
+
+Action ID: `tools.elastic_security.create_value_list`
+
+Create an Elastic Security value list, e.g. an IP or keyword blocklist referenced by exception items.
+
+Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-createlist](https://www.elastic.co/docs/api/doc/kibana/operation/operation-createlist)
+
+### Secrets
+
+Required secrets:
+
+- `elastic_security`: required values `ELASTIC_API_KEY`.
+
+### Input fields
+
+<ParamField path="payload" type="object" required>
+
+API-native JSON request body. Requires `name`, `description`, and `type` (e.g. `ip`, `ip_range`, `keyword`, `text`); optional `id`, `meta`, `version`.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Kibana base URL (e.g. https://localhost:5601).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Whether to verify SSL certificates.
+
+Default: `true`.
+
+</ParamField>
+
+## Create value list item
+
+Action ID: `tools.elastic_security.create_value_list_item`
+
+Add a value (e.g. an IOC) to an Elastic Security value list.
+
+Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-createlistitem](https://www.elastic.co/docs/api/doc/kibana/operation/operation-createlistitem)
+
+### Secrets
+
+Required secrets:
+
+- `elastic_security`: required values `ELASTIC_API_KEY`.
+
+### Input fields
+
+<ParamField path="payload" type="object" required>
+
+API-native JSON request body. Requires `list_id` and `value`; optional `id`, `meta`, and `refresh` (`true`, `false`, or `wait_for`).
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Kibana base URL (e.g. https://localhost:5601).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Whether to verify SSL certificates.
+
+Default: `true`.
+
+</ParamField>
+
+## Delete detection rule
+
+Action ID: `tools.elastic_security.delete_detection_rule`
+
+Delete an Elastic Security detection rule by `id` or `rule_id`.
+
+Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-deleterule](https://www.elastic.co/docs/api/doc/kibana/operation/operation-deleterule)
+
+### Secrets
+
+Required secrets:
+
+- `elastic_security`: required values `ELASTIC_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Kibana base URL (e.g. https://localhost:5601).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="id" type="string | null">
+
+The rule's `id` value. Required if `rule_id` is not specified.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="rule_id" type="string | null">
+
+The rule's `rule_id` value. Required if `id` is not specified.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Whether to verify SSL certificates.
+
+Default: `true`.
+
+</ParamField>
+
 ## Delete exception list item
 
 Action ID: `tools.elastic_security.delete_exception_list_item`
@@ -484,6 +784,78 @@ Default: `null`.
 <ParamField path="space_id" type="string | null">
 
 Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Whether to verify SSL certificates.
+
+Default: `true`.
+
+</ParamField>
+
+## Delete value list item
+
+Action ID: `tools.elastic_security.delete_value_list_item`
+
+Delete an Elastic Security value list item by `id`, or by `list_id` and `value`.
+
+Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-deletelistitem](https://www.elastic.co/docs/api/doc/kibana/operation/operation-deletelistitem)
+
+### Secrets
+
+Required secrets:
+
+- `elastic_security`: required values `ELASTIC_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Kibana base URL (e.g. https://localhost:5601).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="id" type="string | null">
+
+Value list item identifier. Required if `list_id` and `value` are not specified.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="list_id" type="string | null">
+
+Value list `id`. Required if `id` is not specified.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="refresh" type="string | null">
+
+Determines when changes are visible to search. Possible values: true, false, wait_for.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="value" type="string | null">
+
+The item value. Required if `id` is not specified.
 
 Default: `null`.
 
@@ -615,7 +987,7 @@ Default: `true`.
 
 Action ID: `tools.elastic_security.generate_endpoint_memory_dump`
 
-Generate a memory dump on an Elastic Endpoint.
+Generate a memory dump on an Elastic Endpoint. Requires Kibana 9.3+.
 
 Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-endpointgeneratememorydump](https://www.elastic.co/docs/api/doc/kibana/operation/operation-endpointgeneratememorydump)
 
@@ -636,6 +1008,62 @@ API-native request body. Documented fields: endpoint_ids (required), parameters 
 <ParamField path="base_url" type="string | null">
 
 Kibana base URL (e.g. https://localhost:5601).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Whether to verify SSL certificates.
+
+Default: `true`.
+
+</ParamField>
+
+## Get detection rule
+
+Action ID: `tools.elastic_security.get_detection_rule`
+
+Get an Elastic Security detection rule by `id` or `rule_id`.
+
+Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-readrule](https://www.elastic.co/docs/api/doc/kibana/operation/operation-readrule)
+
+### Secrets
+
+Required secrets:
+
+- `elastic_security`: required values `ELASTIC_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Kibana base URL (e.g. https://localhost:5601).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="id" type="string | null">
+
+The rule's `id` value. Required if `rule_id` is not specified.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="rule_id" type="string | null">
+
+The rule's `rule_id` value. Required if `id` is not specified.
 
 Default: `null`.
 
@@ -795,6 +1223,144 @@ Default: `true`.
 
 </ParamField>
 
+## Get osquery live query
+
+Action ID: `tools.elastic_security.get_osquery_live_query`
+
+Get an osquery live query's details, including the action ID of each query in the pack, to use with get_osquery_live_query_results.
+
+Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-osquerygetlivequerydetails](https://www.elastic.co/docs/api/doc/kibana/operation/operation-osquerygetlivequerydetails)
+
+### Secrets
+
+Required secrets:
+
+- `elastic_security`: required values `ELASTIC_API_KEY`.
+
+### Input fields
+
+<ParamField path="id" type="string" required>
+
+The ID of the live query.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Kibana base URL (e.g. https://localhost:5601).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Whether to verify SSL certificates.
+
+Default: `true`.
+
+</ParamField>
+
+## Get osquery live query results
+
+Action ID: `tools.elastic_security.get_osquery_live_query_results`
+
+Get the result rows of one query in an osquery live query. One page per call.
+
+Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-osquerygetlivequeryresults](https://www.elastic.co/docs/api/doc/kibana/operation/operation-osquerygetlivequeryresults)
+
+### Secrets
+
+Required secrets:
+
+- `elastic_security`: required values `ELASTIC_API_KEY`.
+
+### Input fields
+
+<ParamField path="action_id" type="string" required>
+
+The ID of the query action (`queries[].action_id` from get_osquery_live_query).
+
+</ParamField>
+
+<ParamField path="id" type="string" required>
+
+The ID of the live query.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Kibana base URL (e.g. https://localhost:5601).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="kuery" type="string | null">
+
+A KQL search string to filter results.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number to return.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page_size" type="integer | null">
+
+The number of results to return per page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The field to sort results by.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_order" type="string | null">
+
+The sort order. Possible values: asc, desc.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Whether to verify SSL certificates.
+
+Default: `true`.
+
+</ParamField>
+
 ## Get response action
 
 Action ID: `tools.elastic_security.get_response_action`
@@ -880,6 +1446,172 @@ Default: `null`.
 <ParamField path="space_id" type="string | null">
 
 Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Whether to verify SSL certificates.
+
+Default: `true`.
+
+</ParamField>
+
+## Get timeline
+
+Action ID: `tools.elastic_security.get_timeline`
+
+Get an Elastic Security Timeline by `id`, or a Timeline template by `template_timeline_id`.
+
+Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-gettimeline](https://www.elastic.co/docs/api/doc/kibana/operation/operation-gettimeline)
+
+### Secrets
+
+Required secrets:
+
+- `elastic_security`: required values `ELASTIC_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Kibana base URL (e.g. https://localhost:5601).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="id" type="string | null">
+
+The `savedObjectId` of the Timeline to retrieve.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="template_timeline_id" type="string | null">
+
+The `savedObjectId` of the Timeline template to retrieve.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Whether to verify SSL certificates.
+
+Default: `true`.
+
+</ParamField>
+
+## Get value list
+
+Action ID: `tools.elastic_security.get_value_list`
+
+Get an Elastic Security value list by ID.
+
+Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-readlist](https://www.elastic.co/docs/api/doc/kibana/operation/operation-readlist)
+
+### Secrets
+
+Required secrets:
+
+- `elastic_security`: required values `ELASTIC_API_KEY`.
+
+### Input fields
+
+<ParamField path="id" type="string" required>
+
+Value list identifier (`id`) returned when the list was created.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Kibana base URL (e.g. https://localhost:5601).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Whether to verify SSL certificates.
+
+Default: `true`.
+
+</ParamField>
+
+## Get value list item
+
+Action ID: `tools.elastic_security.get_value_list_item`
+
+Get an Elastic Security value list item by `id`, or by `list_id` and `value`.
+
+Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-readlistitem](https://www.elastic.co/docs/api/doc/kibana/operation/operation-readlistitem)
+
+### Secrets
+
+Required secrets:
+
+- `elastic_security`: required values `ELASTIC_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Kibana base URL (e.g. https://localhost:5601).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="id" type="string | null">
+
+Value list item identifier. Required if `list_id` and `value` are not specified.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="list_id" type="string | null">
+
+Value list `id`. Required if `id` is not specified.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="value" type="string | null">
+
+The item value. Required if `id` is not specified.
 
 Default: `null`.
 
@@ -1149,7 +1881,7 @@ Default: `true`.
 
 Action ID: `tools.elastic_security.list_endpoint_scripts`
 
-List scripts in the Elastic Endpoint response script library.
+List scripts in the Elastic Endpoint response script library. Requires Kibana 9.3+.
 
 Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-endpointscriptlibrarylistscripts](https://www.elastic.co/docs/api/doc/kibana/operation/operation-endpointscriptlibrarylistscripts)
 
@@ -1501,6 +2233,126 @@ Default: `true`.
 
 </ParamField>
 
+## List notes
+
+Action ID: `tools.elastic_security.list_notes`
+
+List Elastic Security notes, or get the notes attached to specific alerts/events or Timelines.
+
+Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-getnotes](https://www.elastic.co/docs/api/doc/kibana/operation/operation-getnotes)
+
+### Secrets
+
+Required secrets:
+
+- `elastic_security`: required values `ELASTIC_API_KEY`.
+
+### Input fields
+
+<ParamField path="associated_filter" type="string | null">
+
+How notes relate to a Timeline and/or event (list mode only). Possible values: all, document_only, saved_object_only, document_and_saved_object, orphan.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Kibana base URL (e.g. https://localhost:5601).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="created_by_filter" type="string | null">
+
+Kibana user profile UID of the note author (list mode only).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="document_ids" type="array[string] | null">
+
+Event/alert document `_id` values whose notes to return.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filter" type="string | null">
+
+KQL filter string (list mode only).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+Page number (list mode only).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+Page size (list mode only).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="saved_object_ids" type="array[string] | null">
+
+Timeline `savedObjectId` values whose notes to return.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search" type="string | null">
+
+Search string (list mode only).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_field" type="string | null">
+
+Field to sort by (list mode only).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_order" type="string | null">
+
+Possible values: asc, desc (list mode only).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Whether to verify SSL certificates.
+
+Default: `true`.
+
+</ParamField>
+
 ## List response actions
 
 Action ID: `tools.elastic_security.list_response_actions`
@@ -1618,6 +2470,292 @@ Default: `true`.
 A list of response action IDs whose outputs should be included in the response.
 
 Default: `null`.
+
+</ParamField>
+
+## List timelines
+
+Action ID: `tools.elastic_security.list_timelines`
+
+List Elastic Security Timelines or Timeline templates. One page per call.
+
+Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-gettimelines](https://www.elastic.co/docs/api/doc/kibana/operation/operation-gettimelines)
+
+### Secrets
+
+Required secrets:
+
+- `elastic_security`: required values `ELASTIC_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Kibana base URL (e.g. https://localhost:5601).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="only_user_favorite" type="boolean | null">
+
+If `true`, only Timelines the current user marked as favorite are returned.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page_index" type="integer | null">
+
+How many pages to skip.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page_size" type="integer | null">
+
+How many results to return at once.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="search" type="string | null">
+
+Search Timelines by title.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_field" type="string | null">
+
+Possible values: title, description, updated, created.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_order" type="string | null">
+
+Possible values: asc, desc.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="status" type="string | null">
+
+Possible values: active, draft, immutable.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="timeline_type" type="string | null">
+
+Possible values: default, template.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Whether to verify SSL certificates.
+
+Default: `true`.
+
+</ParamField>
+
+## List value list items
+
+Action ID: `tools.elastic_security.list_value_list_items`
+
+List the items in an Elastic Security value list.
+
+Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-findlistitems](https://www.elastic.co/docs/api/doc/kibana/operation/operation-findlistitems)
+
+### Secrets
+
+Required secrets:
+
+- `elastic_security`: required values `ELASTIC_API_KEY`.
+
+### Input fields
+
+<ParamField path="list_id" type="string" required>
+
+Parent value list's `id` to page through items for.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Kibana base URL (e.g. https://localhost:5601).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cursor" type="string | null">
+
+Cursor returned by a previous call; pass it to continue listing from the next page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filter" type="string | null">
+
+Filters the returned results according to the value of the specified field, using the `&lt;field name>:&lt;field value>` syntax.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number to return.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results to return per page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_field" type="string | null">
+
+Determines which field is used to sort the results.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_order" type="string | null">
+
+Determines the sort order. Possible values: asc, desc.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Whether to verify SSL certificates.
+
+Default: `true`.
+
+</ParamField>
+
+## List value lists
+
+Action ID: `tools.elastic_security.list_value_lists`
+
+List Elastic Security value lists (used by exceptions and indicator-match rules).
+
+Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-findlists](https://www.elastic.co/docs/api/doc/kibana/operation/operation-findlists)
+
+### Secrets
+
+Required secrets:
+
+- `elastic_security`: required values `ELASTIC_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Kibana base URL (e.g. https://localhost:5601).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="cursor" type="string | null">
+
+Cursor returned by a previous call; pass it to continue listing from the next page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="filter" type="string | null">
+
+Filters the returned results according to the value of the specified field, using the `&lt;field name>:&lt;field value>` syntax.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="page" type="integer | null">
+
+The page number to return.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="per_page" type="integer | null">
+
+The number of results to return per page.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_field" type="string | null">
+
+Determines which field is used to sort the results.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="sort_order" type="string | null">
+
+Determines the sort order. Possible values: asc, desc.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Whether to verify SSL certificates.
+
+Default: `true`.
 
 </ParamField>
 
@@ -1817,7 +2955,7 @@ Default: `true`.
 
 Action ID: `tools.elastic_security.run_endpoint_script`
 
-Run a response script on one or more Elastic Endpoints.
+Run a response script on one or more Elastic Endpoints. Requires Kibana 8.18+.
 
 Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-runscriptaction](https://www.elastic.co/docs/api/doc/kibana/operation/operation-runscriptaction)
 
@@ -1955,7 +3093,7 @@ Default: `true`.
 
 Action ID: `tools.elastic_security.search_attack_discoveries`
 
-Search existing Elastic Attack Discovery results using native filters and pagination.
+Search existing Elastic Attack Discovery results using native filters and pagination. Requires Kibana 9.2+.
 
 Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-attackdiscoveryfind](https://www.elastic.co/docs/api/doc/kibana/operation/operation-attackdiscoveryfind)
 
@@ -2127,6 +3265,52 @@ Default: `null`.
 
 </ParamField>
 
+## Search attacks
+
+Action ID: `tools.elastic_security.search_attacks`
+
+Find and/or aggregate Attack Discovery attack alerts with Elasticsearch Query DSL. Requires Kibana 9.5+.
+
+Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-searchattacks](https://www.elastic.co/docs/api/doc/kibana/operation/operation-searchattacks)
+
+### Secrets
+
+Required secrets:
+
+- `elastic_security`: required values `ELASTIC_API_KEY`.
+
+### Input fields
+
+<ParamField path="payload" type="object" required>
+
+API-native JSON request body. Optional `query`, `aggs`, `size`, `sort`, `_source`, `fields`, `runtime_mappings`, `track_total_hits`.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Kibana base URL (e.g. https://localhost:5601).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Whether to verify SSL certificates.
+
+Default: `true`.
+
+</ParamField>
+
 ## Search detection alerts
 
 Action ID: `tools.elastic_security.search_detection_alerts`
@@ -2177,7 +3361,7 @@ Default: `true`.
 
 Action ID: `tools.elastic_security.search_entities`
 
-Search Elastic Entity Store records for investigation context, including entity risk and asset data.
+Search Elastic Entity Store records for investigation context, including entity risk and asset data. On Kibana 8.18 to 9.3, set `use_legacy_endpoint` to true.
 
 Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-get-security-entity-store-entities](https://www.elastic.co/docs/api/doc/kibana/operation/operation-get-security-entity-store-entities)
 
@@ -2280,6 +3464,60 @@ Default: `null`.
 <ParamField path="source" type="array[string] | null">
 
 Fields to include in the response source.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="use_legacy_endpoint" type="boolean">
+
+Set to true on Kibana 8.18 to 9.3, which serve this list at GET /api/entity_store/entities/list (Kibana 9.4+ uses /api/security/entity_store/entities). The legacy endpoint requires `entity_types` and only accepts `sort_field`, `sort_order`, `page`, `per_page`, and `filterQuery`.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Whether to verify SSL certificates.
+
+Default: `true`.
+
+</ParamField>
+
+## Set attack status
+
+Action ID: `tools.elastic_security.set_attack_status`
+
+Set the workflow status of Attack Discovery attack alerts. Requires Kibana 9.5+.
+
+Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-setattacksstatus](https://www.elastic.co/docs/api/doc/kibana/operation/operation-setattacksstatus)
+
+### Secrets
+
+Required secrets:
+
+- `elastic_security`: required values `ELASTIC_API_KEY`.
+
+### Input fields
+
+<ParamField path="payload" type="object" required>
+
+API-native JSON request body. Requires `ids` and `status` (`open`, `acknowledged`, `in-progress`, or `closed`); optional `update_related_alerts`, and `reason` when closing.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Kibana base URL (e.g. https://localhost:5601).
 
 Default: `null`.
 
@@ -2428,6 +3666,66 @@ Default: `null`.
 Optional Kibana space ID. Omit for the default space.
 
 Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Whether to verify SSL certificates.
+
+Default: `true`.
+
+</ParamField>
+
+## Update attack tags
+
+Action ID: `tools.elastic_security.update_attack_tags`
+
+Add or remove tags on Attack Discovery attack alerts. Requires Kibana 9.5+.
+
+Reference: [https://www.elastic.co/docs/api/doc/kibana/operation/operation-setattackstags](https://www.elastic.co/docs/api/doc/kibana/operation/operation-setattackstags)
+
+### Secrets
+
+Required secrets:
+
+- `elastic_security`: required values `ELASTIC_API_KEY`.
+
+### Input fields
+
+<ParamField path="ids" type="array[string]" required>
+
+A list of attack alert `id`s.
+
+</ParamField>
+
+<ParamField path="tags" type="object" required>
+
+Object with `tags_to_add` and `tags_to_remove`, each a list of tags.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Kibana base URL (e.g. https://localhost:5601).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="space_id" type="string | null">
+
+Optional Kibana space ID. Omit for the default space.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="update_related_alerts" type="boolean">
+
+When `true`, the change is also applied to detection alerts related to the attacks.
+
+Default: `false`.
 
 </ParamField>
 
