@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field, ValidationError, model_validator
 from sqlalchemy import select
 from temporalio import activity
 
+from tracecat.agent.catalog.service import AgentCatalogService
+from tracecat.agent.catalog.types import ModelReplacement
 from tracecat.agent.error_policy import (
     agent_preparation_failed,
     invalid_agent_configuration,
@@ -29,6 +31,7 @@ from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentCatalog
 from tracecat.exceptions import (
+    AgentModelRetiredError,
     TracecatAuthorizationError,
     TracecatNotFoundError,
     TracecatValidationError,
@@ -73,6 +76,30 @@ class ResolveAgentsConfigActivityInput(BaseModel):
     parent_preset_id: uuid.UUID | None = None
     parent_slug: str | None = None
     follow_latest_versions: bool | None = None
+
+
+class ResolveModelReplacementActivityInput(BaseModel):
+    role: Role
+    model_provider: str
+    model_name: str
+    catalog_id: uuid.UUID | None = None
+
+
+@activity.defn
+async def resolve_model_replacement_activity(
+    args: ResolveModelReplacementActivityInput,
+) -> ModelReplacement | None:
+    """Record in workflow history where a retired root model's run moves."""
+    try:
+        async with AgentManagementService.with_session(role=args.role) as service:
+            return await AgentCatalogService(service.session).resolve_model_replacement(
+                role=args.role,
+                model_provider=args.model_provider,
+                model_name=args.model_name,
+                catalog_id=args.catalog_id,
+            )
+    except (AgentModelRetiredError, TracecatAuthorizationError) as exc:
+        raise_application_error_from_classification(invalid_agent_configuration(exc))
 
 
 @activity.defn

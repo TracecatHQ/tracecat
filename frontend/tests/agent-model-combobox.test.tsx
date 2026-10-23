@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form"
 import {
   AgentModelCombobox,
   type EnabledModelOption,
+  getModelLifecycleNote,
 } from "@/components/agents/agent-model-combobox"
 
 import {
@@ -27,6 +28,7 @@ const options: EnabledModelOption[] = [
     metadata: "openai",
     sourceName: "OpenAI",
     sourceType: "platform",
+    lifecycle: null,
   },
   {
     catalogId: "catalog-two",
@@ -39,6 +41,7 @@ const options: EnabledModelOption[] = [
     metadata: "anthropic",
     sourceName: "Synthetic source",
     sourceType: "custom",
+    lifecycle: null,
     baseUrl: "https://example.com/v1",
   },
 ]
@@ -84,6 +87,51 @@ it("searches and emits the selected model option", async () => {
   await user.type(screen.getByPlaceholderText("Search models..."), "Synthetic")
   await user.click(screen.getByRole("option", { name: /Model two/ }))
   expect(onChange).toHaveBeenCalledWith(options[1])
+})
+
+it("shows deprecation notes and blocks picking a retired model", async () => {
+  const user = userEvent.setup()
+  const onChange = jest.fn()
+  const lifecycleOptions: EnabledModelOption[] = [
+    {
+      ...options[0],
+      lifecycle: {
+        status: "deprecated",
+        deprecated_on: "2026-09-30",
+        retires_on: "2026-11-30",
+        replacement: "model-two",
+      },
+    },
+    {
+      ...options[1],
+      modelProvider: "openai",
+      lifecycle: {
+        status: "retired",
+        retires_on: "2026-07-23",
+        replacement: "model-one",
+      },
+    },
+  ]
+  render(
+    <AgentModelCombobox
+      options={lifecycleOptions}
+      value={{ catalogId: "catalog-one" }}
+      onChange={onChange}
+    />
+  )
+  expect(screen.getByRole("combobox")).toHaveTextContent(
+    "Deprecated · retires Nov 30, 2026"
+  )
+  await user.click(screen.getByRole("combobox"))
+  const retired = screen.getByRole("option", { name: /Model two/ })
+  expect(retired).toHaveTextContent("Retired · runs on model-one")
+  expect(retired).toHaveAttribute("aria-disabled", "true")
+  await user.click(retired)
+  expect(onChange).not.toHaveBeenCalled()
+  // Without its replacement enabled, a retired model cannot run.
+  expect(
+    getModelLifecycleNote(lifecycleOptions[1], [lifecycleOptions[1]])
+  ).toBe("Retired · enable model-one")
 })
 
 it("forwards form control props and the ref to the trigger", () => {

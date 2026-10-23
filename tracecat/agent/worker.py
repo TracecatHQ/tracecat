@@ -31,6 +31,7 @@ with workflow.unsafe.imports_passed_through():
         resolve_agent_preset_version_ref_activity,
         resolve_agents_config_activity,
         resolve_custom_model_provider_config_activity,
+        resolve_model_replacement_activity,
     )
     from tracecat.agent.session.activities import get_session_activities
     from tracecat.agent.workflows.mcp_probe import (
@@ -99,6 +100,7 @@ def get_activities() -> list[Callable[..., object]]:
     activities.append(resolve_agent_preset_version_ref_activity)
     activities.append(resolve_agents_config_activity)
     activities.append(resolve_custom_model_provider_config_activity)
+    activities.append(resolve_model_replacement_activity)
     activities.append(persist_stdio_mcp_connection_activity)
     activities.extend(get_session_activities())
     activities.append(complete_comment_agent_invocation_activity)

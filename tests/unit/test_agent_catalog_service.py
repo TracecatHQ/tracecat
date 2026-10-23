@@ -19,7 +19,7 @@ from tracecat.agent.catalog.schemas import (
     BedrockCatalogUpdate,
 )
 from tracecat.agent.catalog.service import AgentCatalogService
-from tracecat.agent.catalog.types import ModelKey
+from tracecat.agent.catalog.types import ModelKey, ModelReplacement
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import (
@@ -28,7 +28,11 @@ from tracecat.db.models import (
     AgentModelAccess,
     Organization,
 )
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    AgentModelRetiredError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.pagination import CursorPaginationParams
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -1136,3 +1140,128 @@ async def test_update_bedrock_catalog_entry_clears_stale_subscription_on_retarge
         )
 
     assert updated.model_metadata == {"model_id": "vendor.b-v1"}
+
+
+def _retired(replacement: str | None) -> dict[str, object]:
+    lifecycle: dict[str, object] = {"retires_on": "2000-01-01"}
+    if replacement is not None:
+        lifecycle["replacement"] = replacement
+    return {"lifecycle": lifecycle}
+
+
+@pytest.mark.anyio
+async def test_resolve_model_replacement_moves_retired_model_to_enabled_replacement(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    retired = _catalog(
+        None, "openai", "gpt-5.1-codex-max", metadata=_retired("gpt-5.6-sol")
+    )
+    replacement = _catalog(None, "openai", "gpt-5.6-sol")
+    session.add_all([retired, replacement])
+    await session.flush()
+    session.add(_enable(org_id=svc_organization.id, catalog_id=replacement.id))
+    await session.commit()
+    service = AgentCatalogService(session=session)
+
+    resolved = await service.resolve_model_replacement(
+        role=_user_role(svc_organization.id),
+        model_provider="openai",
+        model_name="gpt-5.1-codex-max",
+        catalog_id=retired.id,
+    )
+    legacy = await service.resolve_model_replacement(
+        role=_user_role(svc_organization.id),
+        model_provider="openai",
+        model_name="gpt-5.1-codex-max",
+        catalog_id=None,
+    )
+
+    assert resolved == ModelReplacement(
+        model_name="gpt-5.6-sol", catalog_id=replacement.id
+    )
+    # Configs without a catalog row keep resolving credentials by provider.
+    assert legacy == ModelReplacement(model_name="gpt-5.6-sol", catalog_id=None)
+
+
+@pytest.mark.anyio
+async def test_resolve_model_replacement_leaves_current_and_deprecated_models(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    deprecated = _catalog(
+        None,
+        "anthropic",
+        "claude-sonnet-4-5",
+        metadata={
+            "lifecycle": {
+                "retires_on": "2999-01-01",
+                "replacement": "claude-sonnet-5-5",
+            }
+        },
+    )
+    session.add_all([deprecated, _catalog(None, "anthropic", "claude-sonnet-5-5")])
+    await session.commit()
+    service = AgentCatalogService(session=session)
+
+    for model_name in ("claude-sonnet-4-5", "claude-sonnet-5-5", "not-in-catalog"):
+        assert (
+            await service.resolve_model_replacement(
+                role=_user_role(svc_organization.id),
+                model_provider="anthropic",
+                model_name=model_name,
+                catalog_id=None,
+            )
+            is None
+        )
+
+
+@pytest.mark.anyio
+async def test_resolve_model_replacement_ignores_org_rows_lifecycle(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    session.add(
+        _catalog(
+            svc_organization.id,
+            "openai",
+            "gpt-5.1-codex-max",
+            metadata=_retired(None),
+        )
+    )
+    await session.commit()
+
+    resolved = await AgentCatalogService(session=session).resolve_model_replacement(
+        role=_user_role(svc_organization.id),
+        model_provider="openai",
+        model_name="gpt-5.1-codex-max",
+        catalog_id=None,
+    )
+
+    assert resolved is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("replacement", [None, "gpt-5.6-sol"])
+async def test_resolve_model_replacement_rejects_retired_model_without_usable_replacement(
+    session: AsyncSession,
+    svc_organization: Organization,
+    replacement: str | None,
+) -> None:
+    retired = _catalog(
+        None, "openai", "gpt-5.1-codex-max", metadata=_retired(replacement)
+    )
+    # The replacement exists but is not enabled for the organization.
+    session.add_all([retired, _catalog(None, "openai", "gpt-5.6-sol")])
+    await session.commit()
+
+    with pytest.raises(AgentModelRetiredError) as exc_info:
+        await AgentCatalogService(session=session).resolve_model_replacement(
+            role=_user_role(svc_organization.id),
+            model_provider="openai",
+            model_name="gpt-5.1-codex-max",
+            catalog_id=retired.id,
+        )
+
+    assert exc_info.value.model_name == "gpt-5.1-codex-max"
+    assert exc_info.value.replacement == replacement

@@ -24,10 +24,14 @@ from tracecat_ee.agent.workflows.durable import (
 )
 
 from tracecat import config
+from tracecat.agent.catalog.types import ModelReplacement
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.executor.activity import AgentExecutorInput, AgentExecutorResult
 from tracecat.agent.executor.schemas import ApprovedToolCall
-from tracecat.agent.preset.activities import ResolveAgentPresetConfigActivityInput
+from tracecat.agent.preset.activities import (
+    ResolveAgentPresetConfigActivityInput,
+    ResolveModelReplacementActivityInput,
+)
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
 from tracecat.agent.session.activities import FinalizeTurnInput, FinalizeTurnResult
 from tracecat.agent.session.types import AgentSessionEntity
@@ -663,6 +667,71 @@ async def test_approval_pause_done_failure_does_not_abort_workflow() -> None:
     ):
         workflow_instance.active_stream_id = uuid.uuid4()
         await workflow_instance._emit_approval_pause_done()
+
+
+def _retired_model_case() -> tuple[DurableAgentWorkflow, AgentConfig]:
+    workflow_args = AgentWorkflowArgs(
+        role=_user_role(),
+        agent_args=RunAgentArgs(
+            session_id=uuid.uuid4(), user_prompt="hello", preset_slug="analyst"
+        ),
+        entity_type=AgentSessionEntity.WORKSPACE_CHAT,
+        entity_id=uuid.uuid4(),
+    )
+    cfg = AgentConfig(
+        model_name="gpt-5.1-codex-max", model_provider="openai", catalog_id=uuid.uuid4()
+    )
+    return DurableAgentWorkflow(workflow_args), cfg
+
+
+@pytest.mark.anyio
+async def test_replace_retired_model_skips_lookup_before_patch() -> None:
+    workflow_instance, cfg = _retired_model_case()
+    original = (cfg.model_name, cfg.catalog_id)
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.patched", return_value=False
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_local_activity",
+            AsyncMock(),
+        ) as execute_mock,
+    ):
+        await workflow_instance._replace_retired_model(cfg)
+
+    execute_mock.assert_not_awaited()
+    assert (cfg.model_name, cfg.catalog_id) == original
+
+
+@pytest.mark.anyio
+async def test_replace_retired_model_applies_recorded_replacement() -> None:
+    workflow_instance, cfg = _retired_model_case()
+    retired_catalog_id = cfg.catalog_id
+    replacement = ModelReplacement(model_name="gpt-5.6-sol", catalog_id=uuid.uuid4())
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.patched", return_value=True
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_local_activity",
+            AsyncMock(return_value=replacement),
+        ) as execute_mock,
+    ):
+        await workflow_instance._replace_retired_model(cfg)
+
+    assert execute_mock.await_args is not None
+    activity_input = execute_mock.await_args.args[1]
+    assert isinstance(activity_input, ResolveModelReplacementActivityInput)
+    assert (activity_input.model_name, activity_input.catalog_id) == (
+        "gpt-5.1-codex-max",
+        retired_catalog_id,
+    )
+    assert (cfg.model_name, cfg.catalog_id) == (
+        replacement.model_name,
+        replacement.catalog_id,
+    )
 
 
 @pytest.mark.anyio

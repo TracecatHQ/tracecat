@@ -60,9 +60,13 @@ from tracecat_ee.agent.workflows.durable import (
 )
 
 from tests.shared import recorded_patch_ids
+from tests.temporal.durable_agent_failure_harness import (
+    mock_resolve_model_replacement_activity,
+)
 from tracecat import config
 from tracecat.agent import internal_router
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.catalog.types import ModelReplacement
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.executor.activity import (
@@ -539,6 +543,7 @@ async def agent_worker_factory(threadpool, monkeypatch: pytest.MonkeyPatch):
         *,
         task_queue: str | None = None,
         custom_activities: Sequence[Callable[..., Any]] | None = None,
+        model_replacement: ModelReplacement | None = None,
     ) -> Worker:
         """Create a worker for agent workflows with required activities.
 
@@ -563,7 +568,10 @@ async def agent_worker_factory(threadpool, monkeypatch: pytest.MonkeyPatch):
         return Worker(
             client=client,
             task_queue=queue_name,
-            activities=custom_activities,
+            activities=[
+                *custom_activities,
+                mock_resolve_model_replacement_activity(model_replacement),
+            ],
             workflows=[DurableAgentWorkflow],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=threadpool,
@@ -628,6 +636,50 @@ async def test_agent_workflow_simple_execution(
         assert result.message_history == session_messages
 
     assert [input.session_id for input in message_load_inputs] == [mock_session_id]
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_agent_workflow_runs_retired_model_on_its_replacement(
+    temporal_client: Client,
+    agent_worker_factory,
+    agent_workflow_args: AgentWorkflowArgs,
+    mock_session_id: uuid.UUID,
+) -> None:
+    """A retired model's run executes on the replacement the lifecycle names."""
+    queue = f"test-agent-queue-{mock_session_id}"
+    replacement_catalog_id = uuid.uuid4()
+    executor_inputs: list[AgentExecutorInput] = []
+
+    def mock_executor(
+        call_count: int, input: AgentExecutorInput
+    ) -> AgentExecutorResult:
+        del call_count
+        executor_inputs.append(input)
+        return AgentExecutorResult(success=True)
+
+    async with agent_worker_factory(
+        temporal_client,
+        task_queue=queue,
+        custom_activities=create_activities_with_mock_executor(mock_executor),
+        model_replacement=ModelReplacement(
+            model_name="gpt-5.6-sol",
+            catalog_id=replacement_catalog_id,
+        ),
+    ):
+        await temporal_client.execute_workflow(
+            DurableAgentWorkflow.run,
+            agent_workflow_args,
+            id=AgentWorkflowID(mock_session_id),
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            execution_timeout=timedelta(seconds=30),
+        )
+
+    assert len(executor_inputs) == 1
+    config = executor_inputs[0].config
+    assert config.model_name == "gpt-5.6-sol"
+    assert config.catalog_id == replacement_catalog_id
 
 
 @pytest.mark.anyio
@@ -1967,6 +2019,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
             mock_record_approval_requests,
             mock_apply_approval_decisions,
             mock_emit_session_done,
+            mock_resolve_model_replacement_activity(),
         ],
         workflows=[DurableAgentWorkflow],
         workflow_runner=UnsandboxedWorkflowRunner(),
@@ -2311,6 +2364,7 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
             mock_apply_approval_decisions,
             mock_emit_session_done,
             mock_reconcile_tool_results_activity,
+            mock_resolve_model_replacement_activity(),
         ],
         workflows=[DurableAgentWorkflow],
         workflow_runner=UnsandboxedWorkflowRunner(),
