@@ -80,6 +80,7 @@ import {
   WorkflowsCatalogViewToggle,
 } from "@/components/dashboard/workflows-catalog-view-toggle"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
+import { FormViewToggle } from "@/components/forms/form-view-toggle"
 import { CreateFormDialog } from "@/components/forms/forms-dashboard"
 import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
 import { Spinner } from "@/components/loading/spinner"
@@ -2225,7 +2226,7 @@ function FormBreadcrumb({
   )
 }
 
-/** Form detail action: open the form as a requester, in a new tab. */
+/** Form detail actions: Config / Activity tabs, and open as a requester. */
 function FormDetailActions({
   formId,
   workspaceId,
@@ -2240,17 +2241,20 @@ function FormDetailActions({
     return null
   }
   return (
-    <Button
-      asChild
-      variant="outline"
-      size="sm"
-      className="h-7 gap-1.5 bg-background"
-    >
-      <a href={`/forms/${form.id}`} target="_blank" rel="noopener noreferrer">
-        <ExternalLinkIcon className="size-3.5" />
-        Open
-      </a>
-    </Button>
+    <>
+      <FormViewToggle workspaceId={workspaceId} formId={form.id} />
+      <Button
+        asChild
+        variant="outline"
+        size="sm"
+        className="h-7 gap-1.5 bg-background"
+      >
+        <a href={`/forms/${form.id}`} target="_blank" rel="noopener noreferrer">
+          <ExternalLinkIcon className="size-3.5" />
+          Open
+        </a>
+      </Button>
+    </>
   )
 }
 
