@@ -625,6 +625,52 @@ async def test_startup_sync_handles_existing_non_current_content_version(
 
 
 @pytest.mark.anyio
+async def test_startup_sync_does_not_retry_unbuilt_content_version_over_newer_release(
+    session: AsyncSession, prebuilt_root: Path
+) -> None:
+    """An older image never promotes its unbuilt content row over a newer release."""
+    from tracecat.registry.sync.jobs import _sync_as_leader
+
+    repo = await _reset_platform_versions(session)
+    image_manifest = _make_manifest(["test.action_v1", "test.action_v2"])
+    fingerprint = _write_prebuilt(prebuilt_root, "1.0.0", image_manifest)
+    base_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.0.0",
+        manifest=_make_manifest(["test.action_v1"]),
+        tarball_uri="s3://test/v1.tar.gz",
+    )
+    content_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version=registry_content_version("1.0.0", fingerprint),
+        manifest=image_manifest,
+        tarball_uri="s3://test/content.tar.gz",
+    )
+    newer_release = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="2.0.0",
+        manifest=_make_manifest(["test.action_v3"]),
+        tarball_uri="s3://test/v2.tar.gz",
+    )
+    session.add_all([base_version, content_version, newer_release])
+    await session.flush()
+    repo.current_version_id = newer_release.id
+    session.add(repo)
+    await session.commit()
+
+    with patch(
+        "tracecat.registry.sync.jobs._artifact_exists",
+        AsyncMock(return_value=False),
+    ) as mock_artifact_exists:
+        artifact_build = await _sync_as_leader(session, "1.0.0")
+        mock_artifact_exists.assert_not_awaited()
+
+    assert artifact_build is None
+    await session.refresh(repo)
+    assert repo.current_version_id == newer_release.id
+
+
+@pytest.mark.anyio
 async def test_promote_after_artifact_build_promotes_when_current_matches_guard(
     session: AsyncSession,
 ) -> None:

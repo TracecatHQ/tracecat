@@ -233,9 +233,11 @@ async def _sync_as_leader(
         # A content row is promoted only after its artifact upload, so a content
         # row without an artifact was never promoted: its earlier build failed.
         # Finish that build instead of treating the row as a rollback.
-        if is_registry_content_version(
-            target_version, base_version
-        ) and not await _artifact_exists(existing_version.tarball_uri):
+        if (
+            is_registry_content_version(target_version, base_version)
+            and not _is_downgrade(repo.current_version, target_version)
+            and not await _artifact_exists(existing_version.tarball_uri)
+        ):
             logger.info(
                 "Content registry version exists without an artifact; retrying artifact build before promotion",
                 target_version=target_version,
