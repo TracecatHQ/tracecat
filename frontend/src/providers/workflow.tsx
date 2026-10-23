@@ -322,7 +322,7 @@ export function WorkflowProvider({
         })
       }
     } catch {
-      // The mutation also shows the standard Publish error toast.
+      // The commit mutation also shows the "Error saving workflow" toast.
       setPublishError({
         message: "Could not publish this workflow. Please try again.",
       })
