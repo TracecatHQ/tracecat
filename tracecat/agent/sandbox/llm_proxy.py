@@ -12,12 +12,13 @@ import asyncio
 import math
 import os
 import re
+import ssl
 import time
 import uuid
 from collections.abc import AsyncIterable, Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
-from functools import partial
+from functools import cache, partial
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 from uuid import uuid4
@@ -1178,6 +1179,18 @@ def _is_non_critical_request(method: str | None, path: str) -> bool:
     )
 
 
+@cache
+def _upstream_ssl_context() -> ssl.SSLContext:
+    """Load the CA bundle once per process instead of per client per proxy start.
+
+    Same settings as HTTPX's default ``verify=True``, including the
+    ``SSL_CERT_FILE``/``SSL_CERT_DIR`` overrides. Both upstream clients stay on
+    HTTP/1.1, so HTTPcore's per-connection ALPN setting is identical for every
+    connection sharing this context.
+    """
+    return httpx.create_ssl_context(verify=True, trust_env=True)
+
+
 class LLMSocketProxy:
     """Unix socket proxy that forwards HTTP traffic to the LLM gateway.
 
@@ -1242,8 +1255,8 @@ class LLMSocketProxy:
                 max_keepalive_connections=20,
                 keepalive_expiry=_MANAGED_KEEPALIVE_EXPIRY_SECONDS,
             ),
+            verify=_upstream_ssl_context(),
         )
-        self._direct_client = create_outbound_http_client(timeout=self._client.timeout)
 
         self._stopping = False
         self._error_emitted = False
@@ -1295,6 +1308,20 @@ class LLMSocketProxy:
                 pass
 
         logger.info("LLM socket proxy stopped")
+
+    def _direct_client_for_request(self) -> httpx.AsyncClient:
+        """Return the direct-route client, creating it on first use.
+
+        Most runs only use the managed route, so they never build this client.
+        """
+        if self._client is None:
+            raise RuntimeError("LLM proxy client is not initialized")
+        if self._direct_client is None:
+            self._direct_client = create_outbound_http_client(
+                timeout=self._client.timeout,
+                verify=_upstream_ssl_context(),
+            )
+        return self._direct_client
 
     async def _iter_body_chunks(
         self,
@@ -1614,9 +1641,9 @@ class LLMSocketProxy:
 
         response_phase: Literal["response_headers", "error_body"] = "response_headers"
         try:
-            client = self._direct_client if route.is_direct else self._client
-            if client is None:
-                raise RuntimeError("LLM proxy client is not initialized")
+            client = (
+                self._direct_client_for_request() if route.is_direct else self._client
+            )
 
             connection_drop_retried = False
 
