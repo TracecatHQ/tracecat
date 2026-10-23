@@ -345,15 +345,20 @@ async def test_export_diagnostic_uses_only_current_provider_mapping(
     await session.commit()
     with pytest.raises(WorkflowExportValidationError) as raised:
         sync = await WorkspaceSyncService.for_workspace(session=session, role=svc_role)
-        await sync._get_workflow_dsl(workflow)
+        await sync.project_workspace(
+            workflow_ids=[WorkflowUUID.new(workflow.id)],
+            create_missing_mappings=False,
+            validate_export=True,
+        )
     diagnostic = raised.value.diagnostics[0]
     assert diagnostic.source_id == "example-gitlab"
     assert diagnostic.source_path == "workflows/example-gitlab/definition.yml"
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("published_version", [1, None])
 async def test_workflow_push_requires_publish_then_preserves_saved_version(
-    session: AsyncSession, svc_role: Role
+    session: AsyncSession, svc_role: Role, published_version: int | None
 ) -> None:
     workspace = await session.scalar(
         select(Workspace).where(Workspace.id == svc_role.workspace_id)
@@ -408,7 +413,8 @@ async def test_workflow_push_requires_publish_then_preserves_saved_version(
         saved = await WorkflowDefinitionsService(
             session=session, role=svc_role
         ).create_workflow_definition(WorkflowUUID.new(workflow.id), dsl)
-        workflow.version = saved.version
+        assert saved.version == 1
+        workflow.version = published_version
         workflow.title = "Newer unpublished title"
         await session.commit()
         result = await publish_workflow(
@@ -428,7 +434,7 @@ async def test_workflow_push_requires_publish_then_preserves_saved_version(
             if path.endswith("definition.yml")
         ]
         assert definitions[0]["definition"]["title"] == "Synthetic published workflow"
-        assert workflow.version == 1
+        assert workflow.version == published_version
 
 
 @pytest.mark.anyio
@@ -575,3 +581,125 @@ async def test_dependency_validation_names_each_workflow_before_mapping_writes(
         transport.write_files.assert_not_awaited()
         errors.append(raised.value.diagnostics)
     assert errors[0] == errors[1]
+
+
+@pytest.mark.anyio
+async def test_workflow_push_rejects_missing_selected_version_with_older_definition(
+    session: AsyncSession, svc_role: Role
+) -> None:
+    workflow = await _workflow(
+        session,
+        svc_role,
+        "Synthetic missing version",
+        alias="synthetic-missing-version",
+    )
+    sync = WorkspaceSyncService(session=session, role=svc_role)
+    dsl = await sync._get_workflow_dsl(workflow)
+    saved = await WorkflowDefinitionsService(
+        session=session, role=svc_role
+    ).create_workflow_definition(WorkflowUUID.new(workflow.id), dsl)
+    workflow.version = saved.version + 1
+    await session.commit()
+
+    with patch("tracecat.workflow.store.router.WorkflowStoreService") as store:
+        response = await publish_workflow(
+            role=svc_role,
+            session=session,
+            workflow_id=WorkflowUUID.new(workflow.id),
+            params=WorkflowDslPublish(branch="sync/example", create_pr=False),
+        )
+        store.assert_not_called()
+    assert isinstance(response, JSONResponse)
+    assert response.status_code == 400
+    error = WorkspaceSyncExportError.model_validate_json(bytes(response.body))
+    assert error.diagnostics[0].code == "missing_definition"
+    assert error.diagnostics[0].workflow_id == workflow.id
+    assert workflow.git_sync_branch is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("create_missing_mappings", [False, True])
+async def test_invalid_workspace_batches_mapping_reads_across_workflows_and_errors(
+    session: AsyncSession, svc_role: Role, create_missing_mappings: bool
+) -> None:
+    workflows = [
+        await _workflow(
+            session,
+            svc_role,
+            f"Synthetic invalid {index}",
+            alias=f"synthetic-invalid-{index}",
+            empty=True,
+        )
+        for index in range(5)
+    ]
+    parent = await _workflow(
+        session,
+        svc_role,
+        "Synthetic missing children",
+        alias="synthetic-parent",
+        child="synthetic-missing-first",
+    )
+    session.add(
+        Action(
+            workspace_id=svc_role.workspace_id,
+            workflow_id=parent.id,
+            title="Next",
+            description="Synthetic second missing child",
+            type="core.workflow.execute",
+            inputs="workflow_alias: synthetic-missing-second",
+        )
+    )
+    for provider in ["github", "gitlab"]:
+        session.add(
+            WorkspaceSyncResourceMapping(
+                workspace_id=svc_role.workspace_id,
+                provider=provider,
+                resource_type="workflow",
+                local_id=workflows[0].id,
+                source_id=f"synthetic-{provider}",
+                source_path=f"workflows/synthetic-{provider}/definition.yml",
+            )
+        )
+    await session.commit()
+    sync = WorkspaceSyncService(
+        session=session, role=svc_role, provider=VcsProvider.GITLAB
+    )
+    engine = session.get_bind()
+    statements: list[str] = []
+
+    def capture_sql(
+        conn: Connection,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: ExecutionContext,
+        executemany: bool,
+    ) -> None:
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", capture_sql)
+    try:
+        with pytest.raises(WorkflowExportValidationError) as raised:
+            await sync.project_workspace(
+                create_missing_mappings=create_missing_mappings, validate_export=True
+            )
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_sql)
+    diagnostics = raised.value.diagnostics
+    assert len(diagnostics) == 7
+    assert sum(item.workflow_id == parent.id for item in diagnostics) == 2
+    mapped = next(item for item in diagnostics if item.workflow_id == workflows[0].id)
+    assert mapped.source_id == "synthetic-gitlab"
+    assert mapped.source_path == "workflows/synthetic-gitlab/definition.yml"
+    assert all(item.source_id is None for item in diagnostics if item is not mapped)
+    mapping_reads = [
+        statement
+        for statement in statements
+        if statement.lstrip().upper().startswith("SELECT")
+        and "workspace_sync_resource_mapping" in statement
+    ]
+    assert len(mapping_reads) == 1
+    assert not any(
+        statement.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE"))
+        for statement in statements
+    )

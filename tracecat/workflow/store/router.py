@@ -66,18 +66,24 @@ async def publish_workflow(
     if workflow is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
     definitions = WorkflowDefinitionsService(session=session, role=role)
-    definition = await definitions.get_definition_by_workflow_id(workflow_id)
+    definition = await definitions.get_definition_by_workflow_id(
+        workflow_id, version=workflow.version
+    )
     diagnostics = WorkflowExportDiagnosticsService(session=session, role=role)
     if definition is None:
         code = "publish_required" if workflow.version is None else "missing_definition"
         return _export_validation_response(
-            await diagnostics.validation_error(workflow, code=code)
+            await diagnostics.with_mappings(
+                diagnostics.validation_error(workflow, code=code)
+            )
         )
     try:
         dsl = DSLInput.model_validate(definition.content)
     except ValidationError as exc:
         return _export_validation_response(
-            await diagnostics.validation_error(workflow, error=exc)
+            await diagnostics.with_mappings(
+                diagnostics.validation_error(workflow, error=exc)
+            )
         )
     store_svc = WorkflowStoreService(session=session, role=role)
     try:

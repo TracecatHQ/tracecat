@@ -548,16 +548,18 @@ class WorkspaceSyncService(SyncMappingService):
                     form=forms_by_workflow_id.get(workflow.id),
                 )
             except (ValidationError, TracecatValidationError) as exc:
-                failure = await diagnostics_service.validation_error(
+                failure = diagnostics_service.validation_error(
                     workflow,
                     error=exc,
-                    provider=VcsProvider(self._mapping_provider_value),
                 )
                 projection_errors.extend(failure.diagnostics)
                 continue
             source_workflow_ids[WorkflowUUID.new(workflow.id)] = source_id
         if projection_errors:
-            raise WorkflowExportValidationError(projection_errors)
+            raise await diagnostics_service.with_mappings(
+                WorkflowExportValidationError(projection_errors),
+                provider=VcsProvider(self._mapping_provider_value),
+            )
         specs = {
             source_id: workflow_spec_with_source_workflow_ids(
                 spec,
@@ -997,16 +999,18 @@ class WorkspaceSyncService(SyncMappingService):
                     else "Check this workflow's child workflow and agent preset references before pushing."
                 )
                 failures.append(
-                    await diagnostics_service.diagnostic(
+                    diagnostics_service.diagnostic(
                         workflow,
                         code="invalid_definition",
                         stage="dependency",
                         message=message,
-                        provider=VcsProvider(self._mapping_provider_value),
                     )
                 )
         if failures:
-            raise WorkflowExportValidationError(failures)
+            raise await diagnostics_service.with_mappings(
+                WorkflowExportValidationError(failures),
+                provider=VcsProvider(self._mapping_provider_value),
+            )
 
     def _validate_projected_workspace_dependencies(self, spec: WorkspaceSpec) -> None:
         """Reject exported specs whose dependency graph cannot round-trip."""
@@ -1528,6 +1532,9 @@ class WorkspaceSyncService(SyncMappingService):
         workflow_dsls: dict[uuid.UUID, DSLInput] = dict(dsl_by_id or {})
 
         diagnostics: list[WorkflowExportDiagnostic] = []
+        diagnostics_service = WorkflowExportDiagnosticsService(
+            self.session, role=self.role
+        )
         missing_ids = selected_workflow_ids - workflows_by_id.keys()
         if missing_ids:
             raise TracecatNotFoundError("Workflow not found")
@@ -1556,13 +1563,10 @@ class WorkspaceSyncService(SyncMappingService):
                     if not validate_export:
                         continue
                     diagnostics.append(
-                        await WorkflowExportDiagnosticsService(
-                            session=self.session, role=self.role
-                        ).diagnostic(
+                        diagnostics_service.diagnostic(
                             workflow,
                             code="missing_child_workflow",
                             stage="dependency",
-                            provider=VcsProvider(self._mapping_provider_value),
                             message="A referenced child workflow alias could not be found. Check the child workflow reference.",
                         )
                     )
@@ -1577,13 +1581,10 @@ class WorkspaceSyncService(SyncMappingService):
                     if not validate_export:
                         continue
                     diagnostics.append(
-                        await WorkflowExportDiagnosticsService(
-                            self.session, role=self.role
-                        ).diagnostic(
+                        diagnostics_service.diagnostic(
                             workflow,
                             code="missing_child_workflow",
                             stage="dependency",
-                            provider=VcsProvider(self._mapping_provider_value),
                             message="A referenced child workflow could not be found. Check the child workflow reference.",
                         )
                     )
@@ -1594,7 +1595,10 @@ class WorkspaceSyncService(SyncMappingService):
                 queue.append(child_id)
 
         if diagnostics:
-            raise WorkflowExportValidationError(diagnostics)
+            raise await diagnostics_service.with_mappings(
+                WorkflowExportValidationError(diagnostics),
+                provider=VcsProvider(self._mapping_provider_value),
+            )
 
         # Return the closure in the original global creation order.
         return ProjectableWorkflowClosure(
@@ -1610,24 +1614,19 @@ class WorkspaceSyncService(SyncMappingService):
             session=self.session, role=self.role
         ).get_definition_by_workflow_id(WorkflowUUID.new(workflow.id))
         diagnostics = WorkflowExportDiagnosticsService(self.session, role=self.role)
-        provider = VcsProvider(self._mapping_provider_value)
         failure: WorkflowExportValidationError
         try:
             if definition and definition.content:
                 return DSLInput.model_validate(definition.content)
             await self.session.refresh(workflow, ["actions"])
             if not workflow.actions:
-                failure = await diagnostics.validation_error(
-                    workflow, code="no_actions", provider=provider
-                )
+                failure = diagnostics.validation_error(workflow, code="no_actions")
             else:
                 return await WorkflowsManagementService(
                     session=self.session, role=self.role
                 ).build_dsl_from_workflow(workflow)
         except (ValidationError, TracecatValidationError) as exc:
-            failure = await diagnostics.validation_error(
-                workflow, error=exc, provider=provider
-            )
+            failure = diagnostics.validation_error(workflow, error=exc)
         # Do not attach the original exception, which may contain secret inputs.
         raise failure
 
