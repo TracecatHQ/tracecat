@@ -92,6 +92,7 @@ class AgentCatalogService(BaseService):
         from ``entries``, so an unreadable bundle cannot empty the catalog.
         A retired row stays while a workspace subset or a saved org default
         still references it; a later startup deletes it once unreferenced.
+        Requires a bypass-RLS session so those checks see every organization.
         """
         if retired:
             default_ids, default_names = await list_saved_default_models(self.session)
@@ -449,17 +450,17 @@ class AgentCatalogService(BaseService):
                 ).where(row_filter)
             )
         ).one_or_none()
-        if row is None:
-            lifecycle = get_retired_platform_models().get(
-                ModelKey(model_provider, model_name)
-            )
-        elif row.organization_id is not None:
-            # Org-owned rows have no provider lifecycle.
-            return None
-        else:
+        if row is not None:
+            if row.organization_id is not None:
+                # Org-owned rows have no provider lifecycle.
+                return None
             # The row, not the caller's fields, names the model that retired.
             model_provider, model_name = row.model_provider, row.model_name
-            lifecycle = read_model_lifecycle(row.model_metadata)
+        # The bundle wins: a retained retired row is no longer refreshed, so its
+        # stored lifecycle can name a replacement that has since retired.
+        lifecycle = get_retired_platform_models().get(
+            ModelKey(model_provider, model_name)
+        ) or (read_model_lifecycle(row.model_metadata) if row is not None else None)
         if lifecycle is None or lifecycle.status_on() != "retired":
             return None
         target = lifecycle.replacement_key(model_provider)
