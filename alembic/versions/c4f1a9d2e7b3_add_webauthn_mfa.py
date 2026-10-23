@@ -36,7 +36,7 @@ def upgrade() -> None:
         sa.Column("user_id", sa.UUID(), nullable=False),
         sa.Column("credential_id", sa.LargeBinary(), nullable=False),
         sa.Column("public_key", sa.LargeBinary(), nullable=False),
-        sa.Column("sign_count", sa.Integer(), nullable=False),
+        sa.Column("sign_count", sa.BigInteger(), nullable=False),
         sa.Column("aaguid", sa.UUID(), nullable=False),
         sa.Column(
             "transports",

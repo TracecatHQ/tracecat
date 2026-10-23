@@ -77,7 +77,6 @@ _STEP_UP_DEPENDENCY = get_args(SuperuserStepUpRole)[1].dependency
 # Mutating platform admin routes that change no stored data, so they skip
 # step-up. Every other mutating /admin route must require it.
 _STEP_UP_EXEMPT_ADMIN_ROUTES = {
-    ("POST", "/admin/settings/audit/test"),
     ("POST", "/admin/settings/security/ip-allowlist/check"),
 }
 
@@ -283,6 +282,20 @@ async def _set_step_up_age(token: str, age: timedelta) -> None:
             .values(step_up_verified_at=datetime.now(UTC) - age)
         )
         await session.commit()
+
+
+async def _require_platform_admin_mfa() -> None:
+    async with get_async_session_bypass_rls_context_manager() as session:
+        session.add(
+            PlatformSetting(
+                key="platform_admin_mfa_required",
+                value=orjson.dumps(True),
+                value_type="json",
+                is_encrypted=False,
+            )
+        )
+        await session.commit()
+    clear_mfa_policy_cache()
 
 
 async def _credential_count(user: User) -> int:
@@ -758,6 +771,26 @@ async def test_rejects_wrong_origin_rp_and_replayed_registration() -> None:
 
 
 @pytest.mark.anyio
+async def test_duplicate_credential_ids_do_not_reveal_other_accounts() -> None:
+    alice, bob = await _create_user(), await _create_user()
+    alice_key = SoftAuthenticator()
+    async with _client(await _new_session(alice)) as client:
+        assert (await _register(client, alice_key)).status_code == 201
+        again = await _register(client, alice_key)
+        assert again.status_code == 400
+        assert again.json()["detail"] == "This security key is already registered."
+
+    # With "none" attestation anyone can claim an existing credential ID.
+    impostor = SoftAuthenticator()
+    impostor.credential_id = alice_key.credential_id
+    async with _client(await _new_session(bob)) as client:
+        taken = await _register(client, impostor)
+        assert taken.status_code == 400
+        assert taken.json()["detail"] == "Security key registration failed."
+    assert await _credential_count(bob) == 0
+
+
+@pytest.mark.anyio
 async def test_assertion_without_user_verification_is_rejected() -> None:
     user = await _create_user()
     key = SoftAuthenticator()
@@ -819,6 +852,19 @@ async def test_signature_counter_regression_is_rejected() -> None:
     async with _client(await _new_session(user)) as client:
         assert (await _assert_key(client, key)).status_code == 400
         assert (await client.get("/users/me")).status_code == 401
+
+
+@pytest.mark.anyio
+async def test_signature_counter_above_signed_32_bit_range_is_stored() -> None:
+    user = await _create_user()
+    key = SoftAuthenticator()
+    # WebAuthn counters are unsigned 32-bit; the next value exceeds INT4.
+    key.counter = 2**31 - 1
+    async with _client(await _new_session(user)) as client:
+        assert (await _register(client, key)).status_code == 201
+    async with _client(await _new_session(user)) as client:
+        assert (await _assert_key(client, key)).status_code == 200
+    assert await _sign_count(user) == 2**31 + 1
 
 
 @pytest.mark.anyio
@@ -909,6 +955,32 @@ async def test_cannot_remove_last_key_when_policy_requires_it() -> None:
         assert removed.status_code == 400
         listed = await client.get("/auth/mfa/credentials")
         assert [c["id"] for c in listed.json()] == [created["id"]]
+
+
+@pytest.mark.anyio
+async def test_removing_the_last_key_clears_session_verification() -> None:
+    admin = await _create_user(superuser=True)
+    token = await _new_session(admin)
+    async with _client(token) as client:
+        created = (await _register(client, SoftAuthenticator())).json()["credential"]
+        removed = await client.delete(f"/auth/mfa/credentials/{created['id']}")
+        assert removed.status_code == 204, removed.text
+        # Without a policy the session carries on as an account with no key.
+        assert (await client.get("/users/me")).status_code == 200
+        assert (await client.get("/auth/mfa/status")).json()["state"] == (
+            "not_required"
+        )
+
+        # Once another admin requires MFA, the same session must enroll.
+        await _require_platform_admin_mfa()
+        assert (await client.get("/users/me")).status_code == 401
+        assert (await client.get("/auth/mfa/status")).json()["state"] == (
+            "enrollment_required"
+        )
+        denied = await client.patch(
+            "/admin/settings/security/mfa", json={"mfa_required": False}
+        )
+        assert denied.status_code == 401
 
 
 @pytest.mark.anyio

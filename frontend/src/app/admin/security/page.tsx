@@ -14,9 +14,9 @@ export default function AdminSecuritySettingsPage() {
               Multi-factor authentication
             </h2>
             <p className="text-base text-muted-foreground">
-              Privileged platform admin actions, such as deleting organizations
-              or inviting users, always ask for a security key verified in the
-              last 5 minutes.
+              Once you register a security key, privileged platform admin
+              actions, such as deleting organizations or inviting users, ask you
+              to verify with it if you haven&apos;t in the last 5 minutes.
             </p>
           </div>
           <MfaPolicyCard

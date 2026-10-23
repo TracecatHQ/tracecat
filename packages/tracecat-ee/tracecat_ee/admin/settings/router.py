@@ -60,7 +60,7 @@ async def update_audit_settings(
 
 @router.post("/audit/test", response_model=AuditWebhookTestResult)
 async def test_audit_webhook(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     params: PlatformAuditSettingsUpdate,
 ) -> AuditWebhookTestResult:
     """Probe the submitted platform audit webhook configuration."""

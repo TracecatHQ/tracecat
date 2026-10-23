@@ -840,10 +840,10 @@ superusers so operators can recover access after losing every security key.
 Organization members are unaffected.
 """
 
-TRACECAT__MFA_STEP_UP_MAX_AGE_SECONDS = int(
-    os.environ.get("TRACECAT__MFA_STEP_UP_MAX_AGE_SECONDS") or 300
+TRACECAT__MFA_STEP_UP_MAX_AGE_SECONDS = bound_env(
+    "TRACECAT__MFA_STEP_UP_MAX_AGE_SECONDS", 300, lower=30, upper=3600
 )
-"""How long a security key verification satisfies step-up checks."""
+"""How long a security key verification satisfies step-up checks (30 s to 1 h)."""
 
 TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS = env_networks(
     "TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS",

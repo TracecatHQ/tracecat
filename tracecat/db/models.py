@@ -699,7 +699,12 @@ class WebAuthnCredential(Base, TimestampMixin):
     public_key: Mapped[bytes] = mapped_column(
         LargeBinary, nullable=False, doc="COSE-encoded credential public key"
     )
-    sign_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    sign_count: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        default=0,
+        doc="WebAuthn signature counter, an unsigned 32-bit value",
+    )
     aaguid: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
     transports: Mapped[list[str]] = mapped_column(
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")

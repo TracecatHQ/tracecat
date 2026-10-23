@@ -168,7 +168,9 @@ class MfaService:
         """Delete a security key.
 
         Removing the last key also removes recovery codes, since they only
-        exist to recover access to an enrolled account.
+        exist to recover access to an enrolled account, and clears every
+        session's MFA verification. A later policy then asks those sessions to
+        enroll instead of treating them as verified by a key that is gone.
         """
         await self._lock_user(user_id)
         credential = await self.get_credential(user_id, credential_id)
@@ -182,6 +184,11 @@ class MfaService:
         if remaining == 0:
             await self.session.execute(
                 delete(MfaRecoveryCode).where(MfaRecoveryCode.user_id == user_id)
+            )
+            await self.session.execute(
+                update(AccessToken)
+                .where(cast(Any, AccessToken.user_id) == user_id)
+                .values(mfa_verified_at=None, step_up_verified_at=None)
             )
         await self.session.commit()
 
@@ -268,13 +275,19 @@ class MfaService:
         if count > 0 and not has_recent_mfa(access_token):
             raise MfaVerificationError("Verify with an existing security key first.")
         is_first = count == 0
-        duplicate = await self.session.execute(
-            select(WebAuthnCredential.id).where(
+        existing_owner = await self.session.execute(
+            select(WebAuthnCredential.user_id).where(
                 WebAuthnCredential.credential_id == credential_data.credential_id
             )
         )
-        if duplicate.scalar_one_or_none() is not None:
-            raise MfaVerificationError("This security key is already registered.")
+        match existing_owner.scalar_one_or_none():
+            case None:
+                pass
+            case owner_id if owner_id == user.id:
+                raise MfaVerificationError("This security key is already registered.")
+            case _:
+                # Don't reveal that another account registered this credential.
+                raise MfaVerificationError("Security key registration failed.")
 
         now = datetime.now(UTC)
         credential = WebAuthnCredential(
