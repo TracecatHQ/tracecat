@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation"
 import { Suspense } from "react"
 import { AuthGuard } from "@/components/auth/auth-guard"
+import { CommandPalette } from "@/components/command-palette/command-palette"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { OrganizationSidebar } from "@/components/sidebar/organization-sidebar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
@@ -33,6 +34,7 @@ export default function OrganizationLayout({
             </div>
           </SidebarInset>
         </SidebarProvider>
+        <CommandPalette />
       </AuthGuard>
     </ScopeProvider>
   )

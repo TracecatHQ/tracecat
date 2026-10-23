@@ -12,6 +12,7 @@ import { ApiError } from "@/client"
 import { NoOrganizationAccess } from "@/components/auth/no-organization-access"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CaseSelectionProvider } from "@/components/cases/case-selection-context"
+import { CommandPalette } from "@/components/command-palette/command-palette"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ControlsHeader } from "@/components/nav/controls-header"
 import { DynamicNavbar } from "@/components/nav/dynamic-nav"
@@ -201,6 +202,7 @@ export default function WorkspaceLayout({
           <WorkspaceChildren>{children}</WorkspaceChildren>
         )}
         <SettingsModal />
+        <CommandPalette />
       </ScopeProvider>
     </WorkspaceIdProvider>
   )
