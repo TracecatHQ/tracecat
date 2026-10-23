@@ -648,6 +648,7 @@ class RegistryArtifactCacheStorage:
         self._failed_startup_cleanup: dict[Path, _RegistryArtifactCleanupIdentity] = {}
         self._squashfs_mount_policy = registry_artifact_mounts.SquashfsMountPolicy()
         self._budget_dirty = True
+        self._lease_pressure_listeners: list[Callable[[], None]] = []
 
     async def ensure_swept(self) -> None:
         """Run the cancellation-safe startup sweep exactly once."""
@@ -974,6 +975,14 @@ class RegistryArtifactCacheStorage:
             for path in reservation.staging_paths
         )
 
+    def add_lease_pressure_listener(self, listener: Callable[[], None]) -> None:
+        """Call ``listener`` whenever admission waits on bytes that leases hold.
+
+        Holders of optional leases, such as idle warm action jails, use it to
+        give them up so the blocked admission can evict those entries.
+        """
+        self._lease_pressure_listeners.append(listener)
+
     def _signal_capacity_changed(self) -> None:
         """Wake every capacity waiter; later waiters take a fresh event."""
         self._capacity_changed.set()
@@ -1150,6 +1159,9 @@ class RegistryArtifactCacheStorage:
             lease_contention: bool = False,
             releasable_bytes: int | None = None,
         ) -> RegistryArtifactCacheCapacityError:
+            if lease_contention:
+                for listener in self._lease_pressure_listeners:
+                    listener()
             error_type = (
                 RegistryArtifactCacheLeaseContentionError
                 if lease_contention

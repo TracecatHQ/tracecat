@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import os
 import shutil
+import signal
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,7 +33,7 @@ from tracecat.sandbox.executor import (
 )
 from tracecat.sandbox.nsjail_protocol import NsjailProcess, close_nsjail_files
 from tracecat.sandbox.types import SandboxResult
-from tracecat.sandbox.utils import terminate_process_group
+from tracecat.sandbox.utils import communicate_process_group
 
 
 @dataclass(eq=False, slots=True)
@@ -74,6 +76,8 @@ class WarmJailPool:
         """Owners whose jail is starting or idle; the cap applies to these."""
         self._owners: set[asyncio.Task[None]] = set()
         self._closed = False
+        # An idle jail's lease is optional; give it up when admission needs it.
+        registry_artifacts.add_lease_pressure_listener(self.evict_idle)
 
     def claim(self, config: ActionSandboxConfig) -> WarmJail | None:
         """Take a live idle jail whose configuration matches ``config``.
@@ -122,12 +126,16 @@ class WarmJailPool:
         finally:
             jail.released.set()
 
-    async def close(self) -> None:
-        """Discard idle jails and wait for every owner to finish."""
-        self._closed = True
+    def evict_idle(self) -> None:
+        """Discard every idle jail; their owners release the registry leases."""
         for jail in self._idle:
             jail.released.set()
         self._idle.clear()
+
+    async def close(self) -> None:
+        """Discard idle jails and wait for every owner to finish."""
+        self._closed = True
+        self.evict_idle()
         if self._owners:
             await asyncio.gather(*self._owners, return_exceptions=True)
 
@@ -177,6 +185,13 @@ class WarmJailPool:
             await asyncio.wait_for(jail.released.wait(), self._idle_seconds)
         except TimeoutError:
             pass
+        except asyncio.CancelledError:
+            # Never leave an unclaimed jail running past its owner.
+            if not jail.claimed:
+                if jail in self._idle:
+                    self._idle.remove(jail)
+                await _discard(jail)
+            raise
         if jail.claimed:
             # The claimed action still imports from this lease.
             await jail.released.wait()
@@ -188,10 +203,20 @@ class WarmJailPool:
 
 async def _discard(jail: WarmJail) -> None:
     """Kill an unclaimed jail and release its executor-owned files."""
-    process = jail.handle.process
-    if process.stdin is not None:
-        process.stdin.close()
     try:
-        await terminate_process_group(process)
+        await _kill_jail_process(jail.handle.process)
     finally:
         close_nsjail_files(jail.handle)
+
+
+async def _kill_jail_process(process: asyncio.subprocess.Process) -> None:
+    """SIGKILL the jail's process group and reap it.
+
+    The output pipes are drained while waiting: asyncio only reports the exit
+    once both pipes close, and output written before hand-over can fill them.
+    """
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    await communicate_process_group(process)

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import sys
 import tempfile
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, cast
@@ -41,6 +42,10 @@ class FakeRegistryArtifacts:
     def __init__(self, paths: list[Path]) -> None:
         self.paths = paths
         self.active_leases = 0
+        self.pressure_listeners: list[Callable[[], None]] = []
+
+    def add_lease_pressure_listener(self, listener: Callable[[], None]) -> None:
+        self.pressure_listeners.append(listener)
 
     @asynccontextmanager
     async def lease(
@@ -86,12 +91,12 @@ def spawned(monkeypatch: pytest.MonkeyPatch) -> list[FakeProcess]:
             workload_started_marker=None,
         )
 
-    async def terminate(process: FakeProcess) -> None:
+    async def kill(process: FakeProcess) -> None:
         process.returncode = -9
 
     monkeypatch.setattr(NsjailExecutor, "spawn_action", spawn_action)
     monkeypatch.setattr(warm_jails_module, "sandbox_cgroup", lambda: None)
-    monkeypatch.setattr(warm_jails_module, "terminate_process_group", terminate)
+    monkeypatch.setattr(warm_jails_module, "_kill_jail_process", kill)
     return processes
 
 
@@ -243,6 +248,65 @@ async def test_mismatched_lease_paths_spawn_nothing(
     await _settle()
     assert spawned == []
     await pool.close()
+
+
+@pytest.mark.anyio
+async def test_cache_lease_pressure_evicts_idle_jails(
+    tmp_path: Path, spawned: list[FakeProcess]
+) -> None:
+    """An idle jail's lease must not block another registry's admission."""
+    pool, artifacts = _pool(tmp_path)
+    config = _config(tmp_path)
+    pool.replenish([], config)
+    await _settle()
+    assert artifacts.active_leases == 1
+
+    for listener in artifacts.pressure_listeners:
+        listener()
+    await _settle()
+
+    assert spawned[0].returncode == -9
+    assert artifacts.active_leases == 0
+    assert pool.claim(config) is None
+    await pool.close()
+
+
+@pytest.mark.anyio
+async def test_cancelled_owner_kills_its_unclaimed_jail(
+    tmp_path: Path, spawned: list[FakeProcess]
+) -> None:
+    pool, artifacts = _pool(tmp_path)
+    config = _config(tmp_path)
+    pool.replenish([], config)
+    await _settle()
+
+    for owner in list(pool._owners):
+        owner.cancel()
+    await _settle()
+
+    assert spawned[0].returncode == -9
+    assert artifacts.active_leases == 0
+    assert pool.claim(config) is None
+
+
+@pytest.mark.anyio
+async def test_kill_drains_output_written_before_hand_over() -> None:
+    """asyncio reports the exit only once the pipes close, so a jail that
+    filled its pipes before hand-over must still be reaped."""
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        "import sys, time; sys.stdout.write('x' * 1_000_000); sys.stdout.flush(); time.sleep(60)",
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+    )
+    await asyncio.sleep(0.5)
+
+    await asyncio.wait_for(warm_jails_module._kill_jail_process(process), 10)
+
+    assert process.returncode is not None
 
 
 def test_claim_rejects_handover_env_the_cold_path_rejects(tmp_path: Path) -> None:

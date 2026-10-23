@@ -380,13 +380,18 @@ class ActionRunner:
         # Tunneled actions always start cold: their egress policy and proxy
         # environment are specific to one tunnel.
         warm_jails = self.warm_jails if route is None else None
-        jail = warm_jails.claim(sandbox_config) if warm_jails is not None else None
+        jail = None
+        warm_payload = b""
+        if warm_jails is not None:
+            # Serialize first: nothing may fail between claiming a jail and
+            # handing it to run(), which releases it.
+            warm_payload = to_json({**payload, "handover_env": handover_env})
+            jail = warm_jails.claim(sandbox_config)
 
         start_time = time.monotonic()
         try:
             if warm_jails is not None and jail is not None:
-                payload["handover_env"] = handover_env
-                result = await warm_jails.run(jail, to_json(payload))
+                result = await warm_jails.run(jail, warm_payload)
             else:
                 result = await self._execute_cold_jail(input, payload, sandbox_config)
         finally:
