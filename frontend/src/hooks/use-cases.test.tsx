@@ -712,6 +712,44 @@ describe("case search modes", () => {
     )
   })
 
+  it("does not send searches the API would reject", async () => {
+    const { result } = setup()
+    await advance()
+    act(() => result.current.setSearchQuery("-"))
+    await advance(301)
+    expect(result.current.appliedSearchQuery).toBe("")
+    expect(result.current.isSearchPending).toBe(false)
+    expect(casesQueryCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        requestBody: expect.objectContaining({
+          search_term: undefined,
+          search_mode: undefined,
+        }),
+      })
+    )
+    act(() => result.current.setSearchQuery("foo - bar"))
+    await advance(301)
+    expect(casesQueryCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        requestBody: expect.objectContaining({
+          search_term: "foo - bar",
+          search_mode: "full_text",
+        }),
+      })
+    )
+    act(() => {
+      result.current.setSearchMode("literal")
+      result.current.setSearchQuery(" ab ")
+    })
+    await advance(301)
+    expect(result.current.appliedSearchQuery).toBe("")
+    expect(casesQueryCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        requestBody: expect.objectContaining({ search_term: undefined }),
+      })
+    )
+  })
+
   it("keeps an explicit default-column choice across terms and offers relevance again", async () => {
     const { result } = setup()
     await advance()
