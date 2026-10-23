@@ -12,6 +12,7 @@ from slugify import slugify
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from tracecat.agent.catalog.bundled import get_retired_platform_models
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.catalog.types import ModelKey
 from tracecat.agent.preset.service import AgentPresetService
@@ -553,8 +554,10 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             workspace_id=workspace_service.workspace_id,
             models=models,
         )
-        resolved_catalog_ids: dict[uuid.UUID, uuid.UUID] = {}
+        # ``None`` clears the ID so the run swaps a retired model by name.
+        resolved_catalog_ids: dict[uuid.UUID, uuid.UUID | None] = {}
         requirements: list[CatalogMappingRequirement] = []
+        retired_models = get_retired_platform_models()
 
         for catalog_id, references in sorted_references_by_catalog_id:
             if catalog_id in invalid_catalog_ids:
@@ -595,6 +598,9 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     reason="ambiguous",
                 )
                 continue
+            if model_key in retired_models:
+                resolved_catalog_ids[catalog_id] = None
+                continue
 
             self._append_unavailable_catalog_diagnostics(
                 diagnostics=diagnostics,
@@ -632,16 +638,15 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
 
         correlated_presets: dict[str, AgentPresetResourceSpec] = {}
         for source_id, preset in sorted(presets.items()):
-            local_catalog_id = (
-                resolved_catalog_ids.get(preset.catalog_id)
-                if preset.catalog_id is not None
-                else None
-            )
+            catalog_id = preset.catalog_id
             correlated_presets[source_id] = (
                 preset
-                if local_catalog_id is None
+                if catalog_id is None or catalog_id not in resolved_catalog_ids
                 else preset.model_copy(
-                    update={"catalog_id": local_catalog_id, "base_url": None}
+                    update={
+                        "catalog_id": resolved_catalog_ids[catalog_id],
+                        "base_url": None,
+                    }
                 )
             )
 
@@ -673,11 +678,12 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     catalog_id = uuid.UUID(str(raw_catalog_id))
                 except (TypeError, ValueError):
                     continue
-                local_catalog_id = resolved_catalog_ids.get(catalog_id)
-                if local_catalog_id is None:
+                if catalog_id not in resolved_catalog_ids:
                     continue
-
-                new_catalog_id = str(local_catalog_id)
+                local_catalog_id = resolved_catalog_ids[catalog_id]
+                new_catalog_id = (
+                    str(local_catalog_id) if local_catalog_id is not None else None
+                )
                 new_args = dict(action.args)
                 if "catalog_id" in new_args:
                     new_args["catalog_id"] = new_catalog_id
