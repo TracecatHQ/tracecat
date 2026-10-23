@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, Field
 
 from tracecat.agent.adapter.vercel import UIMessage
 from tracecat.agent.session.types import AgentSessionEntity
@@ -146,6 +146,10 @@ class AgentSessionCapabilities(BaseModel):
         default=False,
         description="Whether a running turn accepts steering messages",
     )
+    withdrawing: bool = Field(
+        default=False,
+        description="Whether a running turn can take back pending user messages",
+    )
 
 
 class AgentSessionRead(BaseModel):
@@ -239,29 +243,6 @@ class AgentSessionCancelResponse(BaseModel):
     session_id: uuid.UUID
     run_id: uuid.UUID
     reason: str
-
-
-class AgentSessionSteerRequest(BaseModel):
-    """A message for the active turn to take into account before it answers."""
-
-    id: uuid.UUID = Field(
-        description=(
-            "Client-generated steering ID. A retry while its turn runs gets the "
-            "first outcome; a retry never reaches a later turn."
-        )
-    )
-    text: Annotated[
-        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100_000)
-    ]
-
-
-class AgentSessionSteerResponse(BaseModel):
-    """The active turn's outcome for a steering message."""
-
-    session_id: uuid.UUID
-    run_id: uuid.UUID
-    id: uuid.UUID
-    status: Literal["accepted", "rejected"]
 
 
 class AgentBackendRead(BaseModel):

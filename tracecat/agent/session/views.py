@@ -14,7 +14,7 @@ def build_session_read(
 ) -> AgentSessionRead:
     """Project persisted session data and live backend state for an actor."""
     available = agent_backend_available(session.backend_id, session.harness_type)
-    backend = find_agent_backend(session.backend_id)
+    backend = find_agent_backend(session.backend_id) if available else None
     return AgentSessionRead(
         id=session.id,
         workspace_id=session.workspace_id,
@@ -26,7 +26,8 @@ def build_session_read(
         or not available,
         backend_id=session.backend_id,
         capabilities=AgentSessionCapabilities(
-            steering=available and backend is not None and backend.steering
+            steering=backend is not None and backend.steering,
+            withdrawing=backend is not None and backend.withdrawing,
         ),
         entity_type=AgentSessionEntity(session.entity_type),
         entity_id=session.entity_id,
