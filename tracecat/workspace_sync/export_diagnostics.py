@@ -17,14 +17,13 @@ class WorkflowExportDiagnosticsService(BaseWorkspaceService):
 
     service_name = "workflow_export_diagnostics"
 
-    async def validation_error(
+    def validation_error(
         self,
         workflow: Workflow,
         *,
         code: WorkflowExportCode = "invalid_definition",
         error: ValidationError | TracecatValidationError | None = None,
         stage: WorkflowExportStage = "definition",
-        provider: VcsProvider | None = None,
     ) -> WorkflowExportValidationError:
         """Return a safe failure; callers raise it outside exception handlers."""
         messages: dict[WorkflowExportCode, str] = {
@@ -60,23 +59,35 @@ class WorkflowExportDiagnosticsService(BaseWorkspaceService):
                     f"Check these workflow fields before pushing: {', '.join(fields)}."
                 )
         return WorkflowExportValidationError(
-            [
-                await self.diagnostic(
-                    workflow, code=code, message=message, stage=stage, provider=provider
-                )
-            ]
+            [self.diagnostic(workflow, code=code, message=message, stage=stage)]
         )
 
-    async def diagnostic(
+    def diagnostic(
         self,
         workflow: Workflow,
         *,
         code: WorkflowExportCode,
         message: str,
         stage: WorkflowExportStage = "definition",
-        provider: VcsProvider | None = None,
     ) -> WorkflowExportDiagnostic:
         """Describe an authorized workflow without inventing repository paths."""
+        return WorkflowExportDiagnostic(
+            workflow_id=workflow.id,
+            workflow_title=workflow.title,
+            stage=stage,
+            code=code,
+            message=message,
+        )
+
+    async def with_mappings(
+        self,
+        error: WorkflowExportValidationError,
+        *,
+        provider: VcsProvider | None = None,
+    ) -> WorkflowExportValidationError:
+        """Enrich a bounded error list with one read of existing Git mappings."""
+        if not error.diagnostics:
+            return error
         configured_provider = (
             select(
                 func.coalesce(
@@ -86,21 +97,21 @@ class WorkflowExportDiagnosticsService(BaseWorkspaceService):
             .where(Workspace.id == self.workspace_id)
             .scalar_subquery()
         )
-        mapping = await self.session.scalar(
+        mappings = await self.session.scalars(
             select(WorkspaceSyncResourceMapping).where(
                 WorkspaceSyncResourceMapping.workspace_id == self.workspace_id,
                 WorkspaceSyncResourceMapping.provider
                 == (provider.value if provider else configured_provider),
                 WorkspaceSyncResourceMapping.resource_type == "workflow",
-                WorkspaceSyncResourceMapping.local_id == workflow.id,
+                WorkspaceSyncResourceMapping.local_id.in_(
+                    {item.workflow_id for item in error.diagnostics}
+                ),
             )
         )
-        return WorkflowExportDiagnostic(
-            workflow_id=workflow.id,
-            workflow_title=workflow.title,
-            source_id=mapping.source_id if mapping else None,
-            source_path=mapping.source_path if mapping else None,
-            stage=stage,
-            code=code,
-            message=message,
-        )
+        by_workflow_id = {mapping.local_id: mapping for mapping in mappings}
+        for diagnostic in error.diagnostics:
+            mapping = by_workflow_id.get(diagnostic.workflow_id)
+            if mapping is not None:
+                diagnostic.source_id = mapping.source_id
+                diagnostic.source_path = mapping.source_path
+        return error

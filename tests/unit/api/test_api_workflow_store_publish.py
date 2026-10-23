@@ -268,7 +268,7 @@ async def test_workflow_push_distinguishes_first_publish_from_broken_definitions
     workflow.title = "Synthetic workflow"
     workflow.version = version
 
-    async def diagnostic(
+    def diagnostic(
         workflow: Workflow,
         *,
         code: WorkflowExportCode,
@@ -294,7 +294,7 @@ async def test_workflow_push_distinguishes_first_publish_from_broken_definitions
         patch("tracecat.workflow.store.router.WorkflowStoreService") as store,
         patch(
             "tracecat.workspace_sync.export_diagnostics.WorkflowExportDiagnosticsService.diagnostic",
-            new=AsyncMock(side_effect=diagnostic),
+            new=Mock(side_effect=diagnostic),
         ),
     ):
         management.return_value.get_workflow = AsyncMock(return_value=workflow)
@@ -306,6 +306,9 @@ async def test_workflow_push_distinguishes_first_publish_from_broken_definitions
             f"/workflows/{workflow.id}/publish",
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"branch": "sync/example", "create_pr": False},
+        )
+        definitions.return_value.get_definition_by_workflow_id.assert_awaited_once_with(
+            workflow.id, version=version
         )
         store.return_value.publish_workflow_dsl.assert_not_called()
         management.return_value.build_dsl_from_workflow.assert_not_called()
