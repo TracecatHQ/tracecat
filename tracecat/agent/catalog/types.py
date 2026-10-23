@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import Literal, NamedTuple, TypedDict
+from typing import Literal, NamedTuple, NotRequired, TypedDict
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -82,3 +82,10 @@ class RawRetiredModel(BaseModel):
     model_provider: str = Field(min_length=1)
     model_name: str = Field(min_length=1)
     lifecycle: ModelLifecycle
+
+
+class PlatformCatalogDocument(TypedDict):
+    """Bundled ``platform_catalog.json``; entries are validated one at a time."""
+
+    models: NotRequired[object]
+    retired: NotRequired[object]

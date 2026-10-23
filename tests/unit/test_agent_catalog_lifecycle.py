@@ -117,7 +117,9 @@ def test_bundled_retired_models_point_at_current_replacements() -> None:
     retired = parse_retired_models(document)
 
     # Every raw entry parses, so none is silently dropped.
-    assert len(retired) == len(document.get("retired", []))
+    raw_retired = document.get("retired", [])
+    assert isinstance(raw_retired, list)
+    assert len(retired) == len(raw_retired)
     for key, lifecycle in retired.items():
         assert key not in current, f"{key.model_name}: still in models"
         assert lifecycle.status_on() == "retired", key.model_name
