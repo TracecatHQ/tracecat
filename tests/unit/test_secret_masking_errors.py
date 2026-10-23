@@ -208,10 +208,10 @@ def test_policy_errors_preserve_their_structured_diagnostic() -> None:
 async def test_registry_jsonpath_miss_omits_runtime_operand() -> None:
     import logging as stdlib_logging
 
-    from tracecat_registry.core.transform import deduplicate
+    from tracecat_registry._internal.jsonpath import eval_jsonpath
 
     secret = "sk_live_CANARY_9f3a91d4e6b2"
-    items = [{"id": 1, "auth_header": f"Bearer {secret}"}]
+    item = {"id": 1, "auth_header": f"Bearer {secret}"}
 
     stream = io.StringIO()
     handler = stdlib_logging.StreamHandler(stream)
@@ -220,7 +220,7 @@ async def test_registry_jsonpath_miss_omits_runtime_operand() -> None:
     root.addHandler(handler)
     try:
         with pytest.raises(Exception) as exc_info:  # noqa: B017
-            await deduplicate(items=items, keys=["nonexistent_key"])
+            eval_jsonpath("$.nonexistent_key", item, strict=True)
     finally:
         root.removeHandler(handler)
 

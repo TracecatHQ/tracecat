@@ -8,8 +8,7 @@ import json
 import orjson
 from tracecat_registry import ActionIsInterfaceError, ctx, registry
 from tracecat_registry._internal.flatten import flatten_dict as _flatten_dict
-from tracecat_registry._internal.exceptions import TracecatExpressionError
-from tracecat_registry._internal.jsonpath import eval_jsonpath
+from tracecat_registry._internal.jsonpath import eval_jsonpath, find_jsonpath
 from tracecat_registry._internal.safe_lambda import build_safe_lambda
 
 
@@ -192,25 +191,21 @@ async def deduplicate(
     if not items_list:
         return []
 
-    jsonpath_exprs = ["$." + key for key in keys]
-    # Strict evaluation raises the same error for an invalid JSONPath and for
-    # no match, so validate every expression up front and let a strict-mode
-    # error below mean the key is missing.
-    for jsonpath_expr in jsonpath_exprs:
-        eval_jsonpath(jsonpath_expr, {})
-
     def get_nested_values(item: dict[str, Any]) -> tuple[Any, ...] | None:
         """Return the item's dedup key, or None if any key is missing."""
-        if not jsonpath_exprs:
+        if not keys:
             # No keys: the whole item is the key. Nest it in a tuple, which a
             # keyed value never produces, so its digest can't match one.
             return (("item", json.dumps(item, sort_keys=True, default=str)),)
         values = []
-        for jsonpath_expr in jsonpath_exprs:
-            try:
-                value = eval_jsonpath(jsonpath_expr, item, strict=True)
-            except TracecatExpressionError:
+        for key in keys:
+            # Convert dot notation to jsonpath format
+            matches, is_multi = find_jsonpath("$." + key, item)
+            if not matches:
+                # Missing key, including a wildcard or filter matching nothing
                 return None
+            # Same value shape as eval_jsonpath, which keeps digests stable
+            value = matches if is_multi or len(matches) > 1 else matches[0]
             # Convert unhashable types to JSON strings for use as dict keys
             if isinstance(value, (list, dict)):
                 value = json.dumps(value, sort_keys=True, default=str)

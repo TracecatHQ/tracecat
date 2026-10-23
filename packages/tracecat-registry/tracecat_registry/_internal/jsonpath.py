@@ -73,13 +73,15 @@ def _parse_jsonpath(expr: str) -> jsonpath_nodes.JSONPath:
         return parsed
 
 
-def eval_jsonpath(
-    expr: str,
-    operand: dict[str, Any] | list[Any],
-    *,
-    strict: bool = False,
-) -> Any | None:
-    """Evaluate a jsonpath expression on the target object (operand)."""
+def find_jsonpath(
+    expr: str, operand: dict[str, Any] | list[Any]
+) -> tuple[list[Any], bool]:
+    """Find every value a jsonpath expression matches in the operand.
+
+    Returns the matched values and whether the expression contains an array
+    wildcard or filter, which always evaluate to a list. An empty list means
+    the expression matched nothing.
+    """
 
     if operand is None or not isinstance(operand, dict | list):
         logger.error(f"Invalid operand for jsonpath: {type(operand)}")
@@ -126,8 +128,19 @@ def eval_jsonpath(
 
     has_wildcard = "[*]" in expr
     has_filter = "[?(" in expr or "[?@" in expr or _contains_filter(jsonpath_expr)
+    return matches, has_wildcard or has_filter
 
-    if len(matches) > 1 or has_wildcard or has_filter:
+
+def eval_jsonpath(
+    expr: str,
+    operand: dict[str, Any] | list[Any],
+    *,
+    strict: bool = False,
+) -> Any | None:
+    """Evaluate a jsonpath expression on the target object (operand)."""
+
+    matches, is_multi = find_jsonpath(expr, operand)
+    if len(matches) > 1 or is_multi:
         # If there are multiple matches or array wildcard, return the list
         return matches
     elif len(matches) == 1:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -179,6 +180,11 @@ class TestDeduplicateTransform:
                 [{"user": {"name": "a"}}, {"user": {"name": "b"}}],
             ),
             (
+                [{"name": "a"}, {"tags": []}, {"tags": ["x"]}, {"tags": ["x"]}],
+                ["tags[*]"],
+                [{"name": "a"}, {"tags": []}, {"tags": ["x"]}],
+            ),
+            (
                 [{"id": None, "v": 1}, {"id": None, "v": 2}],
                 ["id"],
                 [{"id": None, "v": 2}],
@@ -207,6 +213,7 @@ class TestDeduplicateTransform:
             "missing-key-passes-through",
             "keyless-items-not-merged",
             "missing-nested-key-passes-through",
+            "zero-match-wildcard-passes-through",
             "explicit-null-key-dedupes",
             "mixed-keeps-input-order",
             "same-key-items-merge",
@@ -266,6 +273,16 @@ class TestDeduplicateTransform:
         assert first is False
         assert second is False
         mock_dedup_client.create_digests.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_keyless_items_log_no_errors(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A missing key is an expected passthrough, not an error log line."""
+        with caplog.at_level(logging.ERROR, logger="tracecat_registry"):
+            await deduplicate([{"name": "a"}], keys=["id"], persist=False)
+
+        assert caplog.records == []
 
     @pytest.mark.anyio
     async def test_invalid_jsonpath_raises_when_key_missing(self) -> None:
