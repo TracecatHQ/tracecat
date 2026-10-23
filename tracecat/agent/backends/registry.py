@@ -46,11 +46,15 @@ def _validate_backend(identifier: str, backend: AgentBackend[Any, Any]) -> None:
             raise ValueError(
                 f"Invalid harness identifier for agent backend: {identifier}"
             )
-    for flag in ("subagent_approvals", "steering"):
+    for flag in ("subagent_approvals", "steering", "withdrawing"):
         if not isinstance(getattr(backend, flag, None), bool):
             raise TypeError(f"Agent backend {identifier}: {flag} must be a bool")
     if backend.steering and type(backend).steer is AgentBackend.steer:
         raise TypeError(f"Agent backend {identifier}: steering requires a steer method")
+    if backend.withdrawing and type(backend).withdraw is AgentBackend.withdraw:
+        raise TypeError(
+            f"Agent backend {identifier}: withdrawing requires a withdraw method"
+        )
 
     # Inspect the workflow dynamically for the same missing-attribute boundary.
     workflow_class: object = getattr(backend, "workflow", None)
