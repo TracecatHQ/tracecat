@@ -1,7 +1,5 @@
 """Validated subset of Bitbucket Cloud REST responses."""
 
-from dataclasses import dataclass
-
 from pydantic import BaseModel, Field
 
 
@@ -40,9 +38,3 @@ class BitbucketPullRequest(BaseModel):
 class BitbucketPage[T: BaseModel](BaseModel):
     values: list[T] = Field(default_factory=list)
     next: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class GitEntry:
-    mode: str
-    sha: str
