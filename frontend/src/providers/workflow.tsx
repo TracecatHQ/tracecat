@@ -89,6 +89,7 @@ export function WorkflowProvider({
     ValidationResult[] | null
   >(null)
   const [publishRequiredOpen, setPublishRequiredOpen] = useState(false)
+  const [publishError, setPublishError] = useState<string | null>(null)
 
   // Queries
   const {
@@ -114,7 +115,7 @@ export function WorkflowProvider({
   })
 
   // Mutations
-  const { mutateAsync: commitWorkflow } = useMutation({
+  const { mutateAsync: commitWorkflow, isPending: isCommitting } = useMutation({
     mutationFn: async () =>
       await workflowsCommitWorkflow({ workspaceId, workflowId }),
     onSuccess: (response) => {
@@ -140,7 +141,7 @@ export function WorkflowProvider({
       toast({
         title: "Error saving workflow",
         description:
-          (error.body as TracecatErrorMessage).message ||
+          (error.body as TracecatErrorMessage | undefined)?.message ||
           "Could not save workflow. Please try again.",
         variant: "destructive",
       })
@@ -192,6 +193,7 @@ export function WorkflowProvider({
     },
     onError: (error: ApiError) => {
       if (isPublishRequired(error)) {
+        setPublishError(null)
         setPublishRequiredOpen(true)
         return
       }
@@ -302,6 +304,23 @@ export function WorkflowProvider({
     },
   })
 
+  async function handlePublishFirst() {
+    setPublishError(null)
+    try {
+      const response = await commitWorkflow()
+      if (response.status === "success") {
+        setValidationErrors(null)
+        setPublishRequiredOpen(false)
+      } else {
+        setValidationErrors(response.errors || null)
+        setPublishError("Fix the workflow validation errors before publishing.")
+      }
+    } catch {
+      // The mutation also shows the standard Publish error toast.
+      setPublishError("Could not publish this workflow. Please try again.")
+    }
+  }
+
   return (
     <WorkflowContext.Provider
       value={{
@@ -321,6 +340,10 @@ export function WorkflowProvider({
       <PublishFirstDialog
         open={publishRequiredOpen}
         onOpenChange={setPublishRequiredOpen}
+        onPublish={handlePublishFirst}
+        isPublishing={isCommitting}
+        publishError={publishError}
+        validationErrors={validationErrors}
       />
     </WorkflowContext.Provider>
   )
