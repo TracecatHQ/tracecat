@@ -92,6 +92,7 @@ from tracecat.auth.dependencies import (
 )
 from tracecat.auth.discovery import router as auth_discovery_router
 from tracecat.auth.enums import AuthType
+from tracecat.auth.mfa.router import router as mfa_router
 from tracecat.auth.oidc import create_platform_oauth_client, oidc_auth_type_enabled
 from tracecat.auth.router import router as users_router
 from tracecat.auth.saml import router as saml_router
@@ -779,6 +780,7 @@ def create_app(**kwargs) -> FastAPI:
     # The ACS callback resolves org context from RelayState, so requiring
     # query/cookie org context at router level can block legitimate IdP callbacks.
     app.include_router(saml_router)
+    app.include_router(mfa_router)
     app.include_router(auth_discovery_router)
 
     if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:

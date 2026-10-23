@@ -40,6 +40,7 @@ dependencies = [
     "defusedxml==0.7.1",
     "email-validator==2.2.0",
     "fastapi-users[sqlalchemy,oauth]==15.0.5",
+    "fido2==2.2.1",
     "fastapi[standard]==0.137.1",
     "fastmcp==3.2.0",
     "google-auth==2.48.0",

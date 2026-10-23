@@ -671,7 +671,64 @@ class AccessToken(SQLAlchemyBaseAccessTokenTableUUID, Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
+    mfa_verified_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When this session completed a security key or recovery code challenge",
+    )
+    step_up_verified_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When this session last verified a security key for step-up checks",
+    )
     user: Mapped[User] = relationship(back_populates="access_tokens")
+
+
+class WebAuthnCredential(Base, TimestampMixin):
+    """A FIDO2/WebAuthn credential (security key or passkey) registered by a user."""
+
+    __tablename__ = "webauthn_credential"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    credential_id: Mapped[bytes] = mapped_column(
+        LargeBinary, nullable=False, unique=True
+    )
+    public_key: Mapped[bytes] = mapped_column(
+        LargeBinary, nullable=False, doc="COSE-encoded credential public key"
+    )
+    sign_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    aaguid: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    transports: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    backup_eligible: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    backup_state: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+
+
+class MfaRecoveryCode(Base, TimestampMixin):
+    """A single-use MFA recovery code. Only a SHA-256 hash is stored."""
+
+    __tablename__ = "mfa_recovery_code"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    used_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
 
 
 class SAMLRequestData(Base):

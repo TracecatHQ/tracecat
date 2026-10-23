@@ -10,6 +10,7 @@
 | `TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS` | | Comma-separated IPs or CIDRs, e.g. `10.0.12.34/32,10.42.0.0/16`, that custom LLM providers (LiteLLM, vLLM, Ollama, custom sources) and remote MCP servers may resolve to. Tracecat rejects private, loopback, and link-local destinations with `Host is not allowed` unless they are listed here. Set it on `api`, `agent-worker`, `litellm`, and `agent-executor`. See [Private endpoints](/agents/llm-providers#private-endpoints). |
 | `TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS` | loopback + private ranges | Comma-separated CIDRs of proxies behind which the API runs (Caddy, the UI container, a load balancer). `X-Forwarded-For` entries from these hops are skipped when resolving the client IP for audit logs. |
 | `TRACECAT__PLATFORM_ADMIN_IP_ALLOWLIST_BYPASS` | `false` | Break-glass override for the API service. When `true`, Tracecat skips the [platform admin IP allowlist](/manage-platform/ip-allowlist#platform-admin-ip-allowlist) so a locked-out platform admin can recover. Organization allowlists still apply. Remove it after recovery. |
+| `TRACECAT__PLATFORM_ADMIN_MFA_BYPASS` | `false` | Break-glass override for the API service. When `true`, Tracecat skips security key sign-in and step-up checks for platform admins so an admin who lost every key can recover. Organization MFA policies still apply. Remove it after recovery. |
 
 ### Application
 

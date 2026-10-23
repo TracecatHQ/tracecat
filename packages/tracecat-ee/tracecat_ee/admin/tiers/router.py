@@ -7,7 +7,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat import config
-from tracecat.auth.credentials import SuperuserRole
+from tracecat.auth.credentials import SuperuserRole, SuperuserStepUpRole
 from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.tiers.exceptions import (
     CannotDeleteDefaultTierError,
@@ -54,7 +54,7 @@ async def list_tiers(
 
 @router.post("", response_model=TierRead, status_code=status.HTTP_201_CREATED)
 async def create_tier(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
     params: TierCreate,
 ) -> TierRead:
@@ -97,7 +97,7 @@ async def get_tier(
 
 @router.patch("/{tier_id}", response_model=TierRead)
 async def update_tier(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
     tier_id: uuid.UUID,
     params: TierUpdate,
@@ -113,7 +113,7 @@ async def update_tier(
 
 @router.delete("/{tier_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_tier(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
     tier_id: uuid.UUID,
 ) -> None:
@@ -147,7 +147,7 @@ async def get_org_tier(
 
 @router.patch("/organizations/{org_id}", response_model=OrganizationTierRead)
 async def update_org_tier(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     params: OrganizationTierUpdate,

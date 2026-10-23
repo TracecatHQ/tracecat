@@ -9,13 +9,16 @@ from tracecat.audit.service import (
     AuditWebhookNotConfiguredError,
     AuditWebhookUrlNotAllowedError,
 )
-from tracecat.auth.credentials import SuperuserRole
+from tracecat.auth.credentials import SuperuserRole, SuperuserStepUpRole
 from tracecat.auth.ip_allowlist_enforcement import (
     check_ip_against_allowlists,
     clear_ip_allowlist_cache,
     ensure_allowlist_admits_caller,
 )
+from tracecat.auth.mfa.policy import clear_mfa_policy_cache
+from tracecat.auth.mfa.schemas import MfaPolicyRead, MfaPolicyUpdate
 from tracecat.db.dependencies import AsyncDBSessionBypass
+from tracecat.exceptions import TracecatValidationError
 from tracecat.settings.schemas import (
     AuditWebhookTestResult,
     IPAllowlistCheckRequest,
@@ -46,7 +49,7 @@ async def get_audit_settings(
 
 @router.patch("/audit", response_model=PlatformAuditSettingsRead)
 async def update_audit_settings(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
     params: PlatformAuditSettingsUpdate,
 ) -> PlatformAuditSettingsRead:
@@ -92,7 +95,7 @@ async def get_registry_settings(
 
 @router.patch("/registry", response_model=PlatformRegistrySettingsRead)
 async def update_registry_settings(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
     params: PlatformRegistrySettingsUpdate,
 ) -> PlatformRegistrySettingsRead:
@@ -113,7 +116,7 @@ async def get_security_settings(
 
 @router.patch("/security", response_model=PlatformSecuritySettingsRead)
 async def update_security_settings(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
     params: PlatformSecuritySettingsUpdate,
 ) -> PlatformSecuritySettingsRead:
@@ -128,6 +131,37 @@ async def update_security_settings(
     service = AdminSettingsService(session, role)
     result = await service.update_security_settings(params)
     clear_ip_allowlist_cache()
+    return result
+
+
+@router.get("/security/mfa", response_model=MfaPolicyRead)
+async def get_mfa_settings(
+    role: SuperuserRole,
+    session: AsyncDBSessionBypass,
+) -> MfaPolicyRead:
+    """Whether platform admins must sign in with a security key."""
+    service = AdminSettingsService(session, role)
+    return await service.get_mfa_settings()
+
+
+@router.patch("/security/mfa", response_model=MfaPolicyRead)
+async def update_mfa_settings(
+    role: SuperuserStepUpRole,
+    session: AsyncDBSessionBypass,
+    params: MfaPolicyUpdate,
+) -> MfaPolicyRead:
+    """Require a security key at sign-in for platform admins.
+
+    ``TRACECAT__PLATFORM_ADMIN_MFA_BYPASS`` is the break-glass override.
+    """
+    service = AdminSettingsService(session, role)
+    try:
+        result = await service.update_mfa_settings(params)
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    clear_mfa_policy_cache()
     return result
 
 

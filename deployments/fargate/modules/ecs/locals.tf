@@ -131,6 +131,7 @@ locals {
 
         # Break-glass recovery for a platform admin IP allowlist lockout.
         TRACECAT__PLATFORM_ADMIN_IP_ALLOWLIST_BYPASS = var.platform_admin_ip_allowlist_bypass
+        TRACECAT__PLATFORM_ADMIN_MFA_BYPASS         = var.platform_admin_mfa_bypass
       }
     ) :
     { name = k, value = tostring(v) } if v != null

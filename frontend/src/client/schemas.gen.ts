@@ -24429,6 +24429,105 @@ export const $MessageOrigin = {
   title: "MessageOrigin",
 } as const
 
+export const $MfaPolicyRead = {
+  properties: {
+    mfa_required: {
+      type: "boolean",
+      title: "Mfa Required",
+    },
+    webauthn_available: {
+      type: "boolean",
+      title: "Webauthn Available",
+    },
+    webauthn_unavailable_reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Webauthn Unavailable Reason",
+    },
+  },
+  type: "object",
+  required: ["mfa_required", "webauthn_available"],
+  title: "MfaPolicyRead",
+} as const
+
+export const $MfaPolicyUpdate = {
+  properties: {
+    mfa_required: {
+      type: "boolean",
+      title: "Mfa Required",
+      description:
+        "Require a security key or passkey at sign-in. Users without one must register one at their next sign-in.",
+    },
+  },
+  type: "object",
+  required: ["mfa_required"],
+  title: "MfaPolicyUpdate",
+} as const
+
+export const $MfaStatusRead = {
+  properties: {
+    state: {
+      $ref: "#/components/schemas/SessionMfaState",
+    },
+    has_credentials: {
+      type: "boolean",
+      title: "Has Credentials",
+    },
+    required_by_policy: {
+      type: "boolean",
+      title: "Required By Policy",
+    },
+    webauthn_available: {
+      type: "boolean",
+      title: "Webauthn Available",
+    },
+    webauthn_unavailable_reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Webauthn Unavailable Reason",
+    },
+    recovery_codes_remaining: {
+      type: "integer",
+      title: "Recovery Codes Remaining",
+    },
+    step_up_expires_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Step Up Expires At",
+      description:
+        "When the current step-up verification stops satisfying checks.",
+    },
+  },
+  type: "object",
+  required: [
+    "state",
+    "has_credentials",
+    "required_by_policy",
+    "webauthn_available",
+    "recovery_codes_remaining",
+  ],
+  title: "MfaStatusRead",
+} as const
+
 export const $ModelConfig = {
   properties: {
     name: {
@@ -27457,6 +27556,35 @@ export const $ReasoningUIPart = {
   required: ["type", "text"],
   title: "ReasoningUIPart",
   description: "A reasoning part of a message.",
+} as const
+
+export const $RecoveryCodeVerify = {
+  properties: {
+    code: {
+      type: "string",
+      maxLength: 64,
+      minLength: 1,
+      title: "Code",
+    },
+  },
+  type: "object",
+  required: ["code"],
+  title: "RecoveryCodeVerify",
+} as const
+
+export const $RecoveryCodesRead = {
+  properties: {
+    recovery_codes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Recovery Codes",
+    },
+  },
+  type: "object",
+  required: ["recovery_codes"],
+  title: "RecoveryCodesRead",
 } as const
 
 export const $RegistryActionAvailability = {
@@ -32644,6 +32772,17 @@ export const $ServiceAccountUpdate = {
   },
   type: "object",
   title: "ServiceAccountUpdate",
+} as const
+
+export const $SessionMfaState = {
+  type: "string",
+  enum: [
+    "not_required",
+    "verified",
+    "challenge_required",
+    "enrollment_required",
+  ],
+  title: "SessionMfaState",
 } as const
 
 export const $SessionRead = {
@@ -39930,6 +40069,161 @@ export const $WatchtowerToolCallStatus = {
   enum: ["success", "error", "timeout", "rejected", "blocked"],
   title: "WatchtowerToolCallStatus",
   description: "Tool call result status for Watchtower monitor APIs.",
+} as const
+
+export const $WebAuthnAuthenticationVerify = {
+  properties: {
+    credential: {
+      additionalProperties: true,
+      type: "object",
+      title: "Credential",
+      description:
+        "PublicKeyCredential.toJSON() output from navigator.credentials.get().",
+    },
+  },
+  type: "object",
+  required: ["credential"],
+  title: "WebAuthnAuthenticationVerify",
+} as const
+
+export const $WebAuthnCredentialRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    aaguid: {
+      type: "string",
+      format: "uuid",
+      title: "Aaguid",
+    },
+    transports: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Transports",
+    },
+    backup_eligible: {
+      type: "boolean",
+      title: "Backup Eligible",
+    },
+    backup_state: {
+      type: "boolean",
+      title: "Backup State",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    last_used_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Used At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "aaguid",
+    "transports",
+    "backup_eligible",
+    "backup_state",
+    "created_at",
+    "last_used_at",
+  ],
+  title: "WebAuthnCredentialRead",
+} as const
+
+export const $WebAuthnCredentialUpdate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "WebAuthnCredentialUpdate",
+} as const
+
+export const $WebAuthnOptionsRead = {
+  properties: {
+    public_key: {
+      additionalProperties: true,
+      type: "object",
+      title: "Public Key",
+      description:
+        "PublicKeyCredential{Creation,Request}Options as JSON (base64url).",
+    },
+  },
+  type: "object",
+  required: ["public_key"],
+  title: "WebAuthnOptionsRead",
+} as const
+
+export const $WebAuthnRegistrationResult = {
+  properties: {
+    credential: {
+      $ref: "#/components/schemas/WebAuthnCredentialRead",
+    },
+    recovery_codes: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Recovery Codes",
+      description:
+        "One-time recovery codes, returned only for the first security key.",
+    },
+  },
+  type: "object",
+  required: ["credential"],
+  title: "WebAuthnRegistrationResult",
+} as const
+
+export const $WebAuthnRegistrationVerify = {
+  properties: {
+    credential: {
+      additionalProperties: true,
+      type: "object",
+      title: "Credential",
+      description:
+        "PublicKeyCredential.toJSON() output from navigator.credentials.create().",
+    },
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["credential", "name"],
+  title: "WebAuthnRegistrationVerify",
 } as const
 
 export const $WebhookApiKeyGenerateResponse = {

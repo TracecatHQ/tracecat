@@ -1,11 +1,29 @@
 "use client"
 
 import { PlatformSecuritySettings } from "@/components/admin/platform-security-settings"
+import { MfaPolicyCard } from "@/components/settings/mfa-policy-card"
 
 export default function AdminSecuritySettingsPage() {
   return (
     <div className="size-full overflow-auto">
       <div className="container flex h-full max-w-[1000px] flex-col space-y-12">
+        <div className="space-y-4">
+          <div className="items-start space-y-3 text-left">
+            <h2 className="text-2xl font-semibold tracking-tight">
+              Multi-factor authentication
+            </h2>
+            <p className="text-base text-muted-foreground">
+              Privileged platform admin actions, such as deleting organizations
+              or inviting users, always ask for a security key verified in the
+              last 5 minutes.
+            </p>
+          </div>
+          <MfaPolicyCard
+            scope="platform"
+            description="Require platform admins to verify with a security key or passkey at every sign-in. Admins without a key must register one at their next sign-in."
+          />
+        </div>
+
         <div className="flex w-full">
           <div className="items-start space-y-3 text-left">
             <h2 className="text-2xl font-semibold tracking-tight">

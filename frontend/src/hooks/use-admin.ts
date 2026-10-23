@@ -58,6 +58,7 @@ import {
   adminRegistrySyncAllRepositories,
   adminRegistrySyncRepository,
   adminResendOrganizationInvitation,
+  adminResetUserMfa,
   adminRevokeOrganizationInvitation,
   adminSyncOrgRepository,
   adminTestAuditWebhook,
@@ -478,10 +479,22 @@ export function useAdminUsers() {
     },
   })
 
+  const { mutateAsync: resetUserMfa, isPending: resetMfaPending } = useMutation<
+    void,
+    Error,
+    string
+  >({
+    mutationFn: async (userId) => {
+      await adminResetUserMfa({ userId })
+    },
+  })
+
   return {
     users,
     isLoading,
     error,
+    resetUserMfa,
+    resetMfaPending,
     createUser,
     createPending,
     promoteToSuperuser,
