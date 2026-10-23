@@ -192,8 +192,9 @@ async def deduplicate(
 
     def get_nested_values(item: dict[str, Any], keys: list[str]) -> tuple[Any, ...]:
         if not keys:
-            # No keys: the whole item is the key
-            return (json.dumps(item, sort_keys=True, default=str),)
+            # No keys: the whole item is the key. Nest it in a tuple, which a
+            # keyed value never produces, so its digest can't match one.
+            return (("item", json.dumps(item, sort_keys=True, default=str)),)
         values = []
         for key in keys:
             # Convert dot notation to jsonpath format
@@ -210,6 +211,10 @@ async def deduplicate(
     results = []
 
     for item in items_list:
+        if not isinstance(item, dict):
+            raise TypeError(
+                f"Items to deduplicate must be JSON objects, got {type(item).__name__}"
+            )
         key = get_nested_values(item, keys)
 
         # Always update or add to seen dict for within-call deduplication

@@ -686,7 +686,17 @@ async def test_deduplicate_requires_registry_context() -> None:
         (
             ["not a dict"],
             ["id"],
-            TracecatExpressionError,
+            TypeError,
+        ),
+        (
+            [[{"id": 1}]],
+            ["id"],
+            TypeError,
+        ),
+        (
+            [[{"id": 1}]],
+            [],
+            TypeError,
         ),
     ],
 )

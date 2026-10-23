@@ -192,6 +192,25 @@ class TestDeduplicateTransform:
         assert result == expected
 
     @pytest.mark.anyio
+    async def test_whole_item_digest_differs_from_keyed_digest(self) -> None:
+        """An item deduped by its whole value never shares a persisted digest
+        with a keyed call whose single key holds that same object."""
+        mock_dedup_client = AsyncMock()
+        mock_dedup_client.create_digests = AsyncMock(return_value=[True])
+
+        mock_ctx = MagicMock()
+        mock_ctx.deduplicate = mock_dedup_client
+
+        with patch("tracecat_registry.ctx.get_context", return_value=mock_ctx):
+            await deduplicate([{"a": 1}], keys=[], persist=True)
+            await deduplicate([{"metadata": {"a": 1}}], keys=["metadata"], persist=True)
+
+        whole_item, keyed = (
+            call.args[0] for call in mock_dedup_client.create_digests.call_args_list
+        )
+        assert whole_item != keyed
+
+    @pytest.mark.anyio
     async def test_empty_items_skips_sdk(self) -> None:
         """Empty input returns empty list without calling SDK."""
         mock_ctx = MagicMock()
