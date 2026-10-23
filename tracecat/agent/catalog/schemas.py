@@ -3,7 +3,19 @@
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+
+from tracecat.agent.catalog.lifecycle import (
+    ModelLifecycle,
+    ModelLifecycleStatus,
+    read_model_lifecycle,
+)
+
+
+class ModelLifecycleRead(ModelLifecycle):
+    """Provider deprecation of a platform model, as of the request."""
+
+    status: ModelLifecycleStatus
 
 
 class AgentCatalogRead(BaseModel):
@@ -17,6 +29,18 @@ class AgentCatalogRead(BaseModel):
     model_provider: str
     model_name: str
     model_metadata: dict[str, Any] | None
+
+    @computed_field
+    @property
+    def lifecycle(self) -> ModelLifecycleRead | None:
+        """Deprecation of a platform model; ``None`` while it is current."""
+        if self.organization_id is not None:
+            return None
+        if (lifecycle := read_model_lifecycle(self.model_metadata)) is None:
+            return None
+        return ModelLifecycleRead(
+            **lifecycle.model_dump(), status=lifecycle.status_on()
+        )
 
 
 class AgentCatalogListResponse(BaseModel):

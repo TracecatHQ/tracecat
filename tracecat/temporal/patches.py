@@ -55,3 +55,4 @@ class DurableAgentWorkflowPatch(StrEnum):
     FINALIZE_TURN_WITH_END = "durable-agent-finalize-turn-with-end-v1"
     REMINT_SCOPE_TOKENS = "durable-agent-remint-scope-tokens-v1"
     APPROVAL_STREAM_V2 = "durable-agent-approval-stream-v2"
+    REPLACE_RETIRED_MODEL = "durable-agent-replace-retired-model-v1"
