@@ -14,12 +14,16 @@ from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
 
 import pytest
+from fastapi_users.db import SQLAlchemyUserDatabase
 from sqlalchemy import create_engine, make_url, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from tests.database import TEST_DB_CONFIG
-from tracecat.db.models import Organization
+from tracecat.auth.types import Role
+from tracecat.auth.users import UserManager
+from tracecat.authz.scopes import ORG_ADMIN_SCOPES
+from tracecat.db.models import Organization, User
 from tracecat.mcp.oidc.endpoints import _current_granted_orgs
 from tracecat.mcp.oidc.refresh_tokens import (
     RefreshTokenError,
@@ -29,6 +33,7 @@ from tracecat.mcp.oidc.refresh_tokens import (
 )
 from tracecat.mcp.oidc.schemas import RefreshTokenContext, RefreshTokenMetadata
 from tracecat.organization.management import delete_organization_with_cleanup
+from tracecat.organization.service import OrgService
 
 MIGRATION_REVISION = "c4e8a2f6d9b1"
 CLIENT_ID = "migration-test-client"
@@ -127,8 +132,30 @@ async def owner_engine(migrated_db: MigratedDatabase) -> AsyncIterator[AsyncEngi
     await engine.dispose()
 
 
+async def _add_user(engine: AsyncEngine, org_ids: list[uuid.UUID]) -> uuid.UUID:
+    user_id = uuid.uuid4()
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                'INSERT INTO "user" (id, email, hashed_password, is_active, '
+                "is_superuser, is_verified, role) "
+                "VALUES (:id, :email, 'x', true, false, false, 'BASIC')"
+            ),
+            {"id": user_id, "email": f"grant-{user_id.hex[:8]}@example.com"},
+        )
+        for org_id in org_ids:
+            await conn.execute(
+                text(
+                    "INSERT INTO organization_membership (user_id, organization_id) "
+                    "VALUES (:user_id, :organization_id)"
+                ),
+                {"user_id": user_id, "organization_id": org_id},
+            )
+    return user_id
+
+
 async def _seed_two_org_user(engine: AsyncEngine) -> TwoOrgUser:
-    user_id, primary_org_id, secondary_org_id = (uuid.uuid4() for _ in range(3))
+    primary_org_id, secondary_org_id = uuid.uuid4(), uuid.uuid4()
     async with engine.begin() as conn:
         for org_id in (primary_org_id, secondary_org_id):
             await conn.execute(
@@ -138,40 +165,34 @@ async def _seed_two_org_user(engine: AsyncEngine) -> TwoOrgUser:
                 ),
                 {"id": org_id, "slug": f"grant-{org_id.hex[:8]}"},
             )
-        await conn.execute(
-            text(
-                'INSERT INTO "user" (id, email, hashed_password, is_active, '
-                "is_superuser, is_verified, role) "
-                "VALUES (:id, :email, 'x', true, false, false, 'BASIC')"
-            ),
-            {"id": user_id, "email": f"grant-{user_id.hex[:8]}@example.com"},
-        )
-        for org_id in (primary_org_id, secondary_org_id):
-            await conn.execute(
-                text(
-                    "INSERT INTO organization_membership (user_id, organization_id) "
-                    "VALUES (:user_id, :organization_id)"
-                ),
-                {"user_id": user_id, "organization_id": org_id},
-            )
+    user_id = await _add_user(engine, [primary_org_id, secondary_org_id])
     return TwoOrgUser(user_id, primary_org_id, secondary_org_id)
 
 
-async def _issue_two_org_token(engine: AsyncEngine, user: TwoOrgUser) -> str:
+async def _issue_token(
+    engine: AsyncEngine, user_id: uuid.UUID, org_ids: list[uuid.UUID]
+) -> str:
+    """Issue a refresh token whose primary org is the first granted org."""
     async with AsyncSession(engine) as session:
         return await issue_refresh_token(
             session,
-            user_id=user.user_id,
-            organization_id=user.primary_org_id,
+            user_id=user_id,
+            organization_id=org_ids[0],
             client_id=CLIENT_ID,
             metadata=RefreshTokenMetadata(
                 email="grant@example.com",
                 is_platform_superuser=False,
                 scope="openid offline_access",
                 resource="https://app.example.com/mcp",
-                organization_ids=[user.primary_org_id, user.secondary_org_id],
+                organization_ids=org_ids,
             ),
         )
+
+
+async def _issue_two_org_token(engine: AsyncEngine, user: TwoOrgUser) -> str:
+    return await _issue_token(
+        engine, user.user_id, [user.primary_org_id, user.secondary_org_id]
+    )
 
 
 async def _token_status(engine: AsyncEngine, token: str) -> str:
@@ -241,6 +262,53 @@ async def _wait_until_blocked(engine: AsyncEngine, pid: int) -> None:
                 return
             await asyncio.sleep(0.05)
     raise AssertionError(f"backend {pid} never blocked")
+
+
+async def _wait_until_paused_or_blocked(
+    engine: AsyncEngine, paused: asyncio.Event, pid: int
+) -> None:
+    """Wait until a task reaches its pause point or blocks on a lock."""
+    async with engine.connect() as conn:
+        for _ in range(200):
+            if paused.is_set():
+                return
+            blocked = (
+                await conn.execute(
+                    text("SELECT cardinality(pg_blocking_pids(:pid)) > 0"),
+                    {"pid": pid},
+                )
+            ).scalar_one()
+            if blocked:
+                return
+            await asyncio.sleep(0.05)
+    raise AssertionError(f"backend {pid} neither paused nor blocked")
+
+
+@dataclass(frozen=True, slots=True)
+class Pause:
+    reached: asyncio.Event
+    resume: asyncio.Event
+
+
+def _pause_before_org_delete(
+    monkeypatch: pytest.MonkeyPatch, session: AsyncSession
+) -> Pause:
+    """Hold org cleanup after its explicit deletes, before the org row goes."""
+    pause = Pause(asyncio.Event(), asyncio.Event())
+    delete_row = session.delete
+
+    async def pause_before_org_delete(instance: object) -> None:
+        if isinstance(instance, Organization):
+            pause.reached.set()
+            await pause.resume.wait()
+        await delete_row(instance)
+
+    monkeypatch.setattr(session, "delete", pause_before_org_delete)
+    return pause
+
+
+async def _backend_pid(session: AsyncSession) -> int:
+    return (await session.execute(text("SELECT pg_backend_pid()"))).scalar_one()
 
 
 async def test_membership_removal_racing_rotation_revokes_replacement(
@@ -317,34 +385,124 @@ async def test_org_deletion_racing_rotation_does_not_deadlock(
     ):
         organization = await cleanup_session.get(Organization, user.primary_org_id)
         assert organization is not None
-        reached_org_delete = asyncio.Event()
-        resume_org_delete = asyncio.Event()
-        delete_row = cleanup_session.delete
-
-        async def pause_before_org_delete(instance: object) -> None:
-            if isinstance(instance, Organization):
-                reached_org_delete.set()
-                await resume_org_delete.wait()
-            await delete_row(instance)
-
-        monkeypatch.setattr(cleanup_session, "delete", pause_before_org_delete)
+        pause = _pause_before_org_delete(monkeypatch, cleanup_session)
         cleanup = asyncio.create_task(
             delete_organization_with_cleanup(
                 cleanup_session, organization=organization, operator_user_id=None
             )
         )
-        await asyncio.wait_for(reached_org_delete.wait(), timeout=10)
+        await asyncio.wait_for(pause.reached.wait(), timeout=10)
 
-        refresh_pid = (
-            await refresh_session.execute(text("SELECT pg_backend_pid()"))
-        ).scalar_one()
+        refresh_pid = await _backend_pid(refresh_session)
         rotation = asyncio.create_task(
             rotate_refresh_token(refresh_session, token=token, client_id=CLIENT_ID)
         )
         await _wait_until_blocked(owner_engine, refresh_pid)
-        resume_org_delete.set()
+        pause.resume.set()
         await asyncio.wait_for(cleanup, timeout=10)
         await cleanup_session.commit()
 
         with pytest.raises(RefreshTokenError):
             await asyncio.wait_for(rotation, timeout=10)
+
+
+async def test_concurrent_org_deletions_sharing_members_do_not_deadlock(
+    owner_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invariant: org cleanup locks every member it will remove up front.
+
+    Orgs A and B share members U and V. U's token is primary to A and V's to
+    B, so each cleanup deletes a different token. Both org deletes then
+    cascade into both members' trigger locks, so a cleanup that locked only
+    its token owners would wait on the other cleanup.
+    """
+    user = await _seed_two_org_user(owner_engine)
+    org_a, org_b = user.primary_org_id, user.secondary_org_id
+    other_user_id = await _add_user(owner_engine, [org_a, org_b])
+    await _issue_token(owner_engine, user.user_id, [org_a, org_b])
+    await _issue_token(owner_engine, other_user_id, [org_b, org_a])
+
+    async with (
+        AsyncSession(owner_engine) as session_a,
+        AsyncSession(owner_engine) as session_b,
+    ):
+        organization_a = await session_a.get(Organization, org_a)
+        organization_b = await session_b.get(Organization, org_b)
+        assert organization_a is not None and organization_b is not None
+        pause_a = _pause_before_org_delete(monkeypatch, session_a)
+        pause_b = _pause_before_org_delete(monkeypatch, session_b)
+        pid_b = await _backend_pid(session_b)
+
+        cleanup_a = asyncio.create_task(
+            delete_organization_with_cleanup(
+                session_a, organization=organization_a, operator_user_id=None
+            )
+        )
+        await asyncio.wait_for(pause_a.reached.wait(), timeout=10)
+        cleanup_b = asyncio.create_task(
+            delete_organization_with_cleanup(
+                session_b, organization=organization_b, operator_user_id=None
+            )
+        )
+        await _wait_until_paused_or_blocked(owner_engine, pause_b.reached, pid_b)
+
+        pause_a.resume.set()
+        pause_b.resume.set()
+        await asyncio.wait_for(cleanup_a, timeout=10)
+        await session_a.commit()
+        await asyncio.wait_for(cleanup_b, timeout=10)
+        await session_b.commit()
+
+
+async def test_user_deletion_racing_member_removal_does_not_deadlock(
+    owner_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invariant: member removal takes the user lock before the membership row.
+
+    Hard user deletion takes the user lock, then cascades into the user's
+    memberships. A removal that deleted a membership first and only then
+    reached the lock in the trigger would wait on the deletion forever.
+    """
+    user = await _seed_two_org_user(owner_engine)
+    admin_id = await _add_user(owner_engine, [user.primary_org_id])
+    admin_role = Role(
+        type="user",
+        user_id=admin_id,
+        organization_id=user.primary_org_id,
+        service_id="tracecat-api",
+        is_platform_superuser=False,
+        scopes=ORG_ADMIN_SCOPES,
+    )
+
+    async with (
+        AsyncSession(owner_engine) as delete_session,
+        AsyncSession(owner_engine) as removal_session,
+    ):
+        user_db = SQLAlchemyUserDatabase(delete_session, User)
+        manager = UserManager(user_db)
+        doomed = await delete_session.get(User, user.user_id)
+        assert doomed is not None
+        reached_delete = asyncio.Event()
+        resume_delete = asyncio.Event()
+        delete_user_row = user_db.delete
+
+        async def pause_before_user_delete(instance: User) -> None:
+            reached_delete.set()
+            await resume_delete.wait()
+            await delete_user_row(instance)
+
+        monkeypatch.setattr(user_db, "delete", pause_before_user_delete)
+        deletion = asyncio.create_task(manager.delete(doomed))
+        await asyncio.wait_for(reached_delete.wait(), timeout=10)
+
+        removal_pid = await _backend_pid(removal_session)
+        # The scope decorator types delete_member as a plain Awaitable.
+        removal = asyncio.ensure_future(
+            OrgService(removal_session, role=admin_role).delete_member(user.user_id)
+        )
+        await _wait_until_blocked(owner_engine, removal_pid)
+        resume_delete.set()
+        await asyncio.wait_for(deletion, timeout=10)
+        await asyncio.wait_for(removal, timeout=10)

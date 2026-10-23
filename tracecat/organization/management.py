@@ -199,6 +199,17 @@ async def delete_organization_with_cleanup(
     org_member_user_ids = select(OrganizationMembership.user_id).where(
         OrganizationMembership.organization_id == organization.id
     )
+    # The membership cascade fires the MCP token-revocation trigger, which
+    # locks each member. Take every lock this cleanup needs, in one sorted
+    # pass, before locking any membership or token row.
+    locked_user_ids = await session.scalars(
+        org_member_user_ids.union(
+            select(MCPRefreshToken.user_id).where(
+                MCPRefreshToken.organization_id == organization.id
+            )
+        )
+    )
+    await lock_mcp_refresh_token_users(session, locked_user_ids)
     await session.execute(
         delete(AccessToken).where(
             type_cast(Any, AccessToken.user_id).in_(org_member_user_ids)
@@ -265,14 +276,6 @@ async def delete_organization_with_cleanup(
             RegistryRepository.organization_id == organization.id
         )
     )
-    refresh_token_user_ids = await session.scalars(
-        select(MCPRefreshToken.user_id)
-        .where(MCPRefreshToken.organization_id == organization.id)
-        .distinct()
-    )
-    # The membership cascade below fires the token-revocation trigger, which
-    # takes these locks; take them before locking the token rows.
-    await lock_mcp_refresh_token_users(session, refresh_token_user_ids)
     await session.execute(
         delete(MCPRefreshToken).where(
             MCPRefreshToken.organization_id == organization.id
