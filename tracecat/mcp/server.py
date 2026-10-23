@@ -9308,14 +9308,16 @@ async def list_variables(
         raise ToolError(f"Failed to list variables: {e}") from None
 
 
-def _variable_response(variable: WorkspaceVariable) -> VariableResponse:
+def _variable_response(
+    variable: WorkspaceVariable, *, include_values: bool = True
+) -> VariableResponse:
     return VariableResponse(
         id=variable.id,
         name=variable.name,
         description=variable.description,
         environment=variable.environment,
         keys=sorted(variable.values.keys()),
-        values=variable.values,
+        values=variable.values if include_values else {},
     )
 
 
@@ -9367,7 +9369,8 @@ async def create_variable(
         environment: Variable environment.
         tags: Optional string tags.
 
-    Returns the created variable, including its values.
+    Returns the created variable. `values` is empty unless the caller has
+    `variable:read`.
     """
 
     try:
@@ -9382,7 +9385,10 @@ async def create_variable(
         )
         async with VariablesService.with_session(role=role) as svc:
             variable = await svc.create_variable(params)
-            return _variable_response(variable)
+            return _variable_response(
+                variable,
+                include_values=has_scope(role.scopes or frozenset(), "variable:read"),
+            )
     except ScopeDeniedError as e:
         required = ", ".join(e.required_scopes)
         raise ToolError(f"Missing required scope: {required}") from e
@@ -9446,6 +9452,7 @@ async def update_variable(
                 variable_name, environment=environment
             )
             updated = await svc.update_variable(variable, params)
+            # `variable:update` implies `variable:read` (`tracecat.authz.controls`).
             return _variable_response(updated)
     except ToolError:
         raise

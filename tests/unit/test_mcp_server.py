@@ -8939,7 +8939,9 @@ def _patch_variables_service(
 
 @pytest.mark.anyio
 async def test_create_variable_returns_created_variable(monkeypatch):
-    calls = _patch_variables_service(monkeypatch, scopes=frozenset({"variable:create"}))
+    calls = _patch_variables_service(
+        monkeypatch, scopes=frozenset({"variable:create", "variable:read"})
+    )
 
     payload = _payload(
         await _tool(mcp_server.create_variable)(
@@ -8956,6 +8958,22 @@ async def test_create_variable_returns_created_variable(monkeypatch):
     assert payload["environment"] == "default"
     assert len(calls["create"]) == 1
     assert calls["create"][0].description == "Splunk config"
+
+
+@pytest.mark.anyio
+async def test_create_variable_omits_values_without_read_scope(monkeypatch):
+    _patch_variables_service(monkeypatch, scopes=frozenset({"variable:create"}))
+
+    payload = _payload(
+        await _tool(mcp_server.create_variable)(
+            workspace_id=str(uuid.uuid4()),
+            name="splunk",
+            values={"url": "https://splunk.example.com"},
+        )
+    )
+
+    assert payload["keys"] == ["url"]
+    assert payload["values"] == {}
 
 
 @pytest.mark.anyio
@@ -9007,7 +9025,7 @@ async def test_update_variable_applies_only_provided_fields(monkeypatch):
     existing = _variable_stub(description="Original")
     calls = _patch_variables_service(
         monkeypatch,
-        scopes=frozenset({"variable:update"}),
+        scopes=frozenset({"variable:update", "variable:read"}),
         existing=existing,
     )
 
@@ -9023,6 +9041,26 @@ async def test_update_variable_applies_only_provided_fields(monkeypatch):
     assert calls["update"][0].model_fields_set == {"values"}
     assert payload["values"] == {"url": "https://splunk2.example.com"}
     assert payload["description"] == "Original"
+
+
+@pytest.mark.anyio
+async def test_update_variable_returns_values_with_update_scope_only(monkeypatch):
+    _patch_variables_service(
+        monkeypatch,
+        scopes=frozenset({"variable:update"}),
+        existing=_variable_stub(),
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.update_variable)(
+            workspace_id=str(uuid.uuid4()),
+            variable_name="splunk",
+            description="Updated",
+        )
+    )
+
+    assert payload["description"] == "Updated"
+    assert payload["values"] == {"url": "https://splunk.example.com"}
 
 
 @pytest.mark.anyio
