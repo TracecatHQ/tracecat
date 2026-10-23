@@ -47,6 +47,7 @@ import {
   WorkspaceSyncPushWarning,
 } from "@/components/workspace-sync/push-target-policy"
 import { PushResourcePreview } from "@/components/workspace-sync/resource-diff-review"
+import { WorkspacePushExplanation } from "@/components/workspace-sync/workspace-push-explanation"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import {
@@ -245,6 +246,7 @@ export function WorkspaceResourceSyncActions({
         <DialogBody>
           {gitRepoUrl ? (
             <div className="space-y-5">
+              {resources.includes("workflow") && <WorkspacePushExplanation />}
               <PushFlow
                 total={totalResourceCount}
                 isLoading={visiblePreviewIsLoading}

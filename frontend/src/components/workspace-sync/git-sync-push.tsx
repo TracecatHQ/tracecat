@@ -41,6 +41,7 @@ import {
   getWorkspaceSyncPushOutcome,
   type WorkspaceSyncPushMode,
 } from "@/components/workspace-sync/push-target-policy"
+import { WorkspacePushExplanation } from "@/components/workspace-sync/workspace-push-explanation"
 import {
   useWorkspaceSyncExport,
   useWorkspaceSyncExportPreview,
@@ -209,6 +210,9 @@ export function GitSyncPushTab({
   return (
     <>
       <div className="flex flex-1 flex-col">
+        <div className="px-4 py-3">
+          <WorkspacePushExplanation />
+        </div>
         {isBlocked && (
           <GitSyncNotice tone="warning">
             Pushing to {blockedBranch} directly is off. Pick or create another

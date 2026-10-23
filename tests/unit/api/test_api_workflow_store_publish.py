@@ -8,12 +8,14 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from tracecat.auth.types import Role
-from tracecat.dsl.common import DSLInput
+from tracecat.db.models import Workflow
 from tracecat.exceptions import TracecatSettingsError, TracecatValidationError
 from tracecat.vcs.github.app import GitHubAppError
 from tracecat.vcs.gitlab.app import GitLabError
+from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspace_sync.exceptions import WorkflowExportValidationError
 from tracecat.workspace_sync.schemas import WorkflowExportDiagnostic
+from tracecat.workspace_sync.types import WorkflowExportCode, WorkflowExportStage
 
 
 def _sample_dsl_content() -> dict[str, object]:
@@ -71,7 +73,7 @@ async def test_publish_workflow_errors_return_400(
 
     with (
         patch(
-            "tracecat.workflow.store.router.WorkflowExportDefinitionService"
+            "tracecat.workflow.store.router.WorkflowDefinitionsService"
         ) as mock_defn_cls,
         patch("tracecat.workflow.store.router.WorkflowStoreService") as mock_store_cls,
         patch(
@@ -79,9 +81,7 @@ async def test_publish_workflow_errors_return_400(
         ) as mock_mgmt_cls,
     ):
         mock_defn_svc = AsyncMock()
-        mock_defn_svc.resolve.return_value = DSLInput.model_validate(
-            _sample_dsl_content()
-        )
+        mock_defn_svc.get_definition_by_workflow_id.return_value = definition
         mock_mgmt_cls.return_value.get_workflow = AsyncMock(return_value=workflow)
         mock_defn_cls.return_value = mock_defn_svc
 
@@ -244,3 +244,79 @@ async def test_export_validation_response_preserves_legacy_detail_and_typed_cont
     assert response.json()["detail"] == str(error)
     assert response.json()["diagnostics"] == [diagnostic.model_dump(mode="json")]
     assert response.json()["omitted_count"] == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("version", "content", "code"),
+    [
+        (None, None, "publish_required"),
+        (2, None, "missing_definition"),
+        (1, {}, "invalid_definition"),
+        (None, {}, "invalid_definition"),
+    ],
+)
+async def test_workflow_push_distinguishes_first_publish_from_broken_definitions(
+    client: TestClient,
+    test_admin_role: Role,
+    version: int | None,
+    content: dict[str, object] | None,
+    code: str,
+) -> None:
+    workflow = Mock()
+    workflow.id = uuid.uuid4()
+    workflow.title = "Synthetic workflow"
+    workflow.version = version
+
+    async def diagnostic(
+        workflow: Workflow,
+        *,
+        code: WorkflowExportCode,
+        message: str,
+        stage: WorkflowExportStage,
+        provider: VcsProvider | None = None,
+    ) -> WorkflowExportDiagnostic:
+        return WorkflowExportDiagnostic(
+            workflow_id=workflow.id,
+            workflow_title=workflow.title,
+            code=code,
+            stage=stage,
+            message=message,
+        )
+
+    with (
+        patch(
+            "tracecat.workflow.store.router.WorkflowsManagementService"
+        ) as management,
+        patch(
+            "tracecat.workflow.store.router.WorkflowDefinitionsService"
+        ) as definitions,
+        patch("tracecat.workflow.store.router.WorkflowStoreService") as store,
+        patch(
+            "tracecat.workspace_sync.export_diagnostics.WorkflowExportDiagnosticsService.diagnostic",
+            new=AsyncMock(side_effect=diagnostic),
+        ),
+    ):
+        management.return_value.get_workflow = AsyncMock(return_value=workflow)
+        definition = Mock(content=content) if content is not None else None
+        definitions.return_value.get_definition_by_workflow_id = AsyncMock(
+            return_value=definition
+        )
+        response = client.post(
+            f"/workflows/{workflow.id}/publish",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"branch": "sync/example", "create_pr": False},
+        )
+        store.return_value.publish_workflow_dsl.assert_not_called()
+        management.return_value.build_dsl_from_workflow.assert_not_called()
+        definitions.return_value.create_workflow_definition.assert_not_called()
+    assert response.status_code == 400
+    body = response.json()
+    assert isinstance(body["detail"], str)
+    assert body["diagnostics"][0]["code"] == code
+    assert body["diagnostics"][0]["workflow_id"] == str(workflow.id)
+    if code == "publish_required":
+        assert (
+            body["diagnostics"][0]["message"]
+            == "Publish this workflow before pushing it to Git."
+        )

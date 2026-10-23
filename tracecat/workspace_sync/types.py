@@ -122,5 +122,9 @@ class PreparedSnapshot:
 
 type WorkflowExportStage = Literal["definition", "dependency"]
 type WorkflowExportCode = Literal[
-    "no_actions", "invalid_definition", "missing_child_workflow"
+    "publish_required",
+    "missing_definition",
+    "no_actions",
+    "invalid_definition",
+    "missing_child_workflow",
 ]

@@ -12705,6 +12705,8 @@ export type WorkflowExecutionTerminate = {
 }
 
 export type WorkflowExportCode =
+  | "publish_required"
+  | "missing_definition"
   | "no_actions"
   | "invalid_definition"
   | "missing_child_workflow"
