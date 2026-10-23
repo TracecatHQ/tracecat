@@ -19,6 +19,7 @@ from tracecat.registry.constants import (
     DEFAULT_REGISTRY_ORIGIN,
     PLATFORM_REGISTRY_NAMESPACE,
 )
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
 from tracecat.registry.versions.schemas import (
     is_registry_content_version,
@@ -63,7 +64,7 @@ async def get_registry_artifact_uris(
     return artifact_uris + sort_registry_artifact_uris(artifacts)
 
 
-def _bundled_builtin_matches_lock(registry_lock: object, version: str) -> bool:
+def _bundled_builtin_matches_lock(registry_lock: RegistryLock, version: str) -> bool:
     """Return whether this executor can satisfy the locked builtin from its image.
 
     A lock on the installed version, or on a content version of it
@@ -78,12 +79,7 @@ def _bundled_builtin_matches_lock(registry_lock: object, version: str) -> bool:
     ):
         return False
 
-    origin_fingerprints = getattr(registry_lock, "origin_fingerprints", None)
-    expected = (
-        origin_fingerprints.get(DEFAULT_REGISTRY_ORIGIN)
-        if isinstance(origin_fingerprints, dict)
-        else None
-    )
+    expected = registry_lock.origin_fingerprints.get(DEFAULT_REGISTRY_ORIGIN)
     if expected is None:
         return version == installed_version
 

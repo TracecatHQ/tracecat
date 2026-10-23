@@ -26,6 +26,7 @@ from tracecat.db.locks import (
 from tracecat.db.models import PlatformRegistryVersion
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionCreate
+from tracecat.registry.artifact_keys import parse_s3_uri
 from tracecat.registry.constants import (
     DEFAULT_REGISTRY_ORIGIN,
     PLATFORM_REGISTRY_NAMESPACE,
@@ -35,11 +36,13 @@ from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
 from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
 from tracecat.registry.versions.schemas import (
     RegistryVersionManifest,
+    is_registry_content_version,
     registry_base_version,
     registry_content_version,
     registry_manifest_fingerprint,
 )
 from tracecat.registry.versions.service import PlatformRegistryVersionsService
+from tracecat.storage import blob
 
 MAX_SYNC_RETRIES = 3
 PLATFORM_SYNC_LOCK_KEY = derive_lock_key_from_parts("platform_registry_sync")
@@ -187,12 +190,13 @@ async def _sync_as_leader(
     is_fresh_install = not await versions_service.has_versions(repository_id=repo.id)
 
     # Fresh installs have no target version to fetch; keep the first-start path lean.
+    base_version = target_version
     existing_version = None
     if not is_fresh_install:
         target_version = await _resolve_content_target_version(
             versions_service,
             repository_id=repo.id,
-            base_version=target_version,
+            base_version=base_version,
         )
         existing_version = await versions_service.get_version_by_repo_and_version(
             repository_id=repo.id,
@@ -224,6 +228,23 @@ async def _sync_as_leader(
                 target_version=target_version,
                 promote_version_id=existing_version.id,
                 expected_current_version_id=None,
+            )
+
+        # A content row is promoted only after its artifact upload, so a content
+        # row without an artifact was never promoted: its earlier build failed.
+        # Finish that build instead of treating the row as a rollback.
+        if is_registry_content_version(
+            target_version, base_version
+        ) and not await _artifact_exists(existing_version.tarball_uri):
+            logger.info(
+                "Content registry version exists without an artifact; retrying artifact build before promotion",
+                target_version=target_version,
+                version_id=str(existing_version.id),
+            )
+            return _ArtifactBuildRequest(
+                target_version=target_version,
+                promote_version_id=existing_version.id,
+                expected_current_version_id=repo.current_version_id,
             )
 
         # Version exists but is not current - don't auto-promote
@@ -304,6 +325,12 @@ async def _sync_as_leader(
             await session.rollback()
             if attempt == MAX_SYNC_RETRIES:
                 raise
+
+
+async def _artifact_exists(artifact_uri: str) -> bool:
+    """Return whether a registry version's S3 artifact has been uploaded."""
+    bucket, key = parse_s3_uri(artifact_uri)
+    return await blob.file_exists(key=key, bucket=bucket)
 
 
 async def _resolve_content_target_version(

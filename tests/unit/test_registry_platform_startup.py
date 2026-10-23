@@ -565,11 +565,18 @@ async def test_startup_sync_skips_when_content_version_already_current(
 
 
 @pytest.mark.anyio
-async def test_startup_sync_does_not_promote_existing_non_current_content_version(
-    session: AsyncSession, prebuilt_root: Path
+@pytest.mark.parametrize(
+    "artifact_exists", [True, False], ids=["rolled-back", "unbuilt"]
+)
+async def test_startup_sync_handles_existing_non_current_content_version(
+    session: AsyncSession, prebuilt_root: Path, artifact_exists: bool
 ) -> None:
-    """A content row that is not current is treated like any rolled-back version."""
-    from tracecat.registry.sync.jobs import _sync_as_leader
+    """A non-current content row with an artifact is a rollback and stays put.
+
+    Content rows are promoted only after their artifact upload, so one without an
+    artifact never finished its first sync: startup retries the build and promotes.
+    """
+    from tracecat.registry.sync.jobs import _ArtifactBuildRequest, _sync_as_leader
 
     repo = await _reset_platform_versions(session)
     image_manifest = _make_manifest(["test.action_v1", "test.action_v2"])
@@ -592,13 +599,27 @@ async def test_startup_sync_does_not_promote_existing_non_current_content_versio
     session.add(repo)
     await session.commit()
 
-    with patch(
-        "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
-    ) as mock_sync_service:
+    with (
+        patch(
+            "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
+        ) as mock_sync_service,
+        patch(
+            "tracecat.registry.sync.jobs._artifact_exists",
+            AsyncMock(return_value=artifact_exists),
+        ) as mock_artifact_exists,
+    ):
         artifact_build = await _sync_as_leader(session, "1.0.0")
         mock_sync_service.assert_not_called()
+        mock_artifact_exists.assert_awaited_once_with("s3://test/content.tar.gz")
 
-    assert artifact_build is None
+    if artifact_exists:
+        assert artifact_build is None
+    else:
+        assert artifact_build == _ArtifactBuildRequest(
+            target_version=content_version.version,
+            promote_version_id=content_version.id,
+            expected_current_version_id=base_version.id,
+        )
     await session.refresh(repo)
     assert repo.current_version_id == base_version.id
 

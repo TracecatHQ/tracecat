@@ -85,8 +85,9 @@ async def test_get_registry_artifact_uris_uses_bundled_current_builtin(
     input_data = cast(
         RunActionInput,
         SimpleNamespace(
-            registry_lock=SimpleNamespace(
-                origins={DEFAULT_REGISTRY_ORIGIN: current_version}
+            registry_lock=RegistryLock(
+                origins={DEFAULT_REGISTRY_ORIGIN: current_version},
+                actions={},
             )
         ),
     )
@@ -435,11 +436,12 @@ async def test_get_registry_artifact_uris_looks_up_only_non_current_origins(
     input_data = cast(
         RunActionInput,
         SimpleNamespace(
-            registry_lock=SimpleNamespace(
+            registry_lock=RegistryLock(
                 origins={
                     DEFAULT_REGISTRY_ORIGIN: current_version,
                     custom_origin: "abc123",
-                }
+                },
+                actions={},
             )
         ),
     )
@@ -480,7 +482,9 @@ async def test_get_registry_artifact_uris_propagates_lookup_errors(
     input_data = cast(
         RunActionInput,
         SimpleNamespace(
-            registry_lock=SimpleNamespace(origins={"tracecat_registry": "1.0.0"})
+            registry_lock=RegistryLock(
+                origins={"tracecat_registry": "1.0.0"}, actions={}
+            )
         ),
     )
 
