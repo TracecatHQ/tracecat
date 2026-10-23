@@ -16,12 +16,11 @@ from tracecat.agent.bedrock import (
     BedrockSubscription,
     BedrockSubscriptionStatus,
 )
-from tracecat.agent.catalog.lifecycle import ModelLifecycle
 from tracecat.agent.catalog.schemas import (
     BedrockCatalogUpdate,
 )
 from tracecat.agent.catalog.service import AgentCatalogService
-from tracecat.agent.catalog.types import ModelKey, ModelReplacement
+from tracecat.agent.catalog.types import ModelKey, ModelLifecycle, ModelReplacement
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import (
