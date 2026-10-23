@@ -25,12 +25,11 @@ from tracecat.agent.catalog.bundled import get_retired_platform_models
 from tracecat.agent.catalog.lifecycle import ModelLifecycle, read_model_lifecycle
 from tracecat.agent.catalog.schemas import AgentCatalogRead
 from tracecat.agent.catalog.types import ModelKey, ModelReplacement
-from tracecat.agent.default_model import list_saved_default_models
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.errors import is_unique_violation
-from tracecat.db.models import AgentCatalog, AgentCustomProvider, AgentModelAccess
+from tracecat.db.models import AgentCatalog, AgentCustomProvider
 from tracecat.exceptions import (
     AgentModelRetiredError,
     TracecatAuthorizationError,
@@ -81,49 +80,11 @@ class AgentCatalogService(BaseService):
 
     service_name = "agent_catalog"
 
-    async def prune_retired_platform_models(
-        self, retired: Collection[ModelKey]
-    ) -> None:
-        """Delete platform rows named in ``retired`` that nothing references.
-
-        Only listed rows are deleted, never rows merely missing from the bundle,
-        so an unreadable bundle cannot empty the catalog. A row stays while a
-        workspace subset or a saved org default references it. Requires a
-        bypass-RLS session so those checks see every organization; the caller
-        commits.
-        """
-        if not retired:
-            return
-        defaults = await list_saved_default_models(self.session)
-        # Deleting the last row of a workspace subset would widen it to the org
-        # set, since an empty subset means "inherit".
-        in_workspace_subset = (
-            select(AgentModelAccess.id)
-            .where(
-                AgentModelAccess.catalog_id == AgentCatalog.id,
-                AgentModelAccess.workspace_id.is_not(None),
-            )
-            .exists()
-        )
-        # Org access rows cascade; preset catalog_id is set null and swaps by name.
-        await self.session.execute(
-            sa.delete(AgentCatalog).where(
-                AgentCatalog.organization_id.is_(None),
-                AgentCatalog.custom_provider_id.is_(None),
-                tuple_(AgentCatalog.model_provider, AgentCatalog.model_name).in_(
-                    [tuple(key) for key in retired]
-                ),
-                ~in_workspace_subset,
-                AgentCatalog.id.not_in(defaults.catalog_ids),
-                AgentCatalog.model_name.not_in(defaults.model_names),
-            )
-        )
-
     async def upsert_platform_catalog(
         self,
         entries: Sequence[PlatformCatalogEntry],
     ) -> int:
-        """Bulk upsert platform catalog rows; the caller commits."""
+        """Bulk upsert platform catalog rows."""
         if not entries:
             return 0
 
@@ -154,6 +115,7 @@ class AgentCatalogService(BaseService):
             },
         )
         await self.session.execute(stmt)
+        await self.session.commit()
         return len(values)
 
     async def get_catalog_entry(
@@ -423,8 +385,8 @@ class AgentCatalogService(BaseService):
         """Return where a retired platform model's runs move, or ``None``.
 
         Reads the lifecycle from the platform row selected by ``catalog_id``,
-        or by provider and name for legacy configs. Once a retired row is
-        deleted, the bundled ``retired`` list keeps the swap working. The
+        or by provider and name for legacy configs. Where no row exists, as on
+        installs after retirement, the bundled ``retired`` list applies. The
         replacement must be enabled for the workspace, so a swap never widens
         model access.
 
@@ -505,7 +467,7 @@ class AgentCatalogService(BaseService):
             return None
         # The row, not the caller's fields, names the model.
         key = ModelKey(row.model_provider, row.model_name)
-        # The bundle wins: a kept retired row is no longer refreshed, so its
+        # The bundle wins: a retired row is no longer refreshed, so its
         # stored lifecycle can name a replacement that has since retired.
         lifecycle = get_retired_platform_models().get(key) or read_model_lifecycle(
             row.model_metadata
