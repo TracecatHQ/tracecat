@@ -8,11 +8,16 @@ from typing import Any, cast
 import orjson
 from pydantic import ValidationError
 
-from tracecat.agent.catalog.types import ModelKey, ModelLifecycle, RawRetiredModel
+from tracecat.agent.catalog.types import (
+    ModelKey,
+    ModelLifecycle,
+    PlatformCatalogDocument,
+    RawRetiredModel,
+)
 from tracecat.logger import logger
 
 
-def read_platform_catalog_document() -> dict[str, Any]:
+def read_platform_catalog_document() -> PlatformCatalogDocument:
     """Return the parsed bundled catalog, or an empty document if unreadable."""
     try:
         document = orjson.loads(
@@ -26,11 +31,11 @@ def read_platform_catalog_document() -> dict[str, Any]:
     if not isinstance(document, dict):
         logger.warning("Bundled platform catalog is not a JSON object")
         return {}
-    return cast(dict[str, Any], document)
+    return cast(PlatformCatalogDocument, document)
 
 
 def parse_retired_models(
-    document: Mapping[str, Any],
+    document: PlatformCatalogDocument,
 ) -> dict[ModelKey, ModelLifecycle]:
     """Parse the ``retired`` section; malformed entries are skipped."""
     raw_entries = document.get("retired", [])
@@ -48,5 +53,5 @@ def parse_retired_models(
 
 @cache
 def get_retired_platform_models() -> Mapping[ModelKey, ModelLifecycle]:
-    """Retired platform models removed from the catalog, keyed by identity."""
+    """Bundled retired platform models, keyed by identity."""
     return parse_retired_models(read_platform_catalog_document())
