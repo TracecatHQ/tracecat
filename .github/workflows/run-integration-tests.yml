@@ -108,7 +108,7 @@ jobs:
       - name: Install uv
         uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
         with:
-          version: "0.9.17"
+          version: "0.13.4"
 
       - name: Set up Python 3.12
         uses: useblacksmith/setup-python@943b05a7c4ca70c2360391137527a37bee33fb1d # v6
@@ -146,7 +146,7 @@ jobs:
       - name: Install uv
         uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
         with:
-          version: "0.9.17"
+          version: "0.13.4"
           enable-cache: true
           cache-dependency-glob: |
             pyproject.toml
