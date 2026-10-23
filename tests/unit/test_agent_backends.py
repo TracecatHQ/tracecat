@@ -944,21 +944,33 @@ async def test_controls_need_the_capability_and_a_running_turn(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("control", ["steer", "withdraw"])
+@pytest.mark.parametrize("control", ["steer", "withdraw", "cancel"])
 async def test_controlling_an_unavailable_backend_is_a_conflict(control: str):
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
+    ctx.session.curr_run_id = ctx.run_id
     service = AgentSessionService(ctx.db, ctx.role)
+    # Installed, so the turn still reads as running, but disabled for new calls.
+    provider = _control_provider()
+    request = (
+        AgentCancelControl(type="cancel", id=uuid4())
+        if control == "cancel"
+        else _control_request(control)
+    )
     with (
         patch.object(service, "get_session", return_value=ctx.session),
         patch.object(service, "require_entitlement", return_value=None),
+        patch(
+            "tracecat.agent.session.service.find_agent_backend", return_value=provider
+        ),
         patch(
             "tracecat.agent.session.service.get_agent_backend",
             side_effect=TracecatValidationError("Agent backend is unavailable"),
         ),
         pytest.raises(TracecatConflictError, match="unavailable"),
     ):
-        await service.control(ctx.session.id, _control_request(control))
+        await service.control(ctx.session.id, request)
+    provider.cancel.assert_not_awaited()
 
 
 def test_a_steer_needs_text():

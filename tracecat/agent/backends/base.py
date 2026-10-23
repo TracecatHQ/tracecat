@@ -543,8 +543,10 @@ class AgentBackend[InputT, OutputT](ABC):
         """Take back the user's pending messages that the model has not read.
 
         ``target_ids`` of None withdraws all of the session's pending steers and
-        queued messages. A retry with the same ``request_id`` must return the
-        first result. Only backends that set ``withdrawing`` implement this.
+        queued messages. A retry with the same ``request_id`` while a turn of the
+        session runs must return the first result; with no running turn the API
+        refuses the retry before it reaches the backend.
+        Only backends that set ``withdrawing`` implement this.
         """
         raise AgentControlRejected("This agent backend does not support withdrawing")
 

@@ -2642,7 +2642,7 @@ class AgentSessionService(BaseWorkspaceService):
         Raises:
             TracecatNotFoundError: If no session exists with this ID.
             TracecatConflictError: If the session has no running turn or its
-                backend does not support the control.
+                backend is unavailable or does not support the control.
             AgentControlRejected: If the turn refused the control outright.
             AgentControlUncertain: If the outcome is unknown; retry with the same ID.
         """
@@ -2652,7 +2652,11 @@ class AgentSessionService(BaseWorkspaceService):
             case AgentWithdrawControl():
                 return await self.withdraw(session_id, request)
             case AgentCancelControl():
-                cancelled = await self.request_cancel(session_id)
+                try:
+                    cancelled = await self.request_cancel(session_id)
+                except TracecatValidationError as e:
+                    # Unavailable backends are conflicts here, as for steer and withdraw.
+                    raise TracecatConflictError(str(e)) from e
                 return AgentControlReceipt(
                     id=request.id,
                     type=request.type,
