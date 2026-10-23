@@ -2975,4 +2975,5 @@ async def test_export_closure_reports_missing_child_without_exposing_its_identit
     assert diagnostic.code == "missing_child_workflow"
     assert diagnostic.source_path is None
     assert str(missing_id) not in str(raised.value)
+    assert str(missing_id.short()) not in str(raised.value)
     assert "synthetic-missing" not in str(raised.value)

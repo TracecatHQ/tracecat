@@ -111,6 +111,9 @@ test("message text cannot turn an inconsistent saved version into a first-Publis
   fireEvent.click(screen.getByRole("button", { name: "Push" }))
   await waitFor(() => expect(toast).toHaveBeenCalledTimes(1))
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  expect(toast).toHaveBeenCalledWith(
+    expect.objectContaining({ variant: "destructive" })
+  )
 })
 
 test("a successful saved-version Push does not require another Publish", async () => {

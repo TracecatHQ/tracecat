@@ -197,6 +197,7 @@ export function WorkflowProvider({
       }
       if (getExportError(error)) {
         toast({
+          variant: "destructive",
           title: "Failed to publish workflow",
           description: (
             <ExportErrorMessage error={error} workspaceId={workspaceId} />
