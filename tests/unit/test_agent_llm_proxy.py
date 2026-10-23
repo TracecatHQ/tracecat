@@ -2740,10 +2740,10 @@ async def test_upstream_span_per_rate_limited_attempt(
     assert [
         (span.attributes or {})["tracecat.agent.llm_proxy.attempt"] for span in spans
     ] == [1, 2, 3]
-    assert {
+    assert [
         (span.attributes or {})["tracecat.agent.llm_proxy.trace_request_id"]
         for span in spans
-    } == {"trace-rate-limit"}
+    ] == ["trace-rate-limit"] * 3
     dropped, limited, ok = spans
     assert dropped.status.status_code is StatusCode.ERROR
     assert (dropped.attributes or {})["error.type"] == "ConnectError"
