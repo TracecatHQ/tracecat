@@ -74,11 +74,9 @@ ACTIVE_ORG_COOKIE = "tracecat:active-org-id"
 
 _STEP_UP_DEPENDENCY = get_args(SuperuserStepUpRole)[1].dependency
 
-# Mutating platform admin routes that change no customer data, so they skip
+# Mutating platform admin routes that change no stored data, so they skip
 # step-up. Every other mutating /admin route must require it.
 _STEP_UP_EXEMPT_ADMIN_ROUTES = {
-    ("POST", "/admin/maintenance/case-agent-session-interactions/backfill"),
-    ("POST", "/admin/registry/versions/artifacts/backfill"),
     ("POST", "/admin/settings/audit/test"),
     ("POST", "/admin/settings/security/ip-allowlist/check"),
 }
@@ -293,6 +291,39 @@ async def _credential_count(user: User) -> int:
             select(WebAuthnCredential.id).where(WebAuthnCredential.user_id == user.id)
         )
         return len(result.scalars().all())
+
+
+async def _sign_count(user: User) -> int:
+    async with get_async_session_bypass_rls_context_manager() as session:
+        result = await session.execute(
+            select(WebAuthnCredential.sign_count).where(
+                WebAuthnCredential.user_id == user.id
+            )
+        )
+        return result.scalar_one()
+
+
+def _meet_before(monkeypatch: pytest.MonkeyPatch, method: str) -> None:
+    """Make two concurrent calls to ``MfaService.<method>`` start together.
+
+    Each call waits for the other to arrive (or a second to pass) before
+    running, so both requests have passed every earlier check. Any
+    serialization that happens inside the method still applies.
+    """
+    original = getattr(MfaService, method)
+    arrived = 0
+    both_arrived = asyncio.Event()
+
+    async def _wrapper(self: MfaService, *args: Any, **kwargs: Any) -> Any:
+        nonlocal arrived
+        arrived += 1
+        if arrived >= 2:
+            both_arrived.set()
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(both_arrived.wait(), timeout=1)
+        return await original(self, *args, **kwargs)
+
+    monkeypatch.setattr(MfaService, method, _wrapper)
 
 
 async def _register(
@@ -890,29 +921,88 @@ async def test_concurrent_deletions_keep_the_last_required_key(
         first = (await _register(client, SoftAuthenticator())).json()["credential"]
         second = (await _register(client, SoftAuthenticator())).json()["credential"]
 
-        # Hold each deletion after it counts keys until the other one has
-        # counted too (or a second passes). Without per-user serialization both
-        # see two keys and both delete.
-        count_credentials = MfaService.count_credentials
-        counted = 0
-        both_counted = asyncio.Event()
-
-        async def count_after_peer(self: MfaService, user_id: uuid.UUID) -> int:
-            nonlocal counted
-            counted += 1
-            if counted >= 2:
-                both_counted.set()
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(both_counted.wait(), timeout=1)
-            return await count_credentials(self, user_id)
-
-        monkeypatch.setattr(MfaService, "count_credentials", count_after_peer)
+        # Without per-user serialization both deletions count two keys and
+        # both delete.
+        _meet_before(monkeypatch, "count_credentials")
         responses = await asyncio.gather(
             client.delete(f"/auth/mfa/credentials/{first['id']}"),
             client.delete(f"/auth/mfa/credentials/{second['id']}"),
         )
     assert sorted(r.status_code for r in responses) == [204, 400]
     assert await _credential_count(user) == 1
+
+
+@pytest.mark.anyio
+async def test_concurrent_first_enrollments_register_one_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = await _create_user()
+    await _create_org(members=[user], mfa_required=True)
+    tokens = [await _new_session(user), await _new_session(user)]
+    async with _client(tokens[0]) as first, _client(tokens[1]) as second:
+        credentials = []
+        for client in (first, second):
+            options = await client.post("/auth/mfa/webauthn/register/options")
+            assert options.status_code == 200, options.text
+            public_key = options.json()["public_key"]
+            credentials.append(SoftAuthenticator().create(public_key))
+
+        # Both requests pass the enrollment check before either adds a key.
+        # The later one must then verify with the key the earlier one added.
+        _meet_before(monkeypatch, "_lock_user")
+        responses = await asyncio.gather(
+            *(
+                client.post(
+                    "/auth/mfa/webauthn/register/verify",
+                    json={"credential": credential, "name": "Key"},
+                )
+                for client, credential in zip((first, second), credentials, strict=True)
+            )
+        )
+        assert sorted(r.status_code for r in responses) == [201, 400]
+        signed_in = [
+            (await client.get("/users/me")).status_code for client in (first, second)
+        ]
+    assert sorted(signed_in) == [200, 401]
+    assert await _credential_count(user) == 1
+
+
+@pytest.mark.anyio
+async def test_concurrent_verifications_never_lower_the_signature_counter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = await _create_user()
+    key = SoftAuthenticator()
+    async with _client(await _new_session(user)) as client:
+        assert (await _register(client, key)).status_code == 201
+
+    tokens = [await _new_session(user), await _new_session(user)]
+    async with _client(tokens[0]) as first, _client(tokens[1]) as second:
+        lower = key.get(await _authentication_options(first))
+        higher = key.get(await _authentication_options(second))
+
+        # Hold the lower-counter verification after it reads the stored
+        # counter until the higher one finishes (or a second passes).
+        list_credentials = MfaService.list_credentials
+        lower_listed, higher_done = asyncio.Event(), asyncio.Event()
+
+        async def hold_first_read(
+            self: MfaService, user_id: uuid.UUID
+        ) -> list[WebAuthnCredential]:
+            credentials = await list_credentials(self, user_id)
+            if not lower_listed.is_set():
+                lower_listed.set()
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(higher_done.wait(), timeout=1)
+            return credentials
+
+        monkeypatch.setattr(MfaService, "list_credentials", hold_first_read)
+        lower_task = asyncio.create_task(_verify(first, lower))
+        await asyncio.wait_for(lower_listed.wait(), timeout=2)
+        await _verify(second, higher)
+        higher_done.set()
+        await lower_task
+    assert await _sign_count(user) == key.counter
 
 
 @pytest.mark.anyio

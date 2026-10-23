@@ -108,7 +108,7 @@ async def list_registry_versions(
     response_model=RegistryArtifactsBackfillStartResponse,
 )
 async def start_registry_artifacts_backfill(
-    role: SuperuserRole,
+    role: SuperuserStepUpRole,
     session: AsyncDBSessionBypass,
     params: RegistryArtifactsBackfillStartRequest,
 ) -> RegistryArtifactsBackfillStartResponse:

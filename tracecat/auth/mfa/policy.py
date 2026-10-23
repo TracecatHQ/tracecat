@@ -159,6 +159,14 @@ def is_recent(
     return now - verified_at <= timedelta(seconds=max_age_seconds)
 
 
+def has_recent_mfa(access_token: AccessToken) -> bool:
+    """Whether the session verified a security key or recovery code within the step-up window."""
+    max_age = config.TRACECAT__MFA_STEP_UP_MAX_AGE_SECONDS
+    return is_recent(
+        access_token.mfa_verified_at, max_age_seconds=max_age
+    ) or is_recent(access_token.step_up_verified_at, max_age_seconds=max_age)
+
+
 async def ensure_can_enable_mfa_policy(
     session: AsyncSession, user_id: uuid.UUID
 ) -> None:

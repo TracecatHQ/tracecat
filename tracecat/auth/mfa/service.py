@@ -27,6 +27,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.mfa.constants import MAX_CREDENTIALS_PER_USER, RECOVERY_CODE_COUNT
+from tracecat.auth.mfa.policy import has_recent_mfa
 from tracecat.auth.mfa.webauthn import (
     build_server,
     consume_challenge_state,
@@ -261,6 +262,11 @@ class MfaService:
             raise MfaVerificationError(
                 f"You can register at most {MAX_CREDENTIALS_PER_USER} security keys."
             )
+        # Another session may have enrolled the first key after this request
+        # passed the router's checks. Adding a further key needs this session
+        # to have verified with an existing one.
+        if count > 0 and not has_recent_mfa(access_token):
+            raise MfaVerificationError("Verify with an existing security key first.")
         is_first = count == 0
         duplicate = await self.session.execute(
             select(WebAuthnCredential.id).where(
@@ -315,6 +321,9 @@ class MfaService:
         state = await consume_challenge_state("authenticate", access_token.id)
         if state is None:
             raise MfaVerificationError("Verification expired. Try again.")
+        # Serialize with other verifications so the signature counter check
+        # and update see each other's writes.
+        await self._lock_user(user.id)
         credentials = await self.list_credentials(user.id)
         try:
             authentication = AuthenticationResponse.from_dict(response)

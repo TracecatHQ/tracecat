@@ -23,6 +23,7 @@ from tracecat.auth.mfa.constants import (
 from tracecat.auth.mfa.policy import (
     SessionMfaState,
     get_session_mfa_state,
+    has_recent_mfa,
     is_recent,
     platform_admin_mfa_bypassed,
     user_has_credentials,
@@ -138,11 +139,7 @@ async def require_recent_mfa(mfa_session: VerifiedMfaSession) -> MfaSession:
     Guards changes to a user's own security keys and recovery codes. Users
     without any key can add their first one without this check.
     """
-    max_age = config.TRACECAT__MFA_STEP_UP_MAX_AGE_SECONDS
-    token = mfa_session.access_token
-    if is_recent(token.mfa_verified_at, max_age_seconds=max_age) or is_recent(
-        token.step_up_verified_at, max_age_seconds=max_age
-    ):
+    if has_recent_mfa(mfa_session.access_token):
         return mfa_session
     if not await user_has_credentials(mfa_session.db, mfa_session.user.id):
         return mfa_session
