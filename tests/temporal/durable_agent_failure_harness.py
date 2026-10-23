@@ -36,8 +36,10 @@ from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs, DurableAgentWorkflow
 
 from tracecat import config
+from tracecat.agent.catalog.types import ModelReplacement
 from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.executor.activity import AgentExecutorInput, AgentExecutorResult
+from tracecat.agent.preset.activities import ResolveModelReplacementActivityInput
 from tracecat.agent.sandbox.llm_proxy import (
     LLMProxyError,
     LLMRoute,
@@ -429,6 +431,21 @@ def _workflow_args(injection: FailureInjection) -> AgentWorkflowArgs:
     )
 
 
+def mock_resolve_model_replacement_activity(
+    replacement: ModelReplacement | None = None,
+) -> Callable[..., Any]:
+    """Stub the model lifecycle lookup with a fixed replacement."""
+
+    @activity.defn(name="resolve_model_replacement_activity")
+    async def resolve_model_replacement(
+        input: ResolveModelReplacementActivityInput,
+    ) -> ModelReplacement | None:
+        del input
+        return replacement
+
+    return resolve_model_replacement
+
+
 def _activities(state: _HarnessState) -> list[Callable[..., Any]]:
     @activity.defn(name="load_session_activity")
     async def load_session(input: LoadSessionInput) -> LoadSessionResult:
@@ -516,6 +533,7 @@ def _activities(state: _HarnessState) -> list[Callable[..., Any]]:
         state.emitted_done.append(input)
 
     return [
+        mock_resolve_model_replacement_activity(),
         load_session,
         create_session,
         build_agent_tool_definitions,
