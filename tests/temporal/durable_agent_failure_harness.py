@@ -433,6 +433,7 @@ def _workflow_args(injection: FailureInjection) -> AgentWorkflowArgs:
 
 def mock_resolve_model_replacement_activity(
     replacement: ModelReplacement | None = None,
+    received: list[ResolveModelReplacementActivityInput] | None = None,
 ) -> Callable[..., Any]:
     """Stub the model lifecycle lookup with a fixed replacement."""
 
@@ -440,7 +441,8 @@ def mock_resolve_model_replacement_activity(
     async def resolve_model_replacement(
         input: ResolveModelReplacementActivityInput,
     ) -> ModelReplacement | None:
-        del input
+        if received is not None:
+            received.append(input)
         return replacement
 
     return resolve_model_replacement
