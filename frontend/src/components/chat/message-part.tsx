@@ -227,6 +227,7 @@ export function MessagePart({
         className="w-full"
         defaultOpen={expandSteps}
         duration={reasoningSeconds}
+        isEmpty={part.text.length === 0}
         isStreaming={
           status === "streaming" && isLastMessage && part.state !== "done"
         }
@@ -486,7 +487,9 @@ export function isAwaitingOutput(
   if (lastPart.type === "data-approval-request") return false
   const isStreamingVisual =
     (lastPart.type === "text" && lastPart.text.length > 0) ||
-    (lastPart.type === "reasoning" && lastPart.text.length > 0) ||
+    // An open thought draws its own thinking line, even before any text.
+    (lastPart.type === "reasoning" &&
+      (lastPart.text.length > 0 || lastPart.state !== "done")) ||
     (isToolUIPart(lastPart) && lastPart.state === "input-streaming") ||
     // A finished compaction has no spinner, so the line returns after it.
     (lastPart.type === "data-compaction" &&

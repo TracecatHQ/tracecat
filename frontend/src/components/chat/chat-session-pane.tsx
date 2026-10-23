@@ -1719,7 +1719,7 @@ function OptimisticPendingMessage({ text }: { text: string }) {
 function ThinkingLine({ label }: { label: string }) {
   return (
     <motion.div
-      className="mt-5"
+      className="mt-1"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
