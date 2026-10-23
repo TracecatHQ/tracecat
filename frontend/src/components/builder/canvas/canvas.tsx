@@ -66,6 +66,9 @@ import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { mergeHydratedEdges, mergeHydratedNodes } from "./graph-layout"
 
+/** Vertical gap between nodes added together from the toolbar, in flow units. */
+const NODE_STACK_OFFSET = 120
+
 const defaultNodeWidth = 172
 const defaultNodeHeight = 36
 
@@ -932,9 +935,9 @@ export const WorkflowCanvas = React.forwardRef<
   )
 
   // Handle adding action from toolbar
-  const handleToolbarAddAction = useCallback(
-    async (action: RegistryActionReadMinimal) => {
-      if (!workflowId || !reactFlowInstance) return
+  const handleToolbarAddActions = useCallback(
+    async (actions: RegistryActionReadMinimal[]) => {
+      if (!workflowId || !reactFlowInstance || actions.length === 0) return
 
       // Get the center of the current viewport in screen coordinates
       const containerBounds = containerRef.current?.getBoundingClientRect()
@@ -951,44 +954,39 @@ export const WorkflowCanvas = React.forwardRef<
         y: screenCenterY,
       })
 
-      try {
-        const addNodeOp: GraphOperation = {
-          type: "add_node",
-          payload: {
-            type: action.action,
-            title: action.default_title ?? action.action,
-            position_x: position.x,
-            position_y: position.y,
-          },
-        }
+      // Stack several nodes vertically so they don't overlap.
+      const addNodeOps: GraphOperation[] = actions.map((action, i) => ({
+        type: "add_node",
+        payload: {
+          type: action.action,
+          title: action.default_title ?? action.action,
+          position_x: position.x,
+          position_y: position.y + i * NODE_STACK_OFFSET,
+        },
+      }))
 
+      try {
         const result = await applyGraphOperations({
           baseVersion: graphVersion,
-          operations: [addNodeOp],
+          operations: addNodeOps,
         })
 
         updateStateFromGraph(result)
         toast({
-          title: "Action added",
-          description: `Added "${action.default_title ?? action.action}" to the workflow.`,
+          title: actions.length === 1 ? "Action added" : "Actions added",
+          description:
+            actions.length === 1
+              ? `Added "${actions[0].default_title ?? actions[0].action}" to the workflow.`
+              : `Added ${actions.length} actions to the workflow.`,
         })
       } catch (error) {
         const apiError = error as { status?: number }
         if (apiError.status === 409) {
           try {
             const latestGraph = await refetchGraph()
-            const addNodeOp: GraphOperation = {
-              type: "add_node",
-              payload: {
-                type: action.action,
-                title: action.default_title ?? action.action,
-                position_x: position.x,
-                position_y: position.y,
-              },
-            }
             const result = await applyGraphOperations({
               baseVersion: latestGraph.version,
-              operations: [addNodeOp],
+              operations: addNodeOps,
             })
             updateStateFromGraph(result)
           } catch (retryError) {
@@ -1017,6 +1015,11 @@ export const WorkflowCanvas = React.forwardRef<
       refetchGraph,
       toast,
     ]
+  )
+
+  const handleToolbarAddAction = useCallback(
+    (action: RegistryActionReadMinimal) => handleToolbarAddActions([action]),
+    [handleToolbarAddActions]
   )
 
   return (
@@ -1074,6 +1077,7 @@ export const WorkflowCanvas = React.forwardRef<
         <Panel position="bottom-center" className="mb-4">
           <CanvasToolbar
             onAddAction={handleToolbarAddAction}
+            onAddActions={handleToolbarAddActions}
             embedded={embedded}
             trailing={<ToggleConditionsButton />}
           />
