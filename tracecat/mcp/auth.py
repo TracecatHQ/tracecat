@@ -1469,9 +1469,8 @@ async def resolve_org_role_for_request(
         raise ValueError(f"User {identity.email} has no organization memberships")
     if len(org_ids) > 1:
         raise ValueError(
-            "Multiple organizations resolved for caller; org-scoped tools "
-            "require org_id, a single-org token organization_id claim, "
-            "or an org:<uuid> scope."
+            "This connection covers multiple organizations; pass org_id "
+            "to choose one (list_workspaces returns each workspace's org_id)."
         )
 
     organization_id = next(iter(org_ids))
