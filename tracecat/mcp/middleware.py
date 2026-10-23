@@ -191,21 +191,22 @@ class WatchtowerMonitorMiddleware(Middleware):
         except Exception:
             return await call_next(context)
 
+        workspace_id = _resolve_workspace_id(
+            identity=identity,
+            arguments=context.message.arguments,
+        )
         try:
             call_context, block_reason = await get_watchtower_tool_call_context(
                 email=identity.email,
                 mcp_session_id=session_id,
                 claimed_org_ids=identity.organization_ids or None,
                 claimed_workspace_ids=identity.workspace_ids or None,
+                workspace_id=workspace_id,
+                organization_id=_resolve_organization_id(context.message.arguments),
             )
         except Exception as exc:
             logger.warning("Failed to resolve Watchtower call context", error=str(exc))
             return await call_next(context)
-
-        workspace_id = _resolve_workspace_id(
-            identity=identity,
-            arguments=context.message.arguments,
-        )
 
         if block_reason is not None:
             if call_context is not None:
@@ -334,6 +335,18 @@ def _resolve_workspace_id(
         workspace_id = _coerce_uuid(arguments.get(key))
         if workspace_id is not None:
             return workspace_id
+    return None
+
+
+def _resolve_organization_id(
+    arguments: dict[str, object] | None,
+) -> uuid.UUID | None:
+    if not arguments:
+        return None
+    for key in ("org_id", "organization_id"):
+        organization_id = _coerce_uuid(arguments.get(key))
+        if organization_id is not None:
+            return organization_id
     return None
 
 
