@@ -28,6 +28,7 @@ def build_session_read(
         capabilities=AgentSessionCapabilities(
             steering=backend is not None and backend.steering,
             withdrawing=backend is not None and backend.withdrawing,
+            listing_pending=backend is not None and backend.listing_pending,
         ),
         entity_type=AgentSessionEntity(session.entity_type),
         entity_id=session.entity_id,

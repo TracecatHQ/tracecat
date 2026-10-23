@@ -204,6 +204,8 @@ import type {
   AgentSessionsGetSessionVercelResponse,
   AgentSessionsListAgentBackendsData,
   AgentSessionsListAgentBackendsResponse,
+  AgentSessionsListPendingMessagesData,
+  AgentSessionsListPendingMessagesResponse,
   AgentSessionsListSessionsData,
   AgentSessionsListSessionsResponse,
   AgentSessionsRemoveSessionArtifactData,
@@ -8316,6 +8318,34 @@ export const agentSessionsStreamSessionEvents = (
     },
     query: {
       format: data.format,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Pending Messages
+ * List the user messages the model has not read yet, in send order.
+ *
+ * Covers steers waiting to join the running turn and messages queued for a
+ * later turn. The list is short-lived and small, so it is not paginated.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @returns AgentSessionPendingRead Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsListPendingMessages = (
+  data: AgentSessionsListPendingMessagesData
+): CancelablePromise<AgentSessionsListPendingMessagesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/sessions/{session_id}/pending",
+    path: {
+      session_id: data.sessionId,
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",

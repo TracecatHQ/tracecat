@@ -33,6 +33,7 @@ from tracecat.agent.backends.types import (
     AgentControlRejected,
     AgentControlUncertain,
     AgentWorkflow,
+    PendingMessage,
     SessionDispatchUncertain,
     SessionForkContext,
     SessionHistoryAdapter,
@@ -92,6 +93,9 @@ class AgentBackend[InputT, OutputT](ABC):
     # Whether a running turn can take back pending user messages. A backend
     # that sets this must implement `withdraw`.
     withdrawing: ClassVar[bool] = False
+    # Whether the backend can list the user's messages the model has not read.
+    # A backend that sets this must implement `list_pending`.
+    listing_pending: ClassVar[bool] = False
     task_queue: ClassVar[str]
     priority: ClassVar[Priority] = Priority()
     retry_policy: ClassVar[RetryPolicy] = RetryPolicy(maximum_attempts=1)
@@ -547,6 +551,16 @@ class AgentBackend[InputT, OutputT](ABC):
         first result. Only backends that set ``withdrawing`` implement this.
         """
         raise AgentControlRejected("This agent backend does not support withdrawing")
+
+    async def list_pending(self, session_id: UUID) -> Sequence[PendingMessage]:
+        """List the session's user messages the model has not read, in send order.
+
+        Covers steers waiting to join the running turn and messages queued for a
+        later turn. Only backends that set ``listing_pending`` implement this.
+        """
+        raise AgentControlRejected(
+            "This agent backend does not support listing pending messages"
+        )
 
     async def get_turn_lifecycle(self, run_id: UUID) -> TurnLifecycle:
         """Resolve execution status for reconnect without exposing Temporal types."""
