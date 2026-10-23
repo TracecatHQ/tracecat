@@ -37,8 +37,8 @@ def upgrade() -> None:
             nullable=True,
         ),
     )
-    # The lock key must match _lock_user_refresh_tokens in
-    # tracecat/mcp/oidc/refresh_tokens.py.
+    # The lock key must match lock_mcp_refresh_token_users in
+    # tracecat/db/locks.py.
     op.execute(
         """
         CREATE OR REPLACE FUNCTION public.revoke_mcp_tokens_on_membership_delete()

@@ -19,13 +19,16 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 from sqlalchemy.pool import NullPool
 
 from tests.database import TEST_DB_CONFIG
+from tracecat.db.models import Organization
 from tracecat.mcp.oidc.endpoints import _current_granted_orgs
 from tracecat.mcp.oidc.refresh_tokens import (
+    RefreshTokenError,
     _hash_token,
     issue_refresh_token,
     rotate_refresh_token,
 )
 from tracecat.mcp.oidc.schemas import RefreshTokenContext, RefreshTokenMetadata
+from tracecat.organization.management import delete_organization_with_cleanup
 
 MIGRATION_REVISION = "c4e8a2f6d9b1"
 CLIENT_ID = "migration-test-client"
@@ -293,3 +296,55 @@ async def test_membership_removal_racing_rotation_revokes_replacement(
 
     assert await _token_status(owner_engine, token) == "used"
     assert await _token_status(owner_engine, replacement) == "revoked"
+
+
+async def test_org_deletion_racing_rotation_does_not_deadlock(
+    owner_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invariant: org cleanup takes the user lock before it locks token rows.
+
+    Cleanup deletes the org's refresh tokens, then the org delete cascades into
+    the membership trigger. A rotation that arrives in between must wait for
+    cleanup instead of holding the user lock while it waits on a deleted row.
+    """
+    user = await _seed_two_org_user(owner_engine)
+    token = await _issue_two_org_token(owner_engine, user)
+
+    async with (
+        AsyncSession(owner_engine) as cleanup_session,
+        AsyncSession(owner_engine) as refresh_session,
+    ):
+        organization = await cleanup_session.get(Organization, user.primary_org_id)
+        assert organization is not None
+        reached_org_delete = asyncio.Event()
+        resume_org_delete = asyncio.Event()
+        delete_row = cleanup_session.delete
+
+        async def pause_before_org_delete(instance: object) -> None:
+            if isinstance(instance, Organization):
+                reached_org_delete.set()
+                await resume_org_delete.wait()
+            await delete_row(instance)
+
+        monkeypatch.setattr(cleanup_session, "delete", pause_before_org_delete)
+        cleanup = asyncio.create_task(
+            delete_organization_with_cleanup(
+                cleanup_session, organization=organization, operator_user_id=None
+            )
+        )
+        await asyncio.wait_for(reached_org_delete.wait(), timeout=10)
+
+        refresh_pid = (
+            await refresh_session.execute(text("SELECT pg_backend_pid()"))
+        ).scalar_one()
+        rotation = asyncio.create_task(
+            rotate_refresh_token(refresh_session, token=token, client_id=CLIENT_ID)
+        )
+        await _wait_until_blocked(owner_engine, refresh_pid)
+        resume_org_delete.set()
+        await asyncio.wait_for(cleanup, timeout=10)
+        await cleanup_session.commit()
+
+        with pytest.raises(RefreshTokenError):
+            await asyncio.wait_for(rotation, timeout=10)

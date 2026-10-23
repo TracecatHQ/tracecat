@@ -11,6 +11,7 @@ from sqlalchemy.orm import Mapped
 from tracecat.audit.logger import audit_log
 from tracecat.auth.schemas import UserCreate, UserRole
 from tracecat.auth.users import get_user_db_context, get_user_manager_context
+from tracecat.db.locks import lock_mcp_refresh_token_users
 from tracecat.db.models import (
     AccessToken,
     Approval,
@@ -190,6 +191,9 @@ class AdminUserService(BasePlatformService):
             .values(approved_by=None)
         )
 
+        # The user delete cascades to refresh tokens and memberships; lock
+        # first so a concurrent MCP token rotation cannot deadlock with it.
+        await lock_mcp_refresh_token_users(self.session, [user_id])
         await self.session.delete(user)
         try:
             await self.session.commit()

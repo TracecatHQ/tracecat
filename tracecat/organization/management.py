@@ -19,6 +19,7 @@ from tracecat.authz.membership import ensure_member
 from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.locks import lock_mcp_refresh_token_users
 from tracecat.db.models import (
     AccessToken,
     MCPRefreshToken,
@@ -264,6 +265,14 @@ async def delete_organization_with_cleanup(
             RegistryRepository.organization_id == organization.id
         )
     )
+    refresh_token_user_ids = await session.scalars(
+        select(MCPRefreshToken.user_id)
+        .where(MCPRefreshToken.organization_id == organization.id)
+        .distinct()
+    )
+    # The membership cascade below fires the token-revocation trigger, which
+    # takes these locks; take them before locking the token rows.
+    await lock_mcp_refresh_token_users(session, refresh_token_user_ids)
     await session.execute(
         delete(MCPRefreshToken).where(
             MCPRefreshToken.organization_id == organization.id

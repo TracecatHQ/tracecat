@@ -21,10 +21,11 @@ from datetime import UTC, datetime, timedelta
 import orjson
 from cryptography.fernet import InvalidToken
 from pydantic import ValidationError
-from sqlalchemy import select, text, update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.secrets import get_db_encryption_key
+from tracecat.db.locks import lock_mcp_refresh_token_users
 from tracecat.db.models import MCPRefreshToken
 from tracecat.logger import logger
 from tracecat.mcp.oidc import config as oidc_config
@@ -65,23 +66,6 @@ def _decode_metadata(blob: bytes) -> RefreshTokenMetadata:
     """Decrypt and parse the metadata JSON blob."""
     payload = decrypt_value(blob, key=get_db_encryption_key())
     return RefreshTokenMetadata.model_validate_json(payload)
-
-
-async def _lock_user_refresh_tokens(session: AsyncSession, user_id: uuid.UUID) -> None:
-    """Serialize rotation with membership removal for one user.
-
-    The membership-delete trigger takes the same transaction-scoped lock
-    before revoking, so it runs after any in-flight rotation commits and sees
-    the replacement token. The key must match
-    ``revoke_mcp_tokens_on_membership_delete()``.
-    """
-    await session.execute(
-        text(
-            "SELECT pg_advisory_xact_lock("
-            "hashtextextended('mcp_refresh_token:' || CAST(:user_id AS uuid)::text, 0))"
-        ),
-        {"user_id": user_id},
-    )
 
 
 async def _revoke_family_rows(session: AsyncSession, family_id: uuid.UUID) -> None:
@@ -158,7 +142,7 @@ async def rotate_refresh_token(
         raise RefreshTokenError("invalid_grant", "Refresh token is invalid or expired")
     # Take the user lock before the row lock; the trigger takes them in the
     # same order, so the two paths cannot deadlock.
-    await _lock_user_refresh_tokens(session, user_id)
+    await lock_mcp_refresh_token_users(session, [user_id])
     row = (
         await session.execute(
             select(MCPRefreshToken)
