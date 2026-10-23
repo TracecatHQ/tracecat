@@ -211,6 +211,16 @@ Tracecat authenticates every API and MCP request before it resolves tenant conte
 
 See [SAML SSO](/authentication/saml) and [OIDC](/authentication/oidc) for connection steps.
 
+### Multi-factor authentication
+
+- Users register FIDO2 security keys or passkeys. Tracecat verifies each WebAuthn response with Yubico's `python-fido2` library, checking the challenge, origin, relying party ID, user verification, and signature counter. Registration and sign-in challenges are single-use and expire after 5 minutes.
+- Organization administrators can require a key for every member, and platform superusers can require one for platform admins. The requirement covers password, OIDC, and SAML sign-in alike. Until the user verifies, the session can reach only the MFA endpoints and sign-out.
+- Platform admin actions that affect customers need a key verified in the last 5 minutes. These include organization, invitation, allowed domain, user, tier, and platform settings changes, and registry sync. A recovery code signs a user in but doesn't count as that verification.
+- Tracecat stores recovery codes, about 99 bits each, only as salted Argon2id hashes, and each code works once. A platform admin can reset a user's keys, which also revokes every session the user has.
+- `TRACECAT__PLATFORM_ADMIN_MFA_BYPASS=true` is the break-glass path for platform admins. Organization policies still apply while it is set.
+
+See [Multi-factor authentication](/authentication/mfa) for setup steps.
+
 ### Role-based access control
 
 A scope is one permission on one resource, named `resource:action` following OAuth 2.0 convention. The prefix carries the level:
