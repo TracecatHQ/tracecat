@@ -1088,8 +1088,8 @@ class _UpstreamTrace:
     """What one upstream response relayed, recorded on its client span.
 
     Spans carry status codes, exception type names, the route mode, the trace
-    request ID, and byte and chunk counts: never credentials, URLs, headers,
-    bodies, or exception messages.
+    request ID, byte and chunk counts, and stream timings and progress: never
+    credentials, URLs, headers, bodies, or exception messages.
     """
 
     span: Span
@@ -1111,6 +1111,30 @@ class _UpstreamTrace:
             self.span.add_event(_FIRST_BYTE_EVENT)
         self.chunks += 1
         self.size += len(chunk)
+
+    def first_chunk(self, ttft_ms: float) -> None:
+        """Record the streamed response's time to first token, as logged.
+
+        Like the log line, it counts from when the proxy received the request,
+        so it includes earlier attempts and their backoff.
+        """
+        self.span.set_attribute("tracecat.agent.llm_proxy.response.ttft_ms", ttft_ms)
+
+    def stream_ended(self, progress: _StreamProgress) -> None:
+        """Record how long the stream ran and how far it got."""
+        attributes = {
+            "tracecat.agent.llm_proxy.response.stream_duration_ms": progress[
+                "stream_duration_ms"
+            ],
+            "tracecat.agent.llm_proxy.response.sse_events": progress["sse_events"],
+            "tracecat.agent.llm_proxy.response.saw_message_stop": progress[
+                "saw_message_stop"
+            ],
+        }
+        # OTel drops None attribute values with a warning.
+        self.span.set_attributes(
+            {key: value for key, value in attributes.items() if value is not None}
+        )
 
     def fail(self, exc: Exception) -> None:
         """Fail the span with the exception's type name, never its message."""
@@ -1968,14 +1992,17 @@ class LLMSocketProxy:
                         and started_at is not None
                     ):
                         ttft_logged = True
+                        ttft_ms = (first_chunk_at - started_at) * 1000
                         logger.info(
                             "LLM proxy first response chunk",
                             request_counter=request_counter,
                             method=method,
                             path=path,
                             trace_request_id=trace_request_id,
-                            ttft_ms=(first_chunk_at - started_at) * 1000,
+                            ttft_ms=ttft_ms,
                         )
+                        if upstream is not None:
+                            upstream.first_chunk(ttft_ms)
                     writer.write(chunk)
                     await writer.drain()
                     bytes_forwarded += len(chunk)
@@ -1990,7 +2017,10 @@ class LLMSocketProxy:
                     logger.debug("Client disconnected during response streaming")
                     return
             if is_streaming_response:
-                logger.info("LLM proxy stream finished", **stream_progress())
+                progress = stream_progress()
+                logger.info("LLM proxy stream finished", **progress)
+                if upstream is not None:
+                    upstream.stream_ended(progress)
         except Exception as exc:
             if self._stopping:
                 logger.debug("Response stream closed during proxy shutdown")
@@ -2039,13 +2069,16 @@ class LLMSocketProxy:
                         else str(exc)[:512]
                     )
                     surfaced_error = f"LLM stream failed: {detail}"
+                progress = stream_progress()
                 logger.warning(
                     "Stream error after headers sent, emitting SSE error event",
                     status_code=status_code,
                     detail=detail,
                     error_type=type(exc).__name__,
-                    **stream_progress(),
+                    **progress,
                 )
+                if upstream is not None:
+                    upstream.stream_ended(progress)
                 if path is not None and not _is_non_critical_request(method, path):
                     classification = (
                         _stream_transport_error_classification(

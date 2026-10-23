@@ -2574,7 +2574,8 @@ async def test_upstream_span_records_streamed_response_without_content(
     span_exporter: InMemorySpanExporter,
 ) -> None:
     """One client span per upstream request carries the trace request ID,
-    status, sizes and a first-byte event, but no URL, credential or content."""
+    status, sizes, stream timings and a first-byte event, but no URL,
+    credential or content."""
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -2597,7 +2598,15 @@ async def test_upstream_span_records_streamed_response_without_content(
     [span] = _upstream_spans(span_exporter)
     assert span.kind is SpanKind.CLIENT
     assert span.status.status_code is StatusCode.UNSET
-    assert dict(span.attributes or {}) == {
+    attributes = dict(span.attributes or {})
+    ttft_ms = attributes.pop("tracecat.agent.llm_proxy.response.ttft_ms")
+    stream_duration_ms = attributes.pop(
+        "tracecat.agent.llm_proxy.response.stream_duration_ms"
+    )
+    assert isinstance(ttft_ms, float)
+    assert isinstance(stream_duration_ms, float)
+    assert 0 <= ttft_ms <= stream_duration_ms
+    assert attributes == {
         "http.request.method": "POST",
         "http.route": "/v1/messages",
         "tracecat.agent.llm_proxy.route": "managed",
@@ -2606,6 +2615,8 @@ async def test_upstream_span_records_streamed_response_without_content(
         "http.response.status_code": 200,
         "http.response.body.size": len(_SSE_MESSAGE_START + _SSE_MESSAGE_STOP),
         "tracecat.agent.llm_proxy.response.chunks": 1,
+        "tracecat.agent.llm_proxy.response.sse_events": 2,
+        "tracecat.agent.llm_proxy.response.saw_message_stop": True,
     }
     [event] = span.events
     assert event.name == "tracecat.agent.llm_proxy.first_byte"
@@ -2653,6 +2664,11 @@ async def test_upstream_span_per_rate_limited_attempt(
     assert (limited.attributes or {})["http.response.status_code"] == 429
     assert ok.status.status_code is StatusCode.UNSET
     assert "error.type" not in (ok.attributes or {})
+    # JSON responses are not streams, so they carry no stream timings.
+    assert "tracecat.agent.llm_proxy.response.ttft_ms" not in (ok.attributes or {})
+    assert "tracecat.agent.llm_proxy.response.stream_duration_ms" not in (
+        ok.attributes or {}
+    )
 
 
 @pytest.mark.anyio
@@ -2681,6 +2697,12 @@ async def test_upstream_span_fails_on_stream_cut_after_headers(
     assert attributes["error.type"] == "RemoteProtocolError"
     assert attributes["http.response.status_code"] == 200
     assert attributes["tracecat.agent.llm_proxy.response.chunks"] == 1
+    assert isinstance(attributes["tracecat.agent.llm_proxy.response.ttft_ms"], float)
+    assert isinstance(
+        attributes["tracecat.agent.llm_proxy.response.stream_duration_ms"], float
+    )
+    assert attributes["tracecat.agent.llm_proxy.response.sse_events"] == 1
+    assert attributes["tracecat.agent.llm_proxy.response.saw_message_stop"] is False
     assert [event.name for event in span.events] == [
         "tracecat.agent.llm_proxy.first_byte"
     ]
