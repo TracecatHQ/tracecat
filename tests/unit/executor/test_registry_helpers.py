@@ -364,6 +364,11 @@ async def test_get_registry_artifact_uris_uses_bundled_builtin_for_content_versi
             None,
             id="content-version-of-other-release",
         ),
+        pytest.param(
+            "1.2.3+collision.20260522140000.123456",
+            None,
+            id="collision-version-with-matching-fingerprint",
+        ),
     ],
 )
 async def test_get_registry_artifact_uris_looks_up_unverified_content_version(
@@ -372,7 +377,10 @@ async def test_get_registry_artifact_uris_looks_up_unverified_content_version(
     locked_version: str,
     fingerprints: dict[str, str] | None,
 ) -> None:
-    """Content versions take the bundled path only with a matching fingerprint."""
+    """Only a fingerprint-matched content version of the installed release is bundled.
+
+    Collision versions keep their pinned artifact even when the manifest matches.
+    """
     artifact_uri = "s3://bucket/builtin/site-packages.squashfs"
     manifest = RegistryVersionManifest()
     input_data = cast(

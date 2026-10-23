@@ -21,7 +21,7 @@ from tracecat.registry.constants import (
 )
 from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
 from tracecat.registry.versions.schemas import (
-    registry_base_version,
+    is_registry_content_version,
     registry_manifest_fingerprint,
 )
 
@@ -69,10 +69,13 @@ def _bundled_builtin_matches_lock(registry_lock: object, version: str) -> bool:
     A lock on the installed version, or on a content version of it
     (``<installed>+content.<fingerprint>``), matches when its builtin manifest
     fingerprint equals the image's prebuilt manifest. Without a fingerprint only
-    the exact installed version is trusted.
+    the exact installed version is trusted. Other local labels, such as
+    collision versions, always use their own artifact.
     """
     installed_version = tracecat_registry.__version__
-    if registry_base_version(version) != installed_version:
+    if version != installed_version and not is_registry_content_version(
+        version, installed_version
+    ):
         return False
 
     origin_fingerprints = getattr(registry_lock, "origin_fingerprints", None)

@@ -147,6 +147,9 @@ def registry_manifest_fingerprint(manifest: RegistryVersionManifest) -> str:
     return sha256(payload).hexdigest()
 
 
+CONTENT_VERSION_LABEL = "content"
+"""Local version label prefix for builtin content versions."""
+
 CONTENT_VERSION_FINGERPRINT_LENGTH = 16
 """Hex characters of the manifest fingerprint kept in a content version label."""
 
@@ -164,7 +167,13 @@ def registry_content_version(base_version: str, fingerprint: str) -> str:
     label derived from the manifest fingerprint gives each content its own
     immutable version row and artifact key.
     """
-    return f"{base_version}+content.{fingerprint[:CONTENT_VERSION_FINGERPRINT_LENGTH]}"
+    label = fingerprint[:CONTENT_VERSION_FINGERPRINT_LENGTH]
+    return f"{base_version}+{CONTENT_VERSION_LABEL}.{label}"
+
+
+def is_registry_content_version(version: str, base_version: str) -> bool:
+    """Return whether ``version`` is a content version of ``base_version``."""
+    return version.startswith(f"{base_version}+{CONTENT_VERSION_LABEL}.")
 
 
 class RegistryVersionCreate(BaseModel):
