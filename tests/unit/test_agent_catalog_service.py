@@ -1416,3 +1416,30 @@ async def test_upsert_platform_catalog_keeps_retired_rows_still_referenced(
     )
     assert {"gpt-5.1-codex", "gpt-5.1-codex-max", "gpt-5.2-codex"} <= remaining
     assert "gpt-5-codex" not in remaining
+
+
+@pytest.mark.anyio
+async def test_resolve_model_replacement_trusts_the_catalog_row_identity(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    retired = _catalog(
+        None, "openai", "gpt-5.1-codex-max", metadata=_retired("gpt-5.6-sol")
+    )
+    replacement = _catalog(None, "openai", "gpt-5.6-sol")
+    session.add_all([retired, replacement])
+    await session.flush()
+    session.add(_enable(org_id=svc_organization.id, catalog_id=replacement.id))
+    await session.commit()
+
+    # Caller fields disagree with the row the catalog_id names.
+    resolved = await AgentCatalogService(session=session).resolve_model_replacement(
+        role=_user_role(svc_organization.id),
+        model_provider="anthropic",
+        model_name="stale-name",
+        catalog_id=retired.id,
+    )
+
+    assert resolved == ModelReplacement(
+        model_provider="openai", model_name="gpt-5.6-sol", catalog_id=replacement.id
+    )

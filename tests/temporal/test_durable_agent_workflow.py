@@ -74,7 +74,10 @@ from tracecat.agent.executor.activity import (
     AgentExecutorResult,
     ToolExecutionResult,
 )
-from tracecat.agent.preset.activities import ResolveAgentsConfigActivityInput
+from tracecat.agent.preset.activities import (
+    ResolveAgentsConfigActivityInput,
+    ResolveModelReplacementActivityInput,
+)
 from tracecat.agent.preset.resolver import (
     ResolvedAgentsRuntimeConfig,
     ResolvedSubagentConfig,
@@ -544,6 +547,8 @@ async def agent_worker_factory(threadpool, monkeypatch: pytest.MonkeyPatch):
         task_queue: str | None = None,
         custom_activities: Sequence[Callable[..., Any]] | None = None,
         model_replacement: ModelReplacement | None = None,
+        model_replacement_inputs: list[ResolveModelReplacementActivityInput]
+        | None = None,
     ) -> Worker:
         """Create a worker for agent workflows with required activities.
 
@@ -570,7 +575,9 @@ async def agent_worker_factory(threadpool, monkeypatch: pytest.MonkeyPatch):
             task_queue=queue_name,
             activities=[
                 *custom_activities,
-                mock_resolve_model_replacement_activity(model_replacement),
+                mock_resolve_model_replacement_activity(
+                    model_replacement, model_replacement_inputs
+                ),
             ],
             workflows=[DurableAgentWorkflow],
             workflow_runner=UnsandboxedWorkflowRunner(),
@@ -650,6 +657,9 @@ async def test_agent_workflow_runs_retired_model_on_its_replacement(
     queue = f"test-agent-queue-{mock_session_id}"
     replacement_catalog_id = uuid.uuid4()
     executor_inputs: list[AgentExecutorInput] = []
+    lookups: list[ResolveModelReplacementActivityInput] = []
+    retired = agent_workflow_args.agent_args.config
+    assert retired is not None
 
     def mock_executor(
         call_count: int, input: AgentExecutorInput
@@ -667,6 +677,7 @@ async def test_agent_workflow_runs_retired_model_on_its_replacement(
             model_name="gpt-5.6-sol",
             catalog_id=replacement_catalog_id,
         ),
+        model_replacement_inputs=lookups,
     ):
         await temporal_client.execute_workflow(
             DurableAgentWorkflow.run,
@@ -677,6 +688,10 @@ async def test_agent_workflow_runs_retired_model_on_its_replacement(
             execution_timeout=timedelta(seconds=30),
         )
 
+    # The lookup sees the configured model, and the run uses its answer.
+    assert [(x.model_provider, x.model_name, x.catalog_id) for x in lookups] == [
+        (retired.model_provider, retired.model_name, retired.catalog_id)
+    ]
     assert len(executor_inputs) == 1
     config = executor_inputs[0].config
     assert (config.model_provider, config.model_name, config.catalog_id) == (

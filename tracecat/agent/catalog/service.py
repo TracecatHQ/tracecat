@@ -441,9 +441,12 @@ class AgentCatalogService(BaseService):
         )
         row = (
             await self.session.execute(
-                select(AgentCatalog.organization_id, AgentCatalog.model_metadata).where(
-                    row_filter
-                )
+                select(
+                    AgentCatalog.organization_id,
+                    AgentCatalog.model_provider,
+                    AgentCatalog.model_name,
+                    AgentCatalog.model_metadata,
+                ).where(row_filter)
             )
         ).one_or_none()
         if row is None:
@@ -454,6 +457,8 @@ class AgentCatalogService(BaseService):
             # Org-owned rows have no provider lifecycle.
             return None
         else:
+            # The row, not the caller's fields, names the model that retired.
+            model_provider, model_name = row.model_provider, row.model_name
             lifecycle = read_model_lifecycle(row.model_metadata)
         if lifecycle is None or lifecycle.status_on() != "retired":
             return None
