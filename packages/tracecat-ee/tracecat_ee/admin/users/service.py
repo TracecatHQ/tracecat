@@ -172,6 +172,10 @@ class AdminUserService(BasePlatformService):
             if superuser_count <= 1:
                 raise ValueError("Cannot delete the last superuser")
 
+        # The user delete cascades to refresh tokens and memberships. Take the
+        # MCP token lock before any write so it precedes every row lock, as
+        # member removal and token rotation do.
+        await lock_mcp_refresh_token_users(self.session, [user_id])
         await self.session.execute(
             delete(AccessToken).where(
                 cast(Mapped[uuid.UUID], AccessToken.user_id) == user_id
@@ -191,9 +195,6 @@ class AdminUserService(BasePlatformService):
             .values(approved_by=None)
         )
 
-        # The user delete cascades to refresh tokens and memberships; lock
-        # first so a concurrent MCP token rotation cannot deadlock with it.
-        await lock_mcp_refresh_token_users(self.session, [user_id])
         await self.session.delete(user)
         try:
             await self.session.commit()

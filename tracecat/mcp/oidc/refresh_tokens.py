@@ -117,7 +117,7 @@ async def rotate_refresh_token(
     *,
     token: str,
     client_id: str,
-    resolve_grant: GrantResolver | None = None,
+    resolve_grant: GrantResolver,
 ) -> tuple[RefreshTokenContext, str]:
     """Atomically consume and replace a refresh token.
 
@@ -203,16 +203,15 @@ async def rotate_refresh_token(
         client_id=row.client_id,
         metadata=metadata,
     )
-    if resolve_grant is not None:
-        primary_org_id, granted_org_ids = await resolve_grant(ctx)
-        ctx = ctx.model_copy(
-            update={
-                "organization_id": primary_org_id,
-                "metadata": metadata.model_copy(
-                    update={"organization_ids": granted_org_ids}
-                ),
-            }
-        )
+    primary_org_id, granted_org_ids = await resolve_grant(ctx)
+    ctx = ctx.model_copy(
+        update={
+            "organization_id": primary_org_id,
+            "metadata": metadata.model_copy(
+                update={"organization_ids": granted_org_ids}
+            ),
+        }
+    )
 
     row.status = "used"
     new_refresh_token = secrets.token_urlsafe(32)

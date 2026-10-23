@@ -1,5 +1,6 @@
 import asyncio
 import importlib
+import importlib.util
 import os
 import socket
 import subprocess
@@ -118,46 +119,29 @@ def pytest_xdist_auto_num_workers(config: pytest.Config) -> int:
 # Default ports are for cluster 1, override with PG_PORT, TEMPORAL_PORT, MINIO_PORT, REDIS_PORT
 
 
+MCP_TOKEN_REVOKER_MIGRATION = (
+    Path(__file__).resolve().parents[1]
+    / "alembic"
+    / "versions"
+    / "c4e8a2f6d9b1_revoke_mcp_refresh_tokens_on_any_granted_org.py"
+)
+
+
 def _install_membership_token_revoker(conn: Any) -> None:
-    """Mirror the production trigger that revokes MCP tokens on member removal."""
-    conn.execute(
-        text(
-            """
-            CREATE OR REPLACE FUNCTION public.revoke_mcp_tokens_on_membership_delete()
-            RETURNS trigger
-            LANGUAGE plpgsql
-            SECURITY DEFINER
-            SET search_path = pg_catalog, pg_temp
-            AS $$
-            BEGIN
-                PERFORM pg_advisory_xact_lock(
-                    hashtextextended('mcp_refresh_token:' || OLD.user_id::text, 0)
-                );
+    """Install the production trigger that revokes MCP tokens on member removal.
 
-                UPDATE public.mcp_personal_access_token
-                SET revoked_at = now(),
-                    revoked_by = NULLIF(
-                        current_setting('app.current_user_id', true), ''
-                    )::uuid
-                WHERE user_id = OLD.user_id
-                  AND organization_id = OLD.organization_id
-                  AND revoked_at IS NULL;
-
-                UPDATE public.mcp_refresh_token
-                SET status = 'revoked'
-                WHERE user_id = OLD.user_id
-                  AND (
-                      organization_id = OLD.organization_id
-                      OR OLD.organization_id = ANY(granted_organization_ids)
-                  )
-                  AND status = 'active';
-
-                RETURN OLD;
-            END;
-            $$;
-            """
-        )
+    The function SQL comes from the migration that defines it, so tests cannot
+    drift from what deployments run.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "mcp_token_revoker_migration", MCP_TOKEN_REVOKER_MIGRATION
     )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load {MCP_TOKEN_REVOKER_MIGRATION}")
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    conn.execute(text(migration.REVOKER_FUNCTION_SQL))
+    conn.execute(text(migration.REVOKER_PRIVILEGES_SQL))
     conn.execute(
         text(
             "DROP TRIGGER IF EXISTS trg_organization_membership_revoke_mcp_tokens "

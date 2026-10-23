@@ -1,21 +1,22 @@
-"""Removing a user from any granted org revokes their MCP refresh tokens.
+"""MCP token revocation under real tenant RLS and concurrent writers.
 
-These run against the migrated schema, so the trigger and tenant RLS policies
-are the production ones rather than the copies installed by ``tests/conftest``.
+``tests/conftest.py`` installs the membership-delete trigger from the migration
+that defines it, so these exercise the production SQL. Each test commits
+through its own connections to the per-run test database.
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
-import subprocess
+import contextlib
+import time
 import uuid
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 import pytest
 from fastapi_users.db import SQLAlchemyUserDatabase
-from sqlalchemy import create_engine, make_url, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -24,28 +25,25 @@ from tracecat.auth.types import Role
 from tracecat.auth.users import UserManager
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES
 from tracecat.db.models import Organization, User
-from tracecat.mcp.oidc.endpoints import _current_granted_orgs
+from tracecat.db.tenant_rls import enable_org_table_rls
+from tracecat.mcp.oidc.endpoints import _current_granted_orgs, _issue_code_grant
 from tracecat.mcp.oidc.refresh_tokens import (
     RefreshTokenError,
     _hash_token,
     issue_refresh_token,
     rotate_refresh_token,
 )
-from tracecat.mcp.oidc.schemas import RefreshTokenContext, RefreshTokenMetadata
+from tracecat.mcp.oidc.schemas import (
+    AuthCodeData,
+    RefreshTokenContext,
+    RefreshTokenMetadata,
+)
 from tracecat.organization.management import delete_organization_with_cleanup
 from tracecat.organization.service import OrgService
 
-MIGRATION_REVISION = "c4e8a2f6d9b1"
-CLIENT_ID = "migration-test-client"
+CLIENT_ID = "revocation-test-client"
 
 pytestmark = pytest.mark.anyio
-
-
-@dataclass(frozen=True, slots=True)
-class MigratedDatabase:
-    sync_url: str
-    async_url: str
-    runtime_role: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,79 +53,10 @@ class TwoOrgUser:
     secondary_org_id: uuid.UUID
 
 
-def _run_alembic(db_url: str, *args: str) -> None:
-    env = os.environ.copy()
-    env["TRACECAT__DB_URI"] = db_url
-    result = subprocess.run(
-        ["uv", "run", "alembic", *args],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            "Alembic command failed:\n"
-            f"stdout:\n{result.stdout}\n"
-            f"stderr:\n{result.stderr}"
-        )
-
-
-@pytest.fixture(scope="module")
-def migrated_db() -> Iterator[MigratedDatabase]:
-    default_engine = create_engine(
-        TEST_DB_CONFIG.sys_url_sync,
-        isolation_level="AUTOCOMMIT",
-        poolclass=NullPool,
-    )
-    suffix = uuid.uuid4().hex[:8]
-    db_name = f"test_mcp_grant_revocation_{suffix}"
-    runtime_role = f"mcp_runtime_{suffix}"
-    termination_query = text(
-        f"""
-        SELECT pg_terminate_backend(pg_stat_activity.pid)
-        FROM pg_stat_activity
-        WHERE pg_stat_activity.datname = '{db_name}'
-          AND pid <> pg_backend_pid();
-        """
-    )
-    try:
-        with default_engine.connect() as conn:
-            conn.execute(text(f'CREATE DATABASE "{db_name}"'))
-            conn.execute(text(f'CREATE ROLE "{runtime_role}" NOLOGIN'))
-
-        sync_url = TEST_DB_CONFIG.test_url_sync.replace(
-            TEST_DB_CONFIG.test_db_name, db_name
-        )
-        _run_alembic(sync_url, "upgrade", MIGRATION_REVISION)
-        # A non-owner role, so PostgreSQL applies the tenant policies.
-        engine = create_engine(sync_url, poolclass=NullPool)
-        with engine.begin() as conn:
-            conn.execute(text(f'GRANT USAGE ON SCHEMA public TO "{runtime_role}"'))
-            conn.execute(
-                text(
-                    "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES "
-                    f'IN SCHEMA public TO "{runtime_role}"'
-                )
-            )
-        engine.dispose()
-        async_url = (
-            make_url(sync_url)
-            .set(drivername="postgresql+asyncpg")
-            .render_as_string(hide_password=False)
-        )
-        yield MigratedDatabase(sync_url, async_url, runtime_role)
-    finally:
-        with default_engine.connect() as conn:
-            conn.execute(termination_query)
-            conn.execute(text(f'DROP DATABASE IF EXISTS "{db_name}"'))
-            conn.execute(text(f'DROP ROLE IF EXISTS "{runtime_role}"'))
-        default_engine.dispose()
-
-
 @pytest.fixture
-async def owner_engine(migrated_db: MigratedDatabase) -> AsyncIterator[AsyncEngine]:
-    engine = create_async_engine(migrated_db.async_url, poolclass=NullPool)
+async def owner_engine(db: None) -> AsyncIterator[AsyncEngine]:
+    del db
+    engine = create_async_engine(TEST_DB_CONFIG.test_url, poolclass=NullPool)
     yield engine
     await engine.dispose()
 
@@ -195,6 +124,10 @@ async def _issue_two_org_token(engine: AsyncEngine, user: TwoOrgUser) -> str:
     )
 
 
+async def _keep_grant(ctx: RefreshTokenContext) -> tuple[uuid.UUID, list[uuid.UUID]]:
+    return ctx.organization_id, ctx.metadata.organization_ids or [ctx.organization_id]
+
+
 async def _token_status(engine: AsyncEngine, token: str) -> str:
     async with engine.connect() as conn:
         return (
@@ -205,8 +138,25 @@ async def _token_status(engine: AsyncEngine, token: str) -> str:
         ).scalar_one()
 
 
+async def test_revocation_trigger_runs_as_owner_with_pinned_search_path(
+    owner_engine: AsyncEngine,
+) -> None:
+    """Invariant: the installed trigger function is SECURITY DEFINER, pinned, private."""
+    async with owner_engine.connect() as conn:
+        row = (
+            await conn.execute(
+                text(
+                    "SELECT prosecdef, proconfig, "
+                    "has_function_privilege('public', oid, 'EXECUTE') "
+                    "FROM pg_proc WHERE oid = "
+                    "'public.revoke_mcp_tokens_on_membership_delete()'::regprocedure"
+                )
+            )
+        ).one()
+    assert tuple(row) == (True, ["search_path=pg_catalog, pg_temp"], False)
+
+
 async def test_secondary_org_admin_revokes_token_owned_by_primary_org(
-    migrated_db: MigratedDatabase,
     owner_engine: AsyncEngine,
 ) -> None:
     """Invariant: the deleting org's RLS scope cannot hide the token row.
@@ -216,14 +166,25 @@ async def test_secondary_org_admin_revokes_token_owned_by_primary_org(
     """
     user = await _seed_two_org_user(owner_engine)
     token = await _issue_two_org_token(owner_engine, user)
+    runtime_role = f"mcp_runtime_{uuid.uuid4().hex[:8]}"
 
-    runtime_engine = create_async_engine(
-        migrated_db.async_url,
-        poolclass=NullPool,
-        connect_args={"server_settings": {"role": migrated_db.runtime_role}},
-    )
-    try:
-        async with runtime_engine.begin() as conn:
+    async with owner_engine.connect() as conn:
+        transaction = await conn.begin()
+        try:
+            # The tenant policies and the non-owner role exist only inside
+            # this transaction, which is rolled back.
+            for table in ("organization_membership", "mcp_refresh_token"):
+                for statement in enable_org_table_rls(table).split(";"):
+                    if statement.strip():
+                        await conn.execute(text(statement))
+            await conn.execute(text(f'CREATE ROLE "{runtime_role}" NOLOGIN'))
+            await conn.execute(
+                text(
+                    "GRANT SELECT, DELETE ON organization_membership, "
+                    f'mcp_refresh_token TO "{runtime_role}"'
+                )
+            )
+            await conn.execute(text(f'SET LOCAL ROLE "{runtime_role}"'))
             await conn.execute(
                 text("SELECT set_config('app.current_org_id', :org_id, true)"),
                 {"org_id": str(user.secondary_org_id)},
@@ -243,8 +204,39 @@ async def test_secondary_org_admin_revokes_token_owned_by_primary_org(
                 {"u": user.user_id, "o": user.secondary_org_id},
             )
             assert deleted.rowcount == 1
-    finally:
-        await runtime_engine.dispose()
+            await conn.execute(text("RESET ROLE"))
+            status = (
+                await conn.execute(
+                    text("SELECT status FROM mcp_refresh_token WHERE token_hash = :h"),
+                    {"h": _hash_token(token)},
+                )
+            ).scalar_one()
+            assert status == "revoked"
+        finally:
+            await transaction.rollback()
+
+
+async def test_token_without_grant_column_is_revoked_with_its_primary_org(
+    owner_engine: AsyncEngine,
+) -> None:
+    """Tokens written before the grant column existed keep primary-org revocation."""
+    user = await _seed_two_org_user(owner_engine)
+    token = await _issue_two_org_token(owner_engine, user)
+    async with owner_engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE mcp_refresh_token SET granted_organization_ids = NULL "
+                "WHERE token_hash = :h"
+            ),
+            {"h": _hash_token(token)},
+        )
+        await conn.execute(
+            text(
+                "DELETE FROM organization_membership "
+                "WHERE user_id = :u AND organization_id = :o"
+            ),
+            {"u": user.user_id, "o": user.primary_org_id},
+        )
 
     assert await _token_status(owner_engine, token) == "revoked"
 
@@ -395,7 +387,12 @@ async def test_org_deletion_racing_rotation_does_not_deadlock(
 
         refresh_pid = await _backend_pid(refresh_session)
         rotation = asyncio.create_task(
-            rotate_refresh_token(refresh_session, token=token, client_id=CLIENT_ID)
+            rotate_refresh_token(
+                refresh_session,
+                token=token,
+                client_id=CLIENT_ID,
+                resolve_grant=_keep_grant,
+            )
         )
         await _wait_until_blocked(owner_engine, refresh_pid)
         pause.resume.set()
@@ -506,3 +503,95 @@ async def test_user_deletion_racing_member_removal_does_not_deadlock(
         resume_delete.set()
         await asyncio.wait_for(deletion, timeout=10)
         await asyncio.wait_for(removal, timeout=10)
+
+
+async def _wait_until_done_or_lock_waiter[T](
+    engine: AsyncEngine, task: asyncio.Future[T]
+) -> None:
+    """Wait until a task finishes or some backend in this database waits on a lock."""
+    async with engine.connect() as conn:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if task.done():
+                return
+            waiting = (
+                await conn.execute(
+                    text(
+                        "SELECT count(*) FROM pg_locks WHERE NOT granted AND "
+                        "database = (SELECT oid FROM pg_database "
+                        "WHERE datname = current_database())"
+                    )
+                )
+            ).scalar_one()
+            if waiting:
+                return
+            await asyncio.sleep(0.05)
+    raise AssertionError("task neither finished nor waited on a lock")
+
+
+async def test_code_exchange_racing_membership_removal_drops_removed_org(
+    owner_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invariant: a token issued around a removal never keeps the removed org.
+
+    The removal's trigger holds the user lock until it commits. The exchange
+    must read memberships after that, not insert a token the trigger has
+    already passed over.
+    """
+    user = await _seed_two_org_user(owner_engine)
+
+    @contextlib.asynccontextmanager
+    async def test_db_session() -> AsyncIterator[AsyncSession]:
+        async with AsyncSession(owner_engine) as session:
+            yield session
+
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.get_async_session_bypass_rls_context_manager",
+        test_db_session,
+    )
+    code_data = AuthCodeData(
+        code="race-code",
+        user_id=user.user_id,
+        email="grant@example.com",
+        organization_id=user.primary_org_id,
+        organization_ids=[user.primary_org_id, user.secondary_org_id],
+        is_platform_superuser=False,
+        client_id=CLIENT_ID,
+        redirect_uri="https://client.example.com/callback",
+        code_challenge="unused",
+        scope="openid offline_access",
+        resource="https://app.example.com/mcp",
+        created_at=time.time(),
+        bound_ip="127.0.0.1",
+    )
+
+    async with owner_engine.connect() as remover:
+        await remover.execute(
+            text(
+                "DELETE FROM organization_membership "
+                "WHERE user_id = :u AND organization_id = :o"
+            ),
+            {"u": user.user_id, "o": user.secondary_org_id},
+        )
+        exchange = asyncio.ensure_future(
+            _issue_code_grant(code_data, client_id=CLIENT_ID, scope=code_data.scope)
+        )
+        await _wait_until_done_or_lock_waiter(owner_engine, exchange)
+        await remover.commit()
+
+    primary_org_id, granted_org_ids, token = await asyncio.wait_for(exchange, 10)
+    assert primary_org_id == user.primary_org_id
+    assert granted_org_ids == [user.primary_org_id]
+    assert token is not None
+    async with owner_engine.connect() as conn:
+        row = (
+            await conn.execute(
+                text(
+                    "SELECT status, granted_organization_ids FROM mcp_refresh_token "
+                    "WHERE token_hash = :h"
+                ),
+                {"h": _hash_token(token)},
+            )
+        ).one()
+    assert tuple(row) == ("active", [user.primary_org_id])
