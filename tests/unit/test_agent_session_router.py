@@ -15,7 +15,11 @@ from starlette import status
 from tracecat.agent.adapter.vercel import UIMessage
 from tracecat.agent.backends import registry
 from tracecat.agent.backends.default import DefaultBackend
-from tracecat.agent.backends.types import SessionDispatchUncertain
+from tracecat.agent.backends.types import (
+    AgentControlRejected,
+    AgentControlUncertain,
+    SessionDispatchUncertain,
+)
 from tracecat.agent.common.stream_types import (
     HarnessType,
     StreamEventType,
@@ -31,6 +35,7 @@ from tracecat.agent.session.router import (
     remove_session_artifact,
     router,
     send_message,
+    steer_session,
     stream_session_events,
     update_session,
 )
@@ -38,6 +43,7 @@ from tracecat.agent.session.schemas import (
     AgentSessionCancelRequest,
     AgentSessionCreate,
     AgentSessionForkRequest,
+    AgentSessionSteerRequest,
     AgentSessionUpdate,
 )
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
@@ -1527,3 +1533,48 @@ async def test_session_responses_derive_readonly_from_backend_state(
                 )
     assert response.backend_id == "external"
     assert response.is_readonly is (is_child or backend_state != "enabled")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "error,code",
+    [
+        (TracecatConflictError("Agent session does not have an active turn"), 409),
+        (AgentControlRejected("Agent control operation failed"), 409),
+        (AgentControlUncertain("Agent control outcome is uncertain"), 503),
+    ],
+)
+async def test_steer_session_maps_control_outcomes(error: Exception, code: int) -> None:
+    agent_session = _agent_session_stub(curr_run_id=uuid.uuid4())
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=agent_session.workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute"}),
+    )
+    fake_svc = SimpleNamespace(
+        get_session=AsyncMock(return_value=agent_session),
+        steer=AsyncMock(side_effect=error),
+    )
+
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService",
+            return_value=fake_svc,
+        ),
+        patch(
+            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
+            AsyncMock(return_value=None),
+        ),
+    ):
+        raw_steer_session = cast(Any, steer_session).__wrapped__
+        with pytest.raises(HTTPException) as exc_info:
+            await raw_steer_session(
+                session_id=agent_session.id,
+                request=AgentSessionSteerRequest(id=uuid.uuid4(), text="Stop"),
+                role=role,
+                session=AsyncMock(),
+            )
+
+    assert exc_info.value.status_code == code

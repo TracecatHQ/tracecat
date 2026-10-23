@@ -72,6 +72,7 @@ import { MentionPopover } from "@/components/mentions/mention-popover"
 import { Badge } from "@/components/ui/badge"
 import { Trace } from "@/components/ui/trace"
 import { toast } from "@/components/ui/use-toast"
+import { extensions } from "@/extensions"
 import {
   makeContinueMessage,
   parseChatError,
@@ -104,6 +105,7 @@ import {
   transformMessages,
   withoutStreamedError,
 } from "@/lib/chat"
+import type { RunningComposer } from "@/lib/extensions"
 import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
 import { findAgentMention, type MentionRange } from "@/lib/mentions"
 import { useQueryClient } from "@/lib/query"
@@ -150,6 +152,11 @@ class SubmitAbandonedError extends Error {
     this.name = "SubmitAbandonedError"
   }
 }
+
+/** The installed running-composer slot; Tracecat leaves the composer disabled. */
+const useRunningComposer =
+  extensions.useRunningComposer ??
+  ((): RunningComposer | undefined => undefined)
 
 function matchingUserTextPartKeys(
   messages: UIMessage[],
@@ -512,6 +519,20 @@ export function ChatSessionPane({
 
   // Allow input when ready OR in error state (so user can retry after transient failures)
   const canSubmit = status === "ready" || status === "error"
+  const isGeneratingTurn = status === "submitted" || status === "streaming"
+  const runningComposer = useRunningComposer({
+    chatId: chat?.id,
+    workspaceId,
+    capabilities:
+      chat && "capabilities" in chat ? (chat.capabilities ?? {}) : {},
+    running: isGeneratingTurn,
+    messages,
+  })
+  // Takes the composer's input while a turn runs, when an extension offers it.
+  const steerComposer =
+    isGeneratingTurn && !isReadonly && !cannotExecuteAgents
+      ? runningComposer
+      : undefined
 
   const isWaitingForResponse = useMemo(
     () => isAwaitingOutput(status, messages),
@@ -523,9 +544,9 @@ export function ChatSessionPane({
     cannotExecuteAgents ||
     inputDisabled ||
     isOptimisticBeforeSendPending ||
-    !canSubmit
+    (!canSubmit && !steerComposer)
 
-  let composerPlaceholder = placeholder
+  let composerPlaceholder = steerComposer?.placeholder ?? placeholder
   if (isReadonly) {
     composerPlaceholder = readonlyDescription
   } else if (cannotExecuteAgents) {
@@ -537,7 +558,6 @@ export function ChatSessionPane({
     composerPlaceholder = inputDisabledPlaceholder
   }
 
-  const isGeneratingTurn = status === "submitted" || status === "streaming"
   const [cancelRequested, setCancelRequested] = useState(false)
 
   useEffect(() => {
@@ -1146,6 +1166,10 @@ export function ChatSessionPane({
   }, [messages, invalidateEntityQueries])
 
   const handleSubmit = async (message: PromptInputMessage) => {
+    if (steerComposer) {
+      await submitToRunningTurn(steerComposer, message.text ?? "")
+      return
+    }
     const hasText = Boolean(message.text?.trim())
 
     if (!hasText || isReadonly || !modelInfo) {
@@ -1170,6 +1194,32 @@ export function ChatSessionPane({
     } finally {
       submitInFlightRef.current = false
     }
+  }
+
+  /** Hand the text to the running turn; the composer keeps it unless taken. */
+  const submitToRunningTurn = async (
+    composer: RunningComposer,
+    messageText: string
+  ) => {
+    if (!messageText.trim()) return
+    if (submitInFlightRef.current) {
+      throw new SubmitAbandonedError("A submit is already in flight")
+    }
+    submitInFlightRef.current = true
+    try {
+      if (!(await composer.submit(messageText.trim()))) {
+        throw new SubmitAbandonedError("The running turn did not take it")
+      }
+    } finally {
+      submitInFlightRef.current = false
+    }
+    // Keep whatever was typed while the submit was in flight.
+    const live = promptTextareaRef.current?.value ?? ""
+    const remaining = live.startsWith(messageText)
+      ? live.slice(messageText.length)
+      : live
+    setInput(remaining)
+    dropMentionPrefix(live.length - remaining.length)
   }
 
   const submitMessage = async (message: PromptInputMessage) => {
@@ -1312,6 +1362,7 @@ export function ChatSessionPane({
 
   const promptBox = (
     <div ref={promptInputContainerRef} className={promptCenterClass}>
+      {runningComposer?.panel}
       {isReadonly ? (
         <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
           <Badge variant="outline" className="px-1.5 py-0 font-normal">

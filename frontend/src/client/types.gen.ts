@@ -1092,6 +1092,16 @@ export type AgentSessionCancelResponse = {
 }
 
 /**
+ * Optional controls the session's backend supports.
+ */
+export type AgentSessionCapabilities = {
+  /**
+   * Whether a running turn accepts steering messages
+   */
+  steering?: boolean
+}
+
+/**
  * Request schema for creating an agent session.
  */
 export type AgentSessionCreate = {
@@ -1203,6 +1213,7 @@ export type AgentSessionRead = {
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
   backend_id?: string
+  capabilities?: AgentSessionCapabilities
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1237,6 +1248,7 @@ export type AgentSessionReadVercel = {
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
   backend_id?: string
+  capabilities?: AgentSessionCapabilities
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1275,6 +1287,7 @@ export type AgentSessionReadWithMessages = {
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
   backend_id?: string
+  capabilities?: AgentSessionCapabilities
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1289,6 +1302,29 @@ export type AgentSessionReadWithMessages = {
    */
   messages?: Array<unknown>
 }
+
+/**
+ * A message for the active turn to take into account before it answers.
+ */
+export type AgentSessionSteerRequest = {
+  /**
+   * Client-generated steering ID. Retries reuse it and get the first outcome.
+   */
+  id: string
+  text: string
+}
+
+/**
+ * The active turn's outcome for a steering message.
+ */
+export type AgentSessionSteerResponse = {
+  session_id: string
+  run_id: string
+  id: string
+  status: "accepted" | "rejected"
+}
+
+export type status2 = "accepted" | "rejected"
 
 /**
  * Request schema for updating an agent session.
@@ -1897,7 +1933,7 @@ export type BedrockSubscriptionRead = {
   checked_at: string
 }
 
-export type status2 =
+export type status3 =
   | "subscribed"
   | "not_subscribed"
   | "pending"
@@ -3182,7 +3218,7 @@ export type CaseTriggerConfig = {
   tag_filters?: Array<string>
 }
 
-export type status3 = "online" | "offline"
+export type status4 = "online" | "offline"
 
 export type CaseTriggerCreate = {
   status?: "online" | "offline"
@@ -6782,7 +6818,7 @@ export type MCPCatalogConnectResponse = {
   provider_id?: string | null
 }
 
-export type status4 = "configured" | "connected" | "oauth_redirect"
+export type status5 = "configured" | "connected" | "oauth_redirect"
 
 /**
  * Typed configure-dialog field declared by a catalog spec.
@@ -7140,7 +7176,7 @@ export type MCPServerToolSummary = {
   status?: "available" | "missing"
 }
 
-export type status5 = "available" | "missing"
+export type status6 = "available" | "missing"
 
 export type MCPServerType = "http" | "stdio"
 
@@ -7278,7 +7314,7 @@ export type MCPVerificationStatusRead = {
   error?: string | null
 }
 
-export type status6 =
+export type status7 =
   | "idle"
   | "verifying"
   | "succeeded"
@@ -7972,7 +8008,7 @@ export type PlatformMCPCatalogRead = {
   last_refreshed_at: string | null
 }
 
-export type status7 = "available" | "coming_soon" | "deprecated" | "hidden"
+export type status8 = "available" | "coming_soon" | "deprecated" | "hidden"
 
 /**
  * Platform registry settings response.
@@ -8283,7 +8319,7 @@ export type RateLimitInfo = {
   }
 }
 
-export type status8 = "allowed" | "allowed_warning" | "rejected"
+export type status9 = "allowed" | "allowed_warning" | "rejected"
 
 /**
  * A reasoning part of a message.
@@ -8907,7 +8943,7 @@ export type RunArtifact = {
   startedAt: string
 }
 
-export type status9 = "running" | "success" | "failed" | "cancelled"
+export type status10 = "running" | "success" | "failed" | "cancelled"
 
 /**
  * This is the runtime context model for a workflow run. Passed into activities.
@@ -12109,7 +12145,7 @@ export type WorkflowCommitResponse = {
   } | null
 }
 
-export type status10 = "success" | "failure"
+export type status11 = "success" | "failure"
 
 /**
  * API response model for persisted workflow definitions.
@@ -12197,7 +12233,7 @@ export type WorkflowDslPublishResult = {
   message: string
 }
 
-export type status11 = "committed" | "no_op"
+export type status12 = "committed" | "no_op"
 
 export type WorkflowEditDefinition_Input = {
   entrypoint?: DSLEntrypoint_Input
@@ -12556,7 +12592,7 @@ export type WorkflowExecutionRead = {
   events: Array<WorkflowExecutionEvent>
 }
 
-export type status12 =
+export type status13 =
   | "RUNNING"
   | "COMPLETED"
   | "FAILED"
@@ -15608,6 +15644,14 @@ export type AgentSessionsCancelSessionData = {
 }
 
 export type AgentSessionsCancelSessionResponse = AgentSessionCancelResponse
+
+export type AgentSessionsSteerSessionData = {
+  requestBody: AgentSessionSteerRequest
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsSteerSessionResponse = AgentSessionSteerResponse
 
 export type ApprovalsSubmitApprovalsData = {
   requestBody: ApprovalSubmission
@@ -22325,6 +22369,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentSessionCancelResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/steer": {
+    post: {
+      req: AgentSessionsSteerSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSessionSteerResponse
         /**
          * Validation Error
          */

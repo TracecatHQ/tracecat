@@ -83,6 +83,8 @@ from tracecat.agent.session.schemas import (
     AgentSessionCancelResponse,
     AgentSessionCreate,
     AgentSessionRead,
+    AgentSessionSteerRequest,
+    AgentSessionSteerResponse,
     AgentSessionUpdate,
 )
 from tracecat.agent.session.title_generator import generate_session_title
@@ -2624,6 +2626,48 @@ class AgentSessionService(BaseWorkspaceService):
             session_id=session_id,
             run_id=curr_run_id,
             reason=reason,
+        )
+
+    async def steer(
+        self, session_id: uuid.UUID, request: AgentSessionSteerRequest
+    ) -> AgentSessionSteerResponse:
+        """Deliver a steering message to the session's running turn.
+
+        Raises:
+            TracecatNotFoundError: If no session exists with this ID.
+            TracecatConflictError: If the session has no running turn or its
+                backend does not support steering.
+            AgentControlRejected: If the turn refused the update outright.
+            AgentControlUncertain: If the outcome is unknown; retry with the same ID.
+        """
+        agent_session = await self.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+
+        if (
+            AgentSessionEntity(agent_session.entity_type)
+            is AgentSessionEntity.WORKSPACE_CHAT
+        ):
+            await self.require_entitlement(Entitlement.WORKSPACE_CHAT)
+
+        backend = get_agent_backend(
+            agent_session.backend_id, harness_type=agent_session.harness_type
+        )
+        if not backend.steering:
+            raise TracecatConflictError("This agent backend does not support steering")
+        lifecycle, curr_run_id = await self.get_turn_lifecycle(agent_session)
+        if lifecycle is not TurnLifecycle.RUNNING or curr_run_id is None:
+            raise TracecatConflictError(
+                "Agent session does not have an active turn",
+                detail={"lifecycle": lifecycle.value},
+            )
+
+        accepted = await backend.steer(curr_run_id, request.id, request.text)
+        return AgentSessionSteerResponse(
+            session_id=session_id,
+            run_id=curr_run_id,
+            id=request.id,
+            status="accepted" if accepted else "rejected",
         )
 
     @contextlib.asynccontextmanager

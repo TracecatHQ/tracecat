@@ -18,7 +18,11 @@ from tracecat.agent.adapter import vercel
 from tracecat.agent.backends.registry import (
     get_agent_backends,
 )
-from tracecat.agent.backends.types import SessionDispatchUncertain
+from tracecat.agent.backends.types import (
+    AgentControlRejected,
+    AgentControlUncertain,
+    SessionDispatchUncertain,
+)
 from tracecat.agent.session.schemas import (
     AgentBackendRead,
     AgentSessionArtifactsRead,
@@ -29,6 +33,8 @@ from tracecat.agent.session.schemas import (
     AgentSessionRead,
     AgentSessionReadVercel,
     AgentSessionReadWithMessages,
+    AgentSessionSteerRequest,
+    AgentSessionSteerResponse,
     AgentSessionUpdate,
 )
 from tracecat.agent.session.service import AgentSessionService
@@ -928,4 +934,53 @@ async def cancel_session(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=e.detail or str(e),
+        ) from e
+
+
+@router.post("/{session_id}/steer")
+@require_scope("agent:execute")
+async def steer_session(
+    session_id: uuid.UUID,
+    request: AgentSessionSteerRequest,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> AgentSessionSteerResponse:
+    """Send a message to the active turn without waiting for it to finish."""
+    svc = AgentSessionService(session, role)
+    try:
+        agent_session = await svc.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+        _require_session_write_access(role, agent_session)
+        await _require_workspace_chat_entitlement_for_session_tree(
+            svc=svc,
+            session=session,
+            role=role,
+            agent_session=agent_session,
+        )
+        return await svc.steer(session_id, request)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except TracecatConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=e.detail or str(e),
+        ) from e
+    except AgentControlRejected as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The turn is no longer running",
+        ) from e
+    except AgentControlUncertain as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Steering outcome is unknown; retry with the same ID",
         ) from e

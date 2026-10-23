@@ -60,10 +60,12 @@ import {
   collectInterruptedToolCallIds,
   getCompactionData,
   getToolDenial,
+  getUserMessageData,
   isApprovalCardArray,
   isInterruptArtifactError,
   isUserPrompt,
   type ToolDenial,
+  USER_MESSAGE_DATA_PART_TYPE,
 } from "@/lib/chat"
 import { getSubagentSessionId, SUBAGENT_TOOL_NAME } from "@/lib/subagent-stream"
 import { reconstructActionType } from "@/lib/utils"
@@ -204,6 +206,18 @@ export function MessagePart({
           )}
         </TraceLine>
       </Trace>
+    )
+  }
+
+  if (part.type === USER_MESSAGE_DATA_PART_TYPE) {
+    const message = getUserMessageData(part.data)
+    if (!message) return null
+    return (
+      <Message key={`${id}-${partIdx}`} from="user">
+        <MessageContent variant="flat">
+          <SmoothResponse text={message.text} animate={false} />
+        </MessageContent>
+      </Message>
     )
   }
 
