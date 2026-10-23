@@ -1443,3 +1443,39 @@ async def test_resolve_model_replacement_trusts_the_catalog_row_identity(
     assert resolved == ModelReplacement(
         model_provider="openai", model_name="gpt-5.6-sol", catalog_id=replacement.id
     )
+
+
+@pytest.mark.anyio
+async def test_resolve_model_replacement_prefers_bundled_retirement_for_kept_rows(
+    session: AsyncSession,
+    svc_organization: Organization,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A row kept for a reference still names its first, now retired, successor.
+    kept = _catalog(
+        None, "openai", "gpt-5.1-codex-max", metadata=_retired("gpt-5.6-sol")
+    )
+    successor = _catalog(None, "openai", "gpt-6-sol")
+    session.add_all([kept, successor])
+    await session.flush()
+    session.add(_enable(org_id=svc_organization.id, catalog_id=successor.id))
+    await session.commit()
+    monkeypatch.setattr(
+        "tracecat.agent.catalog.service.get_retired_platform_models",
+        lambda: {
+            ModelKey("openai", "gpt-5.1-codex-max"): ModelLifecycle(
+                retires_on=date(2000, 1, 1), replacement="gpt-6-sol"
+            )
+        },
+    )
+
+    resolved = await AgentCatalogService(session=session).resolve_model_replacement(
+        role=_user_role(svc_organization.id),
+        model_provider="openai",
+        model_name="gpt-5.1-codex-max",
+        catalog_id=kept.id,
+    )
+
+    assert resolved == ModelReplacement(
+        model_provider="openai", model_name="gpt-6-sol", catalog_id=successor.id
+    )
