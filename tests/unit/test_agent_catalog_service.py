@@ -29,6 +29,7 @@ from tracecat.db.models import (
     AgentCustomProvider,
     AgentModelAccess,
     Organization,
+    OrganizationSetting,
 )
 from tracecat.exceptions import (
     AgentModelRetiredError,
@@ -1353,3 +1354,65 @@ async def test_upsert_platform_catalog_deletes_only_retired_rows(
         )
         is None
     )
+
+
+@pytest.mark.anyio
+async def test_upsert_platform_catalog_keeps_retired_rows_still_referenced(
+    session: AsyncSession,
+    svc_organization: Organization,
+    svc_workspace,
+) -> None:
+    in_subset = _catalog(None, "openai", "gpt-5.1-codex")
+    saved_default = _catalog(None, "openai", "gpt-5.1-codex-max")
+    legacy_default = _catalog(None, "openai", "gpt-5.2-codex")
+    unreferenced = _catalog(None, "openai", "gpt-5-codex")
+    session.add_all([in_subset, saved_default, legacy_default, unreferenced])
+    await session.flush()
+    # The workspace subset holds only a retired model; deleting it would widen
+    # the workspace to the org set.
+    session.add(
+        _enable(
+            org_id=svc_organization.id,
+            catalog_id=in_subset.id,
+            workspace_id=svc_workspace.id,
+        )
+    )
+    session.add_all(
+        [
+            OrganizationSetting(
+                organization_id=svc_organization.id,
+                key=key,
+                value=f'"{value}"'.encode(),
+                value_type="json",
+                is_encrypted=False,
+            )
+            for key, value in (
+                ("agent_default_model_catalog_id", saved_default.id),
+                ("agent_default_model", legacy_default.model_name),
+            )
+        ]
+    )
+    await session.commit()
+
+    await AgentCatalogService(session=session).upsert_platform_catalog(
+        [],
+        retired=[
+            ModelKey("openai", name)
+            for name in (
+                "gpt-5.1-codex",
+                "gpt-5.1-codex-max",
+                "gpt-5.2-codex",
+                "gpt-5-codex",
+            )
+        ],
+    )
+
+    remaining = set(
+        await session.scalars(
+            select(AgentCatalog.model_name).where(
+                AgentCatalog.organization_id.is_(None)
+            )
+        )
+    )
+    assert {"gpt-5.1-codex", "gpt-5.1-codex-max", "gpt-5.2-codex"} <= remaining
+    assert "gpt-5-codex" not in remaining
