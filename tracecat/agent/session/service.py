@@ -49,6 +49,7 @@ from tracecat.agent.backends.registry import (
 from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
 from tracecat.agent.backends.types import (
     AgentControlRejected,
+    AgentControlUncertain,
     SessionForkContext,
     SessionHistoryAdapter,
     SessionTurnContext,
@@ -2679,10 +2680,13 @@ class AgentSessionService(BaseWorkspaceService):
         """Keep a steering ID on the run it first reached.
 
         The backend deduplicates a retry within one run only. A retry whose first
-        attempt may have reached an earlier run must not reach this one.
+        attempt may have reached an earlier run must not reach this one, so an
+        unreadable binding refuses the steer rather than risk that.
 
         Raises:
             TracecatConflictError: If the ID was first sent to another run.
+            AgentControlUncertain: If the binding cannot be read or written;
+                retry with the same ID.
         """
         key = (
             f"agent-steer-run:{agent_session.workspace_id}:"
@@ -2697,13 +2701,13 @@ class AgentSessionService(BaseWorkspaceService):
             bound = await client.get(key)
         except Exception as exc:
             logger.warning(
-                "Steering run binding unavailable; proceeding best-effort",
+                "Steering run binding unavailable",
                 session_id=str(agent_session.id),
                 run_id=str(run_id),
                 error=str(exc),
             )
-            return
-        if bound is not None and bound != str(run_id):
+            raise AgentControlUncertain("Steering run binding unavailable") from exc
+        if bound != str(run_id):
             raise TracecatConflictError(
                 "This steering message was sent to an earlier turn"
             )

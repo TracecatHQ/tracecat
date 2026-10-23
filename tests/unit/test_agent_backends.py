@@ -880,6 +880,42 @@ async def test_a_steer_retry_never_reaches_a_later_turn(same_run: bool):
 
 
 @pytest.mark.anyio
+async def test_an_unreadable_steer_binding_refuses_the_steer():
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    ctx.session.curr_run_id = ctx.run_id
+    service = AgentSessionService(ctx.db, ctx.role)
+    provider = Mock(spec=DefaultBackend)
+    provider.steering = True
+    provider.get_turn_lifecycle = AsyncMock(return_value=TurnLifecycle.RUNNING)
+    provider.steer = AsyncMock(return_value=True)
+    # A retry: the ID is bound, but its run cannot be read back.
+    redis = Mock(
+        set_if_not_exists=AsyncMock(return_value=False),
+        get=AsyncMock(side_effect=RuntimeError("redis down")),
+    )
+    with (
+        patch(
+            "tracecat.agent.session.service.get_redis_client",
+            AsyncMock(return_value=redis),
+        ),
+        patch.object(service, "get_session", return_value=ctx.session),
+        patch.object(service, "require_entitlement", return_value=None),
+        patch(
+            "tracecat.agent.session.service.get_agent_backend", return_value=provider
+        ),
+        patch(
+            "tracecat.agent.session.service.find_agent_backend", return_value=provider
+        ),
+        pytest.raises(AgentControlUncertain),
+    ):
+        await service.steer(
+            ctx.session.id, AgentSessionSteerRequest(id=uuid4(), text="Stop")
+        )
+    provider.steer.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_backends_do_not_steer_by_default():
     assert DefaultBackend.steering is False
     with pytest.raises(AgentControlRejected):

@@ -1167,7 +1167,7 @@ export function ChatSessionPane({
 
   const handleSubmit = async (message: PromptInputMessage) => {
     if (steerComposer) {
-      await submitToRunningTurn(steerComposer, message.text ?? "")
+      await submitToRunningTurn(steerComposer, message)
       return
     }
     const hasText = Boolean(message.text?.trim())
@@ -1199,8 +1199,17 @@ export function ChatSessionPane({
   /** Hand the text to the running turn; the composer keeps it unless taken. */
   const submitToRunningTurn = async (
     composer: RunningComposer,
-    messageText: string
+    message: PromptInputMessage
   ) => {
+    const messageText = message.text ?? ""
+    if (message.files.length > 0) {
+      // The running turn takes text only; keep the draft and its files.
+      toast({
+        title: "Attachments wait for the next message",
+        description: "Send them once the agent has finished.",
+      })
+      throw new SubmitAbandonedError("A running turn takes text only")
+    }
     if (!messageText.trim()) return
     if (submitInFlightRef.current) {
       throw new SubmitAbandonedError("A submit is already in flight")

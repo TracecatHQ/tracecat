@@ -1271,6 +1271,30 @@ describe("ChatSessionPane running composer", () => {
     expect(input).toHaveValue("Focus on the alert")
   })
 
+  it("keeps a draft with attachments out of the running turn", async () => {
+    const submit = jest.fn(async () => true)
+    mockUseRunningComposer.mockReturnValue({
+      placeholder: "Steer the running turn...",
+      submit,
+    })
+    const createObjectURL = jest.fn(() => "blob:shot")
+    Object.assign(URL, { createObjectURL, revokeObjectURL: jest.fn() })
+    renderChatSessionPane()
+
+    const input = screen.getByPlaceholderText("Steer the running turn...")
+    const shot = new File(["png"], "shot.png", { type: "image/png" })
+    fireEvent.paste(input, {
+      clipboardData: { items: [{ kind: "file", getAsFile: () => shot }] },
+    })
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalled())
+    fireEvent.change(input, { target: { value: "Use this screenshot" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+
+    await act(async () => undefined)
+    expect(submit).not.toHaveBeenCalled()
+    expect(input).toHaveValue("Use this screenshot")
+  })
+
   it("leaves an idle composer to the normal send", async () => {
     const submit = jest.fn(async () => true)
     mockUseRunningComposer.mockReturnValue({
