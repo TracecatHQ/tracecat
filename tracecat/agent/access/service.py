@@ -71,12 +71,14 @@ class AgentModelAccessService(BaseOrgService):
 
         if workspace_id is not None:
             workspace_exists = await self.session.scalar(
-                select(
-                    exists().where(
-                        Workspace.id == workspace_id,
-                        Workspace.organization_id == self.organization_id,
-                    )
+                select(Workspace.id)
+                .where(
+                    Workspace.id == workspace_id,
+                    Workspace.organization_id == self.organization_id,
                 )
+                # Serialize first-override insertion with sync confirmation and
+                # the existing workspace-access replacement path.
+                .with_for_update(key_share=True)
             )
             if not workspace_exists:
                 raise TracecatNotFoundError(f"Workspace {workspace_id} not found")
