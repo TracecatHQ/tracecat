@@ -467,6 +467,20 @@ async def test_deduplicate(
             [{"id": 1, "name": "Alice"}],
             [{"id": 2, "name": "Alice"}],
         ),
+        # Items missing the key are never persisted
+        (
+            [{"name": "a"}, {"id": 1}, {"name": "b"}],
+            [{"name": "c"}, {"id": 1}],
+            [{"name": "a"}, {"id": 1}, {"name": "b"}],
+            [{"name": "c"}],
+        ),
+        # An explicit null key is persisted
+        (
+            [{"id": None, "name": "a"}],
+            [{"id": None, "name": "b"}],
+            [{"id": None, "name": "a"}],
+            [],
+        ),
     ],
 )
 @pytest.mark.anyio

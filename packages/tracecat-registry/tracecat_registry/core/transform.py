@@ -8,6 +8,7 @@ import json
 import orjson
 from tracecat_registry import ActionIsInterfaceError, ctx, registry
 from tracecat_registry._internal.flatten import flatten_dict as _flatten_dict
+from tracecat_registry._internal.exceptions import TracecatExpressionError
 from tracecat_registry._internal.jsonpath import eval_jsonpath
 from tracecat_registry._internal.safe_lambda import build_safe_lambda
 
@@ -133,7 +134,7 @@ def not_in(
 
 async def _deduplicate_persistent(
     seen: dict[tuple[Any, ...], dict[str, Any]], expire_seconds: int
-) -> list[dict[str, Any]]:
+) -> set[tuple[Any, ...]]:
     """Deduplicate items via the trusted internal API.
 
     Computes SHA256 digests for each key and delegates to the platform API
@@ -144,11 +145,11 @@ async def _deduplicate_persistent(
         expire_seconds: TTL for each dedup key.
 
     Returns:
-        Items whose digests were newly created (not previously seen).
+        Keys whose digests were newly created (not previously seen).
     """
     digests = _compute_digests(seen)
     created = await ctx.deduplicate.aio.create_digests(digests, expire_seconds)
-    return [item for item, is_new in zip(seen.values(), created) if is_new]
+    return {key for key, is_new in zip(seen, created) if is_new}
 
 
 @registry.register(
@@ -156,6 +157,7 @@ async def _deduplicate_persistent(
     description=(
         "Deduplicate a JSON object or a list of JSON objects given a list of keys. "
         "Items with the same key values are merged, later fields overwriting earlier ones. "
+        "Items missing a key are returned unchanged and never deduplicated. "
         "Returns a list of deduplicated JSON objects."
     ),
     display_group="Data Transform",
@@ -170,7 +172,8 @@ async def deduplicate(
         list[str],
         Doc(
             "List of JSONPath keys to deduplicate by. Supports dot notation for nested keys (e.g. `['user.id']`). "
-            "A key missing from an item counts as null. An empty list deduplicates by the whole item."
+            "Items missing a key are returned unchanged and never deduplicated. "
+            "An empty list deduplicates by the whole item."
         ),
     ],
     expire_seconds: Annotated[
@@ -189,47 +192,63 @@ async def deduplicate(
     if not items_list:
         return []
 
-    def get_nested_values(item: dict[str, Any], keys: list[str]) -> tuple[Any, ...]:
-        if not keys:
+    jsonpath_exprs = ["$." + key for key in keys]
+    # Strict evaluation raises the same error for an invalid JSONPath and for
+    # no match, so validate every expression up front and let a strict-mode
+    # error below mean the key is missing.
+    for jsonpath_expr in jsonpath_exprs:
+        eval_jsonpath(jsonpath_expr, {})
+
+    def get_nested_values(item: dict[str, Any]) -> tuple[Any, ...] | None:
+        """Return the item's dedup key, or None if any key is missing."""
+        if not jsonpath_exprs:
             # No keys: the whole item is the key. Nest it in a tuple, which a
             # keyed value never produces, so its digest can't match one.
             return (("item", json.dumps(item, sort_keys=True, default=str)),)
         values = []
-        for key in keys:
-            # Convert dot notation to jsonpath format
-            jsonpath_expr = "$." + key
-            # A missing key resolves to None
-            value = eval_jsonpath(jsonpath_expr, item)
+        for jsonpath_expr in jsonpath_exprs:
+            try:
+                value = eval_jsonpath(jsonpath_expr, item, strict=True)
+            except TracecatExpressionError:
+                return None
             # Convert unhashable types to JSON strings for use as dict keys
             if isinstance(value, (list, dict)):
                 value = json.dumps(value, sort_keys=True, default=str)
             values.append(value)
         return tuple(values)
 
-    seen = {}
-    results = []
+    seen: dict[tuple[Any, ...], dict[str, Any]] = {}
+    # Dedup keys of first occurrences, plus items missing a key, in input order
+    order: list[tuple[Any, ...] | dict[str, Any]] = []
 
     for item in items_list:
         if not isinstance(item, dict):
             raise TypeError(
                 f"Items to deduplicate must be JSON objects, got {type(item).__name__}"
             )
-        key = get_nested_values(item, keys)
+        key = get_nested_values(item)
 
-        # Always update or add to seen dict for within-call deduplication
-        if key in seen:
+        if key is None:
+            # Missing a key: pass through without merging or persisting
+            order.append(item)
+        elif key in seen:
             # Update existing item with same key
             seen[key].update(item)
         else:
             # First time seeing this key in this call
             seen[key] = item.copy()
+            order.append(key)
 
-    if persist:
-        results = await _deduplicate_persistent(seen, expire_seconds)
+    if persist and seen:
+        kept = await _deduplicate_persistent(seen, expire_seconds)
     else:
-        results = list(seen.values())
+        kept = seen.keys()
 
-    return results
+    return [
+        seen[entry] if isinstance(entry, tuple) else entry
+        for entry in order
+        if isinstance(entry, dict) or entry in kept
+    ]
 
 
 @registry.register(
@@ -246,7 +265,7 @@ async def is_duplicate(
     keys: Annotated[
         list[str],
         Doc(
-            "List of JSONPath keys to check. A key missing from the item counts as null. "
+            "List of JSONPath keys to check. An item missing a key is never a duplicate. "
             "An empty list checks the whole item."
         ),
     ],
