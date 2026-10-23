@@ -274,7 +274,7 @@ Default: `null`.
 
 ## `core.transform.deduplicate`
 
-Deduplicate a JSON object or a list of JSON objects given a list of keys. Items with the same key values are merged, later fields overwriting earlier ones. Returns a list of deduplicated JSON objects.
+Deduplicate a JSON object or a list of JSON objects given a list of keys. Returns a list of deduplicated JSON objects.
 
 ### Inputs
 
@@ -286,7 +286,7 @@ JSON object or list of JSON objects to deduplicate.
 
 <ParamField path="keys" type="array[string]" required>
 
-List of JSONPath keys to deduplicate by. Supports dot notation for nested keys (e.g. `['user.id']`). A key missing from an item counts as null. An empty list deduplicates by the whole item.
+List of JSONPath keys to deduplicate by. Supports dot notation for nested keys (e.g. `['user.id']`).
 
 </ParamField>
 
@@ -342,7 +342,7 @@ JSON object to check.
 
 <ParamField path="keys" type="array[string]" required>
 
-List of JSONPath keys to check. A key missing from the item counts as null. An empty list checks the whole item.
+List of JSONPath keys to check.
 
 </ParamField>
 
