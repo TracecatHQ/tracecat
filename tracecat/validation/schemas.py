@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, RootModel, TypeAdapter
 from pydantic import ValidationError as PydanticValidationError
 from pydantic_core import to_jsonable_python
 
+from tracecat.exceptions import TracecatValidationError
 from tracecat.expressions.common import ExprType
 
 
@@ -165,3 +166,9 @@ class ValidationResult(RootModel):
             return cls(root=result)
         else:
             raise ValueError("No concrete or kwargs provided")
+
+    @classmethod
+    def from_dsl_error(cls, err: TracecatValidationError) -> ValidationResult:
+        return cls(
+            root=DSLValidationResult(status="error", msg=str(err), detail=err.detail)
+        )

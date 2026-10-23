@@ -83,7 +83,11 @@ from tracecat.validation.schemas import (
     ValidationResultType,
 )
 from tracecat.validation.service import validate_dsl
-from tracecat.workflow.actions.schemas import ActionControlFlow, ActionEdge
+from tracecat.workflow.actions.schemas import (
+    ActionControlFlow,
+    ActionEdge,
+    validate_control_flows,
+)
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.executions.enums import ExecutionType, TriggerType
 from tracecat.workflow.executions.rerun import (
@@ -932,6 +936,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
             # Convert the workflow into a WorkflowDefinition
             # XXX: When we commit from the workflow, we have action IDs
             dsl = DSLInput.model_validate(dsl_data)
+            validate_control_flows(dsl.actions)
             self.logger.info("Creating workflow from database")
         except TracecatValidationError as e:
             self.logger.info("Custom validation error", error=e)
@@ -1788,18 +1793,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
         actions: list[Action] = []
         ref_to_action: dict[str, Action] = {}
         for act_stmt in dsl.actions:
-            control_flow = ActionControlFlow(
-                run_if=act_stmt.run_if,
-                for_each=act_stmt.for_each,
-                retry_policy=act_stmt.retry_policy,
-                start_delay=act_stmt.start_delay,
-                wait_until=act_stmt.wait_until,
-                join_strategy=act_stmt.join_strategy,
-                environment=act_stmt.environment,
-                tunnel=act_stmt.tunnel,
-                mask_output=act_stmt.mask_output,
-                unsafe_disable_secret_error_withholding=act_stmt.unsafe_disable_secret_error_withholding,
-            )
+            control_flow = ActionControlFlow.from_statement(act_stmt)
             pos = (action_positions or {}).get(act_stmt.ref)
             new_action = Action(
                 id=uuid.uuid4(),
