@@ -11,7 +11,7 @@ import {
   TriangleAlertIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { useMemo, useState } from "react"
 import type {
   FormActorRead,
@@ -24,6 +24,7 @@ import { useScopeCheck } from "@/components/auth/scope-guard"
 import { getExecutionStatusIcon } from "@/components/executions/nav"
 import { FormConfigTab } from "@/components/forms/form-config-tab"
 import { FormRenderer } from "@/components/forms/form-renderer"
+import { formViewFromParam } from "@/components/forms/form-view-toggle"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { Badge } from "@/components/ui/badge"
@@ -41,7 +42,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent } from "@/components/ui/tabs"
 import {
   Tooltip,
   TooltipContent,
@@ -457,16 +458,12 @@ function FormActivityTab({
   )
 }
 
-const TAB_TRIGGER_CLASS =
-  "flex h-full items-center justify-center rounded-none px-3 py-0 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-
 function FormDetailBody({ form }: { form: FormRead }) {
-  const router = useRouter()
-  const pathname = usePathname()
   const searchParams = useSearchParams()
   const canEdit = useScopeCheck("form:update") === true
   const canReadSubmissions = useScopeCheck("form:submission:read") === true
-  const tab = searchParams?.get("tab") === "activity" ? "activity" : "config"
+  // Picked by the icon tabs in the page header.
+  const tab = formViewFromParam(searchParams?.get("tab"))
 
   // The buffer lives above the tabs, so it survives a visit to Activity and
   // feeds the preview. A read-only builder's buffer is the saved config.
@@ -480,33 +477,10 @@ function FormDetailBody({ form }: { form: FormRead }) {
   // the author keeps their bearings while they type.
   const isStale = check.hasErrors || check.checkFailed
 
-  function selectTab(next: string) {
-    const params = new URLSearchParams(searchParams?.toString())
-    if (next === "activity") {
-      params.set("tab", "activity")
-    } else {
-      params.delete("tab")
-    }
-    const query = params.toString()
-    router.replace(query ? `${pathname}?${query}` : (pathname ?? ""))
-  }
-
   return (
     <ResizablePanelGroup direction="horizontal" className="h-full">
       <ResizablePanel defaultSize={55} minSize={30}>
-        <Tabs
-          value={tab}
-          onValueChange={selectTab}
-          className="flex h-full min-h-0 flex-col"
-        >
-          <TabsList className="h-8 w-full flex-none justify-start rounded-none border-b bg-transparent p-0">
-            <TabsTrigger value="config" className={TAB_TRIGGER_CLASS}>
-              Config
-            </TabsTrigger>
-            <TabsTrigger value="activity" className={TAB_TRIGGER_CLASS}>
-              Activity
-            </TabsTrigger>
-          </TabsList>
+        <Tabs value={tab} className="flex h-full min-h-0 flex-col">
           <TabsContent value="config" className="mt-0 min-h-0 flex-1">
             <FormConfigTab
               form={form}
