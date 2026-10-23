@@ -2,6 +2,7 @@
 
 import { PlatformSecuritySettings } from "@/components/admin/platform-security-settings"
 import { MfaPolicyCard } from "@/components/settings/mfa-policy-card"
+import { SecuritySettings } from "@/components/settings/security-settings"
 
 export default function AdminSecuritySettingsPage() {
   return (
@@ -22,6 +23,9 @@ export default function AdminSecuritySettingsPage() {
             scope="platform"
             description="Require platform admins to verify with a security key or passkey at every sign-in. Admins without a key must register one at their next sign-in."
           />
+          <div className="rounded-md border p-4">
+            <SecuritySettings />
+          </div>
         </div>
 
         <div className="flex w-full">
