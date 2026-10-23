@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from pydantic_core import PydanticSerializationError
 
 from tracecat.executor import warm_jails as warm_jails_module
 from tracecat.executor.registry_artifacts import RegistryArtifactCache
@@ -248,6 +249,27 @@ async def test_mismatched_lease_paths_spawn_nothing(
     await _settle()
     assert spawned == []
     await pool.close()
+
+
+@pytest.mark.anyio
+async def test_unserializable_payload_kills_the_claimed_jail(
+    tmp_path: Path, spawned: list[FakeProcess]
+) -> None:
+    """A payload that fails to serialize must not strand its claimed jail."""
+    pool, artifacts = _pool(tmp_path)
+    config = _config(tmp_path)
+    pool.replenish([], config)
+    await _settle()
+    jail = pool.claim(config)
+    assert jail is not None
+
+    with pytest.raises(PydanticSerializationError):
+        await pool.run(jail, {"value": object()})
+    await _settle()
+
+    assert spawned[0].returncode == -9
+    assert artifacts.active_leases == 0
+    await asyncio.wait_for(pool.close(), 1)
 
 
 @pytest.mark.anyio

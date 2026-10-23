@@ -21,6 +21,9 @@ import signal
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+
+from pydantic_core import to_json
 
 from tracecat.executor import minimal_runner as minimal_runner_module
 from tracecat.executor.registry_artifacts import RegistryArtifactCache
@@ -117,11 +120,20 @@ class WarmJailPool:
         self._owners.add(task)
         task.add_done_callback(self._owners.discard)
 
-    async def run(self, jail: WarmJail, payload: bytes) -> SandboxResult:
-        """Hand ``payload`` to a claimed jail and return its result."""
+    async def run(self, jail: WarmJail, payload: dict[str, Any]) -> SandboxResult:
+        """Hand ``payload`` to a claimed jail and return its result.
+
+        A payload that cannot be serialized kills the jail before the error
+        propagates; the jail is released on every exit.
+        """
         try:
+            try:
+                data = to_json(payload)
+            except BaseException:
+                await _discard(jail)
+                raise
             return await jail.executor.handover_action(
-                jail.handle, jail.job_dir, jail.config, payload
+                jail.handle, jail.job_dir, jail.config, data
             )
         finally:
             jail.released.set()
