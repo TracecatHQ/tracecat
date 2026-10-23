@@ -13,19 +13,21 @@ import {
   WorkflowIcon,
 } from "lucide-react"
 import type { ReactNode } from "react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+} from "react"
 import type { RegistryActionReadMinimal } from "@/client"
 import { getIcon } from "@/components/icons"
 import { LockedFeatureModal } from "@/components/locked-feature-modal"
-import { Button } from "@/components/ui/button"
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
+  ActionListbox,
+  type ActionSearchResult,
+} from "@/components/registry/action-listbox"
+import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import {
   Popover,
@@ -508,15 +510,18 @@ function ToolbarCategoryDropdown({
   )
   const categoryStyle = CATEGORY_STYLES[category.id]
 
-  const filteredActions = useMemo(() => {
-    if (!search) return actions
-    const searchLower = search.toLowerCase()
-    return actions.filter(
-      (action) =>
-        action.action.toLowerCase().includes(searchLower) ||
-        action.default_title?.toLowerCase().includes(searchLower)
-    )
-  }, [actions, search])
+  const deferredSearch = useDeferredValue(search)
+  const filteredActions = useMemo<ActionSearchResult[]>(() => {
+    const searchLower = deferredSearch.toLowerCase()
+    return actions
+      .filter(
+        (action) =>
+          !searchLower ||
+          action.action.toLowerCase().includes(searchLower) ||
+          action.default_title?.toLowerCase().includes(searchLower)
+      )
+      .map((action) => ({ action, matches: [] }))
+  }, [actions, deferredSearch])
 
   const handleSelect = useCallback(
     (action: RegistryActionReadMinimal) => {
@@ -539,17 +544,12 @@ function ToolbarCategoryDropdown({
     })
   }
 
-  function renderActionItem(action: RegistryActionReadMinimal) {
-    const isLocked = isLockedAction(action)
-
+  function renderActionItem({ action }: ActionSearchResult) {
     return (
-      <CommandItem
-        key={action.action}
-        value={action.action}
-        onSelect={() => handleSelect(action)}
+      <div
         className={cn(
-          "flex w-full cursor-pointer items-center gap-3 py-2",
-          isLocked && "text-muted-foreground"
+          "flex w-full items-center gap-3 py-2 text-xs",
+          isLockedAction(action) && "text-muted-foreground"
         )}
       >
         {renderActionIcon(action)}
@@ -561,7 +561,7 @@ function ToolbarCategoryDropdown({
             {action.action}
           </span>
         </div>
-      </CommandItem>
+      </div>
     )
   }
 
@@ -592,30 +592,22 @@ function ToolbarCategoryDropdown({
         <PopoverContent
           side="top"
           align={category.align ?? "start"}
-          className="w-fit min-w-48 max-w-80 p-0"
+          className="w-80 p-0"
           sideOffset={8}
         >
-          <Command shouldFilter={false}>
-            {category.hasSearch && (
-              <CommandInput
-                placeholder={`Search ${category.label.toLowerCase()}...`}
-                value={search}
-                onValueChange={setSearch}
-                className="text-xs"
-              />
-            )}
-            <CommandList>
-              <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
-                No actions found
-              </CommandEmpty>
-              <CommandGroup
-                heading={`${category.label} actions`}
-                className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium"
-              >
-                {filteredActions.map((action) => renderActionItem(action))}
-              </CommandGroup>
-            </CommandList>
-          </Command>
+          <ActionListbox
+            results={filteredActions}
+            query={category.hasSearch ? search : undefined}
+            onQueryChange={category.hasSearch ? setSearch : undefined}
+            autoFocus
+            placeholder={`Search ${category.label.toLowerCase()}...`}
+            inputClassName="text-xs"
+            heading={`${category.label} actions`}
+            label={`${category.label} actions`}
+            empty="No actions found"
+            onSelect={handleSelect}
+            renderItem={renderActionItem}
+          />
         </PopoverContent>
       </Popover>
     </>

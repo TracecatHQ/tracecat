@@ -7,6 +7,23 @@ jest.mock("@/lib/hooks", () => ({
   useBuilderRegistryActions: jest.fn(),
 }))
 
+// jsdom has no layout; give the virtualized list a viewport to render into.
+let originalHeight: PropertyDescriptor | undefined
+beforeAll(() => {
+  originalHeight = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    "offsetHeight"
+  )
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    get: () => 300,
+  })
+})
+afterAll(() => {
+  if (originalHeight)
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalHeight)
+})
+
 const mockUseBuilderRegistryActions =
   useBuilderRegistryActions as jest.MockedFunction<
     typeof useBuilderRegistryActions
