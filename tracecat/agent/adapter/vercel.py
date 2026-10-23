@@ -62,6 +62,7 @@ from tracecat.chat.constants import (
     APPROVAL_REQUEST_HEADER,
     CANCELLED_DATA_PART_TYPE,
     COMPACTION_DATA_PART_TYPE,
+    USER_MESSAGE_DATA_PART_TYPE,
 )
 from tracecat.chat.enums import MessageKind
 from tracecat.logger import logger
@@ -969,6 +970,16 @@ class VercelStreamContext:
                         # interrupt aborted, so the UI can render them as
                         # "interrupted" without inspecting error text.
                         "tool_call_ids": tool_call_ids,
+                    },
+                )
+
+            case StreamEventType.USER_MESSAGE:
+                message_id = (event.metadata or {}).get("id")
+                yield DataEventPayload(
+                    type=USER_MESSAGE_DATA_PART_TYPE,
+                    data={
+                        "id": message_id if isinstance(message_id, str) else None,
+                        "text": event.text or "",
                     },
                 )
 

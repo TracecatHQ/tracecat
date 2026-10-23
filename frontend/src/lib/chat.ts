@@ -528,6 +528,28 @@ export type ModelInfo = {
 }
 
 /**
+ * UI data part identifier for a user message that joined the running turn,
+ * such as a steering message. Reloaded history shows it as a user message.
+ */
+export const USER_MESSAGE_DATA_PART_TYPE = "data-user-message"
+
+/** Payload of a {@link USER_MESSAGE_DATA_PART_TYPE} part. */
+export type UserMessageData = {
+  /** The ID the client sent the message under, if it had one. */
+  id: string | null
+  text: string
+}
+
+/** A `data-user-message` payload, or null if malformed. */
+export function getUserMessageData(data: unknown): UserMessageData | null {
+  if (!data || typeof data !== "object") return null
+  const text = "text" in data ? data.text : undefined
+  const id = "id" in data ? data.id : undefined
+  if (typeof text !== "string") return null
+  return { id: typeof id === "string" ? id : null, text }
+}
+
+/**
  * Payload of a `data-compaction` part: the compaction phase and the token
  * count of the conversation before it was compacted.
  */

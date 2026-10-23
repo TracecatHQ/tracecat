@@ -9,20 +9,32 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response, StreamingResponse
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from starlette import status
 
 from tracecat.agent.adapter.vercel import UIMessage
 from tracecat.agent.backends import registry
 from tracecat.agent.backends.default import DefaultBackend
-from tracecat.agent.backends.types import SessionDispatchUncertain
+from tracecat.agent.backends.types import (
+    AgentControlRejected,
+    AgentControlUncertain,
+    SessionDispatchUncertain,
+)
 from tracecat.agent.common.stream_types import (
     HarnessType,
     StreamEventType,
     UnifiedStreamEvent,
 )
+from tracecat.agent.control.schemas import (
+    AgentCancelControl,
+    AgentControlReceipt,
+    AgentSteerControl,
+    AgentWithdrawControl,
+)
 from tracecat.agent.session.router import (
     cancel_session,
+    control_session,
     create_session,
     fork_session,
     get_session,
@@ -41,6 +53,7 @@ from tracecat.agent.session.schemas import (
     AgentSessionUpdate,
 )
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
+from tracecat.agent.session.views import build_session_read
 from tracecat.artifacts.schemas import CaseArtifact
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
@@ -1575,3 +1588,194 @@ async def test_session_responses_derive_readonly_from_backend_state(
                 )
     assert response.backend_id == "external"
     assert response.is_readonly is (is_child or backend_state != "enabled")
+
+
+def _control_role(workspace_id: uuid.UUID) -> Role:
+    return Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute"}),
+    )
+
+
+@pytest.mark.parametrize(
+    "body,expected",
+    [
+        (
+            {"type": "steer", "id": str(uuid.UUID(int=1)), "text": " Stop "},
+            AgentSteerControl(type="steer", id=uuid.UUID(int=1), text="Stop"),
+        ),
+        (
+            {"type": "withdraw", "id": str(uuid.UUID(int=2))},
+            AgentWithdrawControl(type="withdraw", id=uuid.UUID(int=2)),
+        ),
+        (
+            {"type": "cancel", "id": str(uuid.UUID(int=3))},
+            AgentCancelControl(type="cancel", id=uuid.UUID(int=3)),
+        ),
+    ],
+    ids=["steer", "withdraw", "cancel"],
+)
+def test_control_session_dispatches_each_type_to_the_service(
+    body: dict[str, str],
+    expected: AgentSteerControl | AgentWithdrawControl | AgentCancelControl,
+) -> None:
+    agent_session = _agent_session_stub(curr_run_id=uuid.uuid4())
+    receipt = AgentControlReceipt(
+        id=expected.id,
+        type=expected.type,
+        run_id=agent_session.curr_run_id,
+        status="accepted",
+    )
+    fake_svc = SimpleNamespace(
+        get_session=AsyncMock(return_value=agent_session),
+        control=AsyncMock(return_value=receipt),
+    )
+    app = FastAPI()
+    app.include_router(router)
+    role_dependency = get_args(WorkspaceActorRouteRole)[1].dependency
+    app.dependency_overrides[role_dependency] = lambda: _control_role(
+        agent_session.workspace_id
+    )
+    app.dependency_overrides[get_async_session] = lambda: AsyncMock()
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService",
+            return_value=fake_svc,
+        ),
+        patch(
+            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
+            AsyncMock(return_value=None),
+        ),
+        patch("tracecat.agent.session.router.logger") as logger,
+        TestClient(app) as client,
+    ):
+        response = client.post(f"/agent/sessions/{agent_session.id}/control", json=body)
+
+    assert response.status_code == 200
+    assert AgentControlReceipt.model_validate(response.json()) == receipt
+    fake_svc.control.assert_awaited_once_with(agent_session.id, expected)
+    # Every control request is logged with its type.
+    assert logger.info.call_args.kwargs["control_type"] == expected.type
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "error,code,detail",
+    [
+        (
+            TracecatConflictError(
+                "Agent session does not have an active turn",
+                detail={"lifecycle": "completed"},
+            ),
+            409,
+            "Agent session does not have an active turn",
+        ),
+        (
+            TracecatConflictError("This agent backend does not support withdrawing"),
+            409,
+            "This agent backend does not support withdrawing",
+        ),
+        (
+            AgentControlRejected("Agent control operation failed"),
+            409,
+            "The turn is no longer running",
+        ),
+        (
+            AgentControlUncertain("Agent control outcome is uncertain"),
+            503,
+            "Control outcome is unknown; retry with the same ID",
+        ),
+    ],
+)
+async def test_control_session_maps_control_outcomes(
+    error: Exception, code: int, detail: str
+) -> None:
+    agent_session = _agent_session_stub(curr_run_id=uuid.uuid4())
+    fake_svc = SimpleNamespace(
+        get_session=AsyncMock(return_value=agent_session),
+        control=AsyncMock(side_effect=error),
+    )
+
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService",
+            return_value=fake_svc,
+        ),
+        patch(
+            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
+            AsyncMock(return_value=None),
+        ),
+    ):
+        raw_control_session = cast(Any, control_session).__wrapped__
+        with pytest.raises(HTTPException) as exc_info:
+            await raw_control_session(
+                session_id=agent_session.id,
+                request=AgentSteerControl(type="steer", id=uuid.uuid4(), text="Stop"),
+                role=_control_role(agent_session.workspace_id),
+                session=AsyncMock(),
+            )
+
+    assert (exc_info.value.status_code, exc_info.value.detail) == (code, detail)
+
+
+@pytest.mark.anyio
+async def test_deprecated_cancel_route_calls_request_cancel() -> None:
+    agent_session = _agent_session_stub(curr_run_id=uuid.uuid4())
+    fake_svc = SimpleNamespace(
+        get_session=AsyncMock(return_value=agent_session),
+        request_cancel=AsyncMock(return_value=None),
+    )
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService",
+            return_value=fake_svc,
+        ),
+        patch(
+            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
+            AsyncMock(return_value=None),
+        ),
+    ):
+        await cast(Any, cancel_session).__wrapped__(
+            session_id=agent_session.id,
+            role=_control_role(agent_session.workspace_id),
+            session=AsyncMock(),
+            request=None,
+        )
+    # The `cancel` control calls the same method (see test_agent_backends).
+    fake_svc.request_cancel.assert_awaited_once_with(
+        agent_session.id, reason="user_cancel"
+    )
+    cancel_route = next(
+        route
+        for route in router.routes
+        if isinstance(route, APIRoute) and route.path.endswith("/{session_id}/cancel")
+    )
+    assert cancel_route.deprecated is True
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+@pytest.mark.parametrize(
+    "steering,withdrawing", [(False, False), (True, False), (True, True)]
+)
+def test_session_read_reports_backend_controls(
+    enabled: bool, steering: bool, withdrawing: bool
+) -> None:
+    session_stub = _agent_session_stub(backend_id="external")
+    provider = DefaultBackend()
+    with (
+        patch.object(
+            registry, "get_agent_backends", return_value={"external": provider}
+        ),
+        patch.object(provider, "is_enabled", return_value=enabled),
+        patch.object(provider, "steering", steering),
+        patch.object(provider, "withdrawing", withdrawing),
+    ):
+        read = build_session_read(
+            cast(Any, session_stub), _control_role(session_stub.workspace_id)
+        )
+    # A disabled backend controls nothing.
+    assert read.capabilities.steering is (enabled and steering)
+    assert read.capabilities.withdrawing is (enabled and withdrawing)

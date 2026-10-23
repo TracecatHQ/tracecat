@@ -1389,6 +1389,26 @@ export const $AgentBackendRead = {
   description: "An enabled installed backend available for session creation.",
 } as const
 
+export const $AgentCancelControl = {
+  properties: {
+    type: {
+      type: "string",
+      const: "cancel",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description: "Client-generated request ID",
+    },
+  },
+  type: "object",
+  required: ["type", "id"],
+  title: "AgentCancelControl",
+  description: "Cancel the running turn.",
+} as const
+
 export const $AgentCatalogListResponse = {
   properties: {
     items: {
@@ -1602,6 +1622,83 @@ export const $AgentChannelTokenUpdate = {
   type: "object",
   title: "AgentChannelTokenUpdate",
   description: "Request schema for updating an external channel token.",
+} as const
+
+export const $AgentControlReceipt = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    type: {
+      $ref: "#/components/schemas/AgentControlType",
+    },
+    run_id: {
+      type: "string",
+      format: "uuid",
+      title: "Run Id",
+    },
+    status: {
+      $ref: "#/components/schemas/AgentControlStatus",
+    },
+    withdrawn: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Withdrawn",
+      description:
+        "Withdrawn message IDs in send order; set only for `withdraw`",
+    },
+    too_late: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Too Late",
+      description:
+        "Message IDs the model already read, which stay in the transcript; set only for `withdraw`",
+    },
+  },
+  type: "object",
+  required: ["id", "type", "run_id", "status"],
+  title: "AgentControlReceipt",
+  description: "The running turn's outcome for a control request.",
+} as const
+
+export const $AgentControlRequest = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/AgentSteerControl",
+    },
+    {
+      $ref: "#/components/schemas/AgentWithdrawControl",
+    },
+    {
+      $ref: "#/components/schemas/AgentCancelControl",
+    },
+  ],
+  discriminator: {
+    propertyName: "type",
+    mapping: {
+      cancel: "#/components/schemas/AgentCancelControl",
+      steer: "#/components/schemas/AgentSteerControl",
+      withdraw: "#/components/schemas/AgentWithdrawControl",
+    },
+  },
+} as const
+
+export const $AgentControlStatus = {
+  type: "string",
+  enum: ["accepted", "rejected", "withdrawn", "too_late"],
+} as const
+
+export const $AgentControlType = {
+  type: "string",
+  enum: ["steer", "withdraw", "cancel"],
 } as const
 
 export const $AgentCustomProviderCreate = {
@@ -4326,6 +4423,26 @@ export const $AgentSessionCancelResponse = {
     "Response schema for an accepted agent session cancellation request.",
 } as const
 
+export const $AgentSessionCapabilities = {
+  properties: {
+    steering: {
+      type: "boolean",
+      title: "Steering",
+      description: "Whether a running turn accepts steering messages",
+      default: false,
+    },
+    withdrawing: {
+      type: "boolean",
+      title: "Withdrawing",
+      description: "Whether a running turn can take back pending user messages",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "AgentSessionCapabilities",
+  description: "Optional controls the session's backend supports.",
+} as const
+
 export const $AgentSessionCreate = {
   properties: {
     id: {
@@ -4655,6 +4772,9 @@ export const $AgentSessionRead = {
       title: "Backend Id",
       default: "oss",
     },
+    capabilities: {
+      $ref: "#/components/schemas/AgentSessionCapabilities",
+    },
     harness_type: {
       anyOf: [
         {
@@ -4883,6 +5003,9 @@ export const $AgentSessionReadVercel = {
       type: "string",
       title: "Backend Id",
       default: "oss",
+    },
+    capabilities: {
+      $ref: "#/components/schemas/AgentSessionCapabilities",
     },
     harness_type: {
       anyOf: [
@@ -5120,6 +5243,9 @@ export const $AgentSessionReadWithMessages = {
       type: "string",
       title: "Backend Id",
       default: "oss",
+    },
+    capabilities: {
+      $ref: "#/components/schemas/AgentSessionCapabilities",
     },
     harness_type: {
       anyOf: [
@@ -5438,6 +5564,34 @@ export const $AgentSettingsUpdate = {
   title: "AgentSettingsUpdate",
 } as const
 
+export const $AgentSteerControl = {
+  properties: {
+    type: {
+      type: "string",
+      const: "steer",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description:
+        "Client-generated message ID. It reaches at most one turn of the session; a retry returns the first outcome.",
+    },
+    text: {
+      type: "string",
+      maxLength: 100000,
+      minLength: 1,
+      title: "Text",
+    },
+  },
+  type: "object",
+  required: ["type", "id", "text"],
+  title: "AgentSteerControl",
+  description:
+    "A message for the running turn to take into account before it answers.",
+} as const
+
 export const $AgentSubagentsConfig_Input = {
   properties: {
     enabled: {
@@ -5513,6 +5667,44 @@ export const $AgentTagRead = {
   required: ["id", "name", "ref", "color"],
   title: "AgentTagRead",
   description: "Tag data.",
+} as const
+
+export const $AgentWithdrawControl = {
+  properties: {
+    type: {
+      type: "string",
+      const: "withdraw",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description:
+        "Client-generated request ID; a retry returns the first outcome",
+    },
+    target_ids: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            format: "uuid",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Ids",
+      description:
+        "Message IDs to withdraw. Null withdraws all of the session's pending steers and queued messages.",
+    },
+  },
+  type: "object",
+  required: ["type", "id"],
+  title: "AgentWithdrawControl",
+  description: "Take back pending user messages the model has not read yet.",
 } as const
 
 export const $AlertArtifact = {

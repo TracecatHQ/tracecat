@@ -190,6 +190,8 @@ import type {
   AgentRefreshProviderModelsResponse,
   AgentSessionsCancelSessionData,
   AgentSessionsCancelSessionResponse,
+  AgentSessionsControlSessionData,
+  AgentSessionsControlSessionResponse,
   AgentSessionsCreateSessionData,
   AgentSessionsCreateSessionResponse,
   AgentSessionsDeleteSessionData,
@@ -8355,8 +8357,11 @@ export const agentSessionsForkSession = (
 }
 
 /**
+ * @deprecated
  * Cancel Session
  * Request graceful cancellation for the active agent session turn.
+ *
+ * Deprecated: send a `cancel` control to `/control` instead.
  * @param data The data for the request.
  * @param data.sessionId
  * @param data.workspaceId
@@ -8370,6 +8375,34 @@ export const agentSessionsCancelSession = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/workspaces/{workspace_id}/agent/sessions/{session_id}/cancel",
+    path: {
+      session_id: data.sessionId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Control Session
+ * Steer, withdraw from, or cancel the active turn without waiting for it.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentControlReceipt Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsControlSession = (
+  data: AgentSessionsControlSessionData
+): CancelablePromise<AgentSessionsControlSessionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/agent/sessions/{session_id}/control",
     path: {
       session_id: data.sessionId,
       workspace_id: data.workspaceId,
