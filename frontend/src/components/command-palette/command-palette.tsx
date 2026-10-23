@@ -34,7 +34,7 @@ import {
   WorkflowIcon,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useSettingsModal } from "@/components/settings/settings-modal-context"
 import {
   CommandDialog,
@@ -71,15 +71,21 @@ type CommandPaletteLink = {
  */
 export function CommandPalette() {
   const [open, setOpen] = useState(false)
+  const openRef = useRef(open)
+  openRef.current = open
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (
-        event.defaultPrevented ||
         event.repeat ||
         !(event.metaKey || event.ctrlKey) ||
         event.key.toLowerCase() !== "k"
       ) {
+        return
+      }
+      // While open, cmdk's own Ctrl+K binding (move up) prevents default on
+      // the input, so only honour handled events when the palette is shut.
+      if (event.defaultPrevented && !openRef.current) {
         return
       }
       event.preventDefault()

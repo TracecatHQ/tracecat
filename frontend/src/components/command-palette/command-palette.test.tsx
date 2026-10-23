@@ -69,6 +69,18 @@ describe("CommandPalette", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("closes on Cmd+K pressed in the search input", () => {
+    render(<CommandPalette />)
+    openPalette()
+
+    fireEvent.keyDown(screen.getByRole("combobox"), {
+      key: "k",
+      ctrlKey: true,
+    })
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  })
+
   it("navigates to a workflow and closes", () => {
     render(<CommandPalette />)
     openPalette()
