@@ -72,6 +72,7 @@ async def load_platform_catalog_on_startup() -> None:
             upserted = await service.upsert_platform_catalog(
                 get_platform_catalog_models()
             )
+            await session.commit()
             logger.info(f"Platform catalog loaded: {upserted} models upserted")
     except Exception as e:
         logger.error(f"Unexpected error loading platform catalog: {e}")

@@ -89,7 +89,8 @@ class AgentCatalogService(BaseService):
         Only listed rows are deleted, never rows merely missing from the bundle,
         so an unreadable bundle cannot empty the catalog. A row stays while a
         workspace subset or a saved org default references it. Requires a
-        bypass-RLS session so those checks see every organization.
+        bypass-RLS session so those checks see every organization; the caller
+        commits.
         """
         if not retired:
             return
@@ -117,13 +118,12 @@ class AgentCatalogService(BaseService):
                 AgentCatalog.model_name.not_in(defaults.model_names),
             )
         )
-        await self.session.commit()
 
     async def upsert_platform_catalog(
         self,
         entries: Sequence[PlatformCatalogEntry],
     ) -> int:
-        """Bulk upsert platform catalog rows."""
+        """Bulk upsert platform catalog rows; the caller commits."""
         if not entries:
             return 0
 
@@ -154,7 +154,6 @@ class AgentCatalogService(BaseService):
             },
         )
         await self.session.execute(stmt)
-        await self.session.commit()
         return len(values)
 
     async def get_catalog_entry(

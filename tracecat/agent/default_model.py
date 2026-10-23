@@ -1,24 +1,18 @@
 """Shared read-only resolution of the organization's saved default model."""
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
 from uuid import UUID
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.catalog.schemas import AgentCatalogRead
+from tracecat.agent.catalog.types import SavedDefaultModels
 from tracecat.db.models import AgentCatalog, AgentModelAccess, OrganizationSetting
 from tracecat.settings.service import _deserialize_setting_value
 
 DEFAULT_MODEL_SETTING_KEY = "agent_default_model"
 DEFAULT_MODEL_CATALOG_ID_SETTING_KEY = "agent_default_model_catalog_id"
-
-
-@dataclass(frozen=True, slots=True)
-class SavedDefaultModels:
-    catalog_ids: set[UUID] = field(default_factory=set)
-    model_names: set[str] = field(default_factory=set)
 
 
 async def _read_string_setting(
