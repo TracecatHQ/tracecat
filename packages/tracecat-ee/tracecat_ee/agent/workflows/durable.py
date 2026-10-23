@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
@@ -70,9 +70,11 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetConfigActivityInput,
         ResolveAgentsConfigActivityInput,
+        ResolveModelReplacementActivityInput,
         resolve_agent_preset_config_activity,
         resolve_agents_config_activity,
         resolve_custom_model_provider_config_activity,
+        resolve_model_replacement_activity,
     )
     from tracecat.agent.preset.resolver import (
         ResolvedAgentsRuntimeConfig,
@@ -640,6 +642,25 @@ class DurableAgentWorkflow:
             has_base_url=bool(cfg.base_url),
         )
 
+    async def _replace_retired_model(self, cfg: AgentConfig) -> AgentConfig:
+        if not workflow.patched(DurableAgentWorkflowPatch.REPLACE_RETIRED_MODEL):
+            return cfg
+        # Local: runs on this worker, so it always has the activity.
+        replacement = await workflow.execute_local_activity(
+            resolve_model_replacement_activity,
+            ResolveModelReplacementActivityInput(
+                role=self.role,
+                model_provider=cfg.model_provider,
+                model_name=cfg.model_name,
+                catalog_id=cfg.catalog_id,
+            ),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RETRY_POLICIES["activity:fail_slow"],
+        )
+        if replacement is None:
+            return cfg
+        return replace(cfg, **replacement.selection_update())
+
     async def _build_config(self, args: AgentWorkflowArgs) -> AgentConfig:
         if args.agent_args.preset_slug:
             activity_input = (
@@ -692,7 +713,8 @@ class DurableAgentWorkflow:
                 raise_application_error_from_classification(
                     invalid_agent_configuration()
                 )
-            cfg = args.agent_args.config
+            # Idempotent: chat turns send preset configs inline, already swapped.
+            cfg = await self._replace_retired_model(args.agent_args.config)
 
         await self._apply_custom_model_provider_config(cfg)
         return cfg

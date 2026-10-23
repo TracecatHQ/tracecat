@@ -21,12 +21,20 @@ from tracecat.agent.bedrock import (
     BedrockSubscription,
     resolve_foundation_model_id,
 )
+from tracecat.agent.catalog.bundled import get_retired_platform_models
+from tracecat.agent.catalog.lifecycle import read_model_lifecycle
 from tracecat.agent.catalog.schemas import AgentCatalogRead
-from tracecat.agent.catalog.types import ModelKey
+from tracecat.agent.catalog.types import ModelKey, ModelLifecycle, ModelReplacement
 from tracecat.audit.logger import audit_log
+from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentCatalog, AgentCustomProvider
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    AgentModelRetiredError,
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.service import BaseService
 from tracecat.sync import CatalogMappingCandidate
@@ -364,6 +372,106 @@ class AgentCatalogService(BaseService):
         if row_id is None:
             return None
         return row_id
+
+    async def resolve_model_replacement(
+        self,
+        *,
+        role: Role,
+        model_provider: str,
+        model_name: str,
+        catalog_id: UUID | None,
+    ) -> ModelReplacement | None:
+        """Return where a retired platform model's runs move, or ``None``.
+
+        Reads the lifecycle from the platform row selected by ``catalog_id``,
+        or by provider and name for legacy configs. Where no row exists, as on
+        installs after retirement, the bundled ``retired`` list applies. The
+        replacement must be enabled for the workspace, so a swap never widens
+        model access.
+
+        Raises:
+            AgentModelRetiredError: The model is retired and has no replacement
+                enabled for the workspace.
+        """
+        if role.organization_id is None:
+            raise TracecatAuthorizationError("Role has no organization_id")
+        found = await self._platform_lifecycle(
+            model_provider=model_provider,
+            model_name=model_name,
+            catalog_id=catalog_id,
+        )
+        if found is None:
+            return None
+        (model_provider, model_name), lifecycle = found
+        if lifecycle.status_on() != "retired":
+            return None
+        target = lifecycle.replacement_key(model_provider)
+        if target is None:
+            raise AgentModelRetiredError(model_name, replacement=None)
+        replacement_id = await self.resolve_catalog_id_by_model(
+            org_id=role.organization_id,
+            model_provider=target.model_provider,
+            model_name=target.model_name,
+            workspace_id=role.workspace_id,
+        )
+        if replacement_id is None:
+            raise AgentModelRetiredError(model_name, replacement=target.model_name)
+        self.logger.warning(
+            "Running retired model on its replacement",
+            retired_model_provider=model_provider,
+            retired_model_name=model_name,
+            model_provider=target.model_provider,
+            model_name=target.model_name,
+        )
+        return ModelReplacement(
+            model_provider=target.model_provider,
+            model_name=target.model_name,
+            catalog_id=replacement_id if catalog_id is not None else None,
+            reason="retired",
+        )
+
+    async def _platform_lifecycle(
+        self,
+        *,
+        model_provider: str,
+        model_name: str,
+        catalog_id: UUID | None,
+    ) -> tuple[ModelKey, ModelLifecycle] | None:
+        """Return the platform model's identity and lifecycle, if it has one."""
+        row_filter = (
+            AgentCatalog.id == catalog_id
+            if catalog_id is not None
+            else and_(
+                AgentCatalog.organization_id.is_(None),
+                AgentCatalog.model_provider == model_provider,
+                AgentCatalog.model_name == model_name,
+            )
+        )
+        row = (
+            await self.session.execute(
+                select(
+                    AgentCatalog.organization_id,
+                    AgentCatalog.model_provider,
+                    AgentCatalog.model_name,
+                    AgentCatalog.model_metadata,
+                ).where(row_filter)
+            )
+        ).one_or_none()
+        if row is None:
+            key = ModelKey(model_provider, model_name)
+            lifecycle = get_retired_platform_models().get(key)
+            return (key, lifecycle) if lifecycle is not None else None
+        if row.organization_id is not None:
+            # Org-owned rows have no provider lifecycle.
+            return None
+        # The row, not the caller's fields, names the model.
+        key = ModelKey(row.model_provider, row.model_name)
+        # The bundle wins: a retired row is no longer refreshed, so its
+        # stored lifecycle can name a replacement that has since retired.
+        lifecycle = get_retired_platform_models().get(key) or read_model_lifecycle(
+            row.model_metadata
+        )
+        return (key, lifecycle) if lifecycle is not None else None
 
     async def list_catalog(
         self,
