@@ -30,6 +30,7 @@ import {
 import {
   isPublishRequired,
   PublishFirstDialog,
+  type PublishFirstError,
 } from "@/components/workspace-sync/publish-first-dialog"
 import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
 import {
@@ -89,7 +90,9 @@ export function WorkflowProvider({
     ValidationResult[] | null
   >(null)
   const [publishRequiredOpen, setPublishRequiredOpen] = useState(false)
-  const [publishError, setPublishError] = useState<string | null>(null)
+  const [publishError, setPublishError] = useState<PublishFirstError | null>(
+    null
+  )
 
   // Queries
   const {
@@ -313,11 +316,16 @@ export function WorkflowProvider({
         setPublishRequiredOpen(false)
       } else {
         setValidationErrors(response.errors || null)
-        setPublishError("Fix the workflow validation errors before publishing.")
+        setPublishError({
+          message: "Fix the workflow validation errors before publishing.",
+          validationErrors: response.errors,
+        })
       }
     } catch {
       // The mutation also shows the standard Publish error toast.
-      setPublishError("Could not publish this workflow. Please try again.")
+      setPublishError({
+        message: "Could not publish this workflow. Please try again.",
+      })
     }
   }
 
@@ -343,7 +351,6 @@ export function WorkflowProvider({
         onPublish={handlePublishFirst}
         isPublishing={isCommitting}
         publishError={publishError}
-        validationErrors={validationErrors}
       />
     </WorkflowContext.Provider>
   )

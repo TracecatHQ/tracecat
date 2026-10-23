@@ -17,6 +17,12 @@ import {
 import { ValidationErrorMessage } from "@/components/validation-errors"
 import { getExportError } from "@/components/workspace-sync/export-error"
 
+/** Failure details from one explicit Publish attempt, separate from editor errors. */
+export type PublishFirstError = {
+  message: string
+  validationErrors?: ValidationResult[] | null
+}
+
 /** Only the server's explicit prerequisite code selects Publish-first guidance. */
 export function isPublishRequired(error: unknown): boolean {
   return (
@@ -33,18 +39,17 @@ export function PublishFirstDialog({
   onPublish,
   isPublishing,
   publishError,
-  validationErrors,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onPublish: () => Promise<void>
   isPublishing: boolean
-  publishError: string | null
-  validationErrors: ValidationResult[] | null
+  publishError: PublishFirstError | null
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="sm">
+      {/* The required Got it action is this dialog's only dismiss button. */}
+      <DialogContent size="sm" className="[&>button]:hidden">
         <DialogHeader>
           <DialogTitle>Publish this workflow first</DialogTitle>
           <DialogDescription>
@@ -58,8 +63,8 @@ export function PublishFirstDialog({
           {publishError && (
             <Alert variant="destructive" className="mt-4">
               <AlertDescription>
-                {publishError}
-                {validationErrors?.map((error, index) => (
+                {publishError.message}
+                {publishError.validationErrors?.map((error, index) => (
                   <ValidationErrorMessage
                     key={index}
                     error={error}

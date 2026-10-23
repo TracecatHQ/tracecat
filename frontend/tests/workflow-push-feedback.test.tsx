@@ -77,7 +77,7 @@ function renderWorkflow() {
 }
 
 beforeEach(() => {
-  jest.clearAllMocks()
+  jest.resetAllMocks()
   jest.mocked(workflowsGetWorkflow).mockResolvedValue({
     id: "synthetic",
     title: "Synthetic workflow",
@@ -128,7 +128,7 @@ test("Publish from the modal saves one version and closes without retrying Git P
     .mocked(workflowsPublishWorkflow)
     .mockRejectedValue(pushError("publish_required"))
   let finishPublish!: (response: WorkflowCommitResponse) => void
-  jest.mocked(workflowsCommitWorkflow).mockImplementation(
+  jest.mocked(workflowsCommitWorkflow).mockImplementationOnce(
     () =>
       new CancelablePromise((resolve) => {
         finishPublish = resolve
@@ -165,7 +165,7 @@ test("Publish validation errors stay visible in the modal and reach the editor",
   jest
     .mocked(workflowsPublishWorkflow)
     .mockRejectedValue(pushError("publish_required"))
-  jest.mocked(workflowsCommitWorkflow).mockResolvedValue({
+  jest.mocked(workflowsCommitWorkflow).mockResolvedValueOnce({
     workflow_id: "synthetic",
     status: "failure",
     message: "Invalid workflow",
@@ -195,6 +195,44 @@ test("Publish validation errors stay visible in the modal and reach the editor",
   )
   expect(screen.getByLabelText("Validation errors")).toHaveTextContent("0")
   expect(workflowsPublishWorkflow).toHaveBeenCalledTimes(1)
+})
+
+test("a network retry shows only its own error while preserving editor validation errors", async () => {
+  jest
+    .mocked(workflowsPublishWorkflow)
+    .mockRejectedValue(pushError("publish_required"))
+  jest
+    .mocked(workflowsCommitWorkflow)
+    .mockResolvedValueOnce({
+      workflow_id: "synthetic",
+      status: "failure",
+      message: "Invalid workflow",
+      errors: [
+        { type: "dsl", status: "error", msg: "Previous validation failure." },
+      ],
+    })
+    .mockRejectedValueOnce(new Error("Network unavailable"))
+  const warn = jest.spyOn(console, "warn").mockImplementation(() => {})
+  renderWorkflow()
+  fireEvent.click(screen.getByRole("button", { name: "Push" }))
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Publish workflow" })
+  )
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Previous validation failure."
+  )
+  fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }))
+  await waitFor(() =>
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Could not publish this workflow. Please try again."
+    )
+  )
+  expect(screen.getByRole("alert")).not.toHaveTextContent(
+    "Previous validation failure."
+  )
+  expect(screen.getByLabelText("Validation errors")).toHaveTextContent("1")
+  expect(workflowsPublishWorkflow).toHaveBeenCalledTimes(1)
+  warn.mockRestore()
 })
 
 test("a transport failure stays in the modal and can be retried", async () => {
