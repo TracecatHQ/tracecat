@@ -28,7 +28,7 @@ import warnings
 from collections.abc import Callable, Coroutine, Mapping
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 # Only import what we absolutely need - no tracecat imports!
 # Prefer orjson for performance (4-12x faster), fall back to stdlib json
@@ -846,6 +846,13 @@ def _enforce_nproc_limit() -> None:
 if __name__ == "__main__":
     """Standalone entry point for subprocess execution."""
     import sys
+
+    # httpx imports its optional CLI (httpx._main -> rich, click, pygments)
+    # whenever those packages are installed, ~40 ms per sandbox start. Actions
+    # never use the CLI; a None entry makes that import raise ImportError, so
+    # httpx falls back to its stub `main`. Set only here, never at module
+    # import, because the executor process also imports this module.
+    sys.modules.setdefault("httpx._main", cast(ModuleType, None))
 
     _enforce_nproc_limit()
 
