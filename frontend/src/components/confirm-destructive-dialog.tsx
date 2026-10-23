@@ -23,6 +23,14 @@ export interface ConfirmDestructiveIdentifier {
   value: string
 }
 
+/** Second "are you sure" step shown after the typed confirmation matches. */
+export interface ConfirmDestructiveFinalStep {
+  title: ReactNode
+  description: ReactNode
+  /** Label for the final confirm button. Defaults to `confirmLabel`. */
+  confirmLabel?: string
+}
+
 interface ConfirmDestructiveDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -36,6 +44,11 @@ interface ConfirmDestructiveDialogProps {
    * it into the confirmation input.
    */
   identifier?: ConfirmDestructiveIdentifier
+  /**
+   * Instruction above the input. Defaults to "Type the <identifier label> to
+   * confirm".
+   */
+  confirmPrompt?: ReactNode
   title: ReactNode
   description: ReactNode
   /**
@@ -43,16 +56,20 @@ interface ConfirmDestructiveDialogProps {
    */
   confirmLabel?: string
   /**
-   * Optional placeholder for the confirmation input. Defaults to the
-   * `confirmPhrase`.
+   * When set, a matching phrase opens this extra confirmation step instead of
+   * confirming immediately.
    */
-  inputPlaceholder?: string
+  finalStep?: ConfirmDestructiveFinalStep
   isPending?: boolean
   onConfirm: () => void | Promise<void>
   /**
    * Rendered inside the dialog root, e.g. an `AlertDialogTrigger`.
    */
   children?: ReactNode
+}
+
+function lowerFirst(value: string): string {
+  return value.charAt(0).toLowerCase() + value.slice(1)
 }
 
 /**
@@ -68,93 +85,126 @@ export function ConfirmDestructiveDialog({
   onOpenChange,
   confirmPhrase,
   identifier,
+  confirmPrompt,
   title,
   description,
   confirmLabel = "Delete",
-  inputPlaceholder,
+  finalStep,
   isPending = false,
   onConfirm,
   children,
 }: ConfirmDestructiveDialogProps) {
   const inputId = useId()
   const [confirmText, setConfirmText] = useState("")
+  const [showFinalStep, setShowFinalStep] = useState(false)
 
   const matches =
     confirmPhrase.length > 0 && confirmText.trim() === confirmPhrase
+  const onFinalStep = finalStep !== undefined && showFinalStep
+
+  function reset() {
+    setConfirmText("")
+    setShowFinalStep(false)
+  }
 
   function handleOpenChange(next: boolean) {
     if (isPending) return
-    if (!next) setConfirmText("")
+    if (!next) reset()
     onOpenChange(next)
   }
 
   async function handleConfirm() {
     if (!matches) return
+    if (finalStep && !showFinalStep) {
+      setShowFinalStep(true)
+      return
+    }
     try {
       await onConfirm()
-      setConfirmText("")
+      reset()
     } catch {
       // Mutation callbacks handle user-facing errors.
     }
+  }
+
+  let prompt: ReactNode = confirmPrompt
+  if (prompt === undefined) {
+    prompt = identifier ? (
+      `Type the ${lowerFirst(identifier.label)} to confirm`
+    ) : (
+      <>
+        Type{" "}
+        <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs font-medium">
+          {confirmPhrase}
+        </code>{" "}
+        to confirm
+      </>
+    )
   }
 
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
       {children}
       <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription asChild>
-            <div className="space-y-2">{description}</div>
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        {identifier ? (
-          <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/40 px-3 py-2">
-            <div className="flex min-w-0 flex-col">
-              <span className="text-xs text-muted-foreground">
-                {identifier.label}
-              </span>
-              <code
-                className="truncate font-mono text-sm"
-                data-testid="confirm-destructive-identifier"
-              >
-                {identifier.value}
-              </code>
-            </div>
-            <CopyButton
-              value={identifier.value}
-              toastMessage={`Copied ${identifier.label.toLowerCase()} to clipboard`}
-              tooltipMessage={`Copy ${identifier.label.toLowerCase()}`}
-              className="size-7 shrink-0"
-              iconClassName="size-3.5"
-            />
-          </div>
-        ) : null}
-        <form
-          className="space-y-2"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void handleConfirm()
-          }}
-        >
-          <Label htmlFor={inputId} className="font-normal">
-            Type{" "}
-            <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs font-medium">
-              {confirmPhrase}
-            </code>{" "}
-            to confirm
-          </Label>
-          <Input
-            id={inputId}
-            value={confirmText}
-            onChange={(event) => setConfirmText(event.target.value)}
-            placeholder={inputPlaceholder ?? confirmPhrase}
-            disabled={isPending}
-            autoComplete="off"
-            autoCapitalize="none"
-            spellCheck={false}
-          />
-        </form>
+        {onFinalStep ? (
+          <AlertDialogHeader>
+            <AlertDialogTitle>{finalStep.title}</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">{finalStep.description}</div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+        ) : (
+          <>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{title}</AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-2">{description}</div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            {identifier ? (
+              <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/40 px-3 py-2">
+                <div className="flex min-w-0 flex-col">
+                  <span className="text-xs text-muted-foreground">
+                    {identifier.label}
+                  </span>
+                  <code
+                    className="truncate font-mono text-sm"
+                    data-testid="confirm-destructive-identifier"
+                  >
+                    {identifier.value}
+                  </code>
+                </div>
+                <CopyButton
+                  value={identifier.value}
+                  toastMessage={`Copied ${lowerFirst(identifier.label)} to clipboard`}
+                  tooltipMessage={`Copy ${lowerFirst(identifier.label)}`}
+                  className="size-7 shrink-0"
+                  iconClassName="size-3.5"
+                />
+              </div>
+            ) : null}
+            <form
+              className="space-y-2"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void handleConfirm()
+              }}
+            >
+              <Label htmlFor={inputId} className="font-normal">
+                {prompt}
+              </Label>
+              <Input
+                id={inputId}
+                value={confirmText}
+                onChange={(event) => setConfirmText(event.target.value)}
+                disabled={isPending}
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+              />
+            </form>
+          </>
+        )}
         <AlertDialogFooter>
           <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
           <AlertDialogAction
@@ -168,7 +218,9 @@ export function ConfirmDestructiveDialog({
             {isPending ? (
               <Loader2 className="mr-2 size-4 animate-spin" />
             ) : null}
-            {confirmLabel}
+            {onFinalStep
+              ? (finalStep.confirmLabel ?? confirmLabel)
+              : confirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

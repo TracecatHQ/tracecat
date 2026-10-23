@@ -34,7 +34,7 @@ describe("ConfirmDestructiveDialog", () => {
     renderDialog(onConfirm)
 
     const deleteButton = screen.getByRole("button", { name: "Delete" })
-    const input = screen.getByPlaceholderText("wf_abc123")
+    const input = screen.getByLabelText("Type the workflow ID to confirm")
     expect(deleteButton).toBeDisabled()
 
     await user.type(input, "wf_abc12")
@@ -45,6 +45,40 @@ describe("ConfirmDestructiveDialog", () => {
     await user.type(input, "3")
     expect(deleteButton).toBeEnabled()
     await user.click(deleteButton)
+    expect(onConfirm).toHaveBeenCalledTimes(1)
+  })
+
+  it("asks for a final confirmation when a final step is set", async () => {
+    const user = userEvent.setup()
+    const onConfirm = jest.fn()
+    render(
+      <TooltipProvider>
+        <ConfirmDestructiveDialog
+          open={true}
+          onOpenChange={jest.fn()}
+          title="Delete folder and contents"
+          description="This cannot be undone."
+          identifier={{ label: "Folder ID", value: "fld_1" }}
+          confirmPhrase="delete folder fld_1"
+          confirmLabel="Continue"
+          finalStep={{
+            title: "Are you sure?",
+            description: "You will be deleting 3 workflows.",
+            confirmLabel: "Delete 3 workflows",
+          }}
+          onConfirm={onConfirm}
+        />
+      </TooltipProvider>
+    )
+
+    await user.type(screen.getByRole("textbox"), "delete folder fld_1")
+    await user.click(screen.getByRole("button", { name: "Continue" }))
+    expect(onConfirm).not.toHaveBeenCalled()
+    expect(
+      screen.getByText("You will be deleting 3 workflows.")
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "Delete 3 workflows" }))
     expect(onConfirm).toHaveBeenCalledTimes(1)
   })
 })

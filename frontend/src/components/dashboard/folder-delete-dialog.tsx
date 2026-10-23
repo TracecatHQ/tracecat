@@ -31,6 +31,7 @@ export function FolderDeleteAlertDialog({
   })
   const folderId = selectedFolder?.id ?? ""
   const numWorkflows = selectedFolder?.num_workflows ?? 0
+  const workflowCount = `${numWorkflows} ${numWorkflows === 1 ? "workflow" : "workflows"}`
 
   return (
     <ConfirmDestructiveDialog
@@ -50,9 +51,7 @@ export function FolderDeleteAlertDialog({
               {selectedFolder?.name}
             </span>
             , its subfolders, and{" "}
-            <span className="font-medium text-foreground">
-              {numWorkflows} {numWorkflows === 1 ? "workflow" : "workflows"}
-            </span>{" "}
+            <span className="font-medium text-foreground">{workflowCount}</span>{" "}
             inside it? Their schedules are deleted too. This cannot be undone.
           </p>
           <p>To keep the workflows, move them out of the folder first.</p>
@@ -60,7 +59,32 @@ export function FolderDeleteAlertDialog({
       }
       identifier={{ label: "Folder ID", value: folderId }}
       confirmPhrase={getFolderDeleteConfirmPhrase(folderId)}
-      confirmLabel="Delete folder and contents"
+      confirmPrompt={
+        <>
+          Type{" "}
+          <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs font-medium">
+            delete folder
+          </code>{" "}
+          followed by the folder ID to confirm
+        </>
+      }
+      confirmLabel="Continue"
+      finalStep={{
+        title: "Are you sure?",
+        description: (
+          <>
+            You will be deleting{" "}
+            <span className="font-medium text-foreground">{workflowCount}</span>{" "}
+            and every subfolder in{" "}
+            <span className="font-medium text-foreground">
+              {selectedFolder?.name}
+            </span>
+            . This cannot be undone.
+          </>
+        ),
+        confirmLabel:
+          numWorkflows > 0 ? `Delete ${workflowCount}` : "Delete folder",
+      }}
       isPending={deleteFolderIsPending}
       onConfirm={async () => {
         if (!selectedFolder) return

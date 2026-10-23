@@ -24,7 +24,7 @@ describe("AgentPresetDeleteDialog", () => {
       screen.getByTestId("confirm-destructive-identifier")
     ).toHaveTextContent("triage-agent")
     const deleteButton = screen.getByRole("button", { name: "Delete agent" })
-    const input = screen.getByPlaceholderText("triage-agent")
+    const input = screen.getByLabelText("Type the agent slug to confirm")
 
     expect(deleteButton).toBeDisabled()
 

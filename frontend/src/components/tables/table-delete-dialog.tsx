@@ -29,9 +29,8 @@ export function DeleteTableDialog({
       title="Delete table"
       description={
         <>
-          Permanently delete the table{" "}
-          <span className="font-medium text-foreground">{table.name}</span> and
-          all of its rows? This cannot be undone.
+          Permanently delete this table and all of its rows? This cannot be
+          undone.
         </>
       }
       identifier={{ label: "Table name", value: table.name }}

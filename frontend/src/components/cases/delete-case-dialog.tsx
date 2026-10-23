@@ -31,13 +31,13 @@ export function DeleteCaseAlertDialog({
       description={
         <>
           Permanently delete{" "}
-          <span className="font-medium text-foreground">{shortId}</span>
           {selectedCase?.summary ? (
-            <>
-              {" "}
-              (<span className="font-medium">{selectedCase.summary}</span>)
-            </>
-          ) : null}
+            <span className="font-medium text-foreground">
+              {selectedCase.summary}
+            </span>
+          ) : (
+            "this case"
+          )}
           ? This cannot be undone.
         </>
       }
