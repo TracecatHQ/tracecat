@@ -258,6 +258,32 @@ async def test_withdraw_is_refused_once_the_backend_applied_the_command(
     assert refused is not None and refused.state == CommandState.APPLIED
 
 
+async def test_accepting_a_queued_command_binds_it_to_its_turn_once(
+    store: PgSessionCommandStore, root: AgentSession
+) -> None:
+    """A queued follow-up joins the turn that takes it and never moves to another."""
+    turn, generation = uuid.uuid4(), uuid.uuid4()
+    await store.admit(_command(root, "follow-up", state=CommandState.QUEUED))
+
+    accepted = await store.mark(
+        root.id, "follow-up", CommandState.ACCEPTED, turn_id=turn, generation=generation
+    )
+    rebound = await store.mark(
+        root.id,
+        "follow-up",
+        CommandState.APPLIED,
+        turn_id=uuid.uuid4(),
+        generation=uuid.uuid4(),
+    )
+
+    assert accepted is not None
+    assert (accepted.turn_id, accepted.generation) == (turn, generation)
+    assert rebound is not None and rebound.state == CommandState.APPLIED
+    assert (rebound.turn_id, rebound.generation) == (turn, generation)
+    rows = await store.rows(root.id, generation=generation)
+    assert [row.request_id for row in rows] == ["follow-up"]
+
+
 async def test_mark_to_the_same_state_records_the_receipt(
     store: PgSessionCommandStore, root: AgentSession
 ) -> None:

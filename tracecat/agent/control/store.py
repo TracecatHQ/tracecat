@@ -205,12 +205,19 @@ class PgSessionCommandStore:
         request_id: str,
         state: CommandState,
         receipt: CommandPayload | None = None,
+        *,
+        turn_id: uuid.UUID | None = None,
+        generation: uuid.UUID | None = None,
     ) -> SessionCommandRow | None:
         """Move a command forward to ``state``; a state never moves back.
 
         A move to the current non-terminal state is allowed and records
         ``receipt``. A ``receipt`` of None keeps the stored one. ``withdrawn``
         is reachable only from ``queued`` or ``accepted``.
+
+        ``turn_id`` and ``generation`` bind a queued command to the turn that
+        takes it. Each is set only while still null, so a command never moves
+        to another turn.
 
         Returns:
             The row as stored, unchanged if the move is not allowed, or None if
@@ -230,6 +237,14 @@ class PgSessionCommandStore:
         )
         if receipt is not None:
             advance = advance.values(receipt=receipt)
+        if turn_id is not None:
+            advance = advance.values(
+                turn_id=func.coalesce(AgentSessionCommand.turn_id, turn_id)
+            )
+        if generation is not None:
+            advance = advance.values(
+                generation=func.coalesce(AgentSessionCommand.generation, generation)
+            )
         async with self._session_factory() as session:
             updated = await session.scalar(advance)
             if updated is not None:

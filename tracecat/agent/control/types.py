@@ -103,12 +103,16 @@ class SessionCommandStore(Protocol):
         request_id: str,
         state: CommandState,
         receipt: CommandPayload | None = None,
+        *,
+        turn_id: uuid.UUID | None = None,
+        generation: uuid.UUID | None = None,
     ) -> SessionCommandRow | None:
         """Move a command forward to ``state``; a state never moves back.
 
-        ``withdrawn`` is reachable only from ``queued`` or ``accepted``. Returns
-        the row as stored, unchanged if the move is not allowed, or None if no
-        such command exists.
+        ``withdrawn`` is reachable only from ``queued`` or ``accepted``.
+        ``turn_id`` and ``generation`` bind a queued command to its turn and are
+        set only while still null. Returns the row as stored, unchanged if the
+        move is not allowed, or None if no such command exists.
         """
         ...
 
