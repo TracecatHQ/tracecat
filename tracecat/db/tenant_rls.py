@@ -99,6 +99,7 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "form_view",
     "form_file",
     "workspace_tunnel",
+    "workspace_sync_operation",
 )
 
 POST_RLS_ORG_SCOPED_TABLES = (

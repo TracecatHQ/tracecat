@@ -19,7 +19,12 @@ type SyncStatus = Literal[
     "queued", "running", "ready", "applying", "completed", "failed", "expired"
 ]
 type SyncStage = Literal[
-    "fetching", "preparing", "awaiting_confirmation", "applying", "finished"
+    "fetching",
+    "preparing",
+    "awaiting_confirmation",
+    "applying",
+    "finishing",
+    "finished",
 ]
 
 
@@ -39,6 +44,10 @@ class SyncOperationConflictError(Exception):
     """The operation is incompatible with the requested transition."""
 
 
+class SyncOperationStartError(Exception):
+    """Temporal could not confirm that the operation started."""
+
+
 @dataclass(frozen=True, slots=True)
 class SyncFailure:
     ref: SyncOperationRef
@@ -51,6 +60,7 @@ class SyncPreviewSummary(TypedDict):
     preview: JsonValue
     diff_count: int
     read_scopes: list[str]
+    write_scopes: list[str]
 
 
 def lock_key(value: str) -> int:
