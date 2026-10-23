@@ -1,7 +1,7 @@
 """Shared read-only resolution of the organization's saved default model."""
 
 from collections.abc import Sequence
-from typing import NamedTuple
+from dataclasses import dataclass, field
 from uuid import UUID
 
 from sqlalchemy import or_, select
@@ -15,9 +15,10 @@ DEFAULT_MODEL_SETTING_KEY = "agent_default_model"
 DEFAULT_MODEL_CATALOG_ID_SETTING_KEY = "agent_default_model_catalog_id"
 
 
-class SavedDefaultModels(NamedTuple):
-    catalog_ids: set[UUID]
-    model_names: set[str]
+@dataclass(frozen=True, slots=True)
+class SavedDefaultModels:
+    catalog_ids: set[UUID] = field(default_factory=set)
+    model_names: set[str] = field(default_factory=set)
 
 
 async def _read_string_setting(
@@ -72,7 +73,7 @@ async def list_saved_default_models(session: AsyncSession) -> SavedDefaultModels
             )
         )
     )
-    saved = SavedDefaultModels(catalog_ids=set(), model_names=set())
+    saved = SavedDefaultModels()
     for setting in settings:
         value = _deserialize_setting_value(setting)
         if not isinstance(value, str) or not value:
