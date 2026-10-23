@@ -1,0 +1,45 @@
+type: action
+definition:
+  title: Get transaction
+  description: >-
+    One transaction: confirmations, size, fee, and every input and output. Calls GET /transaction/{network}/{hash}.
+  display_group: SoChain
+  doc_url: https://sochain.com/docs/transaction
+  namespace: tools.sochain
+  name: get_transaction
+  secrets:
+    - name: sochain
+      keys: ["SOCHAIN_API_KEY"]
+      # Optional: SoChain answers lookups without a key, up to 2,500 a day per IP.
+      # A key from https://sochain.com/dashboard raises the limit to the plan's.
+      optional: true
+  expects:
+    network:
+      type: str
+      description: "Network code (any case): BTC, LTC, DOGE, ZEC, BTCTEST (Bitcoin testnet4), LTCTEST, DOGETEST or ZECTEST."
+    hash:
+      type: str
+      description: "Transaction ID: 64 hex characters (any case)."
+    currency:
+      type: str | None
+      description: >-
+        Prices in this currency instead of US dollars (any case). One of AUD, BRL,
+        CAD, CHF, CNY, CZK, DKK, EUR, GBP, HKD, HUF, IDR, ILS, INR, ISK, JPY, KRW,
+        MXN, MYR, NOK, NZD, PHP, PLN, RON, SEK, SGD, THB, TRY, USD or ZAR.
+      default: null
+    base_url:
+      type: str | None
+      description: SoChain API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sochain.base_url || "https://sochain.com/api/v3" }}/transaction/${{ FN.url_encode(inputs.network) }}/${{ FN.url_encode(inputs.hash) }}
+        method: GET
+        headers:
+          Accept: application/json
+          API-KEY: ${{ SECRETS.sochain.SOCHAIN_API_KEY }}
+        params:
+          currency: ${{ inputs.currency }}
+  returns: ${{ steps.request.result }}

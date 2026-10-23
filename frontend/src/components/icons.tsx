@@ -607,6 +607,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.runreveal": createIconRenderer(RunRevealIcon),
     "tools.sentry": createIconRenderer(SentryIcon),
     "tools.slack_sdk": createIconRenderer(SlackIcon),
+    "tools.sochain": createIconRenderer(SoChainIcon),
     "tools.typesafe": createIconRenderer(TypeSafeIcon, {
       iconClassName: "text-[#1E1E1E] dark:text-white",
     }),
@@ -1263,6 +1264,11 @@ export const secretIcons: Record<
   databricks: ({ className, ...rest }) => (
     <div className={className}>
       <DatabricksIcon {...rest} />
+    </div>
+  ),
+  sochain: ({ className, ...rest }) => (
+    <div className={className}>
+      <SoChainIcon {...rest} />
     </div>
   ),
   typesafe: ({ className, iconClassName, ...rest }) => (
@@ -3163,6 +3169,26 @@ export function OnePasswordIcon({ className, ...rest }: IconProps) {
           <stop offset="1" stopColor="#1B1C33" />
         </linearGradient>
       </defs>
+    </svg>
+  )
+}
+
+/** SoChain mark. The dark square turns light in dark mode to stay legible. */
+export function SoChainIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg role="img" viewBox="0 0 32 32" className={className} {...rest}>
+      <title>SoChain</title>
+      <rect x="3" y="3" width="12" height="12" rx="3" fill="#F7931A" />
+      <rect x="17" y="3" width="12" height="12" rx="3" fill="#345D9D" />
+      <rect x="3" y="17" width="12" height="12" rx="3" fill="#D9A70F" />
+      <rect
+        x="17"
+        y="17"
+        width="12"
+        height="12"
+        rx="3"
+        className="fill-[#121212] dark:fill-[#E6E2D6]"
+      />
     </svg>
   )
 }

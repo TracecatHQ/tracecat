@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: Get balance
+  description: >-
+    Confirmed balance and the pending change from the mempool; with height or time, the confirmed balance at that point instead. Calls GET /balance/{network}/{address}.
+  display_group: SoChain
+  doc_url: https://sochain.com/docs/balance
+  namespace: tools.sochain
+  name: get_balance
+  secrets:
+    - name: sochain
+      keys: ["SOCHAIN_API_KEY"]
+      # Optional: SoChain answers lookups without a key, up to 2,500 a day per IP.
+      # A key from https://sochain.com/dashboard raises the limit to the plan's.
+      optional: true
+  expects:
+    network:
+      type: str
+      description: "Network code (any case): BTC, LTC, DOGE, ZEC, BTCTEST (Bitcoin testnet4), LTCTEST, DOGETEST or ZECTEST."
+    address:
+      type: str
+      description: An address (letters and digits).
+    height:
+      type: int | None
+      description: The confirmed balance at the end of this block, instead of now.
+      default: null
+    time:
+      type: str | None
+      description: >-
+        The confirmed balance at this time, instead of now: Unix seconds, a UTC
+        date (meaning the end of that day) or an RFC 3339 timestamp. It's taken at
+        the last block at or before it. Not together with height.
+      default: null
+    base_url:
+      type: str | None
+      description: SoChain API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sochain.base_url || "https://sochain.com/api/v3" }}/balance/${{ FN.url_encode(inputs.network) }}/${{ FN.url_encode(inputs.address) }}
+        method: GET
+        headers:
+          Accept: application/json
+          API-KEY: ${{ SECRETS.sochain.SOCHAIN_API_KEY }}
+        params:
+          height: ${{ inputs.height }}
+          time: ${{ inputs.time }}
+  returns: ${{ steps.request.result }}

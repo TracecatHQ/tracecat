@@ -228,6 +228,20 @@ describe("Proofpoint registry icon mappings", () => {
   })
 })
 
+describe("SoChain registry icon mappings", () => {
+  it.each(["tools.sochain", "tools.sochain.get_address_summary"])(
+    "renders the SoChain mark for %s",
+    (key) => {
+      expect(svgTitle(getIcon(key))).toBe("SoChain")
+    }
+  )
+
+  it("renders the SoChain mark for the sochain secret", () => {
+    const Icon = secretIcons.sochain
+    expect(svgTitle(<Icon />)).toBe("SoChain")
+  })
+})
+
 describe("Palo Alto Networks registry icon mappings", () => {
   it.each([
     "tools.pan_os",
