@@ -38,14 +38,16 @@ export function getExportError(
 export function ExportErrorMessage({
   error,
   workspaceId,
+  announce = true,
 }: {
   error: unknown
   workspaceId: string
+  announce?: boolean
 }) {
   const result = getExportError(error)
   if (!result) return <>{getApiErrorDetail(error) ?? "Request failed"}</>
   return (
-    <div className="space-y-1" role="alert">
+    <div className="space-y-1" role={announce ? "alert" : undefined}>
       <ul className="space-y-1">
         {result.diagnostics?.map((item, index) => (
           <li key={`${item.workflow_id}:${index}`}>

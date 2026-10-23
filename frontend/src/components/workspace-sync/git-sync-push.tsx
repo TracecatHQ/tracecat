@@ -223,6 +223,7 @@ export function GitSyncPushTab({
           <GitSyncNotice tone="error">
             Could not preview this push:{" "}
             <ExportErrorMessage
+              announce={false}
               error={previewError}
               workspaceId={workspaceId}
             />

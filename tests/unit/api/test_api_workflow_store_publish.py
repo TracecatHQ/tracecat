@@ -232,14 +232,22 @@ async def test_export_validation_response_preserves_legacy_detail_and_typed_cont
     error = WorkflowExportValidationError([diagnostic])
     with patch("tracecat.workflow.store.router.WorkspaceSyncService") as sync:
         service = AsyncMock()
-        service.export_workspace.side_effect = error
-        service.preview_export_workspace.side_effect = error
+        if path.endswith("/preview"):
+            service.preview_export_workspace.side_effect = error
+        else:
+            service.export_workspace.side_effect = error
         sync.for_workspace = AsyncMock(return_value=service)
         response = client.post(
             path,
             params={"workspace_id": str(test_admin_role.workspace_id)},
             json={"message": "Synthetic export", "branch": "sync/example"},
         )
+        if path.endswith("/preview"):
+            service.preview_export_workspace.assert_awaited_once()
+            service.export_workspace.assert_not_awaited()
+        else:
+            service.export_workspace.assert_awaited_once()
+            service.preview_export_workspace.assert_not_awaited()
     assert response.status_code == 400
     assert response.json()["detail"] == str(error)
     assert response.json()["diagnostics"] == [diagnostic.model_dump(mode="json")]

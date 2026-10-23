@@ -6,6 +6,7 @@ from typing import cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
@@ -13,7 +14,11 @@ from tracecat.db.models import Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatValidationError
 from tracecat.workspace_sync.exceptions import WorkflowExportValidationError
-from tracecat.workspace_sync.schemas import WorkflowExportDiagnostic
+from tracecat.workspace_sync.export_diagnostics import WorkflowExportDiagnosticsService
+from tracecat.workspace_sync.schemas import (
+    WorkflowExportDiagnostic,
+    WorkflowResourceSpec,
+)
 from tracecat.workspace_sync.service import WorkspaceSyncService
 
 
@@ -146,3 +151,39 @@ def test_export_errors_have_deterministic_bounded_diagnostics() -> None:
     assert len(error.diagnostics) == 50
     assert error.omitted_count == 5
     assert [item.workflow_id.int for item in error.diagnostics] == list(range(50))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "field",
+    ["triggers", "folder_path", "tags", "schedules", "webhook", "case_trigger", "form"],
+)
+async def test_export_diagnostics_name_safe_definition_and_resource_fields(
+    svc_role: Role, field: str
+) -> None:
+    content = _dsl().model_dump()
+    if field == "triggers":
+        content[field] = "synthetic-private-input"
+        with pytest.raises(ValidationError) as raised:
+            DSLInput.model_validate(content)
+    else:
+        with pytest.raises(ValidationError) as raised:
+            WorkflowResourceSpec.model_validate(
+                {
+                    "id": "synthetic-workflow",
+                    "definition": content,
+                    field: {"private": "synthetic-private-input"}
+                    if field == "folder_path"
+                    else "synthetic-private-input",
+                }
+            )
+    workflow = Workflow(id=uuid.uuid4(), title="Synthetic invalid metadata")
+    error = WorkflowExportDiagnosticsService(
+        session=AsyncMock(spec=AsyncSession), role=svc_role
+    ).validation_error(workflow, error=raised.value)
+    assert (
+        error.diagnostics[0].message
+        == f"Check these workflow fields before pushing: {field}."
+    )
+    assert "synthetic-private-input" not in str(error)
+    assert "private" not in str(error)

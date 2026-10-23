@@ -51,6 +51,15 @@ class WorkflowExportDiagnosticsService(BaseWorkspaceService):
                         "config",
                         "returns",
                         "error_handler",
+                        "triggers",
+                        "alias",
+                        "definition",
+                        "folder_path",
+                        "tags",
+                        "schedules",
+                        "webhook",
+                        "case_trigger",
+                        "form",
                     }
                 }
             )

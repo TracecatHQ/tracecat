@@ -5,6 +5,8 @@ import {
   getExportError,
 } from "@/components/workspace-sync/export-error"
 
+import { GitSyncNotice } from "@/components/workspace-sync/git-sync-change-list"
+
 function apiError(body: unknown) {
   return Object.assign(new Error("Request failed"), { body })
 }
@@ -63,4 +65,62 @@ test("rejects invalid link targets and falls back to legacy detail", () => {
   render(<ExportErrorMessage workspaceId="example" error={error} />)
   expect(screen.queryByRole("link")).not.toBeInTheDocument()
   expect(screen.getByText("Invalid workflow")).toBeInTheDocument()
+})
+
+const validDiagnostic = {
+  workflow_id: "00000000-0000-4000-8000-000000000001",
+  workflow_title: "Synthetic workflow",
+  stage: "definition",
+  code: "no_actions",
+  message: "Add an action before pushing.",
+}
+
+test.each([
+  null,
+  {},
+  new Error(),
+  apiError({ detail: "Legacy failure" }),
+  apiError({ diagnostics: {} }),
+])("ignores an error without usable diagnostics: %p", (error) =>
+  expect(getExportError(error)).toBeNull()
+)
+
+test.each([
+  { workflow_id: "https://example.com" },
+  { workflow_title: null },
+  { workflow_title: 42 },
+  { message: null },
+])(
+  "filters malformed diagnostics while retaining valid siblings: %p",
+  (invalid) => {
+    expect(
+      getExportError(
+        apiError({
+          detail: "Synthetic failure",
+          diagnostics: [{ ...validDiagnostic, ...invalid }, validDiagnostic],
+        })
+      )
+    ).toEqual({
+      detail: "Synthetic failure",
+      diagnostics: [validDiagnostic],
+      omitted_count: 0,
+    })
+  }
+)
+
+test("preview notice announces the diagnostic list once", () => {
+  render(
+    <GitSyncNotice tone="error">
+      Could not preview this push:
+      <ExportErrorMessage
+        announce={false}
+        workspaceId="synthetic"
+        error={apiError({ diagnostics: [validDiagnostic] })}
+      />
+    </GitSyncNotice>
+  )
+  expect(screen.getAllByRole("alert")).toHaveLength(1)
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "Add an action before pushing."
+  )
 })
