@@ -845,9 +845,8 @@ async def test_persist_edit_document_maps_alias_integrity_error(
     IntegrityError -> WorkflowEditError mapping keeps that race recoverable
     instead of letting the unique violation escape as a 500.
     """
-    from asyncpg import UniqueViolationError
-    from sqlalchemy.exc import IntegrityError
 
+    from tests._db_error_utils import unique_violation
     from tracecat.db.common import DBConstraints
     from tracecat.workflow.management.draft import (
         WorkflowEditError,
@@ -866,16 +865,7 @@ async def test_persist_edit_document_maps_alias_integrity_error(
         }
     )
 
-    # Build an IntegrityError whose root cause is the alias unique violation.
-    unique_violation = UniqueViolationError(
-        f"duplicate key value violates unique constraint "
-        f'"{DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE}"'
-    )
-    integrity_error = IntegrityError("stmt", {}, unique_violation)
-    # SQLAlchemy raises the IntegrityError ``from`` the DBAPI error, so the
-    # asyncpg cause is reachable via ``__cause__``; the constructor alone does
-    # not set it, so mirror real behavior for the cause-chain traversal.
-    integrity_error.__cause__ = unique_violation
+    integrity_error = unique_violation(DBConstraints.WORKFLOW_ALIAS_UNIQUE_IN_WORKSPACE)
 
     commit_mock = AsyncMock(side_effect=integrity_error)
     session = SimpleNamespace(

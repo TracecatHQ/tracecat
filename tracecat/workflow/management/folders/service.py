@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat.authz.controls import require_scope
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     CaseTrigger,
     Schedule,
@@ -96,15 +97,20 @@ class WorkflowFolderService(BaseWorkspaceService):
         *,
         conflict_path: str,
         commit: bool,
+        old_path: str | None = None,
     ) -> None:
         """Persist a folder write and translate unique conflicts cleanly."""
         try:
+            if old_path is not None and old_path != conflict_path:
+                await self._update_descendant_paths(old_path, conflict_path)
             if commit:
                 await self.session.commit()
             else:
                 await self.session.flush()
         except IntegrityError as exc:
             await self.session.rollback()
+            if not is_unique_violation(exc, "uq_workflow_folder_path_workspace"):
+                raise
             raise self._folder_validation_error(
                 f"Folder {conflict_path} already exists",
                 code=WorkflowFolderErrorCode.CONFLICT,
@@ -313,10 +319,9 @@ class WorkflowFolderService(BaseWorkspaceService):
         folder.path = new_path
         self.session.add(folder)
 
-        if new_path != old_path:
-            await self._update_descendant_paths(old_path, new_path)
-
-        await self._write_folder_change(conflict_path=new_path, commit=True)
+        await self._write_folder_change(
+            conflict_path=new_path, commit=True, old_path=old_path
+        )
         await self.session.refresh(folder)
         return folder
 
@@ -388,10 +393,9 @@ class WorkflowFolderService(BaseWorkspaceService):
         folder.path = new_path
         self.session.add(folder)
 
-        if new_path != old_path:
-            await self._update_descendant_paths(old_path, new_path)
-
-        await self._write_folder_change(conflict_path=new_path, commit=True)
+        await self._write_folder_change(
+            conflict_path=new_path, commit=True, old_path=old_path
+        )
         await self.session.refresh(folder)
         return folder
 

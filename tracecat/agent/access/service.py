@@ -23,6 +23,7 @@ from tracecat.agent.catalog.schemas import (
 from tracecat.agent.default_model import resolve_org_default_model
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     AgentCatalog,
     AgentCustomProvider,
@@ -91,11 +92,13 @@ class AgentModelAccessService(BaseOrgService):
             await self.session.commit()
         except IntegrityError as err:
             await self.session.rollback()
-            pgcode = getattr(getattr(err, "orig", None), "pgcode", None)
-            if pgcode == "23505":
+            if is_unique_violation(
+                err, "uq_agent_model_access_organization_workspace_catalog"
+            ):
                 raise TracecatValidationError(
                     f"Model access for catalog {catalog_id} already enabled"
                 ) from err
+            pgcode = getattr(getattr(err, "orig", None), "pgcode", None)
             if pgcode == "23503":
                 raise TracecatNotFoundError(
                     f"Catalog {catalog_id} or workspace {workspace_id} not found"

@@ -6,10 +6,10 @@ from types import ModuleType
 from unittest.mock import ANY, AsyncMock, patch
 
 import pytest
-from asyncpg import DuplicateColumnError
+from asyncpg import CharacterNotInRepertoireError, DuplicateColumnError
 from fastapi import status
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from tracecat.auth.types import Role
 from tracecat.cases import filters as case_filters
@@ -768,6 +768,30 @@ async def test_update_case_invalid_integer_fields_returns_400(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json()["detail"] == "Invalid integer value: '1.5'"
+
+
+@pytest.mark.anyio
+async def test_update_case_unstorable_input_returns_422(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    with patch.object(cases_router, "CasesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_case.return_value = mock_case
+        mock_svc.update_case.side_effect = DBAPIError(
+            "UPDATE ...", {}, CharacterNotInRepertoireError("private")
+        )
+        MockService.return_value = mock_svc
+
+        response = client.patch(
+            f"/cases/{mock_case.id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"summary": "bad"},
+        )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert "private" not in response.text
 
 
 @pytest.mark.anyio

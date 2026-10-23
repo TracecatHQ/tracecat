@@ -26,6 +26,7 @@ from sqlalchemy import values as sql_values
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -50,6 +51,7 @@ from tracecat.cases.durations.sync_queue import (
 )
 from tracecat.cases.enums import CaseEventType
 from tracecat.concurrency import cooperative_every
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import Case, CaseDuration, CaseEvent
 from tracecat.db.models import CaseDurationDefinition as CaseDurationDefinitionDB
 from tracecat.exceptions import (
@@ -115,10 +117,20 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
             **self._anchor_attributes(params.end_anchor, "end"),
         )
         self.session.add(entity)
-        await self._backfill_after_definition_change(
-            reason="duration_definition_created"
-        )
-        await self.session.commit()
+        try:
+            await self._backfill_after_definition_change(
+                reason="duration_definition_created"
+            )
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if not is_unique_violation(
+                exc, "uq_case_duration_definition_workspace_name"
+            ):
+                raise
+            raise TracecatValidationError(
+                f"A duration named '{params.name}' already exists"
+            ) from exc
         await self.session.refresh(entity)
         return self._to_read_model(entity)
 
@@ -160,11 +172,21 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
             self._apply_anchor(entity, end_anchor, "end")
 
         self.session.add(entity)
-        if self._anchor_storage_state(entity) != anchor_state_before:
-            await self._backfill_after_definition_change(
-                reason="duration_definition_updated"
-            )
-        await self.session.commit()
+        try:
+            if self._anchor_storage_state(entity) != anchor_state_before:
+                await self._backfill_after_definition_change(
+                    reason="duration_definition_updated"
+                )
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if not is_unique_violation(
+                exc, "uq_case_duration_definition_workspace_name"
+            ):
+                raise
+            raise TracecatValidationError(
+                f"A duration named '{params.name}' already exists"
+            ) from exc
         await self.session.refresh(entity)
         return self._to_read_model(entity)
 
@@ -493,6 +515,26 @@ class CaseDurationService(BaseWorkspaceService):
         entity = await self._get_case_duration_entity(duration_id, case_obj.id)
         return self._to_read_model(entity)
 
+    async def _validate_event_references(
+        self, case_id: uuid.UUID, *event_ids: uuid.UUID | None
+    ) -> None:
+        requested = {event_id for event_id in event_ids if event_id is not None}
+        if not requested:
+            return
+        found = set(
+            await self.session.scalars(
+                select(CaseEvent.id)
+                .where(
+                    CaseEvent.workspace_id == self.workspace_id,
+                    CaseEvent.case_id == case_id,
+                    CaseEvent.id.in_(requested),
+                )
+                .with_for_update(read=True, key_share=True)
+            )
+        )
+        if found != requested:
+            raise TracecatNotFoundError("Duration event not found on case")
+
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def create_duration(
         self, case: Case | uuid.UUID, params: CaseDurationCreate
@@ -502,6 +544,9 @@ class CaseDurationService(BaseWorkspaceService):
         case_obj = await self._resolve_case(case)
         await self.definitions.get_definition(params.definition_id)
         await self._ensure_unique_case_duration(case_obj.id, params.definition_id)
+        await self._validate_event_references(
+            case_obj.id, params.start_event_id, params.end_event_id
+        )
 
         entity = CaseDuration(
             workspace_id=self.workspace_id,
@@ -514,7 +559,15 @@ class CaseDurationService(BaseWorkspaceService):
             duration=params.duration,
         )
         self.session.add(entity)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if not is_unique_violation(exc, "uq_case_duration_case_definition"):
+                raise
+            raise TracecatValidationError(
+                "A duration for this definition already exists on the case"
+            ) from exc
         await self.session.refresh(entity)
         return self._to_read_model(entity)
 
@@ -529,6 +582,10 @@ class CaseDurationService(BaseWorkspaceService):
         updates = params.model_dump(exclude_unset=True)
         if not updates:
             return self._to_read_model(entity)
+
+        await self._validate_event_references(
+            case_obj.id, updates.get("start_event_id"), updates.get("end_event_id")
+        )
 
         if (definition_id := updates.get("definition_id")) is not None:
             await self.definitions.get_definition(definition_id)
@@ -548,7 +605,15 @@ class CaseDurationService(BaseWorkspaceService):
                 setattr(entity, field, updates[field])
 
         self.session.add(entity)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if not is_unique_violation(exc, "uq_case_duration_case_definition"):
+                raise
+            raise TracecatValidationError(
+                "A duration for this definition already exists on the case"
+            ) from exc
         await self.session.refresh(entity)
         return self._to_read_model(entity)
 

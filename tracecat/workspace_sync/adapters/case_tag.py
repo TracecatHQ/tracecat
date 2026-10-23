@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import CaseTag
 from tracecat.workspace_sync.adapters.base import (
     FlatManifestAdapter,
@@ -174,6 +175,10 @@ class CaseTagAdapter(FlatManifestAdapter):
         try:
             await workspace_service.session.flush()
         except IntegrityError as e:
+            if not is_unique_violation(
+                e, "uq_case_tag_name_workspace", "uq_case_tag_ref_workspace"
+            ):
+                raise
             raise ValueError(
                 "Case tag sync encountered a duplicate tag name or ref"
             ) from e
@@ -198,6 +203,10 @@ class CaseTagAdapter(FlatManifestAdapter):
         try:
             await workspace_service.session.flush()
         except IntegrityError as e:
+            if not is_unique_violation(
+                e, "uq_case_tag_name_workspace", "uq_case_tag_ref_workspace"
+            ):
+                raise
             raise ValueError(
                 "Case tag sync encountered a duplicate tag name or ref"
             ) from e

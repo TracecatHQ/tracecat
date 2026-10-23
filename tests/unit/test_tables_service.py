@@ -2922,6 +2922,25 @@ async def test_duplicate_row_is_safe_conflict(
 
 
 @pytest.mark.anyio
+async def test_duplicate_row_update_is_safe_conflict(
+    tables_service: TablesService, required_row_table: Table
+) -> None:
+    await tables_service.insert_row(
+        required_row_table, TableRowInsert(data={"record_key": "private-test-value"})
+    )
+    row = await tables_service.insert_row(
+        required_row_table, TableRowInsert(data={"record_key": "other"})
+    )
+    with pytest.raises(TableRowError) as exc:
+        await tables_service.update_row(
+            required_row_table, row["id"], {"record_key": "private-test-value"}
+        )
+    assert exc.value.code == "duplicate_value"
+    assert exc.value.__context__ is None
+    await tables_service.session.rollback()
+
+
+@pytest.mark.anyio
 async def test_batch_upsert_repeated_key_is_safe_conflict(
     tables_service: TablesService, required_row_table: Table
 ) -> None:

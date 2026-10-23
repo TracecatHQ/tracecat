@@ -28,6 +28,7 @@ from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.tables.common import ColumnHasDuplicateValuesError
 from tracecat.tables.enums import SqlType
+from tracecat.tables.exceptions import TableRowError
 from tracecat.tables.importer import CSVImporter, normalize_csv_header
 from tracecat.tables.schemas import (
     InferredColumn,
@@ -232,7 +233,7 @@ async def update_table(
             ) from e
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected DB error occurred: {e}",
+            detail="An error occurred while updating the table",
         ) from e
     return await _build_table_read(service, table.id)
 
@@ -292,7 +293,7 @@ async def create_column(
             ) from e
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error occurred: {e}",
+            detail="An unexpected error occurred",
         ) from e
     index_columns = await service.get_index(table)
     return _build_column_read(column, index_columns=index_columns)
@@ -342,7 +343,7 @@ async def update_column(
             ) from e
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error occurred: {e}",
+            detail="An unexpected error occurred",
         ) from e
     table = await service.get_table(table_id)
     index_columns = await service.get_index(table)
@@ -718,7 +719,7 @@ async def import_table_from_csv(
                 for column in inferred_columns
             ],
         )
-    except HTTPException:
+    except (HTTPException, TableRowError):
         raise
     except TracecatImportError as e:
         raise HTTPException(
@@ -728,7 +729,7 @@ async def import_table_from_csv(
         logger.warning(f"Unexpected error during table import: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error processing CSV: {str(e)}",
+            detail="Error processing CSV",
         ) from e
 
 
@@ -826,7 +827,7 @@ async def import_csv(
 
         # Process remaining rows
         await importer.process_chunk(current_chunk, service, table)
-    except HTTPException:
+    except (HTTPException, TableRowError):
         raise
     except TracecatImportError as e:
         logger.warning(f"Error during import: {e}")
@@ -838,7 +839,7 @@ async def import_csv(
         logger.warning(f"Unexpected error during import: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error processing CSV: {str(e)}",
+            detail="Error processing CSV",
         ) from e
     finally:
         if csv_file is not None:

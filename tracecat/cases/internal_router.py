@@ -72,6 +72,7 @@ from tracecat.cases.service import (
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.core.schemas import Schema
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.errors import is_data_error
 from tracecat.db.models import Case
 from tracecat.exceptions import (
     EntitlementRequired,
@@ -523,7 +524,7 @@ async def create_case(
     service = CasesService(session, role)
     try:
         case = await service.create_case(params)
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -591,12 +592,18 @@ async def update_case(
         )
     try:
         updated_case = await service.update_case(case, params)
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
     except DBAPIError as e:
+        if is_data_error(e):
+            raise
         logger.exception("Database error occurred during case operation")
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1412,6 +1419,8 @@ async def update_case_simple(
             detail=str(e),
         ) from e
     except DBAPIError as e:
+        if is_data_error(e):
+            raise
         logger.exception("Database error occurred during case operation")
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,

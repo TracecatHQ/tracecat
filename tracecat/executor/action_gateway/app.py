@@ -15,11 +15,11 @@ from fastapi import (
 )
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import ORJSONResponse
-from pydantic_core import to_jsonable_python
 
 from tracecat.api.common import (
     query_overflow_exception_handler,
     query_timeout_exception_handler,
+    serialize_validation_errors,
     table_row_exception_handler,
     without_inputs,
 )
@@ -75,7 +75,7 @@ def validation_exception_handler(request: Request, exc: Exception) -> Response:
     action error that is kept with the run.
     """
     errors = (
-        to_jsonable_python(without_inputs(exc.errors()), fallback=str)
+        serialize_validation_errors(without_inputs(exc.errors()))
         if isinstance(exc, RequestValidationError)
         else str(exc)
     )
@@ -187,9 +187,11 @@ def _include_internal_routers(app: FastAPI) -> None:
 def _add_exception_handlers(app: FastAPI) -> None:
     """Install API-compatible exception handlers on the action gateway."""
     from fastapi import HTTPException
+    from sqlalchemy.exc import DBAPIError
 
     from tracecat.api.common import (
         auth_pool_exhausted_exception_handler,
+        database_exception_handler,
         generic_exception_handler,
         http_exception_handler,
         tracecat_exception_handler,
@@ -207,6 +209,7 @@ def _add_exception_handlers(app: FastAPI) -> None:
         AuthPoolExhaustedError,
         auth_pool_exhausted_exception_handler,
     )
+    app.add_exception_handler(DBAPIError, database_exception_handler)
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(TableRowError, table_row_exception_handler)
     app.add_exception_handler(FormError, form_error_handler)

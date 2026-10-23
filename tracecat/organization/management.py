@@ -19,6 +19,7 @@ from tracecat.authz.membership import ensure_member
 from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     AccessToken,
     MCPRefreshToken,
@@ -134,6 +135,8 @@ async def create_organization(
         await session.flush()
     except IntegrityError as e:
         await session.rollback()
+        if not is_unique_violation(e, "ix_organization_slug"):
+            raise
         raise ValueError(f"Organization with slug '{slug}' already exists") from e
 
     return org

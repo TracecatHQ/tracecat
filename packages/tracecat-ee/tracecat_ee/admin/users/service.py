@@ -11,6 +11,7 @@ from sqlalchemy.orm import Mapped
 from tracecat.audit.logger import audit_log
 from tracecat.auth.schemas import UserCreate, UserRole
 from tracecat.auth.users import get_user_db_context, get_user_manager_context
+from tracecat.db.errors import is_unique_violation
 from tracecat.db.models import (
     AccessToken,
     Approval,
@@ -63,6 +64,8 @@ class AdminUserService(BasePlatformService):
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
+            if not is_unique_violation(e, "ix_user_email"):
+                raise
             raise ValueError(f"User with email {params.email} already exists") from e
 
         await self.session.refresh(user)
