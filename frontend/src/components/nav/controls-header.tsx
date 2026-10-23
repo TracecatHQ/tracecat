@@ -888,6 +888,17 @@ function CasesActions() {
         resources={["case_dropdown"]}
       />
     )
+  } else if (view === CasesViewMode.ClosureRequirements) {
+    // Nothing to push or create here; keep disabled placeholders so the
+    // header doesn't shift when switching tabs.
+    syncActions = (
+      <WorkspaceResourceSyncActions
+        label="closure requirements"
+        branchSlug="case-closure-requirements"
+        resources={["case_field", "case_dropdown"]}
+        disabled
+      />
+    )
   }
 
   return (
@@ -910,7 +921,17 @@ function CasesActions() {
         <AddCaseTag />
       ) : view === CasesViewMode.Dropdowns ? (
         <AddCaseDropdown />
-      ) : view === CasesViewMode.ClosureRequirements ? null : (
+      ) : view === CasesViewMode.ClosureRequirements ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 bg-background"
+          disabled
+        >
+          <Plus className="mr-1 h-3.5 w-3.5" />
+          Create
+        </Button>
+      ) : (
         <>
           <Button
             variant="outline"
