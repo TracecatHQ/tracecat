@@ -184,11 +184,10 @@ async def deduplicate(
         ),
     ] = True,
 ) -> list[dict[str, Any]]:
-    if not items:
-        return []
-
     # Normalize input to list
     items_list = [items] if isinstance(items, dict) else items
+    if not items_list:
+        return []
 
     def get_nested_values(item: dict[str, Any], keys: list[str]) -> tuple[Any, ...]:
         if not keys:

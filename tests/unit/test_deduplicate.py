@@ -172,17 +172,19 @@ class TestDeduplicateTransform:
                 ["id"],
                 [{"id": 1, "v": "new", "x": 1}],
             ),
+            ({}, [], [{}]),
         ],
         ids=[
             "empty-keys-whole-item",
             "empty-keys-ignores-field-order",
             "missing-key-is-none",
             "same-key-items-merge",
+            "single-empty-object-is-an-item",
         ],
     )
     async def test_within_call_keys(
         self,
-        items: list[dict[str, Any]],
+        items: dict[str, Any] | list[dict[str, Any]],
         keys: list[str],
         expected: list[dict[str, Any]],
     ) -> None:
