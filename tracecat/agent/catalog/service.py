@@ -25,10 +25,11 @@ from tracecat.agent.catalog.bundled import get_retired_platform_models
 from tracecat.agent.catalog.lifecycle import read_model_lifecycle
 from tracecat.agent.catalog.schemas import AgentCatalogRead
 from tracecat.agent.catalog.types import ModelKey, ModelReplacement
+from tracecat.agent.default_model import list_saved_default_models
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
-from tracecat.db.models import AgentCatalog, AgentCustomProvider
+from tracecat.db.models import AgentCatalog, AgentCustomProvider, AgentModelAccess
 from tracecat.exceptions import (
     AgentModelRetiredError,
     TracecatAuthorizationError,
@@ -89,9 +90,22 @@ class AgentCatalogService(BaseService):
 
         Only rows named in ``retired`` are deleted, never rows merely missing
         from ``entries``, so an unreadable bundle cannot empty the catalog.
+        A retired row stays while a workspace subset or a saved org default
+        still references it; a later startup deletes it once unreferenced.
         """
         if retired:
-            # Access rows cascade; preset catalog_id is set null and swaps by name.
+            default_ids, default_names = await list_saved_default_models(self.session)
+            # Deleting the last row of a workspace subset would widen it to
+            # the org set, since an empty subset means "inherit".
+            in_workspace_subset = (
+                select(AgentModelAccess.id)
+                .where(
+                    AgentModelAccess.catalog_id == AgentCatalog.id,
+                    AgentModelAccess.workspace_id.is_not(None),
+                )
+                .exists()
+            )
+            # Org access rows cascade; preset catalog_id is set null and swaps by name.
             await self.session.execute(
                 sa.delete(AgentCatalog).where(
                     AgentCatalog.organization_id.is_(None),
@@ -99,6 +113,9 @@ class AgentCatalogService(BaseService):
                     tuple_(AgentCatalog.model_provider, AgentCatalog.model_name).in_(
                         [tuple(key) for key in retired]
                     ),
+                    ~in_workspace_subset,
+                    AgentCatalog.id.not_in(default_ids),
+                    AgentCatalog.model_name.not_in(default_names),
                 )
             )
         if not entries:
