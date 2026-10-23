@@ -15,7 +15,7 @@ import {
   keymap,
   WidgetType,
 } from "@codemirror/view"
-import { WorkflowIcon } from "lucide-react"
+import { Loader2, Save, WorkflowIcon } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
 import type { FormRead } from "@/client"
@@ -25,6 +25,11 @@ import { tracecatSyntaxHighlighting } from "@/components/editor/codemirror/synta
 import { FormVisualEditor } from "@/components/forms/form-visual-editor"
 import { Button } from "@/components/ui/button"
 import { ToggleTabs } from "@/components/ui/toggle-tabs"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import type { FormConfigCheck, FormConfigDraft } from "@/hooks/use-form-config"
 import { useUpdateForm } from "@/hooks/use-forms"
@@ -408,14 +413,25 @@ export function FormConfigTab({
           </button>
         )}
         {canEdit && (
-          <Button
-            size="sm"
-            className="h-7 px-3 text-xs"
-            disabled={!canSave || draft.hasRemoteChange}
-            onClick={() => save()}
-          >
-            {isSaving ? "Saving..." : "Save"}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-7"
+                disabled={!canSave || draft.hasRemoteChange}
+                onClick={() => save()}
+              >
+                {isSaving ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Save className="size-4" />
+                )}
+                <span className="sr-only">Save</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Save</TooltipContent>
+          </Tooltip>
         )}
       </div>
 
