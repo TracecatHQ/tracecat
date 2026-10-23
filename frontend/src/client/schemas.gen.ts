@@ -42368,6 +42368,11 @@ export const $WorkflowFolderDelete = {
       title: "Recursive",
       default: false,
     },
+    delete_workflows: {
+      type: "boolean",
+      title: "Delete Workflows",
+      default: false,
+    },
   },
   type: "object",
   title: "WorkflowFolderDelete",
