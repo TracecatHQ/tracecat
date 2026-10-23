@@ -14,8 +14,24 @@ what the lookups already assume. The index is additive: the previous app can
 still run against the migrated schema, and a duplicate insert now fails
 closed instead of persisting a corrupt duplicate.
 
-If case-variant duplicates already exist, the upgrade raises with the
-conflicting emails and makes no changes; resolve them manually and re-run.
+If case-variant duplicates already exist, the upgrade reports only the number
+of conflicting groups and makes no changes.
+
+Operator recovery (outside the migration job): use an approved, access-controlled
+database session with SELECT permission on the user table to inspect conflicts:
+
+    SELECT id, email FROM "user"
+    WHERE lower(email) IN (
+        SELECT lower(email) FROM "user"
+        GROUP BY lower(email) HAVING count(*) > 1
+    )
+    ORDER BY lower(email), id;
+
+Keep query results in the restricted session, not deployment logs or tickets.
+Confirm account ownership and dependencies before an authorized operator resolves
+the conflicting accounts through the approved account-management process. Do not
+blindly delete or merge rows. Re-run the query until it returns no rows, then retry
+the migration. The migration never rewrites or deletes users.
 
 """
 
@@ -33,21 +49,22 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    duplicates = (
+    duplicate_group_count = (
         op.get_bind()
         .execute(
             sa.text(
-                "SELECT lower(email) AS email_key, array_agg(email) AS emails"
-                ' FROM "user" GROUP BY email_key HAVING count(*) > 1'
+                "SELECT count(*) FROM ("
+                ' SELECT 1 FROM "user" GROUP BY lower(email) HAVING count(*) > 1'
+                ") AS duplicate_groups"
             )
         )
-        .all()
+        .scalar_one()
     )
-    if duplicates:
-        details = ", ".join(email for row in duplicates for email in sorted(row.emails))
+    if duplicate_group_count:
         raise RuntimeError(
-            "Found user emails that differ only by case; resolve these "
-            f"duplicates before continuing: {details}"
+            f"Found {duplicate_group_count} case-insensitive duplicate user email "
+            "groups; resolve these before continuing. See revision 14588b612098 "
+            "for restricted operator inspection instructions."
         )
     op.create_index(
         "ix_user_email_lower", "user", [sa.text("lower(email)")], unique=True
