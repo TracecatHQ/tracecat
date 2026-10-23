@@ -1969,10 +1969,16 @@ def _patch_refresh(
         "tracecat.mcp.oidc.endpoints.get_async_session_bypass_rls_context_manager",
         tracked_bypass_session_context_manager,
     )
-    monkeypatch.setattr(
-        "tracecat.mcp.oidc.endpoints.rotate_refresh_token",
-        AsyncMock(return_value=(ctx, "new-rotated-refresh-token")),
-    )
+
+    async def rotate(*_args, resolve_grant, **_kwargs):
+        primary, granted = await resolve_grant(ctx)
+        metadata = ctx.metadata.model_copy(update={"organization_ids": granted})
+        narrowed = ctx.model_copy(
+            update={"organization_id": primary, "metadata": metadata}
+        )
+        return narrowed, "new-rotated-refresh-token"
+
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.rotate_refresh_token", rotate)
     monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_jti", AsyncMock())
     return tracked_session
 

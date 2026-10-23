@@ -140,7 +140,10 @@ def _install_membership_token_revoker(conn: Any) -> None:
                 UPDATE mcp_refresh_token
                 SET status = 'revoked'
                 WHERE user_id = OLD.user_id
-                  AND organization_id = OLD.organization_id
+                  AND (
+                      organization_id = OLD.organization_id
+                      OR OLD.organization_id = ANY(granted_organization_ids)
+                  )
                   AND status = 'active';
 
                 RETURN OLD;

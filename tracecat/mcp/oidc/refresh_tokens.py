@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
 import orjson
@@ -29,6 +30,11 @@ from tracecat.logger import logger
 from tracecat.mcp.oidc import config as oidc_config
 from tracecat.mcp.oidc.schemas import RefreshTokenContext, RefreshTokenMetadata
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
+
+GrantResolver = Callable[
+    [RefreshTokenContext], Awaitable[tuple[uuid.UUID, list[uuid.UUID]]]
+]
+"""Returns the primary org and granted orgs the rotated token keeps."""
 
 
 class RefreshTokenError(Exception):
@@ -93,6 +99,7 @@ async def issue_refresh_token(
         family_id=family_id or uuid.uuid4(),
         user_id=user_id,
         organization_id=organization_id,
+        granted_organization_ids=metadata.organization_ids,
         client_id=client_id,
         encrypted_metadata=_encode_metadata(metadata),
         status="active",
@@ -109,8 +116,12 @@ async def rotate_refresh_token(
     *,
     token: str,
     client_id: str,
+    resolve_grant: GrantResolver | None = None,
 ) -> tuple[RefreshTokenContext, str]:
     """Atomically consume and replace a refresh token.
+
+    ``resolve_grant`` narrows the granted orgs; the replacement token stores the
+    narrowed grant so orgs that dropped off never come back on later refreshes.
 
     This keeps the replay-detection transition and replacement-token insertion
     in a single database transaction so concurrent replays cannot slip a fresh
@@ -174,6 +185,24 @@ async def rotate_refresh_token(
         raise RefreshTokenError(
             "invalid_grant", "Refresh token is invalid or expired"
         ) from exc
+    ctx = RefreshTokenContext(
+        family_id=row.family_id,
+        user_id=row.user_id,
+        organization_id=row.organization_id,
+        client_id=row.client_id,
+        metadata=metadata,
+    )
+    if resolve_grant is not None:
+        primary_org_id, granted_org_ids = await resolve_grant(ctx)
+        ctx = ctx.model_copy(
+            update={
+                "organization_id": primary_org_id,
+                "metadata": metadata.model_copy(
+                    update={"organization_ids": granted_org_ids}
+                ),
+            }
+        )
+
     row.status = "used"
     new_refresh_token = secrets.token_urlsafe(32)
     session.add(
@@ -181,9 +210,10 @@ async def rotate_refresh_token(
             token_hash=_hash_token(new_refresh_token),
             family_id=row.family_id,
             user_id=row.user_id,
-            organization_id=row.organization_id,
+            organization_id=ctx.organization_id,
+            granted_organization_ids=ctx.metadata.organization_ids,
             client_id=row.client_id,
-            encrypted_metadata=row.encrypted_metadata,
+            encrypted_metadata=_encode_metadata(ctx.metadata),
             status="active",
             # Rotation uses a rolling expiry window: each successful refresh
             # renews the family for another REFRESH_TOKEN_LIFETIME_SECONDS.
@@ -192,13 +222,6 @@ async def rotate_refresh_token(
         )
     )
 
-    ctx = RefreshTokenContext(
-        family_id=row.family_id,
-        user_id=row.user_id,
-        organization_id=row.organization_id,
-        client_id=row.client_id,
-        metadata=metadata,
-    )
     if new_refresh_token is None:  # pragma: no cover - defensive
         raise RuntimeError("Refresh token rotation completed without a result")
     return ctx, new_refresh_token

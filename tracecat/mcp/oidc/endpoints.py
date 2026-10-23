@@ -48,6 +48,7 @@ from tracecat.mcp.oidc.schemas import (
     OrganizationSelectionRequest,
     OrganizationSelectionResult,
     OrganizationSelectionTransaction,
+    RefreshTokenContext,
     RefreshTokenMetadata,
     ResumeTransaction,
 )
@@ -983,18 +984,27 @@ async def _handle_refresh_token_grant(
     try:
         async with get_async_session_bypass_rls_context_manager() as refresh_session:
             try:
+
+                async def resolve_grant(
+                    token_ctx: RefreshTokenContext,
+                ) -> tuple[OrganizationID, list[OrganizationID]]:
+                    return await _current_granted_orgs(
+                        refresh_session,
+                        user_id=token_ctx.user_id,
+                        primary_org_id=token_ctx.organization_id,
+                        approved_org_ids=token_ctx.metadata.organization_ids,
+                    )
+
                 ctx, new_refresh_token = await rotate_refresh_token(
-                    refresh_session, token=refresh_token, client_id=auth_client_id
-                )
-                primary_org_id, granted_org_ids = await _current_granted_orgs(
                     refresh_session,
-                    user_id=ctx.user_id,
-                    primary_org_id=ctx.organization_id,
-                    approved_org_ids=ctx.metadata.organization_ids,
+                    token=refresh_token,
+                    client_id=auth_client_id,
+                    resolve_grant=resolve_grant,
                 )
+                granted_org_ids = ctx.metadata.organization_ids or [ctx.organization_id]
                 access_token, jti, _ = _mint_access_token(
                     user_id=str(ctx.user_id),
-                    organization_id=str(primary_org_id),
+                    organization_id=str(ctx.organization_id),
                     organization_ids=[str(org_id) for org_id in granted_org_ids],
                     email=ctx.metadata.email,
                     is_platform_superuser=ctx.metadata.is_platform_superuser,

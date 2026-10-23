@@ -278,6 +278,49 @@ async def test_rotate_refresh_token_issues_replacement_and_marks_old_used(
 
 
 @pytest.mark.anyio
+async def test_rotate_refresh_token_persists_narrowed_grant(
+    session: AsyncSession,
+    svc_organization: Organization,
+    test_user: User,
+) -> None:
+    dropped = uuid.uuid4()
+    token_a = await issue_refresh_token(
+        session,
+        user_id=test_user.id,
+        organization_id=svc_organization.id,
+        client_id=_TEST_CLIENT_ID,
+        metadata=_make_metadata(organization_ids=[svc_organization.id, dropped]),
+    )
+
+    async def resolve_grant(ctx):
+        return ctx.organization_id, [svc_organization.id]
+
+    ctx, token_b = await rotate_refresh_token(
+        session,
+        token=token_a,
+        client_id=_TEST_CLIENT_ID,
+        resolve_grant=resolve_grant,
+    )
+    await session.commit()
+    assert ctx.metadata.organization_ids == [svc_organization.id]
+
+    row_b = (
+        await session.execute(
+            select(MCPRefreshToken).where(
+                MCPRefreshToken.token_hash == _hash_token(token_b)
+            )
+        )
+    ).scalar_one()
+    assert row_b.granted_organization_ids == [svc_organization.id]
+
+    # The dropped org stays gone even if the next refresh doesn't narrow.
+    ctx_c, _ = await rotate_refresh_token(
+        session, token=token_b, client_id=_TEST_CLIENT_ID
+    )
+    assert ctx_c.metadata.organization_ids == [svc_organization.id]
+
+
+@pytest.mark.anyio
 async def test_rotate_refresh_token_renews_expiry_window(
     session: AsyncSession,
     svc_organization: Organization,
