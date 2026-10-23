@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import hashlib
+import asyncio
 import secrets
 import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, cast
 
+from fastapi_users.password import PasswordHelper
 from fido2 import cbor
 from fido2.cose import CoseKey
 from fido2.webauthn import (
@@ -36,6 +37,10 @@ from tracecat.exceptions import TracecatNotFoundError
 from tracecat.logger import logger
 
 _RECOVERY_CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
+# 20 characters from a 31-character alphabet is about 99 bits of entropy.
+_RECOVERY_CODE_LENGTH = 20
+_RECOVERY_CODE_GROUP = 5
+_recovery_code_hasher = PasswordHelper()
 
 
 class MfaVerificationError(Exception):
@@ -47,12 +52,27 @@ def _normalize_recovery_code(code: str) -> str:
 
 
 def _hash_recovery_code(code: str) -> str:
-    return hashlib.sha256(_normalize_recovery_code(code).encode()).hexdigest()
+    return _recovery_code_hasher.hash(_normalize_recovery_code(code))
+
+
+def _recovery_code_matches(normalized_code: str, code_hash: str) -> bool:
+    try:
+        verified, _ = _recovery_code_hasher.verify_and_update(
+            normalized_code, code_hash
+        )
+    except Exception:
+        return False
+    return verified
 
 
 def _generate_recovery_code() -> str:
-    raw = "".join(secrets.choice(_RECOVERY_CODE_ALPHABET) for _ in range(10))
-    return f"{raw[:5]}-{raw[5:]}"
+    raw = "".join(
+        secrets.choice(_RECOVERY_CODE_ALPHABET) for _ in range(_RECOVERY_CODE_LENGTH)
+    )
+    return "-".join(
+        raw[i : i + _RECOVERY_CODE_GROUP]
+        for i in range(0, _RECOVERY_CODE_LENGTH, _RECOVERY_CODE_GROUP)
+    )
 
 
 def _to_attested(credential: WebAuthnCredential) -> AttestedCredentialData:
@@ -158,12 +178,19 @@ class MfaService:
         return int(result.scalar_one())
 
     async def reset_user_mfa(self, user_id: uuid.UUID) -> int:
-        """Remove every security key and recovery code for a user."""
+        """Remove every security key, recovery code, and session for a user.
+
+        Sessions are revoked so an already verified session cannot outlive the
+        keys that verified it.
+        """
         result = await self.session.execute(
             delete(WebAuthnCredential).where(WebAuthnCredential.user_id == user_id)
         )
         await self.session.execute(
             delete(MfaRecoveryCode).where(MfaRecoveryCode.user_id == user_id)
+        )
+        await self.session.execute(
+            delete(AccessToken).where(cast(Any, AccessToken.user_id) == user_id)
         )
         await self.session.commit()
         return int(getattr(result, "rowcount", 0) or 0)
@@ -327,12 +354,29 @@ class MfaService:
 
         Recovery codes do not satisfy step-up checks: those need a security key.
         """
+        normalized = _normalize_recovery_code(code)
+        if len(normalized) != _RECOVERY_CODE_LENGTH:
+            raise MfaVerificationError("Invalid recovery code.")
+        rows = (
+            await self.session.execute(
+                select(MfaRecoveryCode.id, MfaRecoveryCode.code_hash).where(
+                    MfaRecoveryCode.user_id == user.id,
+                    MfaRecoveryCode.used_at.is_(None),
+                )
+            )
+        ).all()
+        match_id: uuid.UUID | None = None
+        for row_id, code_hash in rows:
+            if await asyncio.to_thread(_recovery_code_matches, normalized, code_hash):
+                match_id = row_id
+                break
+        if match_id is None:
+            raise MfaVerificationError("Invalid recovery code.")
         now = datetime.now(UTC)
         result = await self.session.execute(
             update(MfaRecoveryCode)
             .where(
-                MfaRecoveryCode.user_id == user.id,
-                MfaRecoveryCode.code_hash == _hash_recovery_code(code),
+                MfaRecoveryCode.id == match_id,
                 MfaRecoveryCode.used_at.is_(None),
             )
             .values(used_at=now)
@@ -348,11 +392,11 @@ class MfaService:
             delete(MfaRecoveryCode).where(MfaRecoveryCode.user_id == user_id)
         )
         codes = [_generate_recovery_code() for _ in range(RECOVERY_CODE_COUNT)]
+        hashes = await asyncio.gather(
+            *(asyncio.to_thread(_hash_recovery_code, c) for c in codes)
+        )
         self.session.add_all(
-            [
-                MfaRecoveryCode(user_id=user_id, code_hash=_hash_recovery_code(c))
-                for c in codes
-            ]
+            [MfaRecoveryCode(user_id=user_id, code_hash=h) for h in hashes]
         )
         return codes
 

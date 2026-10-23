@@ -11,7 +11,7 @@ export function RecoveryCodes({ codes }: { codes: string[] }) {
         Save these recovery codes somewhere safe. Each one signs you in once if
         you lose your security key. They won&apos;t be shown again.
       </p>
-      <div className="grid grid-cols-2 gap-2 font-mono text-sm">
+      <div className="grid grid-cols-2 gap-2 font-mono text-xs">
         {codes.map((code) => (
           <span key={code}>{code}</span>
         ))}

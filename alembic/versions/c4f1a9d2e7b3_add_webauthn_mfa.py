@@ -84,7 +84,7 @@ def upgrade() -> None:
         "mfa_recovery_code",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("user_id", sa.UUID(), nullable=False),
-        sa.Column("code_hash", sa.String(length=64), nullable=False),
+        sa.Column("code_hash", sa.String(length=255), nullable=False),
         sa.Column("used_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.Column(
             "created_at",
@@ -100,7 +100,6 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(["user_id"], ["user.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("code_hash"),
     )
     op.create_index(
         op.f("ix_mfa_recovery_code_user_id"),

@@ -40,6 +40,7 @@ from tracecat.auth.users import SessionMetadataDatabaseStrategy, cookie_transpor
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     AccessToken,
+    MfaRecoveryCode,
     Organization,
     OrganizationMembership,
     OrganizationSetting,
@@ -359,13 +360,34 @@ async def test_recovery_code_signs_in_once_but_does_not_satisfy_step_up() -> Non
     key = SoftAuthenticator()
     async with _client(await _new_session(user)) as client:
         codes = (await _register(client, key)).json()["recovery_codes"]
+    assert all(len(c) == 23 and c.count("-") == 3 for c in codes)
+
+    async with get_async_session_bypass_rls_context_manager() as session:
+        stored = (
+            (
+                await session.execute(
+                    select(MfaRecoveryCode.code_hash).where(
+                        MfaRecoveryCode.user_id == user.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert len(stored) == 10
+    assert all(h.startswith("$argon2id$") for h in stored)
+    assert len(set(stored)) == len(stored)
 
     async with _client(await _new_session(user)) as client:
-        assert (
-            await client.post(
-                "/auth/mfa/recovery-codes/verify", json={"code": "wrong-code"}
-            )
-        ).status_code == 400
+        for wrong in (
+            "wrong-code",
+            codes[0][:-1] + ("a" if codes[0][-1] != "a" else "b"),
+        ):
+            assert (
+                await client.post(
+                    "/auth/mfa/recovery-codes/verify", json={"code": wrong}
+                )
+            ).status_code == 400
         used = await client.post(
             "/auth/mfa/recovery-codes/verify", json={"code": codes[0].upper()}
         )
@@ -453,13 +475,15 @@ async def test_break_glass_bypass_skips_admin_mfa(
 
 
 @pytest.mark.anyio
-async def test_admin_reset_removes_keys_and_requires_step_up() -> None:
+async def test_admin_reset_removes_keys_revokes_sessions_and_requires_step_up() -> None:
     admin = await _create_user(superuser=True)
     admin_key = SoftAuthenticator()
     member = await _create_user()
     member_key = SoftAuthenticator()
-    async with _client(await _new_session(member)) as client:
+    member_token = await _new_session(member)
+    async with _client(member_token) as client:
         assert (await _register(client, member_key)).status_code == 201
+        assert (await client.get("/users/me")).status_code == 200
 
     admin_token = await _new_session(admin)
     async with _client(admin_token) as client:
@@ -470,6 +494,9 @@ async def test_admin_reset_removes_keys_and_requires_step_up() -> None:
         assert (await _assert_key(client, admin_key)).status_code == 200
         reset = await client.post(f"/admin/users/{member.id}/mfa/reset")
         assert reset.status_code == 204, reset.text
+
+    async with _client(member_token) as client:
+        assert (await client.get("/users/me")).status_code == 401
 
     async with get_async_session_bypass_rls_context_manager() as session:
         result = await session.execute(

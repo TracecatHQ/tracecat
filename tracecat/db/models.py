@@ -717,7 +717,7 @@ class WebAuthnCredential(Base, TimestampMixin):
 
 
 class MfaRecoveryCode(Base, TimestampMixin):
-    """A single-use MFA recovery code. Only a SHA-256 hash is stored."""
+    """A single-use MFA recovery code. Only a salted Argon2 hash is stored."""
 
     __tablename__ = "mfa_recovery_code"
 
@@ -725,7 +725,7 @@ class MfaRecoveryCode(Base, TimestampMixin):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    code_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )

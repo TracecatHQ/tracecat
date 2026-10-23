@@ -160,7 +160,7 @@ function MfaContent() {
             >
               <Input
                 aria-label="Recovery code"
-                placeholder="xxxxx-xxxxx"
+                placeholder="xxxxx-xxxxx-xxxxx-xxxxx"
                 autoComplete="one-time-code"
                 value={recoveryCode}
                 onChange={(e) => setRecoveryCode(e.target.value)}
