@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, patch
@@ -8,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import yaml
 
+from tracecat.agent.catalog.lifecycle import ModelLifecycle
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.catalog.types import ModelKey
 from tracecat.exceptions import RegistryValidationError
@@ -15,7 +17,10 @@ from tracecat.registry.repository import Repository
 from tracecat.sync import CatalogMappingCandidate
 from tracecat.workspace_sync.adapters import AGENT_PRESET_RESOURCE_ADAPTER
 from tracecat.workspace_sync.adapters.base import SyncMappingService
-from tracecat.workspace_sync.schemas import WorkflowResourceSpec
+from tracecat.workspace_sync.schemas import (
+    AgentPresetResourceSpec,
+    WorkflowResourceSpec,
+)
 from tracecat.workspace_sync.workflow import serialize_workflow_spec
 
 
@@ -120,3 +125,86 @@ async def test_catalog_remap_keeps_nested_model_catalog_id_nested(
         bound_action.validate_args(
             {**serialized_args, "catalog_id": str(target_catalog_id)}
         )
+
+
+@pytest.mark.anyio
+async def test_catalog_correlation_clears_retired_model_catalog_ids(
+    registry_repository: Repository,
+) -> None:
+    retired_key = ModelKey("openai", "retired-model")
+    source_catalog_id = uuid.uuid4()
+    workflow = WorkflowResourceSpec.model_validate(
+        {
+            "id": "retired-model-workflow",
+            "definition": {
+                "title": "Retired model workflow",
+                "description": "",
+                "entrypoint": {"ref": "run_agent", "expects": {}},
+                "actions": [
+                    {
+                        "ref": "run_agent",
+                        "action": "ai.agent",
+                        "args": {
+                            "user_prompt": "Investigate the event.",
+                            "model": {
+                                "model_provider": retired_key.model_provider,
+                                "model_name": retired_key.model_name,
+                                "catalog_id": str(source_catalog_id),
+                            },
+                        },
+                    }
+                ],
+            },
+        }
+    )
+    preset = AgentPresetResourceSpec.model_validate(
+        {
+            "id": "retired-model-preset",
+            "slug": "retired-model-preset",
+            "name": "Retired model preset",
+            "model_provider": retired_key.model_provider,
+            "model_name": retired_key.model_name,
+            "catalog_id": str(source_catalog_id),
+        }
+    )
+    workspace_service = cast(
+        SyncMappingService,
+        SimpleNamespace(
+            session=object(),
+            organization_id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+        ),
+    )
+
+    with (
+        patch.object(
+            AgentCatalogService, "enabled_catalog_models", AsyncMock(return_value={})
+        ),
+        patch.object(
+            AgentCatalogService,
+            "catalog_candidates_by_models",
+            AsyncMock(return_value={}),
+        ),
+        patch(
+            "tracecat.workspace_sync.adapters.agent_preset.get_retired_platform_models",
+            return_value={
+                retired_key: ModelLifecycle(
+                    retires_on=date(2000, 1, 1), replacement="current-model"
+                )
+            },
+        ),
+    ):
+        correlated = await AGENT_PRESET_RESOURCE_ADAPTER.correlate_catalog_ids(
+            workspace_service,
+            presets={"retired-model-preset": preset},
+            workflows={"retired-model-workflow": workflow},
+        )
+
+    # The deleted row's ID is cleared; runs swap the retired model by name.
+    assert correlated.diagnostics == []
+    assert correlated.presets["retired-model-preset"].catalog_id is None
+    action_args = (
+        correlated.workflows["retired-model-workflow"].definition.actions[0].args
+    )
+    assert action_args["model"]["catalog_id"] is None
+    registry_repository.get("ai.agent").validate_args(action_args)
