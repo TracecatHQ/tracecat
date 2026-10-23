@@ -85,6 +85,9 @@ class AgentBackend[InputT, OutputT](ABC):
     # Whether preset subagents may require manual approval. A backend that sets
     # this must hold their tool calls until a decision in the parent turn.
     subagent_approvals: ClassVar[bool] = False
+    # Whether a running turn accepts steering messages. A backend that sets this
+    # must implement `steer`.
+    steering: ClassVar[bool] = False
     task_queue: ClassVar[str]
     priority: ClassVar[Priority] = Priority()
     retry_policy: ClassVar[RetryPolicy] = RetryPolicy(maximum_attempts=1)
@@ -519,6 +522,14 @@ class AgentBackend[InputT, OutputT](ABC):
             ),
         )
         return resumed is not False
+
+    async def steer(self, run_id: UUID, message_id: UUID, text: str) -> bool:
+        """Deliver a message to a running turn; False means the turn refused it.
+
+        Retrying with the same ``message_id`` must return the first outcome.
+        Only backends that set ``steering`` implement this.
+        """
+        raise AgentControlRejected("This agent backend does not support steering")
 
     async def get_turn_lifecycle(self, run_id: UUID) -> TurnLifecycle:
         """Resolve execution status for reconnect without exposing Temporal types."""

@@ -23,6 +23,7 @@ import {
 
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { useGetChatVercel } from "@/hooks/use-chat"
+import type { RunningComposer, RunningComposerContext } from "@/lib/extensions"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 // jsdom lacks structuredClone, which readUIMessageStream uses per update.
@@ -43,6 +44,17 @@ const mockUseVercelChatResult = {
   sendMessage: jest.fn(),
   status: "ready" as ChatStatus,
 }
+
+// Tracecat installs no running composer; tests opt in through this mock.
+const mockUseRunningComposer = jest.fn(
+  (_context: RunningComposerContext): RunningComposer | undefined => undefined
+)
+jest.mock("@/extensions", () => ({
+  extensions: {
+    useRunningComposer: (context: RunningComposerContext) =>
+      mockUseRunningComposer(context),
+  },
+}))
 
 // These tests read every step of finished turns, which only the verbose level
 // draws without expanding the turn first.
@@ -1196,5 +1208,134 @@ describe("ChatSessionPane approvals decided elsewhere", () => {
     expect(
       card("second").queryByRole("button", { name: "Approve" })
     ).not.toBeInTheDocument()
+  })
+})
+
+describe("ChatSessionPane running composer", () => {
+  beforeEach(() => {
+    mockUseRunningComposer.mockReset()
+    mockUseRunningComposer.mockReturnValue(undefined)
+    mockUseVercelChatResult.sendMessage.mockClear()
+    mockUseVercelChatResult.messages = []
+    mockUseVercelChatResult.status = "streaming"
+  })
+
+  afterAll(() => {
+    mockUseVercelChatResult.status = "ready"
+  })
+
+  it("keeps the composer disabled while a turn runs without one", () => {
+    renderChatSessionPane()
+
+    expect(screen.getByPlaceholderText("Ask Tracecat...")).toBeDisabled()
+    expect(mockUseRunningComposer).toHaveBeenCalledWith(
+      expect.objectContaining({ running: true, capabilities: {} })
+    )
+  })
+
+  it("hands the composer's text to the running turn", async () => {
+    const submit = jest.fn(async () => true)
+    mockUseRunningComposer.mockReturnValue({
+      placeholder: "Steer the running turn...",
+      submit,
+      panel: <div>Steering panel</div>,
+    })
+    renderChatSessionPane()
+
+    expect(screen.getByText("Steering panel")).toBeInTheDocument()
+    const input = screen.getByPlaceholderText("Steer the running turn...")
+    expect(input).toBeEnabled()
+    fireEvent.change(input, { target: { value: "  Focus on the alert " } })
+    fireEvent.keyDown(input, { key: "Enter" })
+
+    await waitFor(() =>
+      expect(submit).toHaveBeenCalledWith("Focus on the alert")
+    )
+    await waitFor(() => expect(input).toHaveValue(""))
+    expect(mockUseVercelChatResult.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it("keeps the text when the running turn does not take it", async () => {
+    const submit = jest.fn(async () => false)
+    mockUseRunningComposer.mockReturnValue({
+      placeholder: "Steer the running turn...",
+      submit,
+    })
+    renderChatSessionPane()
+
+    const input = screen.getByPlaceholderText("Steer the running turn...")
+    fireEvent.change(input, { target: { value: "Focus on the alert" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+
+    await waitFor(() => expect(submit).toHaveBeenCalled())
+    expect(input).toHaveValue("Focus on the alert")
+  })
+
+  it("keeps a draft with attachments out of the running turn", async () => {
+    const submit = jest.fn(async () => true)
+    mockUseRunningComposer.mockReturnValue({
+      placeholder: "Steer the running turn...",
+      submit,
+    })
+    const createObjectURL = jest.fn(() => "blob:shot")
+    Object.assign(URL, { createObjectURL, revokeObjectURL: jest.fn() })
+    renderChatSessionPane()
+
+    const input = screen.getByPlaceholderText("Steer the running turn...")
+    const shot = new File(["png"], "shot.png", { type: "image/png" })
+    fireEvent.paste(input, {
+      clipboardData: { items: [{ kind: "file", getAsFile: () => shot }] },
+    })
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalled())
+    fireEvent.change(input, { target: { value: "Use this screenshot" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+
+    await act(async () => undefined)
+    expect(submit).not.toHaveBeenCalled()
+    expect(input).toHaveValue("Use this screenshot")
+  })
+
+  it("leaves an idle composer to the normal send", async () => {
+    const submit = jest.fn(async () => true)
+    mockUseRunningComposer.mockReturnValue({
+      placeholder: "Steer the running turn...",
+      submit,
+    })
+    mockUseVercelChatResult.status = "ready"
+    renderChatSessionPane({ chat: serverChat([]) })
+
+    const input = screen.getByPlaceholderText("Ask Tracecat...")
+    fireEvent.change(input, { target: { value: "Hello" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+
+    await waitFor(() =>
+      expect(mockUseVercelChatResult.sendMessage).toHaveBeenCalledTimes(1)
+    )
+    expect(submit).not.toHaveBeenCalled()
+  })
+
+  it("shows a user message that joined the turn where it joined", async () => {
+    mockUseVercelChatResult.messages = [
+      { id: "user-1", role: "user", parts: [{ type: "text", text: "Start" }] },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [
+          { type: "text", text: "Working on it" },
+          {
+            type: "data-user-message",
+            data: { id: "steer-1", text: "Focus on the alert" },
+          },
+        ],
+      },
+    ]
+    renderChatSessionPane()
+
+    const joined = await screen.findByText("Focus on the alert")
+    // Where it joined: after the text before it.
+    expect(
+      screen.getByText("Working on it").compareDocumentPosition(joined) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
   })
 })

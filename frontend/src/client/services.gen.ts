@@ -208,6 +208,8 @@ import type {
   AgentSessionsRemoveSessionArtifactResponse,
   AgentSessionsSendMessageData,
   AgentSessionsSendMessageResponse,
+  AgentSessionsSteerSessionData,
+  AgentSessionsSteerSessionResponse,
   AgentSessionsStreamSessionEventsData,
   AgentSessionsStreamSessionEventsResponse,
   AgentSessionsUpdateSessionData,
@@ -8370,6 +8372,34 @@ export const agentSessionsCancelSession = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/workspaces/{workspace_id}/agent/sessions/{session_id}/cancel",
+    path: {
+      session_id: data.sessionId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Steer Session
+ * Send a message to the active turn without waiting for it to finish.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentSessionSteerResponse Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsSteerSession = (
+  data: AgentSessionsSteerSessionData
+): CancelablePromise<AgentSessionsSteerSessionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/agent/sessions/{session_id}/steer",
     path: {
       session_id: data.sessionId,
       workspace_id: data.workspaceId,

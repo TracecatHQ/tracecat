@@ -4326,6 +4326,20 @@ export const $AgentSessionCancelResponse = {
     "Response schema for an accepted agent session cancellation request.",
 } as const
 
+export const $AgentSessionCapabilities = {
+  properties: {
+    steering: {
+      type: "boolean",
+      title: "Steering",
+      description: "Whether a running turn accepts steering messages",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "AgentSessionCapabilities",
+  description: "Optional controls the session's backend supports.",
+} as const
+
 export const $AgentSessionCreate = {
   properties: {
     id: {
@@ -4655,6 +4669,9 @@ export const $AgentSessionRead = {
       title: "Backend Id",
       default: "oss",
     },
+    capabilities: {
+      $ref: "#/components/schemas/AgentSessionCapabilities",
+    },
     harness_type: {
       anyOf: [
         {
@@ -4883,6 +4900,9 @@ export const $AgentSessionReadVercel = {
       type: "string",
       title: "Backend Id",
       default: "oss",
+    },
+    capabilities: {
+      $ref: "#/components/schemas/AgentSessionCapabilities",
     },
     harness_type: {
       anyOf: [
@@ -5121,6 +5141,9 @@ export const $AgentSessionReadWithMessages = {
       title: "Backend Id",
       default: "oss",
     },
+    capabilities: {
+      $ref: "#/components/schemas/AgentSessionCapabilities",
+    },
     harness_type: {
       anyOf: [
         {
@@ -5233,6 +5256,58 @@ export const $AgentSessionReadWithMessages = {
   ],
   title: "AgentSessionReadWithMessages",
   description: "Response schema for agent session with message history.",
+} as const
+
+export const $AgentSessionSteerRequest = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description:
+        "Client-generated steering ID. A retry while its turn runs gets the first outcome; a retry never reaches a later turn.",
+    },
+    text: {
+      type: "string",
+      maxLength: 100000,
+      minLength: 1,
+      title: "Text",
+    },
+  },
+  type: "object",
+  required: ["id", "text"],
+  title: "AgentSessionSteerRequest",
+  description:
+    "A message for the active turn to take into account before it answers.",
+} as const
+
+export const $AgentSessionSteerResponse = {
+  properties: {
+    session_id: {
+      type: "string",
+      format: "uuid",
+      title: "Session Id",
+    },
+    run_id: {
+      type: "string",
+      format: "uuid",
+      title: "Run Id",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    status: {
+      type: "string",
+      enum: ["accepted", "rejected"],
+      title: "Status",
+    },
+  },
+  type: "object",
+  required: ["session_id", "run_id", "id", "status"],
+  title: "AgentSessionSteerResponse",
+  description: "The active turn's outcome for a steering message.",
 } as const
 
 export const $AgentSessionUpdate = {

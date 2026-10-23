@@ -49,6 +49,7 @@ from tracecat.agent.backends.registry import (
 from tracecat.agent.backends.schemas import WorkflowApprovalSubmission
 from tracecat.agent.backends.types import (
     AgentControlRejected,
+    AgentControlUncertain,
     SessionForkContext,
     SessionHistoryAdapter,
     SessionTurnContext,
@@ -83,6 +84,8 @@ from tracecat.agent.session.schemas import (
     AgentSessionCancelResponse,
     AgentSessionCreate,
     AgentSessionRead,
+    AgentSessionSteerRequest,
+    AgentSessionSteerResponse,
     AgentSessionUpdate,
 )
 from tracecat.agent.session.title_generator import generate_session_title
@@ -169,6 +172,8 @@ AGENT_SESSION_EXECUTION_SCOPES: frozenset[str] = frozenset(
     }
 )
 APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
+# How long a steering ID stays bound to the run it first reached.
+STEER_RUN_BINDING_TTL_SECONDS = 24 * 60 * 60
 _background_tasks: set[asyncio.Task[None]] = set()
 
 
@@ -2625,6 +2630,94 @@ class AgentSessionService(BaseWorkspaceService):
             run_id=curr_run_id,
             reason=reason,
         )
+
+    async def steer(
+        self, session_id: uuid.UUID, request: AgentSessionSteerRequest
+    ) -> AgentSessionSteerResponse:
+        """Deliver a steering message to the session's running turn.
+
+        Raises:
+            TracecatNotFoundError: If no session exists with this ID.
+            TracecatConflictError: If the session has no running turn or its
+                backend does not support steering.
+            AgentControlRejected: If the turn refused the update outright.
+            AgentControlUncertain: If the outcome is unknown; retry with the same ID.
+        """
+        agent_session = await self.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+
+        if (
+            AgentSessionEntity(agent_session.entity_type)
+            is AgentSessionEntity.WORKSPACE_CHAT
+        ):
+            await self.require_entitlement(Entitlement.WORKSPACE_CHAT)
+
+        try:
+            backend = get_agent_backend(
+                agent_session.backend_id, harness_type=agent_session.harness_type
+            )
+        except TracecatValidationError as e:
+            # An unavailable backend steers nothing, like one that cannot steer.
+            raise TracecatConflictError(str(e)) from e
+        if not backend.steering:
+            raise TracecatConflictError("This agent backend does not support steering")
+        lifecycle, curr_run_id = await self.get_turn_lifecycle(agent_session)
+        if lifecycle is not TurnLifecycle.RUNNING or curr_run_id is None:
+            raise TracecatConflictError(
+                "Agent session does not have an active turn",
+                detail={"lifecycle": lifecycle.value},
+            )
+
+        await self._bind_steer_to_run(agent_session, request.id, curr_run_id)
+        accepted = await backend.steer(curr_run_id, request.id, request.text)
+        return AgentSessionSteerResponse(
+            session_id=session_id,
+            run_id=curr_run_id,
+            id=request.id,
+            status="accepted" if accepted else "rejected",
+        )
+
+    async def _bind_steer_to_run(
+        self, agent_session: AgentSession, steer_id: uuid.UUID, run_id: uuid.UUID
+    ) -> None:
+        """Keep a steering ID on the run it first reached.
+
+        The backend deduplicates a retry within one run only. A retry whose first
+        attempt may have reached an earlier run must not reach this one, so an
+        unreadable binding refuses the steer rather than risk that.
+
+        Raises:
+            TracecatConflictError: If the ID was first sent to another run.
+            AgentControlUncertain: If the binding cannot be read or written;
+                retry with the same ID.
+        """
+        key = (
+            f"agent-steer-run:{agent_session.workspace_id}:"
+            f"{agent_session.id}:{steer_id}"
+        )
+        try:
+            client = await get_redis_client()
+            if await client.set_if_not_exists(
+                key, str(run_id), expire_seconds=STEER_RUN_BINDING_TTL_SECONDS
+            ):
+                return
+            bound = await client.get(key)
+        except Exception as exc:
+            logger.warning(
+                "Steering run binding unavailable",
+                session_id=str(agent_session.id),
+                run_id=str(run_id),
+                error=str(exc),
+            )
+            raise AgentControlUncertain("Steering run binding unavailable") from exc
+        if bound is None:
+            # The binding expired between the two calls; its run is unknown.
+            raise AgentControlUncertain("Steering run binding expired")
+        if bound != str(run_id):
+            raise TracecatConflictError(
+                "This steering message was sent to an earlier turn"
+            )
 
     @contextlib.asynccontextmanager
     async def _build_agent_config(

@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from claude_agent_sdk.types import UserMessage
+from pydantic import ValidationError
 from temporalio import workflow
 from temporalio.api.workflowservice.v1 import StartWorkflowExecutionResponse
 from temporalio.client import (
@@ -46,7 +47,11 @@ from tracecat.agent.session.activities import (
     CreateSessionInput,
     create_session_activity,
 )
-from tracecat.agent.session.schemas import AgentSessionCreate, AgentSessionUpdate
+from tracecat.agent.session.schemas import (
+    AgentSessionCreate,
+    AgentSessionSteerRequest,
+    AgentSessionUpdate,
+)
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.agent.types import AgentConfig
@@ -60,6 +65,7 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.temporal.codec import TemporalPayloadCodecError
+from tracecat.tiers.enums import Entitlement
 
 
 @pytest.fixture(autouse=True)
@@ -191,6 +197,8 @@ def test_discovery_rejects_missing_required_attributes(missing: str):
         ("supported_harnesses", frozenset({"claude_code", 123})),
         ("subagent_approvals", "yes"),
         ("subagent_approvals", 1),
+        ("steering", "yes"),
+        ("steering", 1),
         ("workflow", None),
         ("workflow", object()),
     ],
@@ -764,6 +772,203 @@ async def test_lifecycle_and_cancel_use_selected_backend():
         await service.request_cancel(ctx.session.id)
     provider.get_turn_lifecycle.assert_awaited_with(ctx.run_id)
     provider.cancel.assert_awaited_once_with(ctx.run_id)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("accepted", [True, False])
+async def test_steer_delegates_to_a_steering_backend(accepted: bool):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    ctx.session.curr_run_id = ctx.run_id
+    service = AgentSessionService(ctx.db, ctx.role)
+    provider = Mock(spec=DefaultBackend)
+    provider.steering = True
+    provider.get_turn_lifecycle = AsyncMock(return_value=TurnLifecycle.RUNNING)
+    provider.steer = AsyncMock(return_value=accepted)
+    request = AgentSessionSteerRequest(id=uuid4(), text="Focus on the newest alert")
+    redis = Mock(set_if_not_exists=AsyncMock(return_value=True), get=AsyncMock())
+    with (
+        patch(
+            "tracecat.agent.session.service.get_redis_client",
+            AsyncMock(return_value=redis),
+        ),
+        patch.object(service, "get_session", return_value=ctx.session),
+        patch.object(
+            service, "require_entitlement", AsyncMock(return_value=None)
+        ) as require_entitlement,
+        patch(
+            "tracecat.agent.session.service.get_agent_backend", return_value=provider
+        ),
+        patch(
+            "tracecat.agent.session.service.find_agent_backend", return_value=provider
+        ),
+    ):
+        response = await service.steer(ctx.session.id, request)
+    # A workspace chat steers only with the Workspace Chat entitlement.
+    require_entitlement.assert_awaited_once_with(Entitlement.WORKSPACE_CHAT)
+    provider.steer.assert_awaited_once_with(ctx.run_id, request.id, request.text)
+    assert response.run_id == ctx.run_id
+    assert response.id == request.id
+    assert response.status == ("accepted" if accepted else "rejected")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "steering,lifecycle",
+    [(False, TurnLifecycle.RUNNING), (True, TurnLifecycle.COMPLETED)],
+)
+async def test_steer_needs_a_steering_backend_and_a_running_turn(
+    steering: bool, lifecycle: TurnLifecycle
+):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    ctx.session.curr_run_id = ctx.run_id
+    service = AgentSessionService(ctx.db, ctx.role)
+    provider = Mock(spec=DefaultBackend)
+    provider.steering = steering
+    provider.get_turn_lifecycle = AsyncMock(return_value=lifecycle)
+    provider.steer = AsyncMock(return_value=True)
+    with (
+        patch.object(service, "get_session", return_value=ctx.session),
+        patch.object(service, "require_entitlement", return_value=None),
+        patch(
+            "tracecat.agent.session.service.get_agent_backend", return_value=provider
+        ),
+        patch(
+            "tracecat.agent.session.service.find_agent_backend", return_value=provider
+        ),
+        pytest.raises(TracecatConflictError),
+    ):
+        await service.steer(
+            ctx.session.id, AgentSessionSteerRequest(id=uuid4(), text="Stop")
+        )
+    provider.steer.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("same_run", [True, False])
+async def test_a_steer_retry_never_reaches_a_later_turn(same_run: bool):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    ctx.session.curr_run_id = ctx.run_id
+    service = AgentSessionService(ctx.db, ctx.role)
+    provider = Mock(spec=DefaultBackend)
+    provider.steering = True
+    provider.get_turn_lifecycle = AsyncMock(return_value=TurnLifecycle.RUNNING)
+    provider.steer = AsyncMock(return_value=True)
+    first_run = ctx.run_id if same_run else uuid4()
+    # The ID was bound when its first attempt reached `first_run`.
+    redis = Mock(
+        set_if_not_exists=AsyncMock(return_value=False),
+        get=AsyncMock(return_value=str(first_run)),
+    )
+    request = AgentSessionSteerRequest(id=uuid4(), text="Stop")
+    with (
+        patch(
+            "tracecat.agent.session.service.get_redis_client",
+            AsyncMock(return_value=redis),
+        ),
+        patch.object(service, "get_session", return_value=ctx.session),
+        patch.object(service, "require_entitlement", return_value=None),
+        patch(
+            "tracecat.agent.session.service.get_agent_backend", return_value=provider
+        ),
+        patch(
+            "tracecat.agent.session.service.find_agent_backend", return_value=provider
+        ),
+    ):
+        if same_run:
+            await service.steer(ctx.session.id, request)
+        else:
+            with pytest.raises(TracecatConflictError, match="earlier turn"):
+                await service.steer(ctx.session.id, request)
+    assert provider.steer.await_count == (1 if same_run else 0)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "read",
+    [
+        AsyncMock(side_effect=RuntimeError("redis down")),
+        # Expired between SET NX and GET.
+        AsyncMock(return_value=None),
+    ],
+)
+async def test_an_unreadable_steer_binding_refuses_the_steer(read: AsyncMock):
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    ctx.session.curr_run_id = ctx.run_id
+    service = AgentSessionService(ctx.db, ctx.role)
+    provider = Mock(spec=DefaultBackend)
+    provider.steering = True
+    provider.get_turn_lifecycle = AsyncMock(return_value=TurnLifecycle.RUNNING)
+    provider.steer = AsyncMock(return_value=True)
+    # A retry: the ID is bound, but its run cannot be read back.
+    redis = Mock(set_if_not_exists=AsyncMock(return_value=False), get=read)
+    with (
+        patch(
+            "tracecat.agent.session.service.get_redis_client",
+            AsyncMock(return_value=redis),
+        ),
+        patch.object(service, "get_session", return_value=ctx.session),
+        patch.object(service, "require_entitlement", return_value=None),
+        patch(
+            "tracecat.agent.session.service.get_agent_backend", return_value=provider
+        ),
+        patch(
+            "tracecat.agent.session.service.find_agent_backend", return_value=provider
+        ),
+        pytest.raises(AgentControlUncertain),
+    ):
+        await service.steer(
+            ctx.session.id, AgentSessionSteerRequest(id=uuid4(), text="Stop")
+        )
+    provider.steer.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_steering_an_unavailable_backend_is_a_conflict():
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    service = AgentSessionService(ctx.db, ctx.role)
+    with (
+        patch.object(service, "get_session", return_value=ctx.session),
+        patch.object(service, "require_entitlement", return_value=None),
+        patch(
+            "tracecat.agent.session.service.get_agent_backend",
+            side_effect=TracecatValidationError("Agent backend is unavailable"),
+        ),
+        pytest.raises(TracecatConflictError, match="unavailable"),
+    ):
+        await service.steer(
+            ctx.session.id, AgentSessionSteerRequest(id=uuid4(), text="Stop")
+        )
+
+
+def test_a_steer_needs_text():
+    assert AgentSessionSteerRequest(id=uuid4(), text=" Stop ").text == "Stop"
+    with pytest.raises(ValidationError):
+        AgentSessionSteerRequest(id=uuid4(), text=" \n ")
+
+
+def test_discovery_rejects_steering_without_a_steer_method():
+    class Unsteerable(DefaultBackend):
+        steering = True
+
+    with (
+        patch.object(
+            registry, "entry_points", return_value=[entry("external", Unsteerable)]
+        ),
+        pytest.raises(TypeError, match="external: steering requires"),
+    ):
+        registry.get_agent_backends()
+
+
+@pytest.mark.anyio
+async def test_backends_do_not_steer_by_default():
+    assert DefaultBackend.steering is False
+    with pytest.raises(AgentControlRejected):
+        await DefaultBackend().steer(uuid4(), uuid4(), "Stop")
 
 
 @pytest.mark.anyio
