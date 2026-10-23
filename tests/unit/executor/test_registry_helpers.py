@@ -85,8 +85,9 @@ async def test_get_registry_artifact_uris_uses_bundled_current_builtin(
     input_data = cast(
         RunActionInput,
         SimpleNamespace(
-            registry_lock=SimpleNamespace(
-                origins={DEFAULT_REGISTRY_ORIGIN: current_version}
+            registry_lock=RegistryLock(
+                origins={DEFAULT_REGISTRY_ORIGIN: current_version},
+                actions={},
             )
         ),
     )
@@ -296,6 +297,137 @@ async def test_get_registry_artifact_uris_looks_up_builtin_when_manifest_missing
 
 
 @pytest.mark.anyio
+async def test_get_registry_artifact_uris_uses_bundled_builtin_for_content_version(
+    test_role: Role, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A content version of the installed release runs from the image when the
+    fingerprint matches, using the manifest baked under the installed version."""
+    installed_version = "1.2.3"
+    manifest = RegistryVersionManifest()
+    fingerprint = registry_manifest_fingerprint(manifest)
+    write_prebuilt_registry_manifest(
+        artifact_dir=tmp_path
+        / get_artifact_s3_prefix(
+            organization_id=PLATFORM_REGISTRY_NAMESPACE,
+            repository_origin=DEFAULT_REGISTRY_ORIGIN,
+            version=installed_version,
+        ),
+        manifest=manifest,
+    )
+    input_data = cast(
+        RunActionInput,
+        SimpleNamespace(
+            registry_lock=RegistryLock(
+                origins={DEFAULT_REGISTRY_ORIGIN: f"1.2.3+content.{fingerprint[:16]}"},
+                actions={},
+                origin_fingerprints={DEFAULT_REGISTRY_ORIGIN: fingerprint},
+            )
+        ),
+    )
+
+    async def fail_lookup(*_args, **_kwargs):
+        pytest.fail("matching content version should not query artifact storage")
+
+    monkeypatch.setattr(
+        "tracecat.config.TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR",
+        str(tmp_path),
+    )
+    monkeypatch.setattr(
+        "tracecat.executor.backends.registry_helpers.tracecat_registry.__version__",
+        installed_version,
+    )
+    monkeypatch.setattr(
+        "tracecat.executor.backends.registry_helpers.get_registry_artifacts_for_lock",
+        fail_lookup,
+    )
+
+    assert await get_registry_artifact_uris(input_data, test_role) == [
+        bundled_builtin_registry_uri(installed_version)
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("locked_version", "fingerprints"),
+    [
+        pytest.param(
+            "1.2.3+content.0123456789abcdef",
+            {DEFAULT_REGISTRY_ORIGIN: "different"},
+            id="content-version-fingerprint-mismatch",
+        ),
+        pytest.param(
+            "1.2.3+content.0123456789abcdef",
+            {},
+            id="content-version-without-fingerprint",
+        ),
+        pytest.param(
+            "1.2.2+content.0123456789abcdef",
+            None,
+            id="content-version-of-other-release",
+        ),
+        pytest.param(
+            "1.2.3+collision.20260522140000.123456",
+            None,
+            id="collision-version-with-matching-fingerprint",
+        ),
+    ],
+)
+async def test_get_registry_artifact_uris_looks_up_unverified_content_version(
+    test_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+    locked_version: str,
+    fingerprints: dict[str, str] | None,
+) -> None:
+    """Only a fingerprint-matched content version of the installed release is bundled.
+
+    Collision versions keep their pinned artifact even when the manifest matches.
+    """
+    artifact_uri = "s3://bucket/builtin/site-packages.squashfs"
+    manifest = RegistryVersionManifest()
+    input_data = cast(
+        RunActionInput,
+        SimpleNamespace(
+            registry_lock=RegistryLock(
+                origins={DEFAULT_REGISTRY_ORIGIN: locked_version},
+                actions={},
+                origin_fingerprints=fingerprints
+                if fingerprints is not None
+                else {DEFAULT_REGISTRY_ORIGIN: registry_manifest_fingerprint(manifest)},
+            )
+        ),
+    )
+
+    async def get_artifacts(
+        origins: dict[str, str],
+        organization_id: uuid.UUID,
+    ) -> list[RegistryArtifactsContext]:
+        assert origins == {DEFAULT_REGISTRY_ORIGIN: locked_version}
+        assert organization_id == test_role.organization_id
+        return [
+            RegistryArtifactsContext(
+                origin=DEFAULT_REGISTRY_ORIGIN,
+                version=locked_version,
+                artifact_uri=artifact_uri,
+            )
+        ]
+
+    monkeypatch.setattr(
+        "tracecat.executor.backends.registry_helpers.tracecat_registry.__version__",
+        "1.2.3",
+    )
+    monkeypatch.setattr(
+        "tracecat.executor.backends.registry_helpers.load_prebuilt_builtin_registry_manifest",
+        lambda **_kwargs: manifest,
+    )
+    monkeypatch.setattr(
+        "tracecat.executor.backends.registry_helpers.get_registry_artifacts_for_lock",
+        get_artifacts,
+    )
+
+    assert await get_registry_artifact_uris(input_data, test_role) == [artifact_uri]
+
+
+@pytest.mark.anyio
 async def test_get_registry_artifact_uris_looks_up_only_non_current_origins(
     test_role: Role, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -304,11 +436,12 @@ async def test_get_registry_artifact_uris_looks_up_only_non_current_origins(
     input_data = cast(
         RunActionInput,
         SimpleNamespace(
-            registry_lock=SimpleNamespace(
+            registry_lock=RegistryLock(
                 origins={
                     DEFAULT_REGISTRY_ORIGIN: current_version,
                     custom_origin: "abc123",
-                }
+                },
+                actions={},
             )
         ),
     )
@@ -349,7 +482,9 @@ async def test_get_registry_artifact_uris_propagates_lookup_errors(
     input_data = cast(
         RunActionInput,
         SimpleNamespace(
-            registry_lock=SimpleNamespace(origins={"tracecat_registry": "1.0.0"})
+            registry_lock=RegistryLock(
+                origins={"tracecat_registry": "1.0.0"}, actions={}
+            )
         ),
     )
 

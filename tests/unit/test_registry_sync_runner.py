@@ -24,7 +24,10 @@ from tracecat.registry.constants import (
     DEFAULT_REGISTRY_ORIGIN,
 )
 from tracecat.registry.sync.artifact import RegistryArtifactBuildResult
-from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
+from tracecat.registry.sync.prebuilt import (
+    load_prebuilt_builtin_registry_manifest,
+    write_prebuilt_registry_manifest,
+)
 from tracecat.registry.sync.runner import (
     ActionDiscoveryError,
     GitCloneError,
@@ -112,6 +115,45 @@ def test_write_prebuilt_registry_manifest_is_compact(tmp_path: Path) -> None:
     assert "\n" not in manifest_text
     assert "  " not in manifest_text
     assert RegistryVersionManifest.model_validate_json(manifest_text) == manifest
+
+
+def test_prebuilt_builtin_manifest_is_shared_by_content_versions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The image bakes one manifest under its package version; local labels reuse it."""
+    manifest = RegistryVersionManifest.from_actions(
+        [_make_action(uuid4(), "Prebuilt title")]
+    )
+    write_prebuilt_registry_manifest(
+        artifact_dir=get_artifact_local_dir(
+            root=tmp_path,
+            organization_id="platform",
+            repository_origin=DEFAULT_REGISTRY_ORIGIN,
+            version="1.2.3",
+        ),
+        manifest=manifest,
+    )
+    monkeypatch.setattr(
+        config, "TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR", str(tmp_path)
+    )
+
+    for version in ("1.2.3", "1.2.3+content.0123456789abcdef"):
+        assert (
+            load_prebuilt_builtin_registry_manifest(
+                origin=DEFAULT_REGISTRY_ORIGIN,
+                target_version=version,
+                storage_namespace="platform",
+            )
+            == manifest
+        )
+    assert (
+        load_prebuilt_builtin_registry_manifest(
+            origin=DEFAULT_REGISTRY_ORIGIN,
+            target_version="1.2.4+content.0123456789abcdef",
+            storage_namespace="platform",
+        )
+        is None
+    )
 
 
 def test_registry_sync_request_ignores_legacy_ssh_key() -> None:
