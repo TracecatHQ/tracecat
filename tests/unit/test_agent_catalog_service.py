@@ -20,7 +20,7 @@ from tracecat.agent.catalog.lifecycle import ModelLifecycle
 from tracecat.agent.catalog.schemas import (
     BedrockCatalogUpdate,
 )
-from tracecat.agent.catalog.service import AgentCatalogService, PlatformCatalogEntry
+from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.catalog.types import ModelKey, ModelReplacement
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
@@ -1319,7 +1319,7 @@ async def test_resolve_model_replacement_uses_retired_list_after_row_is_deleted(
 
 
 @pytest.mark.anyio
-async def test_upsert_platform_catalog_deletes_only_retired_rows(
+async def test_prune_retired_platform_models_deletes_only_listed_rows(
     session: AsyncSession,
     svc_organization: Organization,
 ) -> None:
@@ -1332,9 +1332,8 @@ async def test_upsert_platform_catalog_deletes_only_retired_rows(
     await session.commit()
     retired_id = retired.id
 
-    await AgentCatalogService(session=session).upsert_platform_catalog(
-        [PlatformCatalogEntry(model_provider="openai", model_name="gpt-5.6-sol")],
-        retired=[ModelKey("openai", "gpt-5.1-codex-max")],
+    await AgentCatalogService(session=session).prune_retired_platform_models(
+        [ModelKey("openai", "gpt-5.1-codex-max")]
     )
 
     remaining = set(
@@ -1347,7 +1346,6 @@ async def test_upsert_platform_catalog_deletes_only_retired_rows(
     assert (None, "gpt-5.1-codex-max") not in remaining
     assert (svc_organization.id, "gpt-5.1-codex-max") in remaining
     assert (None, "gpt-4.1") in remaining
-    assert (None, "gpt-5.6-sol") in remaining
     assert (
         await session.scalar(
             select(AgentModelAccess.id).where(AgentModelAccess.catalog_id == retired_id)
@@ -1357,7 +1355,7 @@ async def test_upsert_platform_catalog_deletes_only_retired_rows(
 
 
 @pytest.mark.anyio
-async def test_upsert_platform_catalog_keeps_retired_rows_still_referenced(
+async def test_prune_retired_platform_models_keeps_referenced_rows(
     session: AsyncSession,
     svc_organization: Organization,
     svc_workspace,
@@ -1394,9 +1392,8 @@ async def test_upsert_platform_catalog_keeps_retired_rows_still_referenced(
     )
     await session.commit()
 
-    await AgentCatalogService(session=session).upsert_platform_catalog(
-        [],
-        retired=[
+    await AgentCatalogService(session=session).prune_retired_platform_models(
+        [
             ModelKey("openai", name)
             for name in (
                 "gpt-5.1-codex",

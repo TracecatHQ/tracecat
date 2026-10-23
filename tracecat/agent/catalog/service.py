@@ -22,7 +22,7 @@ from tracecat.agent.bedrock import (
     resolve_foundation_model_id,
 )
 from tracecat.agent.catalog.bundled import get_retired_platform_models
-from tracecat.agent.catalog.lifecycle import read_model_lifecycle
+from tracecat.agent.catalog.lifecycle import ModelLifecycle, read_model_lifecycle
 from tracecat.agent.catalog.schemas import AgentCatalogRead
 from tracecat.agent.catalog.types import ModelKey, ModelReplacement
 from tracecat.agent.default_model import list_saved_default_models
@@ -80,47 +80,50 @@ class AgentCatalogService(BaseService):
 
     service_name = "agent_catalog"
 
+    async def prune_retired_platform_models(
+        self, retired: Collection[ModelKey]
+    ) -> None:
+        """Delete platform rows named in ``retired`` that nothing references.
+
+        Only listed rows are deleted, never rows merely missing from the bundle,
+        so an unreadable bundle cannot empty the catalog. A row stays while a
+        workspace subset or a saved org default references it. Requires a
+        bypass-RLS session so those checks see every organization.
+        """
+        if not retired:
+            return
+        defaults = await list_saved_default_models(self.session)
+        # Deleting the last row of a workspace subset would widen it to the org
+        # set, since an empty subset means "inherit".
+        in_workspace_subset = (
+            select(AgentModelAccess.id)
+            .where(
+                AgentModelAccess.catalog_id == AgentCatalog.id,
+                AgentModelAccess.workspace_id.is_not(None),
+            )
+            .exists()
+        )
+        # Org access rows cascade; preset catalog_id is set null and swaps by name.
+        await self.session.execute(
+            sa.delete(AgentCatalog).where(
+                AgentCatalog.organization_id.is_(None),
+                AgentCatalog.custom_provider_id.is_(None),
+                tuple_(AgentCatalog.model_provider, AgentCatalog.model_name).in_(
+                    [tuple(key) for key in retired]
+                ),
+                ~in_workspace_subset,
+                AgentCatalog.id.not_in(defaults.catalog_ids),
+                AgentCatalog.model_name.not_in(defaults.model_names),
+            )
+        )
+        await self.session.commit()
+
     async def upsert_platform_catalog(
         self,
         entries: Sequence[PlatformCatalogEntry],
-        *,
-        retired: Collection[ModelKey] = (),
     ) -> int:
-        """Bulk upsert platform catalog rows and delete retired ones.
-
-        Only rows named in ``retired`` are deleted, never rows merely missing
-        from ``entries``, so an unreadable bundle cannot empty the catalog.
-        A retired row stays while a workspace subset or a saved org default
-        still references it; a later startup deletes it once unreferenced.
-        Requires a bypass-RLS session so those checks see every organization.
-        """
-        if retired:
-            default_ids, default_names = await list_saved_default_models(self.session)
-            # Deleting the last row of a workspace subset would widen it to
-            # the org set, since an empty subset means "inherit".
-            in_workspace_subset = (
-                select(AgentModelAccess.id)
-                .where(
-                    AgentModelAccess.catalog_id == AgentCatalog.id,
-                    AgentModelAccess.workspace_id.is_not(None),
-                )
-                .exists()
-            )
-            # Org access rows cascade; preset catalog_id is set null and swaps by name.
-            await self.session.execute(
-                sa.delete(AgentCatalog).where(
-                    AgentCatalog.organization_id.is_(None),
-                    AgentCatalog.custom_provider_id.is_(None),
-                    tuple_(AgentCatalog.model_provider, AgentCatalog.model_name).in_(
-                        [tuple(key) for key in retired]
-                    ),
-                    ~in_workspace_subset,
-                    AgentCatalog.id.not_in(default_ids),
-                    AgentCatalog.model_name.not_in(default_names),
-                )
-            )
+        """Bulk upsert platform catalog rows."""
         if not entries:
-            await self.session.commit()
             return 0
 
         now = datetime.now(UTC)
@@ -431,37 +434,15 @@ class AgentCatalogService(BaseService):
         """
         if role.organization_id is None:
             raise TracecatAuthorizationError("Role has no organization_id")
-        row_filter = (
-            AgentCatalog.id == catalog_id
-            if catalog_id is not None
-            else and_(
-                AgentCatalog.organization_id.is_(None),
-                AgentCatalog.model_provider == model_provider,
-                AgentCatalog.model_name == model_name,
-            )
+        found = await self._platform_lifecycle(
+            model_provider=model_provider,
+            model_name=model_name,
+            catalog_id=catalog_id,
         )
-        row = (
-            await self.session.execute(
-                select(
-                    AgentCatalog.organization_id,
-                    AgentCatalog.model_provider,
-                    AgentCatalog.model_name,
-                    AgentCatalog.model_metadata,
-                ).where(row_filter)
-            )
-        ).one_or_none()
-        if row is not None:
-            if row.organization_id is not None:
-                # Org-owned rows have no provider lifecycle.
-                return None
-            # The row, not the caller's fields, names the model that retired.
-            model_provider, model_name = row.model_provider, row.model_name
-        # The bundle wins: a retained retired row is no longer refreshed, so its
-        # stored lifecycle can name a replacement that has since retired.
-        lifecycle = get_retired_platform_models().get(
-            ModelKey(model_provider, model_name)
-        ) or (read_model_lifecycle(row.model_metadata) if row is not None else None)
-        if lifecycle is None or lifecycle.status_on() != "retired":
+        if found is None:
+            return None
+        (model_provider, model_name), lifecycle = found
+        if lifecycle.status_on() != "retired":
             return None
         target = lifecycle.replacement_key(model_provider)
         if target is None:
@@ -487,6 +468,49 @@ class AgentCatalogService(BaseService):
             catalog_id=replacement_id if catalog_id is not None else None,
             reason="retired",
         )
+
+    async def _platform_lifecycle(
+        self,
+        *,
+        model_provider: str,
+        model_name: str,
+        catalog_id: UUID | None,
+    ) -> tuple[ModelKey, ModelLifecycle] | None:
+        """Return the platform model's identity and lifecycle, if it has one."""
+        row_filter = (
+            AgentCatalog.id == catalog_id
+            if catalog_id is not None
+            else and_(
+                AgentCatalog.organization_id.is_(None),
+                AgentCatalog.model_provider == model_provider,
+                AgentCatalog.model_name == model_name,
+            )
+        )
+        row = (
+            await self.session.execute(
+                select(
+                    AgentCatalog.organization_id,
+                    AgentCatalog.model_provider,
+                    AgentCatalog.model_name,
+                    AgentCatalog.model_metadata,
+                ).where(row_filter)
+            )
+        ).one_or_none()
+        if row is None:
+            key = ModelKey(model_provider, model_name)
+            lifecycle = get_retired_platform_models().get(key)
+            return (key, lifecycle) if lifecycle is not None else None
+        if row.organization_id is not None:
+            # Org-owned rows have no provider lifecycle.
+            return None
+        # The row, not the caller's fields, names the model.
+        key = ModelKey(row.model_provider, row.model_name)
+        # The bundle wins: a kept retired row is no longer refreshed, so its
+        # stored lifecycle can name a replacement that has since retired.
+        lifecycle = get_retired_platform_models().get(key) or read_model_lifecycle(
+            row.model_metadata
+        )
+        return (key, lifecycle) if lifecycle is not None else None
 
     async def list_catalog(
         self,
