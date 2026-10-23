@@ -39,8 +39,6 @@ from tracecat.agent.config import (
     provider_display_rank,
 )
 from tracecat.agent.default_model import (
-    DEFAULT_MODEL_CATALOG_ID_SETTING_KEY,
-    DEFAULT_MODEL_SETTING_KEY,
     read_default_model_catalog_id,
     read_default_model_name,
     resolve_legacy_default_model,
@@ -108,6 +106,8 @@ _BEDROCK_ROLE_WORKSPACE_LIMIT = 25
 _VERTEX_BEARER_TOKEN_KEY = "VERTEX_AI_BEARER_TOKEN"
 _GOOGLE_CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 _AZURE_COGNITIVE_SCOPE = "https://cognitiveservices.azure.com/.default"
+_DEFAULT_MODEL_SETTING_KEY = "agent_default_model"
+_DEFAULT_MODEL_CATALOG_ID_SETTING_KEY = "agent_default_model_catalog_id"
 CloudProviderSlug = Literal["bedrock", "azure_openai", "azure_ai", "vertex_ai"]
 
 
@@ -1118,11 +1118,11 @@ class AgentManagementService(BaseOrgService):
         catalog_entry = AgentCatalogRead.model_validate(catalog_row)
 
         await self._stage_org_setting_value(
-            key=DEFAULT_MODEL_SETTING_KEY,
+            key=_DEFAULT_MODEL_SETTING_KEY,
             value=catalog_entry.model_name,
         )
         await self._stage_org_setting_value(
-            key=DEFAULT_MODEL_CATALOG_ID_SETTING_KEY,
+            key=_DEFAULT_MODEL_CATALOG_ID_SETTING_KEY,
             value=str(catalog_entry.id),
         )
         await self.session.commit()
@@ -1130,7 +1130,7 @@ class AgentManagementService(BaseOrgService):
 
     async def get_default_model(self) -> str | None:
         """Get the organization's default AI model."""
-        setting = await self.settings_service.get_org_setting(DEFAULT_MODEL_SETTING_KEY)
+        setting = await self.settings_service.get_org_setting("agent_default_model")
         if setting:
             return self.settings_service.get_value(setting)
         return None

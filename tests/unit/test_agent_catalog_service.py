@@ -29,7 +29,6 @@ from tracecat.db.models import (
     AgentCustomProvider,
     AgentModelAccess,
     Organization,
-    OrganizationSetting,
 )
 from tracecat.exceptions import (
     AgentModelRetiredError,
@@ -1275,7 +1274,7 @@ async def test_resolve_model_replacement_rejects_retired_model_without_usable_re
 
 
 @pytest.mark.anyio
-async def test_resolve_model_replacement_uses_retired_list_after_row_is_deleted(
+async def test_resolve_model_replacement_uses_retired_list_when_no_row_exists(
     session: AsyncSession,
     svc_organization: Organization,
     monkeypatch: pytest.MonkeyPatch,
@@ -1296,7 +1295,7 @@ async def test_resolve_model_replacement_uses_retired_list_after_row_is_deleted(
     await session.commit()
     service = AgentCatalogService(session=session)
 
-    # A stale catalog_id from inline config, or a preset whose FK was set null.
+    # A catalog_id synced or copied from a deployment that still has the row.
     stale = await service.resolve_model_replacement(
         role=_user_role(svc_organization.id),
         model_provider="openai",
@@ -1316,103 +1315,6 @@ async def test_resolve_model_replacement_uses_retired_list_after_row_is_deleted(
     assert nulled == ModelReplacement(
         model_provider="openai", model_name="gpt-5.6-sol", catalog_id=None
     )
-
-
-@pytest.mark.anyio
-async def test_prune_retired_platform_models_deletes_only_listed_rows(
-    session: AsyncSession,
-    svc_organization: Organization,
-) -> None:
-    retired = _catalog(None, "openai", "gpt-5.1-codex-max")
-    org_same_name = _catalog(svc_organization.id, "openai", "gpt-5.1-codex-max")
-    absent_from_bundle = _catalog(None, "openai", "gpt-4.1")
-    session.add_all([retired, org_same_name, absent_from_bundle])
-    await session.flush()
-    session.add(_enable(org_id=svc_organization.id, catalog_id=retired.id))
-    await session.commit()
-    retired_id = retired.id
-
-    await AgentCatalogService(session=session).prune_retired_platform_models(
-        [ModelKey("openai", "gpt-5.1-codex-max")]
-    )
-
-    remaining = set(
-        (
-            await session.execute(
-                select(AgentCatalog.organization_id, AgentCatalog.model_name)
-            )
-        ).tuples()
-    )
-    assert (None, "gpt-5.1-codex-max") not in remaining
-    assert (svc_organization.id, "gpt-5.1-codex-max") in remaining
-    assert (None, "gpt-4.1") in remaining
-    assert (
-        await session.scalar(
-            select(AgentModelAccess.id).where(AgentModelAccess.catalog_id == retired_id)
-        )
-        is None
-    )
-
-
-@pytest.mark.anyio
-async def test_prune_retired_platform_models_keeps_referenced_rows(
-    session: AsyncSession,
-    svc_organization: Organization,
-    svc_workspace,
-) -> None:
-    in_subset = _catalog(None, "openai", "gpt-5.1-codex")
-    saved_default = _catalog(None, "openai", "gpt-5.1-codex-max")
-    legacy_default = _catalog(None, "openai", "gpt-5.2-codex")
-    unreferenced = _catalog(None, "openai", "gpt-5-codex")
-    session.add_all([in_subset, saved_default, legacy_default, unreferenced])
-    await session.flush()
-    # The workspace subset holds only a retired model; deleting it would widen
-    # the workspace to the org set.
-    session.add(
-        _enable(
-            org_id=svc_organization.id,
-            catalog_id=in_subset.id,
-            workspace_id=svc_workspace.id,
-        )
-    )
-    session.add_all(
-        [
-            OrganizationSetting(
-                organization_id=svc_organization.id,
-                key=key,
-                value=f'"{value}"'.encode(),
-                value_type="json",
-                is_encrypted=False,
-            )
-            for key, value in (
-                ("agent_default_model_catalog_id", saved_default.id),
-                ("agent_default_model", legacy_default.model_name),
-            )
-        ]
-    )
-    await session.commit()
-
-    await AgentCatalogService(session=session).prune_retired_platform_models(
-        [
-            ModelKey("openai", name)
-            for name in (
-                "gpt-5.1-codex",
-                "gpt-5.1-codex-max",
-                "gpt-5.2-codex",
-                "gpt-5-codex",
-            )
-        ],
-    )
-
-    remaining = set(
-        await session.scalars(
-            select(AgentCatalog.model_name).where(
-                AgentCatalog.organization_id.is_(None)
-            )
-        )
-    )
-    assert {"gpt-5.1-codex", "gpt-5.1-codex-max", "gpt-5.2-codex"} <= remaining
-    assert "gpt-5-codex" not in remaining
 
 
 @pytest.mark.anyio
