@@ -1036,11 +1036,7 @@ class AgentPresetService(BaseWorkspaceService):
             model_name=config.model_name,
             catalog_id=config.catalog_id,
         ):
-            config = dataclasses.replace(
-                config,
-                model_name=replacement.model_name,
-                catalog_id=replacement.catalog_id,
-            )
+            config = dataclasses.replace(config, **replacement.selection_update())
         return config
 
     async def resolve_agent_preset_version(

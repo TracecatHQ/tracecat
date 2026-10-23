@@ -1,12 +1,14 @@
 """Load platform catalog on startup."""
 
-import importlib.resources as resources
 import logging
 from typing import Any, cast
 
-import orjson
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from tracecat.agent.catalog.bundled import (
+    get_retired_platform_models,
+    read_platform_catalog_document,
+)
 from tracecat.agent.catalog.service import AgentCatalogService, PlatformCatalogEntry
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 
@@ -31,20 +33,7 @@ def get_platform_catalog_models() -> list[PlatformCatalogEntry]:
     bundled file is missing or invalid so API startup stays resilient to
     packaging issues.
     """
-    try:
-        catalog_data = orjson.loads(
-            resources.files("tracecat.agent")
-            .joinpath("platform_catalog.json")
-            .read_bytes()
-        )
-    except (FileNotFoundError, IsADirectoryError, orjson.JSONDecodeError, OSError):
-        return []
-
-    if not isinstance(catalog_data, dict):
-        return []
-    catalog_doc = cast(dict[str, Any], catalog_data)
-
-    raw_models = catalog_doc.get("models", [])
+    raw_models = read_platform_catalog_document().get("models", [])
     if not isinstance(raw_models, list):
         return []
     models = cast(list[Any], raw_models)
@@ -78,7 +67,8 @@ async def load_platform_catalog_on_startup() -> None:
         async with get_async_session_bypass_rls_context_manager() as session:
             service = AgentCatalogService(session=session)
             upserted = await service.upsert_platform_catalog(
-                get_platform_catalog_models()
+                get_platform_catalog_models(),
+                retired=get_retired_platform_models().keys(),
             )
             logger.info(f"Platform catalog loaded: {upserted} models upserted")
     except Exception as e:
