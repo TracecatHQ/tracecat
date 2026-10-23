@@ -1,0 +1,40 @@
+type: action
+definition:
+  title: Get service desks
+  description: Get a list of service desks in Jira Service Management.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-servicedesk/#api-rest-servicedeskapi-servicedesk-get
+  namespace: tools.jira_service_management
+  name: get_service_desks
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+    limit:
+      type: int
+      description: Maximum number of service desks to return.
+      default: 50
+    start:
+      type: int
+      description: Starting index of the returned service desks.
+      default: 0
+  steps:
+    - ref: get_service_desks
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/servicedeskapi/servicedesk
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+          X-ExperimentalApi: opt-in
+        params:
+          limit: ${{ inputs.limit }}
+          start: ${{ inputs.start }}
+  returns: ${{ steps.get_service_desks.result.data.values }}

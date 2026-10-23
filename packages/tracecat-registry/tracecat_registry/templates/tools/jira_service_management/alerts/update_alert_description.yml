@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: Update alert description
+  description: Update the description of an alert to provide current incident details.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk-ops/rest/v2/api-group-alerts/#api-rest-v1-alerts-id-description-patch
+  namespace: tools.jira_service_management
+  name: update_alert_description
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+    alert_id:
+      type: str
+      description: Identifier of the alert.
+    description:
+      type: str
+      description: New alert description (max 15,000 characters).
+  steps:
+    - ref: update_alert_description
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/jsm/ops/api/v1/alerts/${{ inputs.alert_id }}/description
+        method: PATCH
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+        payload:
+          description: ${{ inputs.description }}
+  returns: ${{ steps.update_alert_description.result.data }}

@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Get alert by alias
+  description: Retrieve comprehensive details of a specific alert using its alias.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk-ops/rest/v2/api-group-alerts/#api-rest-v1-alerts-alias-get
+  namespace: tools.jira_service_management
+  name: get_alert_by_alias
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+    alias:
+      type: str
+      description: Alias of the alert to retrieve.
+  steps:
+    - ref: get_alert_by_alias
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/jsm/ops/api/v1/alerts/alias
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+        params:
+          alias: ${{ inputs.alias }}
+  returns: ${{ steps.get_alert_by_alias.result.data }}

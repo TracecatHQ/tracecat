@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: Add comment to service request
+  description: >-
+    Add a comment to a service request in Jira Service Management.
+    Supports setting visibility to public (customer-visible) or internal (agent-only).
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-comment-post
+  namespace: tools.jira_service_management
+  name: add_request_comment
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    issue_id_or_key:
+      type: str
+      description: ID or key of the service request (e.g. SD-123).
+    comment:
+      type: str
+      description: The comment body text.
+    public:
+      type: bool
+      description: >-
+        Whether the comment is visible to the customer on the portal.
+        Set to true for customer-visible, false for internal agent-only.
+      default: true
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+  steps:
+    - ref: add_comment
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/rest/servicedeskapi/request/${{ inputs.issue_id_or_key }}/comment
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+          X-ExperimentalApi: opt-in
+        payload:
+          body: ${{ inputs.comment }}
+          public: ${{ inputs.public }}
+  returns: ${{ steps.add_comment.result.data }}

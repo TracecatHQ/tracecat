@@ -1,0 +1,100 @@
+type: action
+definition:
+  title: Create alert
+  description: >-
+    Create a new alert. The request is processed asynchronously;
+    use the returned request ID with get_request_status to track it.
+  display_group: Jira Service Management
+  doc_url: https://developer.atlassian.com/cloud/jira/service-desk-ops/rest/v2/api-group-alerts/#api-rest-v1-alerts-post
+  namespace: tools.jira_service_management
+  name: create_alert
+  secrets:
+    - type: oauth
+      provider_id: atlassian
+      grant_type: authorization_code
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Atlassian API URL for the Jira site
+        (e.g. https://api.atlassian.com/ex/jira/{cloudId}).
+      default: null
+    message:
+      type: str
+      description: Alert message (limited to 130 characters).
+    alias:
+      type: str | None
+      description: >-
+        Client-defined unique identifier for the alert, used for deduplication.
+        Maximum 512 characters.
+      default: null
+    description:
+      type: str | None
+      description: Detailed description of the alert (up to 15,000 characters).
+      default: null
+    responders:
+      type: list[dict[str, Any]] | None
+      description: >-
+        List of responders. Each responder is an object with "type" and an identifier.
+        Example: [{"type": "team", "id": "team-id"}, {"type": "user", "id": "user-id"}]
+      default: null
+    visible_to:
+      type: list[dict[str, Any]] | None
+      description: >-
+        Teams and users the alert will be visible to without sending notifications.
+        Example: [{"type": "team", "id": "team-id"}]
+      default: null
+    actions:
+      type: list[str] | None
+      description: Custom actions available for the alert (max 10, each max 50 chars).
+      default: null
+    tags:
+      type: list[str] | None
+      description: Tags for the alert (max 20, each max 50 chars).
+      default: null
+    details:
+      type: dict[str, str] | None
+      description: Key-value pairs of additional properties (max 8000 chars total).
+      default: null
+    entity:
+      type: str | None
+      description: Entity field of the alert, generally for domain of the alert (max 512 chars).
+      default: null
+    source:
+      type: str | None
+      description: Source field of the alert (max 100 chars).
+      default: null
+    priority:
+      type: str | None
+      description: Priority level (P1, P2, P3, P4, P5). Default is P3.
+      default: null
+    note:
+      type: str | None
+      description: Additional note to add when creating the alert (max 25,000 chars).
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.transform.reshape
+      args:
+        value:
+          message: ${{ inputs.message }}
+          alias: ${{ inputs.alias }}
+          description: ${{ inputs.description }}
+          responders: ${{ inputs.responders }}
+          visibleTo: ${{ inputs.visible_to }}
+          actions: ${{ inputs.actions }}
+          tags: ${{ inputs.tags }}
+          details: ${{ inputs.details }}
+          entity: ${{ inputs.entity }}
+          source: ${{ inputs.source }}
+          priority: ${{ inputs.priority }}
+          note: ${{ inputs.note }}
+    - ref: create_alert
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jira.base_url }}/jsm/ops/api/v1/alerts
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.atlassian_oauth.ATLASSIAN_USER_TOKEN }}
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.create_alert.result.data }}
