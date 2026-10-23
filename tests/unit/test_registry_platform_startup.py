@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -22,11 +23,59 @@ from tracecat.db.models import (
     PlatformRegistryRepository,
     PlatformRegistryVersion,
 )
+from tracecat.registry.artifact_keys import get_artifact_s3_prefix
 from tracecat.registry.constants import (
     DEFAULT_REGISTRY_ORIGIN,
+    PLATFORM_REGISTRY_NAMESPACE,
+)
+from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
+from tracecat.registry.versions.schemas import (
+    RegistryVersionManifest,
+    registry_content_version,
+    registry_manifest_fingerprint,
 )
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.fixture(autouse=True)
+def prebuilt_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Point prebuilt manifest lookups at an empty per-test directory."""
+    root = tmp_path / "prebuilt"
+    monkeypatch.setattr(
+        "tracecat.config.TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR", str(root)
+    )
+    return root
+
+
+def _write_prebuilt(root: Path, version: str, manifest: dict) -> str:
+    """Bake a prebuilt builtin manifest for ``version`` and return its fingerprint."""
+    model = RegistryVersionManifest.model_validate(manifest)
+    write_prebuilt_registry_manifest(
+        artifact_dir=root
+        / get_artifact_s3_prefix(
+            organization_id=PLATFORM_REGISTRY_NAMESPACE,
+            repository_origin=DEFAULT_REGISTRY_ORIGIN,
+            version=version,
+        ),
+        manifest=model,
+    )
+    return registry_manifest_fingerprint(model)
+
+
+async def _reset_platform_versions(session: AsyncSession) -> PlatformRegistryRepository:
+    """Return the platform repo with no versions and no current selection."""
+    repo = await _get_or_create_platform_repo(session)
+    repo.current_version_id = None
+    session.add(repo)
+    await session.flush()
+    await session.execute(
+        delete(PlatformRegistryVersion).where(
+            PlatformRegistryVersion.repository_id == repo.id
+        )
+    )
+    await session.commit()
+    return repo
 
 
 async def _get_or_create_platform_repo(
@@ -378,6 +427,180 @@ async def test_startup_sync_returns_artifact_build_for_resolved_version(
             promote_version_id=None,
             expected_current_version_id=None,
         )
+
+
+@pytest.mark.anyio
+async def test_startup_sync_uses_content_version_when_base_row_content_differs(
+    session: AsyncSession, prebuilt_root: Path
+) -> None:
+    """A changed manifest under the same version gets its own immutable row.
+
+    The base row is left untouched, the new content syncs under
+    `<version>+content.<fingerprint>`, and it is promoted only after its
+    artifact is built.
+    """
+    from tracecat.registry.sync.jobs import _ArtifactBuildRequest, _sync_as_leader
+
+    repo = await _reset_platform_versions(session)
+    base_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.0.0",
+        manifest=_make_manifest(["test.action_v1"]),
+        tarball_uri="s3://test/v1.tar.gz",
+    )
+    session.add(base_version)
+    await session.flush()
+    repo.current_version_id = base_version.id
+    session.add(repo)
+    await session.commit()
+
+    fingerprint = _write_prebuilt(
+        prebuilt_root, "1.0.0", _make_manifest(["test.action_v1", "test.action_v2"])
+    )
+    content_version = registry_content_version("1.0.0", fingerprint)
+    new_version_id = uuid.uuid4()
+    mock_result = SimpleNamespace(
+        version=SimpleNamespace(id=new_version_id),
+        version_string=content_version,
+        num_actions=0,
+        actions=[],
+    )
+
+    with patch(
+        "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
+    ) as mock_sync_cls:
+        mock_sync_service = AsyncMock()
+        mock_sync_service.sync_repository_v2.return_value = mock_result
+        mock_sync_cls.return_value = mock_sync_service
+
+        artifact_build = await _sync_as_leader(session, "1.0.0")
+
+        call_kwargs = mock_sync_service.sync_repository_v2.call_args.kwargs
+        assert call_kwargs["target_version"] == content_version
+        assert call_kwargs["promote"] is False
+        assert artifact_build == _ArtifactBuildRequest(
+            target_version=content_version,
+            promote_version_id=new_version_id,
+            expected_current_version_id=base_version.id,
+        )
+
+    assert content_version == f"1.0.0+content.{fingerprint[:16]}"
+
+
+@pytest.mark.anyio
+async def test_startup_sync_keeps_base_version_when_prebuilt_content_matches(
+    session: AsyncSession, prebuilt_root: Path
+) -> None:
+    """Same version and same content is already synced; no content version."""
+    from tracecat.registry.sync.jobs import _ArtifactBuildRequest, _sync_as_leader
+
+    repo = await _reset_platform_versions(session)
+    manifest = _make_manifest(["test.action"])
+    base_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.0.0",
+        manifest=manifest,
+        tarball_uri="s3://test/v1.tar.gz",
+    )
+    session.add(base_version)
+    await session.flush()
+    repo.current_version_id = base_version.id
+    session.add(repo)
+    await session.commit()
+    _write_prebuilt(prebuilt_root, "1.0.0", manifest)
+
+    with patch(
+        "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
+    ) as mock_sync_service:
+        artifact_build = await _sync_as_leader(session, "1.0.0")
+        mock_sync_service.assert_not_called()
+
+    assert artifact_build == _ArtifactBuildRequest(
+        target_version="1.0.0",
+        promote_version_id=base_version.id,
+        expected_current_version_id=base_version.id,
+    )
+
+
+@pytest.mark.anyio
+async def test_startup_sync_skips_when_content_version_already_current(
+    session: AsyncSession, prebuilt_root: Path
+) -> None:
+    """Restarting the same image reuses its content row instead of re-syncing."""
+    from tracecat.registry.sync.jobs import _ArtifactBuildRequest, _sync_as_leader
+
+    repo = await _reset_platform_versions(session)
+    image_manifest = _make_manifest(["test.action_v1", "test.action_v2"])
+    fingerprint = _write_prebuilt(prebuilt_root, "1.0.0", image_manifest)
+    content_version_string = registry_content_version("1.0.0", fingerprint)
+    base_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.0.0",
+        manifest=_make_manifest(["test.action_v1"]),
+        tarball_uri="s3://test/v1.tar.gz",
+    )
+    content_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version=content_version_string,
+        manifest=image_manifest,
+        tarball_uri="s3://test/content.tar.gz",
+    )
+    session.add_all([base_version, content_version])
+    await session.flush()
+    repo.current_version_id = content_version.id
+    session.add(repo)
+    await session.commit()
+
+    with patch(
+        "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
+    ) as mock_sync_service:
+        artifact_build = await _sync_as_leader(session, "1.0.0")
+        mock_sync_service.assert_not_called()
+
+    assert artifact_build == _ArtifactBuildRequest(
+        target_version=content_version_string,
+        promote_version_id=content_version.id,
+        expected_current_version_id=content_version.id,
+    )
+
+
+@pytest.mark.anyio
+async def test_startup_sync_does_not_promote_existing_non_current_content_version(
+    session: AsyncSession, prebuilt_root: Path
+) -> None:
+    """A content row that is not current is treated like any rolled-back version."""
+    from tracecat.registry.sync.jobs import _sync_as_leader
+
+    repo = await _reset_platform_versions(session)
+    image_manifest = _make_manifest(["test.action_v1", "test.action_v2"])
+    fingerprint = _write_prebuilt(prebuilt_root, "1.0.0", image_manifest)
+    base_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.0.0",
+        manifest=_make_manifest(["test.action_v1"]),
+        tarball_uri="s3://test/v1.tar.gz",
+    )
+    content_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version=registry_content_version("1.0.0", fingerprint),
+        manifest=image_manifest,
+        tarball_uri="s3://test/content.tar.gz",
+    )
+    session.add_all([base_version, content_version])
+    await session.flush()
+    repo.current_version_id = base_version.id
+    session.add(repo)
+    await session.commit()
+
+    with patch(
+        "tracecat.registry.sync.jobs.PlatformRegistrySyncService"
+    ) as mock_sync_service:
+        artifact_build = await _sync_as_leader(session, "1.0.0")
+        mock_sync_service.assert_not_called()
+
+    assert artifact_build is None
+    await session.refresh(repo)
+    assert repo.current_version_id == base_version.id
 
 
 @pytest.mark.anyio

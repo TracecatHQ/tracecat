@@ -26,9 +26,19 @@ from tracecat.db.locks import (
 from tracecat.db.models import PlatformRegistryVersion
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionCreate
-from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.constants import (
+    DEFAULT_REGISTRY_ORIGIN,
+    PLATFORM_REGISTRY_NAMESPACE,
+)
 from tracecat.registry.repositories.platform_service import PlatformRegistryReposService
 from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
+from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
+from tracecat.registry.versions.schemas import (
+    RegistryVersionManifest,
+    registry_base_version,
+    registry_content_version,
+    registry_manifest_fingerprint,
+)
 from tracecat.registry.versions.service import PlatformRegistryVersionsService
 
 MAX_SYNC_RETRIES = 3
@@ -91,11 +101,15 @@ def _normalize_alpha_hotfix(version: str) -> str:
 
 
 def _is_downgrade(current_version: PlatformRegistryVersion | None, target: str) -> bool:
-    """Check if target version would be a downgrade from current."""
+    """Check if target version would be a downgrade from current.
+
+    Local labels (content or collision versions) are ignored: they mark different
+    content for the same release, not an order between releases.
+    """
     if current_version is None:
         return False
-    target = _normalize_alpha_hotfix(target)
-    current = _normalize_alpha_hotfix(current_version.version)
+    target = _normalize_alpha_hotfix(registry_base_version(target))
+    current = _normalize_alpha_hotfix(registry_base_version(current_version.version))
     try:
         return Version(target) < Version(current)
     except InvalidVersion:
@@ -111,10 +125,12 @@ async def sync_platform_registry_on_startup() -> None:
     Flow:
     1. Try to acquire advisory lock (non-blocking)
     2. If lock acquired (leader):
-       a. Check if target version already exists and is current → done
-       b. If target exists with no current version → build artifact then promote
-       c. If version exists but is not current → preserve rollback → done
-       d. If version doesn't exist → run sync with retries
+       a. Resolve the target: the package version, or a content version when
+          the image's prebuilt manifest differs from that version's row
+       b. Check if target version already exists and is current → done
+       c. If target exists with no current version → build artifact then promote
+       d. If version exists but is not current → preserve rollback → done
+       e. If version doesn't exist → run sync with retries
     3. Release the leader lock and session, then await any artifact build
     4. If lock not acquired (non-leader) → exit immediately
     """
@@ -173,6 +189,11 @@ async def _sync_as_leader(
     # Fresh installs have no target version to fetch; keep the first-start path lean.
     existing_version = None
     if not is_fresh_install:
+        target_version = await _resolve_content_target_version(
+            versions_service,
+            repository_id=repo.id,
+            base_version=target_version,
+        )
         existing_version = await versions_service.get_version_by_repo_and_version(
             repository_id=repo.id,
             version=target_version,
@@ -283,6 +304,53 @@ async def _sync_as_leader(
             await session.rollback()
             if attempt == MAX_SYNC_RETRIES:
                 raise
+
+
+async def _resolve_content_target_version(
+    versions_service: PlatformRegistryVersionsService,
+    *,
+    repository_id: UUID,
+    base_version: str,
+) -> str:
+    """Return the version that identifies this image's builtin registry content.
+
+    The base version row keeps its first-synced manifest. When the image's
+    prebuilt manifest differs from it, the image's content gets its own
+    immutable content version instead of being mistaken for the base row.
+    Without a prebuilt manifest the content is unknown, so the base version is
+    kept and the version string alone decides, as before.
+    """
+    prebuilt_manifest = load_prebuilt_builtin_registry_manifest(
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        target_version=base_version,
+        storage_namespace=PLATFORM_REGISTRY_NAMESPACE,
+    )
+    if prebuilt_manifest is None:
+        return base_version
+
+    base_row = await versions_service.get_version_by_repo_and_version(
+        repository_id=repository_id,
+        version=base_version,
+    )
+    if base_row is None:
+        return base_version
+
+    prebuilt_fingerprint = registry_manifest_fingerprint(prebuilt_manifest)
+    base_fingerprint = registry_manifest_fingerprint(
+        RegistryVersionManifest.model_validate(base_row.manifest)
+    )
+    if base_fingerprint == prebuilt_fingerprint:
+        return base_version
+
+    content_version = registry_content_version(base_version, prebuilt_fingerprint)
+    logger.info(
+        "Builtin registry content differs from its version row; using content version",
+        base_version=base_version,
+        content_version=content_version,
+        base_fingerprint=base_fingerprint,
+        prebuilt_fingerprint=prebuilt_fingerprint,
+    )
+    return content_version
 
 
 async def _seed_registry_scopes(

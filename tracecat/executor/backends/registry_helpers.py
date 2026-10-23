@@ -20,7 +20,10 @@ from tracecat.registry.constants import (
     PLATFORM_REGISTRY_NAMESPACE,
 )
 from tracecat.registry.sync.prebuilt import load_prebuilt_builtin_registry_manifest
-from tracecat.registry.versions.schemas import registry_manifest_fingerprint
+from tracecat.registry.versions.schemas import (
+    registry_base_version,
+    registry_manifest_fingerprint,
+)
 
 
 async def get_registry_artifact_uris(
@@ -38,13 +41,14 @@ async def get_registry_artifact_uris(
     origins = dict(input.registry_lock.origins)
     artifact_uris: list[str] = []
 
-    if (
-        origins.get(DEFAULT_REGISTRY_ORIGIN) == tracecat_registry.__version__
-        and (builtin_version := origins.get(DEFAULT_REGISTRY_ORIGIN)) is not None
-        and _bundled_builtin_matches_lock(input.registry_lock, builtin_version)
+    builtin_version = origins.get(DEFAULT_REGISTRY_ORIGIN)
+    if builtin_version is not None and _bundled_builtin_matches_lock(
+        input.registry_lock, builtin_version
     ):
         del origins[DEFAULT_REGISTRY_ORIGIN]
-        artifact_uris.append(bundled_builtin_registry_uri(builtin_version))
+        artifact_uris.append(
+            bundled_builtin_registry_uri(tracecat_registry.__version__)
+        )
 
     if not origins:
         return artifact_uris
@@ -60,17 +64,28 @@ async def get_registry_artifact_uris(
 
 
 def _bundled_builtin_matches_lock(registry_lock: object, version: str) -> bool:
-    """Return whether this executor can satisfy the locked builtin from its image."""
-    origin_fingerprints = getattr(registry_lock, "origin_fingerprints", None)
-    if not isinstance(origin_fingerprints, dict):
-        return True
+    """Return whether this executor can satisfy the locked builtin from its image.
 
-    expected = origin_fingerprints.get(DEFAULT_REGISTRY_ORIGIN)
+    A lock on the installed version, or on a content version of it
+    (``<installed>+content.<fingerprint>``), matches when its builtin manifest
+    fingerprint equals the image's prebuilt manifest. Without a fingerprint only
+    the exact installed version is trusted.
+    """
+    installed_version = tracecat_registry.__version__
+    if registry_base_version(version) != installed_version:
+        return False
+
+    origin_fingerprints = getattr(registry_lock, "origin_fingerprints", None)
+    expected = (
+        origin_fingerprints.get(DEFAULT_REGISTRY_ORIGIN)
+        if isinstance(origin_fingerprints, dict)
+        else None
+    )
     if expected is None:
-        return True
+        return version == installed_version
 
     actual = _bundled_builtin_fingerprint(
-        config.TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR, version
+        config.TRACECAT__REGISTRY_SYNC_PREBUILT_ARTIFACTS_DIR, installed_version
     )
     if actual is None:
         logger.info(

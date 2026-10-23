@@ -10,7 +10,10 @@ from tracecat import config
 from tracecat.logger import logger
 from tracecat.registry.artifact_keys import get_artifact_s3_prefix
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
-from tracecat.registry.versions.schemas import RegistryVersionManifest
+from tracecat.registry.versions.schemas import (
+    RegistryVersionManifest,
+    registry_base_version,
+)
 
 PREBUILT_MANIFEST_FILENAME = "manifest.json"
 
@@ -27,10 +30,12 @@ def _builtin_artifact_prefix(
 ) -> str | None:
     if origin != DEFAULT_REGISTRY_ORIGIN or target_version is None:
         return None
+    # The image bakes one manifest under its package version. Local labels such
+    # as content versions describe the same image, so they share that manifest.
     return get_artifact_s3_prefix(
         organization_id=storage_namespace,
         repository_origin=origin,
-        version=target_version,
+        version=registry_base_version(target_version),
     )
 
 

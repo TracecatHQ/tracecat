@@ -57,6 +57,29 @@ def test_is_downgrade_orders_alpha_hotfix_tags(older: str, newer: str) -> None:
     assert _is_downgrade(newer_version, older) is True
 
 
+@pytest.mark.parametrize(
+    ("current_version", "target_version", "expected"),
+    [
+        ("1.0.0", "1.0.0+content.0123456789abcdef", False),
+        ("1.0.0+content.ffffffffffffffff", "1.0.0+content.0000000000000000", False),
+        ("1.0.0+content.ffffffffffffffff", "1.0.0", False),
+        ("1.0.0+collision.20260522140000.123456", "1.0.0+content.00", False),
+        ("1.1.0+content.00", "1.0.0+content.ff", True),
+        ("1.0.0+content.ff", "1.1.0", False),
+        ("1.2.0-alpha.1.2+content.ff", "1.2.0-alpha.1.1", True),
+    ],
+)
+def test_is_downgrade_ignores_local_version_labels(
+    current_version: str,
+    target_version: str,
+    expected: bool,
+) -> None:
+    """Content and collision labels mark content, not release order."""
+    current = PlatformRegistryVersion(version=current_version)
+
+    assert _is_downgrade(current, target_version) is expected
+
+
 @pytest.mark.parametrize("current", ["1.2.0-alpha.1.2", "1.2.0a1.post2"])
 def test_is_downgrade_accepts_equivalent_alpha_hotfix_versions(current: str) -> None:
     """Public and Python hotfix versions compare as the same release."""
