@@ -285,10 +285,16 @@ class TestDeduplicateTransform:
         assert caplog.records == []
 
     @pytest.mark.anyio
-    async def test_invalid_jsonpath_raises_when_key_missing(self) -> None:
-        """An invalid JSONPath still raises rather than passing items through."""
+    @pytest.mark.parametrize(
+        "keys", [["id["], ["id", "broken["]], ids=["only-key", "after-missing-key"]
+    )
+    async def test_invalid_jsonpath_raises_when_key_missing(
+        self, keys: list[str]
+    ) -> None:
+        """An invalid JSONPath still raises rather than passing items through,
+        even when an earlier key is already missing."""
         with pytest.raises(TracecatExpressionError):
-            await deduplicate([{"name": "a"}], keys=["id["], persist=False)
+            await deduplicate([{"name": "a"}], keys=keys, persist=False)
 
     @pytest.mark.anyio
     async def test_whole_item_digest_differs_from_keyed_digest(self) -> None:

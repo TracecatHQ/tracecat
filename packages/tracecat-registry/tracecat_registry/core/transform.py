@@ -198,19 +198,23 @@ async def deduplicate(
             # keyed value never produces, so its digest can't match one.
             return (("item", json.dumps(item, sort_keys=True, default=str)),)
         values = []
+        missing = False
+        # Evaluate every key, even after one is missing, so an invalid
+        # JSONPath raises regardless of which keys an item has
         for key in keys:
             # Convert dot notation to jsonpath format
             matches, is_multi = find_jsonpath("$." + key, item)
             if not matches:
                 # Missing key, including a wildcard or filter matching nothing
-                return None
+                missing = True
+                continue
             # Same value shape as eval_jsonpath, which keeps digests stable
             value = matches if is_multi or len(matches) > 1 else matches[0]
             # Convert unhashable types to JSON strings for use as dict keys
             if isinstance(value, (list, dict)):
                 value = json.dumps(value, sort_keys=True, default=str)
             values.append(value)
-        return tuple(values)
+        return None if missing else tuple(values)
 
     seen: dict[tuple[Any, ...], dict[str, Any]] = {}
     # Dedup keys of first occurrences, plus items missing a key, in input order
