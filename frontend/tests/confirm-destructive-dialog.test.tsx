@@ -77,6 +77,7 @@ describe("ConfirmDestructiveDialog", () => {
     expect(
       screen.getByText("You will be deleting 3 workflows.")
     ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus()
 
     await user.click(screen.getByRole("button", { name: "Delete 3 workflows" }))
     expect(onConfirm).toHaveBeenCalledTimes(1)

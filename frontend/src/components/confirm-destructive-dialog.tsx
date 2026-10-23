@@ -2,7 +2,7 @@
 
 import { Loader2 } from "lucide-react"
 import type { ReactNode } from "react"
-import { useId, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 import { CopyButton } from "@/components/copy-button"
 import {
   AlertDialog,
@@ -101,6 +101,13 @@ export function ConfirmDestructiveDialog({
   const matches =
     confirmPhrase.length > 0 && confirmText.trim() === confirmPhrase
   const onFinalStep = finalStep !== undefined && showFinalStep
+  const cancelRef = useRef<HTMLButtonElement>(null)
+
+  // The typed-input form unmounts on the final step, so move focus to Cancel
+  // instead of letting it fall back to the dialog container.
+  useEffect(() => {
+    if (onFinalStep) cancelRef.current?.focus()
+  }, [onFinalStep])
 
   function reset() {
     setConfirmText("")
@@ -145,7 +152,7 @@ export function ConfirmDestructiveDialog({
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
       {children}
-      <AlertDialogContent>
+      <AlertDialogContent className="focus:outline-none">
         {onFinalStep ? (
           <AlertDialogHeader>
             <AlertDialogTitle>{finalStep.title}</AlertDialogTitle>
@@ -206,7 +213,9 @@ export function ConfirmDestructiveDialog({
           </>
         )}
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel ref={cancelRef} disabled={isPending}>
+            Cancel
+          </AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
             disabled={isPending || !matches}
