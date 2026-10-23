@@ -153,7 +153,11 @@ async def _deduplicate_persistent(
 
 @registry.register(
     default_title="Deduplicate",
-    description="Deduplicate a JSON object or a list of JSON objects given a list of keys. Returns a list of deduplicated JSON objects.",
+    description=(
+        "Deduplicate a JSON object or a list of JSON objects given a list of keys. "
+        "Items with the same key values are merged, later fields overwriting earlier ones. "
+        "Returns a list of deduplicated JSON objects."
+    ),
     display_group="Data Transform",
     namespace="core.transform",
 )
@@ -165,7 +169,8 @@ async def deduplicate(
     keys: Annotated[
         list[str],
         Doc(
-            "List of JSONPath keys to deduplicate by. Supports dot notation for nested keys (e.g. `['user.id']`)."
+            "List of JSONPath keys to deduplicate by. Supports dot notation for nested keys (e.g. `['user.id']`). "
+            "A key missing from an item counts as null. An empty list deduplicates by the whole item."
         ),
     ],
     expire_seconds: Annotated[
@@ -186,11 +191,15 @@ async def deduplicate(
     items_list = [items] if isinstance(items, dict) else items
 
     def get_nested_values(item: dict[str, Any], keys: list[str]) -> tuple[Any, ...]:
+        if not keys:
+            # No keys: the whole item is the key
+            return (json.dumps(item, sort_keys=True, default=str),)
         values = []
         for key in keys:
             # Convert dot notation to jsonpath format
             jsonpath_expr = "$." + key
-            value = eval_jsonpath(jsonpath_expr, item, strict=True)
+            # A missing key resolves to None
+            value = eval_jsonpath(jsonpath_expr, item)
             # Convert unhashable types to JSON strings for use as dict keys
             if isinstance(value, (list, dict)):
                 value = json.dumps(value, sort_keys=True, default=str)
@@ -232,7 +241,10 @@ async def is_duplicate(
     ],
     keys: Annotated[
         list[str],
-        Doc("List of JSONPath keys to check."),
+        Doc(
+            "List of JSONPath keys to check. A key missing from the item counts as null. "
+            "An empty list checks the whole item."
+        ),
     ],
     expire_seconds: Annotated[
         int,

@@ -149,6 +149,49 @@ class TestDeduplicateTransform:
         mock_dedup_client.create_digests.assert_called_once()
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("items", "keys", "expected"),
+        [
+            (
+                [{"a": 1}, {"a": 1}, {"b": 1}],
+                [],
+                [{"a": 1}, {"b": 1}],
+            ),
+            (
+                [{"a": 1, "b": 2}, {"b": 2, "a": 1}],
+                [],
+                [{"a": 1, "b": 2}],
+            ),
+            (
+                [{"a": 1}, {"a": 1}, {"b": 1}],
+                ["a", "b"],
+                [{"a": 1}, {"b": 1}],
+            ),
+            (
+                [{"id": 1, "v": "old", "x": 1}, {"id": 1, "v": "new"}],
+                ["id"],
+                [{"id": 1, "v": "new", "x": 1}],
+            ),
+        ],
+        ids=[
+            "empty-keys-whole-item",
+            "empty-keys-ignores-field-order",
+            "missing-key-is-none",
+            "same-key-items-merge",
+        ],
+    )
+    async def test_within_call_keys(
+        self,
+        items: list[dict[str, Any]],
+        keys: list[str],
+        expected: list[dict[str, Any]],
+    ) -> None:
+        """Empty keys dedupe by whole item, missing keys count as None, and
+        items sharing a key merge with later fields winning."""
+        result = await deduplicate(items, keys=keys, persist=False)
+        assert result == expected
+
+    @pytest.mark.anyio
     async def test_empty_items_skips_sdk(self) -> None:
         """Empty input returns empty list without calling SDK."""
         mock_ctx = MagicMock()
