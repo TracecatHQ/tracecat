@@ -6,7 +6,6 @@ from typing import Any, cast
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from tracecat.agent.catalog.bundled import (
-    get_retired_platform_models,
     read_platform_catalog_document,
 )
 from tracecat.agent.catalog.service import AgentCatalogService, PlatformCatalogEntry
@@ -66,13 +65,9 @@ async def load_platform_catalog_on_startup() -> None:
     try:
         async with get_async_session_bypass_rls_context_manager() as session:
             service = AgentCatalogService(session=session)
-            await service.prune_retired_platform_models(
-                get_retired_platform_models().keys()
-            )
             upserted = await service.upsert_platform_catalog(
                 get_platform_catalog_models()
             )
-            await session.commit()
             logger.info(f"Platform catalog loaded: {upserted} models upserted")
     except Exception as e:
         logger.error(f"Unexpected error loading platform catalog: {e}")

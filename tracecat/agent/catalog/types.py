@@ -1,6 +1,6 @@
 """Domain types for the agent model catalog."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal, NamedTuple, TypedDict
 from uuid import UUID
 
@@ -41,11 +41,3 @@ class ModelReplacement:
             "model_name": self.model_name,
             "catalog_id": self.catalog_id,
         }
-
-
-@dataclass(frozen=True, slots=True)
-class SavedDefaultModels:
-    """Catalog IDs and legacy names saved as organization default models."""
-
-    catalog_ids: set[UUID] = field(default_factory=set)
-    model_names: set[str] = field(default_factory=set)

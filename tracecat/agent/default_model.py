@@ -7,12 +7,8 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.catalog.schemas import AgentCatalogRead
-from tracecat.agent.catalog.types import SavedDefaultModels
 from tracecat.db.models import AgentCatalog, AgentModelAccess, OrganizationSetting
 from tracecat.settings.service import _deserialize_setting_value
-
-DEFAULT_MODEL_SETTING_KEY = "agent_default_model"
-DEFAULT_MODEL_CATALOG_ID_SETTING_KEY = "agent_default_model_catalog_id"
 
 
 async def _read_string_setting(
@@ -34,9 +30,7 @@ async def read_default_model_name(
     session: AsyncSession, organization_id: UUID
 ) -> str | None:
     """Read the legacy name used when no valid catalog ID is saved."""
-    return await _read_string_setting(
-        session, organization_id, DEFAULT_MODEL_SETTING_KEY
-    )
+    return await _read_string_setting(session, organization_id, "agent_default_model")
 
 
 async def read_default_model_catalog_id(
@@ -44,7 +38,7 @@ async def read_default_model_catalog_id(
 ) -> UUID | None:
     """Read a valid catalog ID; malformed IDs allow legacy-name resolution."""
     value = await _read_string_setting(
-        session, organization_id, DEFAULT_MODEL_CATALOG_ID_SETTING_KEY
+        session, organization_id, "agent_default_model_catalog_id"
     )
     if value is None:
         return None
@@ -52,34 +46,6 @@ async def read_default_model_catalog_id(
         return UUID(value)
     except ValueError:
         return None
-
-
-async def list_saved_default_models(session: AsyncSession) -> SavedDefaultModels:
-    """Return every organization's saved default catalog IDs and legacy names.
-
-    Sees every organization only on a bypass-RLS session; under RLS it
-    returns the current organization's settings alone.
-    """
-    settings = await session.scalars(
-        select(OrganizationSetting).where(
-            OrganizationSetting.key.in_(
-                (DEFAULT_MODEL_CATALOG_ID_SETTING_KEY, DEFAULT_MODEL_SETTING_KEY)
-            )
-        )
-    )
-    saved = SavedDefaultModels()
-    for setting in settings:
-        value = _deserialize_setting_value(setting)
-        if not isinstance(value, str) or not value:
-            continue
-        if setting.key == DEFAULT_MODEL_SETTING_KEY:
-            saved.model_names.add(value)
-            continue
-        try:
-            saved.catalog_ids.add(UUID(value))
-        except ValueError:
-            continue
-    return saved
 
 
 def resolve_legacy_default_model(
