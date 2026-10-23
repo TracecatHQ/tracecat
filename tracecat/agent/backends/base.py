@@ -3,7 +3,7 @@
 import asyncio
 import copy
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
 from datetime import timedelta
 from typing import ClassVar
@@ -38,6 +38,7 @@ from tracecat.agent.backends.types import (
     SessionHistoryAdapter,
     SessionTurnContext,
     SessionWorkflowContext,
+    WithdrawResult,
 )
 from tracecat.agent.cancellation import signal_turn_cancel
 from tracecat.agent.references.contracts import ReferenceCapabilities
@@ -88,6 +89,9 @@ class AgentBackend[InputT, OutputT](ABC):
     # Whether a running turn accepts steering messages. A backend that sets this
     # must implement `steer`.
     steering: ClassVar[bool] = False
+    # Whether a running turn can take back pending user messages. A backend
+    # that sets this must implement `withdraw`.
+    withdrawing: ClassVar[bool] = False
     task_queue: ClassVar[str]
     priority: ClassVar[Priority] = Priority()
     retry_policy: ClassVar[RetryPolicy] = RetryPolicy(maximum_attempts=1)
@@ -526,10 +530,23 @@ class AgentBackend[InputT, OutputT](ABC):
     async def steer(self, run_id: UUID, message_id: UUID, text: str) -> bool:
         """Deliver a message to a running turn; False means the turn refused it.
 
-        Retrying with the same ``message_id`` must return the first outcome.
+        Idempotency is session-scoped: a ``message_id`` reaches at most one turn
+        of the session. A retry returns the first outcome, even when a later
+        turn of the same session is now running.
         Only backends that set ``steering`` implement this.
         """
         raise AgentControlRejected("This agent backend does not support steering")
+
+    async def withdraw(
+        self, run_id: UUID, request_id: UUID, target_ids: Sequence[UUID] | None
+    ) -> WithdrawResult:
+        """Take back the user's pending messages that the model has not read.
+
+        ``target_ids`` of None withdraws all of the session's pending steers and
+        queued messages. A retry with the same ``request_id`` must return the
+        first result. Only backends that set ``withdrawing`` implement this.
+        """
+        raise AgentControlRejected("This agent backend does not support withdrawing")
 
     async def get_turn_lifecycle(self, run_id: UUID) -> TurnLifecycle:
         """Resolve execution status for reconnect without exposing Temporal types."""
