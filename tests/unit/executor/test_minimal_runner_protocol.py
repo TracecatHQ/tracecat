@@ -1140,5 +1140,8 @@ def test_sandbox_runner_skips_heavy_imports_for_plain_builtin_action() -> None:
         timeout=60,
     )
 
-    assert orjson.loads(proc.stdout) == {"success": True, "result": [{"a": 3, "b": 3}]}
+    assert orjson.loads(proc.stdout) == {
+        "success": True,
+        "result": [{"a": 3}, {"b": 3}],
+    }
     assert proc.stderr.decode().strip() == "[]"

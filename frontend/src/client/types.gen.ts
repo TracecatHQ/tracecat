@@ -12747,6 +12747,7 @@ export type WorkflowFolderCreate = {
 
 export type WorkflowFolderDelete = {
   recursive?: boolean
+  delete_workflows?: boolean
 }
 
 export type WorkflowFolderMove = {

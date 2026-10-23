@@ -4,7 +4,6 @@ import {
   BoxIcon,
   CircleCheck,
   CircleDot,
-  Clock3,
   Copy,
   ExternalLinkIcon,
   FolderIcon,
@@ -30,6 +29,7 @@ import {
   getFileTreeItems,
   ROOT_FOLDER_NAME,
 } from "@/components/dashboard/file-tree-command"
+import { FolderNotEmptyDialog } from "@/components/folder-not-empty-dialog"
 import { CenteredSpinner, Spinner } from "@/components/loading/spinner"
 import { DeleteSkillDialog } from "@/components/skills/delete-skill-dialog"
 import {
@@ -39,16 +39,7 @@ import {
   type SkillsViewMode,
 } from "@/components/skills/skills-header"
 import { useSkillAgentFilter } from "@/components/skills/use-skill-agent-filter"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
+import { RowTimestamps } from "@/components/timestamps"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -126,25 +117,6 @@ function parseSkillsViewMode(value: string | null): SkillsViewMode {
   return value === "list" ? "list" : "folders"
 }
 
-function getRelativeDateLabel(dateValue: string): string {
-  const timestamp = new Date(dateValue).getTime()
-  if (Number.isNaN(timestamp)) {
-    return "0m"
-  }
-  const diffMs = Math.max(0, Date.now() - timestamp)
-  const minuteMs = 60_000
-  const hourMs = 60 * minuteMs
-  const dayMs = 24 * hourMs
-  const monthMs = 30 * dayMs
-  const yearMs = 365 * dayMs
-
-  if (diffMs < hourMs) return `${Math.max(1, Math.floor(diffMs / minuteMs))}m`
-  if (diffMs < dayMs) return `${Math.max(1, Math.floor(diffMs / hourMs))}hr`
-  if (diffMs < monthMs) return `${Math.max(1, Math.floor(diffMs / dayMs))}d`
-  if (diffMs < yearMs) return `${Math.max(1, Math.floor(diffMs / monthMs))}mo`
-  return `${Math.max(1, Math.floor(diffMs / yearMs))}y`
-}
-
 function compareSkillItems(
   a: SkillDirectoryEntry,
   b: SkillDirectoryEntry,
@@ -210,13 +182,6 @@ function SkillTagPills({ tags }: { tags: TagRead[] }) {
 function SkillMetadataBadges({ item }: { item: SkillDirectoryItem }) {
   return (
     <div className="flex shrink-0 items-center gap-1">
-      <Badge
-        variant="secondary"
-        className="h-5 cursor-default px-2 text-[10px] font-normal"
-      >
-        <Clock3 className="mr-1 size-3" />
-        {getRelativeDateLabel(item.updated_at)}
-      </Badge>
       {item.current_version_id ? (
         <Badge variant="secondary" className="h-5 px-2 text-[10px] font-normal">
           <CircleCheck className="mr-1 size-3" />
@@ -559,6 +524,8 @@ function SkillFolderContextActions({
   canUpdateSkill: boolean
   canDeleteSkill: boolean
 }) {
+  const workspaceId = useWorkspaceId()
+  const { deleteFolder } = useSkillFolders(workspaceId, { enabled: false })
   return (
     <ContextMenuGroup>
       <ContextMenuItem
@@ -605,6 +572,12 @@ function SkillFolderContextActions({
             className="text-xs text-rose-500 focus:text-rose-600"
             onSelect={(event) => {
               event.stopPropagation()
+              if (item.num_items === 0) {
+                void deleteFolder({ folderId: item.id }).catch(() => {
+                  // The mutation hook reports failures.
+                })
+                return
+              }
               setSelectedItem(item)
               setActiveDialog("delete")
             }}
@@ -806,6 +779,11 @@ function SkillCatalogRow({
                   <BoxIcon className="mr-1 size-3" />
                   {item.num_items} {itemCountLabel}
                 </Badge>
+                <RowTimestamps
+                  className="ml-auto"
+                  createdAt={item.created_at}
+                  updatedAt={item.updated_at}
+                />
               </div>
             </button>
           </div>
@@ -846,6 +824,10 @@ function SkillCatalogRow({
                   <SkillTagPills tags={item.tags} />
                 ) : null}
               </div>
+              <RowTimestamps
+                createdAt={item.created_at}
+                updatedAt={item.updated_at}
+              />
             </div>
           </button>
         </div>
@@ -874,55 +856,15 @@ function SkillDeleteFolderDialog({
   onOpenChange: (open: boolean) => void
   folder: SkillFolderDirectoryItem
 }) {
-  const workspaceId = useWorkspaceId()
-  const { deleteFolder, deleteFolderIsPending } = useSkillFolders(workspaceId, {
-    enabled: open,
-  })
-  const [confirmationText, setConfirmationText] = useState("")
-
-  const handleDelete = async () => {
-    if (confirmationText !== folder.name) return
-    try {
-      await deleteFolder({ folderId: folder.id })
-      setConfirmationText("")
-      onOpenChange(false)
-    } catch {
-      // The mutation hook reports failures.
-    }
-  }
-
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete folder</AlertDialogTitle>
-          <AlertDialogDescription>
-            Delete <span className="font-medium">{folder.name}</span>? This
-            cannot be undone. The folder must be empty.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <Input
-          placeholder={`Type "${folder.name}" to confirm`}
-          value={confirmationText}
-          onChange={(event) => setConfirmationText(event.target.value)}
-        />
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={deleteFolderIsPending}>
-            Cancel
-          </AlertDialogCancel>
-          <AlertDialogAction
-            variant="destructive"
-            disabled={deleteFolderIsPending || confirmationText !== folder.name}
-            onClick={(event) => {
-              event.preventDefault()
-              void handleDelete()
-            }}
-          >
-            Confirm
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <FolderNotEmptyDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      folderId={folder.id}
+      folderName={folder.name}
+      numItems={folder.num_items}
+      itemNoun="skills and folders"
+    />
   )
 }
 
