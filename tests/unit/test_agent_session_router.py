@@ -1420,6 +1420,54 @@ async def test_create_session_rejects_unavailable_backend_with_bad_request(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
+    ("entity_type", "backend_id", "expected"),
+    [
+        # Chats without a choice take the configured backend.
+        (AgentSessionEntity.WORKSPACE_CHAT, None, "external"),
+        (AgentSessionEntity.AGENT_PRESET, None, "external"),
+        (AgentSessionEntity.CASE, None, "external"),
+        # An explicit choice wins over the configured backend.
+        (AgentSessionEntity.AGENT_PRESET, "oss", "oss"),
+        # Surfaces that need the built-in workflow keep it.
+        (AgentSessionEntity.AGENT_PRESET_BUILDER, None, "oss"),
+        (AgentSessionEntity.EXTERNAL_CHANNEL, None, "oss"),
+        (AgentSessionEntity.WORKFLOW, None, "oss"),
+    ],
+)
+async def test_create_session_applies_configured_chat_backend(
+    entity_type: AgentSessionEntity, backend_id: str | None, expected: str
+) -> None:
+    session_stub = _agent_session_stub(backend_id=expected)
+    fake_svc = SimpleNamespace(create_session=AsyncMock(return_value=session_stub))
+    request = AgentSessionCreate(entity_type=entity_type, entity_id=uuid.uuid4())
+    if backend_id is not None:
+        request = AgentSessionCreate(
+            entity_type=entity_type, entity_id=uuid.uuid4(), backend_id=backend_id
+        )
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+        ),
+        patch(
+            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
+            AsyncMock(),
+        ),
+        patch(
+            "tracecat.agent.session.router.config.TRACECAT__AGENT_CHAT_BACKEND",
+            "external",
+        ),
+    ):
+        await cast(Any, create_session).__wrapped__(
+            request=request,
+            role=_read_role(session_stub.workspace_id),
+            session=AsyncMock(),
+        )
+    sent = fake_svc.create_session.await_args.args[0]
+    assert sent.backend_id == expected
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
     "params",
     [
         AgentSessionUpdate(backend_id="external"),
