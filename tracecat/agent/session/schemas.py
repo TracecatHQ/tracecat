@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from tracecat.agent.adapter.vercel import UIMessage
 from tracecat.agent.session.types import AgentSessionEntity
@@ -250,7 +250,9 @@ class AgentSessionSteerRequest(BaseModel):
             "first outcome; a retry never reaches a later turn."
         )
     )
-    text: str = Field(min_length=1, max_length=100_000)
+    text: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100_000)
+    ]
 
 
 class AgentSessionSteerResponse(BaseModel):

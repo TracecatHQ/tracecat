@@ -2653,9 +2653,13 @@ class AgentSessionService(BaseWorkspaceService):
         ):
             await self.require_entitlement(Entitlement.WORKSPACE_CHAT)
 
-        backend = get_agent_backend(
-            agent_session.backend_id, harness_type=agent_session.harness_type
-        )
+        try:
+            backend = get_agent_backend(
+                agent_session.backend_id, harness_type=agent_session.harness_type
+            )
+        except TracecatValidationError as e:
+            # An unavailable backend steers nothing, like one that cannot steer.
+            raise TracecatConflictError(str(e)) from e
         if not backend.steering:
             raise TracecatConflictError("This agent backend does not support steering")
         lifecycle, curr_run_id = await self.get_turn_lifecycle(agent_session)
@@ -2707,6 +2711,9 @@ class AgentSessionService(BaseWorkspaceService):
                 error=str(exc),
             )
             raise AgentControlUncertain("Steering run binding unavailable") from exc
+        if bound is None:
+            # The binding expired between the two calls; its run is unknown.
+            raise AgentControlUncertain("Steering run binding expired")
         if bound != str(run_id):
             raise TracecatConflictError(
                 "This steering message was sent to an earlier turn"

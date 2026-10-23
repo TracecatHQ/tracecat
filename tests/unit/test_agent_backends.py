@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from claude_agent_sdk.types import UserMessage
+from pydantic import ValidationError
 from temporalio import workflow
 from temporalio.api.workflowservice.v1 import StartWorkflowExecutionResponse
 from temporalio.client import (
@@ -64,6 +65,7 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.temporal.codec import TemporalPayloadCodecError
+from tracecat.tiers.enums import Entitlement
 
 
 @pytest.fixture(autouse=True)
@@ -791,7 +793,9 @@ async def test_steer_delegates_to_a_steering_backend(accepted: bool):
             AsyncMock(return_value=redis),
         ),
         patch.object(service, "get_session", return_value=ctx.session),
-        patch.object(service, "require_entitlement", return_value=None),
+        patch.object(
+            service, "require_entitlement", AsyncMock(return_value=None)
+        ) as require_entitlement,
         patch(
             "tracecat.agent.session.service.get_agent_backend", return_value=provider
         ),
@@ -800,6 +804,8 @@ async def test_steer_delegates_to_a_steering_backend(accepted: bool):
         ),
     ):
         response = await service.steer(ctx.session.id, request)
+    # A workspace chat steers only with the Workspace Chat entitlement.
+    require_entitlement.assert_awaited_once_with(Entitlement.WORKSPACE_CHAT)
     provider.steer.assert_awaited_once_with(ctx.run_id, request.id, request.text)
     assert response.run_id == ctx.run_id
     assert response.id == request.id
@@ -880,7 +886,15 @@ async def test_a_steer_retry_never_reaches_a_later_turn(same_run: bool):
 
 
 @pytest.mark.anyio
-async def test_an_unreadable_steer_binding_refuses_the_steer():
+@pytest.mark.parametrize(
+    "read",
+    [
+        AsyncMock(side_effect=RuntimeError("redis down")),
+        # Expired between SET NX and GET.
+        AsyncMock(return_value=None),
+    ],
+)
+async def test_an_unreadable_steer_binding_refuses_the_steer(read: AsyncMock):
     ctx = context()
     assert isinstance(ctx.db, AsyncMock)
     ctx.session.curr_run_id = ctx.run_id
@@ -890,10 +904,7 @@ async def test_an_unreadable_steer_binding_refuses_the_steer():
     provider.get_turn_lifecycle = AsyncMock(return_value=TurnLifecycle.RUNNING)
     provider.steer = AsyncMock(return_value=True)
     # A retry: the ID is bound, but its run cannot be read back.
-    redis = Mock(
-        set_if_not_exists=AsyncMock(return_value=False),
-        get=AsyncMock(side_effect=RuntimeError("redis down")),
-    )
+    redis = Mock(set_if_not_exists=AsyncMock(return_value=False), get=read)
     with (
         patch(
             "tracecat.agent.session.service.get_redis_client",
@@ -913,6 +924,44 @@ async def test_an_unreadable_steer_binding_refuses_the_steer():
             ctx.session.id, AgentSessionSteerRequest(id=uuid4(), text="Stop")
         )
     provider.steer.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_steering_an_unavailable_backend_is_a_conflict():
+    ctx = context()
+    assert isinstance(ctx.db, AsyncMock)
+    service = AgentSessionService(ctx.db, ctx.role)
+    with (
+        patch.object(service, "get_session", return_value=ctx.session),
+        patch.object(service, "require_entitlement", return_value=None),
+        patch(
+            "tracecat.agent.session.service.get_agent_backend",
+            side_effect=TracecatValidationError("Agent backend is unavailable"),
+        ),
+        pytest.raises(TracecatConflictError, match="unavailable"),
+    ):
+        await service.steer(
+            ctx.session.id, AgentSessionSteerRequest(id=uuid4(), text="Stop")
+        )
+
+
+def test_a_steer_needs_text():
+    assert AgentSessionSteerRequest(id=uuid4(), text=" Stop ").text == "Stop"
+    with pytest.raises(ValidationError):
+        AgentSessionSteerRequest(id=uuid4(), text=" \n ")
+
+
+def test_discovery_rejects_steering_without_a_steer_method():
+    class Unsteerable(DefaultBackend):
+        steering = True
+
+    with (
+        patch.object(
+            registry, "entry_points", return_value=[entry("external", Unsteerable)]
+        ),
+        pytest.raises(TypeError, match="external: steering requires"),
+    ):
+        registry.get_agent_backends()
 
 
 @pytest.mark.anyio

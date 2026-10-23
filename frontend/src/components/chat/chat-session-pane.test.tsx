@@ -1302,13 +1302,15 @@ describe("ChatSessionPane running composer", () => {
       submit,
     })
     mockUseVercelChatResult.status = "ready"
-    renderChatSessionPane()
+    renderChatSessionPane({ chat: serverChat([]) })
 
     const input = screen.getByPlaceholderText("Ask Tracecat...")
     fireEvent.change(input, { target: { value: "Hello" } })
     fireEvent.keyDown(input, { key: "Enter" })
 
-    await act(async () => undefined)
+    await waitFor(() =>
+      expect(mockUseVercelChatResult.sendMessage).toHaveBeenCalledTimes(1)
+    )
     expect(submit).not.toHaveBeenCalled()
   })
 
@@ -1329,6 +1331,11 @@ describe("ChatSessionPane running composer", () => {
     ]
     renderChatSessionPane()
 
-    expect(await screen.findByText("Focus on the alert")).toBeInTheDocument()
+    const joined = await screen.findByText("Focus on the alert")
+    // Where it joined: after the text before it.
+    expect(
+      screen.getByText("Working on it").compareDocumentPosition(joined) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
   })
 })

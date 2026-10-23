@@ -49,6 +49,8 @@ def _validate_backend(identifier: str, backend: AgentBackend[Any, Any]) -> None:
     for flag in ("subagent_approvals", "steering"):
         if not isinstance(getattr(backend, flag, None), bool):
             raise TypeError(f"Agent backend {identifier}: {flag} must be a bool")
+    if backend.steering and type(backend).steer is AgentBackend.steer:
+        raise TypeError(f"Agent backend {identifier}: steering requires a steer method")
 
     # Inspect the workflow dynamically for the same missing-attribute boundary.
     workflow_class: object = getattr(backend, "workflow", None)
