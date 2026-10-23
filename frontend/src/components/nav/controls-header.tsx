@@ -516,7 +516,11 @@ function BreadcrumbEntityPage({
     return <Skeleton className={skeletonClassName} />
   }
 
-  return <BreadcrumbPage className="font-semibold">{label}</BreadcrumbPage>
+  return (
+    <BreadcrumbPage className="font-semibold text-muted-foreground">
+      {label}
+    </BreadcrumbPage>
+  )
 }
 
 function SkillsBreadcrumb({
@@ -590,7 +594,9 @@ function SkillLibraryProviderBreadcrumb({
         </BreadcrumbSeparator>
         <BreadcrumbItem className="gap-1.5">
           {providerSlug === undefined ? (
-            <BreadcrumbPage className="font-semibold">Library</BreadcrumbPage>
+            <BreadcrumbPage className="font-semibold text-muted-foreground">
+              Library
+            </BreadcrumbPage>
           ) : (
             <BreadcrumbLink asChild className="text-muted-foreground">
               <Link href={`/workspaces/${workspaceId}/skills/library`}>
@@ -631,7 +637,7 @@ function SkillLibraryProviderBreadcrumb({
               <span className="text-muted-foreground">/</span>
             </BreadcrumbSeparator>
             <BreadcrumbItem>
-              <BreadcrumbPage className="font-semibold">
+              <BreadcrumbPage className="font-semibold text-muted-foreground">
                 {skillSlug}
               </BreadcrumbPage>
             </BreadcrumbItem>
@@ -2215,7 +2221,9 @@ function FormBreadcrumb({
     })
 
   if (!enabled) {
-    return <h1 className="text-sm font-semibold">Forms</h1>
+    return (
+      <h1 className="text-sm font-semibold text-muted-foreground">Forms</h1>
+    )
   }
 
   async function setOnline(next: boolean) {
@@ -2761,7 +2769,9 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
 
   const titleContent =
     typeof pageConfig.title === "string" ? (
-      <h1 className="text-sm font-semibold">{pageConfig.title}</h1>
+      <h1 className="text-sm font-semibold text-muted-foreground">
+        {pageConfig.title}
+      </h1>
     ) : (
       pageConfig.title
     )
