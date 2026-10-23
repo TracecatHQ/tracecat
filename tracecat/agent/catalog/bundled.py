@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from tracecat.agent.catalog.lifecycle import ModelLifecycle
 from tracecat.agent.catalog.types import ModelKey
+from tracecat.logger import logger
 
 
 class RawRetiredModel(BaseModel):
@@ -30,9 +31,11 @@ def read_platform_catalog_document() -> dict[str, Any]:
             .joinpath("platform_catalog.json")
             .read_bytes()
         )
-    except (FileNotFoundError, IsADirectoryError, orjson.JSONDecodeError, OSError):
+    except (orjson.JSONDecodeError, OSError) as e:
+        logger.warning("Bundled platform catalog is unreadable", error=str(e))
         return {}
     if not isinstance(document, dict):
+        logger.warning("Bundled platform catalog is not a JSON object")
         return {}
     return cast(dict[str, Any], document)
 
