@@ -1,4 +1,4 @@
-"""Regression coverage for export-only definitions and named push failures."""
+"""Workspace-only draft fallback and safe named push diagnostics."""
 
 import uuid
 from types import SimpleNamespace
@@ -12,9 +12,9 @@ from tracecat.auth.types import Role
 from tracecat.db.models import Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatValidationError
-from tracecat.workflow.store.export_definitions import WorkflowExportDefinitionService
 from tracecat.workspace_sync.exceptions import WorkflowExportValidationError
 from tracecat.workspace_sync.schemas import WorkflowExportDiagnostic
+from tracecat.workspace_sync.service import WorkspaceSyncService
 
 
 def _dsl(title: str = "Saved workflow") -> DSLInput:
@@ -49,10 +49,10 @@ async def test_resolve_saved_or_export_only_without_publishing(
     built_dsl = _dsl("Current edits")
     with (
         patch(
-            "tracecat.workflow.store.export_definitions.WorkflowDefinitionsService"
+            "tracecat.workspace_sync.service.WorkflowDefinitionsService"
         ) as definitions,
         patch(
-            "tracecat.workflow.store.export_definitions.WorkflowsManagementService"
+            "tracecat.workspace_sync.service.WorkflowsManagementService"
         ) as management,
     ):
         definitions.return_value.get_definition_by_workflow_id = AsyncMock(
@@ -63,9 +63,9 @@ async def test_resolve_saved_or_export_only_without_publishing(
         management.return_value.build_dsl_from_workflow = AsyncMock(
             return_value=built_dsl
         )
-        result = await WorkflowExportDefinitionService(
+        result = await WorkspaceSyncService(
             session=session, role=svc_role
-        ).resolve(workflow)
+        )._get_workflow_dsl(workflow)
         assert result.title == ("Saved workflow" if saved else "Current edits")
         if saved:
             management.return_value.build_dsl_from_workflow.assert_not_called()
@@ -97,10 +97,10 @@ async def test_resolve_errors_are_named_and_do_not_include_raw_inputs(
     )
     with (
         patch(
-            "tracecat.workflow.store.export_definitions.WorkflowDefinitionsService"
+            "tracecat.workspace_sync.service.WorkflowDefinitionsService"
         ) as definitions,
         patch(
-            "tracecat.workflow.store.export_definitions.WorkflowsManagementService"
+            "tracecat.workspace_sync.service.WorkflowsManagementService"
         ) as management,
     ):
         definitions.return_value.get_definition_by_workflow_id = AsyncMock(
@@ -114,9 +114,9 @@ async def test_resolve_errors_are_named_and_do_not_include_raw_inputs(
             side_effect=TracecatValidationError("secret-value")
         )
         with pytest.raises(WorkflowExportValidationError) as raised:
-            await WorkflowExportDefinitionService(
+            await WorkspaceSyncService(
                 session=session, role=svc_role
-            ).resolve(workflow)
+            )._get_workflow_dsl(workflow)
     diagnostic = raised.value.diagnostics[0]
     assert diagnostic.workflow_id == workflow.id
     assert diagnostic.workflow_title == "Example review"

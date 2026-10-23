@@ -42894,7 +42894,13 @@ export const $WorkflowExecutionTerminate = {
 
 export const $WorkflowExportCode = {
   type: "string",
-  enum: ["no_actions", "invalid_definition", "missing_child_workflow"],
+  enum: [
+    "publish_required",
+    "missing_definition",
+    "no_actions",
+    "invalid_definition",
+    "missing_child_workflow",
+  ],
 } as const
 
 export const $WorkflowExportDiagnostic = {

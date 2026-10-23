@@ -1,10 +1,12 @@
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
 from tracecat import config
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
     ScopeDeniedError,
     TracecatCredentialsNotFoundError,
@@ -19,8 +21,8 @@ from tracecat.sync import PullOptions, PullResult
 from tracecat.vcs.exceptions import VcsProviderError
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
 from tracecat.vcs.github.schemas import GitHubAppRepository
+from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat.workflow.store.export_definitions import WorkflowExportDefinitionService
 from tracecat.workflow.store.schemas import (
     WorkflowDslPublish,
     WorkflowDslPublishResult,
@@ -28,6 +30,7 @@ from tracecat.workflow.store.schemas import (
 )
 from tracecat.workflow.store.service import WorkflowStoreService
 from tracecat.workspace_sync.exceptions import WorkflowExportValidationError
+from tracecat.workspace_sync.export_diagnostics import WorkflowExportDiagnosticsService
 from tracecat.workspace_sync.schemas import (
     WorkspaceSyncExportError,
     WorkspaceSyncExportPreview,
@@ -62,11 +65,22 @@ async def publish_workflow(
     ).get_workflow(workflow_id, normalize=False)
     if workflow is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
+    definitions = WorkflowDefinitionsService(session=session, role=role)
+    definition = await definitions.get_definition_by_workflow_id(workflow_id)
+    diagnostics = WorkflowExportDiagnosticsService(session=session, role=role)
+    if definition is None:
+        code = "publish_required" if workflow.version is None else "missing_definition"
+        return _export_validation_response(
+            await diagnostics.validation_error(workflow, code=code)
+        )
+    try:
+        dsl = DSLInput.model_validate(definition.content)
+    except ValidationError as exc:
+        return _export_validation_response(
+            await diagnostics.validation_error(workflow, error=exc)
+        )
     store_svc = WorkflowStoreService(session=session, role=role)
     try:
-        dsl = await WorkflowExportDefinitionService(session=session, role=role).resolve(
-            workflow
-        )
         return await store_svc.publish_workflow_dsl(
             workflow_id=workflow_id,
             dsl=dsl,

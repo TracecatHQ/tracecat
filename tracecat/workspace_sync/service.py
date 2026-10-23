@@ -10,7 +10,7 @@ from dataclasses import dataclass, replace
 from difflib import unified_diff
 from typing import Any, cast
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,7 +52,8 @@ from tracecat.sync import (
     SecretStoreMappingRequirement,
     SyncPreviewResource,
 )
-from tracecat.workflow.store.export_definitions import WorkflowExportDefinitionService
+from tracecat.workflow.management.definitions import WorkflowDefinitionsService
+from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.store.import_service import (
     WorkflowImportError,
     WorkflowImportService,
@@ -79,6 +80,7 @@ from tracecat.workspace_sync.adapters.base import (
 )
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.exceptions import WorkflowExportValidationError
+from tracecat.workspace_sync.export_diagnostics import WorkflowExportDiagnosticsService
 from tracecat.workspace_sync.importer import (
     ImportedResource,
     WorkspaceResourceImportService,
@@ -227,6 +229,7 @@ class WorkspaceSyncService(SyncMappingService):
             resource_ids=resource_ids,
             include_schedules=params.include_schedules,
             create_missing_mappings=True,
+            validate_export=True,
         )
         self.logger.info(
             "Projected workspace sync export",
@@ -275,6 +278,7 @@ class WorkspaceSyncService(SyncMappingService):
             resource_ids=resource_ids,
             include_schedules=params.include_schedules,
             create_missing_mappings=False,
+            validate_export=True,
         )
         self.logger.info(
             "Projected workspace sync export",
@@ -328,6 +332,7 @@ class WorkspaceSyncService(SyncMappingService):
             include_schedules=params.include_schedules,
             create_missing_mappings=True,
             workflow_dsl_overrides={workflow.id: dsl},
+            validate_export=True,
         )
         self._validate_projected_workspace_dependencies(projection.spec)
         transport = self._transport_for_provider()
@@ -472,6 +477,7 @@ class WorkspaceSyncService(SyncMappingService):
         include_schedules: bool = False,
         create_missing_mappings: bool = True,
         workflow_dsl_overrides: Mapping[uuid.UUID, DSLInput] | None = None,
+        validate_export: bool = False,
     ) -> WorkspaceProjection:
         """Project the workspace into a manifest, spec, and serialized files.
 
@@ -496,6 +502,7 @@ class WorkspaceSyncService(SyncMappingService):
         workflow_closure = await self._projectable_workflow_closure(
             selection,
             dsl_by_id=workflow_dsl_overrides,
+            validate_export=validate_export,
         )
         workflows = workflow_closure.workflows
         dsl_by_id = workflow_closure.dsl_by_id
@@ -513,7 +520,11 @@ class WorkspaceSyncService(SyncMappingService):
             )
         }
 
-        # Project each workflow to a spec keyed by its (stable) source id.
+        # Validate every workflow before projection can create any mappings.
+        projection_errors: list[WorkflowExportDiagnostic] = []
+        diagnostics_service = WorkflowExportDiagnosticsService(
+            self.session, role=self.role
+        )
         for workflow in workflows:
             await self.session.refresh(
                 workflow,
@@ -525,17 +536,28 @@ class WorkspaceSyncService(SyncMappingService):
                 dsl_by_id[workflow.id] = dsl
             source_id = await self._source_id_for_workflow(
                 workflow=workflow,
-                create=create_missing_mappings,
+                create=False,
                 reserved_source_ids=set(specs),
             )
-            specs[source_id] = workflow_spec_from_orm(
-                workflow,
-                dsl=dsl,
-                source_id=source_id,
-                include_schedules=include_schedules,
-                form=forms_by_workflow_id.get(workflow.id),
-            )
+            try:
+                specs[source_id] = workflow_spec_from_orm(
+                    workflow,
+                    dsl=dsl,
+                    source_id=source_id,
+                    include_schedules=include_schedules,
+                    form=forms_by_workflow_id.get(workflow.id),
+                )
+            except (ValidationError, TracecatValidationError) as exc:
+                failure = await diagnostics_service.validation_error(
+                    workflow,
+                    error=exc,
+                    provider=VcsProvider(self._mapping_provider_value),
+                )
+                projection_errors.extend(failure.diagnostics)
+                continue
             source_workflow_ids[WorkflowUUID.new(workflow.id)] = source_id
+        if projection_errors:
+            raise WorkflowExportValidationError(projection_errors)
         specs = {
             source_id: workflow_spec_with_source_workflow_ids(
                 spec,
@@ -555,20 +577,6 @@ class WorkspaceSyncService(SyncMappingService):
         )
         non_workflow_spec = non_workflow_projection.spec
         projected_resources = non_workflow_projection.resources
-        # Mint sync mappings for the surviving resources (skipped for previews).
-        if create_missing_mappings:
-            await self._upsert_mappings(
-                [
-                    SyncMappingTarget(
-                        resource_type=resource.resource_type.value,
-                        source_id=resource.source_id,
-                        source_path=resource.source_path,
-                        local_id=resource.local_id,
-                    )
-                    for resource in projected_resources
-                ]
-            )
-
         # Recombine workflow and non-workflow specs and serialize to files.
         manifest = WorkspaceManifest()
         spec = workspace_spec_from_maps(
@@ -580,6 +588,58 @@ class WorkspaceSyncService(SyncMappingService):
                 },
             }
         )
+        if validate_export:
+            await self._validate_workflow_export_dependencies(
+                spec,
+                workflows_by_source_id={
+                    source_workflow_ids[WorkflowUUID.new(workflow.id)]: workflow
+                    for workflow in workflows
+                },
+            )
+            self._validate_projected_workspace_dependencies(spec)
+        # Persist only after the entire push projection has passed validation.
+        if create_missing_mappings:
+            mapped_workflow_ids = set(
+                await self.session.scalars(
+                    select(WorkspaceSyncResourceMapping.local_id).where(
+                        WorkspaceSyncResourceMapping.workspace_id == self.workspace_id,
+                        WorkspaceSyncResourceMapping.provider
+                        == self._mapping_provider_value,
+                        WorkspaceSyncResourceMapping.resource_type
+                        == SyncResourceType.WORKFLOW.value,
+                        WorkspaceSyncResourceMapping.local_id.in_(
+                            [workflow.id for workflow in workflows]
+                        ),
+                    )
+                )
+            )
+            workflow_mappings = [
+                SyncMappingTarget(
+                    resource_type=SyncResourceType.WORKFLOW.value,
+                    source_id=source_workflow_ids[WorkflowUUID.new(workflow.id)],
+                    source_path=workflow_source_path(
+                        source_workflow_ids[WorkflowUUID.new(workflow.id)]
+                    ),
+                    local_id=workflow.id,
+                )
+                for workflow in workflows
+                if workflow.id not in mapped_workflow_ids
+            ]
+            await self._upsert_mappings(
+                [
+                    *workflow_mappings,
+                    *[
+                        SyncMappingTarget(
+                            resource_type=resource.resource_type.value,
+                            source_id=resource.source_id,
+                            source_path=resource.source_path,
+                            local_id=resource.local_id,
+                        )
+                        for resource in projected_resources
+                    ],
+                ]
+            )
+
         return WorkspaceProjection(
             manifest=manifest,
             spec=spec,
@@ -898,6 +958,55 @@ class WorkspaceSyncService(SyncMappingService):
                 if "/" in source_path:
                     roots.append(source_path.rsplit("/", maxsplit=1)[0])
         return tuple(sorted(set(roots)))
+
+    async def _validate_workflow_export_dependencies(
+        self,
+        spec: WorkspaceSpec,
+        *,
+        workflows_by_source_id: Mapping[str, Workflow],
+    ) -> None:
+        """Name workflow dependency failures before any mapping or Git writes."""
+        failures: list[WorkflowExportDiagnostic] = []
+        diagnostics_service = WorkflowExportDiagnosticsService(
+            self.session, role=self.role
+        )
+        paths = {
+            workflow_source_path(source_id): source_id
+            for source_id in workflows_by_source_id
+        }
+        for diagnostic in validate_workspace_dependencies(spec):
+            details = diagnostic.details or {}
+            source_ids: set[str] = set()
+            if isinstance(source_id := details.get("workflow_source_id"), str):
+                source_ids.add(source_id)
+            duplicate_ids = details.get("workflow_source_ids")
+            if isinstance(duplicate_ids, list):
+                source_ids.update(
+                    source_id
+                    for source_id in duplicate_ids
+                    if isinstance(source_id, str)
+                )
+            if source_id := paths.get(diagnostic.workflow_path):
+                source_ids.add(source_id)
+            for source_id in sorted(source_ids):
+                if (workflow := workflows_by_source_id.get(source_id)) is None:
+                    continue
+                message = (
+                    "Use a unique workflow alias before pushing."
+                    if isinstance(duplicate_ids, list)
+                    else "Check this workflow's child workflow and agent preset references before pushing."
+                )
+                failures.append(
+                    await diagnostics_service.diagnostic(
+                        workflow,
+                        code="invalid_definition",
+                        stage="dependency",
+                        message=message,
+                        provider=VcsProvider(self._mapping_provider_value),
+                    )
+                )
+        if failures:
+            raise WorkflowExportValidationError(failures)
 
     def _validate_projected_workspace_dependencies(self, spec: WorkspaceSpec) -> None:
         """Reject exported specs whose dependency graph cannot round-trip."""
@@ -1392,6 +1501,7 @@ class WorkspaceSyncService(SyncMappingService):
         selection: dict[SyncResourceType, set[uuid.UUID]] | None,
         *,
         dsl_by_id: Mapping[uuid.UUID, DSLInput] | None = None,
+        validate_export: bool = True,
     ) -> ProjectableWorkflowClosure:
         """Resolve the workflows to project, expanding child-workflow references.
 
@@ -1443,8 +1553,10 @@ class WorkspaceSyncService(SyncMappingService):
             for alias in sorted(references.execute_aliases):
                 child_id = aliases.get(alias)
                 if child_id is None:
+                    if not validate_export:
+                        continue
                     diagnostics.append(
-                        await WorkflowExportDefinitionService(
+                        await WorkflowExportDiagnosticsService(
                             session=self.session, role=self.role
                         ).diagnostic(
                             workflow,
@@ -1462,10 +1574,18 @@ class WorkspaceSyncService(SyncMappingService):
             # Children referenced directly by id.
             for child_id in sorted(references.execute_ids, key=str):
                 if child_id not in workflows_by_id:
-                    self.logger.warning(
-                        "Skipping unresolvable child workflow reference in export closure",
-                        child_workflow_id=str(child_id),
-                        parent_workflow_id=str(workflow_id),
+                    if not validate_export:
+                        continue
+                    diagnostics.append(
+                        await WorkflowExportDiagnosticsService(
+                            self.session, role=self.role
+                        ).diagnostic(
+                            workflow,
+                            code="missing_child_workflow",
+                            stage="dependency",
+                            provider=VcsProvider(self._mapping_provider_value),
+                            message="A referenced child workflow could not be found. Check the child workflow reference.",
+                        )
                     )
                     continue
                 if child_id in included:
@@ -1485,10 +1605,31 @@ class WorkspaceSyncService(SyncMappingService):
         )
 
     async def _get_workflow_dsl(self, workflow: Workflow) -> DSLInput:
-        """Resolve export-only content using the shared saved-or-build policy."""
-        return await WorkflowExportDefinitionService(
+        """Keep workspace Push's saved-version preference and draft fallback."""
+        definition = await WorkflowDefinitionsService(
             session=self.session, role=self.role
-        ).resolve(workflow, provider=VcsProvider(self._mapping_provider_value))
+        ).get_definition_by_workflow_id(WorkflowUUID.new(workflow.id))
+        diagnostics = WorkflowExportDiagnosticsService(self.session, role=self.role)
+        provider = VcsProvider(self._mapping_provider_value)
+        failure: WorkflowExportValidationError
+        try:
+            if definition and definition.content:
+                return DSLInput.model_validate(definition.content)
+            await self.session.refresh(workflow, ["actions"])
+            if not workflow.actions:
+                failure = await diagnostics.validation_error(
+                    workflow, code="no_actions", provider=provider
+                )
+            else:
+                return await WorkflowsManagementService(
+                    session=self.session, role=self.role
+                ).build_dsl_from_workflow(workflow)
+        except (ValidationError, TracecatValidationError) as exc:
+            failure = await diagnostics.validation_error(
+                workflow, error=exc, provider=provider
+            )
+        # Do not attach the original exception, which may contain secret inputs.
+        raise failure
 
     async def _local_ids_from_resource_refs(
         self,

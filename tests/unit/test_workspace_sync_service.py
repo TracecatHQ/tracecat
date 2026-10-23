@@ -2923,3 +2923,56 @@ async def test_export_closure_reports_invalid_child_workflow(
             {SyncResourceType.WORKFLOW: {parent_id}}
         )
     assert raised.value.diagnostics[0].workflow_id == child_id
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("reference", ["alias", "id"])
+@pytest.mark.parametrize("validate_export", [True, False])
+async def test_export_closure_reports_missing_child_without_exposing_its_identity(
+    workspace_sync_service: WorkspaceSyncService,
+    sample_dsl: DSLInput,
+    reference: str,
+    validate_export: bool,
+) -> None:
+    parent_id = uuid.uuid4()
+    missing_id = WorkflowUUID.new_uuid4()
+    parent = cast(
+        Any, SimpleNamespace(id=parent_id, alias="parent", title="Synthetic parent")
+    )
+    dsl = sample_dsl.model_copy(
+        update={
+            "actions": [
+                ActionStatement(
+                    ref="call",
+                    action="core.workflow.execute",
+                    args={"workflow_alias": "synthetic-missing"}
+                    if reference == "alias"
+                    else {"workflow_id": missing_id.short()},
+                )
+            ]
+        }
+    )
+    workspace_sync_service._list_projectable_workflows = AsyncMock(
+        return_value=[parent]
+    )
+    workspace_sync_service._get_workflow_dsl = AsyncMock(return_value=dsl)
+    cast(AsyncMock, workspace_sync_service.session.scalar).return_value = None
+    if not validate_export:
+        # Pull comparison projections keep the existing unresolved-reference policy.
+        closure = await workspace_sync_service._projectable_workflow_closure(
+            {SyncResourceType.WORKFLOW: {parent_id}}, validate_export=False
+        )
+        assert closure.workflows == [parent]
+        assert closure.dsl_by_id == {parent_id: dsl}
+        return
+    with pytest.raises(WorkflowExportValidationError) as raised:
+        await workspace_sync_service._projectable_workflow_closure(
+            {SyncResourceType.WORKFLOW: {parent_id}}
+        )
+    [diagnostic] = raised.value.diagnostics
+    assert diagnostic.workflow_id == parent_id
+    assert diagnostic.stage == "dependency"
+    assert diagnostic.code == "missing_child_workflow"
+    assert diagnostic.source_path is None
+    assert str(missing_id) not in str(raised.value)
+    assert "synthetic-missing" not in str(raised.value)

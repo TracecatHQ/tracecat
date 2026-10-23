@@ -27,6 +27,10 @@ import {
   ExportErrorMessage,
   getExportError,
 } from "@/components/workspace-sync/export-error"
+import {
+  isPublishRequired,
+  PublishFirstDialog,
+} from "@/components/workspace-sync/publish-first-dialog"
 import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
 import {
   type MutateFunction,
@@ -84,6 +88,7 @@ export function WorkflowProvider({
   const [validationErrors, setValidationErrors] = useState<
     ValidationResult[] | null
   >(null)
+  const [publishRequiredOpen, setPublishRequiredOpen] = useState(false)
 
   // Queries
   const {
@@ -186,6 +191,10 @@ export function WorkflowProvider({
       queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
     },
     onError: (error: ApiError) => {
+      if (isPublishRequired(error)) {
+        setPublishRequiredOpen(true)
+        return
+      }
       if (getExportError(error)) {
         toast({
           title: "Failed to publish workflow",
@@ -308,6 +317,10 @@ export function WorkflowProvider({
       }}
     >
       {children}
+      <PublishFirstDialog
+        open={publishRequiredOpen}
+        onOpenChange={setPublishRequiredOpen}
+      />
     </WorkflowContext.Provider>
   )
 }

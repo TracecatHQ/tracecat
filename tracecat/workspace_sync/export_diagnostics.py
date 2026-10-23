@@ -1,68 +1,68 @@
-"""Resolve export content without publishing an executable workflow version."""
+"""Build safe, authorized diagnostics for Git push validation failures."""
 
 from pydantic import ValidationError
 from sqlalchemy import func, select
 
 from tracecat.db.models import Workflow, Workspace, WorkspaceSyncResourceMapping
-from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatValidationError
-from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.service import BaseWorkspaceService
-from tracecat.workflow.management.definitions import WorkflowDefinitionsService
-from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspace_sync.exceptions import WorkflowExportValidationError
 from tracecat.workspace_sync.schemas import WorkflowExportDiagnostic
 from tracecat.workspace_sync.types import WorkflowExportCode, WorkflowExportStage
 
 
-class WorkflowExportDefinitionService(BaseWorkspaceService):
-    """Share saved-definition preference across all Git push entry points."""
+class WorkflowExportDiagnosticsService(BaseWorkspaceService):
+    """Identify failed workflows without changing either push surface’s policy."""
 
-    service_name = "workflow_export_definitions"
+    service_name = "workflow_export_diagnostics"
 
-    async def resolve(
-        self, workflow: Workflow, *, provider: VcsProvider | None = None
-    ) -> DSLInput:
-        """Prefer saved content, or build export-only content from current edits."""
-        definition = await WorkflowDefinitionsService(
-            session=self.session, role=self.role
-        ).get_definition_by_workflow_id(WorkflowUUID.new(workflow.id))
-        code: WorkflowExportCode = "invalid_definition"
-        message = "Check the workflow steps and configuration before pushing."
-        try:
-            if definition and definition.content:
-                return DSLInput.model_validate(definition.content)
-            await self.session.refresh(workflow, ["actions"])
-            if not workflow.actions:
-                code = "no_actions"
-                message = "Add an action before pushing this workflow."
-            else:
-                return await WorkflowsManagementService(
-                    session=self.session, role=self.role
-                ).build_dsl_from_workflow(workflow)
-        except ValidationError as exc:
-            # Only report schema field names. Never copy an input or validator
-            # message: either can contain credentials from action arguments.
+    async def validation_error(
+        self,
+        workflow: Workflow,
+        *,
+        code: WorkflowExportCode = "invalid_definition",
+        error: ValidationError | TracecatValidationError | None = None,
+        stage: WorkflowExportStage = "definition",
+        provider: VcsProvider | None = None,
+    ) -> WorkflowExportValidationError:
+        """Return a safe failure; callers raise it outside exception handlers."""
+        messages: dict[WorkflowExportCode, str] = {
+            "publish_required": "Publish this workflow before pushing it to Git.",
+            "missing_definition": "The published version is missing. Publish the workflow again before pushing.",
+            "no_actions": "Add an action before pushing this workflow.",
+            "invalid_definition": "Check the workflow steps and configuration before pushing.",
+            "missing_child_workflow": "A referenced child workflow could not be found. Check the child workflow reference.",
+        }
+        message = messages[code]
+        if isinstance(error, ValidationError):
+            # Validator messages and input values can include credentials.
+            # Only expose top-level schema field names from a fixed allowlist.
             fields = sorted(
                 {
-                    str(error["loc"][0])
-                    for error in exc.errors(include_input=False)
-                    if error["loc"] and error["loc"][0] in DSLInput.model_fields
+                    str(item["loc"][0])
+                    for item in error.errors(include_input=False)
+                    if item["loc"]
+                    and item["loc"][0]
+                    in {
+                        "title",
+                        "description",
+                        "entrypoint",
+                        "actions",
+                        "config",
+                        "returns",
+                        "error_handler",
+                    }
                 }
             )
             if fields:
                 message = (
                     f"Check these workflow fields before pushing: {', '.join(fields)}."
                 )
-        except TracecatValidationError:
-            # Validation errors can include raw inputs and credentials. Return
-            # corrective copy rather than serializing the original exception.
-            pass
-        raise WorkflowExportValidationError(
+        return WorkflowExportValidationError(
             [
                 await self.diagnostic(
-                    workflow, code=code, message=message, provider=provider
+                    workflow, code=code, message=message, stage=stage, provider=provider
                 )
             ]
         )
