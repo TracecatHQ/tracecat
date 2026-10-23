@@ -66,9 +66,11 @@ async def load_platform_catalog_on_startup() -> None:
     try:
         async with get_async_session_bypass_rls_context_manager() as session:
             service = AgentCatalogService(session=session)
+            await service.prune_retired_platform_models(
+                get_retired_platform_models().keys()
+            )
             upserted = await service.upsert_platform_catalog(
-                get_platform_catalog_models(),
-                retired=get_retired_platform_models().keys(),
+                get_platform_catalog_models()
             )
             logger.info(f"Platform catalog loaded: {upserted} models upserted")
     except Exception as e:
