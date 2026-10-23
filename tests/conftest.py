@@ -123,12 +123,18 @@ def _install_membership_token_revoker(conn: Any) -> None:
     conn.execute(
         text(
             """
-            CREATE OR REPLACE FUNCTION revoke_mcp_tokens_on_membership_delete()
+            CREATE OR REPLACE FUNCTION public.revoke_mcp_tokens_on_membership_delete()
             RETURNS trigger
             LANGUAGE plpgsql
+            SECURITY DEFINER
+            SET search_path = pg_catalog, pg_temp
             AS $$
             BEGIN
-                UPDATE mcp_personal_access_token
+                PERFORM pg_advisory_xact_lock(
+                    hashtextextended('mcp_refresh_token:' || OLD.user_id::text, 0)
+                );
+
+                UPDATE public.mcp_personal_access_token
                 SET revoked_at = now(),
                     revoked_by = NULLIF(
                         current_setting('app.current_user_id', true), ''
@@ -137,7 +143,7 @@ def _install_membership_token_revoker(conn: Any) -> None:
                   AND organization_id = OLD.organization_id
                   AND revoked_at IS NULL;
 
-                UPDATE mcp_refresh_token
+                UPDATE public.mcp_refresh_token
                 SET status = 'revoked'
                 WHERE user_id = OLD.user_id
                   AND (

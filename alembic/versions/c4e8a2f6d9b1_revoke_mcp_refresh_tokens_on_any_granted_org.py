@@ -7,6 +7,12 @@ Create Date: 2026-10-23 21:30:00.000000
 Adds a nullable ``mcp_refresh_token.granted_organization_ids`` column and
 extends the membership-delete trigger to match it. Rows with NULL keep the
 previous behavior (match on ``organization_id`` only).
+
+The trigger becomes SECURITY DEFINER: the deleting session is scoped to the
+org being left, so tenant RLS would otherwise hide tokens whose primary org is
+another one. It also takes the per-user advisory lock that refresh-token
+rotation holds, so a rotation that read the memberships before the delete
+commits its replacement token before the trigger looks for it.
 """
 
 from collections.abc import Sequence
@@ -22,9 +28,60 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-def _revoker_function(refresh_token_match: str) -> str:
-    return f"""
-        CREATE OR REPLACE FUNCTION revoke_mcp_tokens_on_membership_delete()
+def upgrade() -> None:
+    op.add_column(
+        "mcp_refresh_token",
+        sa.Column(
+            "granted_organization_ids",
+            postgresql.ARRAY(sa.UUID()),
+            nullable=True,
+        ),
+    )
+    # The lock key must match _lock_user_refresh_tokens in
+    # tracecat/mcp/oidc/refresh_tokens.py.
+    op.execute(
+        """
+        CREATE OR REPLACE FUNCTION public.revoke_mcp_tokens_on_membership_delete()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        SECURITY DEFINER
+        SET search_path = pg_catalog, pg_temp
+        AS $$
+        BEGIN
+            PERFORM pg_advisory_xact_lock(
+                hashtextextended('mcp_refresh_token:' || OLD.user_id::text, 0)
+            );
+
+            UPDATE public.mcp_personal_access_token
+            SET revoked_at = now(),
+                revoked_by = NULLIF(
+                    current_setting('app.current_user_id', true), ''
+                )::uuid
+            WHERE user_id = OLD.user_id
+              AND organization_id = OLD.organization_id
+              AND revoked_at IS NULL;
+
+            UPDATE public.mcp_refresh_token
+            SET status = 'revoked'
+            WHERE user_id = OLD.user_id
+              AND (
+                  organization_id = OLD.organization_id
+                  OR OLD.organization_id = ANY(granted_organization_ids)
+              )
+              AND status = 'active';
+
+            RETURN OLD;
+        END;
+        $$;
+        """
+    )
+
+
+def downgrade() -> None:
+    # CREATE OR REPLACE resets SECURITY DEFINER and the pinned search_path.
+    op.execute(
+        """
+        CREATE OR REPLACE FUNCTION public.revoke_mcp_tokens_on_membership_delete()
         RETURNS trigger
         LANGUAGE plpgsql
         AS $$
@@ -41,32 +98,12 @@ def _revoker_function(refresh_token_match: str) -> str:
             UPDATE mcp_refresh_token
             SET status = 'revoked'
             WHERE user_id = OLD.user_id
-              AND {refresh_token_match}
+              AND organization_id = OLD.organization_id
               AND status = 'active';
 
             RETURN OLD;
         END;
         $$;
         """
-
-
-def upgrade() -> None:
-    op.add_column(
-        "mcp_refresh_token",
-        sa.Column(
-            "granted_organization_ids",
-            postgresql.ARRAY(sa.UUID()),
-            nullable=True,
-        ),
     )
-    op.execute(
-        _revoker_function(
-            "(organization_id = OLD.organization_id"
-            " OR OLD.organization_id = ANY(granted_organization_ids))"
-        )
-    )
-
-
-def downgrade() -> None:
-    op.execute(_revoker_function("organization_id = OLD.organization_id"))
     op.drop_column("mcp_refresh_token", "granted_organization_ids")
