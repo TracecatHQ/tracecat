@@ -1,8 +1,8 @@
 ---
 title: Multi-factor authentication
-description: "Require hardware security keys or passkeys at sign-in for an organization or for platform admins, and verify privileged platform admin actions with a recent key tap."
+description: "Register hardware security keys or passkeys for sign-in, and require them for every member of an organization."
 sidebarTitle: Security keys
-keywords: ["MFA", "FIDO2", "WebAuthn", "passkey", "YubiKey", "1Password", "security key", "recovery codes", "step-up"]
+keywords: ["MFA", "FIDO2", "WebAuthn", "passkey", "YubiKey", "1Password", "security key", "recovery codes"]
 ---
 
 ## Overview
@@ -30,7 +30,7 @@ When you register your first key, Tracecat shows 10 recovery codes once. Store t
 
 ![Recovery codes shown after registering a key](/img/authentication/mfa-recovery-codes.png)
 
-You can register several keys and remove any of them from the list. Tracecat blocks removing your last key while an organization or platform policy requires one.
+You can register several keys and remove any of them from the list. Tracecat blocks removing your last key while your organization requires one.
 
 ## Sign in with a security key
 
@@ -38,7 +38,7 @@ After your password or SSO sign-in, Tracecat opens `/mfa` and asks for your key.
 
 ![Security key prompt at sign-in](/img/authentication/mfa-challenge.png)
 
-If you've lost your key, select `Use a recovery code` and enter one of your saved codes. A recovery code signs you in, but it doesn't satisfy the platform admin verification described below.
+If you've lost your key, select `Use a recovery code` and enter one of your saved codes.
 
 ## Require MFA for an organization
 
@@ -52,38 +52,7 @@ Members without a key must register one at their next sign-in before they can co
 
 The check runs at sign-in. If any of your organizations requires MFA, you verify with your key when you sign in, whichever organization you open afterwards.
 
-## Require MFA for platform admins
-
-Platform superusers can turn on `Require security key` under Security in the platform admin sidebar at `/admin/security`. The same page lets admins who don't belong to an organization register their own keys.
-
-![Platform admin MFA settings](/img/authentication/mfa-admin-security.png)
-
-If every platform admin is locked out, set `TRACECAT__PLATFORM_ADMIN_MFA_BYPASS=true` on the API service and restart it. Tracecat then skips MFA for platform superusers, so you can sign in and fix the setting. Remove the variable afterwards.
-
-## Verify privileged platform admin actions
-
-Platform admin actions that affect customers need a security key verification from the last 5 minutes, even if your sign-in already used a key. If the last verification is older than that, Tracecat asks you to tap your key before the action runs.
-
-![Verify it's you dialog](/img/authentication/mfa-step-up.png)
-
-This covers:
-
-- Organizations: create, update, and delete.
-- Invitations: create, resend, delete, and reveal an invitation link.
-- Allowed domains: create, update, and delete.
-- Users: create, promote, demote, delete, and reset MFA.
-- Tiers and organization tier assignments.
-- Platform security, audit, and registry settings.
-- Registry sync, version promotion, and version deletion.
-
-The API rejects these requests without a recent verification with `403` and the code `mfa_step_up_required`.
-
-## Reset a user's security keys
-
-If a user loses their key and recovery codes, a platform admin can select `Reset security keys` for them in the Users table of the platform admin console. The reset removes the user's keys and recovery codes and signs them out of every session. If a policy still requires MFA, the user must register a new key at their next sign-in.
-
 ## Related pages
 
 - See [IP allowlist](/manage-platform/ip-allowlist) to restrict sign-in and admin access to approved addresses.
 - See [SAML](/authentication/saml) and [OIDC](/authentication/oidc) to configure single sign-on alongside security keys.
-- See [Platform audit logs](/audit-logs/platform) to stream MFA policy changes and resets to your SIEM.
