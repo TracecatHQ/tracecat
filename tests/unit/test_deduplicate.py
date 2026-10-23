@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from tracecat_registry._internal.exceptions import TracecatExpressionError
 from tracecat_registry.core.transform import (
     _compute_digests,
     deduplicate,
@@ -165,7 +167,38 @@ class TestDeduplicateTransform:
             (
                 [{"a": 1}, {"a": 1}, {"b": 1}],
                 ["a", "b"],
-                [{"a": 1}, {"b": 1}],
+                [{"a": 1}, {"a": 1}, {"b": 1}],
+            ),
+            (
+                [{"name": "a"}, {"name": "b"}],
+                ["id"],
+                [{"name": "a"}, {"name": "b"}],
+            ),
+            (
+                [{"user": {"name": "a"}}, {"user": {"name": "b"}}],
+                ["user.id"],
+                [{"user": {"name": "a"}}, {"user": {"name": "b"}}],
+            ),
+            (
+                [{"name": "a"}, {"tags": []}, {"tags": ["x"]}, {"tags": ["x"]}],
+                ["tags[*]"],
+                [{"name": "a"}, {"tags": []}, {"tags": ["x"]}],
+            ),
+            (
+                [{"id": None, "v": 1}, {"id": None, "v": 2}],
+                ["id"],
+                [{"id": None, "v": 2}],
+            ),
+            (
+                [
+                    {"id": 1, "v": "a"},
+                    {"name": "x"},
+                    {"id": 1, "v": "b"},
+                    {"id": 2},
+                    {"name": "x"},
+                ],
+                ["id"],
+                [{"id": 1, "v": "b"}, {"name": "x"}, {"id": 2}, {"name": "x"}],
             ),
             (
                 [{"id": 1, "v": "old", "x": 1}, {"id": 1, "v": "new"}],
@@ -177,7 +210,12 @@ class TestDeduplicateTransform:
         ids=[
             "empty-keys-whole-item",
             "empty-keys-ignores-field-order",
-            "missing-key-is-none",
+            "missing-key-passes-through",
+            "keyless-items-not-merged",
+            "missing-nested-key-passes-through",
+            "zero-match-wildcard-passes-through",
+            "explicit-null-key-dedupes",
+            "mixed-keeps-input-order",
             "same-key-items-merge",
             "single-empty-object-is-an-item",
         ],
@@ -188,10 +226,75 @@ class TestDeduplicateTransform:
         keys: list[str],
         expected: list[dict[str, Any]],
     ) -> None:
-        """Empty keys dedupe by whole item, missing keys count as None, and
-        items sharing a key merge with later fields winning."""
+        """Empty keys dedupe by whole item, items missing a key pass through
+        unchanged in input order, an explicit null is a key value, and items
+        sharing a key merge with later fields winning."""
         result = await deduplicate(items, keys=keys, persist=False)
         assert result == expected
+
+    @pytest.mark.anyio
+    async def test_keyless_items_are_never_persisted(self) -> None:
+        """With persist=True, items missing a key are returned without a
+        digest, so later keyless items aren't dropped as duplicates."""
+        mock_dedup_client = AsyncMock()
+        mock_dedup_client.create_digests = AsyncMock(return_value=[False])
+
+        mock_ctx = MagicMock()
+        mock_ctx.deduplicate = mock_dedup_client
+
+        with patch("tracecat_registry.ctx.get_context", return_value=mock_ctx):
+            keyless = await deduplicate(
+                [{"name": "a"}, {"name": "b"}], keys=["id"], persist=True
+            )
+            mock_dedup_client.create_digests.assert_not_called()
+
+            mixed = await deduplicate(
+                [{"name": "a"}, {"id": 1}, {"name": "b"}], keys=["id"], persist=True
+            )
+
+        assert keyless == [{"name": "a"}, {"name": "b"}]
+        # Only the keyed item is persisted; it was already seen and is dropped
+        assert len(mock_dedup_client.create_digests.call_args.args[0]) == 1
+        assert mixed == [{"name": "a"}, {"name": "b"}]
+
+    @pytest.mark.anyio
+    async def test_is_duplicate_false_for_keyless_item(self) -> None:
+        """An item missing a key is never a duplicate and isn't persisted."""
+        mock_dedup_client = AsyncMock()
+        mock_dedup_client.create_digests = AsyncMock(return_value=[False])
+
+        mock_ctx = MagicMock()
+        mock_ctx.deduplicate = mock_dedup_client
+
+        with patch("tracecat_registry.ctx.get_context", return_value=mock_ctx):
+            first = await is_duplicate({"name": "a"}, keys=["id"])
+            second = await is_duplicate({"name": "b"}, keys=["id"])
+
+        assert first is False
+        assert second is False
+        mock_dedup_client.create_digests.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_keyless_items_log_no_errors(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A missing key is an expected passthrough, not an error log line."""
+        with caplog.at_level(logging.ERROR, logger="tracecat_registry"):
+            await deduplicate([{"name": "a"}], keys=["id"], persist=False)
+
+        assert caplog.records == []
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "keys", [["id["], ["id", "broken["]], ids=["only-key", "after-missing-key"]
+    )
+    async def test_invalid_jsonpath_raises_when_key_missing(
+        self, keys: list[str]
+    ) -> None:
+        """An invalid JSONPath still raises rather than passing items through,
+        even when an earlier key is already missing."""
+        with pytest.raises(TracecatExpressionError):
+            await deduplicate([{"name": "a"}], keys=keys, persist=False)
 
     @pytest.mark.anyio
     async def test_whole_item_digest_differs_from_keyed_digest(self) -> None:
