@@ -1,11 +1,13 @@
 /** @jest-environment jsdom */
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import {
+  type WorkflowCommitResponse,
   type WorkflowRead,
   workflowsCommitWorkflow,
   workflowsGetWorkflow,
   workflowsPublishWorkflow,
 } from "@/client"
+import { CancelablePromise } from "@/client/core/CancelablePromise"
 import { toast } from "@/components/ui/use-toast"
 import { isPublishRequired } from "@/components/workspace-sync/publish-first-dialog"
 import { WorkspacePushExplanation } from "@/components/workspace-sync/workspace-push-explanation"
@@ -40,19 +42,24 @@ function pushError(code: string) {
 }
 
 function PushButton() {
-  const { publishWorkflow } = useWorkflow()
+  const { publishWorkflow, validationErrors } = useWorkflow()
   return (
-    <button
-      type="button"
-      onClick={() => {
-        void publishWorkflow({
-          branch: "sync/example",
-          create_pr: false,
-        }).catch(() => {})
-      }}
-    >
-      Push
-    </button>
+    <>
+      <output aria-label="Validation errors">
+        {validationErrors?.length ?? 0}
+      </output>
+      <button
+        type="button"
+        onClick={() => {
+          void publishWorkflow({
+            branch: "sync/example",
+            create_pr: false,
+          }).catch(() => {})
+        }}
+      >
+        Push
+      </button>
+    </>
   )
 }
 
@@ -114,6 +121,110 @@ test("message text cannot turn an inconsistent saved version into a first-Publis
   expect(toast).toHaveBeenCalledWith(
     expect.objectContaining({ variant: "destructive" })
   )
+})
+
+test("Publish from the modal saves one version and closes without retrying Git Push", async () => {
+  jest
+    .mocked(workflowsPublishWorkflow)
+    .mockRejectedValue(pushError("publish_required"))
+  let finishPublish!: (response: WorkflowCommitResponse) => void
+  jest.mocked(workflowsCommitWorkflow).mockImplementation(
+    () =>
+      new CancelablePromise((resolve) => {
+        finishPublish = resolve
+      })
+  )
+  renderWorkflow()
+  fireEvent.click(screen.getByRole("button", { name: "Push" }))
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Publish workflow" })
+  )
+  const pending = await screen.findByRole("button", { name: "Publishing…" })
+  expect(pending).toBeDisabled()
+  fireEvent.click(pending)
+  expect(workflowsCommitWorkflow).toHaveBeenCalledTimes(1)
+  expect(workflowsCommitWorkflow).toHaveBeenCalledWith({
+    workspaceId: "synthetic",
+    workflowId: "synthetic",
+  })
+  await act(async () =>
+    finishPublish({
+      workflow_id: "synthetic",
+      status: "success",
+      message: "Published",
+    })
+  )
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  )
+  expect(workflowsGetWorkflow).toHaveBeenCalledTimes(2)
+  expect(workflowsPublishWorkflow).toHaveBeenCalledTimes(1)
+})
+
+test("Publish validation errors stay visible in the modal and reach the editor", async () => {
+  jest
+    .mocked(workflowsPublishWorkflow)
+    .mockRejectedValue(pushError("publish_required"))
+  jest.mocked(workflowsCommitWorkflow).mockResolvedValue({
+    workflow_id: "synthetic",
+    status: "failure",
+    message: "Invalid workflow",
+    errors: [
+      { type: "dsl", status: "error", msg: "Add an action to this workflow." },
+    ],
+  })
+  renderWorkflow()
+  fireEvent.click(screen.getByRole("button", { name: "Push" }))
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Publish workflow" })
+  )
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Add an action to this workflow."
+  )
+  expect(screen.getByRole("dialog")).toBeInTheDocument()
+  expect(screen.getByLabelText("Validation errors")).toHaveTextContent("1")
+  expect(screen.getByRole("button", { name: "Publish workflow" })).toBeEnabled()
+  jest.mocked(workflowsCommitWorkflow).mockResolvedValueOnce({
+    workflow_id: "synthetic",
+    status: "success",
+    message: "Published",
+  })
+  fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }))
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  )
+  expect(screen.getByLabelText("Validation errors")).toHaveTextContent("0")
+  expect(workflowsPublishWorkflow).toHaveBeenCalledTimes(1)
+})
+
+test("a transport failure stays in the modal and can be retried", async () => {
+  jest
+    .mocked(workflowsPublishWorkflow)
+    .mockRejectedValue(pushError("publish_required"))
+  jest
+    .mocked(workflowsCommitWorkflow)
+    .mockRejectedValueOnce(new Error("Network unavailable"))
+    .mockResolvedValueOnce({
+      workflow_id: "synthetic",
+      status: "success",
+      message: "Published",
+    })
+  const warn = jest.spyOn(console, "warn").mockImplementation(() => {})
+  renderWorkflow()
+  fireEvent.click(screen.getByRole("button", { name: "Push" }))
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Publish workflow" })
+  )
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Could not publish this workflow. Please try again."
+  )
+  fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }))
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  )
+  expect(workflowsCommitWorkflow).toHaveBeenCalledTimes(2)
+  expect(workflowsPublishWorkflow).toHaveBeenCalledTimes(1)
+  warn.mockRestore()
 })
 
 test("a successful saved-version Push does not require another Publish", async () => {
