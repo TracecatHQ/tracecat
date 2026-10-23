@@ -84,6 +84,7 @@ def upgrade() -> None:
         "mfa_recovery_code",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("user_id", sa.UUID(), nullable=False),
+        sa.Column("lookup", sa.String(length=16), nullable=False),
         sa.Column("code_hash", sa.String(length=255), nullable=False),
         sa.Column("used_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.Column(

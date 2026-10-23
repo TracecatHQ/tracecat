@@ -215,7 +215,8 @@ See [SAML SSO](/authentication/saml) and [OIDC](/authentication/oidc) for connec
 
 - Users register FIDO2 security keys or passkeys. Tracecat verifies each WebAuthn response with Yubico's `python-fido2` library, checking the challenge, origin, relying party ID, user verification, and signature counter. Registration and sign-in challenges are single-use and expire after 5 minutes.
 - Organization administrators can require a key for every member. The requirement covers password, OIDC, and SAML sign-in alike. Until the user verifies, the session can reach only the MFA endpoints and sign-out.
-- Tracecat stores recovery codes, about 99 bits each, only as salted Argon2id hashes, and each code works once.
+- An account is single-factor until its first key is registered. Tracecat trusts the first key registered after a password or SSO sign-in.
+- Tracecat stores recovery codes, each with about 99 bits of secret, only as salted Argon2id hashes, and each code works once. A short public prefix on each code selects the one hash to check, so a wrong code almost never costs an Argon2id check.
 
 See [Multi-factor authentication](/authentication/mfa) for setup steps.
 

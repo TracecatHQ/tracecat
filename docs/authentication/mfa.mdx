@@ -16,6 +16,8 @@ Tracecat rejects older U2F-only keys that cannot verify a PIN or biometric.
 
 Once you register a key, Tracecat asks for it at every sign-in. This applies to password, OIDC, and SAML sign-in alike. Service account API keys are not affected.
 
+Until you register your first key, your password or SSO sign-in is the only factor on your account, and anyone who signs in as you can register that first key. Register yours as soon as your organization requires one.
+
 ## Requirements
 
 Browsers only offer security keys on HTTPS or `localhost`. Tracecat takes the relying party ID and origin from `TRACECAT__PUBLIC_APP_URL`, and keys stay bound to that host. If you change the domain, every user has to register their keys again. On a deployment served over plain HTTP or from an IP address, the MFA settings stay disabled and show the reason.

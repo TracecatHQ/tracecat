@@ -41,6 +41,7 @@ from tracecat import config
 from tracecat.api.app import app
 from tracecat.audit.service import AuditService
 from tracecat.auth.credentials import SuperuserStepUpRole
+from tracecat.auth.mfa import service as mfa_service
 from tracecat.auth.mfa import webauthn as mfa_webauthn
 from tracecat.auth.mfa.constants import (
     MFA_STEP_UP_REQUIRED_CODE,
@@ -397,7 +398,8 @@ def _mutating_routes() -> list[tuple[str, str, bool]]:
 
 
 @pytest.fixture(autouse=True)
-async def cleanup_platform_mfa_setting() -> AsyncIterator[None]:
+async def cleanup_platform_mfa_setting(mfa_env: None) -> AsyncIterator[None]:
+    # Depends on mfa_env so this runs before it restores the shared database URI.
     yield
     async with get_async_session_bypass_rls_context_manager() as session:
         await session.execute(
@@ -533,7 +535,7 @@ async def test_recovery_code_signs_in_once_but_does_not_satisfy_step_up() -> Non
     key = SoftAuthenticator()
     async with _client(await _new_session(user)) as client:
         codes = (await _register(client, key)).json()["recovery_codes"]
-    assert all(len(c) == 23 and c.count("-") == 3 for c in codes)
+    assert all(len(c) == 29 and c.count("-") == 4 for c in codes)
 
     async with get_async_session_bypass_rls_context_manager() as session:
         stored = (
@@ -577,6 +579,42 @@ async def test_recovery_code_signs_in_once_but_does_not_satisfy_step_up() -> Non
             "/auth/mfa/recovery-codes/verify", json={"code": codes[0]}
         )
         assert reused.status_code == 400
+
+
+@pytest.mark.anyio
+async def test_wrong_recovery_codes_check_at_most_one_hash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = await _create_user()
+    async with _client(await _new_session(user)) as client:
+        codes = (await _register(client, SoftAuthenticator())).json()["recovery_codes"]
+
+    checked: list[str] = []
+    recovery_code_matches = mfa_service._recovery_code_matches
+
+    def _counting_matches(normalized_code: str, code_hash: str) -> bool:
+        checked.append(code_hash)
+        return recovery_code_matches(normalized_code, code_hash)
+
+    monkeypatch.setattr(mfa_service, "_recovery_code_matches", _counting_matches)
+    lookup_ids = {code[:5] for code in codes}
+    unknown_lookup = next(
+        candidate
+        for candidate in ("zzzzz", "yyyyy", "xxxxx")
+        if candidate not in lookup_ids
+    )
+    wrong_secret = codes[0][:-1] + ("a" if codes[0][-1] != "a" else "b")
+    async with _client(await _new_session(user)) as client:
+        for wrong, expected_checks in (
+            (unknown_lookup + codes[0][5:], 0),
+            (wrong_secret, 1),
+        ):
+            checked.clear()
+            response = await client.post(
+                "/auth/mfa/recovery-codes/verify", json={"code": wrong}
+            )
+            assert response.status_code == 400
+            assert len(checked) == expected_checks
 
 
 @pytest.mark.anyio

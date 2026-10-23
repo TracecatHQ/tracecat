@@ -39,7 +39,12 @@ function MfaContent() {
   const searchParams = useSearchParams()
   const returnUrl = sanitizeReturnUrl(searchParams?.get("returnUrl") ?? null)
   const queryClient = useQueryClient()
-  const { data: status, isLoading } = useQuery({
+  const {
+    data: status,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: MFA_STATUS_QUERY_KEY,
     queryFn: getMfaStatus,
     retry: false,
@@ -84,6 +89,33 @@ function MfaContent() {
     await authSignOutPendingSession()
     await queryClient.invalidateQueries({ queryKey: ["auth"] })
     router.replace("/sign-in")
+  }
+
+  if (isError) {
+    return (
+      <div className="flex size-full items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Couldn&apos;t load your sign-in status</CardTitle>
+            <CardDescription>
+              Check your connection and try again.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex justify-between text-sm">
+            <Button
+              variant="link"
+              className="h-auto p-0"
+              onClick={() => void refetch()}
+            >
+              Try again
+            </Button>
+            <Button variant="link" className="h-auto p-0" onClick={signOut}>
+              Sign out
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   if (isLoading || !status) {
@@ -160,7 +192,7 @@ function MfaContent() {
             >
               <Input
                 aria-label="Recovery code"
-                placeholder="xxxxx-xxxxx-xxxxx-xxxxx"
+                placeholder="xxxxx-xxxxx-xxxxx-xxxxx-xxxxx"
                 autoComplete="one-time-code"
                 value={recoveryCode}
                 onChange={(e) => setRecoveryCode(e.target.value)}

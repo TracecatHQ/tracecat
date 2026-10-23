@@ -730,6 +730,11 @@ class MfaRecoveryCode(Base, TimestampMixin):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    lookup: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        doc="Public lookup ID at the start of the code; selects the hash to check",
+    )
     code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True

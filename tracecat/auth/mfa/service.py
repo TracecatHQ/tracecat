@@ -38,8 +38,12 @@ from tracecat.exceptions import TracecatNotFoundError
 from tracecat.logger import logger
 
 _RECOVERY_CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
-# 20 characters from a 31-character alphabet is about 99 bits of entropy.
-_RECOVERY_CODE_LENGTH = 20
+# A code is a public lookup ID followed by a secret. The ID selects the one
+# stored hash to check, so a wrong code almost never costs an Argon2 check.
+# The 20-character secret from a 31-character alphabet is about 99 bits.
+_RECOVERY_CODE_LOOKUP_LENGTH = 5
+_RECOVERY_CODE_SECRET_LENGTH = 20
+_RECOVERY_CODE_LENGTH = _RECOVERY_CODE_LOOKUP_LENGTH + _RECOVERY_CODE_SECRET_LENGTH
 _RECOVERY_CODE_GROUP = 5
 _recovery_code_hasher = PasswordHelper()
 
@@ -52,8 +56,9 @@ def _normalize_recovery_code(code: str) -> str:
     return "".join(ch for ch in code.lower() if ch.isalnum())
 
 
-def _hash_recovery_code(code: str) -> str:
-    return _recovery_code_hasher.hash(_normalize_recovery_code(code))
+def _hash_recovery_codes(codes: list[str]) -> list[str]:
+    """Hash codes one at a time, so a batch holds one Argon2 buffer at once."""
+    return [_recovery_code_hasher.hash(_normalize_recovery_code(c)) for c in codes]
 
 
 def _recovery_code_matches(normalized_code: str, code_hash: str) -> bool:
@@ -66,14 +71,22 @@ def _recovery_code_matches(normalized_code: str, code_hash: str) -> bool:
     return verified
 
 
-def _generate_recovery_code() -> str:
-    raw = "".join(
-        secrets.choice(_RECOVERY_CODE_ALPHABET) for _ in range(_RECOVERY_CODE_LENGTH)
-    )
-    return "-".join(
-        raw[i : i + _RECOVERY_CODE_GROUP]
-        for i in range(0, _RECOVERY_CODE_LENGTH, _RECOVERY_CODE_GROUP)
-    )
+def _generate_recovery_codes() -> list[str]:
+    """Generate a set of recovery codes with distinct lookup IDs."""
+    raw_codes: dict[str, str] = {}
+    while len(raw_codes) < RECOVERY_CODE_COUNT:
+        raw = "".join(
+            secrets.choice(_RECOVERY_CODE_ALPHABET)
+            for _ in range(_RECOVERY_CODE_LENGTH)
+        )
+        raw_codes.setdefault(raw[:_RECOVERY_CODE_LOOKUP_LENGTH], raw)
+    return [
+        "-".join(
+            raw[i : i + _RECOVERY_CODE_GROUP]
+            for i in range(0, _RECOVERY_CODE_LENGTH, _RECOVERY_CODE_GROUP)
+        )
+        for raw in raw_codes.values()
+    ]
 
 
 def _to_attested(credential: WebAuthnCredential) -> AttestedCredentialData:
@@ -403,13 +416,19 @@ class MfaService:
         if len(normalized) != _RECOVERY_CODE_LENGTH:
             raise MfaVerificationError("Invalid recovery code.")
         rows = (
-            await self.session.execute(
-                select(MfaRecoveryCode.id, MfaRecoveryCode.code_hash).where(
-                    MfaRecoveryCode.user_id == user.id,
-                    MfaRecoveryCode.used_at.is_(None),
+            (
+                await self.session.execute(
+                    select(MfaRecoveryCode.id, MfaRecoveryCode.code_hash).where(
+                        MfaRecoveryCode.user_id == user.id,
+                        MfaRecoveryCode.lookup
+                        == normalized[:_RECOVERY_CODE_LOOKUP_LENGTH],
+                        MfaRecoveryCode.used_at.is_(None),
+                    )
                 )
             )
-        ).all()
+            .tuples()
+            .all()
+        )
         match_id: uuid.UUID | None = None
         for row_id, code_hash in rows:
             if await asyncio.to_thread(_recovery_code_matches, normalized, code_hash):
@@ -436,12 +455,19 @@ class MfaService:
         await self.session.execute(
             delete(MfaRecoveryCode).where(MfaRecoveryCode.user_id == user_id)
         )
-        codes = [_generate_recovery_code() for _ in range(RECOVERY_CODE_COUNT)]
-        hashes = await asyncio.gather(
-            *(asyncio.to_thread(_hash_recovery_code, c) for c in codes)
-        )
+        codes = _generate_recovery_codes()
+        hashes = await asyncio.to_thread(_hash_recovery_codes, codes)
         self.session.add_all(
-            [MfaRecoveryCode(user_id=user_id, code_hash=h) for h in hashes]
+            [
+                MfaRecoveryCode(
+                    user_id=user_id,
+                    lookup=_normalize_recovery_code(code)[
+                        :_RECOVERY_CODE_LOOKUP_LENGTH
+                    ],
+                    code_hash=code_hash,
+                )
+                for code, code_hash in zip(codes, hashes, strict=True)
+            ]
         )
         return codes
 
