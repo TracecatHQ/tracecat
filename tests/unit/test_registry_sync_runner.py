@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
+from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
 import pytest
@@ -9,6 +11,7 @@ from pydantic import SecretStr
 
 from tracecat import config
 from tracecat.auth.types import Role
+from tracecat.dsl._converter import get_data_converter
 from tracecat.exceptions import RegistryError, RegistrySyncContentError
 from tracecat.executor.enums import ExecutorBackendType
 from tracecat.registry.actions.enums import TemplateActionValidationErrorType
@@ -31,11 +34,14 @@ from tracecat.registry.sync.runner import (
     RegistrySyncRunner,
     RegistrySyncRunnerError,
     RegistrySyncValidationError,
+    _ResolvedPackage,
     _SandboxedBackend,
     _UnsandboxedBackend,
 )
 from tracecat.registry.sync.schemas import (
+    RegistryActionsAdapter,
     RegistrySyncRequest,
+    RegistrySyncResult,
     SyncErrorCode,
     SyncResultSuccess,
 )
@@ -75,6 +81,15 @@ def _make_action(repository_id: UUID, default_title: str) -> RegistryActionCreat
         author=None,
         deprecated=None,
         options=RegistryActionOptions(),
+    )
+
+
+@pytest.fixture
+def upload_actions(mocker) -> AsyncMock:
+    """Keep runner tests off blob storage; results carry only the actions URI."""
+    return mocker.patch(
+        "tracecat.registry.sync.runner.upload_registry_actions",
+        mocker.AsyncMock(return_value="s3://registry/actions.json"),
     )
 
 
@@ -143,6 +158,7 @@ def test_resolve_package_name_ignores_git_ref_suffix(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("upload_actions")
 async def test_runner_passes_resolved_commit_sha_to_discovery(
     tmp_path,
     mocker,
@@ -202,6 +218,7 @@ async def test_runner_passes_resolved_commit_sha_to_discovery(
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("upload_actions")
 async def test_runner_routes_git_clone_through_nsjail_when_available(
     tmp_path: Path,
     mocker,
@@ -356,6 +373,7 @@ async def test_runner_wraps_sandbox_clone_failures(mocker) -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("upload_actions")
 async def test_runner_decreases_privileges_across_sandbox_phases(
     tmp_path: Path,
     mocker,
@@ -615,6 +633,7 @@ async def test_discover_actions_keeps_subprocess_errors_retryable(mocker) -> Non
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("upload_actions")
 async def test_runner_does_not_upload_artifacts_under_target_version(
     tmp_path,
     mocker,
@@ -673,6 +692,7 @@ async def test_runner_uses_prebuilt_manifest_or_falls_back_to_discovery(
     tmp_path,
     mocker,
     monkeypatch: pytest.MonkeyPatch,
+    upload_actions: AsyncMock,
     prebuilt: str,
 ) -> None:
     monkeypatch.setattr(
@@ -748,9 +768,292 @@ async def test_runner_uses_prebuilt_manifest_or_falls_back_to_discovery(
     assert result.tarball_uri.endswith("/site-packages.squashfs")
     build_artifact.assert_awaited_once()
     upload_squashfs.assert_awaited_once()
+    upload_actions.assert_awaited_once()
+    assert upload_actions.await_args is not None
+    uploaded_actions = upload_actions.await_args.args[0]
+    assert result.num_actions == len(uploaded_actions) == 1
     if prebuilt == "valid":
-        assert [action.default_title for action in result.actions] == ["Prebuilt title"]
+        assert [action.default_title for action in uploaded_actions] == [
+            "Prebuilt title"
+        ]
         discover_actions.assert_not_awaited()
     else:
-        assert result.actions == fallback_actions
+        assert uploaded_actions == fallback_actions
         discover_actions.assert_awaited_once_with(request, None)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("num_actions", [1, 3000])
+async def test_sync_result_payload_stays_small_for_any_action_count(
+    tmp_path: Path,
+    mocker,
+    num_actions: int,
+) -> None:
+    """The Temporal sync result carries URIs and a count, never the action list."""
+    repository_id = uuid4()
+    actions = [
+        _make_action(repository_id, f"Action {i}").model_copy(
+            update={"name": f"action_{i}"}
+        )
+        for i in range(num_actions)
+    ]
+    uploads: dict[str, bytes] = {}
+
+    async def upload_file(
+        *,
+        content: bytes,
+        key: str,
+        bucket: str,
+        content_type: str | None = None,
+    ) -> None:
+        del content_type
+        uploads[f"s3://{bucket}/{key}"] = content
+
+    mocker.patch(
+        "tracecat.registry.sync.artifact.blob.upload_file",
+        side_effect=upload_file,
+    )
+    runner = RegistrySyncRunner()
+    mocker.patch.object(
+        runner,
+        "_get_builtin_package_path",
+        mocker.AsyncMock(return_value=tmp_path),
+    )
+    mocker.patch.object(
+        runner,
+        "_build_unsandboxed_execution_artifact",
+        mocker.AsyncMock(return_value=_make_artifact_result(tmp_path)),
+    )
+    mocker.patch.object(
+        runner,
+        "_discover_unsandboxed_actions",
+        mocker.AsyncMock(return_value=SyncResultSuccess(actions=actions)),
+    )
+    mocker.patch.object(
+        runner,
+        "_upload_squashfs",
+        mocker.AsyncMock(
+            return_value=(
+                "s3://registry/platform/tarball-venvs/tracecat_registry/v1/"
+                "site-packages.squashfs"
+            )
+        ),
+    )
+
+    result = await runner.run(
+        RegistrySyncRequest(
+            repository_id=repository_id,
+            origin=DEFAULT_REGISTRY_ORIGIN,
+            origin_type="builtin",
+        )
+    )
+
+    [payload] = get_data_converter().payload_converter.to_payloads([result])
+    assert len(payload.data) < 1024
+    assert result.num_actions == num_actions
+    assert result.actions_uri.startswith(
+        "s3://registry/platform/tarball-venvs/tracecat_registry/v1/actions/"
+    )
+    assert result.actions_uri.endswith("/actions.json")
+    assert result.artifact_uri == (
+        "s3://registry/platform/tarball-venvs/tracecat_registry/v1/site-packages.squashfs"
+    )
+    assert RegistryActionsAdapter.validate_json(uploads[result.actions_uri]) == actions
+
+
+@pytest.mark.anyio
+async def test_artifact_retained_when_actions_upload_fails(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    """A failed actions upload must retain artifacts without exclusive ownership."""
+    repository_id = uuid4()
+    runner = RegistrySyncRunner()
+    mocker.patch.object(
+        runner,
+        "_get_builtin_package_path",
+        mocker.AsyncMock(return_value=tmp_path),
+    )
+    mocker.patch.object(
+        runner,
+        "_build_unsandboxed_execution_artifact",
+        mocker.AsyncMock(return_value=_make_artifact_result(tmp_path)),
+    )
+    mocker.patch.object(
+        runner,
+        "_discover_unsandboxed_actions",
+        mocker.AsyncMock(
+            return_value=SyncResultSuccess(
+                actions=[_make_action(repository_id, "Action")]
+            )
+        ),
+    )
+    artifact_uri = (
+        "s3://registry/platform/tarball-venvs/tracecat_registry/v1/"
+        "site-packages.squashfs"
+    )
+    mocker.patch.object(
+        runner,
+        "_upload_squashfs",
+        mocker.AsyncMock(return_value=artifact_uri),
+    )
+    mocker.patch(
+        "tracecat.registry.sync.runner.upload_registry_actions",
+        mocker.AsyncMock(side_effect=RuntimeError("actions upload failed")),
+    )
+    delete_file = mocker.patch(
+        "tracecat.registry.sync.runner.blob.delete_file",
+        mocker.AsyncMock(),
+    )
+
+    with pytest.raises(RuntimeError, match="actions upload failed"):
+        await runner.run(
+            RegistrySyncRequest(
+                repository_id=repository_id,
+                origin=DEFAULT_REGISTRY_ORIGIN,
+                origin_type="builtin",
+            )
+        )
+
+    delete_file.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_existing_artifact_kept_when_actions_upload_fails(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    """A re-sync must not delete an artifact a live registry version references."""
+    repository_id = uuid4()
+    runner = RegistrySyncRunner()
+    artifact_uri = (
+        "s3://registry/org/tarball-venvs/example/abc123/site-packages.squashfs"
+    )
+    mocker.patch.object(
+        runner,
+        "_upload_squashfs",
+        mocker.AsyncMock(return_value=artifact_uri),
+    )
+    mocker.patch(
+        "tracecat.registry.sync.runner.upload_registry_actions",
+        mocker.AsyncMock(side_effect=RuntimeError("actions upload failed")),
+    )
+    file_exists = mocker.patch(
+        "tracecat.registry.sync.runner.blob.file_exists",
+        mocker.AsyncMock(return_value=True),
+    )
+    delete_file = mocker.patch(
+        "tracecat.registry.sync.runner.blob.delete_file",
+        mocker.AsyncMock(),
+    )
+
+    with pytest.raises(RuntimeError, match="actions upload failed"):
+        await runner._finalize_sync(
+            request=RegistrySyncRequest(
+                repository_id=repository_id,
+                origin="https://github.com/example/registry",
+                origin_type="git",
+                storage_namespace="org",
+            ),
+            resolved=_ResolvedPackage(path=tmp_path, commit_sha="abc123"),
+            discovery=SyncResultSuccess(
+                actions=[_make_action(repository_id, "Action")]
+            ),
+            artifact_result=_make_artifact_result(tmp_path),
+        )
+
+    file_exists.assert_not_awaited()
+    delete_file.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("commit_sha", [None, "abc123"])
+async def test_concurrent_sync_failure_keeps_successful_sync_artifact(
+    tmp_path: Path,
+    mocker,
+    commit_sha: str | None,
+) -> None:
+    """A failed sync must retain the shared artifact another sync just published."""
+    repository_id = uuid4()
+    first_runner, second_runner = RegistrySyncRunner(), RegistrySyncRunner()
+    version = commit_sha or "2026.01.01.000000"
+    artifact_key = f"org/tarball-venvs/example/{version}/site-packages.squashfs"
+    artifact_uri = f"s3://registry/{artifact_key}"
+    objects: set[str] = set()
+    both_uploading = asyncio.Event()
+    first_completed = asyncio.Event()
+
+    async def upload_first(**kwargs: object) -> str:
+        await both_uploading.wait()
+        objects.add(artifact_key)
+        return artifact_uri
+
+    async def upload_second(**kwargs: object) -> str:
+        both_uploading.set()
+        await first_completed.wait()
+        objects.add(artifact_key)
+        return artifact_uri
+
+    async def delete_artifact(*, key: str, bucket: str) -> None:
+        objects.discard(key)
+
+    # Both syncs can observe absence before either uploads. A HEAD check does
+    # not make either sync the exclusive owner of the shared destination key.
+    mocker.patch(
+        "tracecat.registry.sync.runner.blob.file_exists",
+        mocker.AsyncMock(return_value=False),
+    )
+    mocker.patch.object(first_runner, "_upload_squashfs", side_effect=upload_first)
+    mocker.patch.object(second_runner, "_upload_squashfs", side_effect=upload_second)
+    upload_error = RuntimeError("actions upload failed")
+    mocker.patch(
+        "tracecat.registry.sync.runner.upload_registry_actions",
+        mocker.AsyncMock(
+            side_effect=[
+                artifact_uri.replace("site-packages.squashfs", "actions.json"),
+                upload_error,
+            ]
+        ),
+    )
+    delete_file = mocker.patch(
+        "tracecat.registry.sync.runner.blob.delete_file",
+        side_effect=delete_artifact,
+    )
+    request = RegistrySyncRequest(
+        repository_id=repository_id,
+        origin="https://github.com/example/registry",
+        origin_type="git" if commit_sha else "builtin",
+        storage_namespace="org",
+    )
+    resolved = _ResolvedPackage(path=tmp_path, commit_sha=commit_sha)
+    discovery = SyncResultSuccess(actions=[_make_action(repository_id, "Action")])
+    artifact_result = _make_artifact_result(tmp_path)
+
+    async def finalize_first() -> RegistrySyncResult:
+        try:
+            return await first_runner._finalize_sync(
+                request=request,
+                resolved=resolved,
+                discovery=discovery,
+                artifact_result=artifact_result,
+            )
+        finally:
+            first_completed.set()
+
+    async with asyncio.timeout(5):
+        first, second = await asyncio.gather(
+            finalize_first(),
+            second_runner._finalize_sync(
+                request=request,
+                resolved=resolved,
+                discovery=discovery,
+                artifact_result=artifact_result,
+            ),
+            return_exceptions=True,
+        )
+
+    assert not isinstance(first, BaseException)
+    assert first.artifact_uri == artifact_uri
+    assert second is upload_error
+    assert artifact_key in objects
+    delete_file.assert_not_awaited()

@@ -246,6 +246,7 @@ class TestAgentWorkerLifecycle:
         ]
         assert set(activity_names) == {
             "create_session_activity",
+            "finalize_turn_activity",
             "load_session_activity",
             "load_session_messages_activity",
             "reconcile_tool_results_activity",
