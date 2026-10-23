@@ -218,7 +218,7 @@ function EditableWorkflowTitle({
           }
         }}
         title={title}
-        className="truncate bg-transparent p-0 text-left text-sm text-foreground"
+        className="truncate bg-transparent p-0 text-left text-sm text-muted-foreground"
       >
         {title}
       </button>
