@@ -48,6 +48,33 @@ async def read_default_model_catalog_id(
         return None
 
 
+async def list_saved_default_models(
+    session: AsyncSession,
+) -> tuple[set[UUID], set[str]]:
+    """Return every organization's saved default catalog IDs and legacy names."""
+    settings = await session.scalars(
+        select(OrganizationSetting).where(
+            OrganizationSetting.key.in_(
+                ("agent_default_model_catalog_id", "agent_default_model")
+            )
+        )
+    )
+    catalog_ids: set[UUID] = set()
+    model_names: set[str] = set()
+    for setting in settings:
+        value = _deserialize_setting_value(setting)
+        if not isinstance(value, str) or not value:
+            continue
+        if setting.key == "agent_default_model":
+            model_names.add(value)
+            continue
+        try:
+            catalog_ids.add(UUID(value))
+        except ValueError:
+            continue
+    return catalog_ids, model_names
+
+
 def resolve_legacy_default_model(
     enabled_models: Sequence[AgentCatalogRead], *, model_name: str
 ) -> AgentCatalogRead | None:
