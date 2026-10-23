@@ -42,14 +42,14 @@ TERMINAL_STATES = (
 )
 
 # The states `mark` may move a command out of, per target state. States rank
-# queued < accepted < applied < rejected | settled, a command never leaves a
-# terminal state, and only a command the backend has not applied can be
+# queued < accepted < applied < settled, a command never leaves a terminal
+# state, and only a command the backend has not applied can be rejected or
 # withdrawn.
 _FROM_STATES: dict[CommandState, tuple[CommandState, ...]] = {
     CommandState.QUEUED: (CommandState.QUEUED,),
     CommandState.ACCEPTED: (CommandState.QUEUED, CommandState.ACCEPTED),
     CommandState.APPLIED: ACTIVE_STATES,
-    CommandState.REJECTED: ACTIVE_STATES,
+    CommandState.REJECTED: (CommandState.QUEUED, CommandState.ACCEPTED),
     CommandState.SETTLED: ACTIVE_STATES,
     CommandState.WITHDRAWN: (CommandState.QUEUED, CommandState.ACCEPTED),
 }
@@ -69,14 +69,19 @@ def command_channel(root_session_id: uuid.UUID) -> str:
     return f"{_CHANNEL_PREFIX}{root_session_id.hex}"
 
 
-def payload_hash(payload: CommandPayload) -> str:
-    """A stable SHA-256 digest of a payload.
+def _canonical(payload: CommandPayload) -> str:
+    # stdlib json, not orjson: digests must match other writers of this
+    # canonical form, and orjson encodes non-ASCII text differently.
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
-    Uses stdlib ``json`` with sorted keys and compact separators, so digests
-    match those computed by other writers of the same canonical form.
-    """
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+def _digest(canonical: str) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def payload_hash(payload: CommandPayload) -> str:
+    """A stable SHA-256 digest of a payload's sorted-key, compact JSON form."""
+    return _digest(_canonical(payload))
 
 
 class PgSessionCommandStore:
@@ -96,12 +101,15 @@ class PgSessionCommandStore:
         """Admit a command, or return the row already admitted for its request ID.
 
         Raises:
-            SessionCommandConflictError: The request ID was admitted with another
-                payload.
+            SessionCommandConflictError: The request ID was admitted for another
+                command: a different payload, type or target session.
             RootSessionNotFoundError: The root session does not exist.
         """
         root_session_id = command.root_session_id
-        digest = payload_hash(command.payload)
+        canonical = _canonical(command.payload)
+        digest = _digest(canonical)
+        # Store exactly what was hashed, even if the caller mutates its dict.
+        payload: CommandPayload = json.loads(canonical)
         async with self._session_factory() as session:
             await session.execute(_LOCK, {"root": str(root_session_id)})
             existing = await session.scalar(
@@ -111,9 +119,13 @@ class PgSessionCommandStore:
                 )
             )
             if existing is not None:
-                if existing.payload_hash != digest:
+                if (
+                    existing.payload_hash != digest
+                    or existing.type != command.type
+                    or existing.session_id != command.session_id
+                ):
                     raise SessionCommandConflictError(
-                        "Request ID was already admitted with another payload"
+                        "Request ID was already admitted for another command"
                     )
                 return Admission(row=_to_row(existing), existing=True)
 
@@ -142,7 +154,7 @@ class PgSessionCommandStore:
                     type=command.type,
                     turn_id=command.turn_id,
                     generation=command.generation,
-                    payload=command.payload,
+                    payload=payload,
                     payload_hash=digest,
                     state=command.state,
                 )
@@ -212,8 +224,8 @@ class PgSessionCommandStore:
         """Move a command forward to ``state``; a state never moves back.
 
         A move to the current non-terminal state is allowed and records
-        ``receipt``. A ``receipt`` of None keeps the stored one. ``withdrawn``
-        is reachable only from ``queued`` or ``accepted``.
+        ``receipt``. A ``receipt`` of None keeps the stored one. ``rejected``
+        and ``withdrawn`` are reachable only from ``queued`` or ``accepted``.
 
         ``turn_id`` and ``generation`` bind a queued command to the turn that
         takes it. Each is set only while still null, so a command never moves

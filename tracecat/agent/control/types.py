@@ -61,7 +61,7 @@ class Admission:
 
 
 class SessionCommandConflictError(TracecatException):
-    """The request ID was already admitted with a different payload."""
+    """The request ID was already admitted for a different command."""
 
 
 class RootSessionNotFoundError(TracecatException):
@@ -75,8 +75,8 @@ class SessionCommandStore(Protocol):
         """Admit a command, or return the row already admitted for its request ID.
 
         Raises:
-            SessionCommandConflictError: The request ID was admitted with another
-                payload.
+            SessionCommandConflictError: The request ID was admitted for another
+                command: a different payload, type or target session.
             RootSessionNotFoundError: The root session does not exist.
         """
         ...
@@ -109,7 +109,8 @@ class SessionCommandStore(Protocol):
     ) -> SessionCommandRow | None:
         """Move a command forward to ``state``; a state never moves back.
 
-        ``withdrawn`` is reachable only from ``queued`` or ``accepted``.
+        ``rejected`` and ``withdrawn`` are reachable only from ``queued`` or
+        ``accepted``.
         ``turn_id`` and ``generation`` bind a queued command to its turn and are
         set only while still null. Returns the row as stored, unchanged if the
         move is not allowed, or None if no such command exists.
