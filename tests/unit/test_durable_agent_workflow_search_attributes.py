@@ -698,17 +698,19 @@ async def test_replace_retired_model_skips_lookup_before_patch() -> None:
             AsyncMock(),
         ) as execute_mock,
     ):
-        await workflow_instance._replace_retired_model(cfg)
+        result = await workflow_instance._replace_retired_model(cfg)
 
     execute_mock.assert_not_awaited()
-    assert (cfg.model_name, cfg.catalog_id) == original
+    assert (result.model_name, result.catalog_id) == original
 
 
 @pytest.mark.anyio
 async def test_replace_retired_model_applies_recorded_replacement() -> None:
     workflow_instance, cfg = _retired_model_case()
     retired_catalog_id = cfg.catalog_id
-    replacement = ModelReplacement(model_name="gpt-5.6-sol", catalog_id=uuid.uuid4())
+    replacement = ModelReplacement(
+        model_provider="openai", model_name="gpt-5.6-sol", catalog_id=uuid.uuid4()
+    )
 
     with (
         patch(
@@ -719,7 +721,7 @@ async def test_replace_retired_model_applies_recorded_replacement() -> None:
             AsyncMock(return_value=replacement),
         ) as execute_mock,
     ):
-        await workflow_instance._replace_retired_model(cfg)
+        result = await workflow_instance._replace_retired_model(cfg)
 
     assert execute_mock.await_args is not None
     activity_input = execute_mock.await_args.args[1]
@@ -728,7 +730,8 @@ async def test_replace_retired_model_applies_recorded_replacement() -> None:
         "gpt-5.1-codex-max",
         retired_catalog_id,
     )
-    assert (cfg.model_name, cfg.catalog_id) == (
+    assert (result.model_provider, result.model_name, result.catalog_id) == (
+        replacement.model_provider,
         replacement.model_name,
         replacement.catalog_id,
     )

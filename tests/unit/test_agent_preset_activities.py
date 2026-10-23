@@ -573,7 +573,9 @@ async def test_resolve_agents_config_names_retired_subagent_model_without_replac
 @pytest.mark.anyio
 async def test_model_replacement_round_trips_through_workflow_history() -> None:
     converter = get_data_converter()
-    replacement = ModelReplacement(model_name="gpt-5.6-sol", catalog_id=uuid.uuid4())
+    replacement = ModelReplacement(
+        model_provider="openai", model_name="gpt-5.6-sol", catalog_id=uuid.uuid4()
+    )
 
     (restored,) = await converter.decode(
         await converter.encode([replacement]), [ModelReplacement]
@@ -589,7 +591,9 @@ async def test_resolve_model_replacement_activity_forwards_the_model(
     role = _role()
     retired_catalog_id = uuid.uuid4()
     replacement = ModelReplacement(
-        model_name="claude-opus-4-8", catalog_id=uuid.uuid4()
+        model_provider="anthropic",
+        model_name="claude-opus-4-8",
+        catalog_id=uuid.uuid4(),
     )
     resolve = AsyncMock(return_value=replacement)
     monkeypatch.setattr(AgentCatalogService, "resolve_model_replacement", resolve)

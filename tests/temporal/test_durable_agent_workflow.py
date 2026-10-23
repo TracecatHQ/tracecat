@@ -663,6 +663,7 @@ async def test_agent_workflow_runs_retired_model_on_its_replacement(
         task_queue=queue,
         custom_activities=create_activities_with_mock_executor(mock_executor),
         model_replacement=ModelReplacement(
+            model_provider="openai",
             model_name="gpt-5.6-sol",
             catalog_id=replacement_catalog_id,
         ),
@@ -678,8 +679,11 @@ async def test_agent_workflow_runs_retired_model_on_its_replacement(
 
     assert len(executor_inputs) == 1
     config = executor_inputs[0].config
-    assert config.model_name == "gpt-5.6-sol"
-    assert config.catalog_id == replacement_catalog_id
+    assert (config.model_provider, config.model_name, config.catalog_id) == (
+        "openai",
+        "gpt-5.6-sol",
+        replacement_catalog_id,
+    )
 
 
 @pytest.mark.anyio
