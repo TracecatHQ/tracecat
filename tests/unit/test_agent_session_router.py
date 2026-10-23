@@ -1537,14 +1537,31 @@ async def test_session_responses_derive_readonly_from_backend_state(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "error,code",
+    "error,code,detail",
     [
-        (TracecatConflictError("Agent session does not have an active turn"), 409),
-        (AgentControlRejected("Agent control operation failed"), 409),
-        (AgentControlUncertain("Agent control outcome is uncertain"), 503),
+        (
+            TracecatConflictError(
+                "Agent session does not have an active turn",
+                detail={"lifecycle": "completed"},
+            ),
+            409,
+            "Agent session does not have an active turn",
+        ),
+        (
+            AgentControlRejected("Agent control operation failed"),
+            409,
+            "The turn is no longer running",
+        ),
+        (
+            AgentControlUncertain("Agent control outcome is uncertain"),
+            503,
+            "Steering outcome is unknown; retry with the same ID",
+        ),
     ],
 )
-async def test_steer_session_maps_control_outcomes(error: Exception, code: int) -> None:
+async def test_steer_session_maps_control_outcomes(
+    error: Exception, code: int, detail: str
+) -> None:
     agent_session = _agent_session_stub(curr_run_id=uuid.uuid4())
     role = Role(
         type="service",
@@ -1577,4 +1594,4 @@ async def test_steer_session_maps_control_outcomes(error: Exception, code: int) 
                 session=AsyncMock(),
             )
 
-    assert exc_info.value.status_code == code
+    assert (exc_info.value.status_code, exc_info.value.detail) == (code, detail)

@@ -970,9 +970,10 @@ async def steer_session(
             detail=str(e),
         ) from e
     except TracecatConflictError as e:
+        # The message, which the composer shows as the reason.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=e.detail or str(e),
+            detail=str(e),
         ) from e
     except AgentControlRejected as e:
         raise HTTPException(
