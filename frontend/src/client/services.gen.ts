@@ -14283,6 +14283,7 @@ export const foldersUpdateFolder = (
  * Delete a folder.
  *
  * If recursive=true, deletes all subfolders and moves the contained workflows to root.
+ * If recursive=true and delete_workflows=true, deletes the contained workflows too.
  * If recursive=false (default), fails if the folder contains any subfolders or workflows.
  * @param data The data for the request.
  * @param data.folderId

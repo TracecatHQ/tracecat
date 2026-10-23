@@ -48,6 +48,7 @@ import {
   agentPresetsRemovePresetTag,
 } from "@/client"
 import { AgentApprovalsDialog } from "@/components/agents/agent-approvals-dialog"
+import { AgentDeleteDescription } from "@/components/agents/agent-preset-delete-dialog"
 import { AgentWorkflowBadges } from "@/components/agents/agent-workflow-badges"
 import { OverflowTooltipList } from "@/components/agents/overflow-tooltip-list"
 import {
@@ -57,6 +58,7 @@ import {
 import { WorkspaceDefaultAgentBadge } from "@/components/agents/workspace-default-agent-badge"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CollapsibleSection } from "@/components/collapsible-section"
+import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialog"
 import { CopyButton } from "@/components/copy-button"
 import {
   FileTreeCommand,
@@ -67,6 +69,7 @@ import {
   FilterMultiSelect,
   type FilterOption,
 } from "@/components/filters/filter-multi-select"
+import { FolderNotEmptyDialog } from "@/components/folder-not-empty-dialog"
 import {
   getIcon,
   getIconSource,
@@ -79,16 +82,6 @@ import { ListHeaderSearch } from "@/components/list-header-search"
 import { CenteredSpinner, Spinner } from "@/components/loading/spinner"
 import { RowTimestamps } from "@/components/timestamps"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -1201,75 +1194,37 @@ function AgentItemDeleteDialog({
   item: AgentDirectoryItem
 }) {
   const workspaceId = useWorkspaceId()
-  const { deleteFolder } = useAgentFolders(workspaceId, {
-    enabled: open && item.type === "folder",
-  })
-  const { deleteAgentPreset } = useDeleteAgentPreset(workspaceId)
-  const [confirmName, setConfirmName] = useState("")
+  const { deleteAgentPreset, deleteAgentPresetIsPending } =
+    useDeleteAgentPreset(workspaceId)
 
-  useEffect(() => {
-    if (open) {
-      setConfirmName("")
-    }
-  }, [open])
-
-  const handleDelete = async () => {
-    try {
-      if (item.type === "folder") {
-        await deleteFolder({ folderId: item.id })
-      } else {
-        await deleteAgentPreset({ presetId: item.id, presetName: item.name })
-      }
-    } catch {
-      // toast handled by hook
-    }
+  if (item.type === "folder") {
+    return (
+      <FolderNotEmptyDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        folderId={item.id}
+        folderName={item.name}
+        numItems={item.num_items}
+        itemNoun="agents and folders"
+      />
+    )
   }
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>
-            {item.type === "folder" ? "Delete folder" : "Delete agent"}
-          </AlertDialogTitle>
-          <AlertDialogDescription>
-            {item.type === "folder" ? (
-              <>
-                Are you sure you want to delete the{" "}
-                <span className="font-medium">{item.name}</span> folder? This
-                action cannot be undone. You cannot delete a folder that
-                contains agents or other folders.
-              </>
-            ) : (
-              <>
-                Are you sure you want to delete the{" "}
-                <span className="font-medium">{item.name}</span> agent? It will
-                also be removed as a subagent from every agent that uses it,
-                including saved versions. Restoring an older agent version will
-                not bring this subagent back. This cannot be undone.
-              </>
-            )}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <div className="my-4">
-          <Input
-            placeholder={`Type "${item.name}" to confirm`}
-            value={confirmName}
-            onChange={(e) => setConfirmName(e.target.value)}
-          />
-        </div>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            variant="destructive"
-            disabled={confirmName !== item.name}
-            onClick={handleDelete}
-          >
-            Confirm
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <ConfirmDestructiveDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Delete agent"
+      description={<AgentDeleteDescription name={item.name} />}
+      identifier={{ label: "Agent slug", value: item.slug }}
+      confirmPhrase={item.slug}
+      confirmLabel="Delete agent"
+      isPending={deleteAgentPresetIsPending}
+      onConfirm={async () => {
+        await deleteAgentPreset({ presetId: item.id, presetName: item.name })
+        onOpenChange(false)
+      }}
+    />
   )
 }
 
@@ -1295,6 +1250,8 @@ function AgentFolderContextActions({
   canUpdateAgent: boolean
   canDeleteAgent: boolean
 }) {
+  const workspaceId = useWorkspaceId()
+  const { deleteFolder } = useAgentFolders(workspaceId, { enabled: false })
   return (
     <ContextMenuGroup>
       <ContextMenuItem
@@ -1331,6 +1288,12 @@ function AgentFolderContextActions({
             onClick={(e) => e.stopPropagation()}
             onSelect={(e) => {
               e.stopPropagation()
+              if (item.num_items === 0) {
+                void deleteFolder({ folderId: item.id }).catch(() => {
+                  // The mutation hook reports failures.
+                })
+                return
+              }
               setSelectedItem(item)
               setActiveDialog(AgentActiveDialog.Delete)
             }}
