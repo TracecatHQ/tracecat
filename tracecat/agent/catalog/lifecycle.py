@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from tracecat.agent.catalog.types import ModelKey
 from tracecat.logger import logger
 
 LIFECYCLE_METADATA_KEY = "lifecycle"
@@ -30,6 +31,12 @@ class ModelLifecycle(BaseModel):
         """Return ``retired`` from ``retires_on`` onward, else ``deprecated``."""
         today = today or datetime.now(UTC).date()
         return "retired" if today >= self.retires_on else "deprecated"
+
+    def replacement_key(self, model_provider: str) -> ModelKey | None:
+        """Return the replacement's identity; it shares the retired model's provider."""
+        if self.replacement is None:
+            return None
+        return ModelKey(model_provider, self.replacement)
 
 
 def read_model_lifecycle(

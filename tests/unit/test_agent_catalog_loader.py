@@ -3,8 +3,9 @@
 import orjson
 import pytest
 
-from tracecat.agent.catalog import loader
+from tracecat.agent.catalog import bundled, loader
 from tracecat.agent.catalog.service import PlatformCatalogEntry
+from tracecat.agent.catalog.types import ModelKey
 
 
 class _CatalogResource:
@@ -21,7 +22,7 @@ class _CatalogResource:
 
 def _stub_catalog_resource(monkeypatch: pytest.MonkeyPatch, payload: bytes) -> None:
     monkeypatch.setattr(
-        loader.resources,
+        bundled.resources,
         "files",
         lambda _package: _CatalogResource(payload),
     )
@@ -79,3 +80,26 @@ def test_bundled_platform_catalog_loads() -> None:
     entries = loader.get_platform_catalog_models()
 
     assert {entry.model_provider for entry in entries} >= {"openai", "anthropic"}
+
+
+def test_parse_retired_models_keeps_valid_entries_only() -> None:
+    retired = bundled.parse_retired_models(
+        {
+            "retired": [
+                {
+                    "model_provider": "openai",
+                    "model_name": "gpt-5.1-codex-max",
+                    "lifecycle": {
+                        "retires_on": "2026-07-23",
+                        "replacement": "gpt-5.6-sol",
+                    },
+                },
+                {"model_provider": "openai", "model_name": "no-lifecycle"},
+                "not-a-model",
+            ]
+        }
+    )
+
+    assert list(retired) == [ModelKey("openai", "gpt-5.1-codex-max")]
+    assert retired[ModelKey("openai", "gpt-5.1-codex-max")].replacement == "gpt-5.6-sol"
+    assert bundled.parse_retired_models({"retired": {"bad": "shape"}}) == {}
