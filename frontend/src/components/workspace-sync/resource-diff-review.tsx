@@ -27,10 +27,14 @@ import {
 } from "@/components/ui/tooltip"
 import { PushResourceManifest } from "@/components/workspace-sync/push-resource-manifest"
 import { getWorkspaceSyncResourceLabel } from "@/components/workspace-sync/resource-metadata"
+import { OperationDiffs } from "@/components/workspace-sync/sync-operation-diffs"
 import { UnifiedDiff } from "@/components/workspace-sync/unified-diff"
 import { cn } from "@/lib/utils"
 
 interface PushResourcePreviewProps {
+  workspaceId?: string
+  operationId?: string
+  diffCount?: number
   preview: WorkspaceSyncExportPreview | undefined
   isLoading: boolean
   compareRef: string | undefined
@@ -43,6 +47,9 @@ interface PushResourcePreviewProps {
  * Shows the on-demand push preview: a resource manifest first, then file diffs.
  */
 export function PushResourcePreview({
+  workspaceId,
+  operationId,
+  diffCount = 0,
   preview,
   isLoading,
   compareRef,
@@ -104,7 +111,15 @@ export function PushResourcePreview({
     <div className="flex flex-col gap-3">
       {header}
       <PushResourceManifest preview={preview} isLoading={false} />
-      <ResourceDiffSection diffs={resourceDiffs} emptyRef={compareRef} />
+      {workspaceId && operationId ? (
+        <OperationDiffs
+          workspaceId={workspaceId}
+          operationId={operationId}
+          count={diffCount}
+        />
+      ) : (
+        <ResourceDiffSection diffs={resourceDiffs} emptyRef={compareRef} />
+      )}
     </div>
   )
 }
