@@ -151,12 +151,17 @@ def parse_markdown_references(
     return ParsedReferences(tuple(references), tuple(diagnostics))
 
 
+def is_markdown_path(path: str) -> bool:
+    """Use the same Markdown source extensions for scanning and materialization."""
+    return PurePosixPath(path).suffix.lower() in {".md", ".markdown"}
+
+
 def scan_markdown_files(files: Mapping[str, bytes]) -> ParsedReferences:
     """Scan every text Markdown manifest member, including supporting files."""
     references: list[ReferenceOccurrence] = []
     diagnostics: list[ReferenceDiagnostic] = []
     for path, content in sorted(files.items()):
-        if PurePosixPath(path).suffix.lower() not in {".md", ".markdown"}:
+        if not is_markdown_path(path):
             continue
         try:
             text = content.decode("utf-8")
