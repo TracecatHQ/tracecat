@@ -6,21 +6,10 @@ from functools import cache
 from typing import Any, cast
 
 import orjson
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import ValidationError
 
-from tracecat.agent.catalog.lifecycle import ModelLifecycle
-from tracecat.agent.catalog.types import ModelKey
+from tracecat.agent.catalog.types import ModelKey, ModelLifecycle, RawRetiredModel
 from tracecat.logger import logger
-
-
-class RawRetiredModel(BaseModel):
-    """Retired model whose catalog row is gone; only its lifecycle remains."""
-
-    model_config = ConfigDict(extra="ignore", protected_namespaces=())
-
-    model_provider: str = Field(min_length=1)
-    model_name: str = Field(min_length=1)
-    lifecycle: ModelLifecycle
 
 
 def read_platform_catalog_document() -> dict[str, Any]:

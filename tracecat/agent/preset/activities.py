@@ -82,7 +82,7 @@ class ResolveModelReplacementActivityInput(BaseModel):
     role: Role
     model_provider: str
     model_name: str
-    catalog_id: uuid.UUID | None = None
+    catalog_id: uuid.UUID | None = Field(default=None)
 
 
 @activity.defn

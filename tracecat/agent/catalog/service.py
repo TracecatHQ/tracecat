@@ -22,9 +22,9 @@ from tracecat.agent.bedrock import (
     resolve_foundation_model_id,
 )
 from tracecat.agent.catalog.bundled import get_retired_platform_models
-from tracecat.agent.catalog.lifecycle import ModelLifecycle, read_model_lifecycle
+from tracecat.agent.catalog.lifecycle import read_model_lifecycle
 from tracecat.agent.catalog.schemas import AgentCatalogRead
-from tracecat.agent.catalog.types import ModelKey, ModelReplacement
+from tracecat.agent.catalog.types import ModelKey, ModelLifecycle, ModelReplacement
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
