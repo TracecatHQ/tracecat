@@ -580,9 +580,9 @@ export function AdminUsersTable() {
               ) : actionType === "reset-mfa" ? (
                 <>
                   Remove every security key, passkey, and recovery code for{" "}
-                  {selectedUser?.email}? Use this when they have lost access. If
-                  MFA is required, they must register a new key at their next
-                  sign-in.
+                  {selectedUser?.email} and sign them out of every session? Use
+                  this when they have lost access. If MFA is required, they must
+                  register a new key at their next sign-in.
                 </>
               ) : actionType === "demote" ? (
                 <>
