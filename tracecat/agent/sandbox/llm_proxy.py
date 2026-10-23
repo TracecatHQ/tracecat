@@ -1113,15 +1113,22 @@ class _UpstreamTrace:
         self.size += len(chunk)
 
     def first_chunk(self, ttft_ms: float) -> None:
-        """Record the streamed response's time to first token, as logged.
+        """Record the time to the first streamed chunk, as logged in ``ttft_ms``.
 
-        Like the log line, it counts from when the proxy received the request,
-        so it includes earlier attempts and their backoff.
+        The first chunk can be stream metadata such as ``message_start`` rather
+        than a token. Like the log line, it counts from when the proxy received
+        the request, so it includes earlier attempts and their backoff.
         """
         self.span.set_attribute("tracecat.agent.llm_proxy.response.ttft_ms", ttft_ms)
 
     def stream_ended(self, progress: _StreamProgress) -> None:
-        """Record how long the stream ran and how far it got."""
+        """Record how long the stream ran and how far it got.
+
+        Like the log line, the duration counts from when the proxy received the
+        request, so it includes earlier attempts and their backoff. SSE event
+        counts and ``message_stop`` are known only for ``/v1/messages`` streams,
+        which pass through the tool-use rewriter.
+        """
         attributes = {
             "tracecat.agent.llm_proxy.response.stream_duration_ms": progress[
                 "stream_duration_ms"
