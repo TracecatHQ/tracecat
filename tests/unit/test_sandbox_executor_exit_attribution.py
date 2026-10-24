@@ -48,13 +48,20 @@ def test_workload_stderr_tail_is_empty_without_workload_output() -> None:
 
 
 @pytest.mark.parametrize(
-    ("returncode", "result_file_exists", "workload_started", "expected_code"),
+    (
+        "returncode",
+        "result_file_exists",
+        "workload_started",
+        "expected_code",
+        "nsjail_signaled",
+    ),
     [
         pytest.param(
             0xFF,
             False,
             False,
             SandboxErrorCode.INFRASTRUCTURE_FAILURE,
+            False,
             id="nsjail-launch-failure-before-workload-start",
         ),
         pytest.param(
@@ -62,6 +69,7 @@ def test_workload_stderr_tail_is_empty_without_workload_output() -> None:
             False,
             True,
             SandboxErrorCode.WORKLOAD_FAILURE,
+            False,
             id="workload-exit-255-after-start",
         ),
         pytest.param(
@@ -69,6 +77,7 @@ def test_workload_stderr_tail_is_empty_without_workload_output() -> None:
             False,
             False,
             SandboxErrorCode.INFRASTRUCTURE_FAILURE,
+            False,
             id="nsjail-parent-signal",
         ),
         pytest.param(
@@ -76,6 +85,7 @@ def test_workload_stderr_tail_is_empty_without_workload_output() -> None:
             False,
             True,
             SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
+            False,
             id="workload-memory-or-wall-limit",
         ),
         pytest.param(
@@ -83,6 +93,7 @@ def test_workload_stderr_tail_is_empty_without_workload_output() -> None:
             False,
             True,
             SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
+            False,
             id="workload-cpu-limit",
         ),
         pytest.param(
@@ -90,6 +101,7 @@ def test_workload_stderr_tail_is_empty_without_workload_output() -> None:
             False,
             True,
             SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
+            False,
             id="workload-file-size-limit",
         ),
         pytest.param(
@@ -97,6 +109,7 @@ def test_workload_stderr_tail_is_empty_without_workload_output() -> None:
             False,
             True,
             SandboxErrorCode.POLICY_VIOLATION,
+            False,
             id="workload-seccomp-policy",
         ),
         # SIGABRT stays a workload failure on the core path: Python reports
@@ -107,6 +120,7 @@ def test_workload_stderr_tail_is_empty_without_workload_output() -> None:
             False,
             True,
             SandboxErrorCode.WORKLOAD_FAILURE,
+            False,
             id="workload-sigabrt-stays-workload-failure",
         ),
         pytest.param(
@@ -114,6 +128,7 @@ def test_workload_stderr_tail_is_empty_without_workload_output() -> None:
             False,
             True,
             SandboxErrorCode.WORKLOAD_FAILURE,
+            False,
             id="workload-nonzero-exit",
         ),
         pytest.param(
@@ -121,6 +136,7 @@ def test_workload_stderr_tail_is_empty_without_workload_output() -> None:
             False,
             True,
             SandboxErrorCode.WORKLOAD_FAILURE,
+            False,
             id="workload-zero-without-result",
         ),
         pytest.param(
@@ -128,7 +144,24 @@ def test_workload_stderr_tail_is_empty_without_workload_output() -> None:
             True,
             False,
             SandboxErrorCode.WORKLOAD_FAILURE,
+            False,
             id="malformed-result-proves-workload-ran",
+        ),
+        pytest.param(
+            128 + signal.SIGKILL,
+            False,
+            True,
+            SandboxErrorCode.INFRASTRUCTURE_FAILURE,
+            True,
+            id="sigkill-after-nsjail-caught-fatal-signal",
+        ),
+        pytest.param(
+            128 + signal.SIGXCPU,
+            False,
+            True,
+            SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED,
+            True,
+            id="other-resource-signal-ignores-nsjail-signal",
         ),
     ],
 )
@@ -137,12 +170,14 @@ def test_classify_missing_nsjail_result(
     result_file_exists: bool,
     workload_started: bool,
     expected_code: SandboxErrorCode,
+    nsjail_signaled: bool,
 ) -> None:
     assert (
         _classify_missing_nsjail_result(
             returncode,
             result_file_exists=result_file_exists,
             workload_started=workload_started,
+            nsjail_signaled=nsjail_signaled,
         )
         is expected_code
     )
@@ -168,6 +203,8 @@ async def test_missing_result_preserves_crash_tail_and_launch_status(
             stdout=b"",
             stderr=stderr.encode(),
             workload_started=True,
+            nsjail_log=b"",
+            nsjail_signaled=False,
         ),
     )
     log_error = mocker.patch("tracecat.sandbox.executor.logger.error")
@@ -208,6 +245,8 @@ async def test_action_missing_result_keeps_workload_traceback_tail(
             stdout=b"",
             stderr=(_NSJAIL_PREAMBLE + _COROUTINE_TRACEBACK).encode(),
             workload_started=True,
+            nsjail_log=b"",
+            nsjail_signaled=False,
         ),
     )
     mocker.patch("tracecat.sandbox.executor.logger.error")
@@ -245,6 +284,8 @@ async def test_script_crash_does_not_log_injected_secrets(
             stdout=b"",
             stderr=stderr.encode(),
             workload_started=True,
+            nsjail_log=b"",
+            nsjail_signaled=False,
         ),
     )
     log_error = mocker.patch("tracecat.sandbox.executor.logger.error")

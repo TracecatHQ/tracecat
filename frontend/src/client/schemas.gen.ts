@@ -1389,6 +1389,26 @@ export const $AgentBackendRead = {
   description: "An enabled installed backend available for session creation.",
 } as const
 
+export const $AgentCancelControl = {
+  properties: {
+    type: {
+      type: "string",
+      const: "cancel",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description: "Client-generated request ID",
+    },
+  },
+  type: "object",
+  required: ["type", "id"],
+  title: "AgentCancelControl",
+  description: "Cancel the running turn.",
+} as const
+
 export const $AgentCatalogListResponse = {
   properties: {
     items: {
@@ -1602,6 +1622,83 @@ export const $AgentChannelTokenUpdate = {
   type: "object",
   title: "AgentChannelTokenUpdate",
   description: "Request schema for updating an external channel token.",
+} as const
+
+export const $AgentControlReceipt = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    type: {
+      $ref: "#/components/schemas/AgentControlType",
+    },
+    run_id: {
+      type: "string",
+      format: "uuid",
+      title: "Run Id",
+    },
+    status: {
+      $ref: "#/components/schemas/AgentControlStatus",
+    },
+    withdrawn: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Withdrawn",
+      description:
+        "Withdrawn message IDs in send order; set only for `withdraw`",
+    },
+    too_late: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Too Late",
+      description:
+        "Message IDs the model already read, which stay in the transcript; set only for `withdraw`",
+    },
+  },
+  type: "object",
+  required: ["id", "type", "run_id", "status"],
+  title: "AgentControlReceipt",
+  description: "The running turn's outcome for a control request.",
+} as const
+
+export const $AgentControlRequest = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/AgentSteerControl",
+    },
+    {
+      $ref: "#/components/schemas/AgentWithdrawControl",
+    },
+    {
+      $ref: "#/components/schemas/AgentCancelControl",
+    },
+  ],
+  discriminator: {
+    propertyName: "type",
+    mapping: {
+      cancel: "#/components/schemas/AgentCancelControl",
+      steer: "#/components/schemas/AgentSteerControl",
+      withdraw: "#/components/schemas/AgentWithdrawControl",
+    },
+  },
+} as const
+
+export const $AgentControlStatus = {
+  type: "string",
+  enum: ["accepted", "rejected", "withdrawn", "too_late"],
+} as const
+
+export const $AgentControlType = {
+  type: "string",
+  enum: ["steer", "withdraw", "cancel"],
 } as const
 
 export const $AgentCustomProviderCreate = {
@@ -2479,6 +2576,20 @@ export const $AgentPresetCreate = {
       ],
       title: "Tool Approvals",
     },
+    tool_tunnels: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Tunnels",
+    },
     mcp_integrations: {
       anyOf: [
         {
@@ -2799,6 +2910,20 @@ export const $AgentPresetRead = {
       ],
       title: "Tool Approvals",
     },
+    tool_tunnels: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Tunnels",
+    },
     mcp_integrations: {
       anyOf: [
         {
@@ -3025,6 +3150,15 @@ export const $AgentPresetReadMinimal = {
     },
     tool_summary: {
       $ref: "#/components/schemas/AgentPresetToolSummary",
+    },
+    skill_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Skill Ids",
+      description: "Workspace skills bound to the preset head.",
     },
     current_version_subagent_eligibility: {
       $ref: "#/components/schemas/AgentPresetSubagentEligibility",
@@ -3511,6 +3645,20 @@ export const $AgentPresetUpdate = {
       ],
       title: "Tool Approvals",
     },
+    tool_tunnels: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Tunnels",
+    },
     mcp_integrations: {
       anyOf: [
         {
@@ -3879,6 +4027,13 @@ export const $AgentPresetVersionDiff = {
       type: "array",
       title: "Tool Approval Changes",
     },
+    tool_tunnel_changes: {
+      items: {
+        $ref: "#/components/schemas/ToolTunnelFieldChange",
+      },
+      type: "array",
+      title: "Tool Tunnel Changes",
+    },
     skill_changes: {
       items: {
         $ref: "#/components/schemas/AgentPresetSkillBindingChange",
@@ -4001,6 +4156,20 @@ export const $AgentPresetVersionRead = {
         },
       ],
       title: "Tool Approvals",
+    },
+    tool_tunnels: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Tunnels",
     },
     mcp_integrations: {
       anyOf: [
@@ -4252,6 +4421,26 @@ export const $AgentSessionCancelResponse = {
   title: "AgentSessionCancelResponse",
   description:
     "Response schema for an accepted agent session cancellation request.",
+} as const
+
+export const $AgentSessionCapabilities = {
+  properties: {
+    steering: {
+      type: "boolean",
+      title: "Steering",
+      description: "Whether a running turn accepts steering messages",
+      default: false,
+    },
+    withdrawing: {
+      type: "boolean",
+      title: "Withdrawing",
+      description: "Whether a running turn can take back pending user messages",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "AgentSessionCapabilities",
+  description: "Optional controls the session's backend supports.",
 } as const
 
 export const $AgentSessionCreate = {
@@ -4583,6 +4772,9 @@ export const $AgentSessionRead = {
       title: "Backend Id",
       default: "oss",
     },
+    capabilities: {
+      $ref: "#/components/schemas/AgentSessionCapabilities",
+    },
     harness_type: {
       anyOf: [
         {
@@ -4811,6 +5003,9 @@ export const $AgentSessionReadVercel = {
       type: "string",
       title: "Backend Id",
       default: "oss",
+    },
+    capabilities: {
+      $ref: "#/components/schemas/AgentSessionCapabilities",
     },
     harness_type: {
       anyOf: [
@@ -5048,6 +5243,9 @@ export const $AgentSessionReadWithMessages = {
       type: "string",
       title: "Backend Id",
       default: "oss",
+    },
+    capabilities: {
+      $ref: "#/components/schemas/AgentSessionCapabilities",
     },
     harness_type: {
       anyOf: [
@@ -5366,6 +5564,34 @@ export const $AgentSettingsUpdate = {
   title: "AgentSettingsUpdate",
 } as const
 
+export const $AgentSteerControl = {
+  properties: {
+    type: {
+      type: "string",
+      const: "steer",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description:
+        "Client-generated message ID. It reaches at most one turn of the session; a retry returns the first outcome.",
+    },
+    text: {
+      type: "string",
+      maxLength: 100000,
+      minLength: 1,
+      title: "Text",
+    },
+  },
+  type: "object",
+  required: ["type", "id", "text"],
+  title: "AgentSteerControl",
+  description:
+    "A message for the running turn to take into account before it answers.",
+} as const
+
 export const $AgentSubagentsConfig_Input = {
   properties: {
     enabled: {
@@ -5441,6 +5667,44 @@ export const $AgentTagRead = {
   required: ["id", "name", "ref", "color"],
   title: "AgentTagRead",
   description: "Tag data.",
+} as const
+
+export const $AgentWithdrawControl = {
+  properties: {
+    type: {
+      type: "string",
+      const: "withdraw",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description:
+        "Client-generated request ID; a retry returns the first outcome",
+    },
+    target_ids: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            format: "uuid",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Ids",
+      description:
+        "Message IDs to withdraw. Null withdraws all of the session's pending steers and queued messages.",
+    },
+  },
+  type: "object",
+  required: ["type", "id"],
+  title: "AgentWithdrawControl",
+  description: "Take back pending user messages the model has not read yet.",
 } as const
 
 export const $AlertArtifact = {
@@ -22540,6 +22804,20 @@ export const $MCPHttpIntegrationCreate = {
       title: "Oauth Integration Id",
       description: "OAuth integration ID (required for oauth2 auth_type)",
     },
+    tunnel_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel Id",
+      description:
+        "Workspace tunnel that every request to this server goes through",
+    },
     custom_credentials: {
       anyOf: [
         {
@@ -22632,6 +22910,18 @@ export const $MCPHttpIntegrationTestConnectionRequest = {
       ],
       title: "Oauth Integration Id",
     },
+    tunnel_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel Id",
+    },
     custom_credentials: {
       anyOf: [
         {
@@ -22696,6 +22986,14 @@ export const $MCPHttpServerConfig = {
       },
       type: "array",
       title: "Tools",
+    },
+    tunnel_id: {
+      type: "string",
+      title: "Tunnel Id",
+    },
+    tunnel_proxy: {
+      type: "string",
+      title: "Tunnel Proxy",
     },
   },
   type: "object",
@@ -22804,6 +23102,18 @@ export const $MCPIntegrationRead = {
         },
       ],
       title: "Oauth Integration Id",
+    },
+    tunnel_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel Id",
     },
     state: {
       type: "string",
@@ -23040,6 +23350,20 @@ export const $MCPIntegrationUpdate = {
         },
       ],
       title: "Oauth Integration Id",
+    },
+    tunnel_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tunnel Id",
+      description:
+        "Workspace tunnel for this HTTP server. Send null to stop using one.",
     },
     custom_credentials: {
       anyOf: [
@@ -24295,6 +24619,105 @@ export const $MessageOrigin = {
   type: "object",
   required: ["kind"],
   title: "MessageOrigin",
+} as const
+
+export const $MfaPolicyRead = {
+  properties: {
+    mfa_required: {
+      type: "boolean",
+      title: "Mfa Required",
+    },
+    webauthn_available: {
+      type: "boolean",
+      title: "Webauthn Available",
+    },
+    webauthn_unavailable_reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Webauthn Unavailable Reason",
+    },
+  },
+  type: "object",
+  required: ["mfa_required", "webauthn_available"],
+  title: "MfaPolicyRead",
+} as const
+
+export const $MfaPolicyUpdate = {
+  properties: {
+    mfa_required: {
+      type: "boolean",
+      title: "Mfa Required",
+      description:
+        "Require a security key or passkey at sign-in. Users without one must register one at their next sign-in.",
+    },
+  },
+  type: "object",
+  required: ["mfa_required"],
+  title: "MfaPolicyUpdate",
+} as const
+
+export const $MfaStatusRead = {
+  properties: {
+    state: {
+      $ref: "#/components/schemas/SessionMfaState",
+    },
+    has_credentials: {
+      type: "boolean",
+      title: "Has Credentials",
+    },
+    required_by_policy: {
+      type: "boolean",
+      title: "Required By Policy",
+    },
+    webauthn_available: {
+      type: "boolean",
+      title: "Webauthn Available",
+    },
+    webauthn_unavailable_reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Webauthn Unavailable Reason",
+    },
+    recovery_codes_remaining: {
+      type: "integer",
+      title: "Recovery Codes Remaining",
+    },
+    step_up_expires_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Step Up Expires At",
+      description:
+        "When the current step-up verification stops satisfying checks.",
+    },
+  },
+  type: "object",
+  required: [
+    "state",
+    "has_credentials",
+    "required_by_policy",
+    "webauthn_available",
+    "recovery_codes_remaining",
+  ],
+  title: "MfaStatusRead",
 } as const
 
 export const $ModelConfig = {
@@ -27409,6 +27832,35 @@ export const $ReasoningUIPart = {
   description: "A reasoning part of a message.",
 } as const
 
+export const $RecoveryCodeVerify = {
+  properties: {
+    code: {
+      type: "string",
+      maxLength: 64,
+      minLength: 1,
+      title: "Code",
+    },
+  },
+  type: "object",
+  required: ["code"],
+  title: "RecoveryCodeVerify",
+} as const
+
+export const $RecoveryCodesRead = {
+  properties: {
+    recovery_codes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Recovery Codes",
+    },
+  },
+  type: "object",
+  required: ["recovery_codes"],
+  title: "RecoveryCodesRead",
+} as const
+
 export const $RegistryActionAvailability = {
   properties: {
     locked: {
@@ -29372,6 +29824,7 @@ export const $RuntimeErrorKind = {
     "sandbox.resource_limit_exceeded",
     "workflow.definition.not_found",
     "workflow.definition.lookup_unavailable",
+    "workflow.definition.invalid",
     "workflow.definition.invalid_data",
     "workflow.trigger.input_invalid",
     "workflow.subflow.input_invalid",
@@ -29392,6 +29845,7 @@ export const $RuntimeErrorKind = {
     "agent.llm.budget_exceeded",
     "agent.llm.rate_limited",
     "agent.llm.read_timeout",
+    "agent.llm.stream_interrupted",
     "agent.mcp.auth_failed",
     "agent.mcp.unavailable",
     "agent.execution.failed",
@@ -32592,6 +33046,17 @@ export const $ServiceAccountUpdate = {
   },
   type: "object",
   title: "ServiceAccountUpdate",
+} as const
+
+export const $SessionMfaState = {
+  type: "string",
+  enum: [
+    "not_required",
+    "verified",
+    "challenge_required",
+    "enrollment_required",
+  ],
+  title: "SessionMfaState",
 } as const
 
 export const $SessionRead = {
@@ -36991,6 +37456,41 @@ export const $ToolResultBlock = {
   title: "ToolResultBlock",
 } as const
 
+export const $ToolTunnelFieldChange = {
+  properties: {
+    tool: {
+      type: "string",
+      title: "Tool",
+    },
+    old_value: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Old Value",
+    },
+    new_value: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New Value",
+    },
+  },
+  type: "object",
+  required: ["tool"],
+  title: "ToolTunnelFieldChange",
+  description: "Tunnel routing diff for a single tool.",
+} as const
+
 export const $ToolUIPartInputAvailable = {
   properties: {
     type: {
@@ -37220,6 +37720,21 @@ export const $TriggerType = {
   description: "Trigger type for a workflow execution.",
 } as const
 
+export const $TunnelAvailabilityRead = {
+  properties: {
+    available: {
+      type: "boolean",
+      title: "Available",
+      description:
+        "False when Tracecat runs without the Kubernetes gateway backend, e.g. on Docker Compose or Fargate.",
+    },
+  },
+  type: "object",
+  required: ["available"],
+  title: "TunnelAvailabilityRead",
+  description: "Whether this deployment can run tunnel gateways.",
+} as const
+
 export const $TunnelCreate = {
   properties: {
     name: {
@@ -37292,6 +37807,104 @@ export const $TunnelCreate = {
     "allowed_targets",
   ],
   title: "TunnelCreate",
+} as const
+
+export const $TunnelDetailRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    provider: {
+      $ref: "#/components/schemas/TunnelProvider",
+    },
+    endpoint: {
+      type: "string",
+      title: "Endpoint",
+    },
+    client_id: {
+      type: "string",
+      title: "Client Id",
+    },
+    allowed_targets: {
+      items: {
+        $ref: "#/components/schemas/TunnelTarget",
+      },
+      type: "array",
+      title: "Allowed Targets",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+    },
+    has_gateway_key: {
+      type: "boolean",
+      title: "Has Gateway Key",
+    },
+    managed: {
+      type: "boolean",
+      title: "Managed",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    referenced_by: {
+      items: {
+        $ref: "#/components/schemas/TunnelReference",
+      },
+      type: "array",
+      title: "Referenced By",
+      description:
+        "MCP integrations, current agent preset versions and workflows that route through the tunnel. Each kind is capped at 200 entries.",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "name",
+    "description",
+    "provider",
+    "endpoint",
+    "client_id",
+    "allowed_targets",
+    "enabled",
+    "has_gateway_key",
+    "managed",
+    "created_at",
+    "updated_at",
+    "referenced_by",
+  ],
+  title: "TunnelDetailRead",
+  description: "A tunnel and the resources that reference it.",
 } as const
 
 export const $TunnelGatewayKeyRead = {
@@ -37408,6 +38021,46 @@ export const $TunnelRead = {
   title: "TunnelRead",
   description:
     "Tunnel metadata. The client secret is write-only and never returned.",
+} as const
+
+export const $TunnelReference = {
+  properties: {
+    kind: {
+      $ref: "#/components/schemas/TunnelReferenceKind",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    detail: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Detail",
+      description:
+        "Where in the resource the tunnel is set, e.g. an action or tool",
+    },
+  },
+  type: "object",
+  required: ["kind", "id", "name"],
+  title: "TunnelReference",
+  description: "A workspace resource that routes traffic through a tunnel.",
+} as const
+
+export const $TunnelReferenceKind = {
+  type: "string",
+  enum: ["mcp_integration", "agent_preset", "workflow"],
+  title: "TunnelReferenceKind",
 } as const
 
 export const $TunnelStatusRead = {
@@ -39690,6 +40343,161 @@ export const $WatchtowerToolCallStatus = {
   enum: ["success", "error", "timeout", "rejected", "blocked"],
   title: "WatchtowerToolCallStatus",
   description: "Tool call result status for Watchtower monitor APIs.",
+} as const
+
+export const $WebAuthnAuthenticationVerify = {
+  properties: {
+    credential: {
+      additionalProperties: true,
+      type: "object",
+      title: "Credential",
+      description:
+        "PublicKeyCredential.toJSON() output from navigator.credentials.get().",
+    },
+  },
+  type: "object",
+  required: ["credential"],
+  title: "WebAuthnAuthenticationVerify",
+} as const
+
+export const $WebAuthnCredentialRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    aaguid: {
+      type: "string",
+      format: "uuid",
+      title: "Aaguid",
+    },
+    transports: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Transports",
+    },
+    backup_eligible: {
+      type: "boolean",
+      title: "Backup Eligible",
+    },
+    backup_state: {
+      type: "boolean",
+      title: "Backup State",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    last_used_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Used At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "aaguid",
+    "transports",
+    "backup_eligible",
+    "backup_state",
+    "created_at",
+    "last_used_at",
+  ],
+  title: "WebAuthnCredentialRead",
+} as const
+
+export const $WebAuthnCredentialUpdate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "WebAuthnCredentialUpdate",
+} as const
+
+export const $WebAuthnOptionsRead = {
+  properties: {
+    public_key: {
+      additionalProperties: true,
+      type: "object",
+      title: "Public Key",
+      description:
+        "PublicKeyCredential{Creation,Request}Options as JSON (base64url).",
+    },
+  },
+  type: "object",
+  required: ["public_key"],
+  title: "WebAuthnOptionsRead",
+} as const
+
+export const $WebAuthnRegistrationResult = {
+  properties: {
+    credential: {
+      $ref: "#/components/schemas/WebAuthnCredentialRead",
+    },
+    recovery_codes: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Recovery Codes",
+      description:
+        "One-time recovery codes, returned only for the first security key.",
+    },
+  },
+  type: "object",
+  required: ["credential"],
+  title: "WebAuthnRegistrationResult",
+} as const
+
+export const $WebAuthnRegistrationVerify = {
+  properties: {
+    credential: {
+      additionalProperties: true,
+      type: "object",
+      title: "Credential",
+      description:
+        "PublicKeyCredential.toJSON() output from navigator.credentials.create().",
+    },
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["credential", "name"],
+  title: "WebAuthnRegistrationVerify",
 } as const
 
 export const $WebhookApiKeyGenerateResponse = {
@@ -42126,6 +42934,11 @@ export const $WorkflowFolderDelete = {
     recursive: {
       type: "boolean",
       title: "Recursive",
+      default: false,
+    },
+    delete_workflows: {
+      type: "boolean",
+      title: "Delete Workflows",
       default: false,
     },
   },

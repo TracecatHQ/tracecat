@@ -139,6 +139,19 @@ class AgentSessionHistoryRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AgentSessionCapabilities(BaseModel):
+    """Optional controls the session's backend supports."""
+
+    steering: bool = Field(
+        default=False,
+        description="Whether a running turn accepts steering messages",
+    )
+    withdrawing: bool = Field(
+        default=False,
+        description="Whether a running turn can take back pending user messages",
+    )
+
+
 class AgentSessionRead(BaseModel):
     """Response schema for agent session."""
 
@@ -160,6 +173,9 @@ class AgentSessionRead(BaseModel):
     agent_preset_version_id: uuid.UUID | None
     agents_binding: ResolvedAgentsConfig | None = None
     backend_id: str = Field(default="oss")
+    capabilities: AgentSessionCapabilities = Field(
+        default_factory=AgentSessionCapabilities
+    )
     # Harness
     harness_type: str | None
     # Terminal error of the most recent run, present iff it failed (errors are

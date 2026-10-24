@@ -99,6 +99,7 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "form_view",
     "form_file",
     "workspace_tunnel",
+    "agent_session_command",
 )
 
 POST_RLS_ORG_SCOPED_TABLES = (

@@ -247,12 +247,18 @@ class OutboundHTTPTransport(httpx.AsyncHTTPTransport):
 
 
 def create_outbound_http_client(
-    *, origin_url: str | None = None, **kwargs: Any
+    *,
+    origin_url: str | None = None,
+    tunnel_proxy: str | None = None,
+    **kwargs: Any,
 ) -> httpx.AsyncClient:
     """Create a direct HTTP client whose network policy cannot be overridden.
 
     ``origin_url`` binds all requests, including redirects and SSE message URLs,
     to one origin. Use it whenever the client carries credentials for one server.
+    ``tunnel_proxy`` sends every request through a tunnel gateway. Shared
+    services (api, agent-executor) must pass it per client; otherwise the
+    executor's per-action tunnel environment applies.
     Extra HTTPX options use Any because HTTPX exposes no public constructor
     options type; transport/proxy overrides are deliberately rejected.
     """
@@ -268,7 +274,7 @@ def create_outbound_http_client(
     return httpx.AsyncClient(
         transport=OutboundHTTPTransport(
             origin_url=origin_url,
-            tunnel_proxy=tunnel_proxy_url(),
+            tunnel_proxy=tunnel_proxy or tunnel_proxy_url(),
             **transport_options,
         ),
         trust_env=False,

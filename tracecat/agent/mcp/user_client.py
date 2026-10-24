@@ -67,6 +67,7 @@ def _drop_forwarded_authorization(
     configured: dict[str, str] | None,
     *,
     origin_url: str,
+    tunnel_proxy: str | None = None,
 ) -> McpHttpClientFactory:
     """Build a client factory that strips fastmcp's forwarded inbound auth."""
     keeps_authorization = configured is not None and "authorization" in configured
@@ -85,6 +86,7 @@ def _drop_forwarded_authorization(
         kwargs.setdefault("follow_redirects", True)
         return create_bounded_mcp_http_client(
             origin_url=origin_url,
+            tunnel_proxy=tunnel_proxy,
             headers=merged,
             timeout=timeout,
             auth=auth,
@@ -99,6 +101,7 @@ def _create_transport(
     transport_type: Literal["http", "sse"],
     headers: dict[str, str] | None = None,
     timeout: int | None = None,
+    tunnel_proxy: str | None = None,
 ) -> StreamableHttpTransport | SSETransport:
     """Create the appropriate transport for the MCP server."""
     # FastMCP forwards inbound authorization as lowercase from request context.
@@ -108,7 +111,9 @@ def _create_transport(
         headers = {name.lower(): value for name, value in headers.items()}
     # Lowercasing alone only wins the merge when our credential is itself an
     # Authorization header; strip the forwarded token in every other case.
-    httpx_client_factory = _drop_forwarded_authorization(headers, origin_url=url)
+    httpx_client_factory = _drop_forwarded_authorization(
+        headers, origin_url=url, tunnel_proxy=tunnel_proxy
+    )
     if transport_type == "sse":
         return SSETransport(
             url=url,
@@ -138,6 +143,7 @@ async def list_remote_mcp_tools(
         config.get("transport", "http"),
         config.get("headers"),
         config.get("timeout"),
+        config.get("tunnel_proxy"),
     )
     async with Client(transport) as client:
         server_tools = await client.list_tools()
@@ -379,7 +385,9 @@ class UserMCPClient:
         headers = config.get("headers")
         timeout = config.get("timeout")
 
-        transport = _create_transport(url, transport_type, headers, timeout)
+        transport = _create_transport(
+            url, transport_type, headers, timeout, config.get("tunnel_proxy")
+        )
         tools: dict[str, MCPToolDefinition] = {}
 
         async with Client(
@@ -441,7 +449,9 @@ class UserMCPClient:
         headers = config.get("headers")
         timeout = config.get("timeout")
 
-        transport = _create_transport(url, transport_type, headers, timeout)
+        transport = _create_transport(
+            url, transport_type, headers, timeout, config.get("tunnel_proxy")
+        )
 
         logger.info(
             "Calling user MCP tool",

@@ -3,7 +3,6 @@ from typing import cast
 from fastapi import APIRouter, HTTPException, status
 from pydantic import ValidationError
 
-from tracecat.agent.types import clamp_agent_timeout_seconds
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
@@ -87,7 +86,7 @@ def _clamp_agent_timeout(
         return
     retry_policy = control_flow.retry_policy
     explicit = "timeout" in retry_policy.model_fields_set
-    clamped = clamp_agent_timeout_seconds(retry_policy.timeout if explicit else None)
+    clamped = retry_policy.resolved_agent_timeout()
     if explicit and clamped != retry_policy.timeout:
         logger.info(
             "Clamped agent action timeout at write",

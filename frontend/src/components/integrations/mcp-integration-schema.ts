@@ -270,6 +270,7 @@ const mcpIntegrationFormObjectSchema = z.object({
     "existing_integration",
   ]),
   oauth_integration_id: z.string().uuid().optional().or(z.literal("")),
+  tunnel_id: z.string().uuid().optional().or(z.literal("")),
   oauth_client_credentials: z.string().trim().optional().or(z.literal("")),
   custom_credentials: z.string().trim().optional().or(z.literal("")),
   // Stdio-type fields
@@ -465,6 +466,7 @@ export const MCP_INTEGRATION_FORM_DEFAULTS: MCPIntegrationFormValues = {
   auth_type: "NONE",
   oauth_setup: "mcp_discovery",
   oauth_integration_id: "",
+  tunnel_id: "",
   oauth_client_credentials: "",
   custom_credentials: "",
   stdio_command: "",

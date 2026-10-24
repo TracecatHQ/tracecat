@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
+import ssl
 import uuid
 from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
 from dataclasses import replace
@@ -13,9 +15,22 @@ from unittest.mock import Mock
 import httpx
 import orjson
 import pytest
+from opentelemetry.propagate import get_global_textmap, set_global_textmap
+from opentelemetry.sdk.trace import ReadableSpan
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import SpanKind, StatusCode
 from tenacity import AsyncRetrying, RetryCallState
 
-from tracecat.agent.diagnostics import MAX_LLM_ERROR_BODY_BYTES, LLMErrorDiagnostics
+from tracecat import config as app_config
+from tracecat.agent.common.types import SandboxAgentConfig, SandboxSubagentConfig
+from tracecat.agent.diagnostics import (
+    MAX_LLM_ERROR_BODY_BYTES,
+    LLMErrorDiagnostics,
+    ProviderConfiguration,
+)
+from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.observability import LLMGatewayLoadTracker
 from tracecat.agent.sandbox import llm_proxy
 from tracecat.agent.sandbox.llm_proxy import (
@@ -29,8 +44,16 @@ from tracecat.agent.sandbox.llm_proxy import (
     _rate_limit_wait,
     _rewrite_json_body,
     _UpstreamRateLimited,
+    build_llm_routing_plan,
 )
+from tracecat.agent.sandbox.tool_use_rewrite import ToolUseStreamRewriter
 from tracecat.agent.tokens import LLMRouteClaim, mint_llm_token
+from tracecat.observability.otel import (
+    get_platform_tracing,
+    initialize_platform_tracing,
+    shutdown_platform_tracing,
+)
+from tracecat.outbound import OutboundHTTPTransport
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
@@ -166,12 +189,14 @@ async def _forward(
     request: ParsedRequest = _RATE_LIMIT_REQUEST,
     *,
     routing_plan: LLMRoutingPlan | None = None,
+    rewrite_tool_use: bool = True,
 ) -> tuple[str, list[LLMProxyError]]:
     errors: list[LLMProxyError] = []
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
         routing_plan=routing_plan or _routing_plan(),
         on_error=errors.append,
+        rewrite_tool_use=rewrite_tool_use,
     )
     writer = _FakeWriter()
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
@@ -337,11 +362,17 @@ async def test_forward_request_emits_error_for_critical_upstream_http_error(
 async def test_forward_request_classifies_connect_failure_as_platform(
     tmp_path: Path,
 ) -> None:
+    attempts = 0
+
     async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
         raise httpx.ConnectError("gateway unavailable", request=request)
 
     _, errors = await _forward(tmp_path, handler, _request())
 
+    # Nothing was sent, so the managed route retries the connect once.
+    assert attempts == 2
     assert len(errors) == 1
     assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
     assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
@@ -531,7 +562,7 @@ async def test_write_stream_response_classifies_typed_upstream_error_event(
         status_code=200,
         reason_phrase="OK",
         headers={"Content-Type": "text/event-stream"},
-        body_chunks=llm_proxy._rewrite_sse_stream(upstream()),
+        body_chunks=llm_proxy._rewrite_sse_stream(upstream(), ToolUseStreamRewriter()),
         trace_request_id="trace-test-upstream-error",
         path="/v1/messages",
     )
@@ -569,7 +600,7 @@ async def test_write_stream_response_forwards_untyped_upstream_error_event(
         status_code=200,
         reason_phrase="OK",
         headers={"Content-Type": "text/event-stream"},
-        body_chunks=llm_proxy._rewrite_sse_stream(upstream()),
+        body_chunks=llm_proxy._rewrite_sse_stream(upstream(), ToolUseStreamRewriter()),
         trace_request_id="trace-test-overloaded",
         path="/v1/messages",
     )
@@ -1873,6 +1904,93 @@ async def test_restart_reports_active_stream_failure(short_socket_path: Path) ->
     )
 
 
+def _tls_context(client: httpx.AsyncClient) -> ssl.SSLContext | None:
+    transport = client._transport
+    assert isinstance(transport, httpx.AsyncHTTPTransport)
+    return transport._pool._ssl_context
+
+
+@pytest.mark.anyio
+async def test_proxy_clients_share_one_tls_context(short_socket_path: Path) -> None:
+    """Both upstream clients reuse the process TLS context; the direct client
+    is built on first use, keeps the outbound guard, and is closed by stop()."""
+    context = llm_proxy._upstream_ssl_context()
+    proxy = LLMSocketProxy(short_socket_path, _direct_plan())
+    await proxy.start()
+    try:
+        managed = proxy._client
+        assert managed is not None
+        assert proxy._direct_client is None
+        direct = proxy._direct_client_for_request()
+        assert proxy._direct_client_for_request() is direct
+        assert isinstance(direct._transport, OutboundHTTPTransport)
+        assert direct.timeout == managed.timeout
+        assert _tls_context(managed) is context
+        assert _tls_context(direct) is context
+    finally:
+        await proxy.stop()
+    assert direct.is_closed
+    assert proxy._direct_client is None
+
+    # A restarted proxy reuses the same context rather than reloading CAs.
+    await proxy.start()
+    try:
+        assert proxy._client is not None
+        assert _tls_context(proxy._client) is context
+    finally:
+        await proxy.stop()
+
+
+@pytest.mark.anyio
+async def test_stop_without_direct_client_closes_managed_client(
+    short_socket_path: Path,
+) -> None:
+    """stop() must tolerate a direct client that was never created."""
+    proxy = LLMSocketProxy(short_socket_path, _routing_plan())
+    await proxy.start()
+    managed = proxy._client
+    await proxy.stop()
+    assert managed is not None and managed.is_closed
+    assert proxy._direct_client is None
+    assert not proxy.socket_path.exists()
+
+
+@pytest.mark.anyio
+async def test_direct_client_is_created_only_for_direct_routes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Managed traffic never builds the direct client; direct traffic builds it
+    once and passes the shared TLS context."""
+    created: list[dict[str, object]] = []
+    proxy = LLMSocketProxy(tmp_path / "llm.sock", _direct_plan())
+    async with httpx.AsyncClient(transport=httpx.MockTransport(_ok)) as upstream:
+
+        def make_direct_client(**kwargs: object) -> httpx.AsyncClient:
+            created.append(kwargs)
+            return upstream
+
+        monkeypatch.setattr(
+            llm_proxy, "create_outbound_http_client", make_direct_client
+        )
+        proxy._client = upstream
+        for model in ("synthetic-managed", "synthetic-managed"):
+            await proxy._forward_request(
+                _request({"model": model}, headers=_LLM_HEADERS),
+                cast(asyncio.StreamWriter, _FakeWriter()),
+            )
+        assert created == []
+        assert proxy._direct_client is None
+
+        for _ in range(2):
+            await proxy._forward_request(
+                _request({"model": "customer-alias"}, headers=_LLM_HEADERS),
+                cast(asyncio.StreamWriter, _FakeWriter()),
+            )
+        assert len(created) == 1
+        assert created[0]["verify"] is llm_proxy._upstream_ssl_context()
+        assert proxy._direct_client is upstream
+
+
 @pytest.mark.anyio
 async def test_successful_managed_request_skips_diagnostic_token_verification(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1898,12 +2016,8 @@ async def test_successful_managed_request_skips_diagnostic_token_verification(
     verify.assert_not_called()
 
 
-@pytest.mark.anyio
-@pytest.mark.parametrize("streaming", [True, False])
-async def test_forward_request_normalizes_read_tool_use_before_sandbox(
-    tmp_path: Path, streaming: bool
-) -> None:
-    """Malformed Read inputs are fixed in the response the CLI validates."""
+def _read_tool_use_response(streaming: bool) -> tuple[bytes, str]:
+    """Return an upstream Messages response with a malformed Read input."""
     bad_input = {"file_path": "/skills/demo/references/api.md", "pages": ""}
     if streaming:
         upstream_body = (
@@ -1934,6 +2048,16 @@ async def test_forward_request_normalizes_read_tool_use_before_sandbox(
             }
         )
         content_type = "application/json"
+    return upstream_body, content_type
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("streaming", [True, False])
+async def test_forward_request_normalizes_read_tool_use_before_sandbox(
+    tmp_path: Path, streaming: bool
+) -> None:
+    """Malformed Read inputs are fixed in the response the CLI validates."""
+    upstream_body, content_type = _read_tool_use_response(streaming)
 
     async def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -1954,6 +2078,87 @@ async def test_forward_request_normalizes_read_tool_use_before_sandbox(
         assert payload["content"][0]["input"] == {
             "file_path": "/skills/demo/references/api.md"
         }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("streaming", [True, False])
+async def test_forward_request_skips_tool_use_rewrite_when_disabled(
+    tmp_path: Path, streaming: bool
+) -> None:
+    """Runtimes other than Claude Code receive upstream responses unchanged."""
+    upstream_body, content_type = _read_tool_use_response(streaming)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, headers={"Content-Type": content_type}, content=upstream_body
+        )
+
+    response_text, _ = await _forward(
+        tmp_path,
+        handler,
+        _request({"stream": streaming, "messages": []}),
+        rewrite_tool_use=False,
+    )
+
+    head, _, body = response_text.encode().partition(b"\r\n\r\n")
+    assert b"HTTP/1.1 200" in head
+    assert body == upstream_body
+
+
+@pytest.mark.anyio
+async def test_forward_request_drops_stale_encoding_when_rewrite_disabled(
+    tmp_path: Path,
+) -> None:
+    """Decoded JSON bodies must not keep the upstream compression headers."""
+    upstream_body, content_type = _read_tool_use_response(streaming=False)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": content_type, "Content-Encoding": "gzip"},
+            content=gzip.compress(upstream_body),
+        )
+
+    response_text, _ = await _forward(
+        tmp_path,
+        handler,
+        _request({"stream": False, "messages": []}),
+        rewrite_tool_use=False,
+    )
+
+    head, _, body = response_text.encode().partition(b"\r\n\r\n")
+    assert b"HTTP/1.1 200" in head
+    assert b"content-encoding" not in head.lower()
+    assert b"content-length" not in head.lower()
+    assert body == upstream_body
+
+
+@pytest.mark.anyio
+async def test_forward_request_classifies_stream_errors_when_rewrite_disabled(
+    tmp_path: Path,
+) -> None:
+    """Turning off tool rewrites must not hide typed stream failures."""
+    error_event = (
+        b'event: error\ndata: {"type":"error","error":'
+        b'{"type":"budget_exceeded","message":"synthetic"}}\n\n'
+    )
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, headers={"Content-Type": "text/event-stream"}, content=error_event
+        )
+
+    response_text, errors = await _forward(
+        tmp_path,
+        handler,
+        _request({"stream": True, "messages": []}),
+        rewrite_tool_use=False,
+    )
+
+    assert response_text.encode().endswith(error_event)
+    assert [error.classification.kind for error in errors] == [
+        RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED
+    ]
 
 
 @pytest.mark.anyio
@@ -2093,3 +2298,533 @@ def test_rate_limit_wait_falls_back_to_jittered_backoff(
     assert 1.0 <= _rate_limit_wait(_rate_limited_retry_state(1, retry_after)) <= 1.5
     assert 4.0 <= _rate_limit_wait(_rate_limited_retry_state(3, retry_after)) <= 4.5
     assert _rate_limit_wait(_rate_limited_retry_state(10, retry_after)) == 20.0
+
+
+_SSE_MESSAGE_START = b'event: message_start\ndata: {"type":"message_start"}\n\n'
+_SSE_MESSAGE_STOP = b'event: message_stop\ndata: {"type":"message_stop"}\n\n'
+
+
+class _CutSSEStream(httpx.AsyncByteStream):
+    """SSE body that dies after its first event, like a gateway pod going away."""
+
+    def __init__(self, error: type[httpx.TransportError]) -> None:
+        self._error = error
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield _SSE_MESSAGE_START
+        raise self._error("peer closed connection without sending complete message")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("error", [httpx.RemoteProtocolError, httpx.ReadError])
+async def test_managed_stream_cut_after_headers_is_stream_interrupted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error: type[httpx.TransportError],
+) -> None:
+    log = Mock()
+    monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy.logger", log)
+    upstream_request_ids: list[str | None] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        upstream_request_ids.append(request.headers.get("x-request-id"))
+        return httpx.Response(
+            200,
+            headers={
+                "Content-Type": "text/event-stream",
+                "X-Tracecat-Gateway": "litellm-0/42",
+            },
+            stream=_CutSSEStream(error),
+        )
+
+    response_text, errors = await _forward(
+        tmp_path,
+        handler,
+        _request({"stream": True, "messages": _HELLO}, headers=_LLM_HEADERS),
+    )
+
+    # The partial response already reached the runtime: no transparent retry.
+    assert len(upstream_request_ids) == 1
+    assert response_text.startswith("HTTP/1.1 200 OK")
+    assert response_text.count("HTTP/1.1") == 1
+    assert "event: message_start" in response_text
+    assert "event: error" in response_text
+    # Raw transport text is not source-owned, so neither the runtime nor the
+    # terminal error sees it.
+    assert "peer closed connection" not in response_text
+    assert len(errors) == 1
+    classification = errors[0].classification
+    assert errors[0].message == classification.message
+    assert classification.kind is RuntimeErrorKind.AGENT_LLM_STREAM_INTERRUPTED
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert classification.cause_type == error.__name__
+
+    stream_log = next(
+        call
+        for call in log.warning.call_args_list
+        if call.args == ("Stream error after headers sent, emitting SSE error event",)
+    )
+    trace_request_id = upstream_request_ids[0]
+    assert trace_request_id is not None
+    assert f"X-Request-ID: {trace_request_id}" in response_text
+    assert stream_log.kwargs["error_type"] == error.__name__
+    assert stream_log.kwargs["route"] == "managed"
+    assert stream_log.kwargs["trace_request_id"] == trace_request_id
+    assert stream_log.kwargs["response_bytes"] == len(_SSE_MESSAGE_START)
+    assert stream_log.kwargs["sse_events"] == 1
+    assert stream_log.kwargs["saw_message_stop"] is False
+    assert stream_log.kwargs["gateway_identity"] == "litellm-0/42"
+    # Gateway pod and pid stay out of the in-jail runtime's response.
+    assert "litellm-0/42" not in response_text
+    assert stream_log.kwargs["stream_duration_ms"] >= 0
+    # Progress fields stay content-free.
+    assert "hello" not in str(log.mock_calls)
+
+
+@pytest.mark.anyio
+async def test_direct_stream_cut_after_headers_keeps_user_attribution(
+    tmp_path: Path,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/event-stream"},
+            stream=_CutSSEStream(httpx.RemoteProtocolError),
+        )
+
+    request, plan = _direct_or_managed(True)
+    _, errors = await _forward(tmp_path, handler, request, routing_plan=plan)
+
+    assert len(errors) == 1
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTION_FAILED
+    assert errors[0].classification.owner is RuntimeErrorOwner.USER
+
+
+@pytest.mark.anyio
+async def test_completed_stream_logs_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log = Mock()
+    monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy.logger", log)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/event-stream"},
+            content=_SSE_MESSAGE_START + _SSE_MESSAGE_STOP,
+        )
+
+    _, errors = await _forward(
+        tmp_path,
+        handler,
+        _request(
+            {"stream": True, "messages": _HELLO},
+            headers={**_LLM_HEADERS, "X-Request-ID": "trace-complete"},
+        ),
+    )
+
+    assert errors == []
+    finished = next(
+        call
+        for call in log.info.call_args_list
+        if call.args == ("LLM proxy stream finished",)
+    )
+    assert finished.kwargs["trace_request_id"] == "trace-complete"
+    assert finished.kwargs["response_bytes"] == len(
+        _SSE_MESSAGE_START + _SSE_MESSAGE_STOP
+    )
+    assert finished.kwargs["sse_events"] == 2
+    assert finished.kwargs["saw_message_stop"] is True
+    assert finished.kwargs["gateway_identity"] is None
+
+
+@pytest.mark.anyio
+async def test_forward_request_retries_managed_connect_error_once(
+    tmp_path: Path,
+) -> None:
+    attempts = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            # A gateway pod that stopped listening before endpoints updated.
+            raise httpx.ConnectError("connection refused", request=request)
+        return httpx.Response(200, json={"ok": True})
+
+    response_text, errors = await _forward(tmp_path, handler)
+
+    assert attempts == 2
+    assert response_text.startswith("HTTP/1.1 200 OK")
+    assert errors == []
+
+
+@pytest.mark.anyio
+async def test_forward_request_does_not_retry_direct_connect_error(
+    tmp_path: Path,
+) -> None:
+    attempts = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        raise httpx.ConnectError("connection refused", request=request)
+
+    request, plan = _direct_or_managed(True)
+    _, errors = await _forward(tmp_path, handler, request, routing_plan=plan)
+
+    assert attempts == 1
+    assert len(errors) == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("direct", "inbound_headers", "expected"),
+    [
+        (False, {}, "generated"),
+        (False, {"x-request-id": "trace-inbound"}, "trace-inbound"),
+        # Oversized or unsafe runtime-chosen IDs are replaced, not forwarded.
+        (False, {"x-request-id": "t" * 129}, "generated"),
+        (False, {"x-request-id": "trace id\twith spaces"}, "generated"),
+        (True, {}, None),
+    ],
+)
+async def test_forward_request_sends_trace_request_id_to_gateway(
+    tmp_path: Path,
+    direct: bool,
+    inbound_headers: dict[str, str],
+    expected: str | None,
+) -> None:
+    sent: list[list[str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(request.headers.get_list("x-request-id"))
+        return _ok(request)
+
+    request, plan = _direct_or_managed(direct)
+    request = cast(
+        ParsedRequest, {**request, "headers": {**_LLM_HEADERS, **inbound_headers}}
+    )
+    response_text, _ = await _forward(tmp_path, handler, request, routing_plan=plan)
+
+    if expected is None:
+        assert sent == [[]]
+    elif expected == "generated":
+        assert len(sent[0]) == 1
+        assert sent[0][0] != inbound_headers.get("x-request-id")
+        assert str(uuid.UUID(sent[0][0])) == sent[0][0]
+        assert f"X-Request-ID: {sent[0][0]}" in response_text
+    else:
+        assert sent == [[expected]]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "root_provider, child_provider, root_configuration, child_configuration",
+    [
+        ("openai", "custom-model-provider", "builtin", "custom"),
+        ("custom-model-provider", "anthropic", "custom", "builtin"),
+    ],
+)
+async def test_routing_plan_derives_diagnostics_from_root_and_subagent_providers(
+    root_provider: str,
+    child_provider: str,
+    root_configuration: ProviderConfiguration,
+    child_configuration: ProviderConfiguration,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = SandboxAgentConfig(
+        model_name="synthetic-root", model_provider=root_provider
+    )
+    subagents = [
+        SandboxSubagentConfig(
+            alias="synthetic-child",
+            description="Synthetic child",
+            prompt="Synthetic prompt",
+            model_route="synthetic-child-route",
+            config=SandboxAgentConfig(
+                # The signed token, not a reconstructed config index, is authoritative.
+                model_name="synthetic-model",
+                model_provider=root_provider,
+            ),
+            mcp_auth_token="synthetic-token",
+        )
+    ]
+    monkeypatch.setattr(
+        app_config, "TRACECAT__SERVICE_KEY", "synthetic-signing-key-for-tests-only"
+    )
+    token = mint_llm_token(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        model="synthetic-root",
+        provider=root_provider,
+        routes={
+            "synthetic-child-route": LLMRouteClaim(
+                model="synthetic-model", provider=child_provider
+            )
+        },
+    )
+    plan = build_llm_routing_plan(config, subagents)
+    headers = {"authorization": f"Bearer {token}"}
+    # Materialization preserves transport selection.
+    plan = await plan.materialize(None)
+    assert plan.error_diagnostics(
+        get_litellm_route_model(
+            model_provider=root_provider, model_name="synthetic-root"
+        ),
+        headers,
+    ) == LLMErrorDiagnostics(route="managed", provider_configuration=root_configuration)
+    assert plan.error_diagnostics(
+        "synthetic-child-route", headers
+    ) == LLMErrorDiagnostics(
+        route="managed", provider_configuration=child_configuration
+    )
+    assert plan.error_diagnostics("unrecognized-route", headers) == LLMErrorDiagnostics(
+        route="managed", provider_configuration=root_configuration
+    )
+    assert (
+        plan.error_diagnostics(None, headers).provider_configuration
+        == root_configuration
+    )
+
+    selected = plan.resolve("synthetic-child-route")
+    assert selected is plan.managed_route
+    assert not selected.local_provider_cleanup
+    for model in (None, "unrecognized-route", 123):
+        assert plan.resolve(model) is plan.managed_route
+        assert (
+            plan.error_diagnostics(model, headers).provider_configuration
+            == root_configuration
+        )
+    body = b'{"model":"synthetic-child-route","thinking":{"type":"enabled"}}'
+    request = selected.prepare_forward_request(
+        path="/v1/messages",
+        headers={"Authorization": "Bearer synthetic-token"},
+        body=body,
+        data=orjson.loads(body),
+    )
+    assert request.url == plan.managed_route.forward_url("/v1/messages")
+    assert request.headers["Authorization"] == "Bearer synthetic-token"
+    assert request.body == body
+
+
+@pytest.mark.anyio
+async def test_routing_plan_invalid_diagnostic_token_does_not_block_forwarding(
+    tmp_path: Path,
+) -> None:
+    plan = build_llm_routing_plan(
+        SandboxAgentConfig(model_name="synthetic-model", model_provider="openai")
+    )
+    assert plan.error_diagnostics(
+        "synthetic-model", {"Authorization": "Bearer synthetic-invalid-token"}
+    ) == LLMErrorDiagnostics(route="managed")
+    assert plan.resolve("synthetic-model") is plan.managed_route
+
+    response_text, errors = await _forward(
+        tmp_path,
+        lambda request: httpx.Response(500, json={"error": {"type": "synthetic"}}),
+        _request(
+            b'{"model":"synthetic-model"}',
+            headers={"Authorization": "Bearer synthetic-invalid-token"},
+        ),
+        routing_plan=plan,
+    )
+    assert response_text.startswith("HTTP/1.1 500")
+    assert len(errors) == 1
+
+
+@pytest.fixture
+def span_exporter(monkeypatch: pytest.MonkeyPatch) -> Iterator[InMemorySpanExporter]:
+    # Initialization replaces the process-global propagator; restore it after.
+    propagator = get_global_textmap()
+    shutdown_platform_tracing()
+    monkeypatch.setattr(app_config, "TRACECAT__PLATFORM_OTEL_ENABLED", True)
+    exporter = InMemorySpanExporter()
+    initialize_platform_tracing("tracecat-test", exporter=exporter)
+    yield exporter
+    shutdown_platform_tracing()
+    set_global_textmap(propagator)
+
+
+def _upstream_spans(exporter: InMemorySpanExporter) -> list[ReadableSpan]:
+    return [
+        span
+        for span in exporter.get_finished_spans()
+        if span.name == "tracecat.agent.llm_proxy.upstream"
+    ]
+
+
+@pytest.mark.anyio
+async def test_upstream_span_records_streamed_response_without_content(
+    tmp_path: Path,
+    span_exporter: InMemorySpanExporter,
+) -> None:
+    """One client span per upstream request carries the trace request ID,
+    status, sizes, stream timings and a first-byte event, but no URL,
+    credential or content."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/event-stream"},
+            stream=httpx.ByteStream(_SSE_MESSAGE_START + _SSE_MESSAGE_STOP),
+        )
+
+    _, errors = await _forward(
+        tmp_path,
+        handler,
+        _request(
+            {"stream": True, "messages": _HELLO},
+            path="/v1/messages?beta=true",
+            headers={**_LLM_HEADERS, "X-Request-ID": "trace-span"},
+        ),
+    )
+
+    assert errors == []
+    [span] = _upstream_spans(span_exporter)
+    assert span.kind is SpanKind.CLIENT
+    assert span.status.status_code is StatusCode.UNSET
+    attributes = dict(span.attributes or {})
+    ttft_ms = attributes.pop("tracecat.agent.llm_proxy.response.ttft_ms")
+    stream_duration_ms = attributes.pop(
+        "tracecat.agent.llm_proxy.response.stream_duration_ms"
+    )
+    assert isinstance(ttft_ms, float)
+    assert isinstance(stream_duration_ms, float)
+    assert 0 <= ttft_ms <= stream_duration_ms
+    assert attributes == {
+        "http.request.method": "POST",
+        "http.route": "/v1/messages",
+        "tracecat.agent.llm_proxy.route": "managed",
+        "tracecat.agent.llm_proxy.trace_request_id": "trace-span",
+        "tracecat.agent.llm_proxy.attempt": 1,
+        "http.response.status_code": 200,
+        "http.response.body.size": len(_SSE_MESSAGE_START + _SSE_MESSAGE_STOP),
+        "tracecat.agent.llm_proxy.response.chunks": 1,
+        "tracecat.agent.llm_proxy.response.sse_events": 2,
+        "tracecat.agent.llm_proxy.response.saw_message_stop": True,
+    }
+    [event] = span.events
+    assert event.name == "tracecat.agent.llm_proxy.first_byte"
+    assert span.start_time is not None
+    assert span.end_time is not None
+    assert span.start_time <= event.timestamp <= span.end_time
+    exported = str(span.to_json())
+    for secret in ("hello", "llm-token", "litellm", "message_start"):
+        assert secret not in exported
+
+
+@pytest.mark.anyio
+async def test_upstream_span_per_rate_limited_attempt(
+    tmp_path: Path,
+    span_exporter: InMemorySpanExporter,
+) -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ConnectError("connection refused", request=request)
+        if attempts == 2:
+            return httpx.Response(429, json={"error": {"type": "rate_limit_error"}})
+        return _ok(request)
+
+    _, errors = await _forward(tmp_path, handler)
+
+    assert errors == []
+    spans = _upstream_spans(span_exporter)
+    assert [
+        (span.attributes or {})["tracecat.agent.llm_proxy.attempt"] for span in spans
+    ] == [1, 2, 3]
+    assert [
+        (span.attributes or {})["tracecat.agent.llm_proxy.trace_request_id"]
+        for span in spans
+    ] == ["trace-rate-limit"] * 3
+    dropped, limited, ok = spans
+    assert dropped.status.status_code is StatusCode.ERROR
+    assert (dropped.attributes or {})["error.type"] == "ConnectError"
+    assert "http.response.status_code" not in (dropped.attributes or {})
+    assert limited.status.status_code is StatusCode.ERROR
+    assert (limited.attributes or {})["error.type"] == "429"
+    assert (limited.attributes or {})["http.response.status_code"] == 429
+    assert ok.status.status_code is StatusCode.UNSET
+    assert "error.type" not in (ok.attributes or {})
+    # JSON responses are not streams, so they carry no stream timings.
+    assert "tracecat.agent.llm_proxy.response.ttft_ms" not in (ok.attributes or {})
+    assert "tracecat.agent.llm_proxy.response.stream_duration_ms" not in (
+        ok.attributes or {}
+    )
+
+
+@pytest.mark.anyio
+async def test_upstream_span_fails_on_stream_cut_after_headers(
+    tmp_path: Path,
+    span_exporter: InMemorySpanExporter,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/event-stream"},
+            stream=_CutSSEStream(httpx.RemoteProtocolError),
+        )
+
+    _, errors = await _forward(
+        tmp_path,
+        handler,
+        _request({"stream": True, "messages": _HELLO}, headers=_LLM_HEADERS),
+    )
+
+    assert len(errors) == 1
+    [span] = _upstream_spans(span_exporter)
+    attributes = span.attributes or {}
+    assert span.status.status_code is StatusCode.ERROR
+    assert span.status.description is None
+    assert attributes["error.type"] == "RemoteProtocolError"
+    assert attributes["http.response.status_code"] == 200
+    assert attributes["tracecat.agent.llm_proxy.response.chunks"] == 1
+    assert isinstance(attributes["tracecat.agent.llm_proxy.response.ttft_ms"], float)
+    assert isinstance(
+        attributes["tracecat.agent.llm_proxy.response.stream_duration_ms"], float
+    )
+    assert attributes["tracecat.agent.llm_proxy.response.sse_events"] == 1
+    assert attributes["tracecat.agent.llm_proxy.response.saw_message_stop"] is False
+    assert [event.name for event in span.events] == [
+        "tracecat.agent.llm_proxy.first_byte"
+    ]
+    assert "peer closed" not in str(span.to_json())
+
+
+@pytest.mark.anyio
+async def test_upstream_span_joins_the_trace_the_proxy_started_in(
+    short_socket_path: Path,
+    span_exporter: InMemorySpanExporter,
+) -> None:
+    """Connection handlers inherit the context of `start()`, so upstream spans
+    are children of the agent run span that started the proxy."""
+    tracing = get_platform_tracing()
+    assert tracing is not None
+    proxy = LLMSocketProxy(short_socket_path, _routing_plan())
+    with tracing.tracer("test").start_as_current_span("agent-run") as parent:
+        await proxy.start()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(_ok)) as client:
+        proxy._client = client
+        reader, writer = await asyncio.open_unix_connection(proxy.socket_path)
+        try:
+            writer.write(b"POST /v1/messages HTTP/1.1\r\nContent-Length: 0\r\n\r\n")
+            await writer.drain()
+            response = await asyncio.wait_for(reader.read(), timeout=2)
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            await proxy.stop()
+
+    assert response.startswith(b"HTTP/1.1 200 OK")
+    [span] = _upstream_spans(span_exporter)
+    assert span.parent is not None
+    assert span.parent.span_id == parent.get_span_context().span_id
+    assert span.context is not None
+    assert span.context.trace_id == parent.get_span_context().trace_id

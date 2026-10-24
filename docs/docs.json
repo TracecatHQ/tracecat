@@ -81,6 +81,7 @@
               "agents/skills",
               "agents/secrets-variables",
               "agents/human-in-the-loop",
+              "agents/timeouts",
               "agents/channels"
             ]
           },
@@ -392,6 +393,7 @@
               "authentication/basic",
               "authentication/saml",
               "authentication/oidc",
+              "authentication/mfa",
               "authentication/scim"
             ]
           },

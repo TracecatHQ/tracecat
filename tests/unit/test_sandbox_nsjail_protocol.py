@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import errno
+import io
 from pathlib import Path
-from typing import cast
+from typing import NoReturn, cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -22,7 +24,11 @@ from tracecat.sandbox.executor import (
     ActionSandboxConfig,
     NsjailExecutor,
 )
-from tracecat.sandbox.nsjail_protocol import NsjailCompletedProcess, invoke_nsjail
+from tracecat.sandbox.nsjail_protocol import (
+    NsjailCompletedProcess,
+    invoke_nsjail,
+    scan_nsjail_log,
+)
 from tracecat.sandbox.service import SandboxService
 from tracecat.sandbox.types import SandboxConfig, SandboxErrorCode, SandboxResult
 
@@ -118,6 +124,26 @@ async def test_timeout_is_reported_and_config_cleaned_up(
     assert not (tmp_path / "nsjail.cfg").exists()
 
 
+async def _run_phase(tmp_path: Path, job_dir: Path, phase: str) -> SandboxResult:
+    executor = NsjailExecutor(
+        nsjail_path=str(tmp_path / "nsjail"),
+        rootfs_path=str(tmp_path / "rootfs"),
+        cache_dir=str(tmp_path / "cache"),
+    )
+    if phase == "install":
+        return await executor.execute_install(job_dir, "deadbeef")
+    if phase == "execute":
+        return await executor.execute(job_dir, SandboxConfig())
+    return await executor.execute_action(
+        job_dir,
+        ActionSandboxConfig(
+            registry_paths=[],
+            tracecat_app_dir=tmp_path,
+            network=None,
+        ),
+    )
+
+
 @pytest.mark.parametrize(
     ("phase", "expected_script"),
     [
@@ -165,28 +191,195 @@ async def test_invocation_marker_attributes_exit_255_for_every_phase(
             stdout=b"",
             stderr=b"",
             workload_started=workload_started,
+            nsjail_log=b"",
+            nsjail_signaled=False,
         )
 
     monkeypatch.setattr(executor_module, "invoke_nsjail", fake_invoke_nsjail)
+    result = await _run_phase(tmp_path, job_dir, phase)
 
-    executor = NsjailExecutor(
-        nsjail_path=str(tmp_path / "nsjail"),
-        rootfs_path=str(tmp_path / "rootfs"),
-        cache_dir=str(tmp_path / "cache"),
+    assert result.success is False
+    assert result.error_code is expected_code
+
+
+@pytest.mark.anyio
+async def test_nsjail_private_log_is_passed_at_info_level(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launched_configs: list[str] = []
+    launched_fds: list[int] = []
+
+    async def capture_launch(*args: str, **kwargs: object) -> NoReturn:
+        launched_configs.append(Path(args[2]).read_text())
+        launched_fds.extend(cast(tuple[int, ...], kwargs["pass_fds"]))
+        raise OSError("synthetic launch failure")
+
+    monkeypatch.setattr(
+        nsjail_protocol.asyncio, "create_subprocess_exec", capture_launch
     )
-    if phase == "install":
-        result = await executor.execute_install(job_dir, "deadbeef")
-    elif phase == "execute":
-        result = await executor.execute(job_dir, SandboxConfig())
-    else:
-        result = await executor.execute_action(
-            job_dir,
-            ActionSandboxConfig(
-                registry_paths=[],
-                tracecat_app_dir=tmp_path,
-                network=None,
-            ),
+
+    with pytest.raises(SandboxInfrastructureError):
+        await invoke_nsjail(
+            nsjail_path=tmp_path / "nsjail",
+            job_dir=tmp_path,
+            config_text="mode: ONCE",
+            env={},
+            timeout_seconds=1,
+            timeout_message="synthetic timeout",
         )
+
+    (log_fd,) = launched_fds
+    (config_text,) = launched_configs
+    assert f"\nlog_fd: {log_fd}\n" in config_text
+    assert "\nlog_level: INFO\n" in config_text
+
+
+_FATAL_SIGNAL_RECORD = (
+    b"[I][2026-10-19T18:03:23+0000] Server stops due to fatal signal (15) caught. "
+    b"Exiting\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("nsjail_log", "expected"),
+    [
+        pytest.param(_FATAL_SIGNAL_RECORD, True, id="fatal-signal-record"),
+        pytest.param(
+            b"[I][t] pid=9 ([STANDALONE MODE]) terminated with signal: SIGKILL (9), "
+            b"(PIDs left: 0)\n",
+            False,
+            id="sigkill-without-record",
+        ),
+        pytest.param(
+            b"[W][t][9] f():1 Server stops due to fatal signal (15) caught\n",
+            False,
+            id="record-text-in-other-message",
+        ),
+        pytest.param(b"", False, id="empty-log"),
+    ],
+)
+def test_nsjail_log_scan_reads_fatal_signal_record(
+    nsjail_log: bytes, expected: bool
+) -> None:
+    assert scan_nsjail_log(io.BytesIO(nsjail_log)).nsjail_signaled is expected
+
+
+def test_nsjail_log_scan_keeps_record_and_bounded_tail_after_noisy_log() -> None:
+    warning = b"[W][t] Maximum number of UDP flows reached, dropping packet\n"
+    noisy_log = io.BytesIO(
+        _FATAL_SIGNAL_RECORD + warning * (2 * 1024 * 1024 // len(warning))
+    )
+
+    scan = scan_nsjail_log(noisy_log)
+
+    assert scan.nsjail_signaled is True
+    assert len(scan.tail) == 1024 * 1024
+    assert scan.tail.endswith(warning)
+
+
+@pytest.mark.anyio
+async def test_nsjail_log_creation_failure_is_infrastructure_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_log_creation() -> NoReturn:
+        raise OSError(errno.EMFILE, "Too many open files")
+
+    create_process = AsyncMock()
+    monkeypatch.setattr(nsjail_protocol.tempfile, "TemporaryFile", fail_log_creation)
+    monkeypatch.setattr(
+        nsjail_protocol.asyncio, "create_subprocess_exec", create_process
+    )
+
+    with pytest.raises(SandboxInfrastructureError):
+        await invoke_nsjail(
+            nsjail_path=tmp_path / "nsjail",
+            job_dir=tmp_path,
+            config_text="",
+            env={},
+            timeout_seconds=1,
+            timeout_message="timed out",
+        )
+    create_process.assert_not_called()
+
+
+@pytest.mark.parametrize("phase", ["install", "execute", "action"])
+@pytest.mark.parametrize(
+    ("nsjail_signaled", "expected_code"),
+    [
+        pytest.param(True, SandboxErrorCode.INFRASTRUCTURE_FAILURE, id="signaled"),
+        pytest.param(False, SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED, id="unsignaled"),
+    ],
+)
+@pytest.mark.anyio
+async def test_nsjail_fatal_signal_attributes_exit_137_for_every_phase(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    phase: str,
+    nsjail_signaled: bool,
+    expected_code: SandboxErrorCode,
+) -> None:
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    # NSTUN lines mention "tun", which must not add a TUN hint to a drain kill.
+    nsjail_log = b"[I][t] nstun: started\n"
+    if nsjail_signaled:
+        nsjail_log += _FATAL_SIGNAL_RECORD
+
+    async def fake_invoke_nsjail(**kwargs: object) -> NsjailCompletedProcess:
+        return NsjailCompletedProcess(
+            returncode=137,
+            stdout=b"",
+            stderr=b"",
+            workload_started=True,
+            nsjail_log=nsjail_log,
+            nsjail_signaled=nsjail_signaled,
+        )
+
+    monkeypatch.setattr(executor_module, "invoke_nsjail", fake_invoke_nsjail)
+    result = await _run_phase(tmp_path, job_dir, phase)
+
+    assert result.success is False
+    assert result.exit_code == 137
+    assert result.error_code is expected_code
+    if nsjail_signaled:
+        assert "/dev/net/tun" not in (result.error or "")
+        if phase != "install":
+            assert result.error == "Sandbox host stopped before the workload finished"
+
+
+@pytest.mark.parametrize("phase", ["execute", "action"])
+@pytest.mark.parametrize(
+    ("nsjail_signaled", "expected_code"),
+    [
+        pytest.param(True, SandboxErrorCode.INFRASTRUCTURE_FAILURE, id="signaled"),
+        pytest.param(False, SandboxErrorCode.WORKLOAD_FAILURE, id="unsignaled"),
+    ],
+)
+@pytest.mark.anyio
+async def test_drain_kill_during_result_write_is_infrastructure_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    phase: str,
+    nsjail_signaled: bool,
+    expected_code: SandboxErrorCode,
+) -> None:
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    (job_dir / "result.json").write_text('{"success": tr')
+
+    async def fake_invoke_nsjail(**kwargs: object) -> NsjailCompletedProcess:
+        return NsjailCompletedProcess(
+            returncode=137,
+            stdout=b"",
+            stderr=b"",
+            workload_started=True,
+            nsjail_log=_FATAL_SIGNAL_RECORD if nsjail_signaled else b"",
+            nsjail_signaled=nsjail_signaled,
+        )
+
+    monkeypatch.setattr(executor_module, "invoke_nsjail", fake_invoke_nsjail)
+    result = await _run_phase(tmp_path, job_dir, phase)
 
     assert result.success is False
     assert result.error_code is expected_code
@@ -216,26 +409,12 @@ async def test_untrusted_result_error_code_cannot_claim_platform_failure(
             stdout=b"",
             stderr=b"",
             workload_started=True,
+            nsjail_log=b"",
+            nsjail_signaled=False,
         )
 
     monkeypatch.setattr(executor_module, "invoke_nsjail", fake_invoke_nsjail)
-    executor = NsjailExecutor(
-        nsjail_path=str(tmp_path / "nsjail"),
-        rootfs_path=str(tmp_path / "rootfs"),
-        cache_dir=str(tmp_path / "cache"),
-    )
-
-    if phase == "execute":
-        result = await executor.execute(job_dir, SandboxConfig())
-    else:
-        result = await executor.execute_action(
-            job_dir,
-            ActionSandboxConfig(
-                registry_paths=[],
-                tracecat_app_dir=tmp_path,
-                network=None,
-            ),
-        )
+    result = await _run_phase(tmp_path, job_dir, phase)
 
     assert result.success is False
     assert result.error_code is SandboxErrorCode.WORKLOAD_FAILURE

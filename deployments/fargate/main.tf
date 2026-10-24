@@ -87,6 +87,7 @@ module "ecs" {
   collection_manifests_enabled                  = var.collection_manifests_enabled
   result_externalization_threshold_bytes        = var.result_externalization_threshold_bytes
   platform_admin_ip_allowlist_bypass            = var.platform_admin_ip_allowlist_bypass
+  platform_admin_mfa_bypass                     = var.platform_admin_mfa_bypass
   unsafe_disable_secret_error_withholding       = var.unsafe_disable_secret_error_withholding
   workflow_artifact_retention_days              = var.workflow_artifact_retention_days
 

@@ -17,15 +17,12 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import type { RegistryActionReadMinimal } from "@/client"
 import { getIcon } from "@/components/icons"
 import { LockedFeatureModal } from "@/components/locked-feature-modal"
-import { Button } from "@/components/ui/button"
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
+  ActionListbox,
+  type ActionSearchResult,
+} from "@/components/registry/action-listbox"
+import { ToolPickerDialog } from "@/components/tools/tool-picker-dialog"
+import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import {
   Popover,
@@ -42,6 +39,10 @@ import {
   TOGGLE_CONDITIONS_SHORTCUT,
   useRunIfDisplay,
 } from "@/hooks/use-run-if-display"
+import {
+  buildToolIndex,
+  type ToolSelectionValue,
+} from "@/lib/agent-preset-tools"
 import { useBuilderRegistryActions } from "@/lib/hooks"
 import { parseShortcutKeys } from "@/lib/tiptap-utils"
 import { cn } from "@/lib/utils"
@@ -51,7 +52,6 @@ interface ActionCategory {
   label: string
   namespace: string
   icon: LucideIcon
-  hasSearch?: boolean
   /** Dropdown alignment - "start" aligns left, "center" centers, "end" aligns right */
   align?: "start" | "center" | "end"
 }
@@ -118,7 +118,6 @@ const ACTION_CATEGORIES: ActionCategory[] = [
     label: "Tools",
     namespace: "tools",
     icon: BlocksIcon,
-    hasSearch: true,
     align: "center",
   },
 ]
@@ -280,6 +279,8 @@ function sortActions(
 
 export interface CanvasToolbarProps {
   onAddAction: (action: RegistryActionReadMinimal) => void
+  /** Adds several actions at once; defaults to calling `onAddAction` per action. */
+  onAddActions?: (actions: RegistryActionReadMinimal[]) => void
   /**
    * When true, collapse the toolbar into a small pill that expands into the
    * full category bar on hover (used in the embedded workflow artifact).
@@ -291,6 +292,7 @@ export interface CanvasToolbarProps {
 
 export function CanvasToolbar({
   onAddAction,
+  onAddActions,
   embedded = false,
   trailing,
 }: CanvasToolbarProps) {
@@ -357,6 +359,25 @@ export function CanvasToolbar({
       {ACTION_CATEGORIES.map((category) => {
         const Icon = category.icon
         const actions = actionsByCategory.get(category.id) ?? []
+
+        if (category.id === "tools") {
+          return (
+            <ToolbarToolPickerButton
+              key={category.id}
+              category={category}
+              actions={actions}
+              isLoading={registryActionsIsLoading}
+              onAddActions={
+                onAddActions ??
+                ((selected) => {
+                  for (const action of selected) onAddAction(action)
+                })
+              }
+              onOpenChange={embedded ? handleCategoryOpenChange : undefined}
+              Icon={Icon}
+            />
+          )
+        }
 
         return (
           <ToolbarCategoryDropdown
@@ -428,6 +449,93 @@ interface ToolbarCategoryDropdownProps {
   onOpenChange?: (open: boolean) => void
 }
 
+const EMPTY_TOOL_SELECTION: ToolSelectionValue = {
+  actions: [],
+  mcpIntegrations: [],
+}
+
+/** Opens the full tool picker dialog and adds every picked action on Done. */
+function ToolbarToolPickerButton({
+  category,
+  actions,
+  isLoading,
+  onAddActions,
+  Icon,
+  onOpenChange,
+}: Omit<ToolbarCategoryDropdownProps, "onAddAction"> & {
+  onAddActions: (actions: RegistryActionReadMinimal[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [lockedFeatureOpen, setLockedFeatureOpen] = useState(false)
+  const categoryStyle = CATEGORY_STYLES[category.id]
+
+  const index = useMemo(
+    () => buildToolIndex(actions, [], { filterAgentTools: false }),
+    [actions]
+  )
+  const actionsByKey = useMemo(
+    () => new Map(actions.map((action) => [action.action, action])),
+    [actions]
+  )
+
+  const setOpenAndNotify = useCallback(
+    (next: boolean) => {
+      setOpen(next)
+      onOpenChange?.(next)
+    },
+    [onOpenChange]
+  )
+
+  const handleChange = useCallback(
+    (value: ToolSelectionValue) => {
+      const selected = value.actions.flatMap((key) => {
+        const action = actionsByKey.get(key)
+        return action ? [action] : []
+      })
+      if (selected.length > 0) onAddActions(selected)
+    },
+    [actionsByKey, onAddActions]
+  )
+
+  return (
+    <>
+      <LockedFeatureModal
+        open={lockedFeatureOpen}
+        onOpenChange={setLockedFeatureOpen}
+      />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={category.label}
+            aria-haspopup="dialog"
+            data-state={open ? "open" : "closed"}
+            className={cn("size-9", categoryStyle?.buttonClass)}
+            disabled={isLoading || actions.length === 0}
+            onClick={() => setOpenAndNotify(true)}
+          >
+            <Icon className="size-5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="text-xs">
+          {category.label}
+        </TooltipContent>
+      </Tooltip>
+      <ToolPickerDialog
+        index={index}
+        open={open}
+        onOpenChange={setOpenAndNotify}
+        value={EMPTY_TOOL_SELECTION}
+        onChange={handleChange}
+        approvalsEnabled={false}
+        mcpEnabled={false}
+        onLockedSelect={() => setLockedFeatureOpen(true)}
+      />
+    </>
+  )
+}
+
 /**
  * Toolbar toggle that shows or hides every `run_if` condition on the canvas,
  * also bound to the {@link TOGGLE_CONDITIONS_SHORTCUT} keyboard shortcut.
@@ -495,7 +603,6 @@ function ToolbarCategoryDropdown({
 }: ToolbarCategoryDropdownProps) {
   const [open, setOpen] = useState(false)
   const [lockedFeatureOpen, setLockedFeatureOpen] = useState(false)
-  const [search, setSearch] = useState("")
 
   // Single funnel for open/close so the parent is notified for both user-driven
   // (Radix) and programmatic (select) transitions.
@@ -508,27 +615,20 @@ function ToolbarCategoryDropdown({
   )
   const categoryStyle = CATEGORY_STYLES[category.id]
 
-  const filteredActions = useMemo(() => {
-    if (!search) return actions
-    const searchLower = search.toLowerCase()
-    return actions.filter(
-      (action) =>
-        action.action.toLowerCase().includes(searchLower) ||
-        action.default_title?.toLowerCase().includes(searchLower)
-    )
-  }, [actions, search])
+  const results = useMemo<ActionSearchResult[]>(
+    () => actions.map((action) => ({ action, matches: [] })),
+    [actions]
+  )
 
   const handleSelect = useCallback(
     (action: RegistryActionReadMinimal) => {
       if (isLockedAction(action)) {
         setOpenAndNotify(false)
-        setSearch("")
         setLockedFeatureOpen(true)
         return
       }
       onAddAction(action)
       setOpenAndNotify(false)
-      setSearch("")
     },
     [onAddAction, setOpenAndNotify]
   )
@@ -539,17 +639,12 @@ function ToolbarCategoryDropdown({
     })
   }
 
-  function renderActionItem(action: RegistryActionReadMinimal) {
-    const isLocked = isLockedAction(action)
-
+  function renderActionItem({ action }: ActionSearchResult) {
     return (
-      <CommandItem
-        key={action.action}
-        value={action.action}
-        onSelect={() => handleSelect(action)}
+      <div
         className={cn(
-          "flex w-full cursor-pointer items-center gap-3 py-2",
-          isLocked && "text-muted-foreground"
+          "flex w-full items-center gap-3 py-2 text-xs",
+          isLockedAction(action) && "text-muted-foreground"
         )}
       >
         {renderActionIcon(action)}
@@ -561,7 +656,7 @@ function ToolbarCategoryDropdown({
             {action.action}
           </span>
         </div>
-      </CommandItem>
+      </div>
     )
   }
 
@@ -592,30 +687,18 @@ function ToolbarCategoryDropdown({
         <PopoverContent
           side="top"
           align={category.align ?? "start"}
-          className="w-fit min-w-48 max-w-80 p-0"
+          className="w-80 p-0"
           sideOffset={8}
         >
-          <Command shouldFilter={false}>
-            {category.hasSearch && (
-              <CommandInput
-                placeholder={`Search ${category.label.toLowerCase()}...`}
-                value={search}
-                onValueChange={setSearch}
-                className="text-xs"
-              />
-            )}
-            <CommandList>
-              <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
-                No actions found
-              </CommandEmpty>
-              <CommandGroup
-                heading={`${category.label} actions`}
-                className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium"
-              >
-                {filteredActions.map((action) => renderActionItem(action))}
-              </CommandGroup>
-            </CommandList>
-          </Command>
+          <ActionListbox
+            results={results}
+            autoFocus
+            heading={`${category.label} actions`}
+            label={`${category.label} actions`}
+            empty="No actions found"
+            onSelect={handleSelect}
+            renderItem={renderActionItem}
+          />
         </PopoverContent>
       </Popover>
     </>

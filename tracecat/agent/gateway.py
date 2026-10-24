@@ -27,6 +27,11 @@ from openai import RateLimitError as OpenAIRateLimitError
 
 from tracecat import config as app_config
 from tracecat.agent.diagnostics import parse_bounded_error_body
+from tracecat.agent.gateway_drain import (
+    GATEWAY_IDENTITY_HEADER,
+    gateway_identity,
+    install_drain_logging,
+)
 from tracecat.agent.gateway_outbound import (
     OutboundLLMHTTPHandler,
     install_outbound_http_policy,
@@ -51,6 +56,7 @@ from tracecat.temporal.error_chain import iter_error_chain
 
 apply_patch()
 install_outbound_http_policy()
+install_drain_logging()
 
 _UNAUTHENTICATED_HEALTH_ROUTES = frozenset(
     {
@@ -464,6 +470,17 @@ def _anthropic_error_message(error_type: str, message: str) -> str:
     ).decode()
 
 
+def _trace_request_id(data: dict[str, Any]) -> str | None:
+    """Return the LLM socket proxy's ``X-Request-ID`` for log correlation."""
+    match data.get("proxy_server_request"):
+        case {"headers": {"x-request-id": str() as trace_request_id}}:
+            # The LLM socket proxy only forwards IDs up to 128 characters, so
+            # this cap bounds the log field without breaking the exact join.
+            return trace_request_id[:128]
+        case _:
+            return None
+
+
 class TracecatCallbackHandler(CustomLogger):
     """LiteLLM callback handler that injects provider credentials per request."""
 
@@ -662,8 +679,21 @@ class TracecatCallbackHandler(CustomLogger):
             workspace_id=str(workspace_id),
             provider=provider,
             model=model,
+            trace_request_id=_trace_request_id(data),
         )
         return data
+
+    async def async_post_call_response_headers_hook(
+        self,
+        data: dict,
+        user_api_key_dict: UserAPIKeyAuth,
+        response: object,
+        request_headers: dict[str, str] | None = None,
+        litellm_call_info: dict[str, object] | None = None,
+    ) -> dict[str, str] | None:
+        """Tag every LLM response with the gateway worker that served it."""
+        del data, user_api_key_dict, response, request_headers, litellm_call_info
+        return {GATEWAY_IDENTITY_HEADER: gateway_identity()}
 
 
 callback_handler = TracecatCallbackHandler()

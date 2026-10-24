@@ -45,6 +45,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl wget jq iputils-ping git openssh-client squashfs-tools \
     && rm -rf /var/lib/apt/lists/*
 
+# The slim base ships the stdlib without bytecode, and sandboxes mount this
+# rootfs read-only, so every sandboxed Python process would recompile the
+# stdlib from source. Checked hash-based .pyc files stay valid whatever mtimes
+# the later COPY steps leave on the sources. Python still hashes each source
+# on import, so an image built on this one that patches a stdlib module never
+# runs stale bytecode.
+RUN python -m compileall -q -j0 --invalidation-mode checked-hash \
+    "$(python -c 'import sysconfig; print(sysconfig.get_path("stdlib"))')"
+
 # This rootfs is shared by run_python and agent sandboxes; CLI additions here
 # are intentionally available to both. DuckDB is not available from Bookworm
 # apt, so install the official release binary, verify it, preinstall extensions,
@@ -220,8 +229,8 @@ WORKDIR /app
 # ====================
 FROM base AS plugin-skills
 
-ARG TRACECAT_PLUGINS_REF=9fdaa69a4519f2a6e26f4a2ee9ca7fb000f0ac6e
-ARG TRACECAT_PLUGINS_ARCHIVE_SHA256=8e2d1eebb507e5193a2eca9a1b78a699806ff0263d3165c818a5f02903eb8584
+ARG TRACECAT_PLUGINS_REF=0140783181f0afcb69961661fa1474402ca46a4e
+ARG TRACECAT_PLUGINS_ARCHIVE_SHA256=408928d337e7330d10fd099d07c818d724def925eb6b77eaf0cb6ace2777f5dd
 
 # Pinned to a tracecat-plugins commit on main. Bump both values when the
 # vendored skills change so the trusted payload is verified before extraction.

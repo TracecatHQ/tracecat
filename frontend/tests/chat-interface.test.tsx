@@ -48,6 +48,8 @@ jest.mock("@/hooks/use-entitlements", () => ({
 const mockCreateChat = jest.fn()
 const mockListChats = jest.fn()
 const mockGetChat = jest.fn()
+const mockGetChatError = jest.fn()
+const mockRefetchChat = jest.fn()
 jest.mock("@/hooks/use-feature-flags", () => ({ useFeatureFlag: jest.fn() }))
 jest.mock("@/hooks/use-chat", () => ({
   useAgentBackends: jest.fn(),
@@ -63,7 +65,9 @@ jest.mock("@/hooks/use-chat", () => ({
   useGetChatVercel: () => ({
     chat: mockGetChat(),
     chatLoading: false,
-    chatError: null,
+    chatFetching: false,
+    chatError: mockGetChatError(),
+    refetchChat: mockRefetchChat,
   }),
   useUpdateChat: () => ({ updateChat: jest.fn(), isUpdating: false }),
   parseChatError: (error: unknown) => String(error),
@@ -123,6 +127,7 @@ beforeEach(() => {
   })
   mockListChats.mockReturnValue([])
   mockGetChat.mockReturnValue(undefined)
+  mockGetChatError.mockReturnValue(null)
   mockCreateChat.mockResolvedValue({ id: "chat-1" })
   mockUseFeatureFlag.mockReturnValue({
     isFeatureEnabled: () => false,
@@ -638,5 +643,30 @@ describe("ChatInterface model readiness", () => {
     expect(
       screen.getByRole("link", { name: /No default model/ })
     ).toHaveAttribute("href", "/organization/settings/agent")
+  })
+})
+
+describe("ChatInterface session fetch errors", () => {
+  beforeEach(() => {
+    mockUseScopeCheck.mockReturnValue(true)
+  })
+
+  it("keeps the loaded transcript when a session refetch fails", () => {
+    mockGetChat.mockReturnValue({ id: "chat-1", backend_id: "oss" })
+    mockGetChatError.mockReturnValue(new Error("boom"))
+    renderChat({ chatId: "chat-1" })
+
+    expect(screen.getByText("Transcript of chat-1")).toBeInTheDocument()
+    expect(screen.queryByText("Failed to load chat")).not.toBeInTheDocument()
+  })
+
+  it("offers a retry when the session never loaded", () => {
+    mockGetChatError.mockReturnValue(new Error("boom"))
+    renderChat({ chatId: "chat-1" })
+
+    expect(screen.getByText("Failed to load chat")).toBeInTheDocument()
+    expect(screen.getByLabelText("New chat")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+    expect(mockRefetchChat).toHaveBeenCalledTimes(1)
   })
 })

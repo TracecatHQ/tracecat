@@ -79,6 +79,7 @@ const BACKEND_EXECUTION_FIELDS = [
   "actions",
   "namespaces",
   "tool_approvals",
+  "tool_tunnels",
   "mcp_integrations",
   "library_skills",
   "agents",

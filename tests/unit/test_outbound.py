@@ -305,7 +305,7 @@ async def test_scoped_ipv6_is_rejected(network: RecordingBackend) -> None:
 @pytest.mark.parametrize("override", ["proxy", "mounts", "transport", "trust_env"])
 def test_transport_bypasses_are_rejected(override: str) -> None:
     with pytest.raises(ValueError):
-        create_outbound_http_client(origin_url=None, **{override: True})
+        create_outbound_http_client(origin_url=None, **{override: True})  # pyright: ignore[reportArgumentType]
 
 
 @pytest.mark.anyio
@@ -939,3 +939,15 @@ async def test_cancellation_closes_winner_during_loser_cleanup(
         with pytest.raises(asyncio.CancelledError):
             await task
     assert winner.closed
+
+
+def test_explicit_tunnel_proxy_routes_through_gateway(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TRACECAT__TUNNEL_PROXY_URL", raising=False)
+    direct = create_outbound_http_client()
+    tunneled = create_outbound_http_client(
+        tunnel_proxy="http://tunnel:token@10.1.2.3:8080"
+    )
+    assert type(vars(direct._transport)["_pool"]).__name__ == "AsyncConnectionPool"
+    assert type(vars(tunneled._transport)["_pool"]).__name__ == "AsyncHTTPProxy"

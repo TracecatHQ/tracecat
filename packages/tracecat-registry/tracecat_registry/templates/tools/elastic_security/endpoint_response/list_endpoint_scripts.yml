@@ -1,7 +1,7 @@
 type: action
 definition:
   title: List endpoint scripts
-  description: List scripts in the Elastic Endpoint response script library.
+  description: List scripts in the Elastic Endpoint response script library. Requires Kibana 9.3+.
   display_group: Elastic Security
   doc_url: https://www.elastic.co/docs/api/doc/kibana/operation/operation-endpointscriptlibrarylistscripts
   namespace: tools.elastic_security

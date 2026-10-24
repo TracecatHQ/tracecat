@@ -61,12 +61,14 @@ interface WorkspaceResourceSyncActionsProps {
   label: string
   branchSlug: string
   resources: SyncResourceType[]
+  disabled?: boolean
 }
 
 export function WorkspaceResourceSyncActions({
   label,
   branchSlug,
   resources,
+  disabled = false,
 }: WorkspaceResourceSyncActionsProps) {
   const workspaceId = useWorkspaceId()
   const canSyncWorkspace = useScopeCheck("workspace_sync:sync")
@@ -223,6 +225,7 @@ export function WorkspaceResourceSyncActions({
           variant="outline"
           size="sm"
           className="h-7 gap-1.5 bg-background"
+          disabled={disabled}
         >
           <GitBranchIcon className="size-3.5" />
           Push

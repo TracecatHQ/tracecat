@@ -110,6 +110,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.validation import format_input_schema_validation_error
     from tracecat.dsl.workflow_logging import get_workflow_logger
     from tracecat.exceptions import (
+        TracecatDSLError,
         TracecatException,
         TracecatExpressionError,
         TracecatNotFoundError,
@@ -640,19 +641,30 @@ class DSLWorkflow:
             execution_timeout=wf_info.execution_timeout,
         )
 
-        self.scheduler = DSLScheduler(
-            executor=self.execute_task,
-            dsl=self.dsl,
-            dependency_plan=self.dependency_plan,
-            max_pending_tasks=config.TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS,
-            context=self.context,
-            role=self.role,
-            run_context=self.run_context,
-            logger=self.logger.bind(unit="dsl-scheduler"),
-            fixed_action_results={
-                ref: fixed.result for ref, fixed in args.fixed_action_results.items()
-            },
-        )
+        try:
+            self.scheduler = DSLScheduler(
+                executor=self.execute_task,
+                dsl=self.dsl,
+                dependency_plan=self.dependency_plan,
+                max_pending_tasks=config.TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS,
+                context=self.context,
+                role=self.role,
+                run_context=self.run_context,
+                logger=self.logger.bind(unit="dsl-scheduler"),
+                fixed_action_results={
+                    ref: fixed.result
+                    for ref, fixed in args.fixed_action_results.items()
+                },
+            )
+        except TracecatDSLError as e:
+            raise_application_error_from_classification(
+                RuntimeErrorClassification.user(
+                    kind=RuntimeErrorKind.WORKFLOW_DEFINITION_INVALID,
+                    message=f"The workflow definition is invalid: {e}",
+                    retry_disposition=RetryDisposition.NON_RETRYABLE,
+                    cause=e,
+                )
+            )
         try:
             task_exceptions = await self.scheduler.start()
         except Exception as e:
@@ -1867,6 +1879,7 @@ class DSLWorkflow:
                     base_url=action_args.base_url,
                     actions=action_args.actions,
                     tool_approvals=action_args.tool_approvals,
+                    tool_tunnels=action_args.tool_tunnels,
                     agents=action_args.agents,
                     mcp_servers=action_args.mcp_servers,
                 ),

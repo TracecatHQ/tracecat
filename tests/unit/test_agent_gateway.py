@@ -659,6 +659,61 @@ async def test_pre_call_hook_filters_model_settings(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        (
+            {"proxy_server_request": {"headers": {"x-request-id": "trace-123"}}},
+            "trace-123",
+        ),
+        (
+            {"proxy_server_request": {"headers": {"x-request-id": "t" * 129}}},
+            "t" * 128,
+        ),
+        ({"proxy_server_request": {"headers": {}}}, None),
+        ({}, None),
+    ],
+)
+async def test_pre_call_hook_logs_proxy_trace_request_id(
+    monkeypatch: pytest.MonkeyPatch,
+    data: dict[str, Any],
+    expected: str | None,
+) -> None:
+    async def mock_get_provider_credentials(**_: object) -> dict[str, str]:
+        return {"OPENAI_API_KEY": "test-openai-key"}
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.get_provider_credentials",
+        mock_get_provider_credentials,
+    )
+    log = Mock()
+    monkeypatch.setattr("tracecat.agent.gateway.logger", log)
+
+    await TracecatCallbackHandler().async_pre_call_hook(
+        user_api_key_dict=UserAPIKeyAuth(
+            api_key="llm-token",
+            metadata={
+                "workspace_id": "00000000-0000-0000-0000-000000000001",
+                "organization_id": "00000000-0000-0000-0000-000000000002",
+                "model": "gpt-5",
+                "provider": "openai",
+                "use_workspace_credentials": True,
+            },
+        ),
+        cache=cast(DualCache, object()),
+        data=data,
+        call_type="completion",
+    )
+
+    injected = next(
+        call
+        for call in log.info.call_args_list
+        if call.args == ("Injected credentials for LiteLLM call",)
+    )
+    assert injected.kwargs["trace_request_id"] == expected
+
+
+@pytest.mark.anyio
 async def test_pre_call_hook_uses_request_model_route_claim(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

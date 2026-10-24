@@ -6,7 +6,10 @@ from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import Literal, cast
 
 from tracecat import __version__
-from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
+from tracecat.agent.constants import (
+    AGENT_SANDBOX_TIMEOUT_SECONDS_DEFAULT,
+    AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS,
+)
 from tracecat.auth.enums import AuthType
 from tracecat.executor.enums import ExecutorBackendType
 from tracecat.feature_flags.enums import FeatureFlag
@@ -732,7 +735,11 @@ _sandbox_address_space_mb = os.environ.get(
 TRACECAT__SANDBOX_ADDRESS_SPACE_MB = (
     int(_sandbox_address_space_mb) if _sandbox_address_space_mb else None
 )
-"""Per-process address-space cap in MiB; defaults to twice the memory budget."""
+"""Per-process address-space cap in MiB.
+
+Unset means uncapped under the sandbox cgroup memory limit, which bounds RAM;
+without that cgroup it defaults to twice the memory budget.
+"""
 if (
     TRACECAT__SANDBOX_ADDRESS_SPACE_MB is not None
     and TRACECAT__SANDBOX_ADDRESS_SPACE_MB <= 0
@@ -822,6 +829,21 @@ TRACECAT__PLATFORM_ADMIN_IP_ALLOWLIST_BYPASS = env_bool(
 Lets operators recover platform admin access after a lockout. Organization IP
 allowlists are unaffected.
 """
+
+TRACECAT__PLATFORM_ADMIN_MFA_BYPASS = env_bool(
+    "TRACECAT__PLATFORM_ADMIN_MFA_BYPASS", default=False
+)
+"""Break-glass override that skips security key (MFA) checks for platform admins.
+
+Skips both the sign-in challenge and step-up verification for platform
+superusers so operators can recover access after losing every security key.
+Organization members are unaffected.
+"""
+
+TRACECAT__MFA_STEP_UP_MAX_AGE_SECONDS = bound_env(
+    "TRACECAT__MFA_STEP_UP_MAX_AGE_SECONDS", 300, lower=30, upper=3600
+)
+"""How long a security key verification satisfies step-up checks (30 s to 1 h)."""
 
 TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS = env_networks(
     "TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS",
@@ -975,11 +997,12 @@ If not set, will be auto-detected from a known dependency's location.
 
 # === Agent Sandbox (NSJail for ClaudeAgentRuntime) === #
 TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
-    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT") or 3600
+    os.environ.get("TRACECAT__AGENT_SANDBOX_TIMEOUT")
+    or AGENT_SANDBOX_TIMEOUT_SECONDS_DEFAULT
 )
-"""Ceiling for agent execution timeouts in seconds (default one hour).
+"""Ceiling for agent execution timeouts in seconds.
 
-Per-action agent timeouts clamp to [AGENT_TIMEOUT_SECONDS_DEFAULT, this].
+Per-action agent timeouts clamp to [min(AGENT_TIMEOUT_SECONDS_FLOOR, this), this].
 """
 
 TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT = int(
@@ -1078,6 +1101,12 @@ TRACECAT__AGENT_EXECUTOR_QUEUE = os.environ.get(
 
 This queue is reserved for `run_agent_activity` so agent runtime capacity can be
 provisioned independently from agent workflow/control-plane work."""
+
+TRACECAT__AGENT_CHAT_BACKEND = os.environ.get("TRACECAT__AGENT_CHAT_BACKEND") or "oss"
+"""Agent backend for new chat sessions that do not choose one.
+
+Applies to workspace, agent preset and case chats created through the API.
+Workflow runs, external channels and the preset builder keep the built-in backend."""
 
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = env_bool("TRACECAT__RATE_LIMIT_ENABLED", default=True)

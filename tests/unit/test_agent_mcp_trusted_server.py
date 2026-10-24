@@ -605,6 +605,9 @@ async def test_user_mcp_discovery_cache_is_scoped_by_claimed_server_name(
     empty_headers_digest = trusted_server._user_mcp_headers_digest({})
     assert set(trusted_server._USER_MCP_DISCOVERY_CACHE) == {
         trusted_server._UserMCPDiscoveryCacheKey(
+            workspace_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+            integration_id=str(integration_id),
+            tunnel_id=None,
             server_name="Jira",
             url="https://mcp.example.com/v1",
             transport="http",
@@ -612,6 +615,9 @@ async def test_user_mcp_discovery_cache_is_scoped_by_claimed_server_name(
             headers_digest=empty_headers_digest,
         ),
         trusted_server._UserMCPDiscoveryCacheKey(
+            workspace_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+            integration_id=str(integration_id),
+            tunnel_id=None,
             server_name="Linear",
             url="https://mcp.example.com/v1",
             transport="http",
@@ -619,6 +625,102 @@ async def test_user_mcp_discovery_cache_is_scoped_by_claimed_server_name(
             headers_digest=empty_headers_digest,
         ),
     }
+
+
+@pytest.mark.anyio
+async def test_user_mcp_discovery_cache_is_scoped_by_workspace_and_tunnel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two workspaces whose integrations share a name, URL and credentials but
+    reach different servers through their own tunnels never share schemas."""
+    other_workspace_id = uuid.UUID("00000000-0000-0000-0000-000000000009")
+    integration_id = uuid.UUID("00000000-0000-0000-0000-000000000004")
+    tunnel_by_workspace = {
+        uuid.UUID("00000000-0000-0000-0000-000000000001"): str(uuid.uuid4()),
+        other_workspace_id: str(uuid.uuid4()),
+    }
+
+    async def fake_fetch_tool_definitions(
+        action_names: list[str],
+    ) -> dict[str, MCPToolDefinition]:
+        return {}
+
+    class _PresetServiceContext:
+        def __init__(self, role) -> None:
+            self.role = role
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def resolve_mcp_integration_refs(self, integration_ids):
+            return [
+                {
+                    "type": "http",
+                    "name": "jira",
+                    "url": "https://jira.internal/mcp",
+                    "id": str(integration_id),
+                    "tunnel_id": tunnel_by_workspace[self.role.workspace_id],
+                }
+            ]
+
+        async def resolve_mcp_integration_secrets(self, resolved_integration_id):
+            return {}
+
+    async def fake_resolve_proxy(*, workspace_id, tunnel_id, **_: Any) -> str:
+        return f"http://token@gateway-{tunnel_id}:8080"
+
+    discovered_proxies: list[str] = []
+
+    class _FakeUserMCPClient:
+        parse_user_mcp_tool_name = staticmethod(UserMCPClient.parse_user_mcp_tool_name)
+
+        def __init__(self, configs: list[dict[str, Any]]) -> None:
+            self.configs = configs
+
+        async def discover_tools_detailed(self) -> UserMCPDiscoveryResult:
+            proxy = self.configs[0]["tunnel_proxy"]
+            discovered_proxies.append(proxy)
+            return UserMCPDiscoveryResult(
+                definitions={
+                    "mcp__jira__getIssue": MCPToolDefinition(
+                        name="mcp__jira__getIssue",
+                        description=f"Schema behind {proxy}",
+                        parameters_json_schema={"type": "object"},
+                    )
+                },
+                failed_servers={},
+            )
+
+    monkeypatch.setattr(
+        trusted_server, "fetch_tool_definitions", fake_fetch_tool_definitions
+    )
+    monkeypatch.setattr(
+        AgentPresetService,
+        "with_session",
+        lambda role=None: _PresetServiceContext(role),
+    )
+    monkeypatch.setattr(trusted_server, "resolve_mcp_tunnel_proxy", fake_resolve_proxy)
+    monkeypatch.setattr(trusted_server, "UserMCPClient", _FakeUserMCPClient)
+
+    claims = _build_claims(
+        allowed_actions=["mcp__jira__getIssue"],
+        user_mcp_servers=[UserMCPServerClaim(name="jira", id=integration_id)],
+    )
+    other_claims = claims.model_copy(update={"workspace_id": other_workspace_id})
+
+    first = (await trusted_server._build_token_scoped_tools(claims)).tools
+    second = (await trusted_server._build_token_scoped_tools(other_claims)).tools
+
+    assert len(discovered_proxies) == 2
+    assert [tool.description for tool in first] == [
+        f"Schema behind {discovered_proxies[0]}"
+    ]
+    assert [tool.description for tool in second] == [
+        f"Schema behind {discovered_proxies[1]}"
+    ]
 
 
 @pytest.mark.anyio
@@ -716,20 +818,26 @@ def test_user_mcp_discovery_cache_key_tracks_resolved_config() -> None:
         base.update(overrides)
         return cast(MCPHttpServerConfig, base)
 
-    key = trusted_server._user_mcp_discovery_cache_key(config())
-    # The integration id is not a cache dimension: editing an integration's
-    # URL or credentials without changing its id must miss the cache.
-    assert key == trusted_server._user_mcp_discovery_cache_key(
-        config(id="00000000-0000-0000-0000-000000000005")
-    )
-    assert key != trusted_server._user_mcp_discovery_cache_key(
-        config(url="https://mcp.example.com/v2")
-    )
-    assert key != trusted_server._user_mcp_discovery_cache_key(
-        config(headers={"Authorization": "Bearer token-b"})
-    )
-    assert key != trusted_server._user_mcp_discovery_cache_key(config(transport="sse"))
-    assert key != trusted_server._user_mcp_discovery_cache_key(config(timeout=5))
+    workspace_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+    def key_for(
+        cfg: MCPHttpServerConfig, workspace: uuid.UUID = workspace_id
+    ) -> trusted_server._UserMCPDiscoveryCacheKey:
+        return trusted_server._user_mcp_discovery_cache_key(cfg, workspace)
+
+    key = key_for(config())
+    assert key == key_for(config())
+    # Editing an integration's URL or credentials without changing its id
+    # must miss the cache.
+    assert key != key_for(config(url="https://mcp.example.com/v2"))
+    assert key != key_for(config(headers={"Authorization": "Bearer token-b"}))
+    assert key != key_for(config(transport="sse"))
+    assert key != key_for(config(timeout=5))
+    # The same URL and credentials can reach different servers through
+    # different tunnels or workspaces; their schemas must never be shared.
+    assert key != key_for(config(id="00000000-0000-0000-0000-000000000005"))
+    assert key != key_for(config(tunnel_id="00000000-0000-0000-0000-000000000006"))
+    assert key != key_for(config(), uuid.UUID("00000000-0000-0000-0000-000000000002"))
     assert "Bearer token-a" not in repr(key)
 
 
