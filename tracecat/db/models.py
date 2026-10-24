@@ -5760,6 +5760,11 @@ class MCPRefreshToken(OrganizationModel):
         nullable=False,
         doc="OAuth client_id the token was issued to",
     )
+    granted_organization_ids: Mapped[list[uuid.UUID] | None] = mapped_column(
+        ARRAY(UUID),
+        nullable=True,
+        doc="Every org this connection was granted. Lets the membership-delete trigger revoke the token when any of them is removed. NULL means only organization_id.",
+    )
     encrypted_metadata: Mapped[bytes] = mapped_column(
         LargeBinary,
         nullable=False,

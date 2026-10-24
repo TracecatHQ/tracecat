@@ -234,6 +234,54 @@ async def test_losing_the_last_assignment_keeps_the_member(
     assert await _presence(session, user.id) == (0, 1)
 
 
+async def test_deleting_secondary_membership_revokes_multi_org_refresh_token(
+    session: AsyncSession,
+    org: Organization,
+    user: User,
+) -> None:
+    """Removing any granted org revokes the token, not just its primary org."""
+    primary_id = uuid.uuid4()
+    session.add(
+        Organization(
+            id=primary_id, name="Primary", slug=f"primary-{primary_id.hex[:8]}"
+        )
+    )
+    await session.flush()
+    await ensure_member(session, primary_id, user.id)
+    await ensure_member(session, org.id, user.id)
+    refresh_token = MCPRefreshToken(
+        id=uuid.uuid4(),
+        token_hash=uuid.uuid4().hex,
+        family_id=uuid.uuid4(),
+        user_id=user.id,
+        organization_id=primary_id,
+        granted_organization_ids=[primary_id, org.id],
+        client_id="client",
+        encrypted_metadata=b"\x00",
+        status="active",
+        expires_at=datetime.now(UTC) + timedelta(days=1),
+    )
+    session.add(refresh_token)
+    await session.commit()
+    refresh_token_id = refresh_token.id
+
+    await session.execute(
+        delete(OrganizationMembership).where(
+            OrganizationMembership.user_id == user.id,
+            OrganizationMembership.organization_id == org.id,
+        )
+    )
+    await session.commit()
+    session.expunge_all()
+
+    status = (
+        await session.execute(
+            select(MCPRefreshToken.status).where(MCPRefreshToken.id == refresh_token_id)
+        )
+    ).scalar_one()
+    assert status == "revoked"
+
+
 async def test_deleting_membership_unwinds_children(
     session: AsyncSession,
     org: Organization,

@@ -898,41 +898,42 @@ export function useWorkflowManager(
   })
 
   // Delete workflow
-  const { mutateAsync: deleteWorkflow } = useMutation({
-    mutationFn: async (workflowId: string) =>
-      await workflowsDeleteWorkflow({
-        workflowId,
-        workspaceId,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workflows"] })
-      queryClient.invalidateQueries({ queryKey: ["directory-items"] })
-      queryClient.invalidateQueries({
-        queryKey: ["agent-preset-workflow-references", workspaceId],
-      })
-      toast({
-        title: "Deleted workflow",
-        description: "Your workflow has been deleted successfully.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      switch (error.status) {
-        case 400:
-          toast({
-            title: "Cannot delete workflow",
-            description: getApiErrorDetail(error) ?? "Please try again.",
-          })
-          break
-        default:
-          console.error("Failed to delete workflow:", error)
-          toast({
-            title: "Error deleting workflow",
-            description: getApiErrorDetail(error) ?? "Please try again.",
-            variant: "destructive",
-          })
-      }
-    },
-  })
+  const { mutateAsync: deleteWorkflow, isPending: deleteWorkflowIsPending } =
+    useMutation({
+      mutationFn: async (workflowId: string) =>
+        await workflowsDeleteWorkflow({
+          workflowId,
+          workspaceId,
+        }),
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ["workflows"] })
+        queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+        queryClient.invalidateQueries({
+          queryKey: ["agent-preset-workflow-references", workspaceId],
+        })
+        toast({
+          title: "Deleted workflow",
+          description: "Your workflow has been deleted successfully.",
+        })
+      },
+      onError: (error: TracecatApiError) => {
+        switch (error.status) {
+          case 400:
+            toast({
+              title: "Cannot delete workflow",
+              description: getApiErrorDetail(error) ?? "Please try again.",
+            })
+            break
+          default:
+            console.error("Failed to delete workflow:", error)
+            toast({
+              title: "Error deleting workflow",
+              description: getApiErrorDetail(error) ?? "Please try again.",
+              variant: "destructive",
+            })
+        }
+      },
+    })
   // Add tag to workflow
   const { mutateAsync: addWorkflowTag } = useMutation({
     mutationFn: async (params: WorkflowsAddTagData) =>
@@ -1031,6 +1032,7 @@ export function useWorkflowManager(
     workflowsError,
     createWorkflow,
     deleteWorkflow,
+    deleteWorkflowIsPending,
     addWorkflowTag,
     removeWorkflowTag,
     moveWorkflow,
@@ -4770,18 +4772,21 @@ export function useFolders(
     mutationFn: async ({
       folderId,
       recursive = false,
+      deleteWorkflows = false,
     }: {
       folderId: string
       recursive?: boolean
+      deleteWorkflows?: boolean
     }) =>
       await foldersDeleteFolder({
         folderId,
         workspaceId,
-        requestBody: { recursive },
+        requestBody: { recursive, delete_workflows: deleteWorkflows },
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["folders", workspaceId] })
       queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+      queryClient.invalidateQueries({ queryKey: ["workflows"] })
       toast({
         title: "Deleted folder",
         description: "Folder deleted successfully.",

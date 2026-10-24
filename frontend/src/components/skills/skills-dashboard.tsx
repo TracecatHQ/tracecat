@@ -29,6 +29,7 @@ import {
   getFileTreeItems,
   ROOT_FOLDER_NAME,
 } from "@/components/dashboard/file-tree-command"
+import { FolderNotEmptyDialog } from "@/components/folder-not-empty-dialog"
 import { CenteredSpinner, Spinner } from "@/components/loading/spinner"
 import { DeleteSkillDialog } from "@/components/skills/delete-skill-dialog"
 import {
@@ -39,16 +40,6 @@ import {
 } from "@/components/skills/skills-header"
 import { useSkillAgentFilter } from "@/components/skills/use-skill-agent-filter"
 import { RowTimestamps } from "@/components/timestamps"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -533,6 +524,8 @@ function SkillFolderContextActions({
   canUpdateSkill: boolean
   canDeleteSkill: boolean
 }) {
+  const workspaceId = useWorkspaceId()
+  const { deleteFolder } = useSkillFolders(workspaceId, { enabled: false })
   return (
     <ContextMenuGroup>
       <ContextMenuItem
@@ -579,6 +572,12 @@ function SkillFolderContextActions({
             className="text-xs text-rose-500 focus:text-rose-600"
             onSelect={(event) => {
               event.stopPropagation()
+              if (item.num_items === 0) {
+                void deleteFolder({ folderId: item.id }).catch(() => {
+                  // The mutation hook reports failures.
+                })
+                return
+              }
               setSelectedItem(item)
               setActiveDialog("delete")
             }}
@@ -857,55 +856,15 @@ function SkillDeleteFolderDialog({
   onOpenChange: (open: boolean) => void
   folder: SkillFolderDirectoryItem
 }) {
-  const workspaceId = useWorkspaceId()
-  const { deleteFolder, deleteFolderIsPending } = useSkillFolders(workspaceId, {
-    enabled: open,
-  })
-  const [confirmationText, setConfirmationText] = useState("")
-
-  const handleDelete = async () => {
-    if (confirmationText !== folder.name) return
-    try {
-      await deleteFolder({ folderId: folder.id })
-      setConfirmationText("")
-      onOpenChange(false)
-    } catch {
-      // The mutation hook reports failures.
-    }
-  }
-
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete folder</AlertDialogTitle>
-          <AlertDialogDescription>
-            Delete <span className="font-medium">{folder.name}</span>? This
-            cannot be undone. The folder must be empty.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <Input
-          placeholder={`Type "${folder.name}" to confirm`}
-          value={confirmationText}
-          onChange={(event) => setConfirmationText(event.target.value)}
-        />
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={deleteFolderIsPending}>
-            Cancel
-          </AlertDialogCancel>
-          <AlertDialogAction
-            variant="destructive"
-            disabled={deleteFolderIsPending || confirmationText !== folder.name}
-            onClick={(event) => {
-              event.preventDefault()
-              void handleDelete()
-            }}
-          >
-            Confirm
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <FolderNotEmptyDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      folderId={folder.id}
+      folderName={folder.name}
+      numItems={folder.num_items}
+      itemNoun="skills and folders"
+    />
   )
 }
 

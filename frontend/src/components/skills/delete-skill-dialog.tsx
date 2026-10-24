@@ -1,20 +1,7 @@
 "use client"
 
-import { Loader2 } from "lucide-react"
-import { useEffect, useState } from "react"
 import type { SkillReadMinimal } from "@/client"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialog"
 
 type DeleteSkillDialogProps = {
   open: boolean
@@ -25,7 +12,7 @@ type DeleteSkillDialogProps = {
 }
 
 /**
- * Confirmation dialog for deleting a skill.
+ * Confirmation dialog for deleting a skill. The user types the skill slug.
  */
 export function DeleteSkillDialog({
   open,
@@ -34,69 +21,25 @@ export function DeleteSkillDialog({
   pending,
   onConfirm,
 }: DeleteSkillDialogProps) {
-  const [confirmationText, setConfirmationText] = useState("")
-  const skillName = skill?.name ?? ""
-  const canDelete = skillName.length > 0 && confirmationText === skillName
-
-  useEffect(() => {
-    if (open) {
-      setConfirmationText("")
-    }
-  }, [open, skillName])
-
+  const slug = skill?.slug ?? ""
   return (
-    <AlertDialog
+    <ConfirmDestructiveDialog
       open={open}
-      onOpenChange={(isOpen) => {
-        if (!pending) {
-          onOpenChange(isOpen)
-        }
-      }}
-    >
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete skill</AlertDialogTitle>
-          <AlertDialogDescription>
-            Delete{" "}
-            <span className="font-medium text-foreground">{skill?.name}</span>?
-            This removes it from Skills Studio and every agent that uses it,
-            including saved versions. Restoring an older agent version will not
-            bring this skill back. This cannot be undone.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="delete-skill-confirmation">
-            Type the skill name to confirm
-          </Label>
-          <Input
-            id="delete-skill-confirmation"
-            value={confirmationText}
-            onChange={(event) => setConfirmationText(event.target.value)}
-            placeholder={skillName}
-            disabled={pending}
-            autoComplete="off"
-            autoCapitalize="none"
-            spellCheck={false}
-          />
-        </div>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            disabled={pending || !canDelete}
-            onClick={(event) => {
-              event.preventDefault()
-              if (!canDelete) {
-                return
-              }
-              void onConfirm()
-            }}
-            variant="destructive"
-          >
-            {pending && <Loader2 className="mr-2 size-4 animate-spin" />}
-            Delete
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+      onOpenChange={onOpenChange}
+      title="Delete skill"
+      description={
+        <>
+          Delete{" "}
+          <span className="font-medium text-foreground">{skill?.name}</span>?
+          This removes it from Skills Studio and every agent that uses it,
+          including saved versions. Restoring an older agent version will not
+          bring this skill back. This cannot be undone.
+        </>
+      }
+      identifier={{ label: "Skill slug", value: slug }}
+      confirmPhrase={slug}
+      isPending={pending}
+      onConfirm={onConfirm}
+    />
   )
 }

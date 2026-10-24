@@ -35,6 +35,18 @@ class AgentControlUncertain(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class WithdrawResult:
+    """Which pending user messages a withdraw took back.
+
+    ``withdrawn`` lists messages the model had not read, in send order.
+    ``too_late`` lists messages it had already read; they stay in the transcript.
+    """
+
+    withdrawn: tuple[UUID, ...] = ()
+    too_late: tuple[UUID, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class SessionForkContext:
     """Authorized parent and new session for backend-specific fork preparation."""
 

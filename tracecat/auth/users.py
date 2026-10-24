@@ -58,6 +58,7 @@ from tracecat.db.engine import (
     get_async_session_auth_context_manager,
     get_async_session_bypass_rls_context_manager,
 )
+from tracecat.db.locks import lock_mcp_refresh_token_users
 from tracecat.db.models import (
     AccessToken,
     ExternalUser,
@@ -693,6 +694,13 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self.logger.info(
             f"Verification requested for user {user.id}. Verification token: {token}"
         )
+
+    async def on_before_delete(
+        self, user: User, request: Request | None = None
+    ) -> None:
+        # The user delete cascades to refresh tokens and memberships; lock
+        # first so a concurrent MCP token rotation cannot deadlock with it.
+        await lock_mcp_refresh_token_users(self._user_db.session, [user.id])
 
     async def saml_callback(
         self,

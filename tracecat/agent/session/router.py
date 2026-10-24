@@ -6,7 +6,7 @@ This router consolidates chat and session endpoints into a unified /agent/sessio
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response, StreamingResponse
 from tracecat_ee.workspace_chat.policy import (
     is_workspace_chat_entitled,
@@ -18,7 +18,12 @@ from tracecat.agent.adapter import vercel
 from tracecat.agent.backends.registry import (
     get_agent_backends,
 )
-from tracecat.agent.backends.types import SessionDispatchUncertain
+from tracecat.agent.backends.types import (
+    AgentControlRejected,
+    AgentControlUncertain,
+    SessionDispatchUncertain,
+)
+from tracecat.agent.control.schemas import AgentControlReceipt, AgentControlRequest
 from tracecat.agent.session.schemas import (
     AgentBackendRead,
     AgentSessionArtifactsRead,
@@ -913,7 +918,7 @@ async def fork_session(
         ) from e
 
 
-@router.post("/{session_id}/cancel")
+@router.post("/{session_id}/cancel", deprecated=True)
 @require_scope("agent:execute")
 async def cancel_session(
     session_id: uuid.UUID,
@@ -921,7 +926,10 @@ async def cancel_session(
     session: AsyncDBSession,
     request: AgentSessionCancelRequest | None = None,
 ) -> AgentSessionCancelResponse:
-    """Request graceful cancellation for the active agent session turn."""
+    """Request graceful cancellation for the active agent session turn.
+
+    Deprecated: send a `cancel` control to `/control` instead.
+    """
     svc = AgentSessionService(session, role)
     reason = request.reason if request else "user_cancel"
     try:
@@ -945,4 +953,60 @@ async def cancel_session(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=e.detail or str(e),
+        ) from e
+
+
+@router.post("/{session_id}/control")
+@require_scope("agent:execute")
+async def control_session(
+    session_id: uuid.UUID,
+    request: Annotated[AgentControlRequest, Body()],
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> AgentControlReceipt:
+    """Steer, withdraw from, or cancel the active turn without waiting for it."""
+    logger.info(
+        "Agent session control requested",
+        session_id=str(session_id),
+        control_type=request.type,
+        control_id=str(request.id),
+    )
+    svc = AgentSessionService(session, role)
+    try:
+        agent_session = await svc.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+        _require_session_write_access(role, agent_session)
+        await _require_workspace_chat_entitlement_for_session_tree(
+            svc=svc,
+            session=session,
+            role=role,
+            agent_session=agent_session,
+        )
+        return await svc.control(session_id, request)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except TracecatConflictError as e:
+        # The message, which the composer shows as the reason.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
+    except AgentControlRejected as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The turn is no longer running",
+        ) from e
+    except AgentControlUncertain as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Control outcome is unknown; retry with the same ID",
         ) from e
