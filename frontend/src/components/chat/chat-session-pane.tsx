@@ -539,11 +539,14 @@ export function ChatSessionPane({
     (text: string) => {
       const draft = promptTextareaRef.current?.value ?? ""
       const prefix = draft ? `${text}\n` : text
-      // Shift mention ranges past the restored text before it lands.
+      // Shift bound mentions past the restored text, and close an open
+      // mention query: its token offsets would otherwise point into the
+      // restored text.
+      dismissMentions()
       applyMentionSplice({ start: 0, deleted: 0, inserted: prefix.length })
       setInput(prefix + draft)
     },
-    [applyMentionSplice]
+    [applyMentionSplice, dismissMentions]
   )
   const runningComposer = useRunningComposer({
     chatId: chat?.id,
