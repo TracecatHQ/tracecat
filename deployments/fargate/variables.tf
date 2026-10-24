@@ -277,6 +277,12 @@ variable "platform_admin_ip_allowlist_bypass" {
   default     = false
 }
 
+variable "platform_admin_mfa_bypass" {
+  type        = bool
+  description = "Break-glass override that skips security key (MFA) sign-in and step-up checks for platform admins. Remove after recovery."
+  default     = false
+}
+
 variable "unsafe_disable_secret_error_withholding" {
   type        = bool
   description = "UNSAFE: surface original action and expression error details even when secrets are in scope, instead of the generic 'Details withheld' message. Not recommended; may expose secret-derived values in error messages."

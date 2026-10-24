@@ -85,13 +85,18 @@ from tracecat.api.common import (
     without_inputs,
 )
 from tracecat.api.lifespan import LifespanTaskSupervisor
-from tracecat.auth.credentials import authenticated_user_only, require_superuser
+from tracecat.auth.credentials import (
+    authenticated_user_only,
+    require_superuser,
+    require_superuser_step_up,
+)
 from tracecat.auth.dependencies import (
     require_any_auth_type_enabled,
     require_workspace_id_path,
 )
 from tracecat.auth.discovery import router as auth_discovery_router
 from tracecat.auth.enums import AuthType
+from tracecat.auth.mfa.router import router as mfa_router
 from tracecat.auth.oidc import create_platform_oauth_client, oidc_auth_type_enabled
 from tracecat.auth.router import router as users_router
 from tracecat.auth.saml import router as saml_router
@@ -567,17 +572,26 @@ def _include_workspace_scoped_router(app: FastAPI, router: APIRouter) -> None:
     )
 
 
-_SUPERUSER_USER_ROUTE_NAMES = frozenset(
-    {"users:user", "users:patch_user", "users:delete_user"}
+_SUPERUSER_USER_ROUTE_NAMES = frozenset({"users:user"})
+_SUPERUSER_STEP_UP_USER_ROUTE_NAMES = frozenset(
+    {"users:patch_user", "users:delete_user"}
 )
 
 
 def _users_router() -> APIRouter:
-    """fastapi-users router whose superuser-only routes honor the platform admin IP allowlist."""
+    """fastapi-users router whose superuser-only routes honor the platform admin IP allowlist.
+
+    Changing or deleting another user also needs a recent security key
+    verification, like the other privileged platform admin actions.
+    """
     users_router = fastapi_users.get_users_router(UserRead, UserUpdate)
     for route in users_router.routes:
-        if isinstance(route, APIRoute) and route.name in _SUPERUSER_USER_ROUTE_NAMES:
+        if not isinstance(route, APIRoute):
+            continue
+        if route.name in _SUPERUSER_USER_ROUTE_NAMES:
             route.dependencies.append(Depends(require_superuser))
+        elif route.name in _SUPERUSER_STEP_UP_USER_ROUTE_NAMES:
+            route.dependencies.append(Depends(require_superuser_step_up))
     return users_router
 
 
@@ -779,6 +793,7 @@ def create_app(**kwargs) -> FastAPI:
     # The ACS callback resolves org context from RelayState, so requiring
     # query/cookie org context at router level can block legitimate IdP callbacks.
     app.include_router(saml_router)
+    app.include_router(mfa_router)
     app.include_router(auth_discovery_router)
 
     if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:

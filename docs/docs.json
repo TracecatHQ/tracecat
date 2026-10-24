@@ -393,6 +393,7 @@
               "authentication/basic",
               "authentication/saml",
               "authentication/oidc",
+              "authentication/mfa",
               "authentication/scim"
             ]
           },

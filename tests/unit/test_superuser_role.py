@@ -99,16 +99,21 @@ def test_fastapi_users_superuser_routes_require_platform_admin_access() -> None:
     from fastapi.routing import APIRoute
 
     from tracecat.api.app import _users_router
-    from tracecat.auth.credentials import require_superuser
+    from tracecat.auth.credentials import require_superuser, require_superuser_step_up
 
     routes = {
         route.name: route
         for route in _users_router().routes
         if isinstance(route, APIRoute)
     }
-    for name in ("users:user", "users:patch_user", "users:delete_user"):
+    assert any(
+        dep.dependency is require_superuser for dep in routes["users:user"].dependencies
+    )
+    # Changing or deleting another user also needs a recent security key.
+    for name in ("users:patch_user", "users:delete_user"):
         assert any(
-            dep.dependency is require_superuser for dep in routes[name].dependencies
+            dep.dependency is require_superuser_step_up
+            for dep in routes[name].dependencies
         )
     for name in ("users:current_user", "users:patch_current_user"):
         assert all(
