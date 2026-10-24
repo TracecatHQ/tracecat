@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import uuid
@@ -12,14 +13,15 @@ import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import Connection, create_engine, inspect, text
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.pool import NullPool
 
 from tests.database import TEST_DB_CONFIG
+from tracecat.agent.control.enums import CommandState, CommandType
 from tracecat.db.models import Base
 
 MIGRATION_REVISION = "b99074fdcf3a"
-PREVIOUS_REVISION = "b7d41c9e2a6f"
+PREVIOUS_REVISION = "c4e8a2f6d9b1"
 TABLE = "agent_session_command"
 
 
@@ -103,18 +105,33 @@ def test_upgrade_matches_the_model_and_downgrade_removes_the_table(
                 text("SELECT relrowsecurity FROM pg_class WHERE relname = :t"),
                 {"t": TABLE},
             ).scalar_one()
-            checks = set(
+            checks = dict(
                 conn.execute(
                     text(
-                        "SELECT conname FROM pg_constraint"
+                        "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint"
                         " WHERE conrelid = CAST(:t AS regclass) AND contype = 'c'"
                     ),
                     {"t": TABLE},
-                ).scalars()
+                )
+                .tuples()
+                .all()
             )
-            assert checks == {
+            # Autogenerate ignores CHECK constraints: a new enum member must come
+            # with a migration that widens the matching constraint.
+            assert checks.keys() == {
                 "ck_agent_session_command_type",
                 "ck_agent_session_command_state",
+                "ck_agent_session_command_payload_type",
+            }
+            assert {
+                name: set(re.findall(r"'(\w+)'", checks[name]))
+                for name in (
+                    "ck_agent_session_command_type",
+                    "ck_agent_session_command_state",
+                )
+            } == {
+                "ck_agent_session_command_type": set(CommandType),
+                "ck_agent_session_command_state": set(CommandState),
             }
 
         _alembic(db_url, "downgrade", PREVIOUS_REVISION)
@@ -157,7 +174,11 @@ def _seed_workspace(conn: Connection, org_id: uuid.UUID) -> tuple[uuid.UUID, uui
 
 
 def _insert_command(
-    conn: Connection, workspace_id: uuid.UUID, root_session_id: uuid.UUID
+    conn: Connection,
+    workspace_id: uuid.UUID,
+    root_session_id: uuid.UUID,
+    seq: int = 1,
+    payload: str = '{"type": "steer", "text": "hi"}',
 ) -> uuid.UUID:
     command_id = uuid.uuid4()
     conn.execute(
@@ -165,13 +186,16 @@ def _insert_command(
             "INSERT INTO agent_session_command"
             " (id, root_session_id, session_id, workspace_id, request_id, seq,"
             "  type, payload, payload_hash, state)"
-            " VALUES (:id, :root, :root, :ws, :req, 1, 'steer', '{}', 'h', 'accepted')"
+            " VALUES (:id, :root, :root, :ws, :req, :seq, 'steer', CAST(:payload AS jsonb),"
+            "  'h', 'accepted')"
         ),
         {
             "id": command_id,
             "root": root_session_id,
             "ws": workspace_id,
             "req": command_id.hex,
+            "seq": seq,
+            "payload": payload,
         },
     )
     return command_id
@@ -210,15 +234,27 @@ def test_rls_isolates_commands_by_workspace(db_url: str) -> None:
             assert visible == {command_a}
             assert command_b not in visible
 
+            own = _insert_command(conn, ws_a, root_a, seq=2)
+            # Any writer, not only the store, must keep the payload's type in
+            # step with the type column.
+            with pytest.raises(IntegrityError, match="payload_type"):
+                with conn.begin_nested():
+                    _insert_command(
+                        conn, ws_a, root_a, seq=3, payload='{"type": "abort"}'
+                    )
             with pytest.raises(ProgrammingError, match="row-level security"):
                 with conn.begin_nested():
-                    _insert_command(conn, ws_b, root_b)
+                    _insert_command(conn, ws_b, root_b, seq=2)
 
             conn.execute(text("SELECT set_config('app.rls_bypass', 'on', true)"))
             visible = set(conn.execute(text(f"SELECT id FROM {TABLE}")).scalars())
-            assert visible == {command_a, command_b}
+            assert visible == {command_a, own, command_b}
     finally:
         with engine.begin() as conn:
-            conn.execute(text(f'DROP OWNED BY "{role}"'))
-            conn.execute(text(f'DROP ROLE IF EXISTS "{role}"'))
+            role_exists = conn.execute(
+                text("SELECT 1 FROM pg_roles WHERE rolname = :role"), {"role": role}
+            ).first()
+            if role_exists is not None:
+                conn.execute(text(f'DROP OWNED BY "{role}"'))
+                conn.execute(text(f'DROP ROLE "{role}"'))
         engine.dispose()

@@ -3750,6 +3750,7 @@ class AgentSessionCommand(TimestampMixin, Base):
         UniqueConstraint("root_session_id", "seq"),
         CheckConstraint(f"type IN ({_COMMAND_TYPES_SQL})", name="type"),
         CheckConstraint(f"state IN ({_COMMAND_STATES_SQL})", name="state"),
+        CheckConstraint("payload ->> 'type' = type", name="payload_type"),
         Index(
             "ix_agent_session_command_active",
             "root_session_id",
@@ -5759,6 +5760,11 @@ class MCPRefreshToken(OrganizationModel):
         String,
         nullable=False,
         doc="OAuth client_id the token was issued to",
+    )
+    granted_organization_ids: Mapped[list[uuid.UUID] | None] = mapped_column(
+        ARRAY(UUID),
+        nullable=True,
+        doc="Every org this connection was granted. Lets the membership-delete trigger revoke the token when any of them is removed. NULL means only organization_id.",
     )
     encrypted_metadata: Mapped[bytes] = mapped_column(
         LargeBinary,

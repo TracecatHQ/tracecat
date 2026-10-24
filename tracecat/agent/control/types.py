@@ -8,11 +8,12 @@ from typing import Literal, Protocol
 from pydantic import JsonValue
 
 from tracecat.agent.control.enums import CommandState, CommandType
+from tracecat.agent.control.payloads import CommandPayload
 from tracecat.exceptions import TracecatException
 from tracecat.identifiers import WorkspaceID
 
-type CommandPayload = dict[str, JsonValue]
-"""Backend-defined JSON object; the store only stores and hashes it."""
+type CommandReceipt = dict[str, JsonValue]
+"""Backend-defined JSON object describing a command's outcome; stored as is."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +23,7 @@ class SessionCommand:
     root_session_id: uuid.UUID
     session_id: uuid.UUID
     request_id: str
+    # Must match ``payload.type``; admission refuses a mismatch.
     type: CommandType
     payload: CommandPayload
     # A command starts queued (not yet bound to a turn) or accepted for a turn.
@@ -46,7 +48,7 @@ class SessionCommandRow:
     payload: CommandPayload
     payload_hash: str
     state: CommandState
-    receipt: CommandPayload | None
+    receipt: CommandReceipt | None
     created_at: datetime
     updated_at: datetime
 
@@ -61,11 +63,15 @@ class Admission:
 
 
 class SessionCommandConflictError(TracecatException):
-    """The request ID was already admitted with a different payload."""
+    """The request ID was already admitted for a different command."""
 
 
 class RootSessionNotFoundError(TracecatException):
     """The command names a root session that does not exist."""
+
+
+class SessionCommandTypeMismatchError(TracecatException):
+    """The command's ``type`` and its payload's ``type`` disagree."""
 
 
 class SessionCommandStore(Protocol):
@@ -75,9 +81,11 @@ class SessionCommandStore(Protocol):
         """Admit a command, or return the row already admitted for its request ID.
 
         Raises:
-            SessionCommandConflictError: The request ID was admitted with another
-                payload.
+            SessionCommandConflictError: The request ID was admitted for another
+                command: a different payload, type or target session.
             RootSessionNotFoundError: The root session does not exist.
+            SessionCommandTypeMismatchError: ``type`` and ``payload.type``
+                disagree.
         """
         ...
 
@@ -102,13 +110,18 @@ class SessionCommandStore(Protocol):
         root_session_id: uuid.UUID,
         request_id: str,
         state: CommandState,
-        receipt: CommandPayload | None = None,
+        receipt: CommandReceipt | None = None,
+        *,
+        turn_id: uuid.UUID | None = None,
+        generation: uuid.UUID | None = None,
     ) -> SessionCommandRow | None:
         """Move a command forward to ``state``; a state never moves back.
 
-        ``withdrawn`` is reachable only from ``queued`` or ``accepted``. Returns
-        the row as stored, unchanged if the move is not allowed, or None if no
-        such command exists.
+        ``rejected`` and ``withdrawn`` are reachable only from ``queued`` or
+        ``accepted``.
+        ``turn_id`` and ``generation`` bind a queued command to its turn and are
+        set only while still null. Returns the row as stored, unchanged if the
+        move is not allowed, or None if no such command exists.
         """
         ...
 
