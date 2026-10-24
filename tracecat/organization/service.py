@@ -35,6 +35,7 @@ from tracecat.authz.membership import (
     lock_role_changes,
 )
 from tracecat.authz.scopes import ORG_MEMBER_ROLE_SLUG
+from tracecat.db.locks import lock_mcp_refresh_token_users
 from tracecat.db.models import (
     AccessToken,
     ExternalGroup,
@@ -207,6 +208,9 @@ class OrgService(BaseOrgService):
                 "Member is managed by the identity provider; deprovision them there."
             )
 
+        # The membership delete below fires the MCP token-revocation trigger,
+        # which takes this lock; take it before locking any of the user's rows.
+        await lock_mcp_refresh_token_users(self.session, [user.id])
         await self.session.execute(
             delete(AccessToken).where(type_cast(Any, AccessToken.user_id) == user.id)
         )

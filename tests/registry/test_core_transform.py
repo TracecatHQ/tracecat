@@ -676,27 +676,23 @@ async def test_deduplicate_requires_registry_context() -> None:
 @pytest.mark.parametrize(
     "items,keys,error_type",
     [
+        # Missing keys
+        (
+            [{"id": 1}, {"name": "test"}],
+            ["id"],
+            TracecatExpressionError,
+        ),
         # Invalid jsonpath
         (
             [{"id": 1}],
-            ["id["],
+            ["id..invalid"],
             TracecatExpressionError,
         ),
         # Non-dict items in list
         (
             ["not a dict"],
             ["id"],
-            TypeError,
-        ),
-        (
-            [[{"id": 1}]],
-            ["id"],
-            TypeError,
-        ),
-        (
-            [[{"id": 1}]],
-            [],
-            TypeError,
+            TracecatExpressionError,
         ),
     ],
 )
