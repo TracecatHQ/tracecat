@@ -421,6 +421,30 @@ examples:
             Analyst note:
             - Escalated after credential theft indicators were confirmed.
 
+  cases-set-parent:
+    title: Group cases under a parent case
+    language: yaml
+    code: |
+      - ref: group_phishing_cases
+        action: core.cases.set_case_parent
+        args:
+          parent_id: CASE-0042
+          case_ids:
+            - CASE-0043
+            - CASE-0044
+            - ${{ TRIGGER.case_id }}
+
+  cases-clear-parent:
+    title: Ungroup sub-cases
+    language: yaml
+    code: |
+      - ref: ungroup_cases
+        action: core.cases.clear_case_parent
+        args:
+          case_ids:
+            - CASE-0043
+            - CASE-0044
+
   cases-list:
     title: List cases
     language: yaml

@@ -441,6 +441,19 @@ pages:
       - id: core.cases.update_case
         examples:
           - cases-update
+      - id: core.cases.set_case_parent
+        info: |
+          Sub-cases are one level deep: the parent must be a top-level case, and
+          a case that has its own sub-cases cannot be grouped. Requires the case
+          add-ons entitlement.
+
+          Use `ACTIONS.group_phishing_cases.result.results` to read each case's
+          `success` and `error`.
+        examples:
+          - cases-set-parent
+      - id: core.cases.clear_case_parent
+        examples:
+          - cases-clear-parent
       - id: core.cases.list_cases
         examples:
           - cases-list

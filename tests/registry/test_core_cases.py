@@ -18,6 +18,7 @@ from tracecat_registry.core.cases import (
     add_case_tag,
     aggregate_cases,
     assign_user,
+    clear_case_parent,
     create_case,
     create_comment,
     delete_case,
@@ -34,6 +35,7 @@ from tracecat_registry.core.cases import (
     remove_case_tag,
     reply_to_comment,
     search_cases,
+    set_case_parent,
     update_case,
     update_comment,
     upload_attachment,
@@ -1450,3 +1452,48 @@ async def test_search_cases_forwards_canonical_controls_and_preserves_shape(
         include_count=False,
         field_ids=["region"],
     )
+
+
+@pytest.mark.anyio
+async def test_create_case_forwards_parent_id(
+    mock_cases_client: AsyncMock, mock_case_dict
+) -> None:
+    mock_cases_client.create_case_simple.return_value = mock_case_dict
+
+    await create_case(
+        summary="Phishing report",
+        description="Reported by a user",
+        parent_id="CASE-0042",
+    )
+
+    mock_cases_client.create_case_simple.assert_called_once_with(
+        summary="Phishing report",
+        description="Reported by a user",
+        priority="unknown",
+        severity="unknown",
+        status="unknown",
+        parent_id="CASE-0042",
+    )
+
+
+@pytest.mark.anyio
+async def test_set_and_clear_case_parent(mock_cases_client: AsyncMock) -> None:
+    child_id = str(uuid.uuid4())
+    response = {
+        "results": [{"case_id": child_id, "success": True, "error": None}],
+        "succeeded": 1,
+        "failed": 0,
+    }
+    mock_cases_client.set_case_parent.return_value = response
+    mock_cases_client.clear_case_parent.return_value = response
+
+    assert (
+        await set_case_parent(case_ids=[child_id, "CASE-0043"], parent_id="CASE-0042")
+        == response
+    )
+    mock_cases_client.set_case_parent.assert_awaited_once_with(
+        [child_id, "CASE-0043"], parent_id="CASE-0042"
+    )
+
+    assert await clear_case_parent(case_ids=[child_id]) == response
+    mock_cases_client.clear_case_parent.assert_awaited_once_with([child_id])
