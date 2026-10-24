@@ -31,6 +31,7 @@ from tracecat.agent.session.schemas import (
     AgentSessionCancelResponse,
     AgentSessionCreate,
     AgentSessionForkRequest,
+    AgentSessionPendingRead,
     AgentSessionRead,
     AgentSessionReadVercel,
     AgentSessionReadWithMessages,
@@ -852,6 +853,39 @@ async def stream_session_events(
         media_type="text/event-stream",
         headers=headers,
     )
+
+
+@router.get("/{session_id}/pending")
+@require_scope("agent:read")
+async def list_pending_messages(
+    session_id: uuid.UUID,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> AgentSessionPendingRead:
+    """List the user messages the model has not read yet, in send order.
+
+    Covers steers waiting to join the running turn and messages queued for a
+    later turn. The list is short-lived and small, so it is not paginated. Only
+    the session's owner sees it: the messages are theirs until the model reads
+    them.
+    """
+    svc = AgentSessionService(session, role)
+    try:
+        agent_session = await svc.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+        _require_session_write_access(role, agent_session)
+        return await svc.list_pending(session_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except TracecatConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
 
 
 @router.post("/{session_id}/fork")

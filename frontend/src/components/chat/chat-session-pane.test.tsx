@@ -16,9 +16,12 @@ import {
 import type { ReactNode } from "react"
 
 import {
+  type AgentSessionCapabilities,
   type AgentSessionsGetSessionVercelResponse,
   type UIMessage as ApiUIMessage,
+  agentSessionsControlSession,
   agentSessionsGetSessionVercel,
+  agentSessionsListPendingMessages,
 } from "@/client"
 
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
@@ -109,6 +112,8 @@ jest.mock("@/components/json-viewer", () => ({
 jest.mock("@/client", () => ({
   ...jest.requireActual<typeof import("@/client")>("@/client"),
   agentSessionsGetSessionVercel: jest.fn(),
+  agentSessionsListPendingMessages: jest.fn(),
+  agentSessionsControlSession: jest.fn(),
 }))
 
 jest.mock("@/hooks/use-chat", () => ({
@@ -121,6 +126,9 @@ jest.mock("@/hooks/use-chat", () => ({
   useGetChatVercel:
     jest.requireActual<typeof import("@/hooks/use-chat")>("@/hooks/use-chat")
       .useGetChatVercel,
+  usePendingMessages:
+    jest.requireActual<typeof import("@/hooks/use-chat")>("@/hooks/use-chat")
+      .usePendingMessages,
   parseChatError: (error: unknown) =>
     error instanceof Error ? error.message : "Chat error",
   useUpdateChat: () => ({
@@ -1337,5 +1345,204 @@ describe("ChatSessionPane running composer", () => {
       screen.getByText("Working on it").compareDocumentPosition(joined) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
+  })
+})
+
+describe("ChatSessionPane pending messages", () => {
+  const listPending = jest.mocked(agentSessionsListPendingMessages)
+  const pending = [
+    {
+      id: "steer-1",
+      type: "steer" as const,
+      text: "Check the first host",
+      created_at: "2026-10-23T00:00:00Z",
+    },
+    {
+      id: "message-1",
+      type: "message" as const,
+      text: "Then summarize",
+      created_at: "2026-10-23T00:00:01Z",
+    },
+  ]
+
+  function chatWith(
+    capabilities: AgentSessionCapabilities,
+    overrides: { is_readonly?: boolean } = {}
+  ) {
+    return { ...serverChat([]), capabilities, ...overrides }
+  }
+
+  function lastContext(): RunningComposerContext {
+    const calls = mockUseRunningComposer.mock.calls
+    return calls[calls.length - 1][0]
+  }
+
+  beforeEach(() => {
+    listPending.mockReset()
+    listPending.mockResolvedValue({ session_id: SESSION_ID, items: pending })
+    mockUseRunningComposer.mockReset()
+    mockUseRunningComposer.mockReturnValue(undefined)
+    mockUseVercelChatResult.messages = []
+    mockUseVercelChatResult.status = "streaming"
+  })
+
+  afterAll(() => {
+    mockUseVercelChatResult.status = "ready"
+  })
+
+  it("gives the running composer the pending list in send order", async () => {
+    renderChatSessionPane({ chat: chatWith({ listing_pending: true }) })
+
+    await waitFor(() => expect(lastContext().pending).toEqual(pending))
+    expect(listPending).toHaveBeenCalledWith({
+      sessionId: SESSION_ID,
+      workspaceId: "workspace-1",
+    })
+  })
+
+  it("does not fetch pending messages without the capability", async () => {
+    renderChatSessionPane({ chat: chatWith({}) })
+
+    await act(async () => undefined)
+    expect(listPending).not.toHaveBeenCalled()
+    expect(lastContext().pending).toEqual([])
+  })
+
+  it("does not fetch pending messages while no turn runs", async () => {
+    mockUseVercelChatResult.status = "ready"
+    renderChatSessionPane({ chat: chatWith({ listing_pending: true }) })
+
+    await act(async () => undefined)
+    expect(listPending).not.toHaveBeenCalled()
+    expect(lastContext().pending).toEqual([])
+  })
+
+  it("does not fetch pending messages for a read-only viewer", async () => {
+    renderChatSessionPane({
+      chat: chatWith({ listing_pending: true }, { is_readonly: true }),
+    })
+
+    await act(async () => undefined)
+    expect(listPending).not.toHaveBeenCalled()
+    expect(lastContext().pending).toEqual([])
+  })
+
+  it("leaves Escape to an IME composition", async () => {
+    const onEscape = jest.fn()
+    mockUseRunningComposer.mockReturnValue({
+      placeholder: "Steer the running turn...",
+      submit: async () => true,
+      onEscape,
+    })
+    renderChatSessionPane({ chat: chatWith({}) })
+
+    const input = screen.getByPlaceholderText("Steer the running turn...")
+    fireEvent.keyDown(input, { key: "Escape", isComposing: true })
+    expect(onEscape).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(input, { key: "Escape" })
+    expect(onEscape).toHaveBeenCalledTimes(1)
+  })
+
+  it("refetches the pending list on request", async () => {
+    renderChatSessionPane({ chat: chatWith({ listing_pending: true }) })
+    await waitFor(() => expect(listPending).toHaveBeenCalledTimes(1))
+
+    await act(() => lastContext().refreshPending())
+
+    expect(listPending).toHaveBeenCalledTimes(2)
+  })
+
+  it("lets Escape put withdrawn text back ahead of the draft", async () => {
+    mockUseRunningComposer.mockImplementation((context) => ({
+      placeholder: "Steer the running turn...",
+      submit: async () => true,
+      onEscape: () =>
+        context.restoreInput(
+          context.pending.map((message) => message.text).join("\n")
+        ),
+    }))
+    renderChatSessionPane({ chat: chatWith({ listing_pending: true }) })
+    await waitFor(() => expect(lastContext().pending).toEqual(pending))
+
+    const input = screen.getByPlaceholderText("Steer the running turn...")
+    fireEvent.change(input, { target: { value: "draft" } })
+    fireEvent.keyDown(input, { key: "Escape" })
+
+    await waitFor(() =>
+      expect(input).toHaveValue("Check the first host\nThen summarize\ndraft")
+    )
+  })
+
+  it("withdraws through the control route and refreshes the list", async () => {
+    const control = jest.mocked(agentSessionsControlSession)
+    const receipt = {
+      id: "withdraw-1",
+      type: "withdraw" as const,
+      run_id: "run-1",
+      status: "withdrawn" as const,
+      withdrawn: ["steer-1", "message-1"],
+      too_late: [],
+    }
+    control.mockReset()
+    control.mockResolvedValue(receipt)
+    renderChatSessionPane({
+      chat: chatWith({ listing_pending: true, withdrawing: true }),
+    })
+    await waitFor(() => expect(listPending).toHaveBeenCalledTimes(1))
+
+    let result: unknown
+    await act(async () => {
+      result = await lastContext().withdraw({ id: "withdraw-1" })
+    })
+
+    expect(result).toEqual(receipt)
+    expect(control).toHaveBeenCalledWith({
+      sessionId: SESSION_ID,
+      workspaceId: "workspace-1",
+      requestBody: { type: "withdraw", id: "withdraw-1", target_ids: null },
+    })
+    expect(listPending).toHaveBeenCalledTimes(2)
+  })
+
+  it("refreshes the list when a withdraw fails", async () => {
+    const control = jest.mocked(agentSessionsControlSession)
+    control.mockReset()
+    control.mockRejectedValue(new Error("outcome unknown"))
+    renderChatSessionPane({
+      chat: chatWith({ listing_pending: true, withdrawing: true }),
+    })
+    await waitFor(() => expect(listPending).toHaveBeenCalledTimes(1))
+
+    await act(async () => {
+      await expect(
+        lastContext().withdraw({ id: "withdraw-1", targetIds: ["steer-1"] })
+      ).rejects.toThrow("outcome unknown")
+    })
+
+    expect(control).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestBody: {
+          type: "withdraw",
+          id: "withdraw-1",
+          target_ids: ["steer-1"],
+        },
+      })
+    )
+    expect(listPending).toHaveBeenCalledTimes(2)
+  })
+
+  it("restores into an empty composer without a trailing newline", async () => {
+    mockUseRunningComposer.mockImplementation((context) => ({
+      placeholder: "Steer the running turn...",
+      submit: async () => true,
+      onEscape: () => context.restoreInput("Check the first host"),
+    }))
+    renderChatSessionPane({ chat: chatWith({}) })
+
+    const input = screen.getByPlaceholderText("Steer the running turn...")
+    fireEvent.keyDown(input, { key: "Escape" })
+
+    await waitFor(() => expect(input).toHaveValue("Check the first host"))
   })
 })

@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from tracecat.agent.adapter.vercel import UIMessage
+from tracecat.agent.backends.types import PendingMessageType
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.artifacts.schemas import Artifact
@@ -150,6 +151,10 @@ class AgentSessionCapabilities(BaseModel):
         default=False,
         description="Whether a running turn can take back pending user messages",
     )
+    listing_pending: bool = Field(
+        default=False,
+        description="Whether the session can list messages the model has not read",
+    )
 
 
 class AgentSessionRead(BaseModel):
@@ -216,6 +221,27 @@ class AgentSessionArtifactsRead(BaseModel):
     """Response schema for persisted agent session artifacts."""
 
     artifacts: list[Artifact] = Field(default_factory=list)
+
+
+class AgentPendingMessageRead(BaseModel):
+    """A user message the model has not read yet."""
+
+    id: uuid.UUID = Field(description="The ID the client sent the message under")
+    type: PendingMessageType = Field(
+        description=(
+            "`steer` waits to join the running turn; `message` waits to start a "
+            "later turn"
+        )
+    )
+    text: str
+    created_at: datetime
+
+
+class AgentSessionPendingRead(BaseModel):
+    """The session's user messages the model has not read, in send order."""
+
+    session_id: uuid.UUID
+    items: list[AgentPendingMessageRead]
 
 
 class AgentSessionForkRequest(BaseModel):

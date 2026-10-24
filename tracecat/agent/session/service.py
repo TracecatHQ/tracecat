@@ -88,8 +88,10 @@ from tracecat.agent.session.history import (
     prepare_session_history,
 )
 from tracecat.agent.session.schemas import (
+    AgentPendingMessageRead,
     AgentSessionCancelResponse,
     AgentSessionCreate,
+    AgentSessionPendingRead,
     AgentSessionRead,
     AgentSessionUpdate,
 )
@@ -2593,6 +2595,41 @@ class AgentSessionService(BaseWorkspaceService):
             chat_id=session_id,
             active_stream_id=attempt.stream_id,
             curr_run_id=curr_run_id,
+        )
+
+    async def list_pending(self, session_id: uuid.UUID) -> AgentSessionPendingRead:
+        """List the session's user messages the model has not read, in send order.
+
+        Raises:
+            TracecatNotFoundError: If no session exists with this ID.
+            TracecatConflictError: If the session's backend is unavailable or
+                cannot list pending messages.
+        """
+        agent_session = await self.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+        try:
+            backend = get_agent_backend(
+                agent_session.backend_id, harness_type=agent_session.harness_type
+            )
+        except TracecatValidationError as e:
+            raise TracecatConflictError(str(e)) from e
+        if not backend.listing_pending:
+            raise TracecatConflictError(
+                "This agent backend does not support listing pending messages"
+            )
+        pending = await backend.list_pending(session_id)
+        return AgentSessionPendingRead(
+            session_id=session_id,
+            items=[
+                AgentPendingMessageRead(
+                    id=message.id,
+                    type=message.type,
+                    text=message.text,
+                    created_at=message.created_at,
+                )
+                for message in pending
+            ],
         )
 
     async def request_cancel(
