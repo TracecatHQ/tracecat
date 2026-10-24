@@ -25,6 +25,7 @@ from starlette.responses import RedirectResponse, Response
 from tracecat.auth.users import optional_current_active_user
 from tracecat.config import TRACECAT__PUBLIC_APP_URL
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.locks import lock_mcp_refresh_token_users
 from tracecat.db.models import User
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
@@ -48,6 +49,7 @@ from tracecat.mcp.oidc.schemas import (
     OrganizationSelectionRequest,
     OrganizationSelectionResult,
     OrganizationSelectionTransaction,
+    RefreshTokenContext,
     RefreshTokenMetadata,
     ResumeTransaction,
 )
@@ -864,13 +866,19 @@ async def _handle_authorization_code_grant(
     if not _validate_pkce_s256(code_verifier, code_data.code_challenge):
         return _error_response("invalid_grant", "PKCE verification failed")
 
-    # --- Mint access token ---
+    # --- Narrow the consented orgs and issue the refresh token ---
     granted_scope = strip_refresh_scope(code_data.scope)
-    granted_org_ids = code_data.organization_ids or [code_data.organization_id]
+    try:
+        primary_org_id, granted_org_ids, refresh_token_value = await _issue_code_grant(
+            code_data, client_id=auth_client_id, scope=granted_scope
+        )
+    except RefreshTokenError as exc:
+        return _error_response(exc.oauth_error, exc.description)
 
+    # --- Mint access token ---
     access_token, jti, now = _mint_access_token(
         user_id=str(code_data.user_id),
-        organization_id=str(code_data.organization_id),
+        organization_id=str(primary_org_id),
         organization_ids=[str(org_id) for org_id in granted_org_ids],
         email=code_data.email,
         is_platform_superuser=code_data.is_platform_superuser,
@@ -890,7 +898,7 @@ async def _handle_authorization_code_grant(
         "iat": now,
         "email": code_data.email,
         "email_verified": True,
-        "organization_id": str(code_data.organization_id),
+        "organization_id": str(primary_org_id),
         "organization_ids": [str(org_id) for org_id in granted_org_ids],
     }
     if code_data.nonce:
@@ -904,36 +912,64 @@ async def _handle_authorization_code_grant(
         "id_token": id_token,
         "scope": granted_scope,
     }
-
-    # --- Issue refresh token if offline_access was requested ---
-    if OFFLINE_ACCESS_SCOPE in granted_scope.split() and refresh_tokens_enabled():
-        metadata = RefreshTokenMetadata(
-            email=code_data.email,
-            is_platform_superuser=code_data.is_platform_superuser,
-            scope=granted_scope,
-            resource=code_data.resource,
-            organization_ids=granted_org_ids,
-        )
-        async with get_async_session_bypass_rls_context_manager() as session:
-            refresh_token_value = await issue_refresh_token(
-                session,
-                user_id=code_data.user_id,
-                organization_id=code_data.organization_id,
-                client_id=auth_client_id,
-                metadata=metadata,
-            )
+    if refresh_token_value is not None:
         response_body["refresh_token"] = refresh_token_value
 
     logger.info(
         "MCP OIDC: issued tokens",
         user_id=str(code_data.user_id),
-        organization_id=str(code_data.organization_id),
+        organization_id=str(primary_org_id),
         jti=jti,
         client_id=auth_client_id,
         with_refresh="refresh_token" in response_body,
     )
 
     return JSONResponse(response_body, headers=_success_headers())
+
+
+async def _issue_code_grant(
+    code_data: AuthCodeData,
+    *,
+    client_id: str,
+    scope: str,
+) -> tuple[OrganizationID, list[OrganizationID], str | None]:
+    """Narrow a code's consented orgs to current memberships and issue its refresh token.
+
+    Holds the user's refresh-token lock from the membership read through the
+    insert: a concurrent removal either lands first and narrows the grant, or
+    waits and then revokes the issued token.
+
+    Returns:
+        The primary org, the granted orgs, and the refresh token when
+        ``offline_access`` was granted and refresh tokens are enabled.
+
+    Raises:
+        RefreshTokenError: The user is no longer in any consented org.
+    """
+    async with get_async_session_bypass_rls_context_manager() as session:
+        await lock_mcp_refresh_token_users(session, [code_data.user_id])
+        primary_org_id, granted_org_ids = await _current_granted_orgs(
+            session,
+            user_id=code_data.user_id,
+            primary_org_id=code_data.organization_id,
+            approved_org_ids=code_data.organization_ids,
+        )
+        if OFFLINE_ACCESS_SCOPE not in scope.split() or not refresh_tokens_enabled():
+            return primary_org_id, granted_org_ids, None
+        refresh_token_value = await issue_refresh_token(
+            session,
+            user_id=code_data.user_id,
+            organization_id=primary_org_id,
+            client_id=client_id,
+            metadata=RefreshTokenMetadata(
+                email=code_data.email,
+                is_platform_superuser=code_data.is_platform_superuser,
+                scope=scope,
+                resource=code_data.resource,
+                organization_ids=granted_org_ids,
+            ),
+        )
+    return primary_org_id, granted_org_ids, refresh_token_value
 
 
 async def _current_granted_orgs(
@@ -983,18 +1019,27 @@ async def _handle_refresh_token_grant(
     try:
         async with get_async_session_bypass_rls_context_manager() as refresh_session:
             try:
+
+                async def resolve_grant(
+                    token_ctx: RefreshTokenContext,
+                ) -> tuple[OrganizationID, list[OrganizationID]]:
+                    return await _current_granted_orgs(
+                        refresh_session,
+                        user_id=token_ctx.user_id,
+                        primary_org_id=token_ctx.organization_id,
+                        approved_org_ids=token_ctx.metadata.organization_ids,
+                    )
+
                 ctx, new_refresh_token = await rotate_refresh_token(
-                    refresh_session, token=refresh_token, client_id=auth_client_id
-                )
-                primary_org_id, granted_org_ids = await _current_granted_orgs(
                     refresh_session,
-                    user_id=ctx.user_id,
-                    primary_org_id=ctx.organization_id,
-                    approved_org_ids=ctx.metadata.organization_ids,
+                    token=refresh_token,
+                    client_id=auth_client_id,
+                    resolve_grant=resolve_grant,
                 )
+                granted_org_ids = ctx.metadata.organization_ids or [ctx.organization_id]
                 access_token, jti, _ = _mint_access_token(
                     user_id=str(ctx.user_id),
-                    organization_id=str(primary_org_id),
+                    organization_id=str(ctx.organization_id),
                     organization_ids=[str(org_id) for org_id in granted_org_ids],
                     email=ctx.metadata.email,
                     is_platform_superuser=ctx.metadata.is_platform_superuser,
