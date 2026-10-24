@@ -36,13 +36,15 @@ RUN g++ -std=c++20 -O2 -Wall -Wextra -Werror -Wformat=2 \
 # Stage 2: Create minimal sandbox rootfs
 # ====================
 FROM node:22.23.4-slim AS node-bin
-FROM python:3.12-slim-bookworm AS sandbox-rootfs
+FROM ghcr.io/astral-sh/uv:0.13.4 AS uv-bin
+FROM python:3.12.15-slim-bookworm AS sandbox-rootfs
 
 ARG TARGETARCH
 ARG DUCKDB_VERSION=1.4.3
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl wget jq iputils-ping git openssh-client squashfs-tools \
+    && apt-get -y upgrade \
     && rm -rf /var/lib/apt/lists/*
 
 # The slim base ships the stdlib without bytecode, and sandboxes mount this
@@ -110,8 +112,8 @@ RUN set -eu; \
     duckdb --version; \
     test "$(duckdb -csv -noheader -c "SELECT count(*) FROM duckdb_extensions() WHERE extension_name IN ('json', 'httpfs', 'inet', 'fts') AND installed AND loaded;")" = "4"
 
-COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /usr/local/bin/uv
-COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uvx /usr/local/bin/uvx
+COPY --from=uv-bin /uv /usr/local/bin/uv
+COPY --from=uv-bin /uvx /usr/local/bin/uvx
 COPY --from=node-bin /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-bin /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
@@ -126,8 +128,8 @@ ENV HOME=/tmp PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 # ====================
 # Stage 3: Shared base with runtime dependencies
 # ====================
-FROM python:3.12-slim-bookworm AS base
-COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /uvx /usr/local/bin/
+FROM python:3.12.15-slim-bookworm AS base
+COPY --from=uv-bin /uv /uvx /usr/local/bin/
 
 ENV HOST=0.0.0.0 PORT=8000
 

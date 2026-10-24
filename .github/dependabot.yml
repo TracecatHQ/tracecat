@@ -1,0 +1,26 @@
+# Version updates for images pinned in the root Dockerfiles, including the
+# sandbox rootfs base. Dependabot only reads FROM lines, so pin images there
+# (not in COPY --from) to keep them visible. The 7-day cooldown matches the uv
+# and pnpm release-age policy.
+version: 2
+updates:
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: build(deps)
+    labels: []
+    groups:
+      docker-images:
+        patterns: ["*"]
+    ignore:
+      # Python minor, Node major, and Debian release upgrades are deliberate.
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
+      - dependency-name: debian
+        update-types: ["version-update:semver-major"]
