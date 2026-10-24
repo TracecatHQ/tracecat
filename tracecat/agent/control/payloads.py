@@ -31,7 +31,7 @@ class DecidePayload(CommandPayloadBase):
 
     type: Literal[CommandType.DECIDE] = CommandType.DECIDE
     action: Literal["approve", "deny"]
-    reason: str | None = None
+    reason: str | None = Field(default=None, max_length=100_000)
     # Approve with these tool arguments instead of the requested ones.
     override_args: dict[str, JsonValue] | None = None
 
@@ -47,7 +47,7 @@ class WithdrawPayload(CommandPayloadBase):
 
     type: Literal[CommandType.WITHDRAW] = CommandType.WITHDRAW
     # Request IDs to take back; None takes back all of them.
-    target_ids: list[str] | None = None
+    target_ids: list[str] | None = Field(default=None, max_length=1_000)
 
 
 type CommandPayload = Annotated[

@@ -77,3 +77,10 @@ def test_abort_takes_no_fields() -> None:
 
 def test_withdraw_without_targets_takes_back_everything() -> None:
     assert WithdrawPayload().target_ids is None
+
+
+def test_decide_reason_and_withdraw_targets_are_bounded() -> None:
+    with pytest.raises(ValidationError):
+        DecidePayload(action="deny", reason="x" * 100_001)
+    with pytest.raises(ValidationError):
+        WithdrawPayload(target_ids=[f"req-{i}" for i in range(1_001)])

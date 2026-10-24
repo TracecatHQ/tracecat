@@ -13,7 +13,7 @@ import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import Connection, create_engine, inspect, text
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.pool import NullPool
 
 from tests.database import TEST_DB_CONFIG
@@ -118,9 +118,17 @@ def test_upgrade_matches_the_model_and_downgrade_removes_the_table(
             )
             # Autogenerate ignores CHECK constraints: a new enum member must come
             # with a migration that widens the matching constraint.
+            assert checks.keys() == {
+                "ck_agent_session_command_type",
+                "ck_agent_session_command_state",
+                "ck_agent_session_command_payload_type",
+            }
             assert {
-                name: set(re.findall(r"'(\w+)'", definition))
-                for name, definition in checks.items()
+                name: set(re.findall(r"'(\w+)'", checks[name]))
+                for name in (
+                    "ck_agent_session_command_type",
+                    "ck_agent_session_command_state",
+                )
             } == {
                 "ck_agent_session_command_type": set(CommandType),
                 "ck_agent_session_command_state": set(CommandState),
@@ -170,6 +178,7 @@ def _insert_command(
     workspace_id: uuid.UUID,
     root_session_id: uuid.UUID,
     seq: int = 1,
+    payload: str = '{"type": "steer", "text": "hi"}',
 ) -> uuid.UUID:
     command_id = uuid.uuid4()
     conn.execute(
@@ -177,7 +186,8 @@ def _insert_command(
             "INSERT INTO agent_session_command"
             " (id, root_session_id, session_id, workspace_id, request_id, seq,"
             "  type, payload, payload_hash, state)"
-            " VALUES (:id, :root, :root, :ws, :req, :seq, 'steer', '{}', 'h', 'accepted')"
+            " VALUES (:id, :root, :root, :ws, :req, :seq, 'steer', CAST(:payload AS jsonb),"
+            "  'h', 'accepted')"
         ),
         {
             "id": command_id,
@@ -185,6 +195,7 @@ def _insert_command(
             "ws": workspace_id,
             "req": command_id.hex,
             "seq": seq,
+            "payload": payload,
         },
     )
     return command_id
@@ -224,6 +235,13 @@ def test_rls_isolates_commands_by_workspace(db_url: str) -> None:
             assert command_b not in visible
 
             own = _insert_command(conn, ws_a, root_a, seq=2)
+            # Any writer, not only the store, must keep the payload's type in
+            # step with the type column.
+            with pytest.raises(IntegrityError, match="payload_type"):
+                with conn.begin_nested():
+                    _insert_command(
+                        conn, ws_a, root_a, seq=3, payload='{"type": "abort"}'
+                    )
             with pytest.raises(ProgrammingError, match="row-level security"):
                 with conn.begin_nested():
                     _insert_command(conn, ws_b, root_b, seq=2)

@@ -64,6 +64,10 @@ def upgrade() -> None:
             "state IN ('queued', 'accepted', 'applied', 'rejected', 'withdrawn', 'settled')",
             name=op.f("ck_agent_session_command_state"),
         ),
+        sa.CheckConstraint(
+            "payload ->> 'type' = type",
+            name=op.f("ck_agent_session_command_payload_type"),
+        ),
         sa.ForeignKeyConstraint(
             ["root_session_id"],
             ["agent_session.id"],
