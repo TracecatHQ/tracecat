@@ -23,6 +23,16 @@ LINEAR_HISTORY_BASE = "2f14222e0d12"
 # match the shipped graph. They become inert once the rewrite is on every base
 # and may then be deleted.
 AUDITED_REWRITES: Mapping[str, tuple[tuple[bytes, bytes], ...]] = {
+    # #3941 (c4f1a9d2e7b3) and #3961 (b99074fdcf3a) both revised c4e8a2f6d9b1
+    # and merged without a rebase. WebAuthn MFA runs after the session command
+    # table.
+    "c4f1a9d2e7b3": (
+        (b"Revises: c4e8a2f6d9b1\n", b"Revises: b99074fdcf3a\n"),
+        (
+            b'down_revision: str | None = "c4e8a2f6d9b1"\n',
+            b'down_revision: str | None = "b99074fdcf3a"\n',
+        ),
+    ),
     # #3736 (d9107f689ccf) and #3662 (e379e38b8495) both revised d45011587673
     # and merged without a rebase. Sub-cases runs after skill library installs.
     "d9107f689ccf": (
