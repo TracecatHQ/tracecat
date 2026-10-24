@@ -1,7 +1,7 @@
 """Add WebAuthn security keys, MFA recovery codes, and session MFA state.
 
 Revision ID: c4f1a9d2e7b3
-Revises: c4e8a2f6d9b1
+Revises: b99074fdcf3a
 Create Date: 2026-10-23 03:30:00.000000
 
 Additive only: new user-level tables and nullable session columns. Existing
@@ -16,7 +16,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision: str = "c4f1a9d2e7b3"
-down_revision: str | None = "c4e8a2f6d9b1"
+down_revision: str | None = "b99074fdcf3a"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
