@@ -68,12 +68,19 @@ const createUserFormSchema = z.object({
 
 type CreateUserFormValues = z.infer<typeof createUserFormSchema>
 
+type UserActionType = "promote" | "demote" | "delete" | "reset-mfa"
+
+const USER_ACTION_CONFIRM_LABELS: Record<UserActionType, string> = {
+  promote: "Promote",
+  demote: "Demote",
+  delete: "Delete",
+  "reset-mfa": "Reset security keys",
+}
+
 export function AdminUsersTable() {
   const [selectedUser, setSelectedUser] = useState<AdminUserRead | null>(null)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
-  const [actionType, setActionType] = useState<
-    "promote" | "demote" | "delete" | "reset-mfa" | null
-  >(null)
+  const [actionType, setActionType] = useState<UserActionType | null>(null)
   const [deleteConfirmationEmail, setDeleteConfirmationEmail] = useState("")
   const { user: currentUser } = useAuth()
   const {
@@ -630,11 +637,7 @@ export function AdminUsersTable() {
               }
               onClick={handleConfirmAction}
             >
-              {actionType === "promote"
-                ? "Promote"
-                : actionType === "demote"
-                  ? "Demote"
-                  : "Delete"}
+              {actionType && USER_ACTION_CONFIRM_LABELS[actionType]}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
