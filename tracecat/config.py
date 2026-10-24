@@ -136,6 +136,23 @@ TRACECAT__DSL_SCHEDULER_MAX_PENDING_TASKS = int(
 )
 """Maximum number of scheduler task coroutines allowed in-flight."""
 
+TRACECAT__SCHEDULE_OVERLAP_POLICY: Literal["ALLOW_ALL", "SKIP"] = cast(
+    Literal["ALLOW_ALL", "SKIP"],
+    (os.environ.get("TRACECAT__SCHEDULE_OVERLAP_POLICY") or "ALLOW_ALL")
+    .strip()
+    .upper(),
+)
+"""What a schedule does when a tick arrives while its previous run is still going.
+
+`ALLOW_ALL` (default) starts the new run in parallel. `SKIP` drops the tick, so a
+run that takes longer than the schedule interval cannot pile up on itself.
+"""
+if TRACECAT__SCHEDULE_OVERLAP_POLICY not in ("ALLOW_ALL", "SKIP"):
+    raise ValueError(
+        "TRACECAT__SCHEDULE_OVERLAP_POLICY must be ALLOW_ALL or SKIP, "
+        f"got: {TRACECAT__SCHEDULE_OVERLAP_POLICY}"
+    )
+
 TRACECAT__CHILD_WORKFLOW_DISPATCH_WINDOW = bound_env(
     "TRACECAT__CHILD_WORKFLOW_DISPATCH_WINDOW",
     16,
