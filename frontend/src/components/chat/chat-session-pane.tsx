@@ -528,7 +528,12 @@ export function ChatSessionPane({
   const { pending, refreshPending, withdraw } = usePendingMessages({
     workspaceId,
     chatId: chat?.id,
-    enabled: isGeneratingTurn && !!capabilities.listing_pending,
+    // The list is the owner's to withdraw; read-only viewers never fetch it.
+    enabled:
+      isGeneratingTurn &&
+      !isReadonly &&
+      !cannotExecuteAgents &&
+      !!capabilities.listing_pending,
   })
   const restoreInput = useCallback(
     (text: string) => {
@@ -558,7 +563,12 @@ export function ChatSessionPane({
       : undefined
   const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (handleMentionKeyDown(event)) return
-    if (event.key === "Escape" && steerComposer?.onEscape) {
+    // Escape during IME composition cancels the candidate, not the messages.
+    if (
+      event.key === "Escape" &&
+      !event.nativeEvent.isComposing &&
+      steerComposer?.onEscape
+    ) {
       event.preventDefault()
       steerComposer.onEscape()
     }

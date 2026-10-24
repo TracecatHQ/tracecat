@@ -865,10 +865,16 @@ async def list_pending_messages(
     """List the user messages the model has not read yet, in send order.
 
     Covers steers waiting to join the running turn and messages queued for a
-    later turn. The list is short-lived and small, so it is not paginated.
+    later turn. The list is short-lived and small, so it is not paginated. Only
+    the session's owner sees it: the messages are theirs until the model reads
+    them.
     """
     svc = AgentSessionService(session, role)
     try:
+        agent_session = await svc.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+        _require_session_write_access(role, agent_session)
         return await svc.list_pending(session_id)
     except TracecatNotFoundError as e:
         raise HTTPException(

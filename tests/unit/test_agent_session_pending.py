@@ -24,6 +24,7 @@ from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
 from tracecat.db.engine import get_async_session
 from tracecat.db.models import AgentSession
+from tracecat.exceptions import ScopeDeniedError
 
 
 class PendingBackend(DefaultBackend):
@@ -53,21 +54,30 @@ def clean_backend_registry() -> Iterator[None]:
     registry.get_agent_backends.cache_clear()
 
 
-def _role(workspace_id: uuid.UUID) -> Role:
+def _role(
+    workspace_id: uuid.UUID,
+    *,
+    user_id: uuid.UUID | None = None,
+    scopes: frozenset[str] = frozenset({"agent:read"}),
+) -> Role:
     return Role(
-        type="service",
+        type="user" if user_id else "service",
         service_id="tracecat-api",
+        user_id=user_id,
         workspace_id=workspace_id,
         organization_id=uuid.uuid4(),
-        scopes=frozenset({"agent:read"}),
+        scopes=scopes,
     )
 
 
-def _session(backend_id: str = "external") -> AgentSession:
+def _session(
+    backend_id: str = "external", created_by: uuid.UUID | None = None
+) -> AgentSession:
     workspace_id = uuid.uuid4()
     return AgentSession(
         id=uuid.uuid4(),
         workspace_id=workspace_id,
+        created_by=created_by,
         title="Test",
         entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
         entity_id=workspace_id,
@@ -82,17 +92,22 @@ def _get_pending(
     agent_session: AgentSession | None,
     backends: dict[str, DefaultBackend],
     session_id: uuid.UUID | None = None,
+    role: Role | None = None,
+    get_session: AsyncMock | None = None,
 ):
     workspace_id = agent_session.workspace_id if agent_session else uuid.uuid4()
+    actor = role or _role(workspace_id)
     app = FastAPI()
     app.include_router(router)
     role_dependency = get_args(WorkspaceActorRouteRole)[1].dependency
-    app.dependency_overrides[role_dependency] = lambda: _role(workspace_id)
+    app.dependency_overrides[role_dependency] = lambda: actor
     app.dependency_overrides[get_async_session] = lambda: AsyncMock()
     target = session_id or (agent_session.id if agent_session else uuid.uuid4())
     with (
         patch.object(
-            AgentSessionService, "get_session", AsyncMock(return_value=agent_session)
+            AgentSessionService,
+            "get_session",
+            get_session or AsyncMock(return_value=agent_session),
         ),
         patch.object(registry, "get_agent_backends", return_value=backends),
         TestClient(app) as client,
@@ -160,6 +175,45 @@ def test_pending_route_refuses_an_unavailable_backend() -> None:
     response = _get_pending(_session(backend_id="missing"), {})
 
     assert response.status_code == 409
+
+
+def test_pending_route_lets_the_owner_read_their_pending_messages() -> None:
+    owner = uuid.uuid4()
+    agent_session = _session(created_by=owner)
+    role = _role(agent_session.workspace_id, user_id=owner)
+
+    response = _get_pending(agent_session, {"external": PendingBackend()}, role=role)
+
+    assert response.status_code == 200
+
+
+def test_pending_route_hides_pending_messages_from_teammates() -> None:
+    """A teammate's unread messages stay theirs until the model reads them."""
+    agent_session = _session(created_by=uuid.uuid4())
+    backend = PendingBackend()
+    role = _role(agent_session.workspace_id, user_id=uuid.uuid4())
+
+    response = _get_pending(agent_session, {"external": backend}, role=role)
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "session_read_only"
+    assert backend.calls == []
+
+
+def test_pending_route_requires_the_agent_read_scope() -> None:
+    agent_session = _session()
+    backend = PendingBackend()
+    get_session = AsyncMock(return_value=agent_session)
+    role = _role(agent_session.workspace_id, scopes=frozenset())
+
+    # The API app maps this error to 403; the bare test app lets it propagate.
+    with pytest.raises(ScopeDeniedError):
+        _get_pending(
+            agent_session, {"external": backend}, role=role, get_session=get_session
+        )
+
+    get_session.assert_not_awaited()
+    assert backend.calls == []
 
 
 def test_pending_route_returns_404_for_an_unknown_session() -> None:

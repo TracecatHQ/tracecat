@@ -16,6 +16,7 @@ import {
 import type { ReactNode } from "react"
 
 import {
+  type AgentSessionCapabilities,
   type AgentSessionsGetSessionVercelResponse,
   type UIMessage as ApiUIMessage,
   agentSessionsControlSession,
@@ -1364,8 +1365,11 @@ describe("ChatSessionPane pending messages", () => {
     },
   ]
 
-  function chatWith(capabilities: { listing_pending?: boolean }) {
-    return { ...serverChat([]), capabilities }
+  function chatWith(
+    capabilities: AgentSessionCapabilities,
+    overrides: { is_readonly?: boolean } = {}
+  ) {
+    return { ...serverChat([]), capabilities, ...overrides }
   }
 
   function lastContext(): RunningComposerContext {
@@ -1413,6 +1417,33 @@ describe("ChatSessionPane pending messages", () => {
     expect(lastContext().pending).toEqual([])
   })
 
+  it("does not fetch pending messages for a read-only viewer", async () => {
+    renderChatSessionPane({
+      chat: chatWith({ listing_pending: true }, { is_readonly: true }),
+    })
+
+    await act(async () => undefined)
+    expect(listPending).not.toHaveBeenCalled()
+    expect(lastContext().pending).toEqual([])
+  })
+
+  it("leaves Escape to an IME composition", async () => {
+    const onEscape = jest.fn()
+    mockUseRunningComposer.mockReturnValue({
+      placeholder: "Steer the running turn...",
+      submit: async () => true,
+      onEscape,
+    })
+    renderChatSessionPane({ chat: chatWith({}) })
+
+    const input = screen.getByPlaceholderText("Steer the running turn...")
+    fireEvent.keyDown(input, { key: "Escape", isComposing: true })
+    expect(onEscape).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(input, { key: "Escape" })
+    expect(onEscape).toHaveBeenCalledTimes(1)
+  })
+
   it("refetches the pending list on request", async () => {
     renderChatSessionPane({ chat: chatWith({ listing_pending: true }) })
     await waitFor(() => expect(listPending).toHaveBeenCalledTimes(1))
@@ -1455,7 +1486,9 @@ describe("ChatSessionPane pending messages", () => {
     }
     control.mockReset()
     control.mockResolvedValue(receipt)
-    renderChatSessionPane({ chat: chatWith({ listing_pending: true }) })
+    renderChatSessionPane({
+      chat: chatWith({ listing_pending: true, withdrawing: true }),
+    })
     await waitFor(() => expect(listPending).toHaveBeenCalledTimes(1))
 
     let result: unknown
@@ -1476,7 +1509,9 @@ describe("ChatSessionPane pending messages", () => {
     const control = jest.mocked(agentSessionsControlSession)
     control.mockReset()
     control.mockRejectedValue(new Error("outcome unknown"))
-    renderChatSessionPane({ chat: chatWith({ listing_pending: true }) })
+    renderChatSessionPane({
+      chat: chatWith({ listing_pending: true, withdrawing: true }),
+    })
     await waitFor(() => expect(listPending).toHaveBeenCalledTimes(1))
 
     await act(async () => {

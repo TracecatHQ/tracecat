@@ -34,7 +34,8 @@ export interface RunningComposerContext {
   messages: UIMessage[]
   /**
    * The user's messages the model has not read yet, in send order. Empty
-   * unless `capabilities.listing_pending` and a turn is running.
+   * unless `capabilities.listing_pending`, a turn is running and the viewer
+   * can write to the chat.
    */
   pending: AgentPendingMessageRead[]
   /** Refetch `pending`, e.g. after a steer was accepted. */
