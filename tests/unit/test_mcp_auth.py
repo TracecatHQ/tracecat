@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from cryptography.fernet import Fernet
@@ -12,13 +14,14 @@ from fastmcp import FastMCP
 from fastmcp.server.auth import AccessToken, MultiAuth
 from fastmcp.server.auth.cimd import CIMDDocument
 from fastmcp.server.auth.middleware import RequireAuthMiddleware
-from fastmcp.server.auth.oauth_proxy.models import ProxyDCRClient
+from fastmcp.server.auth.oauth_proxy.models import OAuthTransaction, ProxyDCRClient
 from key_value.aio.stores.memory import MemoryStore
 from mcp.server.auth.provider import AuthorizationParams
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyHttpUrl, AnyUrl
 from starlette.applications import Starlette
-from starlette.responses import JSONResponse
+from starlette.requests import Request
+from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 from starlette.types import Receive, Scope, Send
@@ -1769,3 +1772,74 @@ async def test_resolve_org_role_superuser_uses_membership_org(
 
     assert role.organization_id == org_id
     assert role.is_platform_superuser is False
+
+
+def _idp_callback_request(query: str) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/auth/callback",
+            "query_string": query.encode(),
+            "headers": [],
+        }
+    )
+
+
+@pytest.mark.anyio
+async def test_idp_callback_forwards_access_denied_to_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+    await auth._transaction_store.put(
+        key="txn-denied",
+        value=OAuthTransaction(
+            txn_id="txn-denied",
+            client_id="client-1",
+            client_redirect_uri="http://127.0.0.1:33418/callback?keep=1",
+            client_state="client-state",
+            code_challenge="challenge",
+            code_challenge_method="S256",
+            scopes=["openid"],
+            created_at=time.time(),
+        ),
+    )
+
+    response = await auth._handle_idp_callback(
+        _idp_callback_request(
+            "error=access_denied&error_description=User+denied&state=txn-denied"
+        )
+    )
+
+    assert isinstance(response, RedirectResponse)
+    location = urlsplit(response.headers["location"])
+    assert f"{location.scheme}://{location.netloc}{location.path}" == (
+        "http://127.0.0.1:33418/callback"
+    )
+    assert parse_qs(location.query) == {
+        "keep": ["1"],
+        "error": ["access_denied"],
+        "error_description": ["User denied"],
+        "state": ["client-state"],
+    }
+    assert await auth._transaction_store.get(key="txn-denied") is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param("error=access_denied&state=unknown-txn", id="unknown-txn"),
+        pytest.param("error=server_error&state=txn", id="other-error"),
+    ],
+)
+async def test_idp_callback_keeps_error_page_when_not_forwardable(
+    monkeypatch: pytest.MonkeyPatch,
+    query: str,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+
+    response = await auth._handle_idp_callback(_idp_callback_request(query))
+
+    assert isinstance(response, HTMLResponse)
+    assert response.status_code == 400

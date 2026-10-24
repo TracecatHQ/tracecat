@@ -11,7 +11,7 @@ from base64 import urlsafe_b64decode
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, cast
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 
 import httpx
 from cryptography.fernet import Fernet
@@ -323,6 +323,15 @@ def _normalize_subject_claim(value: object) -> str | None:
     if isinstance(value, str) and (subject := value.strip()):
         return subject
     return None
+
+
+def _append_query_params(url: str, params: dict[str, str]) -> str:
+    """Return ``url`` with ``params`` appended to its query string."""
+    parts = urlsplit(url)
+    query = urlencode(
+        [*parse_qsl(parts.query, keep_blank_values=True), *params.items()]
+    )
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
 
 
 def _merge_fastmcp_token_claims(
@@ -819,6 +828,40 @@ def _create_oidc_auth() -> OIDCProxy:
             )
             return RedirectResponse(url=retry_url)
 
+        async def _forward_access_denied_to_client(
+            self,
+            *,
+            request: Request,
+        ) -> RedirectResponse | None:
+            """Send an upstream ``access_denied`` back to the MCP client.
+
+            FastMCP renders an error page for upstream errors, which leaves the
+            MCP client waiting on its callback. RFC 6749 §4.1.2.1 returns the
+            error to the client's redirect URI with its original ``state``.
+            """
+            if request.query_params.get("error") != "access_denied":
+                return None
+            txn_id = request.query_params.get("state")
+            if not txn_id:
+                return None
+            txn_model = await self._transaction_store.get(key=txn_id)
+            if txn_model is None:
+                return None
+            await self._transaction_store.delete(key=txn_id)
+
+            params = {"error": "access_denied"}
+            if description := request.query_params.get("error_description"):
+                params["error_description"] = description
+            if txn_model.client_state:
+                params["state"] = txn_model.client_state
+            logger.info(
+                "Forwarding MCP OAuth access_denied to client callback",
+                client_id=txn_model.client_id,
+            )
+            return RedirectResponse(
+                url=_append_query_params(txn_model.client_redirect_uri, params)
+            )
+
         async def _extract_upstream_claims(
             self, idp_tokens: dict[str, Any]
         ) -> dict[str, Any] | None:
@@ -902,6 +945,10 @@ def _create_oidc_auth() -> OIDCProxy:
                 request=request
             ):
                 return fallback_response
+            if denied_response := await self._forward_access_denied_to_client(
+                request=request
+            ):
+                return denied_response
 
             response = await super()._handle_idp_callback(request)
             if not isinstance(response, RedirectResponse):
@@ -1469,9 +1516,8 @@ async def resolve_org_role_for_request(
         raise ValueError(f"User {identity.email} has no organization memberships")
     if len(org_ids) > 1:
         raise ValueError(
-            "Multiple organizations resolved for caller; org-scoped tools "
-            "require org_id, a single-org token organization_id claim, "
-            "or an org:<uuid> scope."
+            "This connection covers multiple organizations; pass org_id "
+            "to choose one (list_workspaces returns each workspace's org_id)."
         )
 
     organization_id = next(iter(org_ids))

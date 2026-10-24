@@ -3553,8 +3553,10 @@ export function AgentPresetStructuredOutputPanel({
                   language="json"
                   readOnly={isSaving}
                   className={cn(
-                    "min-h-[320px] overflow-hidden rounded-lg border",
-                    !schema.ok && field.value && "border-destructive/50"
+                    "min-h-[320px] [&_.cm-editor]:rounded-lg [&_.cm-scroller]:rounded-lg",
+                    !schema.ok &&
+                      field.value &&
+                      "[&_.cm-editor]:border-destructive/50"
                   )}
                 />
               </FormControl>

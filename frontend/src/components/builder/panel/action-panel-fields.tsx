@@ -1,6 +1,5 @@
 "use client"
 
-import fuzzysort from "fuzzysort"
 import {
   BracesIcon,
   CheckIcon,
@@ -12,7 +11,7 @@ import {
   TypeIcon,
   WorkflowIcon,
 } from "lucide-react"
-import { useCallback, useMemo, useState } from "react"
+import { useDeferredValue, useMemo, useState } from "react"
 import {
   Controller,
   type ControllerRenderProps,
@@ -34,6 +33,11 @@ import {
   LockedFeatureModal,
 } from "@/components/locked-feature-modal"
 import { type FieldTypeTab, PolyField } from "@/components/polymorphic-field"
+import {
+  ActionListbox,
+  type ActionSearchKey,
+  searchActions,
+} from "@/components/registry/action-listbox"
 import {
   CustomTagInput,
   MultiTagCommandInput,
@@ -61,7 +65,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
@@ -650,7 +653,7 @@ function SingleActionTypeField({
 }: {
   field: ControllerRenderProps<FieldValues>
   onChange: (value: string) => void
-  searchKeys: (keyof RegistryActionReadMinimal)[]
+  searchKeys: ActionSearchKey[]
 }) {
   const [open, setOpen] = useState(false)
   const [lockedFeatureOpen, setLockedFeatureOpen] = useState(false)
@@ -658,46 +661,20 @@ function SingleActionTypeField({
   const { registryActions, registryActionsIsLoading } =
     useBuilderRegistryActions({ includeLocked: true })
 
-  const filterActions = useCallback(
-    (actions: RegistryActionReadMinimal[], search: string) => {
-      if (!search.trim()) {
-        return actions.map((action) => ({ obj: action, score: 0 }))
-      }
-
-      const results = fuzzysort.go<RegistryActionReadMinimal>(search, actions, {
-        all: true,
-        keys: searchKeys,
-      })
-      return results
-    },
-    [searchKeys]
+  const deferredSearch = useDeferredValue(searchValue)
+  const namespaceSortedActions = useMemo(
+    () =>
+      [...(registryActions ?? [])].sort(
+        (a, b) =>
+          a.namespace.localeCompare(b.namespace) || a.name.localeCompare(b.name)
+      ),
+    [registryActions]
   )
-
-  // Use fuzzy matching for filtering actions
-  const filteredResults = useMemo(() => {
-    if (!registryActions) return []
-    return filterActions(registryActions, searchValue)
-  }, [registryActions, searchValue])
-
-  // Sort actions by score (fuzzy match relevance) then by namespace and name
-  const sortedActions = useMemo(() => {
-    return [...filteredResults].sort((a, b) => {
-      // If there's a search, sort by fuzzy score first
-      if (searchValue.trim()) {
-        if (a.score !== b.score) {
-          return b.score - a.score // Higher score first
-        }
-      }
-
-      // Then sort by namespace
-      const namespaceComparison = a.obj.namespace.localeCompare(b.obj.namespace)
-      // If namespaces are the same, sort by name
-      if (namespaceComparison === 0) {
-        return a.obj.name.localeCompare(b.obj.name)
-      }
-      return namespaceComparison
-    })
-  }, [filteredResults, searchValue])
+  // Relevance order when searching, namespace/name order otherwise.
+  const sortedActions = useMemo(
+    () => searchActions(namespaceSortedActions, deferredSearch, searchKeys),
+    [namespaceSortedActions, deferredSearch, searchKeys]
+  )
 
   const selectedAction = useMemo(() => {
     return registryActions?.find((action) => action.action === field.value)
@@ -748,63 +725,53 @@ function SingleActionTypeField({
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[400px] p-0" align="start">
-          <Command shouldFilter={false}>
-            <CommandInput
-              placeholder="Search actions..."
-              value={searchValue}
-              onValueChange={setSearchValue}
-            />
-            <ScrollArea className="h-[300px]">
-              <CommandList>
-                <CommandEmpty className="py-6 text-center text-xs text-muted-foreground">
-                  {registryActionsIsLoading
-                    ? "Loading actions..."
-                    : "No actions found."}
-                </CommandEmpty>
-                {sortedActions.map((result) => {
-                  const action = result.obj
-                  const isLocked = action.availability?.locked ?? false
-
-                  return (
-                    <CommandItem
-                      key={action.action}
-                      value={action.action}
-                      onSelect={() => handleSelect(action)}
-                      className={cn(
-                        "cursor-pointer p-2",
-                        isLocked && "text-muted-foreground"
-                      )}
-                    >
-                      <div className="flex w-full flex-col gap-1">
-                        <div className="flex items-center gap-2">
-                          {getIcon(action.action, {
-                            className: "size-4 shrink-0 text-muted-foreground",
-                          })}
-                          <span className="font-medium">
-                            {action.default_title || action.name}
-                          </span>
-                          {isLocked ? (
-                            <LockedFeatureChip className="shrink-0" />
-                          ) : null}
-                          {action.type === "template" && (
-                            <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                              template
-                            </span>
-                          )}
-                        </div>
-                        <p className="line-clamp-2 text-xs text-muted-foreground">
-                          {action.description}
-                        </p>
-                        <span className="font-mono text-xs text-muted-foreground/70">
-                          {action.action}
-                        </span>
-                      </div>
-                    </CommandItem>
-                  )
-                })}
-              </CommandList>
-            </ScrollArea>
-          </Command>
+          <ActionListbox
+            results={sortedActions}
+            query={searchValue}
+            onQueryChange={setSearchValue}
+            autoFocus
+            estimateSize={76}
+            empty={
+              registryActionsIsLoading
+                ? "Loading actions..."
+                : "No actions found."
+            }
+            onSelect={handleSelect}
+            renderItem={({ action }) => {
+              const isLocked = action.availability?.locked ?? false
+              return (
+                <div
+                  className={cn(
+                    "flex w-full flex-col gap-1 py-2 text-sm",
+                    isLocked && "text-muted-foreground"
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    {getIcon(action.action, {
+                      className: "size-4 shrink-0 text-muted-foreground",
+                    })}
+                    <span className="font-medium">
+                      {action.default_title || action.name}
+                    </span>
+                    {isLocked ? (
+                      <LockedFeatureChip className="shrink-0" />
+                    ) : null}
+                    {action.type === "template" && (
+                      <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                        template
+                      </span>
+                    )}
+                  </div>
+                  <p className="line-clamp-2 text-xs text-muted-foreground">
+                    {action.description}
+                  </p>
+                  <span className="font-mono text-xs text-muted-foreground/70">
+                    {action.action}
+                  </span>
+                </div>
+              )
+            }}
+          />
         </PopoverContent>
       </Popover>
     </>

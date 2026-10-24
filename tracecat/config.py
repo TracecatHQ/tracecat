@@ -1102,6 +1102,12 @@ TRACECAT__AGENT_EXECUTOR_QUEUE = os.environ.get(
 This queue is reserved for `run_agent_activity` so agent runtime capacity can be
 provisioned independently from agent workflow/control-plane work."""
 
+TRACECAT__AGENT_CHAT_BACKEND = os.environ.get("TRACECAT__AGENT_CHAT_BACKEND") or "oss"
+"""Agent backend for new chat sessions that do not choose one.
+
+Applies to workspace, agent preset and case chats created through the API.
+Workflow runs, external channels and the preset builder keep the built-in backend."""
+
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = env_bool("TRACECAT__RATE_LIMIT_ENABLED", default=True)
 """Whether rate limiting is enabled for the executor service."""

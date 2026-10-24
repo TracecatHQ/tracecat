@@ -55,6 +55,13 @@ def test_operator_words_and_short_words_are_required_text() -> None:
     assert parse_case_text_query("literal:powershell").clauses[0].kind == "word"
 
 
+def test_punctuation_only_words_are_ignored_in_full_text() -> None:
+    query = parse_case_text_query("powershell - encoded")
+    assert [clause.value for clause in query.clauses] == ["powershell", "encoded"]
+    with pytest.raises(ValueError, match="letter or number"):
+        parse_case_text_query("-")
+
+
 @pytest.mark.parametrize("value", ["", "on", "  a  "])
 def test_explicit_literal_requires_shared_minimum_length(value: str) -> None:
     with pytest.raises(ValueError):

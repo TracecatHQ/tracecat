@@ -54,10 +54,10 @@ dependencies = [
     "loguru==0.7.3",
     "markdown-it-py==4.2.0",
     "minio==7.2.18",
-    "opentelemetry-api==1.43.0",
-    "opentelemetry-exporter-otlp-proto-http==1.43.0",
-    "opentelemetry-instrumentation-fastapi==0.64b0",
-    "opentelemetry-sdk==1.43.0",
+    "opentelemetry-api==1.45.1",
+    "opentelemetry-exporter-otlp-proto-http==1.45.1",
+    "opentelemetry-instrumentation-fastapi==0.66b1",
+    "opentelemetry-sdk==1.45.1",
     "orjson==3.11.7",
     "paramiko==5.0.0",
     "pgvector==0.4.2",
@@ -104,7 +104,7 @@ members = ["packages/*"]
 exclude-newer = "7 days"
 # Security fixes allowed inside the cooldown; each is also pinned exactly.
 # Remove on or after 2026-10-28: once the 7-day cutoff passes, these block upgrades.
-exclude-newer-package = { certifi = "2026-10-21T00:00:00Z", pillow = "2026-10-21T00:00:00Z", uv = "2026-10-21T00:00:00Z" }
+exclude-newer-package = { certifi = "2026-10-21T00:00:00Z", pillow = "2026-10-21T00:00:00Z", uv = "2026-10-21T00:00:00Z", virtualenv = "2026-10-18T00:00:00Z" }
 # Keep overrides only for requirements that conflict with our pinned versions.
 override-dependencies = [
     # LiteLLM requires boto3>=1.43.1,<2.0; aioboto3 pins boto3<1.40.62.
@@ -121,6 +121,7 @@ constraint-dependencies = [
     "pyasn1==0.6.4",
     "python-multipart==0.0.31",
     "urllib3==2.8.0",
+    "virtualenv==21.14.9",
 ]
 
 [dependency-groups]

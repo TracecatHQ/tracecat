@@ -12,12 +12,13 @@ import asyncio
 import math
 import os
 import re
+import ssl
 import time
 import uuid
 from collections.abc import AsyncIterable, Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
-from functools import partial
+from functools import cache, partial
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 from uuid import uuid4
@@ -1088,8 +1089,8 @@ class _UpstreamTrace:
     """What one upstream response relayed, recorded on its client span.
 
     Spans carry status codes, exception type names, the route mode, the trace
-    request ID, and byte and chunk counts: never credentials, URLs, headers,
-    bodies, or exception messages.
+    request ID, byte and chunk counts, and stream timings and progress: never
+    credentials, URLs, headers, bodies, or exception messages.
     """
 
     span: Span
@@ -1111,6 +1112,37 @@ class _UpstreamTrace:
             self.span.add_event(_FIRST_BYTE_EVENT)
         self.chunks += 1
         self.size += len(chunk)
+
+    def first_chunk(self, ttft_ms: float) -> None:
+        """Record the time to the first streamed chunk, as logged in ``ttft_ms``.
+
+        The first chunk can be stream metadata such as ``message_start`` rather
+        than a token. Like the log line, it counts from when the proxy received
+        the request, so it includes earlier attempts and their backoff.
+        """
+        self.span.set_attribute("tracecat.agent.llm_proxy.response.ttft_ms", ttft_ms)
+
+    def stream_ended(self, progress: _StreamProgress) -> None:
+        """Record how long the stream ran and how far it got.
+
+        Like the log line, the duration counts from when the proxy received the
+        request, so it includes earlier attempts and their backoff. SSE event
+        counts and ``message_stop`` are known only for ``/v1/messages`` streams,
+        which pass through the tool-use rewriter.
+        """
+        attributes = {
+            "tracecat.agent.llm_proxy.response.stream_duration_ms": progress[
+                "stream_duration_ms"
+            ],
+            "tracecat.agent.llm_proxy.response.sse_events": progress["sse_events"],
+            "tracecat.agent.llm_proxy.response.saw_message_stop": progress[
+                "saw_message_stop"
+            ],
+        }
+        # OTel drops None attribute values with a warning.
+        self.span.set_attributes(
+            {key: value for key, value in attributes.items() if value is not None}
+        )
 
     def fail(self, exc: Exception) -> None:
         """Fail the span with the exception's type name, never its message."""
@@ -1178,6 +1210,18 @@ def _is_non_critical_request(method: str | None, path: str) -> bool:
     )
 
 
+@cache
+def _upstream_ssl_context() -> ssl.SSLContext:
+    """Load the CA bundle once per process instead of per client per proxy start.
+
+    Same settings as HTTPX's default ``verify=True``, including the
+    ``SSL_CERT_FILE``/``SSL_CERT_DIR`` overrides. Both upstream clients stay on
+    HTTP/1.1, so HTTPcore's per-connection ALPN setting is identical for every
+    connection sharing this context.
+    """
+    return httpx.create_ssl_context(verify=True, trust_env=True)
+
+
 class LLMSocketProxy:
     """Unix socket proxy that forwards HTTP traffic to the LLM gateway.
 
@@ -1242,8 +1286,8 @@ class LLMSocketProxy:
                 max_keepalive_connections=20,
                 keepalive_expiry=_MANAGED_KEEPALIVE_EXPIRY_SECONDS,
             ),
+            verify=_upstream_ssl_context(),
         )
-        self._direct_client = create_outbound_http_client(timeout=self._client.timeout)
 
         self._stopping = False
         self._error_emitted = False
@@ -1295,6 +1339,20 @@ class LLMSocketProxy:
                 pass
 
         logger.info("LLM socket proxy stopped")
+
+    def _direct_client_for_request(self) -> httpx.AsyncClient:
+        """Return the direct-route client, creating it on first use.
+
+        Most runs only use the managed route, so they never build this client.
+        """
+        if self._client is None:
+            raise RuntimeError("LLM proxy client is not initialized")
+        if self._direct_client is None:
+            self._direct_client = create_outbound_http_client(
+                timeout=self._client.timeout,
+                verify=_upstream_ssl_context(),
+            )
+        return self._direct_client
 
     async def _iter_body_chunks(
         self,
@@ -1614,9 +1672,9 @@ class LLMSocketProxy:
 
         response_phase: Literal["response_headers", "error_body"] = "response_headers"
         try:
-            client = self._direct_client if route.is_direct else self._client
-            if client is None:
-                raise RuntimeError("LLM proxy client is not initialized")
+            client = (
+                self._direct_client_for_request() if route.is_direct else self._client
+            )
 
             connection_drop_retried = False
 
@@ -1968,14 +2026,17 @@ class LLMSocketProxy:
                         and started_at is not None
                     ):
                         ttft_logged = True
+                        ttft_ms = (first_chunk_at - started_at) * 1000
                         logger.info(
                             "LLM proxy first response chunk",
                             request_counter=request_counter,
                             method=method,
                             path=path,
                             trace_request_id=trace_request_id,
-                            ttft_ms=(first_chunk_at - started_at) * 1000,
+                            ttft_ms=ttft_ms,
                         )
+                        if upstream is not None:
+                            upstream.first_chunk(ttft_ms)
                     writer.write(chunk)
                     await writer.drain()
                     bytes_forwarded += len(chunk)
@@ -1990,7 +2051,10 @@ class LLMSocketProxy:
                     logger.debug("Client disconnected during response streaming")
                     return
             if is_streaming_response:
-                logger.info("LLM proxy stream finished", **stream_progress())
+                progress = stream_progress()
+                logger.info("LLM proxy stream finished", **progress)
+                if upstream is not None:
+                    upstream.stream_ended(progress)
         except Exception as exc:
             if self._stopping:
                 logger.debug("Response stream closed during proxy shutdown")
@@ -2039,13 +2103,16 @@ class LLMSocketProxy:
                         else str(exc)[:512]
                     )
                     surfaced_error = f"LLM stream failed: {detail}"
+                progress = stream_progress()
                 logger.warning(
                     "Stream error after headers sent, emitting SSE error event",
                     status_code=status_code,
                     detail=detail,
                     error_type=type(exc).__name__,
-                    **stream_progress(),
+                    **progress,
                 )
+                if upstream is not None:
+                    upstream.stream_ended(progress)
                 if path is not None and not _is_non_critical_request(method, path):
                     classification = (
                         _stream_transport_error_classification(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import gzip
+import ssl
 import uuid
 from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
 from dataclasses import replace
@@ -52,6 +53,7 @@ from tracecat.observability.otel import (
     initialize_platform_tracing,
     shutdown_platform_tracing,
 )
+from tracecat.outbound import OutboundHTTPTransport
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
@@ -1902,6 +1904,93 @@ async def test_restart_reports_active_stream_failure(short_socket_path: Path) ->
     )
 
 
+def _tls_context(client: httpx.AsyncClient) -> ssl.SSLContext | None:
+    transport = client._transport
+    assert isinstance(transport, httpx.AsyncHTTPTransport)
+    return transport._pool._ssl_context
+
+
+@pytest.mark.anyio
+async def test_proxy_clients_share_one_tls_context(short_socket_path: Path) -> None:
+    """Both upstream clients reuse the process TLS context; the direct client
+    is built on first use, keeps the outbound guard, and is closed by stop()."""
+    context = llm_proxy._upstream_ssl_context()
+    proxy = LLMSocketProxy(short_socket_path, _direct_plan())
+    await proxy.start()
+    try:
+        managed = proxy._client
+        assert managed is not None
+        assert proxy._direct_client is None
+        direct = proxy._direct_client_for_request()
+        assert proxy._direct_client_for_request() is direct
+        assert isinstance(direct._transport, OutboundHTTPTransport)
+        assert direct.timeout == managed.timeout
+        assert _tls_context(managed) is context
+        assert _tls_context(direct) is context
+    finally:
+        await proxy.stop()
+    assert direct.is_closed
+    assert proxy._direct_client is None
+
+    # A restarted proxy reuses the same context rather than reloading CAs.
+    await proxy.start()
+    try:
+        assert proxy._client is not None
+        assert _tls_context(proxy._client) is context
+    finally:
+        await proxy.stop()
+
+
+@pytest.mark.anyio
+async def test_stop_without_direct_client_closes_managed_client(
+    short_socket_path: Path,
+) -> None:
+    """stop() must tolerate a direct client that was never created."""
+    proxy = LLMSocketProxy(short_socket_path, _routing_plan())
+    await proxy.start()
+    managed = proxy._client
+    await proxy.stop()
+    assert managed is not None and managed.is_closed
+    assert proxy._direct_client is None
+    assert not proxy.socket_path.exists()
+
+
+@pytest.mark.anyio
+async def test_direct_client_is_created_only_for_direct_routes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Managed traffic never builds the direct client; direct traffic builds it
+    once and passes the shared TLS context."""
+    created: list[dict[str, object]] = []
+    proxy = LLMSocketProxy(tmp_path / "llm.sock", _direct_plan())
+    async with httpx.AsyncClient(transport=httpx.MockTransport(_ok)) as upstream:
+
+        def make_direct_client(**kwargs: object) -> httpx.AsyncClient:
+            created.append(kwargs)
+            return upstream
+
+        monkeypatch.setattr(
+            llm_proxy, "create_outbound_http_client", make_direct_client
+        )
+        proxy._client = upstream
+        for model in ("synthetic-managed", "synthetic-managed"):
+            await proxy._forward_request(
+                _request({"model": model}, headers=_LLM_HEADERS),
+                cast(asyncio.StreamWriter, _FakeWriter()),
+            )
+        assert created == []
+        assert proxy._direct_client is None
+
+        for _ in range(2):
+            await proxy._forward_request(
+                _request({"model": "customer-alias"}, headers=_LLM_HEADERS),
+                cast(asyncio.StreamWriter, _FakeWriter()),
+            )
+        assert len(created) == 1
+        assert created[0]["verify"] is llm_proxy._upstream_ssl_context()
+        assert proxy._direct_client is upstream
+
+
 @pytest.mark.anyio
 async def test_successful_managed_request_skips_diagnostic_token_verification(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -2574,7 +2663,8 @@ async def test_upstream_span_records_streamed_response_without_content(
     span_exporter: InMemorySpanExporter,
 ) -> None:
     """One client span per upstream request carries the trace request ID,
-    status, sizes and a first-byte event, but no URL, credential or content."""
+    status, sizes, stream timings and a first-byte event, but no URL,
+    credential or content."""
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -2597,7 +2687,15 @@ async def test_upstream_span_records_streamed_response_without_content(
     [span] = _upstream_spans(span_exporter)
     assert span.kind is SpanKind.CLIENT
     assert span.status.status_code is StatusCode.UNSET
-    assert dict(span.attributes or {}) == {
+    attributes = dict(span.attributes or {})
+    ttft_ms = attributes.pop("tracecat.agent.llm_proxy.response.ttft_ms")
+    stream_duration_ms = attributes.pop(
+        "tracecat.agent.llm_proxy.response.stream_duration_ms"
+    )
+    assert isinstance(ttft_ms, float)
+    assert isinstance(stream_duration_ms, float)
+    assert 0 <= ttft_ms <= stream_duration_ms
+    assert attributes == {
         "http.request.method": "POST",
         "http.route": "/v1/messages",
         "tracecat.agent.llm_proxy.route": "managed",
@@ -2606,6 +2704,8 @@ async def test_upstream_span_records_streamed_response_without_content(
         "http.response.status_code": 200,
         "http.response.body.size": len(_SSE_MESSAGE_START + _SSE_MESSAGE_STOP),
         "tracecat.agent.llm_proxy.response.chunks": 1,
+        "tracecat.agent.llm_proxy.response.sse_events": 2,
+        "tracecat.agent.llm_proxy.response.saw_message_stop": True,
     }
     [event] = span.events
     assert event.name == "tracecat.agent.llm_proxy.first_byte"
@@ -2640,10 +2740,10 @@ async def test_upstream_span_per_rate_limited_attempt(
     assert [
         (span.attributes or {})["tracecat.agent.llm_proxy.attempt"] for span in spans
     ] == [1, 2, 3]
-    assert {
+    assert [
         (span.attributes or {})["tracecat.agent.llm_proxy.trace_request_id"]
         for span in spans
-    } == {"trace-rate-limit"}
+    ] == ["trace-rate-limit"] * 3
     dropped, limited, ok = spans
     assert dropped.status.status_code is StatusCode.ERROR
     assert (dropped.attributes or {})["error.type"] == "ConnectError"
@@ -2653,6 +2753,11 @@ async def test_upstream_span_per_rate_limited_attempt(
     assert (limited.attributes or {})["http.response.status_code"] == 429
     assert ok.status.status_code is StatusCode.UNSET
     assert "error.type" not in (ok.attributes or {})
+    # JSON responses are not streams, so they carry no stream timings.
+    assert "tracecat.agent.llm_proxy.response.ttft_ms" not in (ok.attributes or {})
+    assert "tracecat.agent.llm_proxy.response.stream_duration_ms" not in (
+        ok.attributes or {}
+    )
 
 
 @pytest.mark.anyio
@@ -2681,6 +2786,12 @@ async def test_upstream_span_fails_on_stream_cut_after_headers(
     assert attributes["error.type"] == "RemoteProtocolError"
     assert attributes["http.response.status_code"] == 200
     assert attributes["tracecat.agent.llm_proxy.response.chunks"] == 1
+    assert isinstance(attributes["tracecat.agent.llm_proxy.response.ttft_ms"], float)
+    assert isinstance(
+        attributes["tracecat.agent.llm_proxy.response.stream_duration_ms"], float
+    )
+    assert attributes["tracecat.agent.llm_proxy.response.sse_events"] == 1
+    assert attributes["tracecat.agent.llm_proxy.response.saw_message_stop"] is False
     assert [event.name for event in span.events] == [
         "tracecat.agent.llm_proxy.first_byte"
     ]

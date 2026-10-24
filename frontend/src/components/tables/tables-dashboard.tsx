@@ -1,14 +1,7 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { format } from "date-fns"
-import {
-  ChevronRight,
-  CircleCheck,
-  Clock3,
-  Loader2,
-  Table2Icon,
-} from "lucide-react"
+import { ChevronRight, Loader2, Table2Icon } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useMemo, useState } from "react"
 import type { TableReadMinimal } from "@/client"
@@ -18,7 +11,7 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { TableActions } from "@/components/tables/table-actions"
 import { DeleteTableDialog } from "@/components/tables/table-delete-dialog"
-import { Badge } from "@/components/ui/badge"
+import { RowTimestamps } from "@/components/timestamps"
 import { Button } from "@/components/ui/button"
 import {
   Collapsible,
@@ -39,64 +32,8 @@ import {
 } from "@/components/ui/empty"
 import { Item, ItemContent, ItemTitle } from "@/components/ui/item"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { useGetTable, useListTables } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
-
-function getRelativeDateLabel(dateValue: string): string {
-  const timestamp = new Date(dateValue).getTime()
-  if (Number.isNaN(timestamp)) {
-    return "0m"
-  }
-
-  const diffMs = Math.max(0, Date.now() - timestamp)
-  const minuteMs = 60_000
-  const hourMs = 60 * minuteMs
-  const dayMs = 24 * hourMs
-  const monthMs = 30 * dayMs
-  const yearMs = 365 * dayMs
-
-  if (diffMs < hourMs) {
-    return `${Math.max(1, Math.floor(diffMs / minuteMs))}m`
-  }
-  if (diffMs < dayMs) {
-    return `${Math.max(1, Math.floor(diffMs / hourMs))}hr`
-  }
-  if (diffMs < monthMs) {
-    return `${Math.max(1, Math.floor(diffMs / dayMs))}d`
-  }
-  if (diffMs < yearMs) {
-    return `${Math.max(1, Math.floor(diffMs / monthMs))}mo`
-  }
-  return `${Math.max(1, Math.floor(diffMs / yearMs))}y`
-}
-
-function TableTimestampBadge({
-  icon: Icon,
-  timestamp,
-}: {
-  icon: typeof Clock3
-  timestamp: string
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Badge
-          variant="secondary"
-          className="h-5 cursor-default px-2 text-[10px] font-normal"
-        >
-          <Icon className="mr-1 size-3" />
-          {getRelativeDateLabel(timestamp)}
-        </Badge>
-      </TooltipTrigger>
-      <TooltipContent>{format(new Date(timestamp), "PPpp")}</TooltipContent>
-    </Tooltip>
-  )
-}
 
 function TableColumnsPreview({ tableId }: { tableId: string }) {
   const workspaceId = useWorkspaceId()
@@ -298,16 +235,11 @@ export function TablesDashboard() {
                               </ItemContent>
                             </Item>
 
-                            <div className="ml-auto flex shrink-0 items-center gap-2">
-                              <TableTimestampBadge
-                                icon={Clock3}
-                                timestamp={table.updated_at}
-                              />
-                              <TableTimestampBadge
-                                icon={CircleCheck}
-                                timestamp={table.created_at}
-                              />
-                            </div>
+                            <RowTimestamps
+                              className="ml-auto"
+                              createdAt={table.created_at}
+                              updatedAt={table.updated_at}
+                            />
                           </div>
 
                           <div className="flex shrink-0 items-center gap-2">

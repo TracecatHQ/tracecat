@@ -297,3 +297,23 @@ async def test_stream_cancelled_event_carries_tool_call_ids() -> None:
         "reason": "user_cancel",
         "tool_call_ids": ["toolu_aborted", "toolu_unresolved"],
     }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("message_id", ["steer-1", None])
+async def test_stream_user_message_event_becomes_a_data_part(
+    message_id: str | None,
+) -> None:
+    """A message that joins the running turn keeps the ID it was sent under."""
+    context = VercelStreamContext(message_id="msg_test")
+    event = UnifiedStreamEvent.user_message_event(
+        "Focus on the newest alert", message_id=message_id
+    )
+
+    payloads = [payload async for payload in context.handle_event(event)]
+
+    assert len(payloads) == 1
+    payload = payloads[0]
+    assert isinstance(payload, DataEventPayload)
+    assert payload.type == "data-user-message"
+    assert payload.data == {"id": message_id, "text": "Focus on the newest alert"}
