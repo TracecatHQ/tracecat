@@ -370,7 +370,8 @@
               "self-hosting/pgvector",
               "self-hosting/tls",
               "self-hosting/environment-variables",
-              "self-hosting/security"
+              "self-hosting/security",
+              "self-hosting/support"
             ]
           },
           {
