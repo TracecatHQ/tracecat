@@ -45,6 +45,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl wget jq iputils-ping git openssh-client squashfs-tools \
     && rm -rf /var/lib/apt/lists/*
 
+# Sandboxed code verifies TLS against this OS bundle, not the app's certifi.
+COPY docker/add_certifi_roots.py /tmp/add_certifi_roots.py
+RUN --mount=type=bind,source=uv.lock,target=/tmp/uv.lock \
+    python /tmp/add_certifi_roots.py /tmp/uv.lock && rm /tmp/add_certifi_roots.py
+
 # The slim base ships the stdlib without bytecode, and sandboxes mount this
 # rootfs read-only, so every sandboxed Python process would recompile the
 # stdlib from source. Checked hash-based .pyc files stay valid whatever mtimes
@@ -147,6 +152,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     squashfs-tools \
     && apt-get -y upgrade \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Same roots for host-side processes, e.g. the direct executor backend.
+COPY --from=sandbox-rootfs /usr/local/share/ca-certificates/certifi /usr/local/share/ca-certificates/certifi
+RUN update-ca-certificates
 
 # DuckDB (CLI binary + extensions) is stored as a single physical copy inside
 # the sandbox rootfs (copied in below). The executor host — including the
