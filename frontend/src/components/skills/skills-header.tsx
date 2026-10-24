@@ -10,11 +10,13 @@ import {
   Clock3,
   FolderIcon,
   ListIcon,
-  SearchIcon,
+  MousePointerClickIcon,
   TypeIcon,
 } from "lucide-react"
 import type { ComponentType } from "react"
-import { Input } from "@/components/ui/input"
+import { FilterMultiSelect } from "@/components/filters/filter-multi-select"
+import { ListHeaderSearch } from "@/components/list-header-search"
+import type { SkillAgentFilter } from "@/components/skills/use-skill-agent-filter"
 import {
   Select,
   SelectContent,
@@ -125,6 +127,7 @@ interface SkillsHeaderProps {
   onSearchChange: (query: string) => void
   sortBy: SkillsSortValue
   onSortByChange: (value: SkillsSortValue) => void
+  agentFilter: SkillAgentFilter
   view: SkillsViewMode
   onViewChange: (view: SkillsViewMode) => void
   viewSwitchEnabled?: boolean
@@ -141,14 +144,14 @@ interface SkillsHeaderProps {
 
 /**
  * List header for the skills dashboard. Mirrors the workflows header layout
- * with a slimmed control set (no tags, webhooks, schedules, or case-trigger
- * filters).
+ * with a slimmed control set: search, sort, and an agent filter.
  */
 export function SkillsHeader({
   searchQuery,
   onSearchChange,
   sortBy,
   onSortByChange,
+  agentFilter,
   view,
   onViewChange,
   viewSwitchEnabled = true,
@@ -162,34 +165,25 @@ export function SkillsHeader({
   onNextPage,
   isPaginationLoading = false,
 }: SkillsHeaderProps) {
-  const hasFilters = searchQuery.trim().length > 0 || !isDefaultSort(sortBy)
+  const hasFilters =
+    searchQuery.trim().length > 0 ||
+    !isDefaultSort(sortBy) ||
+    agentFilter.active
 
   const handleReset = () => {
     onSearchChange("")
     onSortByChange(DEFAULT_SKILL_SORT)
+    if (agentFilter.active) agentFilter.setAgentIds([])
   }
 
   return (
     <div className="shrink-0 border-b">
-      <header className="flex h-10 items-center border-b pl-3 pr-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center">
-            <SearchIcon className="size-4 text-muted-foreground" />
-          </div>
-          <Input
-            type="text"
-            placeholder="Search skills..."
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            className={cn(
-              "h-7 w-56 border-none bg-transparent p-0",
-              "text-sm",
-              "shadow-none outline-none",
-              "placeholder:text-muted-foreground",
-              "focus-visible:ring-0 focus-visible:ring-offset-0"
-            )}
-          />
-        </div>
+      <header className="flex h-10 items-center gap-3 border-b pl-3 pr-4">
+        <ListHeaderSearch
+          placeholder="Search skills..."
+          value={searchQuery}
+          onChange={(e) => onSearchChange(e.target.value)}
+        />
 
         <div className="ml-auto flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
@@ -251,6 +245,17 @@ export function SkillsHeader({
           </Select>
         ) : null}
         <SortBySelect value={sortBy} onChange={onSortByChange} />
+        <FilterMultiSelect
+          placeholder="Agents"
+          icon={MousePointerClickIcon}
+          value={agentFilter.agentIds}
+          options={agentFilter.options}
+          onChange={agentFilter.setAgentIds}
+          mode="include"
+          onModeChange={() => {}}
+          allowExclude={false}
+          emptyMessage={agentFilter.emptyMessage}
+        />
 
         {hasFilters && (
           <button

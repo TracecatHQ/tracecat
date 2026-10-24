@@ -1,7 +1,8 @@
 """PostgreSQL advisory lock helpers for distributed coordination."""
 
 import hashlib
-from collections.abc import AsyncIterator
+import uuid
+from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 
 from sqlalchemy import text
@@ -92,6 +93,28 @@ async def pg_advisory_unlock(session: AsyncSession, key: int) -> bool:
         text("SELECT pg_advisory_unlock(:key)"), {"key": key}
     )
     return result.scalar() is True
+
+
+async def lock_mcp_refresh_token_users(
+    session: AsyncSession, user_ids: Iterable[uuid.UUID]
+) -> None:
+    """Take the transaction-scoped MCP refresh-token lock of each user.
+
+    Rotation holds a user's lock until it commits, and the membership-delete
+    trigger takes it before revoking, so a removal sees a rotation's
+    replacement token. A transaction that also locks other users' token rows
+    and then removes memberships must take these locks first, or it can
+    deadlock with a rotation. Users are locked in a stable order. The key must
+    match ``revoke_mcp_tokens_on_membership_delete()``.
+    """
+    for user_id in sorted(set(user_ids)):
+        await session.execute(
+            text(
+                "SELECT pg_advisory_xact_lock(hashtextextended("
+                "'mcp_refresh_token:' || CAST(:user_id AS uuid)::text, 0))"
+            ),
+            {"user_id": user_id},
+        )
 
 
 def derive_lock_key(workspace_id: WorkspaceID, repo_url: str) -> int:

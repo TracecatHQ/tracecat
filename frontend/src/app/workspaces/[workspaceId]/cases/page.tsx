@@ -110,6 +110,7 @@ export default function CasesPage() {
     appliedSearchQuery,
     effectiveHierarchy,
     isSearchPending,
+    setSearchMode,
     setSearchQuery,
     setSortBy,
     setStatusFilter,
@@ -126,6 +127,7 @@ export default function CasesPage() {
     setTagFilter,
     setTagMode,
     setTagSortDirection,
+    setStructuredFilters,
     setDropdownFilter,
     setDropdownMode,
     setDropdownSortDirection,
@@ -160,6 +162,7 @@ export default function CasesPage() {
         isSearchPending={isSearchPending}
         members={members}
         tags={caseTags}
+        onSearchModeChange={setSearchMode}
         onSearchChange={setSearchQuery}
         onSortByChange={setSortBy}
         onStatusChange={setStatusFilter}
@@ -190,6 +193,7 @@ export default function CasesPage() {
         }
         visibleColumnIds={visibleColumnIds}
         onToggleColumn={toggleColumn}
+        onStructuredFiltersChange={setStructuredFilters}
         onDropdownFilterChange={setDropdownFilter}
         onDropdownModeChange={setDropdownMode}
         onDropdownSortDirectionChange={setDropdownSortDirection}

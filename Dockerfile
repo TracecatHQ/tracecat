@@ -35,7 +35,7 @@ RUN g++ -std=c++20 -O2 -Wall -Wextra -Werror -Wformat=2 \
 # ====================
 # Stage 2: Create minimal sandbox rootfs
 # ====================
-FROM node:22.13.1-slim AS node-bin
+FROM node:22.23.4-slim AS node-bin
 FROM python:3.12-slim-bookworm AS sandbox-rootfs
 
 ARG TARGETARCH
@@ -44,6 +44,15 @@ ARG DUCKDB_VERSION=1.4.3
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl wget jq iputils-ping git openssh-client squashfs-tools \
     && rm -rf /var/lib/apt/lists/*
+
+# The slim base ships the stdlib without bytecode, and sandboxes mount this
+# rootfs read-only, so every sandboxed Python process would recompile the
+# stdlib from source. Checked hash-based .pyc files stay valid whatever mtimes
+# the later COPY steps leave on the sources. Python still hashes each source
+# on import, so an image built on this one that patches a stdlib module never
+# runs stale bytecode.
+RUN python -m compileall -q -j0 --invalidation-mode checked-hash \
+    "$(python -c 'import sysconfig; print(sysconfig.get_path("stdlib"))')"
 
 # This rootfs is shared by run_python and agent sandboxes; CLI additions here
 # are intentionally available to both. DuckDB is not available from Bookworm
@@ -101,8 +110,8 @@ RUN set -eu; \
     duckdb --version; \
     test "$(duckdb -csv -noheader -c "SELECT count(*) FROM duckdb_extensions() WHERE extension_name IN ('json', 'httpfs', 'inet', 'fts') AND installed AND loaded;")" = "4"
 
-COPY --from=ghcr.io/astral-sh/uv:0.9.15 /uv /usr/local/bin/uv
-COPY --from=ghcr.io/astral-sh/uv:0.9.15 /uvx /usr/local/bin/uvx
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uvx /usr/local/bin/uvx
 COPY --from=node-bin /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-bin /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
@@ -117,7 +126,8 @@ ENV HOME=/tmp PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 # ====================
 # Stage 3: Shared base with runtime dependencies
 # ====================
-FROM ghcr.io/astral-sh/uv:0.9.15-python3.12-bookworm-slim AS base
+FROM python:3.12-slim-bookworm AS base
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /uvx /usr/local/bin/
 
 ENV HOST=0.0.0.0 PORT=8000
 
@@ -219,8 +229,8 @@ WORKDIR /app
 # ====================
 FROM base AS plugin-skills
 
-ARG TRACECAT_PLUGINS_REF=9fdaa69a4519f2a6e26f4a2ee9ca7fb000f0ac6e
-ARG TRACECAT_PLUGINS_ARCHIVE_SHA256=8e2d1eebb507e5193a2eca9a1b78a699806ff0263d3165c818a5f02903eb8584
+ARG TRACECAT_PLUGINS_REF=0140783181f0afcb69961661fa1474402ca46a4e
+ARG TRACECAT_PLUGINS_ARCHIVE_SHA256=408928d337e7330d10fd099d07c818d724def925eb6b77eaf0cb6ace2777f5dd
 
 # Pinned to a tracecat-plugins commit on main. Bump both values when the
 # vendored skills change so the trusted payload is verified before extraction.

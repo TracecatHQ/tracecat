@@ -318,6 +318,29 @@ class TestWorkflowFolderService:
         assert await folder_service.get_folder(parent.id) is None
         assert await folder_service.get_folder(grandchild.id) is None
 
+    async def test_delete_folder_recursive_deletes_workflows(
+        self,
+        folder_service: WorkflowFolderService,
+        workflow_id: WorkflowID,
+        session: AsyncSession,
+    ) -> None:
+        """Test recursive folder delete with delete_workflows removes the
+        folder tree and every contained workflow."""
+        parent = await folder_service.create_folder(name="parent", parent_path="/")
+        child = await folder_service.create_folder(name="child", parent_path="/parent/")
+        await folder_service.move_workflow(workflow_id, child)
+
+        await folder_service.delete_folder(
+            parent.id, recursive=True, delete_workflows=True
+        )
+
+        remaining_workflow = await session.scalar(
+            select(Workflow.id).where(Workflow.id == workflow_id)
+        )
+        assert remaining_workflow is None
+        assert await folder_service.get_folder(parent.id) is None
+        assert await folder_service.get_folder(child.id) is None
+
     async def test_workflows_in_folder(
         self,
         folder_service: WorkflowFolderService,

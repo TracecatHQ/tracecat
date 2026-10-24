@@ -1266,6 +1266,7 @@ class AgentManagementService(BaseOrgService):
         slug: str | None = None,
         preset_version_id: uuid.UUID | None = None,
         preset_version: int | None = None,
+        prune_tool_tunnels: bool = True,
     ) -> AsyncIterator[AgentConfig]:
         """Yield an agent preset configuration with provider credentials loaded.
 
@@ -1279,6 +1280,9 @@ class AgentManagementService(BaseOrgService):
             slug: Agent preset slug to load (alternative to preset_id)
             preset_version_id: Optional preset version ID to pin
             preset_version: Deprecated compatibility input; current head is used
+            prune_tool_tunnels: Drop tool tunnels for tools the version no
+                longer grants. Pass False when the caller overrides actions
+                and prunes afterwards.
         """
         if self.presets is None:
             raise TracecatAuthorizationError(
@@ -1290,6 +1294,7 @@ class AgentManagementService(BaseOrgService):
             slug=slug,
             preset_version_id=preset_version_id,
             preset_version=preset_version,
+            prune_tool_tunnels=prune_tool_tunnels,
         )
 
         credentials: dict[str, str] | None = None

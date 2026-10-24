@@ -12,6 +12,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.selectable import FromClause
 
 from tracecat.cases.constants import (
+    MAX_PAYLOAD_FIELDS,
     MAX_PAYLOAD_PATH_KEYS,
     MAX_PAYLOAD_PATHS,
     RESERVED_CASE_FIELDS,
@@ -60,6 +61,7 @@ if TYPE_CHECKING:
 CUSTOM_FIELD_PREFIX = "fields."
 CUSTOM_FIELDS_JOIN_KEY = "case_fields"
 DROPDOWN_PREFIX = "dropdowns."
+PAYLOAD_PREFIX = "payload."
 TAG_OPS = frozenset({FilterOp.CONTAINS, FilterOp.IN, FilterOp.IS_NULL})
 
 TEXT_OPS = frozenset(
@@ -255,6 +257,23 @@ class CaseFieldResolver:
 
     def resolve(self, field: str) -> ResolvedField | None:
         """Return the filter field, or ``None`` when the address is unknown."""
+        if field.startswith(PAYLOAD_PREFIX):
+            path = field.removeprefix(PAYLOAD_PREFIX).split(".")
+            if (
+                len(path) > MAX_PAYLOAD_PATH_KEYS
+                or len(field) > 1000
+                or any(not key or "\x00" in key for key in path)
+            ):
+                raise TracecatValidationError(f"Invalid payload filter path {field!r}")
+            # Tuple subscripts bind literal object keys; no user-supplied SQL or
+            # JSONPath is evaluated. JSONB equality preserves scalar types.
+            expression = Case.payload[tuple(path)]
+
+            return ResolvedField(
+                expr=expression,
+                kind=FieldKind.JSON_SCALAR,
+                allowed_ops=frozenset({FilterOp.EQ, FilterOp.NE, FilterOp.IS_NULL}),
+            )
         if field == "priority":
             return _ranked_enum_field(
                 field,
@@ -275,6 +294,9 @@ class CaseFieldResolver:
             return _joined_filter_field(dropdown, ENUM_OPS)
         if custom_field := self._resolve_custom_field_address(field):
             expression, kind, allowed_ops = self._custom_field_expression(custom_field)
+            value_type = expression.type
+            if custom_field.sql_type is SqlType.SELECT and custom_field.options:
+                value_type = sa.Enum(*custom_field.options, native_enum=False)
             return ResolvedField(
                 expr=_joined_field_predicate_factory(
                     self._custom_fields_join,
@@ -282,7 +304,7 @@ class CaseFieldResolver:
                 ),
                 kind=kind,
                 allowed_ops=allowed_ops,
-                value_type=expression.type,
+                value_type=value_type,
             )
         return None
 
@@ -399,11 +421,20 @@ def _parse_custom_field_schema(
             raise TracecatValidationError(
                 f"Case custom field {name!r} has invalid kind {raw_kind!r}"
             ) from exc
+        options = metadata.get("options")
+        if options is not None and (
+            not isinstance(options, list)
+            or any(not isinstance(option, str) for option in options)
+        ):
+            raise TracecatValidationError(
+                f"Case custom field {name!r} has invalid options"
+            )
         parsed[name] = CustomFieldDefinition(
             name=name,
             physical_name=sanitize_identifier(name),
             sql_type=sql_type,
             kind=kind,
+            options=tuple(options) if options is not None else None,
         )
     return parsed
 
@@ -442,6 +473,7 @@ def _ranked_enum_field[
         kind=FieldKind.ENUM,
         allowed_ops=RANKED_ENUM_OPS,
         value_type=column.type,
+        range_choices=tuple(str(member.value) for member in ranks),
     )
 
 
@@ -583,6 +615,10 @@ def case_payload_projection(
     paths: Sequence[Sequence[str]] = (),
 ) -> ColumnElement[dict[str, Any] | None]:
     """Select object paths in PostgreSQL, keeping the original nesting and nulls."""
+    if len(fields) > MAX_PAYLOAD_FIELDS:
+        raise TracecatValidationError(
+            f"At most {MAX_PAYLOAD_FIELDS} payload fields may be selected"
+        )
     if len(paths) > MAX_PAYLOAD_PATHS:
         raise TracecatValidationError(
             f"At most {MAX_PAYLOAD_PATHS} payload paths may be selected"

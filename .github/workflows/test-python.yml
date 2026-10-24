@@ -43,9 +43,9 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          version: "0.9.7"
+          version: "0.13.4"
           enable-cache: true
           cache-dependency-glob: |
             pyproject.toml
@@ -83,9 +83,9 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
-          version: "0.9.7"
+          version: "0.13.4"
           enable-cache: true
           cache-dependency-glob: |
             pyproject.toml
@@ -236,6 +236,15 @@ jobs:
 
           echo "Timed out waiting for Temporal search attributes: ${missing[*]}"
           exit 1
+
+      - name: Build sandbox test image
+        if: matrix.test_group == 'unit-sandbox'
+        timeout-minutes: 20
+        run: |
+          # Keep image builds out of individual smoke-test deadlines and avoid
+          # concurrent xdist workers rebuilding the same Compose service image.
+          docker build --target test --tag tracecat-sandbox-test:ci .
+          echo "TRACECAT_TEST_SANDBOX_IMAGE=tracecat-sandbox-test:ci" >> "$GITHUB_ENV"
 
       - name: Run tests
         env:

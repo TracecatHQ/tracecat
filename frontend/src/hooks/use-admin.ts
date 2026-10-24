@@ -22,6 +22,7 @@ import {
   type AgentCatalogListResponse,
   type AgentCatalogRead,
   type AuditWebhookTestResult,
+  adminCheckIpAllowlist,
   adminCreateOrganization,
   adminCreateOrganizationDomain,
   adminCreateOrganizationInvitation,
@@ -37,6 +38,7 @@ import {
   adminGetOrganizationInvitationToken,
   adminGetOrgTier,
   adminGetRegistrySettings,
+  adminGetSecuritySettings,
   adminGetTier,
   adminListOrganizationDomains,
   adminListOrganizationInvitations,
@@ -56,6 +58,7 @@ import {
   adminRegistrySyncAllRepositories,
   adminRegistrySyncRepository,
   adminResendOrganizationInvitation,
+  adminResetUserMfa,
   adminRevokeOrganizationInvitation,
   adminSyncOrgRepository,
   adminTestAuditWebhook,
@@ -64,7 +67,10 @@ import {
   adminUpdateOrganizationDomain,
   adminUpdateOrgTier,
   adminUpdateRegistrySettings,
+  adminUpdateSecuritySettings,
   adminUpdateTier,
+  type IPAllowlistCheckRequest,
+  type IPAllowlistCheckResult,
   OpenAPI,
   type OrganizationTierRead,
   type OrganizationTierUpdate,
@@ -77,6 +83,8 @@ import {
   type PlatformAuditSettingsRead,
   type PlatformAuditSettingsUpdate,
   type PlatformRegistrySettingsUpdate,
+  type PlatformSecuritySettingsRead,
+  type PlatformSecuritySettingsUpdate,
   type RegistryArtifactsBackfillStartRequest,
   type RegistryArtifactsBackfillStartResponse,
   type TierCreate,
@@ -471,10 +479,22 @@ export function useAdminUsers() {
     },
   })
 
+  const { mutateAsync: resetUserMfa, isPending: resetMfaPending } = useMutation<
+    void,
+    Error,
+    string
+  >({
+    mutationFn: async (userId) => {
+      await adminResetUserMfa({ userId })
+    },
+  })
+
   return {
     users,
     isLoading,
     error,
+    resetUserMfa,
+    resetMfaPending,
     createUser,
     createPending,
     promoteToSuperuser,
@@ -738,7 +758,10 @@ export function useAdminOrgRepositoryVersions(
 
 /* ── PLATFORM REGISTRY ─────────────────────────────────────────────────────── */
 
-export function useAdminRegistryStatus(options?: { enabled?: boolean }) {
+export function useAdminRegistryStatus(options?: {
+  enabled?: boolean
+  suppressErrorToast?: boolean
+}) {
   const {
     data: status,
     isLoading,
@@ -748,6 +771,7 @@ export function useAdminRegistryStatus(options?: { enabled?: boolean }) {
     queryKey: ["admin", "registry", "status"],
     queryFn: adminRegistryGetRegistryStatus,
     enabled: options?.enabled ?? true,
+    meta: { suppressErrorToast: options?.suppressErrorToast ?? false },
   })
 
   return {
@@ -953,6 +977,74 @@ export function useAdminAuditSettings() {
     updateAuditSettingsError,
     testAuditWebhook,
     testAuditWebhookIsPending,
+  }
+}
+
+const ADMIN_SECURITY_SETTINGS_QUERY_KEY = ["admin", "security", "settings"]
+
+/**
+ * Read, update, and probe the platform admin IP allowlist.
+ */
+export function useAdminSecuritySettings() {
+  const queryClient = useQueryClient()
+
+  const {
+    data: securitySettings,
+    isLoading: securitySettingsIsLoading,
+    error: securitySettingsError,
+  } = useQuery<PlatformSecuritySettingsRead, TracecatApiError>({
+    queryKey: ADMIN_SECURITY_SETTINGS_QUERY_KEY,
+    queryFn: adminGetSecuritySettings,
+  })
+
+  const {
+    mutateAsync: updateSecuritySettings,
+    isPending: updateSecuritySettingsIsPending,
+  } = useMutation<
+    PlatformSecuritySettingsRead,
+    TracecatApiError,
+    PlatformSecuritySettingsUpdate
+  >({
+    mutationFn: async (requestBody) =>
+      await adminUpdateSecuritySettings({ requestBody }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ADMIN_SECURITY_SETTINGS_QUERY_KEY,
+      })
+      toast({
+        title: "Updated IP allowlist",
+        description: "Platform admin IP allowlist saved successfully.",
+      })
+    },
+    onError: (error) => {
+      toast({
+        title: "Failed to update IP allowlist",
+        description: getApiErrorDetail(error) ?? "Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  const {
+    mutateAsync: checkIpAllowlist,
+    isPending: checkIpAllowlistIsPending,
+  } = useMutation<
+    IPAllowlistCheckResult,
+    TracecatApiError,
+    IPAllowlistCheckRequest
+  >({
+    mutationFn: async (requestBody) =>
+      await adminCheckIpAllowlist({ requestBody }),
+  })
+
+  return {
+    securitySettings,
+    securitySettingsIsLoading,
+    securitySettingsError,
+    updateSecuritySettings,
+    updateSecuritySettingsIsPending,
+    checkIpAllowlist,
+    checkIpAllowlistIsPending,
   }
 }
 

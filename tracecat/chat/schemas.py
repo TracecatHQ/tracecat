@@ -266,6 +266,10 @@ class ChatMessage(BaseModel):
         default=None,
         description="Turn-cancelled marker data (for kind=CANCELLED)",
     )
+    created_at: datetime | None = Field(
+        default=None,
+        description="When the agent runtime recorded the message",
+    )
 
     @classmethod
     def from_db(cls, db_msg: models.ChatMessage) -> ChatMessage | None:

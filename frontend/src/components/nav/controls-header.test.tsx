@@ -3,6 +3,11 @@ import { ControlsHeader } from "@/components/nav/controls-header"
 
 let scopes = new Set<string>()
 
+jest.mock("@/components/ai-elements/code-block", () => ({
+  CodeBlock: ({ code }: { code: string }) => <pre>{code}</pre>,
+  CodeBlockCopyButton: () => null,
+}))
+
 jest.mock("next/navigation", () => ({
   usePathname: () => "/workspaces/workspace-1/forms",
   useRouter: () => ({ push: jest.fn() }),

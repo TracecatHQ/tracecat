@@ -8,6 +8,7 @@ import type {
   CaseDurationDefinitionRead,
   CaseFieldReadMinimal,
   CasePriority,
+  CaseQuery,
   CaseReadMinimal,
   CaseSearchAggregateRead,
   CaseSeverity,
@@ -61,6 +62,7 @@ interface CasesLayoutProps {
   isSearchPending: boolean
   members?: WorkspaceMember[]
   tags?: CaseTagRead[]
+  onSearchModeChange?: (mode: "full_text" | "literal") => void
   onSearchChange: (query: string) => void
   onSortByChange: (value: CaseSortValue) => void
   onStatusChange: (status: CaseStatus[]) => void
@@ -85,6 +87,7 @@ interface CasesLayoutProps {
   durationDefinitions?: CaseDurationDefinitionRead[]
   visibleColumnIds?: string[]
   onToggleColumn?: (columnId: string) => void
+  onStructuredFiltersChange?: (filters: CaseQuery["filters"]) => void
   onDropdownFilterChange: (ref: string, values: string[]) => void
   onDropdownModeChange: (ref: string, mode: FilterMode) => void
   onDropdownSortDirectionChange: (ref: string, direction: SortDirection) => void
@@ -109,6 +112,7 @@ export function CasesLayout({
   isSearchPending,
   members,
   tags,
+  onSearchModeChange,
   onSearchChange,
   onSortByChange,
   onStatusChange,
@@ -133,6 +137,7 @@ export function CasesLayout({
   durationDefinitions,
   visibleColumnIds,
   onToggleColumn,
+  onStructuredFiltersChange,
   onDropdownFilterChange,
   onDropdownModeChange,
   onDropdownSortDirectionChange,
@@ -409,6 +414,8 @@ export function CasesLayout({
     effectiveHierarchy,
     isSearchPending,
     onSearchChange,
+    searchMode: filters.searchMode,
+    onSearchModeChange,
     sortBy: filters.sortBy,
     onSortByChange,
     statusFilter: filters.statusFilter,
@@ -453,6 +460,8 @@ export function CasesLayout({
     visibleColumnIds,
     onToggleColumn,
     dropdownFilters: filters.dropdownFilters,
+    structuredFilters: filters.structuredFilters,
+    onStructuredFiltersChange,
     onDropdownFilterChange,
     onDropdownModeChange,
     onDropdownSortDirectionChange,

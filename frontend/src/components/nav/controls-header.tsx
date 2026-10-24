@@ -80,6 +80,7 @@ import {
   WorkflowsCatalogViewToggle,
 } from "@/components/dashboard/workflows-catalog-view-toggle"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
+import { FormViewToggle } from "@/components/forms/form-view-toggle"
 import { CreateFormDialog } from "@/components/forms/forms-dashboard"
 import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
 import { Spinner } from "@/components/loading/spinner"
@@ -431,6 +432,21 @@ function SkillsActions() {
           ) : null}
         </>
       )
+    } else if (catalogView === SkillsCatalogViewMode.Library) {
+      // Library skills are installed per row; keep a disabled placeholder so
+      // the header doesn't shift when switching tabs.
+      skillActionControls = (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 bg-background"
+          disabled
+        >
+          <Plus className="mr-1 h-3.5 w-3.5" />
+          Create new
+          <ChevronDown className="ml-1 h-3.5 w-3.5" />
+        </Button>
+      )
     }
   }
 
@@ -500,7 +516,11 @@ function BreadcrumbEntityPage({
     return <Skeleton className={skeletonClassName} />
   }
 
-  return <BreadcrumbPage className="font-semibold">{label}</BreadcrumbPage>
+  return (
+    <BreadcrumbPage className="font-semibold text-muted-foreground">
+      {label}
+    </BreadcrumbPage>
+  )
 }
 
 function SkillsBreadcrumb({
@@ -574,7 +594,9 @@ function SkillLibraryProviderBreadcrumb({
         </BreadcrumbSeparator>
         <BreadcrumbItem className="gap-1.5">
           {providerSlug === undefined ? (
-            <BreadcrumbPage className="font-semibold">Library</BreadcrumbPage>
+            <BreadcrumbPage className="font-semibold text-muted-foreground">
+              Library
+            </BreadcrumbPage>
           ) : (
             <BreadcrumbLink asChild className="text-muted-foreground">
               <Link href={`/workspaces/${workspaceId}/skills/library`}>
@@ -615,7 +637,7 @@ function SkillLibraryProviderBreadcrumb({
               <span className="text-muted-foreground">/</span>
             </BreadcrumbSeparator>
             <BreadcrumbItem>
-              <BreadcrumbPage className="font-semibold">
+              <BreadcrumbPage className="font-semibold text-muted-foreground">
                 {skillSlug}
               </BreadcrumbPage>
             </BreadcrumbItem>
@@ -887,6 +909,27 @@ function CasesActions() {
         resources={["case_dropdown"]}
       />
     )
+  } else if (view === CasesViewMode.ClosureRequirements) {
+    // Nothing to push or create here; keep disabled placeholders so the
+    // header doesn't shift when switching tabs.
+    syncActions = (
+      <WorkspaceResourceSyncActions
+        label="closure requirements"
+        branchSlug="case-closure-requirements"
+        resources={["case_field", "case_dropdown"]}
+        disabled
+      />
+    )
+  } else {
+    // Cases themselves aren't synced; keep Push aligned with the settings tabs.
+    syncActions = (
+      <WorkspaceResourceSyncActions
+        label="cases"
+        branchSlug="cases"
+        resources={["case_tag", "case_field", "case_dropdown", "case_duration"]}
+        disabled
+      />
+    )
   }
 
   return (
@@ -909,7 +952,17 @@ function CasesActions() {
         <AddCaseTag />
       ) : view === CasesViewMode.Dropdowns ? (
         <AddCaseDropdown />
-      ) : view === CasesViewMode.ClosureRequirements ? null : (
+      ) : view === CasesViewMode.ClosureRequirements ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 bg-background"
+          disabled
+        >
+          <Plus className="mr-1 h-3.5 w-3.5" />
+          Create
+        </Button>
+      ) : (
         <>
           <Button
             variant="outline"
@@ -2168,7 +2221,9 @@ function FormBreadcrumb({
     })
 
   if (!enabled) {
-    return <h1 className="text-sm font-semibold">Forms</h1>
+    return (
+      <h1 className="text-sm font-semibold text-muted-foreground">Forms</h1>
+    )
   }
 
   async function setOnline(next: boolean) {
@@ -2225,7 +2280,7 @@ function FormBreadcrumb({
   )
 }
 
-/** Form detail action: open the form as a requester, in a new tab. */
+/** Form detail actions: Config / Activity tabs, and open as a requester. */
 function FormDetailActions({
   formId,
   workspaceId,
@@ -2240,17 +2295,20 @@ function FormDetailActions({
     return null
   }
   return (
-    <Button
-      asChild
-      variant="outline"
-      size="sm"
-      className="h-7 gap-1.5 bg-background"
-    >
-      <a href={`/forms/${form.id}`} target="_blank" rel="noopener noreferrer">
-        <ExternalLinkIcon className="size-3.5" />
-        Open
-      </a>
-    </Button>
+    <>
+      <FormViewToggle workspaceId={workspaceId} formId={form.id} />
+      <Button
+        asChild
+        variant="outline"
+        size="sm"
+        className="h-7 gap-1.5 bg-background"
+      >
+        <a href={`/forms/${form.id}`} target="_blank" rel="noopener noreferrer">
+          <ExternalLinkIcon className="size-3.5" />
+          Open
+        </a>
+      </Button>
+    </>
   )
 }
 
@@ -2711,7 +2769,9 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
 
   const titleContent =
     typeof pageConfig.title === "string" ? (
-      <h1 className="text-sm font-semibold">{pageConfig.title}</h1>
+      <h1 className="text-sm font-semibold text-muted-foreground">
+        {pageConfig.title}
+      </h1>
     ) : (
       pageConfig.title
     )

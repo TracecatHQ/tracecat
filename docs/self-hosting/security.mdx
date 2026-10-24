@@ -154,7 +154,7 @@ When you enable nsjail, each agent, Python script, custom action, and dependency
 
 Pass `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` to your action executor and `TRACECAT__AGENT_SANDBOX_MEMORY_MB` to `agent-executor`. Docker Compose forwards both settings. Helm chart 0.7.0 or newer exposes them as `executor.sandboxMemoryMib` and `agentExecutor.sandboxMemoryMib` and provides the required executor cgroup bootstrap.
 
-Sandboxes also have a per-process address-space guard (`rlimit_as`), defaulting to twice the memory budget: 4096 MiB for actions and Python, and 8192 MiB for agents. Set `TRACECAT__SANDBOX_ADDRESS_SPACE_MB=8192` or `TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB=16384` to override the respective guard. Size this guard above your workload's peak virtual size, since runtimes can reserve address space before using RAM. Stdio MCP connection probes use the same policy with a memory budget capped at 1024 MiB.
+Sandboxes have no per-process address-space cap (`rlimit_as`) by default, because the cgroup memory budget already bounds RAM. Set `TRACECAT__SANDBOX_ADDRESS_SPACE_MB=8192` or `TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB=16384` to add one. Size this cap well above your workload's peak virtual size, since runtimes such as DuckDB reserve far more address space than the RAM they use. Stdio MCP connection probes use the same policy with a memory budget capped at 1024 MiB.
 
 NsJail requires a writable cgroup v2 subtree with the memory controller enabled. The Compose sandbox overlay starts `python -m tracecat.sandbox.bootstrap` for executors and `python -m tracecat.agent.sandbox.cgroup` for agent executors as root to prepare the container's subtree, then drops privileges to `apiuser` before starting the worker. Other deployments must use that bootstrap with an isolated, writable container cgroup namespace, or delegate a subtree and set `TRACECAT__SANDBOX_CGROUP_PATH=/sys/fs/cgroup/action-sandboxes` for executors or `TRACECAT__AGENT_SANDBOX_CGROUP_PATH=/sys/fs/cgroup/agent-sandboxes` for agent executors. Both workers reject missing delegation before accepting activities.
 
@@ -184,6 +184,8 @@ Review that code and pin those dependencies as you would any code with direct ac
 ## Authentication
 
 Docker Compose deployments default to basic email/password authentication. For production, configure [OIDC](/authentication/oidc) or [SAML](/authentication/saml) SSO.
+
+To require a hardware security key or passkey at sign-in, set `TRACECAT__PUBLIC_APP_URL` to an HTTPS URL and turn on [multi-factor authentication](/authentication/mfa). Browsers only offer security keys on HTTPS or `localhost`, and each key stays bound to that host.
 
 See [Roles and permissions](/manage-platform/rbac) for the roles you assign to users and groups once they can sign in.
 

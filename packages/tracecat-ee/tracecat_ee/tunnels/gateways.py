@@ -13,6 +13,7 @@ from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.locks import pg_advisory_unlock, try_pg_advisory_lock
 from tracecat.db.models import Workspace, WorkspaceTunnel
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_value
@@ -32,8 +33,23 @@ from tracecat_ee.tunnels.k8s import (
 _RECONCILE_LOCK_KEY = 0x7472_6163_7475_6E6C
 
 
+TUNNELS_REQUIRE_KUBERNETES = (
+    "Tunnels require Tracecat on Kubernetes with tunnel gateways enabled "
+    "(TRACECAT__TUNNEL_GATEWAY_BACKEND=kubernetes)"
+)
+
+
+class TunnelGatewayUnavailableError(TracecatValidationError):
+    """No gateway backend is configured, so tunnels cannot be used."""
+
+
 def kubernetes_enabled() -> bool:
     return gateway_backend() is TunnelGatewayBackend.KUBERNETES
+
+
+def require_kubernetes_gateways() -> None:
+    if not kubernetes_enabled():
+        raise TunnelGatewayUnavailableError(TUNNELS_REQUIRE_KUBERNETES)
 
 
 def _decrypt(value: bytes) -> str:

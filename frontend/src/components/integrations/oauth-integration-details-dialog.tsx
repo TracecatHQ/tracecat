@@ -418,14 +418,10 @@ export function OAuthIntegrationDetailsDialog({
           <ConfirmDestructiveDialog
             open={confirmDisconnectOpen}
             onOpenChange={setConfirmDisconnectOpen}
+            identifier={{ label: "Provider name", value: providerName }}
             confirmPhrase={providerName}
             title="Disconnect integration"
-            description={
-              <>
-                Are you sure you want to disconnect from{" "}
-                <span className="font-medium">{providerName}</span>?
-              </>
-            }
+            description="Are you sure you want to disconnect this integration?"
             confirmLabel="Disconnect"
             isPending={disconnectMutation.isPending}
             onConfirm={async () => {
@@ -438,16 +434,10 @@ export function OAuthIntegrationDetailsDialog({
           <ConfirmDestructiveDialog
             open={confirmDeleteOpen}
             onOpenChange={setConfirmDeleteOpen}
+            identifier={{ label: "Provider name", value: providerName }}
             confirmPhrase={providerName}
             title="Delete custom provider"
-            description={
-              <>
-                Are you sure you want to delete{" "}
-                <span className="font-medium">{providerName}</span>? This
-                removes the provider definition and any stored credentials or
-                connections.
-              </>
-            }
+            description="Are you sure you want to delete this provider? This removes the provider definition and any stored credentials or connections."
             confirmLabel="Delete"
             isPending={deleteMutation.isPending}
             onConfirm={async () => {

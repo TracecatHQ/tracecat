@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from cachetools import LRUCache
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -27,6 +28,7 @@ from tracecat.db.models import (
 from tracecat.registry.actions.service import (
     RegistryActionsService,
     _ActionMetadataRow,
+    _CachedOrgManifest,
 )
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.versions.schemas import RegistryVersionManifest
@@ -266,6 +268,218 @@ async def test_get_actions_from_index_reuses_manifest_for_same_version(
 
     assert set(results) == set(action_names)
     assert results[action_names[0]].manifest is results[action_names[1]].manifest
+
+
+@pytest.mark.anyio
+async def test_get_actions_from_index_reuses_manifest_across_services(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_name = "acme.cached.action"
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-cached-manifest",
+        action_names=[action_name],
+    )
+
+    first = await RegistryActionsService(session, role=svc_role).get_actions_from_index(
+        [action_name]
+    )
+    service = RegistryActionsService(session, role=svc_role)
+    with patch.object(
+        RegistryVersionManifest,
+        "model_validate",
+        side_effect=AssertionError("manifest parsed again"),
+    ):
+        second = await service.get_actions_from_index([action_name])
+
+    assert second[action_name].manifest is first[action_name].manifest
+
+
+@pytest.mark.anyio
+async def test_get_action_from_index_reuses_cached_manifest(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_name = "acme.cached.single"
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-cached-single",
+        action_names=[action_name],
+    )
+
+    batch = await RegistryActionsService(session, role=svc_role).get_actions_from_index(
+        [action_name]
+    )
+    service = RegistryActionsService(session, role=svc_role)
+    with patch.object(
+        RegistryVersionManifest,
+        "model_validate",
+        side_effect=AssertionError("manifest parsed again"),
+    ):
+        single = await service.get_action_from_index(action_name)
+
+    assert single is not None
+    assert single.manifest is batch[action_name].manifest
+
+
+@pytest.mark.anyio
+async def test_org_manifest_larger_than_cache_bound_is_served_uncached(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_names = ["acme.large.first", "acme.large.second"]
+    await _seed_org_registry(
+        session,
+        role=svc_role,
+        origin="git+ssh://git@github.com/acme/large-registry.git",
+        version="large-1.0",
+        action_names=action_names,
+    )
+    org_manifests: LRUCache[tuple[uuid.UUID, uuid.UUID], _CachedOrgManifest] = LRUCache(
+        maxsize=64, getsizeof=lambda entry: entry.json_size
+    )
+    service = RegistryActionsService(session, role=svc_role)
+    with (
+        patch(
+            "tracecat.registry.actions.service.ORG_MANIFEST_CACHE_MAX_JSON_BYTES", 64
+        ),
+        patch("tracecat.registry.actions.service._org_manifests", org_manifests),
+        patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)),
+    ):
+        found = await service.get_actions_from_index(action_names)
+
+    assert set(found) == set(action_names)
+    assert len(org_manifests) == 0
+
+
+@pytest.mark.anyio
+async def test_org_manifest_with_big_integer_is_served_and_cached(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_name = "acme.bigint.action"
+    origin = "git+ssh://git@github.com/acme/bigint-registry.git"
+    repo = await _seed_org_registry(
+        session,
+        role=svc_role,
+        origin=origin,
+        version="bigint-1.0",
+        action_names=[action_name],
+    )
+    # JSONB keeps integers beyond 64 bits.
+    manifest = _make_manifest([action_name], origin=origin)
+    manifest["actions"][action_name]["interface"]["expects"] = {
+        "type": "object",
+        "properties": {"limit": {"type": "integer", "default": 2**128 - 1}},
+    }
+    await session.execute(
+        update(RegistryVersion)
+        .where(RegistryVersion.id == repo.current_version_id)
+        .values(manifest=manifest)
+    )
+    await session.commit()
+    org_manifests: LRUCache[tuple[uuid.UUID, uuid.UUID], _CachedOrgManifest] = LRUCache(
+        maxsize=4096, getsizeof=lambda entry: entry.json_size
+    )
+    service = RegistryActionsService(session, role=svc_role)
+    with (
+        patch("tracecat.registry.actions.service._org_manifests", org_manifests),
+        patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)),
+    ):
+        found = await service.get_actions_from_index([action_name])
+
+    interface = found[action_name].manifest.actions[action_name].interface
+    assert interface["expects"]["properties"]["limit"]["default"] == 2**128 - 1
+    assert len(org_manifests) == 1
+
+
+@pytest.mark.anyio
+async def test_org_manifest_nested_beyond_pydantic_json_depth_is_served(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_name = "acme.deep.action"
+    origin = "git+ssh://git@github.com/acme/deep-registry.git"
+    repo = await _seed_org_registry(
+        session,
+        role=svc_role,
+        origin=origin,
+        version="deep-1.0",
+        action_names=[action_name],
+    )
+    # Pydantic's JSON parser rejects this depth; JSONB and json.loads accept it.
+    default: object = 2**128 - 1
+    for _ in range(250):
+        default = {"a": default}
+    manifest = _make_manifest([action_name], origin=origin)
+    manifest["actions"][action_name]["interface"]["expects"] = {
+        "type": "object",
+        "properties": {"nested": {"type": "object", "default": default}},
+    }
+    await session.execute(
+        update(RegistryVersion)
+        .where(RegistryVersion.id == repo.current_version_id)
+        .values(manifest=manifest)
+    )
+    await session.commit()
+    service = RegistryActionsService(session, role=svc_role)
+    with patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)):
+        found = await service.get_actions_from_index([action_name])
+
+    interface = found[action_name].manifest.actions[action_name].interface
+    assert interface["expects"]["properties"]["nested"]["default"] == default
+
+
+@pytest.mark.anyio
+async def test_cached_org_manifest_is_never_served_to_another_org(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_name = "acme.private.action"
+    await _seed_org_registry(
+        session,
+        role=svc_role,
+        origin="git+ssh://git@github.com/acme/private-registry.git",
+        version="private-1.0",
+        action_names=[action_name],
+    )
+    service = RegistryActionsService(session, role=svc_role)
+    with patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)):
+        found = await service.get_actions_from_index([action_name])
+    assert action_name in found
+    version_id = await session.scalar(
+        select(RegistryVersion.id).where(
+            RegistryVersion.organization_id == svc_role.organization_id,
+            RegistryVersion.version == "private-1.0",
+        )
+    )
+    assert version_id is not None
+    # The other org names the cached version, as a forged index row would.
+    row = _ActionMetadataRow(
+        id=uuid.uuid4(),
+        namespace="acme.private",
+        name="action",
+        action_type="udf",
+        description="Private action",
+        default_title=None,
+        display_group=None,
+        options={},
+        doc_url=None,
+        author=None,
+        deprecated=None,
+        registry_version_id=version_id,
+        origin="git+ssh://git@github.com/acme/private-registry.git",
+        repo_id=uuid.uuid4(),
+        source="org",
+    )
+
+    other = RegistryActionsService(
+        session, role=svc_role.model_copy(update={"organization_id": uuid.uuid4()})
+    )
+    assert await other._load_action_manifests([row]) == {}
 
 
 @pytest.mark.anyio

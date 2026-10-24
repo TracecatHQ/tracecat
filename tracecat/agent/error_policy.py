@@ -324,6 +324,22 @@ def agent_llm_read_timeout(
     )
 
 
+def agent_llm_stream_interrupted(
+    error: BaseException | None = None,
+) -> RuntimeErrorClassification:
+    """Classify a managed gateway response cut off after headers were sent.
+
+    The runtime already received a partial response, so the proxy cannot retry
+    transparently. A gateway pod rollout or restart is the usual cause.
+    """
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_STREAM_INTERRUPTED,
+        message="The LLM gateway response stream was interrupted before it completed",
+        retry_disposition=RetryDisposition.RETRYABLE,
+        cause=error,
+    )
+
+
 def agent_llm_gateway_auth_failed() -> RuntimeErrorClassification:
     """Classify a rejected internal gateway credential at its trusted source."""
     return RuntimeErrorClassification.platform(
@@ -441,14 +457,19 @@ def agent_sandbox_resource_limit_exceeded(
     exceeded, and a retry hits the same cap deterministically.
     """
     limits = AgentResourceLimits()
+    address_space = (
+        "uncapped (TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB is unset)"
+        if limits.address_space_mb is None
+        else f"capped at {limits.address_space_mb} MiB "
+        "(TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB)"
+    )
     return RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.SANDBOX_RESOURCE_LIMIT_EXCEEDED,
         message=(
             "The sandbox exceeded a resource limit (memory, CPU time, or file size). "
             f"The cgroup memory budget is {limits.memory_mb} MiB "
             "(TRACECAT__AGENT_SANDBOX_MEMORY_MB). "
-            f"Per-process address space is capped at {limits.address_space_limit_mb} MiB "
-            "(TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB; defaults to twice the memory budget)."
+            f"Per-process address space is {address_space}."
         ),
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         cause=error,

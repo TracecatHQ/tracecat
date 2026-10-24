@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Run endpoint script
-  description: Run a response script on one or more Elastic Endpoints.
+  description: Run a response script on one or more Elastic Endpoints. Requires Kibana 8.18+.
   display_group: Elastic Security
   doc_url: https://www.elastic.co/docs/api/doc/kibana/operation/operation-runscriptaction
   namespace: tools.elastic_security

@@ -1297,6 +1297,54 @@ class TestTableRows:
         assert "updated_at" in updated
         assert isinstance(updated["updated_at"], datetime)
 
+    async def test_row_writes_bump_updated_at(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Upserts and updates must advance updated_at past its insert time."""
+        await tables_service.create_unique_index(table, "name")
+        rows = {
+            name: await tables_service.insert_row(
+                table, TableRowInsert(data={"name": name, "age": 1})
+            )
+            for name in ("single", "batch")
+        }
+
+        async def updated_at(name: str) -> datetime:
+            listed = await _list_rows(tables_service, table)
+            return next(row for row in listed if row["name"] == name)["updated_at"]
+
+        writes = [
+            (
+                "single",
+                lambda: tables_service.insert_row(
+                    table,
+                    TableRowInsert(data={"name": "single", "age": 2}, upsert=True),
+                ),
+            ),
+            (
+                "single",
+                lambda: tables_service.update_row(
+                    table, rows["single"]["id"], {"age": 3}
+                ),
+            ),
+            (
+                "batch",
+                lambda: tables_service.batch_insert_rows(
+                    table, [{"name": "batch", "age": 2}], upsert=True
+                ),
+            ),
+            (
+                "batch",
+                lambda: tables_service.batch_update_rows(
+                    table, [rows["batch"]["id"]], {"age": 3}
+                ),
+            ),
+        ]
+        for name, write in writes:
+            before = await updated_at(name)
+            await write()
+            assert await updated_at(name) > before
+
     async def test_insert_row_preserves_null_for_text_column(
         self, tables_service: TablesService, table: Table
     ) -> None:

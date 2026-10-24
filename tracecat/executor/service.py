@@ -840,7 +840,11 @@ async def prepare_resolved_context(
             name=tunnel_name,
             workspace_id=role.workspace_id,
             organization_id=role.organization_id,
-            wf_exec_id=str(input.run_context.wf_exec_id),
+            subject=(
+                f"agent_session:{input.agent_session_id}"
+                if input.agent_session_id is not None
+                else str(input.run_context.wf_exec_id)
+            ),
             action_ref=task.ref,
         )
 

@@ -35,8 +35,8 @@ class GeneratedWorkflowLayout(TypedDict):
     actions: list[GeneratedLayoutAction]
 
 
-NODE_HEIGHT = 300
-"""Vertical distance between the tops of consecutive rows."""
+NODE_HEIGHT = 230
+"""Vertical distance between the tops of consecutive rows (150px edge gap)."""
 
 TRIGGER_NODE_HEIGHT = 280
 """Rendered height of the trigger node with webhook, case triggers and schedules."""
@@ -50,8 +50,8 @@ FIRST_ROW_Y = NODE_HEIGHT + TRIGGER_NODE_HEIGHT - ACTION_NODE_HEIGHT
 NODE_WIDTH = 256
 """Rendered width of a builder node (matches the frontend ``w-64``)."""
 
-NODE_HORIZONTAL_GAP = 250
-"""Horizontal gap between sibling nodes (matches the frontend dagre ``nodesep``)."""
+NODE_HORIZONTAL_GAP = 120
+"""Horizontal gap between sibling nodes."""
 
 COLUMN_WIDTH = NODE_WIDTH + NODE_HORIZONTAL_GAP
 

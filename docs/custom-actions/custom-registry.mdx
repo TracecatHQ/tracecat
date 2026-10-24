@@ -28,7 +28,15 @@ You must have the "Organization Admin" role to add and manage the custom registr
   </Step>
   <Step title="Add an SSH key">
     Tracecat clones the repository over SSH.
-    Generate an SSH key pair and add the public key to the repository as a read-only deploy key (GitHub: repository Settings -> Deploy keys).
+    Generate an Ed25519 SSH key pair without a passphrase and add the public key to the repository as a read-only deploy key (GitHub: repository Settings -> Deploy keys).
+
+    ```bash
+    ssh-keygen -t ed25519 -N "" -f tracecat-registry
+    ```
+
+    <Note>
+      The custom registry only supports Ed25519 SSH keys. Tracecat rejects RSA, ECDSA, and other key types.
+    </Note>
 
     Go to Organization settings -> Custom registry -> Repository, click "Add SSH key" in the SSH key section, and paste the private key.
     The name is fixed to `github-ssh-key` and the environment to `default`. Tracecat looks the registry key up by this exact name, whichever Git host you use.
@@ -97,6 +105,17 @@ When you sync a registry, Tracecat:
   Even if there were no changes to the workflow itself.
 </Info>
 
+## Dependency conflicts
+
+When Tracecat syncs your registry, it imports your actions alongside Tracecat's own runtime packages, and your registry's dependencies take precedence.
+If your registry pins a package that Tracecat also uses to an incompatible version, the sync fails with a dependency conflict error.
+
+To fix it:
+
+- Remove the pin, or widen it to include the version Tracecat uses. Tracecat's pinned versions are in [`uv.lock`](https://github.com/TracecatHQ/tracecat/blob/main/uv.lock); switch to your release's tag to see the versions you run.
+- If a transitive dependency adds the pin, run `uv tree --invert --package <package>` to find which dependency pulls it in.
+- Avoid upper bounds on shared packages, so your registry keeps syncing when Tracecat upgrades them.
+
 ## FAQ
 
 <AccordionGroup>
@@ -120,6 +139,7 @@ When you sync a registry, Tracecat:
 
   <Accordion title="How can I add new Python dependencies?">
     You must specify new dependencies in the `dependencies` section of the `pyproject.toml` file.
+    Keep versions compatible with Tracecat's runtime packages. See [dependency conflicts](#dependency-conflicts).
   </Accordion>
 
   <Accordion title="Can I test actions without syncing on every change?">

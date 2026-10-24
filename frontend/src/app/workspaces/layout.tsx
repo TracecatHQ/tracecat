@@ -130,7 +130,17 @@ export default function WorkspaceLayout({
     router.replace("/admin")
   }, [hasNoOrgMemberships, router, user?.isSuperuser, userIsLoading])
 
-  if (workspacesLoading) {
+  // No usable session, e.g. one still waiting on MFA: sign-in routes it.
+  const signedOut = !userIsLoading && !user
+  useEffect(() => {
+    if (!signedOut) {
+      return
+    }
+    const returnUrl = encodeURIComponent(window.location.pathname)
+    router.replace(`/sign-in?returnUrl=${returnUrl}`)
+  }, [router, signedOut])
+
+  if (signedOut || workspacesLoading) {
     return <CenteredSpinner />
   }
   if (hasNoOrgMemberships) {
@@ -289,33 +299,30 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
     return <>{children}</>
   }
 
-  // Cases pages have their own layout with an optional chat sidebar.
-  if (isCasesPage) {
-    return <>{children}</>
-  }
+  // Cases, Inbox, Tables and Forms layouts render their own inset and side
+  // panels. The app sidebar stays here, outside the route loading boundary,
+  // so it is not unmounted while those segments load.
+  const routeOwnsInset =
+    isCasesPage ||
+    isInboxPage ||
+    isTablesPage ||
+    Boolean(pathname?.match(/\/forms(\/|$)/))
 
-  // Inbox pages have their own layout with chat sidebar
-  if (isInboxPage) {
-    return <>{children}</>
-  }
-
-  // Tables and Forms pages have their own layouts.
-  if (isTablesPage || pathname?.match(/\/forms(\/|$)/)) {
-    return <>{children}</>
-  }
-
-  // All other workspace pages get the app sidebar
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset>
-        <CaseSelectionProvider>
-          <div className="flex h-full flex-1 flex-col">
-            <ControlsHeader />
-            <div className="flex-1 overflow-y-scroll">{children}</div>
-          </div>
-        </CaseSelectionProvider>
-      </SidebarInset>
+      {routeOwnsInset ? (
+        children
+      ) : (
+        <SidebarInset>
+          <CaseSelectionProvider>
+            <div className="flex h-full flex-1 flex-col">
+              <ControlsHeader />
+              <div className="flex-1 overflow-y-scroll">{children}</div>
+            </div>
+          </CaseSelectionProvider>
+        </SidebarInset>
+      )}
     </SidebarProvider>
   )
 }
@@ -347,7 +354,13 @@ function WorkflowView({
   workflowId: string
 }) {
   return (
-    <WorkflowProvider workspaceId={workspaceId} workflowId={workflowId}>
+    // Remount per workflow so builder state (selected node, drafts, canvas)
+    // from the previous workflow never leaks into the next one.
+    <WorkflowProvider
+      key={workflowId}
+      workspaceId={workspaceId}
+      workflowId={workflowId}
+    >
       <ReactFlowProvider>
         <WorkflowBuilderProvider>{children}</WorkflowBuilderProvider>
       </ReactFlowProvider>

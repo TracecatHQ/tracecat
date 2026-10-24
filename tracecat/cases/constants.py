@@ -1,4 +1,5 @@
 RESERVED_CASE_FIELDS = ["id", "created_at", "updated_at", "case_id"]
 
+MAX_PAYLOAD_FIELDS = 100
 MAX_PAYLOAD_PATHS = 100
 MAX_PAYLOAD_PATH_KEYS = 32

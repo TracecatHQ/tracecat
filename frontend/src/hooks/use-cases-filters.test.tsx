@@ -4,8 +4,8 @@ import {
   type CaseReadMinimal,
   type CasesSearchCaseAggregatesResponse,
   type CasesSearchCasesResponse,
-  casesSearchCaseAggregates,
-  casesSearchCases,
+  casesQueryCaseAggregates,
+  casesQueryCases,
 } from "@/client"
 import { CancelablePromise } from "@/client/core/CancelablePromise"
 import { useCases } from "@/hooks/use-cases"
@@ -13,8 +13,8 @@ import { QueryClient, QueryClientProvider } from "@/lib/query"
 import { WorkspaceIdProvider } from "@/providers/workspace-id"
 
 jest.mock("@/client", () => ({
-  casesSearchCases: jest.fn(),
-  casesSearchCaseAggregates: jest.fn(),
+  casesQueryCases: jest.fn(),
+  casesQueryCaseAggregates: jest.fn(),
 }))
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
@@ -65,7 +65,7 @@ function setup(initialWorkspaceId = WORKSPACE_ID) {
 
 function mockCasesResponse(response: CasesSearchCasesResponse) {
   jest
-    .mocked(casesSearchCases)
+    .mocked(casesQueryCases)
     .mockImplementation(
       () => new CancelablePromise((resolve) => resolve(response))
     )
@@ -73,7 +73,7 @@ function mockCasesResponse(response: CasesSearchCasesResponse) {
 
 function mockAggregateResponse(response: CasesSearchCaseAggregatesResponse) {
   jest
-    .mocked(casesSearchCaseAggregates)
+    .mocked(casesQueryCaseAggregates)
     .mockImplementation(
       () => new CancelablePromise((resolve) => resolve(response))
     )
@@ -82,13 +82,13 @@ function mockAggregateResponse(response: CasesSearchCaseAggregatesResponse) {
 describe("useCases exact-first requests", () => {
   beforeEach(() => {
     window.localStorage.clear()
-    jest.mocked(casesSearchCases).mockReset()
+    jest.mocked(casesQueryCases).mockReset()
     mockCasesResponse({
       items: [],
       has_more: false,
       total_estimate: 0,
     })
-    jest.mocked(casesSearchCaseAggregates).mockReset()
+    jest.mocked(casesQueryCaseAggregates).mockReset()
     mockAggregateResponse({
       total: 0,
       status_groups: {
@@ -112,15 +112,17 @@ describe("useCases exact-first requests", () => {
       result.current.setSearchQuery("synthetic")
     })
     await waitFor(() =>
-      expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect(casesQueryCases).toHaveBeenLastCalledWith(
         expect.objectContaining({
           workspaceId: WORKSPACE_ID,
-          searchTerm: "synthetic",
-          startTime: expect.any(String),
-          hierarchy: "all",
-          status: ["new"],
-          priority: ["high"],
-          tags: ["synthetic-tag"],
+          requestBody: expect.objectContaining({
+            search_term: "synthetic",
+            start_time: expect.any(String),
+            hierarchy: "all",
+            status: ["new"],
+            priority: ["high"],
+            tags: ["synthetic-tag"],
+          }),
         })
       )
     )
@@ -136,20 +138,22 @@ describe("useCases exact-first requests", () => {
         result.current.setSearchQuery(query)
       })
       await waitFor(() =>
-        expect(casesSearchCases).toHaveBeenLastCalledWith(
+        expect(casesQueryCases).toHaveBeenLastCalledWith(
           expect.objectContaining({
             workspaceId: WORKSPACE_ID,
-            searchTerm: query,
-            promoteExactMatch: true,
-            startTime: expect.any(String),
-            status: ["new"],
-            tags: ["synthetic-tag"],
+            requestBody: expect.objectContaining({
+              search_term: query,
+              promote_exact_match: true,
+              start_time: expect.any(String),
+              status: ["new"],
+              tags: ["synthetic-tag"],
+            }),
           })
         )
       )
-      const request = jest.mocked(casesSearchCases).mock.calls.at(-1)?.[0]
-      expect(request).not.toHaveProperty("shortId")
-      expect(request).not.toHaveProperty("caseId")
+      const request = jest.mocked(casesQueryCases).mock.calls.at(-1)?.[0]
+      expect(request?.requestBody).not.toHaveProperty("short_id")
+      expect(request?.requestBody).not.toHaveProperty("case_id")
       expect(result.current.filters.createdAfter).toEqual({
         type: "preset",
         value: "1m",
@@ -177,11 +181,13 @@ describe("useCases exact-first requests", () => {
       result.current.setSearchQuery("CASE-0042")
     })
     await waitFor(() =>
-      expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect(casesQueryCases).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          searchTerm: "CASE-0042",
-          promoteExactMatch: true,
-          matchNone: true,
+          requestBody: expect.objectContaining({
+            search_term: "CASE-0042",
+            promote_exact_match: true,
+            match_none: true,
+          }),
         })
       )
     )
@@ -190,7 +196,7 @@ describe("useCases exact-first requests", () => {
   })
 
   it("returns no result for an ID in another workspace and isolates caches", async () => {
-    jest.mocked(casesSearchCases).mockImplementation((request) => {
+    jest.mocked(casesQueryCases).mockImplementation((request) => {
       const items = request.workspaceId === OTHER_WORKSPACE_ID ? [OLD_CASE] : []
       return new CancelablePromise((resolve) =>
         resolve({
@@ -214,10 +220,12 @@ describe("useCases exact-first requests", () => {
     act(() => changeWorkspace(OTHER_WORKSPACE_ID))
     expect(result.current.appliedSearchQuery).toBe("synthetic workspace search")
     await waitFor(() => expect(result.current.cases).toEqual([OLD_CASE]))
-    expect(casesSearchCases).toHaveBeenLastCalledWith(
+    expect(casesQueryCases).toHaveBeenLastCalledWith(
       expect.objectContaining({
         workspaceId: OTHER_WORKSPACE_ID,
-        searchTerm: "synthetic workspace search",
+        requestBody: expect.objectContaining({
+          search_term: "synthetic workspace search",
+        }),
       })
     )
     act(() => changeWorkspace(WORKSPACE_ID))
@@ -233,8 +241,8 @@ describe("useCases exact-first requests", () => {
       is_exact_match: true,
       is_outside_filters: true,
     }
-    jest.mocked(casesSearchCases).mockImplementation((request) => {
-      const items = request.searchTerm ? [promoted] : []
+    jest.mocked(casesQueryCases).mockImplementation((request) => {
+      const items = request.requestBody.search_term ? [promoted] : []
       return new CancelablePromise((resolve) =>
         resolve({ items, has_more: false, total_estimate: 0 })
       )

@@ -37,7 +37,11 @@ from tracecat.auth.api_keys import (
     verify_api_key,
 )
 from tracecat.auth.executor_tokens import verify_executor_token
-from tracecat.auth.ip_allowlist_enforcement import enforce_org_ip_allowlist
+from tracecat.auth.ip_allowlist_enforcement import (
+    enforce_org_ip_allowlist,
+    enforce_platform_admin_ip_allowlist,
+)
+from tracecat.auth.mfa.dependencies import VerifiedMfaSession, enforce_step_up
 from tracecat.auth.secrets import get_service_key
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.auth.users import (
@@ -1441,12 +1445,16 @@ async def _require_superuser(
 
     Returns a PlatformRole (not Role) to enforce type separation between
     platform and org-scoped operations.
+
+    The platform admin IP allowlist is checked after the superuser check so
+    non-superusers never learn whether one is configured.
     """
     if not user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Forbidden",
         )
+    await enforce_platform_admin_ip_allowlist()
     return PlatformRole(
         type="user",
         user_id=user.id,
@@ -1454,12 +1462,33 @@ async def _require_superuser(
     )
 
 
+require_superuser = _require_superuser
+
 SuperuserRole = Annotated[PlatformRole, Depends(_require_superuser)]
 """Dependency for platform admin (superuser) operations.
 
 Returns a PlatformRole which is distinct from Role - platform operations
 are not scoped to any organization or workspace.
 """
+
+
+async def _require_superuser_step_up(
+    role: SuperuserRole,
+    mfa_session: VerifiedMfaSession,
+) -> PlatformRole:
+    """Require a recent security key verification for a privileged admin action.
+
+    Applies to platform admin actions that change or could compromise customer
+    organizations. ``TRACECAT__PLATFORM_ADMIN_MFA_BYPASS`` skips it.
+    """
+    await enforce_step_up(mfa_session, allow_platform_admin_bypass=True)
+    return role
+
+
+require_superuser_step_up = _require_superuser_step_up
+
+SuperuserStepUpRole = Annotated[PlatformRole, Depends(_require_superuser_step_up)]
+"""``SuperuserRole`` plus a security key verification within the step-up window."""
 
 
 # --- Authenticated User Only (No Organization Context) ---

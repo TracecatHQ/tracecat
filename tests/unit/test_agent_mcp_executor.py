@@ -423,3 +423,11 @@ def test_build_tool_workflow_alias_attrs_uses_claude_code_prefix() -> None:
     assert attrs[0].key.name == TemporalSearchAttr.ALIAS.value
     assert attrs[0].value == "cc:toolu_123"
     assert executor.build_tool_workflow_alias_attrs(None) == []
+
+
+def test_build_run_input_sets_tool_tunnel() -> None:
+    lock = RegistryLock(origins={"tracecat_registry": "1.0.0"}, actions={})
+    tunneled = executor.build_run_input("core.http_request", {}, lock, tunnel="onprem")
+    direct = executor.build_run_input("core.http_request", {}, lock)
+    assert tunneled.task.tunnel == "onprem"
+    assert direct.task.tunnel is None

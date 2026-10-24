@@ -71,6 +71,7 @@ class AgentActionArgs(BaseModel):
     enable_thinking: bool = True
     base_url: str | None = None
     tool_approvals: dict[str, bool] | None = None
+    tool_tunnels: dict[str, str] | None = None
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
 
     @model_validator(mode="before")

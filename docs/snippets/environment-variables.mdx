@@ -9,6 +9,8 @@
 | `TRACECAT__TRUSTED_PROXY_CIDRS` | `127.0.0.1/32` | Space-separated proxy CIDRs that Caddy trusts when deriving the client address from `X-Forwarded-For`. Set this when another proxy or load balancer runs in front of Caddy. |
 | `TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS` | | Comma-separated IPs or CIDRs, e.g. `10.0.12.34/32,10.42.0.0/16`, that custom LLM providers (LiteLLM, vLLM, Ollama, custom sources) and remote MCP servers may resolve to. Tracecat rejects private, loopback, and link-local destinations with `Host is not allowed` unless they are listed here. Set it on `api`, `agent-worker`, `litellm`, and `agent-executor`. See [Private endpoints](/agents/llm-providers#private-endpoints). |
 | `TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS` | loopback + private ranges | Comma-separated CIDRs of proxies behind which the API runs (Caddy, the UI container, a load balancer). `X-Forwarded-For` entries from these hops are skipped when resolving the client IP for audit logs. |
+| `TRACECAT__PLATFORM_ADMIN_IP_ALLOWLIST_BYPASS` | `false` | Break-glass override for the API service. When `true`, Tracecat skips the [platform admin IP allowlist](/manage-platform/ip-allowlist#platform-admin-ip-allowlist) so a locked-out platform admin can recover. Organization allowlists still apply. Remove it after recovery. |
+| `TRACECAT__PLATFORM_ADMIN_MFA_BYPASS` | `false` | Break-glass override for the API service. When `true`, Tracecat skips security key sign-in and step-up checks for platform admins so an admin who lost every key can recover. Organization MFA policies still apply. Remove it after recovery. |
 
 ### Application
 
@@ -75,7 +77,7 @@
 | `TRACECAT__EXECUTOR_BACKEND` | `direct` | Execution mode for actions, agents, registry sync, and Python scripts. `direct` runs without nsjail; `nsjail` requires nsjail isolation. `ephemeral` is a compatibility alias for `nsjail`. |
 | `TRACECAT__EXECUTOR_CLIENT_TIMEOUT` | `300` | Maximum seconds one action function call may run. The `executor` service caps each call at this value and uses it as the action's timeout when `timeout` is `0`. A template action's total runtime and `core.script.run_python` scripts follow the action's own `timeout` instead. The Compose files and the Fargate module do not pass this variable to the `executor` service, so set it on that container directly to raise the cap. |
 | `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` | `2048` | Aggregate cgroup v2 memory limit in MiB per `core.script.run_python`, dependency-install, and custom action sandbox, shared by its processes. Applied by the nsjail backend. Exceeding it during script or action execution fails as `sandbox.resource_limit_exceeded`; an over-budget dependency installation fails as a package installation failure. The container memory limit still applies on top. See [Resource limits](/self-hosting/security#resource-limits). |
-| `TRACECAT__SANDBOX_ADDRESS_SPACE_MB` | Twice the memory budget | Per-process virtual address-space cap in MiB for action, Python, and dependency-install sandboxes. Requires nsjail. Set a positive integer to override the computed default. |
+| `TRACECAT__SANDBOX_ADDRESS_SPACE_MB` | Uncapped | Per-process virtual address-space cap in MiB for action, Python, and dependency-install sandboxes. Requires nsjail. The cgroup memory budget bounds RAM; set a positive integer to also cap address space. |
 | `TRACECAT__RESULT_EXTERNALIZATION_ENABLED` | `true` | Store large action results in blob storage instead of Temporal history. |
 | `TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES` | `128000` | Byte threshold above which payloads are externalized to blob storage. |
 | `TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS` | `30` | Retention period in days for workflow artifacts. Objects older than this are automatically deleted via S3 lifecycle rules. Set to `0` to disable. |
@@ -94,11 +96,11 @@ Set all four on the `api` service to enable [managed tunnels](/manage-platform/t
 | `TRACECAT__PANGOLIN_API_KEY` | | Pangolin organization API key with site, client, and private resource permissions. Store it in your secrets manager. |
 | `TRACECAT__PANGOLIN_API_KEY__ARN` | | AWS Secrets Manager ARN of the Pangolin API key, used instead of `TRACECAT__PANGOLIN_API_KEY`. Read by the `api` service only. |
 
-These settings control the [tunnel gateways](/manage-platform/tunnels#run-the-tunnel-gateway) that the `api` service runs. Executors read `TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE` and `TRACECAT__TUNNEL_GATEWAY_PORT` to find a tunnel's gateway.
+These settings control the [tunnel gateways](/self-hosting/kubernetes#tunnels) that the `api` service runs on Kubernetes. Executors read `TRACECAT__TUNNEL_GATEWAY_HOST_TEMPLATE` and `TRACECAT__TUNNEL_GATEWAY_PORT` to find a tunnel's gateway.
 
 | Variable | Default | Description |
 | :------- | :------ | :---------- |
-| `TRACECAT__TUNNEL_GATEWAY_BACKEND` | `none` | `kubernetes` to have the `api` service create and reconcile one gateway per tunnel, or `none` to run gateways yourself. |
+| `TRACECAT__TUNNEL_GATEWAY_BACKEND` | `none` | `kubernetes` to have the `api` service create and reconcile one gateway per tunnel. `none` disables tunnels: they can't be created and tunneled traffic fails. |
 | `TRACECAT__TUNNEL_GATEWAY_NAMESPACE` | `tracecat-tunnels` | Kubernetes namespace for gateway Secrets, Deployments, and Services. |
 | `TRACECAT__TUNNEL_GATEWAY_IMAGE` | `ghcr.io/tracecathq/tracecat-tunnel-gateway:<version>` | Gateway image. Defaults to the running Tracecat version; set `repository@sha256:<digest>` to pin an immutable image. |
 | `TRACECAT__TUNNEL_GATEWAY_BLOCKED_CIDRS` | | Comma-separated CIDRs gateways never dial, such as the cluster's pod and service ranges. |
@@ -110,11 +112,11 @@ These settings control the [tunnel gateways](/manage-platform/tunnels#run-the-tu
 
 | Variable | Default | Description |
 | :------- | :------ | :---------- |
-| `TRACECAT__AGENT_SANDBOX_TIMEOUT` | `3600` | Ceiling in seconds for the `timeout` of `ai.agent`, `ai.action`, and `ai.preset_agent`. Tracecat clamps explicit values between `1800` and this value, and unset means `1800`. A ceiling below `1800` replaces both the floor and the default. Agent chat sessions run up to this value. |
-| `TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT` | `3660` | Seconds the agent executor worker waits for running agent activities to finish during a planned shutdown. Defaults to `TRACECAT__AGENT_SANDBOX_TIMEOUT` plus `60`. |
+| `TRACECAT__AGENT_SANDBOX_TIMEOUT` | `10800` | Ceiling in seconds for the `timeout` of `ai.agent`, `ai.action`, and `ai.preset_agent`. Tracecat clamps explicit values between `1800` and this value, and unset means `7200`. A lower ceiling caps both the default and the minimum. Agent chat turns use the `7200` default, capped by this value. |
+| `TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT` | `10860` | Seconds the agent executor worker waits for running agent activities to finish during a planned shutdown. Defaults to `TRACECAT__AGENT_SANDBOX_TIMEOUT` plus `60`. |
 | `TRACECAT__LLM_PROXY_READ_TIMEOUT` | `600` | Seconds the sandbox LLM proxy waits for the next byte from the model gateway before failing the request with `504`. Separate from the agent timeout. |
 | `TRACECAT__AGENT_SANDBOX_MEMORY_MB` | `4096` | Cgroup v2 memory budget in MiB shared by an agent sandbox and its child processes. Requires nsjail and cgroup delegation. The outer container memory limit still applies. See [Resource limits](/self-hosting/security#resource-limits). |
-| `TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB` | Twice the memory budget | Per-process virtual address-space cap in MiB for agent sandboxes. Requires nsjail; this cap is not enforced in direct mode. Set a positive integer to override the computed default. |
+| `TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB` | Uncapped | Per-process virtual address-space cap in MiB for agent sandboxes. Requires nsjail; this cap is not enforced in direct mode. The cgroup memory budget bounds RAM; set a positive integer to also cap address space. |
 
 ### Blob storage
 

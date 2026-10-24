@@ -112,6 +112,7 @@ with workflow.unsafe.imports_passed_through():
         ToolApproved,
         ToolDenied,
         clamp_agent_timeout_seconds,
+        granted_tool_tunnels,
     )
     from tracecat.agent.workflow_config import agent_config_from_payload
     from tracecat.auth.types import Role
@@ -232,6 +233,7 @@ def _build_approved_tool_run_input(
     execution_id: uuid.UUID,
     logical_time: datetime,
     agent_session_id: uuid.UUID,
+    tool_tunnels: dict[str, str] | None = None,
 ):
     action_name = normalize_mcp_tool_name(tool_call.tool_name)
     return build_run_input(
@@ -243,6 +245,7 @@ def _build_approved_tool_run_input(
         execution_id=execution_id,
         logical_time=logical_time,
         agent_session_id=agent_session_id,
+        tunnel=(tool_tunnels or {}).get(action_name),
     )
 
 
@@ -309,6 +312,7 @@ def _start_registry_tool_call(
     service_role: Role,
     logical_time: datetime,
     agent_session_id: uuid.UUID,
+    tool_tunnels: dict[str, str] | None = None,
 ) -> workflow.ActivityHandle[Any]:
     """Execute an approved registry action on the executor task queue."""
     return workflow.start_activity(
@@ -322,6 +326,7 @@ def _start_registry_tool_call(
                 execution_id=workflow.uuid4(),
                 logical_time=logical_time,
                 agent_session_id=agent_session_id,
+                tool_tunnels=tool_tunnels,
             ),
             service_role,
         ],
@@ -417,6 +422,7 @@ class AgentScopeSpec(BaseModel):
                 actions=self.config.actions,
             ),
             tool_approvals=self.config.tool_approvals,
+            tool_tunnels=self.config.tool_tunnels,
             mcp_servers=self.config.mcp_servers,
             internal_tool_context=self.internal_tool_context,
             fail_on_mcp_discovery_error=self.fail_on_mcp_discovery_error,
@@ -675,6 +681,11 @@ class DurableAgentWorkflow:
                 if override_cfg.output_type is not None:
                     preset_config.output_type = override_cfg.output_type
 
+            # Prune against the final actions: an override can re-add a tool
+            # the preset's skills no longer grant, and it keeps its tunnel.
+            preset_config.tool_tunnels = granted_tool_tunnels(
+                preset_config.tool_tunnels, preset_config.actions
+            )
             cfg = preset_config
         else:
             if args.agent_args.config is None:
@@ -730,6 +741,7 @@ class DurableAgentWorkflow:
             allowed_internal_tools=build_result.allowed_internal_tools,
             internal_tool_context=internal_tool_context,
             registry_lock=build_result.registry_lock,
+            tool_tunnels=build_result.tool_tunnels,
             ttl_seconds=ttl_seconds,
         )
 
@@ -790,6 +802,7 @@ class DurableAgentWorkflow:
                             actions=cfg.actions,
                         ),
                         tool_approvals=cfg.tool_approvals,
+                        tool_tunnels=cfg.tool_tunnels,
                         mcp_servers=cfg.mcp_servers,
                         internal_tool_context=internal_tool_context,
                     ),
@@ -1990,6 +2003,7 @@ class DurableAgentWorkflow:
                             service_role=service_role,
                             logical_time=logical_time,
                             agent_session_id=self.session_id,
+                            tool_tunnels=mcp_build_result.tool_tunnels,
                         )
                     )
                     result = PendingToolResult(

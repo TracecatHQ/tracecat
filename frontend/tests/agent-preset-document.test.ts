@@ -185,6 +185,7 @@ describe("buildAgentPresetVirtualFiles round-trip symmetry", () => {
       "namespaces",
       "mcp_integrations",
       "tool_approvals",
+      "tool_tunnels",
       "subagents",
       "skills",
       "library_skills",
@@ -210,6 +211,14 @@ describe("buildAgentPresetVirtualFiles determinism", () => {
       })
     ).config
     expect(shuffled).toBe(baseline)
+  })
+
+  it("shows a change that only reroutes a tool", () => {
+    const rerouted = renderPayload(
+      buildPayload({ tool_tunnels: { "tools.aws.list_buckets": "onprem" } })
+    ).config
+    expect(rerouted).not.toBe(baseline)
+    expect(rerouted).toContain("tunnel: onprem")
   })
 
   it("ignores tool approval key order", () => {
@@ -390,6 +399,7 @@ describe("buildAgentPresetVirtualFiles normalization", () => {
         "namespaces: []",
         "mcp_integrations: []",
         "tool_approvals: []",
+        "tool_tunnels: []",
         "subagents:",
         "  agents: []",
         "skills: []",

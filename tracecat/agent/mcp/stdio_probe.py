@@ -424,7 +424,7 @@ async def probe_stdio_mcp_tools_in_sandbox(
                         network=SandboxNetworkRequest(SandboxNetworkPurpose.AGENT),
                         resources=ResourceLimits(
                             memory_mb=probe_limits.memory_mb,
-                            address_space_mb=probe_limits.address_space_limit_mb,
+                            address_space_mb=probe_limits.address_space_mb,
                             cpu_seconds=hard_timeout_seconds,
                             max_open_files=512,
                             max_processes=128,

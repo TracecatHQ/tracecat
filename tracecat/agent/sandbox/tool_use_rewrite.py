@@ -85,12 +85,19 @@ class ToolUseStreamRewriter:
     block is re-emitted with a single delta carrying the sanitized JSON;
     otherwise the original events are forwarded verbatim. Everything else
     streams through untouched, so text deltas keep their latency.
+
+    With ``rewrite_read=False`` no block is buffered or rewritten; the stream
+    is only observed for errors and progress.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, rewrite_read: bool = True) -> None:
+        self._rewrite_read = rewrite_read
         self._buffer = b""
         self._pending: dict[int, _PendingToolUse] = {}
         self.error: dict[str, Any] | None = None
+        # Stream progress for observability; never carries event content.
+        self.event_count = 0
+        self.saw_message_stop = False
 
     def feed(self, chunk: bytes) -> bytes:
         """Consume upstream bytes and return the bytes ready to forward."""
@@ -114,6 +121,7 @@ class ToolUseStreamRewriter:
         return b"".join(out)
 
     def _handle_event(self, event: bytes) -> bytes:
+        self.event_count += 1
         payload = _sse_data(event)
         if payload is None:
             # Comments and pings carry no block index; forward them as-is.
@@ -125,7 +133,8 @@ class ToolUseStreamRewriter:
                 "content_block": dict() as block,
             }:
                 if (
-                    block.get("type") == "tool_use"
+                    self._rewrite_read
+                    and block.get("type") == "tool_use"
                     and block.get("name") == READ_TOOL_NAME
                 ):
                     self._pending[index] = _PendingToolUse(payload, [event])
@@ -145,6 +154,9 @@ class ToolUseStreamRewriter:
                 return b""
             case {"type": "error", "error": dict() as error}:
                 self.error = error
+                return event
+            case {"type": "message_stop"}:
+                self.saw_message_stop = True
                 return event
             case {"type": "content_block_stop", "index": int(index)}:
                 pending = self._pending.pop(index, None)

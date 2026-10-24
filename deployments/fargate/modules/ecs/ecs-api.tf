@@ -92,7 +92,8 @@ resource "aws_ecs_service" "tracecat_api" {
       port_name      = "api"
       discovery_name = "api-service"
       timeout {
-        per_request_timeout_seconds = 3600
+        # Chat SSE streams stay open for a full agent turn.
+        per_request_timeout_seconds = max(3600, tonumber(var.agent_sandbox_timeout) + 60)
         idle_timeout_seconds        = 3600
       }
       client_alias {

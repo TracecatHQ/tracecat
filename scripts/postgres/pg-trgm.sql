@@ -42,7 +42,11 @@ DO $$
 DECLARE
     extension_oid oid;
     extension_schema text;
-    similarity_oid oid;
+    function_signature text;
+    function_oid oid;
+    operator_oid oid;
+    operator_function_oid oid;
+    operator_function_signature text;
 BEGIN
     SELECT e.oid, n.nspname INTO extension_oid, extension_schema
     FROM pg_extension AS e
@@ -82,31 +86,73 @@ BEGIN
                   HINT = 'Ask the database administrator to repair the extension-owned GIN operator class. A same-named unrelated operator class is not supported.';
     END IF;
 
-    similarity_oid := to_regprocedure('public.similarity(text,text)');
-    IF similarity_oid IS NULL OR NOT EXISTS (
+    FOREACH function_signature IN ARRAY ARRAY[
+        'public.similarity(text,text)',
+        'public.strict_word_similarity(text,text)'
+    ] LOOP
+        function_oid := to_regprocedure(function_signature);
+        IF function_oid IS NULL OR NOT EXISTS (
+            SELECT FROM pg_depend
+            WHERE classid = 'pg_proc'::regclass AND objid = function_oid
+              AND deptype = 'e' AND refclassid = 'pg_extension'::regclass
+              AND refobjid = extension_oid
+        ) THEN
+            RAISE EXCEPTION 'pg_trgm must provide %', function_signature
+                USING ERRCODE = 'object_not_in_prerequisite_state',
+                      HINT = 'Ask the database administrator to repair the extension-owned function. A same-named unrelated function is not supported.';
+        END IF;
+        IF NOT has_function_privilege(function_oid, 'EXECUTE') THEN
+            RAISE EXCEPTION 'The current role needs EXECUTE on %', function_signature
+                USING ERRCODE = 'insufficient_privilege',
+                      HINT = format('Ask the database administrator to run: GRANT EXECUTE ON FUNCTION %s TO %I; Check both application and migration roles.', function_signature, current_user);
+        END IF;
+    END LOOP;
+
+    SELECT o.oid, o.oprcode INTO operator_oid, operator_function_oid
+    FROM pg_operator AS o
+    JOIN pg_namespace AS n ON n.oid = o.oprnamespace
+    WHERE n.nspname = 'public' AND o.oprname = '%>>'
+      AND o.oprleft = 'text'::regtype AND o.oprright = 'text'::regtype
+      AND o.oprresult = 'bool'::regtype;
+    IF operator_oid IS NULL OR NOT EXISTS (
         SELECT FROM pg_depend
-        WHERE classid = 'pg_proc'::regclass AND objid = similarity_oid
+        WHERE classid = 'pg_operator'::regclass AND objid = operator_oid
           AND deptype = 'e' AND refclassid = 'pg_extension'::regclass
           AND refobjid = extension_oid
     ) THEN
-        RAISE EXCEPTION 'pg_trgm must provide public.similarity(text,text)'
+        RAISE EXCEPTION 'pg_trgm must provide public.%%>>(text,text)'
             USING ERRCODE = 'object_not_in_prerequisite_state',
-                  HINT = 'Ask the database administrator to repair the extension-owned similarity function. A same-named unrelated function is not supported.';
+                  HINT = 'Ask the database administrator to repair the extension-owned strict-word similarity operator. A same-named unrelated operator is not supported.';
     END IF;
-    IF NOT has_function_privilege(similarity_oid, 'EXECUTE') THEN
-        RAISE EXCEPTION 'The current role needs EXECUTE on public.similarity(text,text)'
+    IF NOT EXISTS (
+        SELECT FROM pg_depend
+        WHERE classid = 'pg_proc'::regclass AND objid = operator_function_oid
+          AND deptype = 'e' AND refclassid = 'pg_extension'::regclass
+          AND refobjid = extension_oid
+    ) THEN
+        RAISE EXCEPTION 'pg_trgm must own the implementation of public.%%>>(text,text)'
+            USING ERRCODE = 'object_not_in_prerequisite_state',
+                  HINT = 'Ask the database administrator to repair the extension-owned operator implementation. A same-named unrelated function is not supported.';
+    END IF;
+    IF NOT has_function_privilege(operator_function_oid, 'EXECUTE') THEN
+        operator_function_signature := operator_function_oid::regprocedure::text;
+        RAISE EXCEPTION 'The current role needs EXECUTE on % for public.%%>>', operator_function_signature
             USING ERRCODE = 'insufficient_privilege',
-                  HINT = 'Ask the database administrator to grant EXECUTE on the pg_trgm functions used by search to the application and migration roles.';
+                  HINT = format('Ask the database administrator to run: GRANT EXECUTE ON FUNCTION %s TO %I; Check both application and migration roles.', operator_function_signature, current_user);
     END IF;
 END
 $$;
 
--- Load the server library and exercise the function with the caller's permissions.
+-- Load the server library and exercise every checked capability as the caller.
 SELECT current_database() AS application_database,
        current_setting('server_version') AS postgres_version,
        extversion AS pg_trgm_version,
        public.similarity('synthetic search'::text, 'synthetic search'::text)
-           AS identical_similarity
+           AS identical_similarity,
+       public.strict_word_similarity('synthetic search'::text, 'synthetic search'::text)
+           AS identical_strict_word_similarity,
+       'synthetic search'::text OPERATOR(public.%>>) 'synthetic search'::text
+           AS identical_strict_word_match
 FROM pg_extension WHERE extname = 'pg_trgm';
 
 COMMIT;

@@ -5,14 +5,17 @@ import type { DateRange } from "react-day-picker"
 import { v4 as uuid4 } from "uuid"
 import {
   type CasePriority,
+  type CaseQuery,
   type CaseReadMinimal,
   type CaseSearchAggregateRead,
+  type CaseSearchRequest,
   type CaseSeverity,
   type CaseStatus,
-  type CasesSearchCaseAggregatesResponse,
-  type CasesSearchCasesResponse,
-  casesSearchCaseAggregates,
-  casesSearchCases,
+  type CasesQueryCaseAggregatesResponse,
+  type CasesQueryCasesResponse,
+  casesQueryCaseAggregates,
+  casesQueryCases,
+  type SearchMode,
 } from "@/client"
 import {
   type CaseSortField,
@@ -24,6 +27,7 @@ import type {
   SortDirection,
 } from "@/components/filters/filter-multi-select"
 import type { CaseHierarchyFilter } from "@/hooks/use-case-search-infinite"
+import { restoreCaseFilter } from "@/lib/case-filters"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useInfiniteQuery, useQuery } from "@/lib/query"
 import { withAbortSignal } from "@/lib/query-cancellation"
@@ -84,8 +88,24 @@ export interface DropdownFilterState {
   sortDirection: SortDirection
 }
 
+const MIN_LITERAL_SEARCH_LENGTH = 3
+const LETTER_OR_NUMBER = /[\p{L}\p{N}]/u
+
+// Input the API would reject (punctuation-only words, too-short literals) is
+// treated as no search, so typing "-" does not replace the list with an error.
+function getCaseSearchTerm(query: string, mode: SearchMode): string {
+  const trimmed = query.trim()
+  if (mode === "literal") {
+    return trimmed.length >= MIN_LITERAL_SEARCH_LENGTH ? query : ""
+  }
+  return LETTER_OR_NUMBER.test(trimmed) ? trimmed : ""
+}
+
 export interface UseCasesFilters {
+  structuredFilters?: CaseQuery["filters"]
   searchQuery: string
+  searchMode?: SearchMode
+  searchOrder?: "relevance" | "column"
   sortBy: CaseSortValue
   statusFilter: CaseStatus[]
   statusMode: FilterMode
@@ -123,8 +143,10 @@ export interface UseCasesResult {
   appliedSearchQuery: string
   effectiveHierarchy: CaseHierarchyFilter
   isSearchPending: boolean
+  setSearchMode: (mode: SearchMode) => void
   setSearchQuery: (query: string) => void
   setSortBy: (value: CaseSortValue) => void
+  setStructuredFilters: (filters: CaseQuery["filters"]) => void
   setStatusFilter: (status: CaseStatus[]) => void
   setStatusMode: (mode: FilterMode) => void
   setPriorityFilter: (priority: CasePriority[]) => void
@@ -234,7 +256,10 @@ export const DEFAULT_CREATED_FILTER: CaseDateFilterValue = {
 }
 
 const DEFAULT_CASES_FILTERS: UseCasesFilters = {
+  structuredFilters: null,
   searchQuery: "",
+  searchMode: "full_text",
+  searchOrder: "relevance",
   sortBy: DEFAULT_CASE_SORT,
   statusFilter: [],
   statusMode: "include",
@@ -283,7 +308,13 @@ function loadPersistedCasesFilterState(
     }
 
     const parsed = JSON.parse(storedValue) as Partial<PersistedCasesFilters>
-    return {
+    return normalizeCasesSortState({
+      structuredFilters: restoreCaseFilter(parsed.structuredFilters),
+      searchMode: parsed.searchMode === "literal" ? "literal" : "full_text",
+      searchOrder:
+        parsed.searchOrder === "column" || parsed.searchOrder === "relevance"
+          ? parsed.searchOrder
+          : undefined,
       searchQuery: sanitizeSearchQuery(
         parsed.searchQuery,
         defaults.searchQuery
@@ -353,7 +384,7 @@ function loadPersistedCasesFilterState(
           ? parsed.includeSubCases
           : defaults.includeSubCases,
       hydratedWorkspaceId: workspaceId,
-    }
+    })
   } catch (error) {
     console.error(error)
     try {
@@ -362,6 +393,40 @@ function loadPersistedCasesFilterState(
       console.error(removeError)
     }
     return { ...defaults, hydratedWorkspaceId: workspaceId }
+  }
+}
+
+function normalizeCasesSortState(
+  state: CasesFilterStateSnapshot
+): CasesFilterStateSnapshot {
+  // Preserve the effective order of legacy page-local sorts, then synchronize
+  // their controls with the single canonical server sort.
+  let sortBy = state.sortBy
+  if (state.assigneeSortDirection) {
+    sortBy = { field: "assignee", direction: state.assigneeSortDirection }
+  } else if (state.tagSortDirection) {
+    sortBy = { field: "tags", direction: state.tagSortDirection }
+  } else if (state.prioritySortDirection) {
+    sortBy = { field: "priority", direction: state.prioritySortDirection }
+  } else if (state.severitySortDirection) {
+    sortBy = { field: "severity", direction: state.severitySortDirection }
+  }
+  return {
+    ...state,
+    searchOrder:
+      state.searchOrder ??
+      (sortBy.field === DEFAULT_CASE_SORT.field &&
+      sortBy.direction === DEFAULT_CASE_SORT.direction
+        ? "relevance"
+        : "column"),
+    sortBy,
+    prioritySortDirection:
+      sortBy.field === "priority" ? sortBy.direction : null,
+    severitySortDirection:
+      sortBy.field === "severity" ? sortBy.direction : null,
+    assigneeSortDirection:
+      sortBy.field === "assignee" ? sortBy.direction : null,
+    tagSortDirection: sortBy.field === "tags" ? sortBy.direction : null,
   }
 }
 
@@ -404,7 +469,9 @@ function isCaseSortField(value: unknown): value is CaseSortField {
     value === "priority" ||
     value === "severity" ||
     value === "status" ||
-    value === "tasks"
+    value === "tasks" ||
+    value === "assignee" ||
+    value === "tags"
   )
 }
 
@@ -607,32 +674,49 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   }
   const initialFilterState = initialFilterStateRef.current
 
+  const [searchMode, setSearchMode] = useState<SearchMode>(
+    initialFilterState.searchMode ?? "full_text"
+  )
+  const [searchOrder, setSearchOrder] = useState<"relevance" | "column">(
+    initialFilterState.searchOrder ?? "relevance"
+  )
   const [searchQuery, setSearchQueryState] = useState(
     initialFilterState.searchQuery
   )
   const [appliedSearch, setAppliedSearch] = useState({
-    query: initialFilterState.searchQuery.trim(),
+    query: initialFilterState.searchQuery,
     revision: "",
   })
-  const appliedSearchQuery = appliedSearch.query
-  const normalizedSearchInput = searchQuery.trim()
-  const applySearch = useCallback((query: string, resetPagination = false) => {
-    // Query cache entries can outlive this hook, so each application needs a
-    // generation that remains unique across remounts.
-    const revision = uuid4()
-    setAppliedSearch((previous) => {
-      if (previous.query === query && !resetPagination) return previous
-      return { query, revision }
-    })
-  }, [])
+  const appliedSearchQuery = getCaseSearchTerm(appliedSearch.query, searchMode)
+  const normalizedSearchInput = getCaseSearchTerm(searchQuery, searchMode)
+  const applySearch = useCallback(
+    (query: string, resetPagination = false) => {
+      // Query cache entries can outlive this hook, so each application needs a
+      // generation that remains unique across remounts.
+      const revision = uuid4()
+      setAppliedSearch((previous) => {
+        if (previous.query === query && !resetPagination) return previous
+        const matchingChanged =
+          getCaseSearchTerm(previous.query, searchMode) !==
+          getCaseSearchTerm(query, searchMode)
+        return {
+          query,
+          revision:
+            resetPagination || matchingChanged ? revision : previous.revision,
+        }
+      })
+    },
+    [searchMode]
+  )
   useEffect(() => {
-    if (normalizedSearchInput === appliedSearchQuery) return
+    const rawQuery = searchQuery.trim() ? searchQuery : ""
+    if (rawQuery === appliedSearch.query) return
     const timeout = setTimeout(
-      () => applySearch(normalizedSearchInput),
+      () => applySearch(rawQuery),
       CASES_SEARCH_DEBOUNCE_MS
     )
     return () => clearTimeout(timeout)
-  }, [normalizedSearchInput, appliedSearchQuery, applySearch])
+  }, [searchQuery, appliedSearch.query, applySearch])
   const setSearchQuery = useCallback(
     (query: string) => {
       setSearchQueryState(query)
@@ -642,6 +726,14 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     },
     [applySearch]
   )
+  const [structuredFilters, setStructuredFiltersState] = useState<
+    CaseQuery["filters"]
+  >(initialFilterState.structuredFilters ?? null)
+  const [structuredRevision, setStructuredRevision] = useState("")
+  const setStructuredFilters = useCallback((value: CaseQuery["filters"]) => {
+    setStructuredFiltersState(value)
+    setStructuredRevision(uuid4())
+  }, [])
   const [sortBy, setSortByState] = useState<CaseSortValue>(
     initialFilterState.sortBy
   )
@@ -657,40 +749,28 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   const [priorityMode, setPriorityMode] = useState<FilterMode>(
     initialFilterState.priorityMode
   )
-  const [prioritySortDirection, setPrioritySortDirectionState] =
-    useState<SortDirection>(initialFilterState.prioritySortDirection)
   const [severityFilter, setSeverityFilter] = useState<CaseSeverity[]>(
     initialFilterState.severityFilter
   )
   const [severityMode, setSeverityMode] = useState<FilterMode>(
     initialFilterState.severityMode
   )
-  const [severitySortDirection, setSeveritySortDirectionState] =
-    useState<SortDirection>(initialFilterState.severitySortDirection)
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>(
     initialFilterState.assigneeFilter
   )
   const [assigneeMode, setAssigneeModeState] = useState<FilterMode>(
     initialFilterState.assigneeMode
   )
-  const [assigneeSortDirection, setAssigneeSortDirectionState] =
-    useState<SortDirection>(initialFilterState.assigneeSortDirection)
   const [tagFilter, setTagFilter] = useState<string[]>(
     initialFilterState.tagFilter
   )
   const [tagMode, setTagModeState] = useState<FilterMode>(
     initialFilterState.tagMode
   )
-  const [tagSortDirection, setTagSortDirectionState] = useState<SortDirection>(
-    initialFilterState.tagSortDirection
-  )
 
   const setSortBy = useCallback((value: CaseSortValue) => {
-    setSortByState(value)
-    setPrioritySortDirectionState(null)
-    setSeveritySortDirectionState(null)
-    setAssigneeSortDirectionState(null)
-    setTagSortDirectionState(null)
+    setSearchOrder(value.field === "relevance" ? "relevance" : "column")
+    setSortByState(value.field === "relevance" ? DEFAULT_CASE_SORT : value)
     setDropdownFilters((prev) => {
       const next: Record<string, DropdownFilterState> = {}
       for (const [ref, state] of Object.entries(prev)) {
@@ -700,33 +780,43 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     })
   }, [])
 
-  const setPrioritySortDirection = useCallback((direction: SortDirection) => {
-    setPrioritySortDirectionState(direction)
-    if (direction) {
-      setSortByState({ field: "priority", direction })
-      setSeveritySortDirectionState(null)
-    } else {
-      setSortByState(DEFAULT_CASE_SORT)
-    }
-  }, [])
+  const setPrioritySortDirection = useCallback(
+    (direction: SortDirection) => {
+      if (direction) {
+        setSortBy({ field: "priority", direction })
+      } else {
+        setSortBy(DEFAULT_CASE_SORT)
+      }
+    },
+    [setSortBy]
+  )
 
-  const setSeveritySortDirection = useCallback((direction: SortDirection) => {
-    setSeveritySortDirectionState(direction)
-    if (direction) {
-      setSortByState({ field: "severity", direction })
-      setPrioritySortDirectionState(null)
-    } else {
-      setSortByState(DEFAULT_CASE_SORT)
-    }
-  }, [])
+  const setSeveritySortDirection = useCallback(
+    (direction: SortDirection) => {
+      if (direction) {
+        setSortBy({ field: "severity", direction })
+      } else {
+        setSortBy(DEFAULT_CASE_SORT)
+      }
+    },
+    [setSortBy]
+  )
 
-  const setAssigneeSortDirection = useCallback((direction: SortDirection) => {
-    setAssigneeSortDirectionState(direction)
-  }, [])
+  const setAssigneeSortDirection = useCallback(
+    (direction: SortDirection) => {
+      setSortBy(
+        direction ? { field: "assignee", direction } : DEFAULT_CASE_SORT
+      )
+    },
+    [setSortBy]
+  )
 
-  const setTagSortDirection = useCallback((direction: SortDirection) => {
-    setTagSortDirectionState(direction)
-  }, [])
+  const setTagSortDirection = useCallback(
+    (direction: SortDirection) => {
+      setSortBy(direction ? { field: "tags", direction } : DEFAULT_CASE_SORT)
+    },
+    [setSortBy]
+  )
   const [dropdownFilters, setDropdownFilters] = useState<
     Record<string, DropdownFilterState>
   >(initialFilterState.dropdownFilters)
@@ -761,29 +851,28 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     }
 
     const nextFilterState = loadPersistedCasesFilterState(workspaceId)
+    setStructuredFilters(nextFilterState.structuredFilters ?? null)
     setSearchQueryState(nextFilterState.searchQuery)
-    applySearch(nextFilterState.searchQuery.trim(), true)
+    applySearch(nextFilterState.searchQuery, true)
+    setSearchMode(nextFilterState.searchMode ?? "full_text")
+    setSearchOrder(nextFilterState.searchOrder ?? "relevance")
     setSortByState(nextFilterState.sortBy)
     setStatusFilter(nextFilterState.statusFilter)
     setStatusMode(nextFilterState.statusMode)
     setPriorityFilter(nextFilterState.priorityFilter)
     setPriorityMode(nextFilterState.priorityMode)
-    setPrioritySortDirectionState(nextFilterState.prioritySortDirection)
     setSeverityFilter(nextFilterState.severityFilter)
     setSeverityMode(nextFilterState.severityMode)
-    setSeveritySortDirectionState(nextFilterState.severitySortDirection)
     setAssigneeFilter(nextFilterState.assigneeFilter)
     setAssigneeModeState(nextFilterState.assigneeMode)
-    setAssigneeSortDirectionState(nextFilterState.assigneeSortDirection)
     setTagFilter(nextFilterState.tagFilter)
     setTagModeState(nextFilterState.tagMode)
-    setTagSortDirectionState(nextFilterState.tagSortDirection)
     setDropdownFilters(nextFilterState.dropdownFilters)
     setUpdatedAfter(nextFilterState.updatedAfter)
     setCreatedAfter(nextFilterState.createdAfter)
     setIncludeSubCases(nextFilterState.includeSubCases)
     setHydratedWorkspaceId(nextFilterState.hydratedWorkspaceId)
-  }, [hydratedWorkspaceId, workspaceId, applySearch])
+  }, [hydratedWorkspaceId, workspaceId, applySearch, setStructuredFilters])
 
   useEffect(() => {
     if (!workspaceId || !hasHydratedFilters || typeof window === "undefined") {
@@ -793,22 +882,28 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     persistCasesFilterState(
       workspaceId,
       serializePersistedCasesFilters({
+        structuredFilters,
         searchQuery,
+        searchMode,
+        searchOrder,
         sortBy,
         statusFilter,
         statusMode,
         priorityFilter,
         priorityMode,
-        prioritySortDirection,
+        prioritySortDirection:
+          sortBy.field === "priority" ? sortBy.direction : null,
         severityFilter,
         severityMode,
-        severitySortDirection,
+        severitySortDirection:
+          sortBy.field === "severity" ? sortBy.direction : null,
         assigneeFilter,
         assigneeMode,
-        assigneeSortDirection,
+        assigneeSortDirection:
+          sortBy.field === "assignee" ? sortBy.direction : null,
         tagFilter,
         tagMode,
-        tagSortDirection,
+        tagSortDirection: sortBy.field === "tags" ? sortBy.direction : null,
         dropdownFilters,
         updatedAfter,
         createdAfter,
@@ -817,22 +912,21 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     )
   }, [
     workspaceId,
+    structuredFilters,
     searchQuery,
+    searchMode,
+    searchOrder,
     sortBy,
     statusFilter,
     statusMode,
     priorityFilter,
     priorityMode,
-    prioritySortDirection,
     severityFilter,
     severityMode,
-    severitySortDirection,
     assigneeFilter,
     assigneeMode,
-    assigneeSortDirection,
     tagFilter,
     tagMode,
-    tagSortDirection,
     dropdownFilters,
     updatedAfter,
     createdAfter,
@@ -891,6 +985,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   )
 
   const { apiQueryParams, hasImpossibleEnumFilter } = useMemo(() => {
+    const normalizedSearch = appliedSearchQuery
     const updatedBounds = getDateBoundsFromFilter(updatedAfter)
     const createdBounds = getDateBoundsFromFilter(createdAfter)
     const resolvedStatus = resolveEnumIncludeFilter(
@@ -921,24 +1016,25 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
     return {
       apiQueryParams: {
-        searchTerm:
-          appliedSearchQuery.length > 0 ? appliedSearchQuery : undefined,
+        filters: structuredFilters,
+        search_term: normalizedSearch.length > 0 ? normalizedSearch : undefined,
+        search_mode: normalizedSearch.length > 0 ? searchMode : undefined,
         status: resolvedStatus.values,
         priority: resolvedPriority.values,
         severity: resolvedSeverity.values,
-        assigneeId:
+        assignee_id:
           assigneeFilter.length > 0 && assigneeMode === "include"
             ? assigneeFilter
             : undefined,
         tags:
           tagFilter.length > 0 && tagMode === "include" ? tagFilter : undefined,
         dropdown: dropdownIncludes.length > 0 ? dropdownIncludes : undefined,
-        startTime: createdBounds.start?.toISOString(),
-        endTime: createdBounds.end
+        start_time: createdBounds.start?.toISOString(),
+        end_time: createdBounds.end
           ? toEndOfDay(createdBounds.end).toISOString()
           : undefined,
-        updatedAfter: updatedBounds.start?.toISOString(),
-        updatedBefore: updatedBounds.end
+        updated_after: updatedBounds.start?.toISOString(),
+        updated_before: updatedBounds.end
           ? toEndOfDay(updatedBounds.end).toISOString()
           : undefined,
         // Searching also matches sub-cases, so they are never unreachable.
@@ -952,7 +1048,9 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         resolvedSeverity.matchesNone,
     }
   }, [
+    structuredFilters,
     appliedSearchQuery,
+    searchMode,
     statusFilter,
     statusMode,
     priorityFilter,
@@ -969,15 +1067,24 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     includeSubCases,
   ])
 
-  const serverSortParams = useMemo(() => {
-    if (prioritySortDirection) {
-      return { orderBy: "priority" as const, sort: prioritySortDirection }
-    }
-    if (severitySortDirection) {
-      return { orderBy: "severity" as const, sort: severitySortDirection }
-    }
-    return { orderBy: sortBy.field, sort: sortBy.direction }
-  }, [prioritySortDirection, severitySortDirection, sortBy])
+  const effectiveSortBy: CaseSortValue =
+    searchMode === "full_text" &&
+    appliedSearchQuery &&
+    searchOrder === "relevance"
+      ? { field: "relevance", direction: "desc" }
+      : sortBy
+  const prioritySortDirection =
+    effectiveSortBy.field === "priority" ? effectiveSortBy.direction : null
+  const severitySortDirection =
+    effectiveSortBy.field === "severity" ? effectiveSortBy.direction : null
+  const assigneeSortDirection =
+    effectiveSortBy.field === "assignee" ? effectiveSortBy.direction : null
+  const tagSortDirection =
+    effectiveSortBy.field === "tags" ? effectiveSortBy.direction : null
+  const serverSortParams = {
+    orderBy: effectiveSortBy.field,
+    sort: effectiveSortBy.direction,
+  }
 
   const filtersKey = useMemo(
     () =>
@@ -987,8 +1094,14 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         // A new applied search starts at page one even when returning to a
         // previously cached term, including an immediately cleared input.
         searchRevision: appliedSearch.revision,
+        structuredRevision,
       }),
-    [apiQueryParams, hasImpossibleEnumFilter, appliedSearch.revision]
+    [
+      apiQueryParams,
+      hasImpossibleEnumFilter,
+      appliedSearch.revision,
+      structuredRevision,
+    ]
   )
 
   const rowsKey = useMemo(
@@ -1032,24 +1145,26 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
-  } = useInfiniteQuery<CasesSearchCasesResponse, TracecatApiError>({
+  } = useInfiniteQuery<CasesQueryCasesResponse, TracecatApiError>({
     queryKey: ["cases", workspaceId, rowsKey],
     queryFn: ({ pageParam, signal }) =>
       withAbortSignal(
         signal,
-        casesSearchCases({
+        casesQueryCases({
           workspaceId,
-          ...apiQueryParams,
-          promoteExactMatch: Boolean(appliedSearchQuery) || undefined,
-          matchNone: hasImpossibleEnumFilter || undefined,
-          orderBy: serverSortParams.orderBy,
-          sort: serverSortParams.sort,
-          limit: CASES_PAGE_SIZE,
-          cursor: (pageParam as string | null) ?? undefined,
-          fieldIds:
-            normalizedFieldIds.length > 0 ? normalizedFieldIds : undefined,
-          includeDurations: includeDurations || undefined,
-          includeCount: false,
+          requestBody: {
+            ...apiQueryParams,
+            promote_exact_match: Boolean(appliedSearchQuery) || undefined,
+            match_none: hasImpossibleEnumFilter || undefined,
+            order_by: serverSortParams.orderBy,
+            sort: serverSortParams.sort,
+            limit: CASES_PAGE_SIZE,
+            cursor: (pageParam as string | null) ?? undefined,
+            field_ids:
+              normalizedFieldIds.length > 0 ? normalizedFieldIds : undefined,
+            include_durations: includeDurations || undefined,
+            include_count: false,
+          } satisfies CaseSearchRequest,
         })
       ),
     enabled:
@@ -1076,14 +1191,14 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     isFetching: isCountsFetching,
     isError: isCountsError,
     refetch: refetchCounts,
-  } = useQuery<CasesSearchCaseAggregatesResponse, TracecatApiError>({
+  } = useQuery<CasesQueryCaseAggregatesResponse, TracecatApiError>({
     queryKey: ["cases", "aggregate", workspaceId, filtersKey],
     queryFn: ({ signal }) =>
       withAbortSignal(
         signal,
-        casesSearchCaseAggregates({
+        casesQueryCaseAggregates({
           workspaceId,
-          ...apiQueryParams,
+          requestBody: apiQueryParams,
         })
       ),
     enabled:
@@ -1119,31 +1234,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     return deduped
   }, [visibleRowsData?.pages])
 
-  const sortedCases = useMemo(() => {
-    if (assigneeSortDirection) {
-      const multiplier = assigneeSortDirection === "asc" ? 1 : -1
-      return [...flattenedCases].sort((a, b) => {
-        const aName = a.assignee?.email ?? ""
-        const bName = b.assignee?.email ?? ""
-        return multiplier * aName.localeCompare(bName)
-      })
-    }
-
-    if (tagSortDirection) {
-      const multiplier = tagSortDirection === "asc" ? 1 : -1
-      return [...flattenedCases].sort((a, b) => {
-        const aTag = a.tags?.[0]?.name ?? ""
-        const bTag = b.tags?.[0]?.name ?? ""
-        if (!aTag && bTag) return 1
-        if (aTag && !bTag) return -1
-        return multiplier * aTag.localeCompare(bTag)
-      })
-    }
-
-    return flattenedCases
-  }, [flattenedCases, assigneeSortDirection, tagSortDirection])
-
-  const cases = sortedCases
+  const cases = flattenedCases
 
   const totalFilteredCaseEstimate = hasImpossibleEnumFilter
     ? 0
@@ -1172,8 +1263,11 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     isSearchPending: normalizedSearchInput !== appliedSearchQuery,
     effectiveHierarchy: apiQueryParams.hierarchy,
     filters: {
+      structuredFilters,
       searchQuery,
-      sortBy,
+      searchMode,
+      searchOrder,
+      sortBy: effectiveSortBy,
       statusFilter,
       statusMode,
       priorityFilter,
@@ -1193,6 +1287,8 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       createdAfter,
       includeSubCases,
     },
+    setSearchMode,
+    setStructuredFilters,
     setSearchQuery,
     setSortBy,
     setStatusFilter,

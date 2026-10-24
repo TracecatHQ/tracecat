@@ -324,6 +324,8 @@ function VirtualizedGroupRows({
         return (
           <div
             key={virtualItem.key}
+            data-index={virtualItem.index}
+            ref={rowVirtualizer.measureElement}
             className="absolute left-0 top-0 w-full"
             style={{
               transform: `translateY(${virtualItem.start - scrollMargin}px)`,

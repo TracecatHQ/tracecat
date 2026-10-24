@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from tracecat.auth import ip_allowlist_enforcement
 from tracecat.auth.ip_allowlist import (
+    PLATFORM_ADMIN_IP_ALLOWLIST_DENIED_DETAIL,
     OrgIPAllowlist,
     compile_allowlist,
     normalize_cidrs,
@@ -127,6 +128,13 @@ def test_parse_client_ip() -> None:
     assert parse_client_ip("203.0.113.9") == ipaddress.ip_address("203.0.113.9")
 
 
+@pytest.fixture(autouse=True)
+def reset_request_audit_context():
+    token = ctx_request_audit.set(None)
+    yield
+    ctx_request_audit.reset(token)
+
+
 def _set_client_ip(ip: str | None) -> None:
     ctx_request_audit.set(
         RequestAuditContext(client_ip=ip, user_agent=None, raw_user_agent=None)
@@ -204,3 +212,107 @@ async def test_enforce_disabled_allowlist_admits_everyone(allowlist_stub) -> Non
     )
     _set_client_ip("198.51.100.9")
     await ip_allowlist_enforcement.enforce_org_ip_allowlist(org_id)
+
+
+@pytest.fixture
+def platform_allowlist_stub(monkeypatch: pytest.MonkeyPatch):
+    state = {"allowlist": OrgIPAllowlist(enabled=False, networks=())}
+
+    async def fake_loader() -> OrgIPAllowlist:
+        return state["allowlist"]
+
+    monkeypatch.setattr(
+        ip_allowlist_enforcement, "get_platform_admin_ip_allowlist", fake_loader
+    )
+    return state
+
+
+@pytest.mark.anyio
+async def test_platform_admin_enforce_allows_when_not_enforced(
+    platform_allowlist_stub,
+) -> None:
+    _set_client_ip("198.51.100.9")
+    await ip_allowlist_enforcement.enforce_platform_admin_ip_allowlist()
+    platform_allowlist_stub["allowlist"] = compile_allowlist(
+        enabled=False, cidrs=["203.0.113.0/24"]
+    )
+    await ip_allowlist_enforcement.enforce_platform_admin_ip_allowlist()
+    _set_client_ip(None)
+    await ip_allowlist_enforcement.enforce_platform_admin_ip_allowlist()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("client_ip", "allowed"),
+    [("203.0.113.9", True), ("198.51.100.9", False), (None, False)],
+)
+async def test_platform_admin_enforce_when_enforced(
+    platform_allowlist_stub, client_ip: str | None, allowed: bool
+) -> None:
+    platform_allowlist_stub["allowlist"] = compile_allowlist(
+        enabled=True, cidrs=["203.0.113.0/24"]
+    )
+    _set_client_ip(client_ip)
+    if allowed:
+        await ip_allowlist_enforcement.enforce_platform_admin_ip_allowlist()
+        return
+    with pytest.raises(HTTPException) as exc_info:
+        await ip_allowlist_enforcement.enforce_platform_admin_ip_allowlist()
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == PLATFORM_ADMIN_IP_ALLOWLIST_DENIED_DETAIL
+
+
+@pytest.mark.anyio
+async def test_platform_admin_enforce_bypass_env(
+    platform_allowlist_stub, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    platform_allowlist_stub["allowlist"] = compile_allowlist(
+        enabled=True, cidrs=["203.0.113.0/24"]
+    )
+    _set_client_ip("198.51.100.9")
+    monkeypatch.setattr(
+        ip_allowlist_enforcement.config,
+        "TRACECAT__PLATFORM_ADMIN_IP_ALLOWLIST_BYPASS",
+        True,
+    )
+    await ip_allowlist_enforcement.enforce_platform_admin_ip_allowlist()
+
+
+def test_ensure_allowlist_admits_caller() -> None:
+    _set_client_ip("198.51.100.9")
+    ip_allowlist_enforcement.ensure_allowlist_admits_caller(
+        enabled=False, cidrs=["203.0.113.0/24"]
+    )
+    ip_allowlist_enforcement.ensure_allowlist_admits_caller(enabled=True, cidrs=[])
+    with pytest.raises(HTTPException) as exc_info:
+        ip_allowlist_enforcement.ensure_allowlist_admits_caller(
+            enabled=True, cidrs=["203.0.113.0/24"]
+        )
+    assert exc_info.value.status_code == 400
+    assert "198.51.100.9" in str(exc_info.value.detail)
+    ip_allowlist_enforcement.ensure_allowlist_admits_caller(
+        enabled=True, cidrs=["198.51.100.0/24"]
+    )
+
+
+def test_check_ip_against_allowlists() -> None:
+    allowlists = [IPAllowlist(name="VPN", cidrs=["203.0.113.0/24"])]
+    result = ip_allowlist_enforcement.check_ip_against_allowlists(
+        "203.0.113.9", enabled=True, allowlists=allowlists
+    )
+    assert result.allowed and result.enforced
+    assert result.matched_cidr == "203.0.113.0/24"
+    assert result.matched_allowlist == "VPN"
+    denied = ip_allowlist_enforcement.check_ip_against_allowlists(
+        "198.51.100.9", enabled=True, allowlists=allowlists
+    )
+    assert not denied.allowed and denied.matched_allowlist is None
+    not_enforced = ip_allowlist_enforcement.check_ip_against_allowlists(
+        "198.51.100.9", enabled=False, allowlists=allowlists
+    )
+    assert not_enforced.allowed and not not_enforced.enforced
+    with pytest.raises(HTTPException) as exc_info:
+        ip_allowlist_enforcement.check_ip_against_allowlists(
+            "bogus", enabled=True, allowlists=allowlists
+        )
+    assert exc_info.value.status_code == 400

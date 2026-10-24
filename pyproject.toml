@@ -23,7 +23,7 @@ classifiers = [
 dependencies = [
     "aioboto3==15.5.0",
     "aiocache==0.12.3",
-    "aiohttp==3.14.3",
+    "aiohttp==3.14.5",
     "aiosmtplib==5.1.2",
     "alembic-postgresql-enum==1.7.0",
     "alembic==1.13.2",
@@ -40,6 +40,7 @@ dependencies = [
     "defusedxml==0.7.1",
     "email-validator==2.2.0",
     "fastapi-users[sqlalchemy,oauth]==15.0.5",
+    "fido2==2.2.1",
     "fastapi[standard]==0.137.1",
     "fastmcp==3.2.0",
     "google-auth==2.48.0",
@@ -53,10 +54,10 @@ dependencies = [
     "loguru==0.7.3",
     "markdown-it-py==4.2.0",
     "minio==7.2.18",
-    "opentelemetry-api==1.43.0",
-    "opentelemetry-exporter-otlp-proto-http==1.43.0",
-    "opentelemetry-instrumentation-fastapi==0.64b0",
-    "opentelemetry-sdk==1.43.0",
+    "opentelemetry-api==1.45.1",
+    "opentelemetry-exporter-otlp-proto-http==1.45.1",
+    "opentelemetry-instrumentation-fastapi==0.66b1",
+    "opentelemetry-sdk==1.45.1",
     "orjson==3.11.7",
     "paramiko==5.0.0",
     "pgvector==0.4.2",
@@ -78,7 +79,7 @@ dependencies = [
     "tomli==2.2.1",
     "tracecat-ee",
     "tracecat-registry",
-    "uv==0.11.15",
+    "uv==0.13.4",
     "uvicorn==0.35.0",
     "uvloop==0.22.1",
 ]
@@ -99,6 +100,11 @@ tracecat-ee = { workspace = true }
 members = ["packages/*"]
 
 [tool.uv]
+# Supply-chain cooldown: only resolve releases published at least 7 days ago.
+exclude-newer = "7 days"
+# Security fixes allowed inside the cooldown; each is also pinned exactly.
+# Remove on or after 2026-10-28: once the 7-day cutoff passes, these block upgrades.
+exclude-newer-package = { certifi = "2026-10-21T00:00:00Z", pillow = "2026-10-21T00:00:00Z", uv = "2026-10-21T00:00:00Z", virtualenv = "2026-10-18T00:00:00Z" }
 # Keep overrides only for requirements that conflict with our pinned versions.
 override-dependencies = [
     # LiteLLM requires boto3>=1.43.1,<2.0; aioboto3 pins boto3<1.40.62.
@@ -106,14 +112,16 @@ override-dependencies = [
 ]
 # Preserve transitive pins while respecting upstream dependency requirements.
 constraint-dependencies = [
+    "certifi==2026.10.19",
     # Chardet 7.x is incompatible with PolyFile 0.5.6 binary detection.
     "chardet==6.0.0.post1",
     "fickling==0.1.12",
     "mako==1.4.2",
-    "pillow==12.3.0",
+    "pillow==13.0.0",
     "pyasn1==0.6.4",
     "python-multipart==0.0.31",
     "urllib3==2.8.0",
+    "virtualenv==21.14.9",
 ]
 
 [dependency-groups]
@@ -130,7 +138,7 @@ dev = [
     "pytest-mock==3.14.0",
     "pytest-repeat==0.9.3",
     "pytest-xdist==3.8.0",
-    "pytest==8.3.2",  # pytest 9 breaks registry tests via autouse async fixture handling; dismiss alert for now
+    "pytest==9.0.3",
     "python-dotenv==1.2.2",
     "respx==0.22.0",
     "ruff==0.15.0",
@@ -196,7 +204,13 @@ xfail_strict = true
 log_level = "ERROR"
 log_cli = true
 log_cli_level = "ERROR"
-filterwarnings = ["ignore:Pydantic serializer warnings:UserWarning"]
+filterwarnings = [
+    "ignore:Pydantic serializer warnings:UserWarning",
+    # Sync tests inherit autouse async fixtures such as `test_db_engine` in
+    # tests/conftest.py. pytest 8 never ran them; pytest 9 errors instead.
+    # Keep the pytest 8 behavior until those fixtures skip sync tests.
+    "ignore:.*requested an async fixture:pytest.PytestRemovedIn9Warning",
+]
 markers = [
     "anyio: marks tests as requiring the anyio pytest plugin",
     "webtest: marks tests that require the web",

@@ -22,18 +22,24 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 const NONE_VALUE = "__none__"
 
 /**
- * Picks a workspace tunnel by name. Without the tunnels entitlement it renders
- * a locked control that opens the upgrade dialog and can still clear a saved
- * tunnel.
+ * Picks a workspace tunnel by name, or by ID with `by="id"`. Without the
+ * tunnels entitlement it renders a locked control that opens the upgrade
+ * dialog and can still clear a saved tunnel.
  */
 export function TunnelSelect({
   value,
   onChange,
   noneLabel,
+  by = "name",
+  disabled = false,
+  className,
 }: {
   value: string | null | undefined
   onChange: (value: string | undefined) => void
   noneLabel: string
+  by?: "name" | "id"
+  disabled?: boolean
+  className?: string
 }) {
   const workspaceId = useWorkspaceId()
   const [lockedOpen, setLockedOpen] = useState(false)
@@ -47,10 +53,15 @@ export function TunnelSelect({
     enabled: tunnelsEnabled,
   })
 
+  const tunnelKey = (tunnel: { id: string; name: string }) =>
+    by === "id" ? tunnel.id : tunnel.name
+  const label = (key: string) =>
+    tunnels.find((tunnel) => tunnelKey(tunnel) === key)?.name ?? key
+
   if (!entitlementsLoading && hasEntitlementData && !tunnelsEnabled) {
     return (
       <>
-        <div className="flex items-center gap-1">
+        <div className={cn("flex items-center gap-1", className)}>
           <Button
             type="button"
             variant="outline"
@@ -59,9 +70,10 @@ export function TunnelSelect({
               "h-8 flex-1 justify-between text-xs font-normal",
               !value && "text-muted-foreground"
             )}
+            disabled={disabled}
             onClick={() => setLockedOpen(true)}
           >
-            {value || noneLabel}
+            {value ? label(value) : noneLabel}
             <LockedFeatureChip />
           </Button>
           {/* A saved tunnel stays visible after a downgrade so it can be cleared. */}
@@ -82,13 +94,13 @@ export function TunnelSelect({
           open={lockedOpen}
           onOpenChange={setLockedOpen}
           title="Upgrade to use tunnels"
-          description="Tunnels let actions reach private hosts in your network through Pangolin."
+          description="Tunnels let actions and agents reach private hosts in your network through Pangolin."
         />
       </>
     )
   }
 
-  const names = new Set(tunnels.map((tunnel) => tunnel.name))
+  const names = new Set(tunnels.map(tunnelKey))
   // Keep a saved name selectable even if the tunnel was deleted, so the
   // validation error stays visible instead of silently clearing the field.
   const missing = value && !isLoading && !names.has(value) ? value : null
@@ -97,9 +109,9 @@ export function TunnelSelect({
     <Select
       value={value || NONE_VALUE}
       onValueChange={(next) => onChange(next === NONE_VALUE ? undefined : next)}
-      disabled={entitlementsLoading || !hasEntitlementData}
+      disabled={disabled || entitlementsLoading || !hasEntitlementData}
     >
-      <SelectTrigger className="h-8 text-xs">
+      <SelectTrigger className={cn("h-8 text-xs", className)}>
         <SelectValue placeholder={noneLabel} />
       </SelectTrigger>
       <SelectContent>
@@ -107,14 +119,18 @@ export function TunnelSelect({
           {noneLabel}
         </SelectItem>
         {tunnels.map((tunnel) => (
-          <SelectItem key={tunnel.id} value={tunnel.name} className="text-xs">
+          <SelectItem
+            key={tunnel.id}
+            value={tunnelKey(tunnel)}
+            className="text-xs"
+          >
             {tunnel.name}
             {tunnel.enabled ? "" : " (disabled)"}
           </SelectItem>
         ))}
         {missing ? (
           <SelectItem value={missing} className="text-xs">
-            {missing} (not found)
+            {by === "id" ? "Deleted tunnel" : missing} (not found)
           </SelectItem>
         ) : null}
       </SelectContent>

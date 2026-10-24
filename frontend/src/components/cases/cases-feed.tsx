@@ -27,7 +27,6 @@ import {
   CommentUpdatedEvent,
   DropdownValueChangedEvent,
   EventActor,
-  EventCreatedAt,
   EventIcon,
   FieldsChangedEvent,
   ParentChangedEvent,
@@ -46,6 +45,7 @@ import {
   TaskStatusChangedEvent,
   TaskWorkflowChangedEvent,
 } from "@/components/cases/cases-feed-event"
+import { CreatedAtTimestamp } from "@/components/timestamps"
 import {
   Empty,
   EmptyDescription,
@@ -289,7 +289,7 @@ function CaseFeedEvent({
         {/* Add a dot separator */}
         <InlineDotSeparator />
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          <EventCreatedAt createdAt={event.created_at} />
+          <CreatedAtTimestamp createdAt={event.created_at} />
           {event.wf_exec_id && (
             <WorkflowExecutionInfo wfExecId={event.wf_exec_id} />
           )}

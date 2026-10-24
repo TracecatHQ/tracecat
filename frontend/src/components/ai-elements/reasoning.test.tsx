@@ -117,3 +117,24 @@ describe("ReasoningContent", () => {
     expect(scroll.scrollTop).toBe(0)
   })
 })
+
+describe("ReasoningTrigger", () => {
+  it("draws an empty thought as a plain line until text arrives", () => {
+    const { rerender } = render(
+      <Reasoning isStreaming isEmpty>
+        <ReasoningTrigger />
+        <ReasoningContent>{""}</ReasoningContent>
+      </Reasoning>
+    )
+    expect(screen.getByText("Thinking...")).toBeInTheDocument()
+    expect(screen.queryByRole("button")).not.toBeInTheDocument()
+
+    rerender(
+      <Reasoning isStreaming>
+        <ReasoningTrigger />
+        <ReasoningContent>{"Check the rule"}</ReasoningContent>
+      </Reasoning>
+    )
+    expect(screen.getByRole("button", { name: "Thinking..." })).toBeVisible()
+  })
+})

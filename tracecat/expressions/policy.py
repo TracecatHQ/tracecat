@@ -148,7 +148,7 @@ REDACT_PARAMETERS: Mapping[str, frozenset[str]] = {
         }
     ),
     "ai.skill.create_skill": frozenset({"name", "description"}),
-    "ai.skill.update_skill": frozenset({"files"}),
+    "ai.skill.update_skill": frozenset({"operations", "files"}),
     "ai.skill.update_skill_draft": frozenset({"operations"}),
     "ai.skill.publish_skill_version": frozenset({"files"}),
 }

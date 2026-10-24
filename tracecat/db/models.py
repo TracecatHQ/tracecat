@@ -64,6 +64,7 @@ from sqlalchemy.orm import (
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import PersistedApprovalDecision
+from tracecat.agent.control.enums import CommandState, CommandType
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
 from tracecat.authz.enums import ScimConnectionStatus, ScopeSource
@@ -671,7 +672,74 @@ class AccessToken(SQLAlchemyBaseAccessTokenTableUUID, Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
+    mfa_verified_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When this session completed a security key or recovery code challenge",
+    )
+    step_up_verified_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When this session last verified a security key for step-up checks",
+    )
     user: Mapped[User] = relationship(back_populates="access_tokens")
+
+
+class WebAuthnCredential(Base, TimestampMixin):
+    """A FIDO2/WebAuthn credential (security key or passkey) registered by a user."""
+
+    __tablename__ = "webauthn_credential"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    credential_id: Mapped[bytes] = mapped_column(
+        LargeBinary, nullable=False, unique=True
+    )
+    public_key: Mapped[bytes] = mapped_column(
+        LargeBinary, nullable=False, doc="COSE-encoded credential public key"
+    )
+    sign_count: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        default=0,
+        doc="WebAuthn signature counter, an unsigned 32-bit value",
+    )
+    aaguid: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    transports: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    backup_eligible: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    backup_state: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+
+
+class MfaRecoveryCode(Base, TimestampMixin):
+    """A single-use MFA recovery code. Only a salted Argon2 hash is stored."""
+
+    __tablename__ = "mfa_recovery_code"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    lookup: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        doc="Public lookup ID at the start of the code; selects the hash to check",
+    )
+    code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
 
 
 class SAMLRequestData(Base):
@@ -3731,6 +3799,76 @@ class AgentSessionHistory(WorkspaceModel):
     )
 
 
+_COMMAND_TYPES_SQL = ", ".join(f"'{value}'" for value in CommandType)
+_COMMAND_STATES_SQL = ", ".join(f"'{value}'" for value in CommandState)
+
+
+class AgentSessionCommand(TimestampMixin, Base):
+    """Commands admitted for an agent session tree, in delivery order.
+
+    The table is the source of truth for commands a backend delivers to a running
+    session. ``seq`` orders delivery within the root session, and
+    ``request_id`` makes admission idempotent per root.
+    """
+
+    __tablename__ = "agent_session_command"
+    __table_args__ = (
+        UniqueConstraint("root_session_id", "request_id"),
+        UniqueConstraint("root_session_id", "seq"),
+        CheckConstraint(f"type IN ({_COMMAND_TYPES_SQL})", name="type"),
+        CheckConstraint(f"state IN ({_COMMAND_STATES_SQL})", name="state"),
+        CheckConstraint("payload ->> 'type' = type", name="payload_type"),
+        Index(
+            "ix_agent_session_command_active",
+            "root_session_id",
+            "seq",
+            postgresql_where=text("state IN ('queued', 'accepted', 'applied')"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    root_session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("agent_session.id", ondelete="CASCADE"),
+        nullable=False,
+        doc="Root of the session tree the command belongs to",
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        nullable=False,
+        doc="Conversation the command targets: the root or a child session",
+    )
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        doc="Copied from the root session for RLS and scoping",
+    )
+    request_id: Mapped[str] = mapped_column(
+        Text, nullable=False, doc="Idempotency key, unique per root session"
+    )
+    seq: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, doc="Delivery order within the root session"
+    )
+    type: Mapped[str] = mapped_column(Text, nullable=False)
+    turn_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, nullable=True, doc="Turn the command belongs to; null while queued"
+    )
+    generation: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, nullable=True, doc="Turn generation; null while queued"
+    )
+    payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, doc="Backend-defined command payload"
+    )
+    payload_hash: Mapped[str] = mapped_column(
+        Text, nullable=False, doc="Digest of the payload, compared on re-admission"
+    )
+    state: Mapped[str] = mapped_column(Text, nullable=False)
+    receipt: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True, doc="Backend-defined outcome of the command"
+    )
+
+
 class WatchtowerAgent(OrganizationModel):
     """Organization-scoped local agent identity for Watchtower monitoring."""
 
@@ -4344,6 +4482,13 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         nullable=True,
         doc="Tool approval requirements by tool name",
     )
+    tool_tunnels: Mapped[dict[str, str] | None] = mapped_column(
+        # Store ``None`` as SQL NULL, not JSON ``null``: tunnel reference
+        # checks expand this column with ``jsonb_each_text``.
+        JSONB(none_as_null=True),
+        nullable=True,
+        doc="Workspace tunnel name by registry action name for agent tool calls",
+    )
     mcp_integrations: Mapped[list[str] | None] = mapped_column(
         JSONB,
         nullable=True,
@@ -4489,6 +4634,13 @@ class AgentPresetVersion(WorkspaceModel):
         JSONB,
         nullable=True,
         doc="Tool approval requirements by tool name",
+    )
+    tool_tunnels: Mapped[dict[str, str] | None] = mapped_column(
+        # Store ``None`` as SQL NULL, not JSON ``null``: tunnel reference
+        # checks expand this column with ``jsonb_each_text``.
+        JSONB(none_as_null=True),
+        nullable=True,
+        doc="Workspace tunnel name by registry action name for agent tool calls",
     )
     mcp_integrations: Mapped[list[str] | None] = mapped_column(
         JSONB,
@@ -5613,6 +5765,13 @@ class MCPIntegration(TimestampMixin, Base):
         nullable=True,
         doc="Timeout in seconds (HTTP timeout for http type, process timeout for stdio type)",
     )
+    tunnel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("workspace_tunnel.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+        doc="Workspace tunnel that every request to this HTTP server goes through",
+    )
     tools: Mapped[list[dict[str, Any]] | None] = mapped_column(
         JSONB,
         nullable=True,
@@ -5668,6 +5827,11 @@ class MCPRefreshToken(OrganizationModel):
         String,
         nullable=False,
         doc="OAuth client_id the token was issued to",
+    )
+    granted_organization_ids: Mapped[list[uuid.UUID] | None] = mapped_column(
+        ARRAY(UUID),
+        nullable=True,
+        doc="Every org this connection was granted. Lets the membership-delete trigger revoke the token when any of them is removed. NULL means only organization_id.",
     )
     encrypted_metadata: Mapped[bytes] = mapped_column(
         LargeBinary,

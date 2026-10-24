@@ -694,6 +694,7 @@ export function AgentsTable() {
           }
         }}
         presetName={selectedPreset?.name ?? "the agent"}
+        presetSlug={selectedPreset?.slug ?? ""}
         isDeleting={deleteAgentPresetIsPending}
         onConfirm={handleDeleteConfirm}
       />

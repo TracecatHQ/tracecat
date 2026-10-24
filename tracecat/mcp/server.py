@@ -145,13 +145,13 @@ from tracecat.cases.schemas import (
     CaseFieldRead,
     CaseFieldReadMinimal,
     CaseFieldUpdate,
-    CaseHierarchyFilter,
     CaseParentRead,
     CaseReadMinimal,
     CaseTaskCreate,
     CaseTaskUpdate,
     CaseUpdate,
 )
+from tracecat.cases.search_schemas import CaseSearchRequest
 from tracecat.cases.service import (
     CaseCommentsService,
     CaseFieldsService,
@@ -370,6 +370,11 @@ type MCPWorkflowUUID = Annotated[
 _PRESET_USE_IN_CHAT_DESCRIPTION = (
     "Make this preset selectable in workspace chat. Only set this when the user "
     "explicitly asks to enable or disable the preset in chat; otherwise omit it."
+)
+_PRESET_TOOL_TUNNELS_DESCRIPTION = (
+    "Workspace tunnel name keyed by registry action name, for actions that "
+    "reach private hosts (e.g. an on-prem API). MCP servers set their tunnel "
+    "on the MCP integration instead."
 )
 
 
@@ -669,6 +674,7 @@ async def _build_integrations_inventory(role: Role) -> IntegrationsInventoryResp
                     server_type=integration.server_type,
                     auth_type=integration.auth_type.value,
                     oauth_integration_id=integration.oauth_integration_id,
+                    tunnel_id=integration.tunnel_id,
                     timeout=integration.timeout,
                     attachable_to_agent_preset=True,
                 )
@@ -1401,6 +1407,7 @@ class IntegrationMCPItem(BaseModel):
     server_type: str
     auth_type: str
     oauth_integration_id: uuid.UUID | None = None
+    tunnel_id: uuid.UUID | None = None
     timeout: float | None = None
     attachable_to_agent_preset: bool = True
 
@@ -2856,13 +2863,10 @@ Require/Python: `core.require`, `core.script.run_python`
 
 AI: `ai.action`, `ai.agent`, `ai.preset_agent`, `ai.agent.create_preset`,
 `ai.agent.delete_preset`, `ai.agent.get_preset`, `ai.agent.list_presets`,
-`ai.agent.update_preset`, `ai.skill.archive_skill`, `ai.skill.create_skill`,
-`ai.skill.get_skill`, `ai.skill.get_skill_draft`,
-`ai.skill.get_skill_draft_file`, `ai.skill.get_skill_version`,
-`ai.skill.list_skill_versions`, `ai.skill.list_skills`,
-`ai.skill.publish_skill_draft`, `ai.skill.publish_skill_version`,
-`ai.skill.restore_skill_version`, `ai.skill.update_skill`,
-`ai.skill.update_skill_draft`
+`ai.agent.update_preset`, `ai.skill.create_skill`, `ai.skill.delete_skill`,
+`ai.skill.get_skill`, `ai.skill.list_skill_versions`, `ai.skill.list_skills`,
+`ai.skill.publish_skill`, `ai.skill.restore_skill_version`,
+`ai.skill.update_skill`
 
 ## Third-Party Integration Action Syntax
 
@@ -5061,9 +5065,9 @@ async def sync_custom_registry(
     pick up newly synced action versions.
 
     Args:
-        org_id: Organization ID to sync. Required for unscoped tokens when the
-            caller belongs to multiple organizations. May be omitted for
-            single-org callers or tokens scoped with organization_id/org:<id>.
+        org_id: Organization ID to sync. Required when the connection covers
+            more than one organization; use the org_id values returned by
+            list_workspaces. May be omitted for single-org connections.
         target_commit_sha: 40-character commit SHA to sync to. Defaults to
             the remote's HEAD when omitted.
 
@@ -6799,7 +6803,9 @@ async def list_cases(
         limit: Maximum items per page.
         cursor: Cursor for pagination.
         order_by: Column to order by. One of: created_at, updated_at,
-            priority, severity, status, tasks.
+            priority, severity, status, tasks, assignee, tags. Assignee uses
+            lowercase email; tags uses the first normalized tag alphabetically.
+            Missing assignees and tags sort last in either direction.
         sort: Sort direction. One of: asc, desc.
 
     Returns a paginated JSON array of case objects.
@@ -6832,14 +6838,30 @@ async def search_cases(
     limit: int = config.TRACECAT__LIMIT_DEFAULT,
     cursor: str | None = None,
     search_term: str | None = None,
+    search_mode: Literal["full_text", "literal"] | None = None,
+    search_columns: list[Literal["summary", "description"]] | None = None,
     short_id: str | None = None,
     status: str | None = None,
     priority: str | None = None,
     severity: str | None = None,
     order_by: str | None = None,
-    sort: str | None = None,
+    sort: Literal["asc", "desc"] | None = None,
+    case_id: uuid.UUID | None = None,
+    filters: dict[str, Any] | None = None,
+    hierarchy: Literal["all", "top_level"] = "all",
     parent_id: uuid.UUID | None = None,
-    hierarchy: CaseHierarchyFilter = "all",
+    tags: list[str] | None = None,
+    dropdown: list[str] | None = None,
+    assignee_id: list[str] | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    updated_after: datetime | None = None,
+    updated_before: datetime | None = None,
+    include_rows: bool = False,
+    field_ids: list[str] | None = None,
+    include_durations: bool = False,
+    include_payload: bool = False,
+    include_count: bool = True,
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """Search cases with filtering and sorting.
 
@@ -6849,6 +6871,8 @@ async def search_cases(
         cursor: Cursor for pagination.
         search_term: Text to search for in case summary, description, short
             ID, or case UUID.
+        search_mode: Explicit full_text words/phrases or literal substring; omitted preserves legacy behavior.
+        search_columns: Summary/description fields to search; omitted uses both.
         short_id: Search by exact case short ID (e.g. ``42`` or
             ``CASE-0042``).
         status: Comma-separated case statuses to filter by. Values: new,
@@ -6858,13 +6882,34 @@ async def search_cases(
         severity: Comma-separated case severities to filter by. Values:
             unknown, informational, low, medium, high, critical, fatal, other.
         order_by: Column to order by. One of: created_at, updated_at,
-            priority, severity, status, tasks.
+            priority, severity, status, tasks, assignee, tags. Assignee uses
+            lowercase email; tags uses the first normalized tag alphabetically.
+            Missing assignees and tags sort last in either direction.
         sort: Sort direction. One of: asc, desc.
-        parent_id: Return only the sub-cases of this parent case UUID.
-            Requires the case add-ons entitlement.
-        hierarchy: ``all`` (default) returns parent cases and sub-cases;
-            ``top_level`` returns only cases without a parent. Cannot be
-            combined with ``parent_id``.
+        case_id: Exact case UUID, ANDed with all matching conditions.
+        filters: Shared AND/OR/NOT JSON filter tree. Tag in matches any tag,
+            AND of contains requires all, NOT in excludes selected tags, and
+            is_null matches untagged cases. Scalar exclusions omit unset values
+            unless ORed with is_null. Payload equality uses
+            field="payload.metadata.product.vendor_name", op="eq", value="Microsoft".
+            Payload paths support only eq/ne/is_null. Use dot-separated literal
+            keys or numeric array indices; keys containing dots are unsupported.
+            Combine with and/or/not; JSON scalar types are preserved. is_null
+            matches missing paths, not explicit JSON null.
+        hierarchy: Return all cases or top-level cases.
+        parent_id: Return sub-cases of this parent UUID.
+        tags: Legacy tag IDs or refs with any-tag semantics.
+        dropdown: Legacy definition_ref:option_ref selections.
+        assignee_id: User UUIDs or unassigned.
+        start_time: Inclusive creation lower bound.
+        end_time: Inclusive creation upper bound.
+        updated_after: Inclusive update lower bound.
+        updated_before: Inclusive update upper bound.
+        include_rows: Include linked table rows.
+        field_ids: Include these custom field values.
+        include_durations: Include durations when entitled.
+        include_payload: Include payload.
+        include_count: Include exact total_estimate.
 
     Returns a paginated JSON array of case objects. Each case includes
     ``parent`` (set on sub-cases) and ``num_sub_cases``.
@@ -6885,30 +6930,49 @@ async def search_cases(
         if severity:
             parsed_severity = [CaseSeverity(s.strip()) for s in severity.split(",")]
 
-        async with CasesService.with_session(role=role) as svc:
-            result = await svc.search_cases(
-                params=CursorPaginationParams(
-                    limit=_normalize_limit(
-                        limit,
-                        default=config.TRACECAT__LIMIT_DEFAULT,
-                        max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
-                    ),
-                    cursor=cursor,
+        check_scopes(role, "case:read")
+        request = CaseSearchRequest.model_validate(
+            {
+                "limit": _normalize_limit(
+                    limit,
+                    default=config.TRACECAT__LIMIT_DEFAULT,
+                    max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
                 ),
-                search_term=search_term,
-                short_id=short_id,
-                status=parsed_status,
-                priority=parsed_priority,
-                severity=parsed_severity,
-                order_by=cast(Any, order_by),
-                sort=cast(Any, sort),
-                parent_id=parent_id,
-                hierarchy=hierarchy,
-            )
-            return result
-    except EntitlementRequired as e:
-        raise ToolError(str(e)) from e
-    except TracecatValidationError as e:
+                "cursor": cursor,
+                "search_term": search_term,
+                "search_mode": search_mode,
+                "search_columns": search_columns,
+                "short_id": short_id,
+                "case_id": case_id,
+                "filters": filters,
+                "status": parsed_status,
+                "priority": parsed_priority,
+                "severity": parsed_severity,
+                "order_by": order_by,
+                "sort": sort,
+                "hierarchy": hierarchy,
+                "parent_id": parent_id,
+                "tags": tags,
+                "dropdown": dropdown,
+                "assignee_id": assignee_id,
+                "start_time": start_time,
+                "end_time": end_time,
+                "updated_after": updated_after,
+                "updated_before": updated_before,
+                "include_rows": include_rows,
+                "field_ids": field_ids,
+                "include_durations": include_durations,
+                "include_payload": include_payload,
+                "include_count": include_count,
+            }
+        )
+        async with CasesService.with_session(role=role) as svc:
+            return await svc.query_cases(request)
+    except ScopeDeniedError as e:
+        raise ToolError(
+            f"Missing required scope: {', '.join(e.required_scopes)}"
+        ) from e
+    except (EntitlementRequired, TracecatValidationError) as e:
         raise ToolError(str(e)) from e
     except ValueError as e:
         raise ToolError(str(e)) from e
@@ -9547,6 +9611,9 @@ async def create_agent_preset(
     actions: list[str] | None = None,
     namespaces: list[str] | None = None,
     tool_approvals: dict[str, bool] | None = None,
+    tool_tunnels: Annotated[
+        dict[str, str] | None, Field(description=_PRESET_TOOL_TUNNELS_DESCRIPTION)
+    ] = None,
     mcp_integration_ids: list[str] | None = None,
     retries: int | None = None,
     enable_thinking: bool | None = None,
@@ -9602,6 +9669,7 @@ async def create_agent_preset(
             "actions": actions,
             "namespaces": namespaces,
             "tool_approvals": tool_approvals,
+            "tool_tunnels": tool_tunnels,
             "mcp_integrations": mcp_integration_ids,
             "retries": retries,
             "enable_thinking": enable_thinking,
@@ -9655,6 +9723,9 @@ async def update_agent_preset(
     actions: list[str] | None = None,
     namespaces: list[str] | None = None,
     tool_approvals: dict[str, bool] | None = None,
+    tool_tunnels: Annotated[
+        dict[str, str] | None, Field(description=_PRESET_TOOL_TUNNELS_DESCRIPTION)
+    ] = None,
     mcp_integration_ids: list[str] | None = None,
     retries: int | None = None,
     enable_thinking: bool | None = None,
@@ -9706,6 +9777,7 @@ async def update_agent_preset(
             "actions": actions,
             "namespaces": namespaces,
             "tool_approvals": tool_approvals,
+            "tool_tunnels": tool_tunnels,
             "mcp_integrations": mcp_integration_ids,
             "retries": retries,
             "enable_thinking": enable_thinking,

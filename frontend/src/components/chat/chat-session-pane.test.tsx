@@ -14,12 +14,16 @@ import {
   type UIMessageChunk,
 } from "ai"
 import type { ReactNode } from "react"
+
 import {
   type AgentSessionsGetSessionVercelResponse,
+  type UIMessage as ApiUIMessage,
   agentSessionsGetSessionVercel,
 } from "@/client"
+
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { useGetChatVercel } from "@/hooks/use-chat"
+import type { RunningComposer, RunningComposerContext } from "@/lib/extensions"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 // jsdom lacks structuredClone, which readUIMessageStream uses per update.
@@ -33,9 +37,31 @@ const mockUseVercelChatResult = {
   lastError: null as string | null,
   messages: [] as UIMessage[],
   regenerate: jest.fn(),
+  // Without a dropped connection, the hook's retry resends.
+  retryTurn: jest.fn(async (messageId: string | undefined) => {
+    mockUseVercelChatResult.regenerate({ messageId })
+  }),
   sendMessage: jest.fn(),
   status: "ready" as ChatStatus,
 }
+
+// Tracecat installs no running composer; tests opt in through this mock.
+const mockUseRunningComposer = jest.fn(
+  (_context: RunningComposerContext): RunningComposer | undefined => undefined
+)
+jest.mock("@/extensions", () => ({
+  extensions: {
+    useRunningComposer: (context: RunningComposerContext) =>
+      mockUseRunningComposer(context),
+  },
+}))
+
+// These tests read every step of finished turns, which only the verbose level
+// draws without expanding the turn first.
+jest.mock("@/hooks/use-chat-verbosity", () => ({
+  ...jest.requireActual("@/hooks/use-chat-verbosity"),
+  useChatVerbosityPreference: () => ["verbose", jest.fn()],
+}))
 
 jest.mock("@/components/chat/chat-empty-hero", () => ({
   ChatEmptyHero: ({ children }: { children: ReactNode }) => (
@@ -49,7 +75,6 @@ jest.mock("@/components/icons", () => ({
 }))
 
 jest.mock("@/components/ai-elements/tool", () => ({
-  getStatusBadge: () => null,
   Tool: ({ children }: { children?: ReactNode }) => (
     <div data-testid="tool">{children}</div>
   ),
@@ -196,7 +221,7 @@ describe("ChatSessionPane optimistic first send", () => {
   it("adopts persisted child history and disables direct messages", async () => {
     const description =
       "This subagent conversation is read-only. Message the parent conversation instead."
-    const message: UIMessage = {
+    const message: ApiUIMessage = {
       id: "child-message",
       role: "assistant",
       parts: [{ type: "text", text: "Child result" }],
@@ -229,7 +254,7 @@ describe("ChatSessionPane optimistic first send", () => {
     expect(mockUseVercelChatResult.sendMessage).not.toHaveBeenCalled()
   })
 
-  it("shows the submitted message and loading dots before a session exists", async () => {
+  it("shows the submitted message and a thinking line before a session exists", async () => {
     const onBeforeSend = jest.fn(
       () => new Promise<string | null>(() => undefined)
     )
@@ -256,7 +281,7 @@ describe("ChatSessionPane optimistic first send", () => {
     expect(
       await screen.findByText("Summarize this workspace")
     ).toBeInTheDocument()
-    expect(screen.getByTestId("dots-loader")).toBeInTheDocument()
+    expect(screen.getByTestId("agent-running-line")).toBeInTheDocument()
     expect(screen.getByPlaceholderText("Creating chat...")).toBeDisabled()
   })
 
@@ -276,7 +301,7 @@ describe("ChatSessionPane optimistic first send", () => {
 
     await waitFor(() => expect(input).not.toBeDisabled())
     expect(input).toHaveValue("Try again")
-    expect(screen.queryByTestId("dots-loader")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("agent-running-line")).not.toBeInTheDocument()
   })
 
   it("keeps the optimistic message when prior history has matching text", async () => {
@@ -303,11 +328,11 @@ describe("ChatSessionPane optimistic first send", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submit" }))
 
     await waitFor(() => expect(onBeforeSend).toHaveBeenCalled())
-    expect(screen.getByTestId("dots-loader")).toBeInTheDocument()
+    expect(screen.getByTestId("agent-running-line")).toBeInTheDocument()
 
     rerenderChatSessionPane(props)
 
-    expect(screen.getByTestId("dots-loader")).toBeInTheDocument()
+    expect(screen.getByTestId("agent-running-line")).toBeInTheDocument()
 
     mockUseVercelChatResult.messages = [
       priorMessage,
@@ -320,7 +345,7 @@ describe("ChatSessionPane optimistic first send", () => {
     rerenderChatSessionPane(props)
 
     await waitFor(() =>
-      expect(screen.queryByTestId("dots-loader")).not.toBeInTheDocument()
+      expect(screen.queryByTestId("agent-running-line")).not.toBeInTheDocument()
     )
   })
 })
@@ -340,7 +365,11 @@ const SUBMITTED: UIMessage = {
   parts: [
     {
       type: "data-continue",
-      data: { kind: "continue", source: "chat", decisions: [] },
+      data: {
+        kind: "continue",
+        source: "chat",
+        decisions: CALLS.map((id) => ({ tool_call_id: id, action: "approve" })),
+      },
     },
   ],
 }
@@ -793,7 +822,7 @@ describe("ChatSessionPane compaction badge", () => {
     ]
     renderChatSessionPane()
 
-    expect(screen.getByText("Conversation compacted.")).toBeInTheDocument()
+    expect(screen.getByText("Compacted conversation")).toBeInTheDocument()
     expect(screen.getByText("1,234 tokens")).toBeInTheDocument()
   })
 
@@ -807,12 +836,10 @@ describe("ChatSessionPane compaction badge", () => {
     ]
     const { rerenderChatSessionPane } = renderChatSessionPane()
 
-    const badge = screen.getByText("Compacting conversation...").parentElement
+    const badge = screen.getByText("Compacting conversation").parentElement
     expect(badge?.querySelector(".animate-spin")).toBeInTheDocument()
-    expect(screen.queryByTestId("dots-loader")).not.toBeInTheDocument()
-    expect(
-      screen.queryByText("Conversation compacted.")
-    ).not.toBeInTheDocument()
+    expect(screen.queryByTestId("agent-running-line")).not.toBeInTheDocument()
+    expect(screen.queryByText("Compacted conversation")).not.toBeInTheDocument()
 
     // The turn keeps streaming after an automatic compaction completes, so
     // the generic loader returns.
@@ -827,11 +854,11 @@ describe("ChatSessionPane compaction badge", () => {
 
     // The result replaces the in-progress badge.
     expect(
-      screen.queryByText("Compacting conversation...")
+      screen.queryByText("Compacting conversation")
     ).not.toBeInTheDocument()
-    expect(screen.getByText("Conversation compacted.")).toBeInTheDocument()
+    expect(screen.getByText("Compacted conversation")).toBeInTheDocument()
     expect(screen.getByText("190,934 tokens")).toBeInTheDocument()
-    expect(screen.getByTestId("dots-loader")).toBeInTheDocument()
+    expect(screen.getByTestId("agent-running-line")).toBeInTheDocument()
   })
 
   it("shows a failed compaction in place of the in-progress badge", () => {
@@ -842,13 +869,11 @@ describe("ChatSessionPane compaction badge", () => {
     ]
     renderChatSessionPane()
 
-    expect(screen.getByText("Compaction failed.")).toBeInTheDocument()
+    expect(screen.getByText("Compaction failed")).toBeInTheDocument()
     expect(
-      screen.queryByText("Compacting conversation...")
+      screen.queryByText("Compacting conversation")
     ).not.toBeInTheDocument()
-    expect(
-      screen.queryByText("Conversation compacted.")
-    ).not.toBeInTheDocument()
+    expect(screen.queryByText("Compacted conversation")).not.toBeInTheDocument()
   })
 })
 
@@ -1008,6 +1033,11 @@ function renderServerBackedPane() {
   )
 }
 
+/** The approval batch's Submit, shown in place of the prompt box. */
+function approvalSubmit(): HTMLElement {
+  return screen.getByRole("button", { name: "Submit" })
+}
+
 describe("ChatSessionPane approvals decided elsewhere", () => {
   const fetchSession = jest.mocked(agentSessionsGetSessionVercel)
 
@@ -1054,11 +1084,7 @@ describe("ChatSessionPane approvals decided elsewhere", () => {
     // The Inbox decided the batch before this tab refreshed.
     fetchSession.mockResolvedValue(serverChat(RESOLVED))
     fireEvent.click(first.getByRole("button", { name: "Approve" }))
-    fireEvent.click(
-      within(screen.getByTestId("approval-card-third")).getByRole("button", {
-        name: "Submit",
-      })
-    )
+    fireEvent.click(approvalSubmit())
 
     await waitFor(() =>
       expect(
@@ -1110,7 +1136,15 @@ describe("ChatSessionPane approvals decided elsewhere", () => {
       await jest.advanceTimersByTimeAsync(5_000)
     })
 
-    await waitFor(() => expect(approveButton("first")).toBeDisabled())
+    // The decided call drops its actions; the others still wait.
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("approval-card-first")).queryByRole(
+          "button",
+          { name: "Approve" }
+        )
+      ).not.toBeInTheDocument()
+    )
     expect(approveButton("second")).toBeEnabled()
   })
 
@@ -1156,7 +1190,7 @@ describe("ChatSessionPane approvals decided elsewhere", () => {
     fetchSession.mockResolvedValue(
       serverChat(pausedWith((id) => (id === "first" ? "approved" : "pending")))
     )
-    fireEvent.click(card("third").getByRole("button", { name: "Submit" }))
+    fireEvent.click(approvalSubmit())
 
     await waitFor(() =>
       expect(mockUseVercelChatResult.sendMessage).toHaveBeenCalledTimes(1)
@@ -1168,11 +1202,140 @@ describe("ChatSessionPane approvals decided elsewhere", () => {
     // The first card never shows this tab's unsent denial as its decision.
     await waitFor(() =>
       expect(
-        card("first").queryByPlaceholderText("Share a short reason")
+        screen.queryByPlaceholderText("Reason, sent to the agent")
       ).not.toBeInTheDocument()
     )
     expect(
-      card("second").getByRole("button", { name: "Approve" })
-    ).toBeDisabled()
+      card("second").queryByRole("button", { name: "Approve" })
+    ).not.toBeInTheDocument()
+  })
+})
+
+describe("ChatSessionPane running composer", () => {
+  beforeEach(() => {
+    mockUseRunningComposer.mockReset()
+    mockUseRunningComposer.mockReturnValue(undefined)
+    mockUseVercelChatResult.sendMessage.mockClear()
+    mockUseVercelChatResult.messages = []
+    mockUseVercelChatResult.status = "streaming"
+  })
+
+  afterAll(() => {
+    mockUseVercelChatResult.status = "ready"
+  })
+
+  it("keeps the composer disabled while a turn runs without one", () => {
+    renderChatSessionPane()
+
+    expect(screen.getByPlaceholderText("Ask Tracecat...")).toBeDisabled()
+    expect(mockUseRunningComposer).toHaveBeenCalledWith(
+      expect.objectContaining({ running: true, capabilities: {} })
+    )
+  })
+
+  it("hands the composer's text to the running turn", async () => {
+    const submit = jest.fn(async () => true)
+    mockUseRunningComposer.mockReturnValue({
+      placeholder: "Steer the running turn...",
+      submit,
+      panel: <div>Steering panel</div>,
+    })
+    renderChatSessionPane()
+
+    expect(screen.getByText("Steering panel")).toBeInTheDocument()
+    const input = screen.getByPlaceholderText("Steer the running turn...")
+    expect(input).toBeEnabled()
+    fireEvent.change(input, { target: { value: "  Focus on the alert " } })
+    fireEvent.keyDown(input, { key: "Enter" })
+
+    await waitFor(() =>
+      expect(submit).toHaveBeenCalledWith("Focus on the alert")
+    )
+    await waitFor(() => expect(input).toHaveValue(""))
+    expect(mockUseVercelChatResult.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it("keeps the text when the running turn does not take it", async () => {
+    const submit = jest.fn(async () => false)
+    mockUseRunningComposer.mockReturnValue({
+      placeholder: "Steer the running turn...",
+      submit,
+    })
+    renderChatSessionPane()
+
+    const input = screen.getByPlaceholderText("Steer the running turn...")
+    fireEvent.change(input, { target: { value: "Focus on the alert" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+
+    await waitFor(() => expect(submit).toHaveBeenCalled())
+    expect(input).toHaveValue("Focus on the alert")
+  })
+
+  it("keeps a draft with attachments out of the running turn", async () => {
+    const submit = jest.fn(async () => true)
+    mockUseRunningComposer.mockReturnValue({
+      placeholder: "Steer the running turn...",
+      submit,
+    })
+    const createObjectURL = jest.fn(() => "blob:shot")
+    Object.assign(URL, { createObjectURL, revokeObjectURL: jest.fn() })
+    renderChatSessionPane()
+
+    const input = screen.getByPlaceholderText("Steer the running turn...")
+    const shot = new File(["png"], "shot.png", { type: "image/png" })
+    fireEvent.paste(input, {
+      clipboardData: { items: [{ kind: "file", getAsFile: () => shot }] },
+    })
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalled())
+    fireEvent.change(input, { target: { value: "Use this screenshot" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+
+    await act(async () => undefined)
+    expect(submit).not.toHaveBeenCalled()
+    expect(input).toHaveValue("Use this screenshot")
+  })
+
+  it("leaves an idle composer to the normal send", async () => {
+    const submit = jest.fn(async () => true)
+    mockUseRunningComposer.mockReturnValue({
+      placeholder: "Steer the running turn...",
+      submit,
+    })
+    mockUseVercelChatResult.status = "ready"
+    renderChatSessionPane({ chat: serverChat([]) })
+
+    const input = screen.getByPlaceholderText("Ask Tracecat...")
+    fireEvent.change(input, { target: { value: "Hello" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+
+    await waitFor(() =>
+      expect(mockUseVercelChatResult.sendMessage).toHaveBeenCalledTimes(1)
+    )
+    expect(submit).not.toHaveBeenCalled()
+  })
+
+  it("shows a user message that joined the turn where it joined", async () => {
+    mockUseVercelChatResult.messages = [
+      { id: "user-1", role: "user", parts: [{ type: "text", text: "Start" }] },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [
+          { type: "text", text: "Working on it" },
+          {
+            type: "data-user-message",
+            data: { id: "steer-1", text: "Focus on the alert" },
+          },
+        ],
+      },
+    ]
+    renderChatSessionPane()
+
+    const joined = await screen.findByText("Focus on the alert")
+    // Where it joined: after the text before it.
+    expect(
+      screen.getByText("Working on it").compareDocumentPosition(joined) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
   })
 })

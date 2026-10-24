@@ -20,6 +20,8 @@ import type {
   ActionsUpdateActionResponse,
   AdminAgentListPlatformCatalogData,
   AdminAgentListPlatformCatalogResponse,
+  AdminCheckIpAllowlistData,
+  AdminCheckIpAllowlistResponse,
   AdminCreateOrganizationData,
   AdminCreateOrganizationDomainData,
   AdminCreateOrganizationDomainResponse,
@@ -41,6 +43,7 @@ import type {
   AdminDemoteFromSuperuserData,
   AdminDemoteFromSuperuserResponse,
   AdminGetAuditSettingsResponse,
+  AdminGetMfaSettingsResponse,
   AdminGetOrganizationData,
   AdminGetOrganizationInvitationTokenData,
   AdminGetOrganizationInvitationTokenResponse,
@@ -48,6 +51,7 @@ import type {
   AdminGetOrgTierData,
   AdminGetOrgTierResponse,
   AdminGetRegistrySettingsResponse,
+  AdminGetSecuritySettingsResponse,
   AdminGetTierData,
   AdminGetTierResponse,
   AdminGetUserData,
@@ -91,6 +95,8 @@ import type {
   AdminRegistrySyncRepositoryResponse,
   AdminResendOrganizationInvitationData,
   AdminResendOrganizationInvitationResponse,
+  AdminResetUserMfaData,
+  AdminResetUserMfaResponse,
   AdminRevokeOrganizationInvitationData,
   AdminRevokeOrganizationInvitationResponse,
   AdminSyncOrgRepositoryData,
@@ -99,6 +105,8 @@ import type {
   AdminTestAuditWebhookResponse,
   AdminUpdateAuditSettingsData,
   AdminUpdateAuditSettingsResponse,
+  AdminUpdateMfaSettingsData,
+  AdminUpdateMfaSettingsResponse,
   AdminUpdateOrganizationData,
   AdminUpdateOrganizationDomainData,
   AdminUpdateOrganizationDomainResponse,
@@ -107,6 +115,8 @@ import type {
   AdminUpdateOrgTierResponse,
   AdminUpdateRegistrySettingsData,
   AdminUpdateRegistrySettingsResponse,
+  AdminUpdateSecuritySettingsData,
+  AdminUpdateSecuritySettingsResponse,
   AdminUpdateTierData,
   AdminUpdateTierResponse,
   AgentChannelsCreateChannelTokenData,
@@ -185,6 +195,8 @@ import type {
   AgentRefreshProviderModelsResponse,
   AgentSessionsCancelSessionData,
   AgentSessionsCancelSessionResponse,
+  AgentSessionsControlSessionData,
+  AgentSessionsControlSessionResponse,
   AgentSessionsCreateSessionData,
   AgentSessionsCreateSessionResponse,
   AgentSessionsDeleteSessionData,
@@ -268,21 +280,37 @@ import type {
   AuthAuthDatabaseLoginData,
   AuthAuthDatabaseLoginResponse,
   AuthAuthDatabaseLogoutResponse,
+  AuthBeginAuthenticationResponse,
+  AuthBeginRegistrationResponse,
+  AuthCompleteAuthenticationData,
+  AuthCompleteAuthenticationResponse,
+  AuthCompleteRegistrationData,
+  AuthCompleteRegistrationResponse,
+  AuthDeleteCredentialData,
+  AuthDeleteCredentialResponse,
   AuthDiscoverAuthMethodData,
   AuthDiscoverAuthMethodResponse,
+  AuthGetMfaStatusResponse,
+  AuthListCredentialsResponse,
   AuthOauthOidcDatabaseAuthorizeData,
   AuthOauthOidcDatabaseAuthorizeResponse,
   AuthOauthOidcDatabaseCallbackData,
   AuthOauthOidcDatabaseCallbackResponse,
+  AuthRegenerateRecoveryCodesResponse,
   AuthRegisterRegisterData,
   AuthRegisterRegisterResponse,
+  AuthRenameCredentialData,
+  AuthRenameCredentialResponse,
   AuthResetForgotPasswordData,
   AuthResetForgotPasswordResponse,
   AuthResetResetPasswordData,
   AuthResetResetPasswordResponse,
   AuthSamlDatabaseLoginResponse,
+  AuthSignOutPendingSessionResponse,
   AuthSsoAcsData,
   AuthSsoAcsResponse,
+  AuthVerifyRecoveryCodeData,
+  AuthVerifyRecoveryCodeResponse,
   AuthVerifyRequestTokenData,
   AuthVerifyRequestTokenResponse,
   AuthVerifyVerifyData,
@@ -373,6 +401,8 @@ import type {
   CasesLinkCaseRowResponse,
   CasesListCaseDropdownValuesData,
   CasesListCaseDropdownValuesResponse,
+  CasesListCaseFilterFieldsData,
+  CasesListCaseFilterFieldsResponse,
   CasesListCaseLinkedTablesData,
   CasesListCaseLinkedTablesResponse,
   CasesListCaseRowsData,
@@ -395,6 +425,10 @@ import type {
   CasesListTagsResponse,
   CasesListTasksData,
   CasesListTasksResponse,
+  CasesQueryCaseAggregatesData,
+  CasesQueryCaseAggregatesResponse,
+  CasesQueryCasesData,
+  CasesQueryCasesResponse,
   CasesRemoveTagData,
   CasesRemoveTagResponse,
   CasesRestoreCaseVersionData,
@@ -847,6 +881,7 @@ import type {
   SettingsGetAppSettingsResponse,
   SettingsGetAuditSettingsResponse,
   SettingsGetGitSettingsResponse,
+  SettingsGetMfaPolicyResponse,
   SettingsGetSamlSettingsResponse,
   SettingsGetSecuritySettingsResponse,
   SettingsTestAuditWebhookData,
@@ -861,6 +896,8 @@ import type {
   SettingsUpdateAuditSettingsResponse,
   SettingsUpdateGitSettingsData,
   SettingsUpdateGitSettingsResponse,
+  SettingsUpdateMfaPolicyData,
+  SettingsUpdateMfaPolicyResponse,
   SettingsUpdateSamlSettingsData,
   SettingsUpdateSamlSettingsResponse,
   SettingsUpdateSecuritySettingsData,
@@ -981,6 +1018,8 @@ import type {
   TunnelsCreateTunnelResponse,
   TunnelsDeleteTunnelData,
   TunnelsDeleteTunnelResponse,
+  TunnelsGetTunnelAvailabilityData,
+  TunnelsGetTunnelAvailabilityResponse,
   TunnelsGetTunnelData,
   TunnelsGetTunnelResponse,
   TunnelsGetTunnelStatusData,
@@ -4208,6 +4247,29 @@ export const tunnelsCreateTunnel = (
 }
 
 /**
+ * Get Tunnel Availability
+ * Report whether this deployment can run tunnel gateways.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns TunnelAvailabilityRead Successful Response
+ * @throws ApiError
+ */
+export const tunnelsGetTunnelAvailability = (
+  data: TunnelsGetTunnelAvailabilityData
+): CancelablePromise<TunnelsGetTunnelAvailabilityResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/tunnels/availability",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Create Managed Tunnel
  * Create a tunnel whose Pangolin site, machine client, and resources Tracecat provisions.
  *
@@ -4262,11 +4324,11 @@ export const tunnelsGetTunnelStatus = (
 
 /**
  * Get Tunnel
- * Get a tunnel in the workspace.
+ * Get a tunnel in the workspace and the resources that reference it.
  * @param data The data for the request.
  * @param data.tunnelId
  * @param data.workspaceId
- * @returns TunnelRead Successful Response
+ * @returns TunnelDetailRead Successful Response
  * @throws ApiError
  */
 export const tunnelsGetTunnel = (
@@ -8319,8 +8381,11 @@ export const agentSessionsForkSession = (
 }
 
 /**
+ * @deprecated
  * Cancel Session
  * Request graceful cancellation for the active agent session turn.
+ *
+ * Deprecated: send a `cancel` control to `/control` instead.
  * @param data The data for the request.
  * @param data.sessionId
  * @param data.workspaceId
@@ -8334,6 +8399,34 @@ export const agentSessionsCancelSession = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/workspaces/{workspace_id}/agent/sessions/{session_id}/cancel",
+    path: {
+      session_id: data.sessionId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Control Session
+ * Steer, withdraw from, or cancel the active turn without waiting for it.
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentControlReceipt Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsControlSession = (
+  data: AgentSessionsControlSessionData
+): CancelablePromise<AgentSessionsControlSessionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/agent/sessions/{session_id}/control",
     path: {
       session_id: data.sessionId,
       workspace_id: data.workspaceId,
@@ -9125,6 +9218,105 @@ export const adminUpdateRegistrySettings = (
 }
 
 /**
+ * Get Security Settings
+ * Get the platform admin IP allowlist.
+ * @returns PlatformSecuritySettingsRead Successful Response
+ * @throws ApiError
+ */
+export const adminGetSecuritySettings =
+  (): CancelablePromise<AdminGetSecuritySettingsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/admin/settings/security",
+    })
+  }
+
+/**
+ * Update Security Settings
+ * Update the platform admin IP allowlist.
+ *
+ * Enabling a non-empty allowlist that excludes the caller's own IP is
+ * rejected so a platform admin cannot lock themselves out.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns PlatformSecuritySettingsRead Successful Response
+ * @throws ApiError
+ */
+export const adminUpdateSecuritySettings = (
+  data: AdminUpdateSecuritySettingsData
+): CancelablePromise<AdminUpdateSecuritySettingsResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/admin/settings/security",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Mfa Settings
+ * Whether platform admins must sign in with a security key.
+ * @returns MfaPolicyRead Successful Response
+ * @throws ApiError
+ */
+export const adminGetMfaSettings =
+  (): CancelablePromise<AdminGetMfaSettingsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/admin/settings/security/mfa",
+    })
+  }
+
+/**
+ * Update Mfa Settings
+ * Require a security key at sign-in for platform admins.
+ *
+ * ``TRACECAT__PLATFORM_ADMIN_MFA_BYPASS`` is the break-glass override.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns MfaPolicyRead Successful Response
+ * @throws ApiError
+ */
+export const adminUpdateMfaSettings = (
+  data: AdminUpdateMfaSettingsData
+): CancelablePromise<AdminUpdateMfaSettingsResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/admin/settings/security/mfa",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Check Ip Allowlist
+ * Report whether an IP address is admitted by the saved platform admin allowlist.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns IPAllowlistCheckResult Successful Response
+ * @throws ApiError
+ */
+export const adminCheckIpAllowlist = (
+  data: AdminCheckIpAllowlistData
+): CancelablePromise<AdminCheckIpAllowlistResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/settings/security/ip-allowlist/check",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Tiers
  * List all tiers.
  * @param data The data for the request.
@@ -9431,6 +9623,32 @@ export const adminDemoteFromSuperuser = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/admin/users/{user_id}/demote",
+    path: {
+      user_id: data.userId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Reset User Mfa
+ * Remove a user's security keys and recovery codes after they lose access.
+ *
+ * If a policy still requires MFA, the user must register a new key at their
+ * next sign-in.
+ * @param data The data for the request.
+ * @param data.userId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const adminResetUserMfa = (
+  data: AdminResetUserMfaData
+): CancelablePromise<AdminResetUserMfaResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/users/{user_id}/mfa/reset",
     path: {
       user_id: data.userId,
     },
@@ -10435,6 +10653,45 @@ export const settingsUpdateSecuritySettings = (
   return __request(OpenAPI, {
     method: "PATCH",
     url: "/settings/security",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Mfa Policy
+ * Whether members must sign in with a security key.
+ * @returns MfaPolicyRead Successful Response
+ * @throws ApiError
+ */
+export const settingsGetMfaPolicy =
+  (): CancelablePromise<SettingsGetMfaPolicyResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/settings/security/mfa",
+    })
+  }
+
+/**
+ * Update Mfa Policy
+ * Require (or stop requiring) a security key at sign-in for all members.
+ *
+ * Applies to password, OIDC, and SAML sign-in. Members without a key must
+ * register one before they can continue. The caller must already have one.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns MfaPolicyRead Successful Response
+ * @throws ApiError
+ */
+export const settingsUpdateMfaPolicy = (
+  data: SettingsUpdateMfaPolicyData
+): CancelablePromise<SettingsUpdateMfaPolicyResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/settings/security/mfa",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
@@ -11977,7 +12234,7 @@ export const formsListIntakeSubmissions = (
  * @param data.limit Maximum items per page
  * @param data.cursor Cursor for pagination
  * @param data.reverse Reverse pagination direction
- * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
+ * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks, assignee, tags). Default: created_at
  * @param data.sort Direction to sort (asc or desc)
  * @param data.includeRows Include linked table rows
  * @param data.fieldIds Include only the requested custom field IDs
@@ -12047,6 +12304,55 @@ export const casesCreateCase = (
 }
 
 /**
+ * List Case Filter Fields
+ * List filterable workspace fields with authoritative operators and limits.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns CaseFilterMetadata Successful Response
+ * @throws ApiError
+ */
+export const casesListCaseFilterFields = (
+  data: CasesListCaseFilterFieldsData
+): CancelablePromise<CasesListCaseFilterFieldsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/cases/search/fields",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Query Cases
+ * Search with typed AND/OR/NOT filters and independent result details.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
+ * @throws ApiError
+ */
+export const casesQueryCases = (
+  data: CasesQueryCasesData
+): CancelablePromise<CasesQueryCasesResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/cases/search",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Search Cases
  * Search cases with cursor-based pagination, filtering, and sorting.
  * @param data The data for the request.
@@ -12055,6 +12361,8 @@ export const casesCreateCase = (
  * @param data.cursor Cursor for pagination
  * @param data.reverse Reverse pagination direction
  * @param data.searchTerm Text to search for in case summary, description, short ID, or case UUID
+ * @param data.searchMode Explicit full_text or literal; omitted mode preserves legacy search.
+ * @param data.searchColumns Selected text fields; omitted searches both.
  * @param data.shortId Search by exact case short ID (e.g. 42 or CASE-0042)
  * @param data.caseId Filter by exact case UUID
  * @param data.promoteExactMatch Place a complete case reference first, even outside view filters. Workspace authorization and explicit identity/relationship constraints remain strict. Filtered counts exclude cases outside the view.
@@ -12069,7 +12377,7 @@ export const casesCreateCase = (
  * @param data.updatedAfter Return cases updated at or after this timestamp
  * @param data.updatedBefore Return cases updated at or before this timestamp
  * @param data.assigneeId Filter by assignee ID or 'unassigned'
- * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
+ * @param data.orderBy Full-text defaults to relevance; legacy/literal defaults to created_at. Explicit columns preserve their ordering.
  * @param data.sort Direction to sort (asc or desc)
  * @param data.includeRows Include linked table rows
  * @param data.fieldIds Include only the requested custom field IDs
@@ -12097,6 +12405,8 @@ export const casesSearchCases = (
       cursor: data.cursor,
       reverse: data.reverse,
       search_term: data.searchTerm,
+      search_mode: data.searchMode,
+      search_columns: data.searchColumns,
       short_id: data.shortId,
       case_id: data.caseId,
       promote_exact_match: data.promoteExactMatch,
@@ -12130,11 +12440,41 @@ export const casesSearchCases = (
 }
 
 /**
+ * Query Case Aggregates
+ * Count the same typed matching conditions as search.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseSearchAggregateRead Successful Response
+ * @throws ApiError
+ */
+export const casesQueryCaseAggregates = (
+  data: CasesQueryCaseAggregatesData
+): CancelablePromise<CasesQueryCaseAggregatesResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/cases/search/aggregate",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Search Case Aggregates
  * Return global case totals and per-stage counts for the current filters.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.searchTerm Text to search for in case summary, description, short ID, or case UUID
+ * @param data.searchMode Explicit full_text or literal; omitted mode preserves legacy search.
+ * @param data.searchColumns Selected text fields; omitted searches both.
+ * @param data.shortId
+ * @param data.caseId
  * @param data.status Filter by case status
  * @param data.priority Filter by case priority
  * @param data.severity Filter by case severity
@@ -12161,6 +12501,10 @@ export const casesSearchCaseAggregates = (
     },
     query: {
       search_term: data.searchTerm,
+      search_mode: data.searchMode,
+      search_columns: data.searchColumns,
+      short_id: data.shortId,
+      case_id: data.caseId,
       status: data.status,
       priority: data.priority,
       severity: data.severity,
@@ -14099,6 +14443,7 @@ export const foldersUpdateFolder = (
  * Delete a folder.
  *
  * If recursive=true, deletes all subfolders and moves the contained workflows to root.
+ * If recursive=true and delete_workflows=true, deletes the contained workflows too.
  * If recursive=false (default), fails if the folder contains any subfolders or workflows.
  * @param data The data for the request.
  * @param data.folderId
@@ -16733,6 +17078,198 @@ export const authSsoAcs = (
     url: "/auth/saml/acs",
     formData: data.formData,
     mediaType: "application/x-www-form-urlencoded",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Mfa Status
+ * @returns MfaStatusRead Successful Response
+ * @throws ApiError
+ */
+export const authGetMfaStatus =
+  (): CancelablePromise<AuthGetMfaStatusResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/auth/mfa/status",
+    })
+  }
+
+/**
+ * Sign Out Pending Session
+ * End the current session, including one that is waiting on MFA.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const authSignOutPendingSession =
+  (): CancelablePromise<AuthSignOutPendingSessionResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/auth/mfa/sign-out",
+    })
+  }
+
+/**
+ * Begin Registration
+ * @returns WebAuthnOptionsRead Successful Response
+ * @throws ApiError
+ */
+export const authBeginRegistration =
+  (): CancelablePromise<AuthBeginRegistrationResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/auth/mfa/webauthn/register/options",
+    })
+  }
+
+/**
+ * Complete Registration
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns WebAuthnRegistrationResult Successful Response
+ * @throws ApiError
+ */
+export const authCompleteRegistration = (
+  data: AuthCompleteRegistrationData
+): CancelablePromise<AuthCompleteRegistrationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/auth/mfa/webauthn/register/verify",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Begin Authentication
+ * @returns WebAuthnOptionsRead Successful Response
+ * @throws ApiError
+ */
+export const authBeginAuthentication =
+  (): CancelablePromise<AuthBeginAuthenticationResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/auth/mfa/webauthn/authenticate/options",
+    })
+  }
+
+/**
+ * Complete Authentication
+ * Verify a security key. Satisfies both the sign-in challenge and step-up.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns MfaStatusRead Successful Response
+ * @throws ApiError
+ */
+export const authCompleteAuthentication = (
+  data: AuthCompleteAuthenticationData
+): CancelablePromise<AuthCompleteAuthenticationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/auth/mfa/webauthn/authenticate/verify",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Verify Recovery Code
+ * Sign in with a one-time recovery code instead of a security key.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns MfaStatusRead Successful Response
+ * @throws ApiError
+ */
+export const authVerifyRecoveryCode = (
+  data: AuthVerifyRecoveryCodeData
+): CancelablePromise<AuthVerifyRecoveryCodeResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/auth/mfa/recovery-codes/verify",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Regenerate Recovery Codes
+ * Replace all recovery codes. Previous codes stop working.
+ * @returns RecoveryCodesRead Successful Response
+ * @throws ApiError
+ */
+export const authRegenerateRecoveryCodes =
+  (): CancelablePromise<AuthRegenerateRecoveryCodesResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/auth/mfa/recovery-codes",
+    })
+  }
+
+/**
+ * List Credentials
+ * @returns WebAuthnCredentialRead Successful Response
+ * @throws ApiError
+ */
+export const authListCredentials =
+  (): CancelablePromise<AuthListCredentialsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/auth/mfa/credentials",
+    })
+  }
+
+/**
+ * Rename Credential
+ * @param data The data for the request.
+ * @param data.credentialId
+ * @param data.requestBody
+ * @returns WebAuthnCredentialRead Successful Response
+ * @throws ApiError
+ */
+export const authRenameCredential = (
+  data: AuthRenameCredentialData
+): CancelablePromise<AuthRenameCredentialResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/auth/mfa/credentials/{credential_id}",
+    path: {
+      credential_id: data.credentialId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Credential
+ * @param data The data for the request.
+ * @param data.credentialId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const authDeleteCredential = (
+  data: AuthDeleteCredentialData
+): CancelablePromise<AuthDeleteCredentialResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/auth/mfa/credentials/{credential_id}",
+    path: {
+      credential_id: data.credentialId,
+    },
     errors: {
       422: "Validation Error",
     },

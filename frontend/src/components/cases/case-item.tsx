@@ -47,11 +47,8 @@ import {
 } from "@/components/cases/case-categories"
 import { CaseUserAvatar } from "@/components/cases/case-panel-common"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
-import {
-  EventCreatedAt,
-  EventUpdatedAt,
-} from "@/components/cases/cases-feed-event"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
+import { RowTimestamps } from "@/components/timestamps"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
   ContextMenu,
@@ -557,49 +554,65 @@ export function CaseItem({
               onClick={onClick}
               className="flex min-w-0 flex-1 items-center gap-3 bg-transparent p-0 text-left"
             >
-              <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-                <span className="shrink-0 text-xs font-medium text-muted-foreground">
-                  {caseData.short_id}
-                </span>
-                <span className="truncate text-xs">{caseData.summary}</span>
-                {caseData.parent && (
-                  <span
-                    className="shrink-0 text-[10px] text-muted-foreground"
-                    title={`Sub-case of ${caseData.parent.short_id}: ${caseData.parent.summary}`}
-                  >
-                    ↳ {caseData.parent.short_id}
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+                  <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                    {caseData.short_id}
                   </span>
+                  <span className="truncate text-xs">{caseData.summary}</span>
+                  {caseData.parent && (
+                    <span
+                      className="shrink-0 text-[10px] text-muted-foreground"
+                      title={`Sub-case of ${caseData.parent.short_id}: ${caseData.parent.summary}`}
+                    >
+                      ↳ {caseData.parent.short_id}
+                    </span>
+                  )}
+                  {caseData.num_sub_cases > 0 && (
+                    <span
+                      className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground"
+                      title={`${caseData.num_sub_cases} sub-case${caseData.num_sub_cases === 1 ? "" : "s"}`}
+                    >
+                      <ListTreeIcon className="size-3" aria-hidden />
+                      {caseData.num_sub_cases}
+                    </span>
+                  )}
+                  {/* Badges - right next to summary */}
+                  {priorityConfig && (
+                    <CaseBadge
+                      value={caseData.priority}
+                      label={priorityConfig.label}
+                      icon={priorityConfig.icon}
+                      color={priorityConfig.color}
+                      className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
+                    />
+                  )}
+                  {severityConfig && (
+                    <CaseBadge
+                      value={caseData.severity}
+                      label={severityConfig.label}
+                      icon={severityConfig.icon}
+                      color={severityConfig.color}
+                      className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
+                    />
+                  )}
+                  {/* Custom column badges */}
+                  {summaryColumnBadges}
+                </div>
+                {caseData.search_match && (
+                  <div className="mt-1 truncate text-[11px] text-muted-foreground">
+                    <span className="font-medium">
+                      Matched{" "}
+                      {caseData.search_match.matched_columns?.join(", ")}
+                    </span>
+                    {(caseData.search_match.excerpts?.length ?? 0) > 0 && (
+                      <span>
+                        {" "}
+                        · {caseData.search_match.excerpts?.join(" · ")}
+                      </span>
+                    )}
+                  </div>
                 )}
-                {caseData.num_sub_cases > 0 && (
-                  <span
-                    className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground"
-                    title={`${caseData.num_sub_cases} sub-case${caseData.num_sub_cases === 1 ? "" : "s"}`}
-                  >
-                    <ListTreeIcon className="size-3" aria-hidden />
-                    {caseData.num_sub_cases}
-                  </span>
-                )}
-                {/* Badges - right next to summary */}
-                {priorityConfig && (
-                  <CaseBadge
-                    value={caseData.priority}
-                    label={priorityConfig.label}
-                    icon={priorityConfig.icon}
-                    color={priorityConfig.color}
-                    className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
-                  />
-                )}
-                {severityConfig && (
-                  <CaseBadge
-                    value={caseData.severity}
-                    label={severityConfig.label}
-                    icon={severityConfig.icon}
-                    color={severityConfig.color}
-                    className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
-                  />
-                )}
-                {/* Custom column badges */}
-                {summaryColumnBadges}
               </div>
 
               {/* Tags - right aligned */}
@@ -653,10 +666,10 @@ export function CaseItem({
               )}
 
               {/* Timestamps */}
-              <div className="flex shrink-0 items-center gap-2">
-                <EventCreatedAt createdAt={caseData.created_at} />
-                <EventUpdatedAt updatedAt={caseData.updated_at} />
-              </div>
+              <RowTimestamps
+                createdAt={caseData.created_at}
+                updatedAt={caseData.updated_at}
+              />
             </button>
           </TooltipProvider>
         </div>

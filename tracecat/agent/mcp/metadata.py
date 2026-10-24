@@ -11,6 +11,18 @@ from tracecat.logger import logger
 PROXY_TOOL_METADATA_KEY = "__tracecat"
 PROXY_TOOL_CALL_ID_KEY = "tool_call_id"
 
+# Mirrors the case arms in claude_agent_sdk._internal.message_parser.
+SDK_CONTENT_BLOCK_TYPES = frozenset(
+    {
+        "text",
+        "thinking",
+        "tool_use",
+        "tool_result",
+        "server_tool_use",
+        "advisor_tool_result",
+    }
+)
+
 
 def strip_proxy_tool_metadata(args: Mapping[str, Any] | None) -> dict[str, Any]:
     """Return tool arguments without Tracecat-internal proxy metadata.
@@ -106,9 +118,8 @@ def build_registry_tool_schema(
 def sanitize_message_tool_inputs(message: dict[str, Any]) -> dict[str, Any]:
     """Normalize a persisted message payload for SDK message validation.
 
-    Strips proxy-only metadata from tool-call inputs and coerces thinking
-    blocks whose ``signature`` is missing or null to an empty string, since
-    non-Anthropic providers emit unsigned reasoning blocks.
+    Strips proxy tool metadata, defaults null thinking signatures, and drops
+    block types the SDK parser cannot represent (e.g. LiteLLM redacted_thinking).
 
     Args:
         message: Raw persisted message payload.
@@ -128,13 +139,28 @@ def sanitize_message_tool_inputs(message: dict[str, Any]) -> dict[str, Any]:
                 part["args"] = strip_proxy_tool_metadata(raw_args)
 
     if isinstance(content := sanitized.get("content"), list):
+        kept: list[Any] = []
+        dropped: set[str] = set()
         for block in content:
-            if not isinstance(block, dict):
-                continue
-            match block.get("type"):
-                case "tool_use" if isinstance(raw_input := block.get("input"), Mapping):
-                    block["input"] = strip_proxy_tool_metadata(raw_input)
-                case "thinking" if not isinstance(block.get("signature"), str):
-                    block["signature"] = ""
+            if isinstance(block, dict):
+                block_type = block.get("type")
+                if block_type not in SDK_CONTENT_BLOCK_TYPES:
+                    dropped.add(str(block_type))
+                    continue
+                match block_type:
+                    case "tool_use" if isinstance(
+                        raw_input := block.get("input"), Mapping
+                    ):
+                        block["input"] = strip_proxy_tool_metadata(raw_input)
+                    case "thinking" if not isinstance(block.get("signature"), str):
+                        block["signature"] = ""
+            kept.append(block)
+        if dropped:
+            logger.warning(
+                "Dropping unsupported content blocks from persisted message",
+                block_types=sorted(dropped),
+                role=sanitized.get("role"),
+            )
+        sanitized["content"] = kept
 
     return sanitized

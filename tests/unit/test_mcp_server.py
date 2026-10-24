@@ -6,7 +6,7 @@ import json
 import re
 import sys
 import uuid
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Sequence
 from datetime import UTC, datetime, timedelta
 from types import ModuleType, SimpleNamespace
 from typing import Any, cast
@@ -45,6 +45,7 @@ from tracecat.agent.skill.schemas import (
 )
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.auth.types import Role
+from tracecat.cases.search_schemas import CaseSearchRequest
 from tracecat.db.models import Schedule, Workflow
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.schemas import ROOT_STREAM, ActionStatement, StreamID
@@ -61,6 +62,7 @@ from tracecat.integrations.enums import (
     OAuthGrantType,
 )
 from tracecat.integrations.schemas import ProviderKey
+from tracecat.pagination import CursorPaginatedResponse
 from tracecat.storage.object import ExternalObject, ObjectRef
 from tracecat.tables.service import TablesService
 from tracecat.validation.schemas import (
@@ -166,8 +168,17 @@ def _fake_ctx(
 
 @pytest.fixture
 def resolved_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def _resolve(_workspace_id: Any) -> tuple[uuid.UUID, SimpleNamespace]:
-        return uuid.uuid4(), SimpleNamespace()
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="service",
+        service_id="tracecat-mcp",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"case:read"}),
+    )
+
+    async def _resolve(_workspace_id: Any) -> tuple[uuid.UUID, Role]:
+        return workspace_id, role
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
 
@@ -638,6 +649,10 @@ def _layout_by_ref(
     return {item["ref"]: (item["x"], item["y"]) for item in layout["actions"]}
 
 
+def _row_y(row: int) -> float:
+    return float(layout_module.FIRST_ROW_Y + row * layout_module.NODE_HEIGHT)
+
+
 def test_auto_generate_layout_keeps_linear_chain_vertical():
     positions = _layout_by_ref(
         [
@@ -649,9 +664,9 @@ def test_auto_generate_layout_keeps_linear_chain_vertical():
 
     assert {x for x, _ in positions.values()} == {0.0}
     assert [positions[ref][1] for ref in ("fetch", "enrich", "notify")] == [
-        500.0,
-        800.0,
-        1100.0,
+        _row_y(0),
+        _row_y(1),
+        _row_y(2),
     ]
 
 
@@ -695,7 +710,7 @@ def test_auto_generate_layout_places_error_path_below_source():
         ]
     )
 
-    assert positions["on_error"] == (positions["call_api"][0], 800.0)
+    assert positions["on_error"] == (positions["call_api"][0], _row_y(1))
 
 
 def test_auto_generate_layout_orders_success_before_error_paths():
@@ -724,6 +739,143 @@ def test_auto_generate_layout_orders_error_paths_regardless_of_action_order():
     )
 
     assert positions["parse"][0] < positions["on_error"][0]
+
+
+def _assert_left_of(
+    positions: dict[str, tuple[float, float]],
+    left: Sequence[str],
+    right: Sequence[str],
+) -> None:
+    assert max(positions[ref][0] for ref in left) < min(
+        positions[ref][0] for ref in right
+    )
+
+
+@pytest.mark.parametrize(
+    "error_first", [False, True], ids=["success-first", "error-first"]
+)
+def test_auto_generate_layout_keeps_success_subtrees_left_of_error_subtrees(
+    error_first: bool,
+):
+    success: list[layout_module.WorkflowActionLayoutInput] = [
+        {"ref": "s1", "depends_on": ["require"]},
+        {"ref": "s2", "depends_on": ["require"]},
+        {"ref": "s1_next", "depends_on": ["s1"]},
+        {"ref": "s2_next", "depends_on": ["s2"]},
+    ]
+    error: list[layout_module.WorkflowActionLayoutInput] = [
+        {"ref": "e1", "depends_on": ["require.error"]},
+        {"ref": "e2", "depends_on": ["require.error"]},
+        {"ref": "e1_next", "depends_on": ["e1"]},
+        {"ref": "e2_next", "depends_on": ["e2"]},
+    ]
+    branches = [*error, *success] if error_first else [*success, *error]
+    positions = _layout_by_ref([{"ref": "require", "depends_on": []}, *branches])
+
+    _assert_left_of(positions, ["s1", "s2"], ["e1", "e2"])
+    _assert_left_of(positions, ["s1_next", "s2_next"], ["e1_next", "e2_next"])
+    for ref in ("s1", "s2", "e1", "e2"):
+        assert positions[f"{ref}_next"][0] == positions[ref][0]
+
+
+def test_auto_generate_layout_keeps_branch_order_above_shared_join():
+    positions = _layout_by_ref(
+        [
+            {"ref": "require", "depends_on": []},
+            {"ref": "on_error", "depends_on": ["require.error"]},
+            {"ref": "on_success", "depends_on": ["require"]},
+            {"ref": "error_next", "depends_on": ["on_error"]},
+            {"ref": "success_next", "depends_on": ["on_success"]},
+            {"ref": "join", "depends_on": ["success_next", "error_next"]},
+        ]
+    )
+
+    _assert_left_of(positions, ["on_success", "success_next"], ["on_error"])
+    _assert_left_of(positions, ["success_next"], ["error_next"])
+    assert positions["join"][0] == pytest.approx(positions["require"][0], abs=1)
+    assert positions["join"][1] == _row_y(3)
+
+
+@pytest.mark.parametrize(
+    ("success_depth", "error_depth"),
+    [(3, 1), (1, 3)],
+    ids=["deep-success", "deep-error"],
+)
+def test_auto_generate_layout_keeps_uneven_branches_on_their_side(
+    success_depth: int, error_depth: int
+):
+    actions: list[layout_module.WorkflowActionLayoutInput] = [
+        {"ref": "require", "depends_on": []},
+        {"ref": "s0", "depends_on": ["require"]},
+        {"ref": "e0", "depends_on": ["require.error"]},
+    ]
+    for i in range(1, success_depth):
+        actions.append({"ref": f"s{i}", "depends_on": [f"s{i - 1}"]})
+    for i in range(1, error_depth):
+        actions.append({"ref": f"e{i}", "depends_on": [f"e{i - 1}"]})
+    positions = _layout_by_ref(actions)
+
+    success_refs = [f"s{i}" for i in range(success_depth)]
+    error_refs = [f"e{i}" for i in range(error_depth)]
+    _assert_left_of(positions, success_refs, error_refs)
+    assert {positions[ref][0] for ref in success_refs} == {positions["s0"][0]}
+    assert {positions[ref][0] for ref in error_refs} == {positions["e0"][0]}
+
+
+def test_auto_generate_layout_orders_nested_error_branches():
+    positions = _layout_by_ref(
+        [
+            {"ref": "outer", "depends_on": []},
+            {"ref": "outer_error", "depends_on": ["outer.error"]},
+            {"ref": "inner", "depends_on": ["outer"]},
+            {"ref": "inner_error", "depends_on": ["inner.error"]},
+            {"ref": "inner_next", "depends_on": ["inner"]},
+        ]
+    )
+
+    _assert_left_of(positions, ["inner"], ["outer_error"])
+    _assert_left_of(positions, ["inner_next"], ["inner_error"])
+
+
+def test_auto_generate_layout_orders_branches_per_parent():
+    positions = _layout_by_ref(
+        [
+            {"ref": "root", "depends_on": []},
+            {"ref": "left", "depends_on": ["root"]},
+            {"ref": "right", "depends_on": ["root"]},
+            {"ref": "left_error", "depends_on": ["left.error"]},
+            {"ref": "left_success", "depends_on": ["left"]},
+            {"ref": "right_error", "depends_on": ["right.error"]},
+            {"ref": "right_success", "depends_on": ["right"]},
+        ]
+    )
+
+    xs = [
+        positions[ref][0]
+        for ref in ("left_success", "left_error", "right_success", "right_error")
+    ]
+    assert xs == sorted(xs)
+    assert len(set(xs)) == 4
+
+
+def test_auto_generate_layout_uses_compact_spacing():
+    positions = _layout_by_ref(
+        [
+            {"ref": "require", "depends_on": []},
+            {"ref": "on_success", "depends_on": ["require"]},
+            {"ref": "on_error", "depends_on": ["require.error"]},
+        ]
+    )
+
+    row_gap = positions["on_success"][1] - (
+        positions["require"][1] + layout_module.ACTION_NODE_HEIGHT
+    )
+    column_gap = (
+        positions["on_error"][0] - positions["on_success"][0] - layout_module.NODE_WIDTH
+    )
+    assert row_gap == 150
+    assert column_gap == pytest.approx(layout_module.NODE_HORIZONTAL_GAP, abs=1)
+    assert column_gap == pytest.approx(120, abs=1)
 
 
 def test_auto_generate_layout_keeps_error_handler_right_of_success_chain():
@@ -823,8 +975,8 @@ def test_build_import_data_from_workflow_yaml_replaces_supplied_layout():
         "trigger": {"x": 0, "y": 0},
         "viewport": {"x": 1, "y": 2, "zoom": 0.5},
         "actions": [
-            {"ref": "fetch", "x": 0.0, "y": 500.0},
-            {"ref": "notify", "x": 0.0, "y": 800.0},
+            {"ref": "fetch", "x": 0.0, "y": _row_y(0)},
+            {"ref": "notify", "x": 0.0, "y": _row_y(1)},
         ],
     }
 
@@ -854,10 +1006,10 @@ def test_relayout_edit_document_only_when_graph_changes():
 
     positions = {item.ref: (item.x, item.y) for item in relaid.layout.actions}
     assert positions == {
-        "fetch_events": (0.0, 500.0),
-        "classify": (0.0, 800.0),
-        "build_alert": (0.0, 1100.0),
-        "notify_owner": (0.0, 1400.0),
+        "fetch_events": (0.0, _row_y(0)),
+        "classify": (0.0, _row_y(1)),
+        "build_alert": (0.0, _row_y(2)),
+        "notify_owner": (0.0, _row_y(3)),
     }
     assert relaid.layout.viewport == original.layout.viewport
 
@@ -912,9 +1064,8 @@ def test_auto_generate_layout_round_trips_through_extract():
     assert action_positions is not None
     assert "step1" in action_positions
     assert "step2" in action_positions
-    # step1 at depth 0 → y=500, step2 at depth 1 → y=800
-    assert action_positions["step1"][1] == 500
-    assert action_positions["step2"][1] == 800
+    assert action_positions["step1"][1] == _row_y(0)
+    assert action_positions["step2"][1] == _row_y(1)
 
 
 @pytest.mark.anyio
@@ -3680,12 +3831,23 @@ async def test_set_case_dropdown_value_not_entitled(monkeypatch):
 
 
 @pytest.mark.anyio
-@pytest.mark.usefixtures("resolved_workspace")
-async def test_search_cases(monkeypatch):
+@pytest.mark.parametrize("order_by", [None, "assignee", "tags"])
+async def test_search_cases(monkeypatch, order_by):
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="service",
+        service_id="tracecat-mcp",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"case:read"}),
+    )
+
+    async def resolve(_workspace_id):
+        return workspace_id, role
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", resolve)
     case_id = uuid.uuid4()
     now = datetime.now(UTC)
-
-    from tracecat.pagination import CursorPaginatedResponse
 
     search_result = CursorPaginatedResponse(
         items=[
@@ -3712,11 +3874,11 @@ async def test_search_cases(monkeypatch):
     )
     captured: dict[str, Any] = {}
 
-    async def _search_cases(params, **kwargs):
-        captured.update(kwargs)
+    async def _search_cases(request):
+        captured.update(request.model_dump())
         return search_result
 
-    cases_service = SimpleNamespace(search_cases=_search_cases)
+    cases_service = SimpleNamespace(query_cases=_search_cases)
 
     monkeypatch.setattr(
         mcp_server,
@@ -3725,18 +3887,154 @@ async def test_search_cases(monkeypatch):
     )
 
     result = await _tool(mcp_server.search_cases)(
-        workspace_id=str(uuid.uuid4()),
+        workspace_id=str(workspace_id),
         status="new,in_progress",
         priority="critical",
         search_term="phishing",
+        order_by=order_by,
     )
     payload = _payload(result)
     assert len(payload["items"]) == 1
     assert payload["items"][0]["summary"] == "Phishing alert"
     assert captured["search_term"] == "phishing"
+    assert captured["order_by"] == order_by
     # Verify enum parsing for comma-separated values
     assert len(captured["status"]) == 2
     assert len(captured["priority"]) == 1
+
+
+@pytest.mark.anyio
+async def test_search_cases_forwards_canonical_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = Role(
+        type="service",
+        service_id="tracecat-mcp",
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"case:read"}),
+    )
+    case_id, parent_id = uuid.uuid4(), uuid.uuid4()
+    filters = {"not": {"field": "fields.region", "op": "is_null"}}
+    result = CursorPaginatedResponse(items=[], total_estimate=None)
+    query = AsyncMock(return_value=result)
+
+    async def resolve(_workspace_id):
+        return workspace_id, role
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(
+            with_session=lambda role: _AsyncContext(SimpleNamespace(query_cases=query))
+        ),
+    )
+    response = await _tool(mcp_server.search_cases)(
+        workspace_id=workspace_id,
+        cursor="synthetic-previous-cursor",
+        search_term="powershell encoded",
+        search_mode="full_text",
+        search_columns=["description"],
+        short_id="CASE-0042",
+        case_id=case_id,
+        parent_id=parent_id,
+        filters=filters,
+        tags=["synthetic-tag"],
+        dropdown=["verdict:selected"],
+        assignee_id=["unassigned"],
+        include_rows=True,
+        field_ids=["region"],
+        include_payload=True,
+        include_durations=True,
+        include_count=False,
+        order_by="short_id",
+        sort="asc",
+    )
+    assert "reverse" not in inspect.signature(_tool(mcp_server.search_cases)).parameters
+    assert response is result
+    assert query.await_args is not None
+    request = query.await_args.args[0]
+    assert isinstance(request, CaseSearchRequest)
+    assert request.cursor == "synthetic-previous-cursor"
+    assert request.search_mode == "full_text" and request.search_columns == [
+        "description"
+    ]
+    assert request.search_term == "powershell encoded"
+    assert request.case_id == case_id and request.parent_id == parent_id
+    assert request.model_dump(mode="json", exclude_none=True)["filters"] == filters
+    assert (
+        request.include_rows and request.include_payload and request.include_durations
+    )
+    assert request.include_count is False and request.field_ids == ["region"]
+    assert request.tags == ["synthetic-tag"] and request.dropdown == [
+        "verdict:selected"
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "error",
+    [
+        EntitlementRequired("case_addons"),
+        TracecatValidationError("Unknown case tag refs"),
+    ],
+)
+async def test_search_cases_transports_typed_errors(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-mcp",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"case:read"}),
+    )
+
+    async def resolve(_workspace_id):
+        return role.workspace_id, role
+
+    query = AsyncMock(side_effect=error)
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(
+            with_session=lambda role: _AsyncContext(SimpleNamespace(query_cases=query))
+        ),
+    )
+    with pytest.raises(ToolError, match=str(error)):
+        await _tool(mcp_server.search_cases)(workspace_id=role.workspace_id)
+
+
+@pytest.mark.anyio
+async def test_search_cases_requires_scope_and_validates_canonical_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-mcp",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset(),
+    )
+
+    async def resolve(_workspace_id):
+        return role.workspace_id, role
+
+    gateway = MagicMock()
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", resolve)
+    monkeypatch.setattr(mcp_server, "CasesService", gateway)
+    with pytest.raises(ToolError, match="Missing required scope: case:read"):
+        await _tool(mcp_server.search_cases)(workspace_id=role.workspace_id)
+    gateway.with_session.assert_not_called()
+    role = role.model_copy(update={"scopes": frozenset({"case:read"})})
+    with pytest.raises(ToolError, match="order_by"):
+        await _tool(mcp_server.search_cases)(
+            workspace_id=role.workspace_id, order_by="unsupported"
+        )
+    gateway.with_session.assert_not_called()
 
 
 @pytest.mark.anyio
@@ -3916,8 +4214,8 @@ async def test_search_cases_passes_hierarchy_filters(monkeypatch):
 
     captured: dict[str, Any] = {}
 
-    async def _search_cases(params, **kwargs):
-        captured.update(kwargs)
+    async def _query_cases(request):
+        captured.update(request.model_dump())
         return CursorPaginatedResponse(
             items=[],
             next_cursor=None,
@@ -3931,7 +4229,7 @@ async def test_search_cases_passes_hierarchy_filters(monkeypatch):
         "CasesService",
         SimpleNamespace(
             with_session=lambda role: _AsyncContext(
-                SimpleNamespace(search_cases=_search_cases)
+                SimpleNamespace(query_cases=_query_cases)
             )
         ),
     )
@@ -3948,7 +4246,7 @@ async def test_search_cases_passes_hierarchy_filters(monkeypatch):
 async def test_search_cases_maps_entitlement_error(monkeypatch):
     from tracecat.exceptions import EntitlementRequired
 
-    async def _search_cases(params, **kwargs):
+    async def _query_cases(request):
         raise EntitlementRequired("case_addons")
 
     monkeypatch.setattr(
@@ -3956,7 +4254,7 @@ async def test_search_cases_maps_entitlement_error(monkeypatch):
         "CasesService",
         SimpleNamespace(
             with_session=lambda role: _AsyncContext(
-                SimpleNamespace(search_cases=_search_cases)
+                SimpleNamespace(query_cases=_query_cases)
             )
         ),
     )
@@ -4393,6 +4691,62 @@ async def test_watchtower_middleware_blocks_when_telemetry_fails(
 
     with pytest.raises(ToolError, match="blocked by policy"):
         await mw.on_call_tool(ctx, _call_next)
+
+
+@pytest.mark.anyio
+async def test_watchtower_middleware_passes_tool_call_targets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastmcp.server.context import Context
+
+    from tracecat.mcp.auth import MCPTokenIdentity
+    from tracecat.mcp.middleware import WatchtowerMonitorMiddleware
+
+    workspace_id = uuid.uuid4()
+    org_id = uuid.uuid4()
+    claimed = frozenset({org_id, uuid.uuid4()})
+    mw = WatchtowerMonitorMiddleware()
+    ctx = MiddlewareContext(
+        message=CallToolRequestParams(
+            name="sync_custom_registry",
+            arguments={"workspace_id": str(workspace_id), "org_id": str(org_id)},
+        ),
+        method="tools/call",
+        fastmcp_context=cast(Context, SimpleNamespace(session_id="test-session-id")),
+    )
+    seen: dict[str, object] = {}
+
+    async def _get_watchtower_context(**kwargs: object) -> tuple[None, None]:
+        seen.update(kwargs)
+        return None, None
+
+    ee_mod = ModuleType("tracecat_ee")
+    watchtower_mod = ModuleType("tracecat_ee.watchtower")
+    service_mod = ModuleType("tracecat_ee.watchtower.service")
+    cast(Any, service_mod).get_watchtower_tool_call_context = _get_watchtower_context
+    cast(Any, service_mod).record_watchtower_tool_call = AsyncMock()
+    cast(Any, watchtower_mod).service = service_mod
+    cast(Any, ee_mod).watchtower = watchtower_mod
+    monkeypatch.setitem(sys.modules, "tracecat_ee", ee_mod)
+    monkeypatch.setitem(sys.modules, "tracecat_ee.watchtower", watchtower_mod)
+    monkeypatch.setitem(sys.modules, "tracecat_ee.watchtower.service", service_mod)
+    monkeypatch.setattr(
+        "tracecat.mcp.middleware._safe_get_token_identity",
+        lambda: MCPTokenIdentity(
+            client_id="client", email="user@example.com", organization_ids=claimed
+        ),
+    )
+    sentinel = cast(ToolResult, object())
+
+    async def _call_next(
+        context: MiddlewareContext[CallToolRequestParams],
+    ) -> ToolResult:
+        return sentinel
+
+    assert await mw.on_call_tool(ctx, _call_next) is sentinel
+    assert seen["claimed_org_ids"] == claimed
+    assert seen["workspace_id"] == workspace_id
+    assert seen["organization_id"] == org_id
 
 
 @pytest.mark.anyio
@@ -5741,6 +6095,7 @@ async def test_list_integrations_returns_mcp_and_provider_inventory(
         server_type="http",
         auth_type=MCPAuthType.NONE,
         oauth_integration_id=None,
+        tunnel_id=None,
         timeout=30,
     )
     custom_provider = SimpleNamespace(

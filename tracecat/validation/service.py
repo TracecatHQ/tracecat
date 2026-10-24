@@ -20,9 +20,13 @@ from tracecat.auth.types import Role
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import WorkspaceTunnel
-from tracecat.dsl.common import DSLInput, ExecuteSubflowArgs
+from tracecat.dsl.common import (
+    DSLInput,
+    ExecuteSubflowArgs,
+    dependency_cycle_message,
+)
 from tracecat.dsl.enums import PlatformAction
-from tracecat.dsl.schemas import ActionStatement
+from tracecat.dsl.schemas import ActionStatement, ScatterArgs
 from tracecat.exceptions import RegistryValidationError, TracecatNotFoundError
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprType
@@ -293,6 +297,9 @@ async def validate_registry_action_args(
             if action_name == PlatformAction.CHILD_WORKFLOW_EXECUTE:
                 validated = ExecuteSubflowArgs.model_validate(args)
             else:
+                if action_name == PlatformAction.TRANSFORM_SCATTER:
+                    # The scheduler parses scatter args before evaluating expressions
+                    ScatterArgs.model_validate(args)
                 service = RegistryActionsService(session, role=role)
                 action_data = await service.get_action_from_index(action_name)
                 if action_data is None:
@@ -591,6 +598,15 @@ def validate_entrypoint_expects(
     return results
 
 
+def validate_dsl_acyclic(dsl: DSLInput) -> list[DSLValidationResult]:
+    """Validate that action dependencies contain no cycles."""
+    if blocked := dsl.blocked_refs():
+        return [
+            DSLValidationResult(status="error", msg=dependency_cycle_message(blocked))
+        ]
+    return []
+
+
 def validate_dsl_entrypoint(dsl: DSLInput) -> list[DSLValidationResult]:
     """Validate the DSL entrypoint schema."""
 
@@ -681,6 +697,7 @@ async def validate_dsl(
         return set()
 
     iterables: list[ValidationResult] = []
+    iterables.extend(ValidationResult.new(err) for err in validate_dsl_acyclic(dsl))
 
     # Tier 1: Entrypoint schema validation
     if validate_entrypoint:

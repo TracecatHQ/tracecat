@@ -290,7 +290,6 @@ class DSLInput(BaseModel):
         - Traverse the graph and map out the scopes
         - Outer scope ACTIONS cannot reference inner scope ACTIONS
         - We need to validate that no actions outside the scope reference actions inside the scope.
-        - We need to validate that no actions outside the scope reference actions inside the scope.
         """
         # Find scope open and close actions
         scatter_actions = []
@@ -702,9 +701,11 @@ class DSLInput(BaseModel):
     ) -> tuple[dict[str, str], dict[str, str | None], dict[str, str]]:
         """Assign scope IDs to actions using topological sort.
 
-        Returns a mapping of action ref -> scope ID.
-        Raises TracecatDSLError if an action is assigned to multiple scopes.
+        Returns action ref -> scope ID, scope -> parent scope, and scope -> opener action.
+        Raises TracecatDSLError on scope conflicts or dependency cycles.
         """
+        if blocked := self.blocked_refs():
+            raise TracecatDSLError(dependency_cycle_message(blocked))
 
         stmts = {a.ref: a for a in self.actions}
         scopes: dict[str, str] = {}
@@ -738,10 +739,8 @@ class DSLInput(BaseModel):
                         f"already in {scopes[action_ref]!r}, trying to assign to {scope!r}"
                     )
 
-        n_visited = 0
         while queue:
             ref, curr_scope = queue.popleft()
-            n_visited += 1
 
             # Check for conflict. If the action hasn't been assigned a scope, assign it.
             # Otherwise, if we somehow end up in a different scope, raise an error.
@@ -782,11 +781,19 @@ class DSLInput(BaseModel):
                 if indegrees[next_ref] == 0:
                     queue.append((next_ref, next_scope))
 
-        # Check if we have cycles
-        if n_visited != len(self.actions):
-            raise TracecatDSLError("Cycle detected in control-flow workflow")
-
         return scopes, scope_hierarchy, scope_openers
+
+    def blocked_refs(self) -> list[str]:
+        """Return refs that can never run: in or downstream of a dependency cycle."""
+        adj = self._to_adjacency()
+        indegrees = {action.ref: len(action.depends_on) for action in self.actions}
+        queue = deque(ref for ref, indegree in indegrees.items() if indegree == 0)
+        while queue:
+            for next_ref in adj[queue.popleft()]:
+                indegrees[next_ref] -= 1
+                if indegrees[next_ref] == 0:
+                    queue.append(next_ref)
+        return sorted(ref for ref, indegree in indegrees.items() if indegree)
 
     def _to_adjacency(self) -> dict[str, list[str]]:
         """Convert the DSLInput to an adjacency list."""
@@ -1264,6 +1271,13 @@ def edge_components_from_dep(dep_ref: str) -> AdjDst:
     elif path[0] == EdgeType.ERROR:
         return src_ref, EdgeType.ERROR
     raise ValueError(f"Invalid edge type: {path[0]} in {dep_ref!r}")
+
+
+def dependency_cycle_message(blocked_refs: list[str]) -> str:
+    return (
+        "Cycle detected in workflow dependencies. Actions in or downstream"
+        f" of the cycle: {', '.join(repr(ref) for ref in blocked_refs)}"
+    )
 
 
 def dep_from_edge_components(src_ref: str, edge_type: EdgeType) -> str:

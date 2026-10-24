@@ -425,6 +425,17 @@ export type AgentBackendRead = {
 }
 
 /**
+ * Cancel the running turn.
+ */
+export type AgentCancelControl = {
+  type: "cancel"
+  /**
+   * Client-generated request ID
+   */
+  id: string
+}
+
+/**
  * List catalog entries with pagination.
  */
 export type AgentCatalogListResponse = {
@@ -497,6 +508,37 @@ export type AgentChannelTokenUpdate = {
    */
   is_active?: boolean | null
 }
+
+/**
+ * The running turn's outcome for a control request.
+ */
+export type AgentControlReceipt = {
+  id: string
+  type: AgentControlType
+  run_id: string
+  status: AgentControlStatus
+  /**
+   * Withdrawn message IDs in send order; set only for `withdraw`
+   */
+  withdrawn?: Array<string>
+  /**
+   * Message IDs the model already read, which stay in the transcript; set only for `withdraw`
+   */
+  too_late?: Array<string>
+}
+
+export type AgentControlRequest =
+  | AgentSteerControl
+  | AgentWithdrawControl
+  | AgentCancelControl
+
+export type AgentControlStatus =
+  | "accepted"
+  | "rejected"
+  | "withdrawn"
+  | "too_late"
+
+export type AgentControlType = "steer" | "withdraw" | "cancel"
 
 /**
  * Create custom LLM provider.
@@ -734,6 +776,9 @@ export type AgentPresetCreate = {
   tool_approvals?: {
     [key: string]: boolean
   } | null
+  tool_tunnels?: {
+    [key: string]: string
+  } | null
   mcp_integrations?: Array<string> | null
   library_skills?: Array<string> | null
   agents?: AgentSubagentsConfig_Input
@@ -788,6 +833,9 @@ export type AgentPresetRead = {
   tool_approvals?: {
     [key: string]: boolean
   } | null
+  tool_tunnels?: {
+    [key: string]: string
+  } | null
   mcp_integrations?: Array<string> | null
   library_skills?: Array<string> | null
   agents?: AgentSubagentsConfig_Output
@@ -825,6 +873,10 @@ export type AgentPresetReadMinimal = {
   current_version_id?: string | null
   capabilities?: Array<AgentPresetCapability>
   tool_summary?: AgentPresetToolSummary
+  /**
+   * Workspace skills bound to the preset head.
+   */
+  skill_ids?: Array<string>
   current_version_subagent_eligibility?: AgentPresetSubagentEligibility
   created_at: string
   updated_at: string
@@ -939,6 +991,9 @@ export type AgentPresetUpdate = {
   tool_approvals?: {
     [key: string]: boolean
   } | null
+  tool_tunnels?: {
+    [key: string]: string
+  } | null
   mcp_integrations?: Array<string> | null
   library_skills?: Array<string> | null
   agents?: AgentSubagentsConfig_Input | null
@@ -990,6 +1045,7 @@ export type AgentPresetVersionDiff = {
   scalar_changes?: Array<ScalarFieldChange>
   list_changes?: Array<StringListFieldChange>
   tool_approval_changes?: Array<ToolApprovalFieldChange>
+  tool_tunnel_changes?: Array<ToolTunnelFieldChange>
   skill_changes?: Array<AgentPresetSkillBindingChange>
   total_changes?: number
 }
@@ -1008,6 +1064,9 @@ export type AgentPresetVersionRead = {
   namespaces?: Array<string> | null
   tool_approvals?: {
     [key: string]: boolean
+  } | null
+  tool_tunnels?: {
+    [key: string]: string
   } | null
   mcp_integrations?: Array<string> | null
   library_skills?: Array<string> | null
@@ -1072,6 +1131,20 @@ export type AgentSessionCancelResponse = {
   session_id: string
   run_id: string
   reason: string
+}
+
+/**
+ * Optional controls the session's backend supports.
+ */
+export type AgentSessionCapabilities = {
+  /**
+   * Whether a running turn accepts steering messages
+   */
+  steering?: boolean
+  /**
+   * Whether a running turn can take back pending user messages
+   */
+  withdrawing?: boolean
 }
 
 /**
@@ -1186,6 +1259,7 @@ export type AgentSessionRead = {
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
   backend_id?: string
+  capabilities?: AgentSessionCapabilities
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1220,6 +1294,7 @@ export type AgentSessionReadVercel = {
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
   backend_id?: string
+  capabilities?: AgentSessionCapabilities
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1258,6 +1333,7 @@ export type AgentSessionReadWithMessages = {
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
   backend_id?: string
+  capabilities?: AgentSessionCapabilities
   harness_type: string | null
   last_error?: string | null
   last_stream_id?: string | null
@@ -1334,6 +1410,18 @@ export type AgentSettingsUpdate = {
 }
 
 /**
+ * A message for the running turn to take into account before it answers.
+ */
+export type AgentSteerControl = {
+  type: "steer"
+  /**
+   * Client-generated message ID. It reaches at most one turn of the session; a retry returns the first outcome.
+   */
+  id: string
+  text: string
+}
+
+/**
  * User-facing preset-backed subagents.
  */
 export type AgentSubagentsConfig_Input = {
@@ -1366,6 +1454,21 @@ export type AgentTagRead = {
 }
 
 /**
+ * Take back pending user messages the model has not read yet.
+ */
+export type AgentWithdrawControl = {
+  type: "withdraw"
+  /**
+   * Client-generated request ID; a retry returns the first outcome
+   */
+  id: string
+  /**
+   * Message IDs to withdraw. Null withdraws all of the session's pending steers and queued messages.
+   */
+  target_ids?: Array<string> | null
+}
+
+/**
  * Alert artifact stub. Extend when alert surfaces are wired.
  */
 export type AlertArtifact = {
@@ -1373,6 +1476,13 @@ export type AlertArtifact = {
   title: string
   scope?: ArtifactScope | null
   type?: "alert"
+}
+
+/**
+ * A conjunction of one or more filters.
+ */
+export type AndClause = {
+  and: Array<Filter>
 }
 
 export type AnyAttachedSubagentRef =
@@ -2732,6 +2842,31 @@ export type CaseFieldUpdate = {
 }
 
 /**
+ * Server-defined operators and input metadata for one searchable field.
+ */
+export type CaseFilterField = {
+  field: string
+  label: string
+  kind: FieldKind
+  operators: Array<FilterOp>
+  choices?: Array<string> | null
+  range_choices?: Array<string> | null
+  input_type?: "text" | "number" | "date" | "datetime-local"
+}
+
+export type input_type = "text" | "number" | "date" | "datetime-local"
+
+/**
+ * Discoverable filter fields and shared query limits.
+ */
+export type CaseFilterMetadata = {
+  fields: Array<CaseFilterField>
+  max_depth?: number
+  max_conditions?: number
+  max_values?: number
+}
+
+/**
  * One table with at least one row linked to a case.
  *
  * ``row_count`` counts links, including links whose source row was deleted.
@@ -2776,6 +2911,50 @@ export type CasePriority =
   | "critical"
   | "other"
 
+/**
+ * Matching criteria shared by case search and filtered status counts.
+ *
+ * Explicit text, identity, and hierarchy constraints are combined with
+ * ``filters`` using AND. Workspace and entitlement checks belong to the
+ * service and cannot be supplied or negated by this request.
+ *
+ * Tag membership uses existing filter nodes: ``in`` matches any tag, an
+ * ``and`` of ``contains`` conditions requires all tags, and ``not`` around
+ * ``in`` excludes the selected tags. ``is_null`` matches no tags.
+ *
+ * Scalar dropdown/custom-field exclusions retain SQL NULL semantics:
+ * ``ne``, ``not_in``, and negated comparisons exclude unset values. Include
+ * unset values explicitly with an ``or`` containing ``is_null``.
+ */
+export type CaseQuery = {
+  /**
+   * AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.
+   */
+  filters?: Filter | null
+  search_term?: string | null
+  /**
+   * Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.
+   */
+  search_mode?: SearchMode | null
+  search_columns?: Array<"summary" | "description"> | null
+  short_id?: string | null
+  case_id?: string | null
+  hierarchy?: "all" | "top_level"
+  parent_id?: string | null
+  status?: Array<CaseStatus> | null
+  priority?: Array<CasePriority> | null
+  severity?: Array<CaseSeverity> | null
+  assignee_id?: Array<string | "unassigned" | "__UNASSIGNED__"> | null
+  tags?: Array<string> | null
+  dropdown?: Array<string> | null
+  start_time?: string | null
+  end_time?: string | null
+  updated_after?: string | null
+  updated_before?: string | null
+}
+
+export type hierarchy = "all" | "top_level"
+
 export type CaseRead = {
   id: string
   short_id: string
@@ -2809,6 +2988,7 @@ export type CaseReadMinimal = {
   is_outside_filters?: boolean
   id: string
   short_id: string
+  search_match?: CaseSearchMatchRead | null
   created_at: string
   updated_at: string
   summary: string
@@ -2843,6 +3023,87 @@ export type CaseRef = {
 export type CaseSearchAggregateRead = {
   total: number
   status_groups: CaseStatusGroupCounts
+}
+
+/**
+ * Bounded lexical metadata beside case fields; excerpts are untrusted text.
+ */
+export type CaseSearchMatchRead = {
+  score?: number | null
+  matched_columns?: Array<"summary" | "description" | "id" | "short_id">
+  excerpts?: Array<string>
+}
+
+export type CaseSearchOrder =
+  | "relevance"
+  | "created_at"
+  | "updated_at"
+  | "priority"
+  | "severity"
+  | "status"
+  | "tasks"
+  | "id"
+  | "short_id"
+  | "assignee"
+  | "tags"
+
+/**
+ * A case query with pagination, sorting, and independent result details.
+ */
+export type CaseSearchRequest = {
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  /**
+   * Reverse pagination direction
+   */
+  reverse?: boolean
+  /**
+   * AND/OR/NOT conditions. Payload scalar equality uses field="payload.metadata.product.vendor_name", op="eq", value="Microsoft". Dot-separated literal keys or numeric array indices; keys containing dots are unsupported. Equality preserves JSON types. Payload is_null matches a missing path; explicit JSON null is a present value. Exclusions omit missing paths unless ORed with is_null.
+   */
+  filters?: Filter | null
+  search_term?: string | null
+  /**
+   * Explicit word/phrase or escaped substring search. Omitted mode retains legacy matching and ordering.
+   */
+  search_mode?: SearchMode | null
+  search_columns?: Array<"summary" | "description"> | null
+  short_id?: string | null
+  case_id?: string | null
+  hierarchy?: "all" | "top_level"
+  parent_id?: string | null
+  status?: Array<CaseStatus> | null
+  priority?: Array<CasePriority> | null
+  severity?: Array<CaseSeverity> | null
+  assignee_id?: Array<string | "unassigned" | "__UNASSIGNED__"> | null
+  tags?: Array<string> | null
+  dropdown?: Array<string> | null
+  start_time?: string | null
+  end_time?: string | null
+  updated_after?: string | null
+  updated_before?: string | null
+  order_by?: CaseSearchOrder | null
+  sort?: "asc" | "desc" | null
+  include_rows?: boolean
+  field_ids?: Array<string> | null
+  include_durations?: boolean
+  include_payload?: boolean
+  payload_fields?: Array<string> | null
+  payload_paths?: Array<Array<string>> | null
+  include_count?: boolean
+  /**
+   * Place complete case references before filtered text matches within the authorized workspace.
+   */
+  promote_exact_match?: boolean
+  /**
+   * The ordinary filter population matches no cases.
+   */
+  match_none?: boolean
 }
 
 /**
@@ -3220,6 +3481,10 @@ export type ChatMessage = {
   cancelled?: {
     [key: string]: unknown
   } | null
+  /**
+   * When the agent runtime recorded the message
+   */
+  created_at?: string | null
 }
 
 /**
@@ -3623,6 +3888,15 @@ export type CommitInfo = {
   pr_number?: number | null
   pr_reused?: boolean
   message?: string
+}
+
+/**
+ * A predicate over one resolver-defined field.
+ */
+export type Condition = {
+  field: string
+  op: FilterOp
+  value?: FilterValue | null
 }
 
 /**
@@ -5035,6 +5309,19 @@ export type FieldDiff = {
 }
 
 /**
+ * Value families understood by the shared filter compiler.
+ */
+export type FieldKind =
+  | "text"
+  | "number"
+  | "boolean"
+  | "temporal"
+  | "enum"
+  | "uuid"
+  | "tag"
+  | "json_scalar"
+
+/**
  * A file part of a message.
  */
 export type FileUIPart = {
@@ -5048,6 +5335,28 @@ export type FileUIPart = {
     }
   }
 }
+
+export type Filter = Condition | AndClause | OrClause | NotClause
+
+/**
+ * Operations supported by the shared filter language.
+ */
+export type FilterOp =
+  | "eq"
+  | "ne"
+  | "in"
+  | "not_in"
+  | "gt"
+  | "gte"
+  | "lt"
+  | "lte"
+  | "contains"
+  | "starts_with"
+  | "is_null"
+
+export type FilterScalar = string | number | boolean
+
+export type FilterValue = FilterScalar | Array<FilterScalar>
 
 /**
  * An action result reused from a previous run of the workflow.
@@ -6707,6 +7016,10 @@ export type MCPHttpIntegrationCreate = {
    */
   oauth_integration_id?: string | null
   /**
+   * Workspace tunnel that every request to this server goes through
+   */
+  tunnel_id?: string | null
+  /**
    * HTTP headers as a JSON object. Required for custom auth type; optional additional headers for OAuth2 auth type.
    */
   custom_credentials?: string | null
@@ -6726,6 +7039,7 @@ export type MCPHttpIntegrationTestConnectionRequest = {
   server_uri: string
   auth_type?: MCPAuthType
   oauth_integration_id?: string | null
+  tunnel_id?: string | null
   /**
    * JSON object of custom headers; falls back to stored headers when omitted
    */
@@ -6758,6 +7072,8 @@ export type MCPHttpServerConfig = {
   timeout?: number
   id?: string
   tools?: Array<MCPServerToolSummary>
+  tunnel_id?: string
+  tunnel_proxy?: string
 }
 
 export type transport = "http" | "sse"
@@ -6784,6 +7100,7 @@ export type MCPIntegrationRead = {
   server_uri: string | null
   auth_type: MCPAuthType
   oauth_integration_id: string | null
+  tunnel_id?: string | null
   state:
     | "not_configured"
     | "configured"
@@ -6834,6 +7151,10 @@ export type MCPIntegrationUpdate = {
   server_uri?: string | null
   auth_type?: MCPAuthType | null
   oauth_integration_id?: string | null
+  /**
+   * Workspace tunnel for this HTTP server. Send null to stop using one.
+   */
+  tunnel_id?: string | null
   /**
    * Custom credentials as JSON headers. Required for custom auth type; optional additional headers for OAuth2 auth type.
    */
@@ -7204,6 +7525,32 @@ export type kind2 =
 
 export type subkind = "scheduled-trigger" | "peer-send-message"
 
+export type MfaPolicyRead = {
+  mfa_required: boolean
+  webauthn_available: boolean
+  webauthn_unavailable_reason?: string | null
+}
+
+export type MfaPolicyUpdate = {
+  /**
+   * Require a security key or passkey at sign-in. Users without one must register one at their next sign-in.
+   */
+  mfa_required: boolean
+}
+
+export type MfaStatusRead = {
+  state: SessionMfaState
+  has_credentials: boolean
+  required_by_policy: boolean
+  webauthn_available: boolean
+  webauthn_unavailable_reason?: string | null
+  recovery_codes_remaining: number
+  /**
+   * When the current step-up verification stops satisfying checks.
+   */
+  step_up_expires_at?: string | null
+}
+
 export type ModelConfig = {
   /**
    * The name of the model. This is used to identify the model in the system.
@@ -7276,6 +7623,13 @@ export type ModelUsage = {
   provider?: string
 }
 
+/**
+ * The negation of one filter.
+ */
+export type NotClause = {
+  not: Filter
+}
+
 export type OAuth2AuthorizeResponse = {
   authorization_url: string
 }
@@ -7303,6 +7657,13 @@ export type ObjectRef = {
 }
 
 export type encoding = "json" | "json+zstd" | "json+gzip"
+
+/**
+ * A disjunction of one or more filters.
+ */
+export type OrClause = {
+  or: Array<Filter>
+}
 
 /**
  * Create organization request.
@@ -7743,6 +8104,30 @@ export type PlatformRegistrySettingsUpdate = {
   git_allowed_domains?: Array<string> | null
 }
 
+/**
+ * Platform admin IP allowlist settings response.
+ */
+export type PlatformSecuritySettingsRead = {
+  ip_allowlist_enabled: boolean
+  ip_allowlists: Array<IPAllowlist>
+}
+
+/**
+ * Update the platform admin IP allowlist.
+ *
+ * Applies only to the platform admin API, not to organizations.
+ */
+export type PlatformSecuritySettingsUpdate = {
+  /**
+   * Restrict organization API access to the configured IP allowlists. Has no effect while no allowlists exist.
+   */
+  ip_allowlist_enabled?: boolean
+  /**
+   * Named groups of allowed IP addresses or CIDR ranges.
+   */
+  ip_allowlists?: Array<IPAllowlist>
+}
+
 export type Position = {
   x?: number
   y?: number
@@ -8027,6 +8412,14 @@ export type ReasoningUIPart = {
 }
 
 export type state2 = "streaming" | "done"
+
+export type RecoveryCodeVerify = {
+  code: string
+}
+
+export type RecoveryCodesRead = {
+  recovery_codes: Array<string>
+}
 
 /**
  * Availability metadata for a registry action.
@@ -8682,6 +9075,7 @@ export type RuntimeErrorKind =
   | "sandbox.resource_limit_exceeded"
   | "workflow.definition.not_found"
   | "workflow.definition.lookup_unavailable"
+  | "workflow.definition.invalid"
   | "workflow.definition.invalid_data"
   | "workflow.trigger.input_invalid"
   | "workflow.subflow.input_invalid"
@@ -8702,6 +9096,7 @@ export type RuntimeErrorKind =
   | "agent.llm.budget_exceeded"
   | "agent.llm.rate_limited"
   | "agent.llm.read_timeout"
+  | "agent.llm.stream_interrupted"
   | "agent.mcp.auth_failed"
   | "agent.mcp.unavailable"
   | "agent.execution.failed"
@@ -9153,6 +9548,11 @@ export type SearchIndexStatus = {
 }
 
 /**
+ * Explicit lexical modes; omitted table mode remains a legacy policy.
+ */
+export type SearchMode = "full_text" | "literal"
+
+/**
  * Workspace availability states controlling search and indexing.
  */
 export type SearchState = "disabled" | "active" | "paused" | "reindex_required"
@@ -9577,6 +9977,12 @@ export type ServiceAccountUpdate = {
   description?: string | null
   scope_ids?: Array<string> | null
 }
+
+export type SessionMfaState =
+  | "not_required"
+  | "verified"
+  | "challenge_required"
+  | "enrollment_required"
 
 export type SessionRead = {
   id: string
@@ -10956,6 +11362,15 @@ export type ToolResultBlock = {
   is_error?: boolean | null
 }
 
+/**
+ * Tunnel routing diff for a single tool.
+ */
+export type ToolTunnelFieldChange = {
+  tool: string
+  old_value?: string | null
+  new_value?: string | null
+}
+
 export type ToolUIPartInputAvailable = {
   type: string
   toolCallId: string
@@ -11036,6 +11451,16 @@ export type type6 = "schedule" | "webhook"
  */
 export type TriggerType = "manual" | "scheduled" | "webhook" | "case" | "form"
 
+/**
+ * Whether this deployment can run tunnel gateways.
+ */
+export type TunnelAvailabilityRead = {
+  /**
+   * False when Tracecat runs without the Kubernetes gateway backend, e.g. on Docker Compose or Fargate.
+   */
+  available: boolean
+}
+
 export type TunnelCreate = {
   name: string
   description?: string | null
@@ -11048,6 +11473,29 @@ export type TunnelCreate = {
   client_secret: string
   allowed_targets: Array<TunnelTarget>
   enabled?: boolean
+}
+
+/**
+ * A tunnel and the resources that reference it.
+ */
+export type TunnelDetailRead = {
+  id: string
+  workspace_id: string
+  name: string
+  description: string | null
+  provider: TunnelProvider
+  endpoint: string
+  client_id: string
+  allowed_targets: Array<TunnelTarget>
+  enabled: boolean
+  has_gateway_key: boolean
+  managed: boolean
+  created_at: string
+  updated_at: string
+  /**
+   * MCP integrations, current agent preset versions and workflows that route through the tunnel. Each kind is capped at 200 entries.
+   */
+  referenced_by: Array<TunnelReference>
 }
 
 /**
@@ -11081,6 +11529,24 @@ export type TunnelRead = {
   created_at: string
   updated_at: string
 }
+
+/**
+ * A workspace resource that routes traffic through a tunnel.
+ */
+export type TunnelReference = {
+  kind: TunnelReferenceKind
+  id: string
+  name: string
+  /**
+   * Where in the resource the tunnel is set, e.g. an action or tool
+   */
+  detail?: string | null
+}
+
+export type TunnelReferenceKind =
+  | "mcp_integration"
+  | "agent_preset"
+  | "workflow"
 
 export type TunnelStatusRead = {
   tunnel_id: string
@@ -11642,6 +12108,57 @@ export type WatchtowerToolCallStatus =
   | "timeout"
   | "rejected"
   | "blocked"
+
+export type WebAuthnAuthenticationVerify = {
+  /**
+   * PublicKeyCredential.toJSON() output from navigator.credentials.get().
+   */
+  credential: {
+    [key: string]: unknown
+  }
+}
+
+export type WebAuthnCredentialRead = {
+  id: string
+  name: string
+  aaguid: string
+  transports: Array<string>
+  backup_eligible: boolean
+  backup_state: boolean
+  created_at: string
+  last_used_at: string | null
+}
+
+export type WebAuthnCredentialUpdate = {
+  name: string
+}
+
+export type WebAuthnOptionsRead = {
+  /**
+   * PublicKeyCredential{Creation,Request}Options as JSON (base64url).
+   */
+  public_key: {
+    [key: string]: unknown
+  }
+}
+
+export type WebAuthnRegistrationResult = {
+  credential: WebAuthnCredentialRead
+  /**
+   * One-time recovery codes, returned only for the first security key.
+   */
+  recovery_codes?: Array<string> | null
+}
+
+export type WebAuthnRegistrationVerify = {
+  /**
+   * PublicKeyCredential.toJSON() output from navigator.credentials.create().
+   */
+  credential: {
+    [key: string]: unknown
+  }
+  name: string
+}
 
 export type WebhookApiKeyGenerateResponse = {
   api_key: string
@@ -12371,6 +12888,7 @@ export type WorkflowFolderCreate = {
 
 export type WorkflowFolderDelete = {
   recursive?: boolean
+  delete_workflows?: boolean
 }
 
 export type WorkflowFolderMove = {
@@ -14025,6 +14543,12 @@ export type TunnelsCreateTunnelData = {
 
 export type TunnelsCreateTunnelResponse = TunnelRead
 
+export type TunnelsGetTunnelAvailabilityData = {
+  workspaceId: string
+}
+
+export type TunnelsGetTunnelAvailabilityResponse = TunnelAvailabilityRead
+
 export type TunnelsCreateManagedTunnelData = {
   requestBody: ManagedTunnelCreate
   workspaceId: string
@@ -14044,7 +14568,7 @@ export type TunnelsGetTunnelData = {
   workspaceId: string
 }
 
-export type TunnelsGetTunnelResponse = TunnelRead
+export type TunnelsGetTunnelResponse = TunnelDetailRead
 
 export type TunnelsUpdateTunnelData = {
   requestBody: TunnelUpdate
@@ -15263,6 +15787,14 @@ export type AgentSessionsCancelSessionData = {
 
 export type AgentSessionsCancelSessionResponse = AgentSessionCancelResponse
 
+export type AgentSessionsControlSessionData = {
+  requestBody: AgentControlRequest
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsControlSessionResponse = AgentControlReceipt
+
 export type ApprovalsSubmitApprovalsData = {
   requestBody: ApprovalSubmission
   sessionId: string
@@ -15488,6 +16020,28 @@ export type AdminUpdateRegistrySettingsData = {
 
 export type AdminUpdateRegistrySettingsResponse = PlatformRegistrySettingsRead
 
+export type AdminGetSecuritySettingsResponse = PlatformSecuritySettingsRead
+
+export type AdminUpdateSecuritySettingsData = {
+  requestBody: PlatformSecuritySettingsUpdate
+}
+
+export type AdminUpdateSecuritySettingsResponse = PlatformSecuritySettingsRead
+
+export type AdminGetMfaSettingsResponse = MfaPolicyRead
+
+export type AdminUpdateMfaSettingsData = {
+  requestBody: MfaPolicyUpdate
+}
+
+export type AdminUpdateMfaSettingsResponse = MfaPolicyRead
+
+export type AdminCheckIpAllowlistData = {
+  requestBody: IPAllowlistCheckRequest
+}
+
+export type AdminCheckIpAllowlistResponse = IPAllowlistCheckResult
+
 export type AdminListTiersData = {
   /**
    * Include inactive tiers in results
@@ -15575,6 +16129,12 @@ export type AdminDemoteFromSuperuserData = {
 }
 
 export type AdminDemoteFromSuperuserResponse = AdminUserRead
+
+export type AdminResetUserMfaData = {
+  userId: string
+}
+
+export type AdminResetUserMfaResponse = void
 
 export type AdminAgentListPlatformCatalogData = {
   cursor?: string | null
@@ -15871,6 +16431,14 @@ export type SettingsUpdateSecuritySettingsData = {
 }
 
 export type SettingsUpdateSecuritySettingsResponse = void
+
+export type SettingsGetMfaPolicyResponse = MfaPolicyRead
+
+export type SettingsUpdateMfaPolicyData = {
+  requestBody: MfaPolicyUpdate
+}
+
+export type SettingsUpdateMfaPolicyResponse = MfaPolicyRead
 
 export type SettingsCheckIpAllowlistData = {
   requestBody: IPAllowlistCheckRequest
@@ -16355,7 +16923,7 @@ export type CasesListCasesData = {
    */
   limit?: number
   /**
-   * Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
+   * Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks, assignee, tags). Default: created_at
    */
   orderBy?:
     | "created_at"
@@ -16364,6 +16932,8 @@ export type CasesListCasesData = {
     | "severity"
     | "status"
     | "tasks"
+    | "assignee"
+    | "tags"
     | null
   /**
    * Return only these literal top-level payload keys, automatically including the subset regardless of include_payload. Dots are literal; nested values are returned whole. Missing keys are omitted and null values preserved. An empty list acts as omitted; an empty string selects the literal empty key.
@@ -16392,6 +16962,19 @@ export type CasesCreateCaseData = {
 }
 
 export type CasesCreateCaseResponse = CaseRead
+
+export type CasesListCaseFilterFieldsData = {
+  workspaceId: string
+}
+
+export type CasesListCaseFilterFieldsResponse = CaseFilterMetadata
+
+export type CasesQueryCasesData = {
+  requestBody: CaseSearchRequest
+  workspaceId: string
+}
+
+export type CasesQueryCasesResponse = CursorPaginatedResponse_CaseReadMinimal_
 
 export type CasesSearchCasesData = {
   /**
@@ -16447,16 +17030,9 @@ export type CasesSearchCasesData = {
    */
   matchNone?: boolean
   /**
-   * Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
+   * Full-text defaults to relevance; legacy/literal defaults to created_at. Explicit columns preserve their ordering.
    */
-  orderBy?:
-    | "created_at"
-    | "updated_at"
-    | "priority"
-    | "severity"
-    | "status"
-    | "tasks"
-    | null
+  orderBy?: CaseSearchOrder | null
   /**
    * Return only the sub-cases of this parent case
    */
@@ -16481,6 +17057,14 @@ export type CasesSearchCasesData = {
    * Reverse pagination direction
    */
   reverse?: boolean
+  /**
+   * Selected text fields; omitted searches both.
+   */
+  searchColumns?: Array<"summary" | "description"> | null
+  /**
+   * Explicit full_text or literal; omitted mode preserves legacy search.
+   */
+  searchMode?: SearchMode | null
   /**
    * Text to search for in case summary, description, short ID, or case UUID
    */
@@ -16522,11 +17106,19 @@ export type CasesSearchCasesData = {
 
 export type CasesSearchCasesResponse = CursorPaginatedResponse_CaseReadMinimal_
 
+export type CasesQueryCaseAggregatesData = {
+  requestBody: CaseQuery
+  workspaceId: string
+}
+
+export type CasesQueryCaseAggregatesResponse = CaseSearchAggregateRead
+
 export type CasesSearchCaseAggregatesData = {
   /**
    * Filter by assignee ID or 'unassigned'
    */
   assigneeId?: Array<string> | null
+  caseId?: string | null
   /**
    * Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)
    */
@@ -16548,6 +17140,14 @@ export type CasesSearchCaseAggregatesData = {
    */
   priority?: Array<CasePriority> | null
   /**
+   * Selected text fields; omitted searches both.
+   */
+  searchColumns?: Array<"summary" | "description"> | null
+  /**
+   * Explicit full_text or literal; omitted mode preserves legacy search.
+   */
+  searchMode?: SearchMode | null
+  /**
    * Text to search for in case summary, description, short ID, or case UUID
    */
   searchTerm?: string | null
@@ -16555,6 +17155,7 @@ export type CasesSearchCaseAggregatesData = {
    * Filter by case severity
    */
   severity?: Array<CaseSeverity> | null
+  shortId?: string | null
   /**
    * Return cases created at or after this timestamp
    */
@@ -16848,6 +17449,8 @@ export type CasesListLinkedCasesData = {
     | "severity"
     | "status"
     | "tasks"
+    | "assignee"
+    | "tags"
     | null
   reverse?: boolean
   rowId: string
@@ -17911,6 +18514,49 @@ export type AuthSsoAcsData = {
 }
 
 export type AuthSsoAcsResponse = unknown
+
+export type AuthGetMfaStatusResponse = MfaStatusRead
+
+export type AuthSignOutPendingSessionResponse = void
+
+export type AuthBeginRegistrationResponse = WebAuthnOptionsRead
+
+export type AuthCompleteRegistrationData = {
+  requestBody: WebAuthnRegistrationVerify
+}
+
+export type AuthCompleteRegistrationResponse = WebAuthnRegistrationResult
+
+export type AuthBeginAuthenticationResponse = WebAuthnOptionsRead
+
+export type AuthCompleteAuthenticationData = {
+  requestBody: WebAuthnAuthenticationVerify
+}
+
+export type AuthCompleteAuthenticationResponse = MfaStatusRead
+
+export type AuthVerifyRecoveryCodeData = {
+  requestBody: RecoveryCodeVerify
+}
+
+export type AuthVerifyRecoveryCodeResponse = MfaStatusRead
+
+export type AuthRegenerateRecoveryCodesResponse = RecoveryCodesRead
+
+export type AuthListCredentialsResponse = Array<WebAuthnCredentialRead>
+
+export type AuthRenameCredentialData = {
+  credentialId: string
+  requestBody: WebAuthnCredentialUpdate
+}
+
+export type AuthRenameCredentialResponse = WebAuthnCredentialRead
+
+export type AuthDeleteCredentialData = {
+  credentialId: string
+}
+
+export type AuthDeleteCredentialResponse = void
 
 export type AuthDiscoverAuthMethodData = {
   requestBody: AuthDiscoverRequest
@@ -19542,6 +20188,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/tunnels/availability": {
+    get: {
+      req: TunnelsGetTunnelAvailabilityData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TunnelAvailabilityRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/tunnels/managed": {
     post: {
       req: TunnelsCreateManagedTunnelData
@@ -19579,7 +20240,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: TunnelRead
+        200: TunnelDetailRead
         /**
          * Validation Error
          */
@@ -21922,6 +22583,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/control": {
+    post: {
+      req: AgentSessionsControlSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentControlReceipt
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/approvals/{session_id}": {
     post: {
       req: ApprovalsSubmitApprovalsData
@@ -22354,6 +23030,67 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/admin/settings/security": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformSecuritySettingsRead
+      }
+    }
+    patch: {
+      req: AdminUpdateSecuritySettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformSecuritySettingsRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/settings/security/mfa": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaPolicyRead
+      }
+    }
+    patch: {
+      req: AdminUpdateMfaSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaPolicyRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/settings/security/ip-allowlist/check": {
+    post: {
+      req: AdminCheckIpAllowlistData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: IPAllowlistCheckResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/admin/tiers": {
     get: {
       req: AdminListTiersData
@@ -22540,6 +23277,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AdminUserRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/users/{user_id}/mfa/reset": {
+    post: {
+      req: AdminResetUserMfaData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */
@@ -23117,6 +23869,29 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/security/mfa": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaPolicyRead
+      }
+    }
+    patch: {
+      req: SettingsUpdateMfaPolicyData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaPolicyRead
         /**
          * Validation Error
          */
@@ -24047,7 +24822,35 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/cases/search/fields": {
+    get: {
+      req: CasesListCaseFilterFieldsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseFilterMetadata
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/cases/search": {
+    post: {
+      req: CasesQueryCasesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_CaseReadMinimal_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
     get: {
       req: CasesSearchCasesData
       res: {
@@ -24063,6 +24866,19 @@ export type $OpenApiTs = {
     }
   }
   "/workspaces/{workspace_id}/cases/search/aggregate": {
+    post: {
+      req: CasesQueryCaseAggregatesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseSearchAggregateRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
     get: {
       req: CasesSearchCaseAggregatesData
       res: {
@@ -26744,6 +27560,139 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/mfa/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaStatusRead
+      }
+    }
+  }
+  "/auth/mfa/sign-out": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+      }
+    }
+  }
+  "/auth/mfa/webauthn/register/options": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WebAuthnOptionsRead
+      }
+    }
+  }
+  "/auth/mfa/webauthn/register/verify": {
+    post: {
+      req: AuthCompleteRegistrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: WebAuthnRegistrationResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/mfa/webauthn/authenticate/options": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WebAuthnOptionsRead
+      }
+    }
+  }
+  "/auth/mfa/webauthn/authenticate/verify": {
+    post: {
+      req: AuthCompleteAuthenticationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaStatusRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/mfa/recovery-codes/verify": {
+    post: {
+      req: AuthVerifyRecoveryCodeData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MfaStatusRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/mfa/recovery-codes": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RecoveryCodesRead
+      }
+    }
+  }
+  "/auth/mfa/credentials": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WebAuthnCredentialRead>
+      }
+    }
+  }
+  "/auth/mfa/credentials/{credential_id}": {
+    patch: {
+      req: AuthRenameCredentialData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WebAuthnCredentialRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AuthDeleteCredentialData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

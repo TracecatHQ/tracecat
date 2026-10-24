@@ -45,6 +45,17 @@ export interface AgentPresetToolApproval {
 }
 
 /**
+ * A tool's tunnel, normalized from `Record<string, string>` into a sortable
+ * list for the same reason as {@link AgentPresetToolApproval}.
+ */
+export interface AgentPresetToolTunnel {
+  /** Fully qualified tool name. */
+  tool: string
+  /** Workspace tunnel the tool's calls go through. */
+  tunnel: string
+}
+
+/**
  * A subagent attachment as rendered in the document.
  *
  * `preset_id` / `preset_version_id` are intentionally excluded: they are opaque
@@ -105,6 +116,8 @@ export interface AgentPresetDocumentInput {
   mcpIntegrations: string[]
   /** Tool approvals, sorted by tool name. */
   toolApprovals: AgentPresetToolApproval[]
+  /** Tool tunnels, sorted by tool name. Restore copies them, so they diff. */
+  toolTunnels: AgentPresetToolTunnel[]
   /** Attached subagents, sorted by name then preset. */
   subagents: AgentPresetSubagentEntry[]
   /** Attached skills with their version pins, sorted by name then version. */
@@ -187,6 +200,14 @@ function normalizeToolApprovals(
   }
   return Object.entries(toolApprovals)
     .map(([tool, allow]) => ({ tool, allow }))
+    .sort((left, right) => left.tool.localeCompare(right.tool))
+}
+
+function normalizeToolTunnels(
+  toolTunnels: { [key: string]: string } | null | undefined
+): AgentPresetToolTunnel[] {
+  return Object.entries(toolTunnels ?? {})
+    .map(([tool, tunnel]) => ({ tool, tunnel }))
     .sort((left, right) => left.tool.localeCompare(right.tool))
 }
 
@@ -277,6 +298,7 @@ function agentPresetExecutionFieldsToDocumentInput(
     namespaces: sortStrings(fields.namespaces ?? []),
     mcpIntegrations: sortStrings(fields.mcp_integrations ?? []),
     toolApprovals: normalizeToolApprovals(fields.tool_approvals),
+    toolTunnels: normalizeToolTunnels(fields.tool_tunnels),
     subagents,
     skills: normalizeSkills(skillBindings, skillNamesById),
     librarySkills: sortStrings([...new Set(fields.library_skills ?? [])]),
@@ -394,6 +416,10 @@ export function buildAgentPresetVirtualFiles(input: AgentPresetDocumentInput): {
     tool_approvals: input.toolApprovals.map((approval) => ({
       tool: approval.tool,
       allow: approval.allow,
+    })),
+    tool_tunnels: input.toolTunnels.map((entry) => ({
+      tool: entry.tool,
+      tunnel: entry.tunnel,
     })),
     subagents: {
       agents: input.subagents.map((subagent) => ({

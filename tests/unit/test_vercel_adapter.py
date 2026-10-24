@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 from claude_agent_sdk.types import (
     AssistantMessage,
+    TextBlock,
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
@@ -44,6 +45,19 @@ def _approval_message(
             created_at=datetime.now(UTC),
         ),
     )
+
+
+def test_convert_chat_messages_to_ui_carries_message_time() -> None:
+    recorded = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+    message = ChatMessage(
+        id=str(uuid4()),
+        message=AssistantMessage(content=[TextBlock(text="Done.")], model="claude"),
+        created_at=recorded,
+    )
+
+    [ui_message] = convert_chat_messages_to_ui([message])
+
+    assert ui_message.metadata == {"created_at": recorded.isoformat()}
 
 
 def _decided_call(
@@ -141,6 +155,47 @@ def test_convert_chat_messages_to_ui_leaves_approved_call_result_untagged() -> N
     part = cast(ToolUIPartOutputAvailable, messages[0].parts[0])
     assert part["state"] == "output-available"
     assert "callProviderMetadata" not in part
+
+
+def test_convert_chat_messages_to_ui_shows_approved_override_args() -> None:
+    """A call approved with edited arguments shows the arguments it ran with."""
+    call, approval, result = _decided_call(
+        ApprovalStatus.APPROVED, result="[]", is_error=False
+    )
+    assert approval.approval is not None
+    approval.approval.decision = {
+        "kind": "tool-approved",
+        "override_args": {"limit": 5},
+    }
+
+    messages = convert_chat_messages_to_ui([call, approval, result])
+
+    part = cast(ToolUIPartOutputAvailable, messages[0].parts[0])
+    assert part["input"] == {"limit": 5}
+
+
+def test_convert_chat_messages_to_ui_records_when_a_call_completed() -> None:
+    """The merged result row's time survives, so later steps time from it."""
+    called_at = datetime(2026, 1, 1, 0, 0, 2, tzinfo=UTC)
+    completed_at = datetime(2026, 1, 1, 0, 0, 32, tzinfo=UTC)
+    call, approval, result = _decided_call(
+        ApprovalStatus.REJECTED, result="denied", is_error=True, reason="no"
+    )
+    call.created_at = called_at
+    result.created_at = completed_at
+
+    messages = convert_chat_messages_to_ui([call, approval, result])
+
+    assert len(messages) == 1
+    assert messages[0].metadata == {"created_at": called_at.isoformat()}
+    part = cast(ToolUIPartOutputError, messages[0].parts[0])
+    assert part.get("callProviderMetadata") == {
+        "tracecat": {
+            "approval": "rejected",
+            "reason": "no",
+            "completed_at": completed_at.isoformat(),
+        }
+    }
 
 
 def test_convert_chat_messages_to_ui_emits_cancelled_marker() -> None:
@@ -242,3 +297,23 @@ async def test_stream_cancelled_event_carries_tool_call_ids() -> None:
         "reason": "user_cancel",
         "tool_call_ids": ["toolu_aborted", "toolu_unresolved"],
     }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("message_id", ["steer-1", None])
+async def test_stream_user_message_event_becomes_a_data_part(
+    message_id: str | None,
+) -> None:
+    """A message that joins the running turn keeps the ID it was sent under."""
+    context = VercelStreamContext(message_id="msg_test")
+    event = UnifiedStreamEvent.user_message_event(
+        "Focus on the newest alert", message_id=message_id
+    )
+
+    payloads = [payload async for payload in context.handle_event(event)]
+
+    assert len(payloads) == 1
+    payload = payloads[0]
+    assert isinstance(payload, DataEventPayload)
+    assert payload.type == "data-user-message"
+    assert payload.data == {"id": message_id, "text": "Focus on the newest alert"}
