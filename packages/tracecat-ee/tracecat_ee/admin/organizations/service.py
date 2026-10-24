@@ -563,20 +563,19 @@ class AdminOrgService(BasePlatformService):
         if not next_active:
             next_primary = False
 
-        domain.is_active = next_active
-        domain.is_primary = next_primary
-
-        if next_primary:
-            domain.is_active = True
-            await self._demote_active_primaries(org_id=org_id, keep_domain_id=domain.id)
-
-        if not domain.is_active:
-            domain.is_primary = False
-
-        self.session.add(domain)
-        await self._ensure_primary_invariant(org_id=org_id)
-
         try:
+            if next_primary:
+                # Flush demotions before promoting so the partial unique index on
+                # active primaries never sees two rows at once.
+                await self._demote_active_primaries(
+                    org_id=org_id, keep_domain_id=domain.id
+                )
+                await self.session.flush()
+
+            domain.is_active = next_active
+            domain.is_primary = next_primary
+            self.session.add(domain)
+            await self._ensure_primary_invariant(org_id=org_id)
             await self.session.commit()
         except IntegrityError as exc:
             await self.session.rollback()
