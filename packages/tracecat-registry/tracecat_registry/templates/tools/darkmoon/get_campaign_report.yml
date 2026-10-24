@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Get campaign report
+  description: >-
+    Get the markdown pentest report of a Darkmoon campaign. Calls
+    GET /api/v1/campaigns/{id}/report on the Darkmoon dashboard API (Darkmoon Pro).
+  display_group: Darkmoon
+  doc_url: https://github.com/ASCIT31/Dark-Moon
+  namespace: tools.darkmoon
+  name: get_campaign_report
+  secrets:
+    - name: darkmoon
+      keys: ["DARKMOON_API_TOKEN"]
+  expects:
+    campaign_id:
+      type: str
+      description: Campaign id, as returned by List campaigns.
+    base_url:
+      type: str | None
+      description: >-
+        Darkmoon dashboard API root, for example https://darkmoon.example.org:8000.
+        Defaults to VARS.darkmoon.base_url.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.darkmoon.base_url }}/api/v1/campaigns/${{ FN.url_encode(inputs.campaign_id) }}/report
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.darkmoon.DARKMOON_API_TOKEN }}
+          Accept: application/json
+  returns: ${{ steps.request.result }}
