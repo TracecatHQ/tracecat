@@ -64,6 +64,7 @@ from sqlalchemy.orm import (
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import PersistedApprovalDecision
+from tracecat.agent.control.enums import CommandState, CommandType
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
 from tracecat.authz.enums import ScimConnectionStatus, ScopeSource
@@ -3728,6 +3729,76 @@ class AgentSessionHistory(WorkspaceModel):
     session: Mapped[AgentSession] = relationship(
         "AgentSession",
         back_populates="history",
+    )
+
+
+_COMMAND_TYPES_SQL = ", ".join(f"'{value}'" for value in CommandType)
+_COMMAND_STATES_SQL = ", ".join(f"'{value}'" for value in CommandState)
+
+
+class AgentSessionCommand(TimestampMixin, Base):
+    """Commands admitted for an agent session tree, in delivery order.
+
+    The table is the source of truth for commands a backend delivers to a running
+    session. ``seq`` orders delivery within the root session, and
+    ``request_id`` makes admission idempotent per root.
+    """
+
+    __tablename__ = "agent_session_command"
+    __table_args__ = (
+        UniqueConstraint("root_session_id", "request_id"),
+        UniqueConstraint("root_session_id", "seq"),
+        CheckConstraint(f"type IN ({_COMMAND_TYPES_SQL})", name="type"),
+        CheckConstraint(f"state IN ({_COMMAND_STATES_SQL})", name="state"),
+        CheckConstraint("payload ->> 'type' = type", name="payload_type"),
+        Index(
+            "ix_agent_session_command_active",
+            "root_session_id",
+            "seq",
+            postgresql_where=text("state IN ('queued', 'accepted', 'applied')"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    root_session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("agent_session.id", ondelete="CASCADE"),
+        nullable=False,
+        doc="Root of the session tree the command belongs to",
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        nullable=False,
+        doc="Conversation the command targets: the root or a child session",
+    )
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        doc="Copied from the root session for RLS and scoping",
+    )
+    request_id: Mapped[str] = mapped_column(
+        Text, nullable=False, doc="Idempotency key, unique per root session"
+    )
+    seq: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, doc="Delivery order within the root session"
+    )
+    type: Mapped[str] = mapped_column(Text, nullable=False)
+    turn_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, nullable=True, doc="Turn the command belongs to; null while queued"
+    )
+    generation: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, nullable=True, doc="Turn generation; null while queued"
+    )
+    payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, doc="Backend-defined command payload"
+    )
+    payload_hash: Mapped[str] = mapped_column(
+        Text, nullable=False, doc="Digest of the payload, compared on re-admission"
+    )
+    state: Mapped[str] = mapped_column(Text, nullable=False)
+    receipt: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True, doc="Backend-defined outcome of the command"
     )
 
 
