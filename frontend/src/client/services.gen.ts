@@ -882,6 +882,7 @@ import type {
   SettingsGetAuditSettingsResponse,
   SettingsGetGitSettingsResponse,
   SettingsGetMfaPolicyResponse,
+  SettingsGetPythonPackageSettingsResponse,
   SettingsGetSamlSettingsResponse,
   SettingsGetSecuritySettingsResponse,
   SettingsTestAuditWebhookData,
@@ -898,6 +899,8 @@ import type {
   SettingsUpdateGitSettingsResponse,
   SettingsUpdateMfaPolicyData,
   SettingsUpdateMfaPolicyResponse,
+  SettingsUpdatePythonPackageSettingsData,
+  SettingsUpdatePythonPackageSettingsResponse,
   SettingsUpdateSamlSettingsData,
   SettingsUpdateSamlSettingsResponse,
   SettingsUpdateSecuritySettingsData,
@@ -10804,6 +10807,40 @@ export const settingsUpdateAgentOtelSettings = (
   return __request(OpenAPI, {
     method: "PATCH",
     url: "/settings/agent-otel",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Python Package Settings
+ * @returns PythonPackageSettingsRead Successful Response
+ * @throws ApiError
+ */
+export const settingsGetPythonPackageSettings =
+  (): CancelablePromise<SettingsGetPythonPackageSettingsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/settings/python-packages",
+    })
+  }
+
+/**
+ * Update Python Package Settings
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const settingsUpdatePythonPackageSettings = (
+  data: SettingsUpdatePythonPackageSettingsData
+): CancelablePromise<SettingsUpdatePythonPackageSettingsResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/settings/python-packages",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
